@@ -10,14 +10,15 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 - **Emerald work is not scheduled.** A new animation/effect item for it needs a reason it is not
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
-- **Crystal is where the gap is.** Both tiers were confirmed good at the dev rig's own settings
-  2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
-- **Rig SHUT DOWN.** It DID run 2026-08-25 for the four-adapter smoke test (`verified.md`), on ROM
-  **V1.0**. Rebuild with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`.
-- **NEXT SESSION STARTS HERE: Crystal's six animation classes still need ONE live run** — never
-  seen on screen. What to watch: `crystal/UNVERIFIED.md`. The movement work below landed first.
-- **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
-  9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
+- **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
+  is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
+- **Rig RUNNING as of 2026-08-25 23:xx** — relay + core (quic) and BizHawk on V1.0, adapter plus
+  one all-probes-off config. Shut it down or reuse it; `console.clear()` at session start.
+- **NEXT SESSION STARTS HERE: Crystal FISHING.** The user's call, 2026-08-25: **savestate slot 7**
+  is the fishing spot and **the rod is registered to SELECT**. What correct looks like: `crystal/UNVERIFIED.md`.
+- **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, 8
+  `goto_map`'s undo, **9 the 9x9 square start**. The savestate-is-not-a-save trap: `environment.md`.
+  **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
 ## Genuinely open items
 
@@ -74,9 +75,10 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
-- **Crystal: the 2026-08-25 evening ran ELEVEN fixes** — surf art (confirmed), bike gait, stop
-  drift, step chaining, stride band, pedal cadence, path retrace, tier sync, probe gating — and
-  ended smooth on screen at 60fps; per-fix confirmations still pending. `crystal/UNVERIFIED.md`.
+- **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
+  user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
+- **Crystal's remaining action classes are the open visual work** — fishing first (slot 7, rod on
+  SELECT), then the Fly landing, Dig/Teleport and spin tiles. `crystal/UNVERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a

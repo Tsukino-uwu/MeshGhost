@@ -778,3 +778,72 @@ body is drawn and the rod is not, which is a missing detail rather than a wrong 
   starting from wherever its own step frame was.
 - **A peer's emote is not rendered at all**, and cannot be by sending the player's action byte —
   it would need the separate object to be noticed and sent as its own thing.
+
+## 2026-08-25, evening — eleven fixes, three reverts, and a lag that was the console
+
+One session, driven start to finish by what the user could see. Every fix below came from a
+measurement that killed a theory first; the reverts are kept because each was the obvious idea.
+
+### The chain of faults, in the order they surfaced
+
+1. **A surfing peer was drawn as a walking character on the sea.** The compare rig localised it in
+   one observation — spawned correct, drawn wrong, same peer, same frame — which excludes the wire,
+   the sprite id and the state by construction. `MESHGHOST_CRYSTAL_SPRITE_TRACE` (built for this)
+   showed both tiers pointed at VRAM base 0, so the source was right and the pixels were wrong.
+   Cause: the drawn tier's decoded-tile cache had **three references in the file — declare, read,
+   write** — while its comment claimed a map load cleared it. A surf mount rewrites the player's
+   tiles in place: same base, new graphics, no map load. Invalidation now keys on `wUsedSprites`.
+   It also explained the *"swapping, only when walking downwards"* report that two earlier theories
+   could not: only indices already cached were stale.
+2. **A biking peer's spawned ghost walked at half pace and snapped.** `StepVectors` has three gaits
+   indexed by `OBJECT_WALKING & $0F`; the adapter hard-coded the normal row. Measured on the running
+   game: biking holds group 8 (fast, 4px/4 ticks). `extras.gait` now carries the group.
+3. **A 3px slide at every stop.** KPARK (per-park decomposition) showed all run deltas zero with the
+   disagreement appearing at the stop itself; KSETTLE showed it at stillness 8 and gone by 16 — an
+   8-frame settling transient in the player-side reference that the corrector was chasing down and
+   back. The nudge now waits for 8 frames of stability.
+4. **The spawned ghost trailed the drawn one.** STEP_LAG decomposed it: the boundary handoff, which
+   the engine's own walkers never pay. Chaining a consecutive step at the last tick — the engine's
+   own `CONTINUE_WALK` mechanism — removed it. The chained step is owed its final tick: **+1**.
+5. **The two tiers ran at different speeds on the bike.** The catch-up band (12/6px) and the commit
+   cushions were measured at the walk; the hover they sit outside of scales with the gait, so the
+   bike's ordinary hover reached the arming line and catch-up cycled hot. Restated in **strides**.
+6. **The drawn ghost pedalled twice too fast.** `SetFacingStepAction` advances the stride once per 8
+   video frames off `OBJECT_STEP_FRAME` — a fixed clock, gait-independent — and the drawn tier
+   derived stand/step from step progress instead, a partition that is exact at the walk only
+   because the two clocks align at 16 frames a tile. The pose now reads the peer's `face` byte.
+7. **Quick reversals turned early in open ground.** The tier stepped toward the peer's LATEST tile;
+   trailing by the echo, that truncates a reversal and the turn tile is never visited. The ghost now
+   walks a small **queue of the peer's path**, turn tile included.
+8. **A second ghost after a respawn.** Not an orphan (`orphan_probe` found one tracked body): the
+   promotion hold matched EXACT coordinates, and a peer promoted while moving is never exactly
+   there, so the hold ran its full 8 frames every time. Matched within a stride now.
+
+### Three reverts, each the obvious next idea
+
+- **Delaying the drawn model's camera BEAT to match the spawned tier's floor** — twice, at 3 and 2
+  frames. Both sawtoothed (the paint's cancellation needs the model moving on live camera frames),
+  and the second froze the ghost outright. The lesson was already in the file from the other side:
+  the model's beat and the paint's origin are one decision. What worked instead: delay the compare
+  copy's **inputs** by three arrivals, leaving every clock live.
+- **Two overlay optimisations** (whole-character rectangle decomposition; a one-block draw mode)
+  built on the theory that compositing caused the lag. Primitives went ~116/frame -> ~2 and the
+  stutter never moved. Both reverted, with a note at `drawCharacter` so the path is not
+  re-optimised on that evidence.
+
+### The lag, and the methodological failure behind it
+
+Heavy stutter, while BizHawk reported a flat 60fps and the adapter measured 25ms of each second.
+The user named the class from memory — *"probes have lagged things before"* — and asked for the
+subtraction. It was the **Lua console**: append cost scales with buffer size, a day of banners had
+grown it huge, and the stall lands on the UI thread where no in-Lua timer can see it. Five probes
+were live at once while the user was being asked to judge frame-accurate motion, which is the
+`CLAUDE.md` rule about auditing a probe's cost, failed for a whole session. Mechanism and new
+rules: `pitfalls/by-host.md`. The compare rig's per-frame instruments now sit behind
+`MESHGHOST_CRYSTAL_COMPARE_STATS`, off by default.
+
+### What closed it
+
+The user, riding a 9x9 on the bike with the full stack live: *"yee its smooth to play/control as
+well now. and looks smooth visually"*, then *"moving perfect, surf working, bike working etc etc"*.
+Agent numbers on that same lap: furthest behind 0px, K drift 0 over 7 parks, 0 catch-up, 0 resyncs.

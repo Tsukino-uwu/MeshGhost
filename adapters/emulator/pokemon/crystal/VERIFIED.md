@@ -116,6 +116,9 @@ filed under the right theme, but anything can check that it is listed.
 - Pending — Crystal, after the 2026-08-21/22 session
 - CONFIRMED ON SCREEN 2026-08-22 — Crystal: the drawn tier's exit position and its facing
 - CONFIRMED ON SCREEN 2026-08-25 — Crystal: the drawn ghost surfs
+- CONFIRMED ON SCREEN 2026-08-25 (evening) — Crystal: surf, the bike, and movement at both gaits
+- What the 2026-08-25 evening confirmation covers
+- What the 2026-08-25 evening confirmation does NOT cover
 
 ## Confirmed facts
 
@@ -1941,3 +1944,39 @@ Vanilla V1.0, compare rig (spawned ghost 2 tiles right, painted 2 tiles left, in
 - **NOT covered by this confirmation**: the BIKE. The user, the same session: *"the bike was still
   weird, the ghost moving at really different speeds from each other"* — a separate fault, the two
   tiers disagreeing on the gait rather than on the graphics, and open. `UNVERIFIED.md`.
+
+## CONFIRMED ON SCREEN 2026-08-25 (evening) — Crystal: surf, the bike, and movement at both gaits
+
+Vanilla V1.0, compare rig (spawned ghost 2 tiles right, painted 2 tiles left), loopback, interp 0.
+Eleven fixes went in across one session; the user watched throughout and closed it with
+*"moving perfect, surf working, bike working etc etc"*. What each phrase covers, and what it does
+not, is set out below — the unconfirmed classes are still listed in [`UNVERIFIED.md`](UNVERIFIED.md).
+
+### What the 2026-08-25 evening confirmation covers
+
+- **A surfing peer is drawn as the surf blob** — asked to describe both ghosts mid-surf, the user
+  answered the drawn one as *"blob like the spawned one"*, and the walk/surf swapping on land went
+  with it. (Its own entry above carries the cause.)
+- **The bike works on both tiers** — pace, animation and reversals. Before this session a biking
+  peer's spawned ghost walked at half speed and snapped to catch up (*"really slow, and sometimes
+  teleports to keep up"*), the drawn one pedalled at double rate (*"way faster"*), the two ran at
+  different speeds (*"moving at really different speeds from each other"*), and quick reversals
+  turned early in open ground (*"like reversing instead of hitting the walls/stopping"*).
+- **Movement is 1:1 at both gaits** — *"moving perfect"*. The last agent measurement, a 9x9 square
+  on the bike with the full stack live: furthest behind its destination **0px**, K drift **0px**
+  over 7 parks, 0 catch-up frames, 0 resyncs, 0 re-anchors, ghost rhythm matched to the player's.
+- **The game plays smoothly with the adapter and the compare rig running** — *"yee its smooth to
+  play/control as well now. and looks smooth visually"*, riding the 9x9 at a flat 60fps. This had
+  been false for most of the session; the cause was the Lua console's buffer, not MeshGhost's
+  rendering (`pitfalls/by-host.md`, and the entry in `UNVERIFIED.md`).
+- **No duplicate ghost after a respawn.** The user reported *"a 2nd ghost when moving again (after
+  the despawn)"* mid-session; it has not recurred since the promotion hold was fixed to recognise
+  a body that has arrived and already moved.
+
+### What the 2026-08-25 evening confirmation does NOT cover
+
+Fishing, the Fly landing, Dig/Teleport's spin and flicker, the emote, text-box and phone-panel
+clipping, battle survival, the trainer-clone hang, and the hardware (OAM) tier — none was
+exercised. The drawn tier's visual parity gaps (no reflection, wake, grass or cave clip) are
+unchanged. A real two-machine peer was not tested: every number here is loopback, whose echo is
+smaller than any network peer's.

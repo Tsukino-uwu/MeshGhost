@@ -3700,3 +3700,39 @@ cannot move. Confirmed on screen by the user the same session.
    there is usually exactly one seam. `MESHGHOST_CRYSTAL_SPRITE_TRACE` printed which graphics each
    ghost resolved to; once it said `peerSprite=83 -> vram 0` with the local player also at base 0,
    every theory about the id was dead in one line.
+
+## A partition measured EXACT is only exact at the rate it was measured (Crystal, 2026-08-25)
+
+**Symptom.** The drawn ghost pedalled the bike at visibly double speed. Walking was perfect and had
+been confirmed on screen months of commits earlier.
+
+**Cause.** The tier chose its standing-vs-stepping frame from the peer's sub-tile PROGRESS, on a
+partition (`prog 14,0,2,4` stepping; `6,8,10,12` passing) that had been measured against the
+engine frame by frame in 2026-08-22 and found exact. It was exact. The engine's walk cycle is not
+a function of progress at all: `SetFacingStepAction` advances `OBJECT_STEP_FRAME` once per action
+tick — a FIXED clock, one stride per 8 video frames, identical at every gait. At the walk, 16
+frames a tile, the two clocks coincide; the measurement could not tell them apart. On the bike, 8
+frames a tile, progress laps the clock and the animation runs exactly 2x.
+
+**Fix.** Read the pose off the peer's own `face` byte, which IS the engine's step-frame clock, at
+every gait — the rule the bump/spin/fishing branches already used.
+
+**The transferable part.** A measurement taken at one rate cannot distinguish two quantities that
+happen to be proportional at that rate. Before trusting a derived quantity, ask *what is this a
+function of in the source* — and if the answer is a clock, do not reconstruct it from a distance.
+Crystal has three gaits and the whole cost was measuring against one of them; the same trap is
+waiting in any game with a walk and a run.
+
+**Related, same evening, same shape:** the drawn model's catch-up band and commit cushions were
+tuned in PIXELS at the walk, and the hover they were sized against scales with the gait — so the
+bike's ordinary hover reached the arming line and catch-up cycled continuously. Restating them in
+STRIDES (6/3 arming, 3/1 cushions, exactly what the pixel values were at the walk) made one set of
+numbers correct at every gait. **A constant with a unit that is not the engine's own unit is a
+constant that only works at the rate it was found.**
+
+## A cache with an invalidation comment and no invalidation (Crystal, 2026-08-25) — see by-host
+
+Full write-up: "A cache whose comment claims it is invalidated, and nothing ever clears it".
+Recorded again here only for the one-line check it produced, which costs nothing on sight:
+**`git grep -n '<cacheName>'` and count the references.** Declare, read, write and nothing else
+means the cache is permanent, whatever the prose above it says.

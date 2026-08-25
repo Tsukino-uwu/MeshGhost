@@ -202,3 +202,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Planning on a model of the game you never watched (2026-08-18, Crystal)
 - Splitting a file moves its content out from under that file's exclusions (2026-08-25)
 - A cache whose comment claims it is invalidated, and nothing ever clears it (Crystal, 2026-08-25)
+- A partition measured EXACT is only exact at the rate it was measured (Crystal, 2026-08-25)
+- A cache with an invalidation comment and no invalidation (Crystal, 2026-08-25) — see by-host
