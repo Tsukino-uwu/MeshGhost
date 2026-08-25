@@ -21,6 +21,18 @@ actually confirm it as such."*
   most valuable line in the whole file.
 - Nothing here is cited as established anywhere else while it sits here.
 
+**Emerald's many open sections here do NOT contradict its "feature complete" call.** Noted
+2026-08-25, because the two files never mentioned each other and the pairing reads as a
+contradiction on arrival. `verified.md` records Emerald FEATURE COMPLETE as of 2026-08-21, on the
+user's own call about *animation and effect parity* — the features are done. What is still listed
+below is the other kind of item: details never watched, edges never reached, and measurements
+taken but never judged on screen. `status.md` is the arbiter of what that means for scheduling —
+a new Emerald item needs a reason it is not polish, and a real fault is a defect against a
+finished adapter. **Do not read a Pending Emerald entry here as a missing feature.**
+
+Several entries below were also closed by later work and never restatused; those now say so in
+place. An entry with no CLOSED line has not been checked against `verified.md` since 2026-08-25.
+
 ---
 
 ## Pending — Emerald: what 2026-08-20 left unwatched (2026-08-20)
@@ -37,7 +49,12 @@ the likely fault; that guess is written up in `pitfalls.md` as its own lesson.)
       when the muddy slope reverses a peer mid-tile the ghost finishes its current tile first.
       Measured, not yet judged on screen -- it may read as nothing.
 
-## Pending — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
+## CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
+
+**CLOSED 2026-08-21: the Acro Bike is FINISHED on all three tiers, user-confirmed on screen**
+(`verified.md`, *"a acro bike is confirmed done now"*). Kept for the method — the watchdog and
+the disproof below are the reusable part, and the entry recorded its own disproof inline without
+ever changing status.
 
 A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog added to
 `ghostIsIdle`, which logs what it frees: 0x69, 0x6B and 0x6D (`ACRO_POP_WHEELIE_UP/RIGHT`,
@@ -205,12 +222,18 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
       template OAM renders as scrambled pieces; skipping it renders cleanly at the wrong width.
       *Correct:* neither symptom.
 
+**CLOSED for three of the four, 2026-08-21** — bikes, surfing and fishing are all user-confirmed
+on screen (`verified.md`: the Acro Bike is FINISHED 2026-08-21, surfing and diving are DONE
+2026-08-21). `MESHGHOST_GHOST_PEER_GFX` being "off by default because it is incomplete" is the
+2026-08-18 state and has not been true since. Kept for the corruption diagnosis above.
+
 ## Known incomplete — do NOT confirm, these are not finished
 
-- **Surfing: the SPAWNED tier is done and user-confirmed** (2026-08-19, `verified.md`) — the
-  blob's missing `centerToCornerVec` was the unexplained "half a tile down-right", and it was never
-  created at all when a peer walked into water. The DRAWN tier still has neither the blob nor a
-  water reflection; that is the open half, below.
+- **CLOSED — surfing and diving are DONE on every tier, user-confirmed 2026-08-21**
+  (`verified.md`, "SURFING AND DIVING ARE DONE"). The spawned tier closed 2026-08-19; the drawn
+  tier's water reflection closed the same day (`verified.md`, "a drawn ghost's water reflection,
+  1:1 with the engine") and its blob followed. **The text below is kept for its method, not its
+  status** — it said the drawn tier had neither, and that has been false since 2026-08-19.
   - **Not yet re-checked: the "dark navy instead of blue" report from 2026-08-18.** The palette slot
     is confirmed correct (0, matching the player's own blob), so the suspect is the palette not
     being LOADED while the local player is on foot — the game loads it only when *you* surf. Every
@@ -221,6 +244,7 @@ Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete —
   - **Still untested: whether fishing spawns a companion sprite** the way surfing does. Answering
     it needs the bite/hooked branches, which means fishing on a **route that defines fishing
     encounters** — not on a tile invented in a town. Underwater likewise untested.
+    **Superseded: underwater closed with diving, 2026-08-21 (`verified.md`).**
   - **`probes/watertile.lua` now makes real water**, after two wrong versions. It writes metatile
     id + **collision 0** + **elevation 1 (`ELEVATION_SURF`)**, which is what the game means by
     water — the earlier version set the collision bit, which made the tile solid and *prevented*
@@ -692,7 +716,13 @@ Listed here rather than in `verified.md` only because that file is the user's to
 each confirmed by the user watching a loopback session on Route 39, in their own words:
 
 - **The painted tier walks** rather than teleporting, with no wiggle and no stutter — *"perfect
-  now"*. The model is player-relative placement with sub-tile progress from `extras.prog`.
+  now"*. **The confirmation stands; the mechanism named here does not.** It read "player-relative
+  placement with sub-tile progress from `extras.prog`", which was true when written and was
+  reworked by `25277b9`/`ba10a53`: the sub-tile position now rides in `position` itself, the ghost
+  walks from the destination tile rather than being placed at an offset, and progress is *derived*
+  from the interpolated position so it cannot disagree with it
+  (`meshghost_crystal.lua`, "THE GHOST WALKS; IT IS NOT PLACED"). `extras.prog` still exists but
+  now only picks the animation frame. Corrected 2026-08-25.
 - **The painted tier disappears properly across a door transition** — *"the drawn ghost is going away
   properly now when going in/out of the house"*. It was never being drawn during the crossing; the
   drawing layer was simply not cleared.

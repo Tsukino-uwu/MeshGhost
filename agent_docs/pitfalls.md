@@ -15,7 +15,7 @@ next game adapter starts from the lessons already paid for instead of re-learnin
   transferable lessons so a future adapter author doesn't have to re-read a whole phase's
   saga to find them.
 
-## A symptom word can name more than one subsystem — confirm which before probing
+## A symptom word can name more than one subsystem — confirm which before probing (2026-08-16)
 
 **Symptom:** four live test cycles spent chasing the wrong subsystem, while every probe returned
 true findings that looked like progress.
@@ -44,7 +44,7 @@ replay the save.
 **The tell:** you are about to instrument a subsystem the reporter never named. Here the report
 said "camera" three times and the probes all went to possession.
 
-## Gating a handshake on its own result (deadlock, twice in one day)
+## Gating a handshake on its own result (deadlock, twice in one day) (2026-08-16)
 
 **Symptom:** the Pseudoregalia adapter reconnected to the bridge every ~12 seconds forever, logging
 `bridge connected on port 7778` and then `whatever is on port 7778 never answered our hello`, while
@@ -412,6 +412,13 @@ Misleading symptoms that mean something other than their surface reading:
 | A read is `(0,0,0)` or otherwise implausible right after a spawn/level load | Reading a transform before the engine has placed it — guard with a plausibility check, don't trust the first read after spawn/load. |
 
 ## Pitfalls by theme
+
+**This taxonomy stops partway through the file, and everything after it is chronological.**
+Noted 2026-08-25. The themed sections below run to the Gold/Silver GameShark entry; from there to
+the end — roughly seven tenths of the file — entries are appended in the order they were found,
+one `##` each. **So "look under the relevant theme" finds only a fraction of what is here: search
+the whole file.** Restructuring it is its own pass and was deliberately not attempted here.
+
 
 ### BizHawk Lua: `event.onframeend` outlives its script; use a `frameadvance` loop
 
@@ -1032,6 +1039,11 @@ RE-UE4SS entry records the pin. Re-check before relying on them after a pin bump
 
 ### Personal paths reaching a public repo, and a leak-check that silently passes (2026-08-15)
 
+**Superseded as a procedure, 2026-08-24: this is now enforced mechanically.**
+`.githooks/pre-commit` refuses such a commit and CI re-scans the whole tree (`136a413`,
+`cddc303`), so the answer is no longer "be careful" — it is `git config core.hooksPath .githooks`
+once per clone, and never `--no-verify` past it. The cases below are why the rule exists.
+
 Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they failed differently:
 
 - **2026-08-11, code**: a Phase 2 script had a hardcoded personal path that only ever worked on
@@ -1391,7 +1403,7 @@ Recurring adapter tasks, and how differently each engine/game has answered them 
   masked this rather than fixed it, and broken every case where the count was legitimately right —
   but the observation that something systematically over-produced is what pointed at the detector.
 
-## A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into
+## A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into (2026-08-18)
 
 **Symptom (predicted, not yet suffered — recorded before it costs a session):** ghosts misbehave,
 flicker, move on their own or vanish, shortly after a cheat is switched on for testing. Nothing in
@@ -1428,7 +1440,7 @@ that is a ten-second check against an authoritative source we already build. If 
 any game with a close sibling release. The defence is not caution, it is the decode-and-look-it-up
 step, which is cheap and mechanical.
 
-## BizHawk accepts a GBA cheat code it cannot decrypt, and silently activates the garbage
+## BizHawk accepts a GBA cheat code it cannot decrypt, and silently activates the garbage (2026-08-18)
 
 **Symptom, seen live 2026-08-18.** `client.addcheat("F89BD08B ED8D449E")` returned without error,
 and the Cheats dialog then showed **`2 cheats 2 active`** — with the code decoded to
@@ -1457,7 +1469,7 @@ switch it off". Prefer writing the real structure through `gSaveBlock1Ptr`, whos
 the decomp and can be checked: key items at `+0x5D8`, badge flags at `+0x1270`. Contrast Crystal,
 whose GameShark codes are unencrypted and land on named symbols — see the entry above.
 
-## A spawned character renders a few pixels off its tile, forever
+## A spawned character renders a few pixels off its tile, forever (2026-08-18)
 
 **Symptom.** A ghost sits slightly down/right of the grid the game itself snaps to. Its collision
 is on the correct tile and it moves correctly — only the picture is offset, and the offset never
@@ -1498,7 +1510,7 @@ in the scroll cycle. If a correction like that ever ships, it belongs in the ada
 by deltas.** The question to ask at the point of placement is not "is this value right?" but "is
 the *state I am computing it from* at rest?".
 
-## A spawned entity leaks once per zone crossing, but survives doors fine
+## A spawned entity leaks once per zone crossing, but survives doors fine (2026-08-18)
 
 **Symptom.** Ghosts pile up along a route as the player walks back and forth between two areas —
 one left behind per crossing — while entering and leaving buildings behaves perfectly. Seen in
@@ -1522,7 +1534,7 @@ are different events".
 **The trap for testing:** each failure hides in the case the other one exercises. Passing a
 door/elevator test says nothing about a seamless boundary, and vice versa. Test both, deliberately.
 
-## A menu's contents are not fixed, and neither is its cursor
+## A menu's contents are not fixed, and neither is its cursor (2026-08-18)
 
 **Two separate assumptions, both wrong, both found scripting Emerald's bag on 2026-08-18.**
 
@@ -1559,7 +1571,7 @@ For fishing it means no fishable water in front of the player — which, in this
 tile edit had not produced what it was assumed to produce. Read the game's own words before
 adjusting the button sequence; a refusal is a specific answer, not a generic failure.
 
-## An empty log reads exactly like "the game did nothing"
+## An empty log reads exactly like "the game did nothing" (2026-08-18)
 
 **Symptom.** A probe's log contains its header and one line, or stops growing partway. The obvious
 reading — "the thing I am testing did not happen" — is wrong often enough to be dangerous, and it
@@ -1870,7 +1882,11 @@ is what they look like in the wild:
 before concluding anything \u2014 dialogue is the single most common interruption in these games and
 the cheapest thing to clear. If it still will not pass, say what was observed, and ask.
 
-## OPEN (2026-08-19) — Crystal: invisible collisions, and ghosts popping in and out
+## PARTLY RESOLVED (2026-08-19) — Crystal: invisible collisions, and ghosts popping in and out
+
+**The popping half was fixed and user-confirmed** (`verified.md`; `unverified.md`). The collision
+half is the part that stayed open. Restatused 2026-08-25 — it had no status line at all, and a
+still-OPEN item is out of scope for a file of closed incidents anyway.
 
 **Symptom, user-reported while a crowd of stationary ghosts stood around New Bark Town:** walking
 into collisions with nothing visible on the tile, and characters appearing and disappearing as the
@@ -1965,7 +1981,7 @@ name that is not unique per instance.
   `-relay` flag to a config file when several sessions share a machine** — a flag is in the
   process list forever, a config file can be deleted and take the explanation with it.
 
-## Crystal: a drawn ghost paints over a FULL-SCREEN menu, because the adapter reads it as a text box
+## Crystal: a drawn ghost paints over a FULL-SCREEN menu, because the adapter reads it as a text box (2026-08-19)
 
 **Symptom** (user, watching vanilla Crystal, 2026-08-19): *"the ghost is being drawn while in the
 menu's."* The adapter's own counters denied it — 21-24 peers `hidden by UI` with a menu open — and
@@ -2054,7 +2070,7 @@ instance is dead until someone restarts BizHawk by hand. It cost this instance i
 **The general form:** a shared cooperative loop needs every participant to *return*, and a
 participant that does not cannot be detected once it is running — only refused before it starts.
 
-## Crystal: a nil address reads as byte 0, so an unmeasured entry SATISFIES a gate instead of refusing
+## Crystal: a nil address reads as byte 0, so an unmeasured entry SATISFIES a gate instead of refusing (2026-08-19)
 
 **Measured 2026-08-19, not reasoned about:** `memory.read_u8(nil)` under BizHawk **succeeds and
 returns 0**. It does not error, so `pcall` does not catch it.
@@ -2074,7 +2090,7 @@ case where a nil reaches a read at runtime anyway.
 language that coerces nil into a valid argument will quietly make it fail open. Test what your read
 primitive does with a nil address before relying on nil to mean refusal.
 
-## Crystal: the drawn tier needs a POSITIVE "is the overworld on screen", not a list of screens to avoid
+## Crystal: the drawn tier needs a POSITIVE "is the overworld on screen", not a list of screens to avoid (2026-08-19)
 
 Two user reports on 2026-08-19 -- ghosts painted over a full-screen **menu**, ghosts painted inside
 a **battle** -- are one defect. The drawn tier paints after the frame with none of the engine's
@@ -2108,7 +2124,7 @@ spawned). **A vanilla battle was not reached** -- the walk to grass was blocked 
 ghosts boxing the player in, which `crowd-limits.md` predicts -- so the battle half rests on the
 Archipelago agent's measurements above and still wants watching.
 
-## Calibrating on OAM entry 0: the entry ORDER swaps when the sprite flips
+## Calibrating on OAM entry 0: the entry ORDER swaps when the sprite flips (2026-08-19)
 
 **Symptom** (Crystal, 2026-08-19): drawn peers snapped around by 8px while the local player walked,
 and only while walking. Standing still, everything sat correctly.
@@ -2132,7 +2148,7 @@ discontinuities of 8 and 16px in a 20-second walk, down to 0 across 1,199 sample
 an assumption about the current facing, not about the hardware, and it holds right up until the
 character turns round.
 
-## Lua 5.4 refuses a bit shift on a float, and a smoothed position is a float
+## Lua 5.4 refuses a bit shift on a float, and a smoothed position is a float (2026-08-19)
 
 **Symptom** (Emerald, 2026-08-19): a per-frame error, once every frame, from the drawn tier's
 panel clipping.
@@ -2150,7 +2166,7 @@ derived from a smoothed coordinate.
 Worth noting what hid it: the blanket per-frame `pcall` caught it, so the adapter kept running and
 the clipping silently did nothing. `adapters/bizhawk/pokemon/emerald/BANDAGES.md` entry 2.
 
-## A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance
+## A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance (2026-08-19)
 
 **Symptom** (Emerald, 2026-08-19, with four emulators up): an instance launched with
 `MESHGHOST_BRIDGE_PORT` set was port-walked anyway, walked into two other instances' cores, and
@@ -2169,7 +2185,7 @@ and a hazard for several. When more than one emulator is up, **pin every bridge 
 verify from the adapter's own log which port it settled on** (`bridge_ready on port N -- this core
 is ours`). See `environment.md`, "One agent per BizHawk INSTANCE".
 
-## A hardcoded ROM address slipped past the refuse-if-unmeasured discipline an hour after it was built
+## A hardcoded ROM address slipped past the refuse-if-unmeasured discipline an hour after it was built (2026-08-19)
 
 **Symptom** (Crystal, 2026-08-19): none, yet. It was caught by reading, not by a failure.
 
@@ -2190,7 +2206,7 @@ constant that names a ROM location is a code smell on sight. **Grep for the cons
 adding the table**, because the path that bypasses it is usually written by the same person in the
 same hour.
 
-## Frame tiles in the tilemap are not the same thing as a panel on screen
+## Frame tiles in the tilemap are not the same thing as a panel on screen (2026-08-19)
 
 **Symptom** (Crystal, 2026-08-19): a probe scanning every tilemap row for the text box's frame
 corner found a full-width frame top at BG row 12 **with no panel visible on screen** and the window
@@ -2208,7 +2224,7 @@ half of the screen. A tilemap test needs the window to actually be on: LCDC bit 
 This one was found *before* it shipped, by a probe written to check the assumption rather than to
 confirm it -- which is the only reason it is a pitfall entry and not an incident.
 
-## A stray dev-scripts/config.json silently redirects a core to a relay nobody is running
+## A stray dev-scripts/config.json silently redirects a core to a relay nobody is running (2026-08-19)
 
 **Symptom** (2026-08-19, twice): once, four synthetic peers went to a dead port and rendered
 nothing; once, a core sat retrying a relay that had already exited while everyone assumed it
@@ -2910,7 +2926,7 @@ already existed — read next to a per-frame panel-rows dump.
   precisely because the user's habits sat inside it. A structural discriminator (stability) does
   not care who is testing.
 
-### CI: "could not find a port free for both tcp and udp" — the draw was rigged, 2026-08-20
+## CI: "could not find a port free for both tcp and udp" — the draw was rigged, 2026-08-20
 
 - **Symptom**: three `internal/e2e` tests fail together on the Windows CI runner with
   `could not find a port free for both tcp and udp after 20 attempts`, on code that passes locally
@@ -2929,7 +2945,7 @@ already existed — read next to a per-frame panel-rows dump.
   **scarcer, more restricted** side and verify on the freer one. Retrying the unrestricted side
   is just re-rolling the same bad die.
 
-### Emerald: ghosts blinking in and out in a doorway — two peers, one object slot (2026-08-20)
+## Emerald: ghosts blinking in and out in a doorway — two peers, one object slot (2026-08-20)
 
 - **Symptom**: with two peers in the room, standing in front of a door made both tiers' ghosts pop
   in and out continuously. Away from the door it was fine.
@@ -2954,7 +2970,7 @@ already existed — read next to a per-frame panel-rows dump.
   variables (limit is 200)` and the adapter simply did not load. Locals inside a function are free,
   so the claim scan is written as two inline loops on purpose — do not tidy it into a helper.
 
-### Emerald: "laggy while moving" — a cull→respawn loop, console lines, and probes (2026-08-20)
+## Emerald: "laggy while moving" — a cull→respawn loop, console lines, and probes (2026-08-20)
 
 - **Symptom**: the game chugging while running around, worst *"in 2 places consistently"* (the
   user's own observation, which beat the profiler to the cause). Scripted A/B ride: 45.9 avg fps,
@@ -2975,7 +2991,7 @@ already existed — read next to a per-frame panel-rows dump.
 - **Generalizes to**: don't allocate what the engine will immediately free — a spawn decision has
   to ask "will this survive the engine's own housekeeping?", not just "is there a slot".
 
-### The dev loader shares ONE Lua environment — an unset flag keeps its old value (2026-08-20)
+## The dev loader shares ONE Lua environment — an unset flag keeps its old value (2026-08-20)
 
 - **Symptom**: an A/B run "with compare mode off" showed compare mode's exact cost profile; the
   anim trace ran on after being "turned off".
@@ -3498,6 +3514,9 @@ before forming any theory.** It is a free A/B that is already running.
 
 ## A probe written for one session leaked a home path into the repo (2026-08-21)
 
+**Superseded as a procedure — see the 2026-08-24 hook note on the 2026-08-15 entry above.** This
+is the third recorded instance of one class; the leak check is mechanical now.
+
 Two probes written during the dive session hardcoded an absolute scratchpad path for their
 screenshots -- convenient while driving the session, and a violation the moment they were
 committed: this repo is public and no tracked file may carry a home directory. `CLAUDE.md`'s own
@@ -3703,6 +3722,11 @@ status before building an argument on a dump.
 
 ## Lua's 200-local ceiling: the adapter does not load, and almost nothing says so (2026-08-21)
 
+**Recorded TWICE — see also "Adding one local silently unloaded the adapter" below**, whose own
+title admits it happened again an hour later. It has since recurred a third time
+(`unverified.md`, `d551da1`), and Emerald now sits at 197 of 200 file-scope locals, so the next
+one is close. Cross-linked 2026-08-25.
+
 **Symptom.** A change to the adapter has no effect whatsoever. The game runs, the core connects, no
 ghosts appear. It reads as a networking fault, a dead relay, or an edit that silently missed.
 
@@ -3749,6 +3773,11 @@ and never treat "loaded" as "running". Same family as the read-back rule: confir
 the acceptance.
 
 ## Lua: a use above its `local` is a silent nil, not an error (2026-08-21)
+
+**Recorded THREE times in this file** — this entry, one 550 lines further down from the same day,
+and "A local declared below its use, inside one function" (2026-08-23) — plus two more instances
+logged elsewhere (`unverified.md`, `86e4ed2`). **Five occurrences of one fault.** That frequency
+is the finding: it is the single most repeated defect in the project. Cross-linked 2026-08-25.
 
 **Symptom.** The painted ghost teleported straight onto its destination tile instead of walking, and
 several rounds of tuning a smoothing constant changed nothing at all.
@@ -3855,14 +3884,26 @@ belong in the bug report** — a rate change is an experiment change.
 painted tier then combined a smoothed tile with an unsmoothed sub-tile offset: two terms describing
 different instants, once per frame.
 
-**Fix for now:** the dev rig runs `-interp=0ms` anyway (deliberately, so 1:1 can be judged), and with
-interpolation off the two terms agree.
+**SUPERSEDED TWICE — do not follow the "fix for now" below.** (1) The design lesson was
+*implemented*: sub-tile progress moved into `position` (`25277b9`, `ba10a53`), so the two terms
+cannot disagree any more. (2) The rig workaround was refuted by the shipped-settings entry further
+down this file and by `af50938` — `run-core-crystal-shipped.bat` exists precisely so the rig does
+NOT run `-interp=0ms`, because judging only at 0ms is how the shipped smoothing went unexamined.
 
-**The design lesson:** sub-tile progress is really part of POSITION, and putting it in `extras` was
-expedient rather than right. Anything a renderer needs to be smooth must live where the core is
-allowed to interpolate it.
+**Fix at the time:** the dev rig ran `-interp=0ms` anyway (deliberately, so 1:1 could be judged),
+and with interpolation off the two terms agree.
+
+**The design lesson, which is the part that survived:** sub-tile progress is really part of
+POSITION, and putting it in `extras` was expedient rather than right. Anything a renderer needs to
+be smooth must live where the core is allowed to interpolate it.
 
 ## Painted-tier motion: three attempts, all reverted, all the same mistake (2026-08-21)
+
+**SUPERSEDED — painted-tier motion WORKS.** Read alone this entry says "do not attempt it". The
+three-layer model that succeeded is in the later entries on the drawn tier's motion and the
+shipped-settings rig, and the result is user-confirmed (`verified.md`, 2026-08-22/23). What
+generalises is the *diagnosis* below — measure the position's own behaviour before adding a term
+on top of it — not the conclusion that the attempts were doomed.
 
 The Crystal painted tier renders outside the engine, so it must reconstruct by hand what the engine
 gives the spawned tier for free: sub-tile motion, stride phase, camera tracking. Three fixes were
@@ -4104,7 +4145,10 @@ an active corruption.
   this reason — being on that list is not the same as the person watching the screen knowing it is
   running right now.
 
-## Adding one local silently unloaded the adapter -- an hour after fixing the same fault elsewhere
+## Adding one local silently unloaded the adapter -- an hour after fixing the same fault elsewhere (2026-08-22)
+
+**See also "Lua's 200-local ceiling" above**, the first recording of this; it has since happened a
+third time. Cross-linked 2026-08-25.
 
 **2026-08-22.** Crystal's adapter stopped loading entirely with `too many local variables (limit is
 200) in main function`. The cause was a single new top-level local, `DRAWN_DELAY_FRAMES`, added for
@@ -4709,6 +4753,9 @@ frames before the facing does -- is only visible in that form.
 
 ## A local declared below its use, inside one function (Crystal, 2026-08-23)
 
+**The fifth recorded instance of one fault — see "a use above its `local` is a silent nil" above**
+for the full tally and why the repetition matters more than any single case.
+
 Fourth time in this file. `peerAct` was declared ~130 lines below the drawn tier's `overflow`
 constructors, which now read it. Lua resolves that to a nil GLOBAL, silently -- so `act` reached the
 `MESHGHOST_COMPARE_TIERS` copy as nil, and the new bump animation would have appeared simply not to
@@ -4720,6 +4767,9 @@ long function, check where its value is declared -- the compile check passes eit
 nil global is valid Lua.
 
 ## A probe committed with a developer's absolute path in it (2026-08-23)
+
+**Third instance, and the last one that had to be caught by eye** — `.githooks/pre-commit` and the
+CI tree scan now refuse this mechanically (`136a413`). See the 2026-08-15 and 2026-08-21 entries.
 
 **What happened.** A probe was drafted in the scratchpad with a `SPDIR` placeholder, `sed` substituted
 the real absolute path into that copy, and the SUBSTITUTED copy was then copied into `probes/` and

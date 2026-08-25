@@ -79,10 +79,15 @@ own sections.
 
 ## Emerald
 
-9. **Union Room / spawn-based rendering instead of overlay drawing.** See "Emerald: Union Room
-   decomp investigation" below — first real research pass done, with a clear recommendation.
+9. ~~**Union Room / spawn-based rendering instead of overlay drawing.**~~ — **DONE 2026-08-18**,
+   user-confirmed (`verified.md`). Emerald's shipped adapter spawns a real object event. The
+   220-line investigation below is history, not a lead — read it for method, not for a plan.
 
-10. **Seamless adjacent-map ghosts.** A ghost standing in a visually contiguous connected
+10. ~~**Seamless adjacent-map ghosts.**~~ — **BUILT AND USER-CONFIRMED 2026-08-20**
+    (`verified.md`; `meshghost_emerald.lua`'s cross-map block). The entry said this needed
+    "currently unverified addresses"; they were measured and it shipped. The Archipelago-data
+    analysis below stands on its own and is still the answer to the *different* question it
+    raises. Original text: a ghost standing in a visually contiguous connected
     route/town simply isn't drawn — any different `area_id` is treated identically, seamless
     connection or not (`plans.md`'s Phase 4 "deferred idea" note). Would need real `pokeemerald` map-connection offset
     data (new, currently unverified addresses) and an extended screen-position formula near the
@@ -104,7 +109,10 @@ own sections.
     `mapGroup:mapNum` to the `MAP_*` name (derivable from the existing `pokeemerald` checkout)
     into this table. Not scheduled; would be its own idea, not a fix for #10 above.
 
-11. **Bike / surf / ledge-jump poses.** Deferred since Phase 5.5 (`phases/phase5_5.md:32-42`).
+11. ~~**Bike / surf / ledge-jump poses.**~~ — **DONE.** Peer state reaches the wire and all of
+    bikes, surfing, diving and fishing are user-confirmed on screen (`verified.md`, 2026-08-21).
+    The "what is still missing" line below is the 2026-08-18 state. Original text:
+    deferred since Phase 5.5 (`phases/phase5_5.md:32-42`).
     A ghost on a bike or surfing still renders as an ordinary walking trainer — each has its
     own `graphicsId` in `sPlayerAvatarGfxIds`. **Updated 2026-08-18: no longer "unread".** The
     spawn adapter reads and writes `graphicsId` directly (`meshghost_emerald.lua`, `graphicsInfo`
@@ -1936,7 +1944,13 @@ it actually did: a route that worked once is not a route that works, until it wo
 already read position, speed control is confirmed, the per-instance agent convention exists), and
 the day someone wants a full playthrough as a test, this entry is the plan.
 
-## Spawn to the game's cap, then DRAW above it — a two-tier ghost (Tier 1-2, unscheduled)
+## ~~Spawn to the game's cap, then DRAW above it — a two-tier ghost~~ — SHIPPED, both Pokémon adapters
+
+**DONE — this is not an idea any more.** It shipped for Emerald (`plans.md` phase 8.1) and for
+Crystal (9.1), is in both adapters' code, and is user-confirmed on screen (`verified.md`). It was
+still labelled "Tier 1-2, unscheduled" until 2026-08-25. Kept in full below because the reasoning
+— fidelity and cost turning out to be the same motive — is what a third adapter should read
+before choosing a renderer.
 
 **The user's framing, 2026-08-19, and it is the whole idea in one line: *do as much as the game
 can handle on its own, then bandage/fake it above that cap.***
@@ -2059,7 +2073,11 @@ hysteresis band or ghosts will churn between tiers while someone walks past.
 nothing today — it is filed because the *shape* is right and generalises (see the same rule in
 `adapters/_template/README.md`), not because Crystal needs it.
 
-## A THIRD tier between the two: a hardware sprite with no engine object — filed 2026-08-20
+## ~~A THIRD tier between the two: a hardware sprite with no engine object~~ — CLOSED 2026-08-21
+
+**Both halves resolved** — the HBlank question is settled and the OAM tier shipped; the detail is
+in the CLOSED subsection below, which sat 50 lines under a heading that still read as open.
+Filed 2026-08-20.
 
 **The user's shape, and it is the right one: *"maybe spawn -> hblank -> drawn or something.
 high/low prio order. to gain some performance"*.** A peer takes the best tier that still has room,
@@ -2240,9 +2258,13 @@ tiers to disagree.
 
 ## Crystal: a ghost you can talk to — and eventually battle
 
-**Status: discovered by accident 2026-08-18, nothing built, nothing scheduled.** Recorded because it
-is the largest new possibility this project has turned up in a while, and because it arrived as a
-*bug report*, which is exactly how such things get thrown away.
+**Status: the TALK half is confirmed working; the BATTLE half is unbuilt and unscheduled.**
+Discovered by accident 2026-08-18 and user-confirmed the same day — a spawned ghost is solid and
+talkable (`verified.md`, "a spawned ghost is solid, TALKABLE, and can be knocked off its tile").
+Recorded because it is the largest new possibility this project has turned up in a while, and
+because it arrived as a *bug report*, which is exactly how such things get thrown away. Note the
+inherited script pointer has since been a fault three times over — it is what let a ghost clone a
+trainer and hang the game (`pitfalls.md`); anything built here starts from that.
 
 **What happened.** Crystal's ghost is built by copying a live NPC, and a map object carries a
 `MAPOBJECT_SCRIPT_POINTER`. The copy took it, so the ghost inherited that NPC's dialogue — the user
@@ -2471,7 +2493,12 @@ drives sprite priority (`SetObjectSubpriorityByElevation`), so a deliberately wr
 changes occlusion — the ghost may draw in front of or behind terrain it should not. If this is ever
 adopted, it is a compensation and belongs in `BANDAGES.md`.
 
-## Driving the game itself: scripted input for Pseudoregalia (and beyond), filed 2026-08-18
+## ~~Driving the game itself: scripted input~~ — EXISTS AND IS IN ROUTINE USE (filed 2026-08-18)
+
+**Done for BizHawk, and used constantly** — `joypad.set` drives the Crystal and Emerald probes,
+`square_drive` hunts for faults, and the technique is written up in `_template/probes.md` and
+`pitfalls.md`. **The Pseudoregalia half is what remains unbuilt**; the entry's scope quietly
+widened from that one game to "and beyond" without anyone restatusing it. Original text follows.
 
 **The ask, in the user's words:** input mapping / AI control of what happens in-game, the way
 BizHawk's `joypad.set` already lets a Lua probe press buttons. Screenshots are a poor channel for
