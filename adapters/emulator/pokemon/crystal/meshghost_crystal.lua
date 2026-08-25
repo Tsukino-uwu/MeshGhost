@@ -2623,6 +2623,23 @@ end
 -- before or after this file loads. Read once per frame, never per peer.
 local UI_DEBUG_ENV = (os.getenv("MESHGHOST_CRYSTAL_UI_DEBUG") or "") ~= ""
 
+-- THE COMPARE RIG'S MEASUREMENTS ARE NOW THEIR OWN SWITCH (2026-08-25). COMPARE_TIERS grew a
+-- per-frame instrument surface -- histograms, register audits, an OAM-window scan, per-frame
+-- string.format, a ring search -- and the user, mid-comparison: *"can you fix/remove the script
+-- lag? makes it hard to tell/compare"*. A diagnostic heavy enough to drop frames desyncs the two
+-- tiers it exists to compare (CLAUDE.md's probe rule, met from the cost side). So COMPARE_TIERS
+-- alone now means WATCHING -- two copies rendered, the once-a-second summaries -- and the
+-- per-frame instruments run only when MESHGHOST_CRYSTAL_COMPARE_STATS is also set (global or
+-- environment), which a measuring session sets and a judging session leaves off.
+-- On `facingFrames`: the 200-local ceiling, hit for the second time tonight. The environment is
+-- read ONCE -- this gate runs several times per frame in the hot paths it exists to lighten, and
+-- os.getenv per call would be the probe costing what it saves.
+facingFrames.statsEnv = (os.getenv("MESHGHOST_CRYSTAL_COMPARE_STATS") or "") ~= ""
+function facingFrames.stats()
+	return COMPARE_TIERS
+		and (facingFrames.statsEnv or _G.MESHGHOST_CRYSTAL_COMPARE_STATS == true)
+end
+
 local lastMenuBox = nil
 -- Which object struct the drawn tier is measuring from; held across frames on purpose (see
 -- drawOverflow), and cleared when the world is rebuilt.
@@ -2704,7 +2721,7 @@ function meshghostSampleCamera()
 		-- actually scrolled by -- it cannot disagree with what the player sees" is
 		-- FALSE as written. This measures the size of that lie before anything is
 		-- changed: if the two mirror each other, every frame has dOff == -dH.
-		if COMPARE_TIERS then
+		if facingFrames.stats() then
 			local hx, hy = hcx, hcy
 			-- The OLD source, read explicitly. Using `scx`/`scy` here would compare
 			-- hSC against itself now that they come from it, and report a perfect
@@ -2803,7 +2820,7 @@ function meshghostSampleCamera()
 			-- against the direction the player was actually walking; one lap of
 			-- the square yields the full map (which register, which sign, per
 			-- direction), and the camera-frame paint can then be rebuilt on data.
-			if COMPARE_TIERS then
+			if facingFrames.stats() then
 				local np = playerHistory[(playerHistory.n % playerHistory.size) + 1]
 				local pdir = (np and np.dir) or 9
 				facingFrames.camSign = facingFrames.camSign or {}
@@ -2814,7 +2831,7 @@ function meshghostSampleCamera()
 			local cd = math.abs(dxw) + math.abs(dyw)
 			if cd > 8 then cd = 8 end
 			facingFrames.camDelta = cd
-			if COMPARE_TIERS then
+			if facingFrames.stats() then
 				facingFrames.camD = facingFrames.camD or {}
 				facingFrames.camD[cd] = (facingFrames.camD[cd] or 0) + 1
 			end
@@ -3605,6 +3622,19 @@ function drawOverflow()
 					-- The mid-walk breath is untouched, because there the peer IS still walking --
 					-- which is exactly the case the eight-frame rule was written to protect, and
 					-- it keeps it.
+					-- A CAMERA-BEAT DELAY WAS TRIED HERE TWICE ON 2026-08-25 AND REVERTED TWICE --
+					-- kept as a note because "delay the drawn model to the spawned tier's clock"
+					-- is the obvious answer to the tiers sitting ~3 frames apart in loopback, and
+					-- both shapes of it put a defect straight on screen. A 3-frame queue on the
+					-- camera beat landed the model's moves on the opposite parity from the
+					-- camera's and the paint cancellation became a +-4px per-frame sawtooth (118
+					-- of 249 frames moving 4px relative). A 2-frame queue kept parity on paper
+					-- and still sawtoothed (103 of 205) -- the camera's cadence carries parity
+					-- slips (player rhythm 1:12 3:13 in the same run), and every slip re-crosses
+					-- the beats -- and the user watched the drawn ghost stop following outright.
+					-- The model's beat and the paint's origin are one decision (the 2026-08-25
+					-- note above says so for the player-sprite attempt); a tier alignment has to
+					-- delay the model's INPUTS, never its clock.
 					local due = facingFrames.camMoved
 						or (((((o.stepLeft or 0) > 0 and not o.walking)
 								or (facingFrames.camStillFor or 99) >= 8))
@@ -3801,9 +3831,9 @@ function drawOverflow()
 								facingFrames.freeCatchup = (facingFrames.freeCatchup or 0) + 1
 							end
 						end
-						o.dbgState = string.format("cam=%d gap=%d bud=%d step=%d dist=%d,%d cu=%s",
+						o.dbgState = facingFrames.stats() and string.format("cam=%d gap=%d bud=%d step=%d dist=%d,%d cu=%s",
 							facingFrames.camDelta or 0, mgap, budget, o.stepLeft or 0,
-							qx - o.modelX, qy - o.modelY, tostring(o.catchup or false))
+							qx - o.modelX, qy - o.modelY, tostring(o.catchup or false)) or o.dbgState
 						for _ = 1, 2 do
 							if budget <= 0 then break end
 							if (o.stepLeft or 0) == 0 then
@@ -4319,7 +4349,7 @@ function drawOverflow()
 			-- code, so the difference has to be in the values, and a histogram of the finished
 			-- position cannot say which term carried it. These two can: `gy` is 0 or 1 by
 			-- construction now, so anything above that in the reference is the player side.
-			if COMPARE_TIERS and o.only == "drawn" then
+			if facingFrames.stats() and o.only == "drawn" then
 				local refY = (aged.oamY or playerOamY) - ppy
 				local refX = (aged.oamX or playerOamX) - ppx
 				if facingFrames.lastRefY then
@@ -4763,7 +4793,7 @@ function drawOverflow()
 					--
 					-- Matched on tile AND progress together, because a tile alone repeats across a
 					-- step and would match the wrong frame.
-					if COMPARE_TIERS and o.only == "drawn" and o.walking then
+					if facingFrames.stats() and o.only == "drawn" and o.walking then
 						local h = playerHistory
 						for age = 0, h.size - 1 do
 							local e = h[((h.n - age) % h.size) + 1]
@@ -4775,7 +4805,7 @@ function drawOverflow()
 							end
 						end
 					end
-					if o.paintedX and o.walking then
+					if o.paintedX and o.walking and facingFrames.stats() then
 						facingFrames.stepDelta = facingFrames.stepDelta or {}
 						local k = DIR_NAMES.letter[o.facing or 0] or "?"
 						facingFrames.stepDelta[k] = facingFrames.stepDelta[k] or {}
@@ -5839,11 +5869,33 @@ local function renderRemote(id, state)
 			lastFacing = hprev and hprev.lastFacing,
 			rearm = hprev and hprev.rearm } or nil
 
-		overflow[ck] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			pixX = peerPixX and (peerPixX + COMPARE.drawn * 16), pixY = peerPixY,
-			compare = true, only = "drawn", x = baseX + COMPARE.drawn, y = y,
-			sprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil,
-			facing = ORIENTATION_TO_DIR[state.orientation],
+		-- THE DRAWN COMPARE COPY RUNS ON THE SPAWNED TIER'S CLOCK, by seeing the peer LATE --
+		-- its INPUTS are delayed, never its beat (2026-08-25, the user's call: *"i want both
+		-- ghosts to be 1:1 / identical to the player. that also means they have to work/look the
+		-- same to each other"*). The spawned ghost cannot act sooner than ~3 frames after the
+		-- player (2 of loopback echo + the engine acting the frame after a write); the drawn
+		-- model, paced by the live camera, sat at ~0 -- two correct renderers on two clocks,
+		-- ~6px apart on every bike run. Delaying the CAMERA BEAT instead was tried twice the
+		-- same evening and reverted twice (the note at the model's `due` gate) -- the paint's
+		-- cancellation needs the model moving on live camera frames. Feeding the model
+		-- three-arrivals-old targets keeps every clock live and simply starts each committed
+		-- step where the spawned tier starts its own; Emerald's tiers agree with each other for
+		-- exactly this reason -- one clock, the wire's.
+		--
+		-- Compare copy only: a REAL peer's model is wire-driven already, on the same footing as
+		-- the spawned tier, and the shipped tier is untouched.
+		local dv = a.dring
+		if not dv then dv = { n = 0 }; a.dring = dv end
+		dv.n = dv.n + 1
+		dv[(dv.n % 4) + 1] = { baseX, y, peerProg, peerWalking, peerFace, peerAct, peerGait,
+			peerPixX, peerPixY, state.orientation,
+			state.extras and tonumber(state.extras.sprite) or nil }
+		local dO = (dv.n > 3) and dv[((dv.n - 3) % 4) + 1] or dv[(dv.n % 4) + 1]
+		overflow[ck] = { prog = dO[3], walking = dO[4], face = dO[5], act = dO[6], gait = dO[7],
+			pixX = dO[8] and (dO[8] + COMPARE.drawn * 16), pixY = dO[9],
+			compare = true, only = "drawn", x = dO[1] + COMPARE.drawn, y = dO[2],
+			sprite = FORCE_PEER_SPRITE or dO[11],
+			facing = ORIENTATION_TO_DIR[dO[10]],
 			lastX = prev and prev.lastX, lastY = prev and prev.lastY, movedAt = prev and prev.movedAt,
 			fromX = prev and prev.fromX, fromY = prev and prev.fromY,
 			-- CARRIED, like every other cross-frame value here. Without this the twitch detector

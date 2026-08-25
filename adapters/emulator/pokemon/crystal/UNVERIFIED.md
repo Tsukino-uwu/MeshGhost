@@ -1613,3 +1613,36 @@ ceiling adding the helper and moved it onto `facingFrames`, per this file's own 
 **What to watch:** the user's own drill — a few tiles up/down on the bike, flipping mid-motion.
 The spawned ghost should ride THROUGH to the tile the player turned on and reverse there, trailing
 by its constant beat — never turning early in open ground.
+
+## 2026-08-25 — Crystal: the two tiers on ONE clock, the way that worked and the two that did not
+
+**Built and instrument-verified; awaiting the user's eyes.** The user's call, asked directly:
+*"i want both ghosts to be 1:1 / identical to the player. that also means they have to work/look
+the same to each other"* — and, on the floor argument: *"the drawn/oam/spawned ghosts in emerald
+look 1:1:1 to each other... why wouldn't it be possible in crystal as well."* Emerald is the
+proof by existence, and the reason its tiers agree is that they share one clock — the wire's.
+Crystal's drawn model, paced by the LIVE camera, out-ran the wire in loopback by the spawned
+tier's ~3-frame floor: two correct renderers ~6px apart on every bike run.
+
+**Two attempts failed the same way and were reverted the same hour** (the note now lives at the
+model's `due` gate): delaying the camera BEAT by 3 frames put the model's moves on the opposite
+parity from the camera and the paint cancellation became a ±4px per-frame sawtooth (118 of 249
+frames moving relative); 2 frames kept parity on paper and still sawtoothed, because the camera's
+own cadence carries parity slips — and the user watched the drawn ghost stop following outright.
+The model's beat and the paint's origin are one decision; the second failure was the signal to
+stop, per CLAUDE.md.
+
+**What worked: delay the model's INPUTS, never its clock.** The compare copy is now built from
+the arrival three back (a 4-slot ring on the activity record), so every committed step starts
+where the spawned tier starts its own, while the model still moves on live camera frames and the
+paint cancellation stays exact. Compare copy only — a real peer's model is wire-driven already.
+Drill numbers: relative movement 50% (sawtooth) -> 3-8%, K drift 0, no catch-up, no re-anchors.
+
+**Also this session: `MESHGHOST_CRYSTAL_COMPARE_STATS`** (`FLAGS.md`) — the rig's per-frame
+instruments split from its rendering, off by default, after the user reported the lag itself was
+making the comparison impossible to judge. A probe heavy enough to drop frames desyncs the tiers
+it compares.
+
+**What to watch:** up/down on the bike, both ghosts side by side — they should now hold the SAME
+constant beat behind the player, level with each other, through runs and reversals both, with the
+emulator at full speed.
