@@ -199,6 +199,11 @@ flags are exhaustive.** MeshGhost's dev loader shares one Lua environment across
 loads, so a global set by an earlier flags file survives a swap -- an A/B "with the trace off" ran
 with it on throughout. Set every flag explicitly, false included, and check the adapter's own
 startup lines for what is ACTUALLY enabled rather than trusting what the flags file requested.
+**Second case, 2026-08-25**: a Crystal crowd benchmark measured the drawn tier while it was OFF,
+because the previous run's `DRAW_OVERFLOW = "0"` outlived a flags file that merely omitted the
+line. **Both times the log looked right** -- it reported peers WAITING for the tier, which is not
+the same as drawn -- and both times a person looking at the screen caught it. Find the counter
+that reports work DONE, and treat its absence as a result.
 
 
 ## Hard rule: never move a ghost faster than the game moves, and never in units the game does not use

@@ -132,6 +132,56 @@ anything this project has planned, so Crystal's limit is not a constraint in pra
 a *hard* one, and it arrives silently. A room of twelve players standing in one town would show
 nine of each other, chosen by whoever arrived first.
 
+## Pokémon Crystal — Route 39, and the first PACING measurement (2026-08-25)
+
+**Why here.** Route 39 is the most demanding map this project has measured: its own cast holds
+**11 of Crystal's 13 object structs**, leaving exactly **2** for ghosts, against the 9 free in New
+Bark Town. Measured directly — the adapter spawned 2 and then logged *"no room ... object struct
+slots are all in use. Ghosts already here: 2"* for every other peer.
+
+**Why re-measure at all when 2026-08-19 already did this.** That run reported frame RATE (600
+frames in 10s). A rate cannot see a hitch — ten frames lost inside one second still reads as 58fps
+— and `dev-scripts/bizhawk-hitch-meter.lua` did not exist until 2026-08-21. These runs are the
+first pacing numbers for a Crystal crowd.
+
+**Rig:** shipped settings (relay default send rate, core default 250ms interpolation), loopback
+OFF, `-max-clients=80`, player parked, 60s per run, `-area-id=1/13 -center=14,20 -radius=4`.
+
+| Run | Peers | Rendered | emu fps | Hitches >20ms | Worst gap |
+|---|---|---|---|---|---|
+| Control — nothing loaded | 0 | — | 60.0 | 0/s | 17ms |
+| Adapter attached, idle | 0 | — | 60.0 | 0/s | 17-18ms |
+| **Spawn cap** (drawn tier OFF) | 12 | 2 spawned, 10 refused | 60.0 | 0/s | 17ms |
+| **Drawn cap** | 12 | 2 spawned + 10 painted | 60.0 | 0/s | 17-18ms |
+| **Max pressure** | 36 | 2 spawned + 34 painted | 60.0 | **1/s** | 20-28ms |
+| Max pressure | 60 | 2 spawned + 58 painted | 60.0 | **1-2/s** | 22-31ms |
+
+**What it says.** The emulator never leaves 60fps, and no frame ever exceeded 33ms. The drawn tier
+is free up to a dozen peers — indistinguishable from the control — and past ~34 painted characters
+it costs about **one 20-28ms frame per second**, which is pacing, not rate: the instrument that
+reports "60fps" throughout is the one that cannot see it. Going from 34 to 58 painted barely moved
+the number, so the cost is not linear in the crowd at these sizes. **The spawn-refusal path is
+free**: 10 and then 34 peers being re-attempted every frame cost nothing measurable, which is the
+Emerald allocate/cull trap (`pitfalls/`) not being present here.
+
+**What this rig CANNOT see, and it matters.** The synthetic peers never exercise the drawn tier's
+STEPPING render path: `stepping view drawn on 0 of 646854 peer-frames` across every run, because
+`-extras` is a static JSON object and `prog` therefore never cycles. Adding `-facing-follows-path`
+fixed the facing half (`0 with no facing yet`) and not this half. **So every number above is a
+FLOOR, not a worst case** — a crowd of real walking peers renders a per-peer animation these did
+not. Closing that needs either a second real game instance or a game-specific synthetic driver
+that cycles `prog`; `meshghost-fakeadapter` is game-agnostic on purpose and is the wrong place for
+it.
+
+**One rig defect worth not repeating**, and it was caught by the user's eyes rather than by any
+log: the first drawn-tier runs measured the tier while it was OFF. The dev loader shares one Lua
+environment, so `MESHGHOST_CRYSTAL_DRAW_OVERFLOW = "0"` set by the earlier spawn-cap run survived
+into the next, whose flags file merely omitted the line. The adapter's `holding: painted{...}` line
+lists peers WAITING for the tier, so it looked right; the `tiers:` line, which reports what was
+actually drawn, was absent because it only prints when the tier runs. **Set every flag explicitly
+every run, and check `tiers:` before believing a drawn-tier number.** The rule this violates was
+already written down in `adapters/emulator/CLAUDE.md`.
+
 ## Pokémon Emerald (Game Boy Advance) — measured 2026-08-19
 
 **Ceiling: `16 − (objects the map currently has)`, which was 13 ghosts in Littleroot Town. The

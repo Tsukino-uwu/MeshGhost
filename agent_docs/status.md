@@ -62,6 +62,8 @@ that a peer's state genuinely differs from the local player's, which loopback co
   freeze, all traced clean, user's read is hedged. `crystal/UNVERIFIED.md`.
 - **The drawn tier's beat is smoother than the engine's, and stays that way for now** — user's call;
   the retiring mechanism is written down. `crystal/BANDAGES.md` #2.
+- **Crystal's crowd cost is measured on Route 39, and the numbers are a FLOOR** — the rig cannot
+  cycle `prog`, so no run exercised the drawn tier's stepping path. `crowd-limits.md` 2026-08-25.
 
 **Crystal's open work is grouped, not listed one fix per line** (2026-08-25). Sixteen entries here
 were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which is a 1,186-line
