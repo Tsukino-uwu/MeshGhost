@@ -31,6 +31,39 @@ entries and carries the index to these files.
 
 Sibling registers: `../pseudoregalia/VERIFIED.md`, `../emulator/pokemon/crystal/VERIFIED.md`, `../emulator/pokemon/emerald/VERIFIED.md`.
 
+## Index — every entry in this file
+
+**Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
+from it.** Added 2026-08-25: this file is append-only and only grows, so without an index the
+cheapest way to find a fact was to read the whole record. Now it is to read this list.
+
+**Entries sit at two heading levels** — the earliest are `###` under "Confirmed facts", later ones
+are `##` — and both are indexed. The levels are historical and are deliberately NOT normalised:
+changing an entry's heading is a rewrite of the record, which is the one thing this file forbids.
+
+**Adding an entry costs one line here.** That is the whole maintenance contract, and it is the
+reason this is an index rather than a taxonomy — nothing can mechanically check that an entry is
+filed under the right theme, but anything can check that it is listed.
+
+- TEVI Phase 6.1 — BepInEx plugin loads and coexists with the Randomizer
+- TEVI Phase 6.2 — real local player position/facing/anim/area tracked correctly
+- TEVI Phase 6.3 — placeholder ghost tracks the local player in-engine
+- TEVI Phase 6.4/6.5 — real bridge→relay→core round trip, loopback ghost confirmed on screen
+- TEVI Phase 6.4/6.5 — relay rate-limit disconnect, found live and fixed in `internal/core`
+- TEVI Phase 6 — real character-visual ghost rendering, confirmed correct via loopback
+- TEVI build 14778703 allows two simultaneous local instances
+- v0.2.1 release: TEVI loopback ghost renders on the real, current TEVI build
+- MeshGhostTevi: EventManager.mainCharacter access must go through reflection, not a direct property read
+- TEVI real two-player test: ghosts render correctly, pause menu behaves as intended
+- TEVI ghost cleanup: main-menu return and game close both despawn correctly; pause does not
+- TEVI cross-area filtering confirmed live; found and fixed a reactivation animation freeze
+- TEVI map marker (step 6.7) shows a peer's real room location
+- Room-code auth accept/reject, real config.json dry run
+- Client/relay start-order independence, real dry run
+- Relay-restart auto-reconnect, real dry run
+- TEVI zone-transition ghost-invisibility fix, live confirmed
+- Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
+
 ## Confirmed facts
 
 ### TEVI Phase 6.1 — BepInEx plugin loads and coexists with the Randomizer

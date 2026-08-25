@@ -42,8 +42,19 @@ scope in `Notes` whenever it plausibly matters.
 **The entry format, and the two evidence tracks**, are in `agent_docs/verified.md`, which remains
 the home for Go-side and cross-game entries and carries the index to every adapter's file.
 
+**Keep the `## Index` section below, and add one line to it per entry.** `dev-scripts/preflight.ps1`
+fails an entry that is not listed. It exists because this file only ever grows and cannot be
+capped -- capping a record would mean deleting evidence in order to add evidence -- so the index is
+what keeps it findable. Reading the index costs ~150 lines where reading Emerald's record costs
+3,685.
+
 Sibling registers: list the other adapters' `VERIFIED.md` here, so any one of them leads to the
 rest.
+
+## Index — every entry in this file
+
+&lt;One line per entry, title only. Entries at both `##` and `###` are indexed; the levels are
+historical and are NOT normalised, because changing an entry's heading rewrites the record.&gt;
 
 ## Confirmed facts
 

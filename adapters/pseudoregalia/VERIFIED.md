@@ -31,6 +31,133 @@ entries and carries the index to these files.
 
 Sibling registers: `../tevi/VERIFIED.md`, `../emulator/pokemon/crystal/VERIFIED.md`, `../emulator/pokemon/emerald/VERIFIED.md`.
 
+## Index — every entry in this file
+
+**Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
+from it.** Added 2026-08-25: this file is append-only and only grows, so without an index the
+cheapest way to find a fact was to read the whole record. Now it is to read this list.
+
+**Entries sit at two heading levels** — the earliest are `###` under "Confirmed facts", later ones
+are `##` — and both are indexed. The levels are historical and are deliberately NOT normalised:
+changing an entry's heading is a rewrite of the record, which is the one thing this file forbids.
+
+**Adding an entry costs one line here.** That is the whole maintenance contract, and it is the
+reason this is an index rather than a taxonomy — nothing can mechanically check that an entry is
+filed under the right theme, but anything can check that it is listed.
+
+- Phase 7.1: Pseudoregalia local player pawn/position/rotation/level read confirmed live via UE4SS Lua probe
+- Phase 7.2 investigation: UE4SS runtime mismatch breaks AP_Randomizer; UE4SS Lua exposes package.loadlib
+- Phase 7.2: vendored LuaSocket core loads and creates a socket inside UE4SS's embedded Lua
+- Phase 7.2: real bridge-protocol round trip works over UE4SS's embedded Lua
+- Phase 7.4: spawning the player's own Blueprint as a placeholder ghost physically dragged the player
+- Phase 7.4: the collision theory was wrong — dragging was the script mutating the player's own live position
+- Phase 7.4: fourth live run, live-reference fix in place, dragged identically
+- Phase 7.4: root cause confirmed — BP_PlayerGoatMain_C auto-possesses on spawn
+- Phase 7.4: placeholder ghost confirmed visible on screen — via a hijacked existing actor, not a spawned one
+- Phase 7.4: placeholder ghost confirmed done — spawns, follows, survives level transitions, camera stays correct
+- Pseudoregalia UEPseudo access unblocked, and the C++ hello-world mod builds and coexists with AP_Randomizer
+- Pseudoregalia C++ mod reads real local-player position natively, tracking through a level transition
+- Native C++ bridge networking has zero receive corruption, side by side against the Lua version's 98%
+- C++ mod ghost render-freeze fixed: on_update() runs off the game thread, EngineTick hook doesn't
+- C++ mod: spawn-based ghosts survive the game thread, and the camera fight-back fix works
+- C++ mod: area-transition crash fixed by clearing the cached camera pointer before LoadMap
+- C++ mod: ghost animation state (moveState/actionState/speeds/movementMode) mirrors correctly
+- C++ mod: ghost facing-direction fix — vendored SDK marshaled FRotator as float on a UE5 game
+- C++ mod: facing-direction fix also fixed ledge-grab, and exposed a pre-existing stuck-animation bug
+- C++ mod: stuck-falling-pose fix — the earlier `landed?`/`jumped?` pulse attempt was never actually tested
+- C++ mod: ledge-hang-stuck-forever fix — the pose was an Anim Montage, not a state-machine transition
+- v0.2.1 release: bundled UE4SS runtime works clean, ghost renders on Pseudoregalia
+- MeshGhostPseudo survives an AP_Randomizer reinstall that silently swaps the shared UE4SS runtime
+- Pseudoregalia post-review-sweep rebuild, live confirmed
+- Pseudoregalia despawn-visual and area-transition, live-verified via loopback
+- Pseudoregalia bridge-disconnect ghost cleanup, found live and fixed
+- Pseudoregalia ability field schema, mapped to every trending-page ability via a real reflection dump
+- Pseudoregalia ability field live-value trace -- real values watched, not just names
+- Dream Breaker weapon-visibility sync: shipped, live-tested, root cause still unresolved -- WeaponMesh cleared as a suspect
+- Dream Breaker weapon-visibility sync: inversion test run -- same-local-save-data confound CONFIRMED
+- Dream Breaker spawn-snapshot: cross-save property-value diff -- confirms fresh-read-at-spawn, doesn't yet find the visual lever
+- Dream Breaker spawn-snapshot: WeaponMesh sub-properties are IDENTICAL across a genuine 0%/100% save comparison -- rules out the component entirely
+- Dream Breaker weapon-visibility: animBPref cross-save diff finds the one real field; root cause identified and FIXED, confirmed live
+- Outfit/costume sync: real lever found via live value-diff (VisualMesh.SkeletalMesh/SkinnedAsset), first sync attempt produces a T-pose
+- Outfit/costume sync: T-pose FIXED via SetSkeletalMeshAsset, confirmed live
+- Pseudoregalia ghost trail (afterimage) VFX: `Spawn After Image` call confirmed to work
+- Pseudoregalia ghost trail (afterimage) VFX: real repeating trail CONFIRMED working
+- Pseudoregalia trail-VFX UFunction hook: CRASHED the game — do not retry this approach
+- Pseudoregalia ghost vs. local player, full property diff: NO master VFX gate; the real difference is possession
+- Pseudoregalia empty-hand recall glow via `manageRecallIdleFX`: NEGATIVE — the pattern has a precondition
+- Pseudoregalia trail (afterimage) COLOUR write: CONFIRMED working on the ghost
+- Pseudoregalia blue ultra-hop trail does NOT come from `afterimageColor` — separate mechanism
+- Pseudoregalia ghost hurtbox: `bCanBeDamaged=false` does NOT stop the melee-death bug
+- Pseudoregalia wall-ride (cling gem) state: `moveState=4` is the marker, and it is ALREADY synced
+- Pseudoregalia cling-gem (wall-ride) VFX on the ghost: CONFIRMED WORKING
+- Pseudoregalia trail trigger rewritten to mirror the game's own `afterImagesToSpawn` — pipeline exact, but incomplete coverage
+- Pseudoregalia plain-slide trail + ghost-sinks-into-floor: BOTH FIXED, from one capture
+- Pseudoregalia: ENEMY damage to a ghost hurts and can KILL the real player — CONFIRMED
+- Pseudoregalia Dream Breaker THROW animation: root-caused as a montage, FIXED via stock `Montage_Play`, confirmed live
+- Montage mirror covers the whole game; ledge-climb-up lingering root-caused (the ghost restarts montages itself); crouch trail false positive fixed
+- `attire-ui-overhaul` re-checked for the ultra/blue trail: NEGATIVE, it knows only one colour
+- Ghost self-starts montages: PROVEN, and it is the state sync, not collision
+- Every previously-untriggered player montage works on a ghost for free -- 8 of 8
+- Bubble effect is a "Blink" Timeline on the pawn, NOT the afterimage system
+- Bubble flash mirror WORKS — and a correction to the entry above it
+- Pseudoregalia pole ROTATION syncs exactly — the apparent bug is a loopback artifact
+- Release-folder loopback script works with a real game attached
+- Pseudoregalia thrown Dream Breaker: full hand → flight → bounce → ground sync, CONFIRMED LIVE
+- Pseudoregalia: a ghost's thrown sword cannot be picked up by the local player
+- Pseudoregalia empty-hand recall glow: FIXED by spawning the effect directly, confirmed live
+- Pseudoregalia: use-after-free crash on level transition after a throw, FIXED and confirmed live
+- Pseudoregalia thrown Dream Breaker: full hand → flight → bounce → ground → pickup, CONFIRMED LIVE
+- Pseudoregalia empty-hand recall glow: FIXED by spawning the effect directly, confirmed live
+- Pseudoregalia: use-after-free crash on level transition after a throw, FIXED and confirmed live
+- Pseudoregalia ultra-hop BLUE trail: source identified after being parked as unsolvable
+- Pseudoregalia afterimage trail regression: caused by this project's own diagnostics, FIXED
+- Pseudoregalia colour-only afterimage observation does NOT regress the slide trail
+- Pseudoregalia ultra-hop BLUE reaches the ghost — but attributed one burst late
+- Pseudoregalia ultra hop fires NO local afterimage trigger — the real cause of the late blue
+- Pseudoregalia ultra blue now lands on the ultra — two remaining defects, one diagnosed
+- Pseudoregalia double-blue: ONE image counted twice, not two spawned (2026-08-16)
+- Pseudoregalia ultra BLUE afterimage: CONFIRMED CORRECT ON SCREEN
+- Pseudoregalia ghost trails where the real player does not — reconstructed trigger, not the game's
+- Pseudoregalia ghost afterimage density now matches the player — observation-driven trigger
+- Pseudoregalia afterimage/trail sync: COMPLETE — player and ghost indistinguishable
+- Pseudoregalia loopback still works after the 2026-08-16 project-wide refactor
+- Live: all three transports confirmed on screen with Pseudoregalia — 2026-08-16
+- 2026-08-16 — Autostart, Go side: `-exit-with-pid`, log append, config visibility
+- 2026-08-16 — Autostart works live on Pseudoregalia (user-watched)
+- 2026-08-16 — Autostart reuses an existing core, and never kills one it didn't start (user-watched)
+- 2026-08-16 — Autostart works under Proton (Linux tester, with logs)
+- 2026-08-16 — Pseudoregalia 7.7: two real players, two machines, online (user-watched)
+- 2026-08-16 — Pseudoregalia pole rotation is correct (two-machine session)
+- 2026-08-16 — The Pseudoregalia camera fight-back is what takes the camera
+- 2026-08-16 — Camera fight-back removed; the camera is correct without it
+- 2026-08-16 — The through-walls outline is custom depth, and the ghost inherits it
+- 2026-08-16 — A ghost brings its own camera rig, and that is what took the camera
+- 2026-08-16 — Ghosts no longer render through walls (user-watched)
+- The slide mesh offset is the engine's crouch path, and it is -(capsuleHalf + 1) — 2026-08-16
+- Following it: the ghost fights back — 2026-08-16, same session
+- Three ways to pose a ghost's crouch, all NEGATIVE — 2026-08-16
+- The Pseudoregalia mod reconnects to a core started AFTER the game — 2026-08-17
+- Slide/crouch pose: the render-Z bandage is GONE, replaced by the game's own path — 2026-08-17
+- What the mechanism actually is
+- The two findings that actually cracked it
+- Dead ends, so nobody repeats them
+- 2026-08-17 — Audit pass: three earlier entries superseded by later ones in this same file
+- Pseudoregalia: killing a ghost leaves the real player at 0 health with no health bar
+- The 2026-08-17 online-primitives work does not regress the cosmetic path (Pseudoregalia)
+- Session resumption, clock sync and the capability scope split, confirmed against real binaries
+- Pseudoregalia: a ghost's slide pose CYCLES instead of holding, and it is not a latency problem
+- Pseudoregalia: a held slide re-triggers every ~600ms, and the capsule really does stand up between repeats
+- Pseudoregalia: a hard crash mid-session, and the discovery that we ship six unnecessary UE4SS mods enabled
+- The loopback offset manufactures positions real multiplayer never produces
+- 2026-08-17 — The double pause menu recurred, and this time did NOT crash
+- 2026-08-17 — A relay that dies leaves every ghost frozen in place, for up to 60 seconds
+- 2026-08-17 — Mid-area despawn destroys the ghost cleanly, and a peer's ghost is genuinely the PEER
+- 1. The despawn path the park was written for finally ran, and destroy handled it
+- 2. A peer's ghost shows the PEER's appearance, not the local player's
+- CORRECTION: the Pseudoregalia bridge-loss despawn path does exist, and always did (2026-08-18)
+- CORRECTION: ghosts do NOT spawn with collision disabled — the camera fix was the rig, not collision (2026-08-18)
+- CORRECTION: the recall-glow and throw-crash entries above each appear TWICE (2026-08-25)
+
 ## Confirmed facts
 
 ### Phase 7.1: Pseudoregalia local player pawn/position/rotation/level read confirmed live via UE4SS Lua probe

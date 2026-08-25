@@ -531,6 +531,67 @@ if (-not $idxStart) {
 }
 
 # ---------------------------------------------------------------------------
+Section "VERIFIED index coverage"
+
+# The verified records are append-only and only grow: 3,654 and 3,685 lines for Pseudoregalia and
+# Emerald as of 2026-08-25. They cannot be capped -- capping a record means deleting evidence in
+# order to add evidence -- and splitting them by period does not work yet, because every entry in
+# every one of them is dated 2026-08 (the repo began 2026-08-11). So the control is an index:
+# reading it costs ~150 lines instead of ~3,700, and adding an entry costs one line.
+#
+# Same shape as the pitfalls check above, and the same reasoning: nothing can mechanically verify
+# that an entry is filed under the right theme, but anything can verify that it is listed.
+#
+# Entries sit at BOTH ## and ### -- the earliest are ### under "Confirmed facts", later ones are ##
+# -- and both are indexed. The levels are historical and deliberately not normalised, because
+# rewriting an entry's heading is a rewrite of an append-only record.
+# -notlike '*UNVERIFIED.md' is load-bearing, and PowerShell's case-INSENSITIVE -like is why: both
+# "UNVERIFIED.md" and "agent_docs/unverified.md" match '*VERIFIED.md', so the first version of this
+# check demanded an index on all three queue files. A queue is the opposite case -- it DRAINS, its
+# size is how much the user has not confirmed yet, and indexing a list that is meant to reach zero
+# is work for nothing.
+$verifiedFiles = @(& git ls-files | Where-Object {
+    ($_ -like '*VERIFIED.md' -or $_ -eq 'agent_docs/verified.md') -and $_ -notlike '*UNVERIFIED.md'
+})
+$structural = @('Confirmed facts', 'Entry format', 'Split per game — 2026-08-25')
+if ($verifiedFiles.Count -eq 0) {
+    Report-Fail "no VERIFIED.md files found -- this check would pass vacuously, which is not a clean result"
+} else {
+    $vMissing = @()
+    $vIndexed = 0
+    $vChecked = 0
+    foreach ($vf in $verifiedFiles) {
+        if ($vf -like 'adapters/_template/*') { continue }   # the template has no entries yet
+        $lines = @(Get-Content -LiteralPath $vf)
+        $idxAt = ($lines | Select-String -Pattern '^## Index — every entry in this file$' | Select-Object -First 1).LineNumber
+        if (-not $idxAt) {
+            Report-Fail "$vf has no index section -- an append-only record needs one, it only grows"
+            continue
+        }
+        $indexed = @{}
+        for ($i = $idxAt; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -match '^## ') { break }          # the index ends at the next ## section
+            if ($lines[$i] -match '^- (.+)$') { $indexed[$Matches[1].Trim()] = $true }
+        }
+        $vIndexed += $indexed.Count
+        $vChecked++
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch '^#{2,3} ') { continue }
+            $title = ($lines[$i] -replace '^#{2,3} ', '').Trim()
+            if ($structural -contains $title) { continue }
+            if ($title -eq 'Index — every entry in this file') { continue }
+            if (-not $indexed.ContainsKey($title)) { $vMissing += "${vf}:$($i+1): $title" }
+        }
+    }
+    if ($vMissing.Count -gt 0) {
+        Report-Fail "$($vMissing.Count) verified entr(ies) missing from their file's index -- add one line each:"
+        $vMissing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every verified entry across $vChecked file(s) ($vIndexed indexed) appears in its own index"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Adapter file set"
 
 # _template/README.md's folder-convention table has mandated a file set per adapter since it was

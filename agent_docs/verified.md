@@ -38,6 +38,72 @@ game. See `CLAUDE.md` for the full rule; summary:
 Copy this block per fact:
 
 ```text
+## Index — every entry in this file
+
+**Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
+from it.** Added 2026-08-25: this file is append-only and only grows, so without an index the
+cheapest way to find a fact was to read the whole record. Now it is to read this list.
+
+**Entries sit at two heading levels** — the earliest are `###` under "Confirmed facts", later ones
+are `##` — and both are indexed. The levels are historical and are deliberately NOT normalised:
+changing an entry's heading is a rewrite of the record, which is the one thing this file forbids.
+
+**Adding an entry costs one line here.** That is the whole maintenance contract, and it is the
+reason this is an index rather than a taxonomy — nothing can mechanically check that an entry is
+filed under the right theme, but anything can check that it is listed.
+
+- <short claim, e.g. "Emerald local player X position">
+- BizHawk loads a Lua script as an in-memory string chunk, not a file — debug.getinfo can't recover its path
+- io.popen("cd") reliably returns the script's own directory in BizHawk Lua
+- BizHawk's gui.* drawn graphics persist across frames — they do not auto-clear
+- internal/core did not despawn remotes when its own relay connection was lost
+- Phase 4: real peer leaving (core process closes) despawns correctly; adapter-only disconnect does not
+- Phase 5: Core runs standalone against an in-process fake adapter, no game attached
+- Core-relay heartbeat, found live and fixed (idle-timeout reconnect-ID churn)
+- Automated Go-side test/debug tooling, and a real intermittent-failure bug it found
+- The bug this found (real, pre-existing, now fixed)
+- What was added
+- Fuzz campaigns actually run (all clean, no failures)
+- Two environment facts worth not rediscovering
+- CI's first real run: no data race, one over-strict test of my own
+- Selectable transport (`tcp`/`udp`/`quic`) — 2026-08-16, established with the Go tools
+- Transport discovery (`transport: "auto"`) — 2026-08-16, established with the Go tools
+- UDP per-connection token — 2026-08-16, established with the Go tools
+- A real bug found in review, and a test that first failed to catch it — 2026-08-16
+- 2026-08-16 — "use of closed network connection" in the relay log was ours, and is fixed
+- 2026-08-16 — CI's race job found a relay race, and chasing it found a worse bug in the core
+- 2026-08-16 — A release failed on a port that was free for tcp but forbidden for udp
+- 2026-08-16 — The client shows a console under Wine by default (Windows side verified)
+- udp's reliable path was reliable but NOT ordered — found and fixed 2026-08-16
+- quic became the default path, and shares the relay's port — 2026-08-16
+- The synthetic-peer rig could only ever test tcp — fixed 2026-08-16
+- Two transport-divergence bugs, found by a loopback re-test and the suite it prompted
+- World custody (`world.v1`) — the relay holds a world it cannot read, and hands it on
+- A maximal event and a committed escrow are too large for a udp datagram (pre-existing, not fixed)
+- 2026-08-17 — The Go packages moved out of `internal/` and the module took its real path
+- Red and Blue are byte-identical in RAM — one adapter covers both
+- Platinum: ROM matches the decomp's Rev 1 target, but nothing is built
+- NOTE: `internal/X` package paths throughout this file predate the 2026-08-17 move (2026-08-18)
+- CORRECTION: the two "`-race` cannot run on this machine" entries above are wrong (2026-08-18)
+- CORRECTION: `MaxEventBytes`' "comfortably under a datagram" claim, now pinned by tests (2026-08-18)
+- 2026-08-18 — v0.9.5 released as a pre-release, and the asset hashes are real
+- 2026-08-18 — CORRECTION: the release hash table was redundant and has been removed
+- 2026-08-18 — Autostart works in all four adapters, confirmed live
+- Both renderers side by side, and the first two gaps it found — 2026-08-19
+- 1. The drawn tier moved at the NETWORK's pace, not the game's — fixed and confirmed
+- 2. A facing change drew as one static frame — fixed and confirmed
+- 3. Visible for a moment during a house transition — half fixed
+- The comparison keeps paying: four more, and one of them was the SPAWNED tier — 2026-08-19
+- A spawned ghost stuck in a running pose — fixed
+- Door transitions, both directions — fixed, and the second attempt was the better design
+- Scene brightness, which is the gap the user predicted before any of this existed
+- And the one that took four attempts, because it was the wrong question three times
+- The comparison's last two answers: pin it, and give the core more delay — 2026-08-19
+- Matching the engine's movement is not reachable, so compare mode stops trying
+- The spawned ghost's own chop was ARRIVAL CADENCE, and `-interp` fixes it
+- 2026-08-21 — HBlank multiplexing is closed by decision, not left open
+- RULE CHANGE — the gate on this file tightened (2026-08-21)
+
 ### <short claim, e.g. "Emerald local player X position">
 
 - Date:

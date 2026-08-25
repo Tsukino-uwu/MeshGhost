@@ -31,6 +31,91 @@ entries and carries the index to these files.
 
 Sibling registers: `../emerald/VERIFIED.md`, `../../../pseudoregalia/VERIFIED.md`, `../../../tevi/VERIFIED.md`.
 
+## Index — every entry in this file
+
+**Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
+from it.** Added 2026-08-25: this file is append-only and only grows, so without an index the
+cheapest way to find a fact was to read the whole record. Now it is to read this list.
+
+**Entries sit at two heading levels** — the earliest are `###` under "Confirmed facts", later ones
+are `##` — and both are indexed. The levels are historical and are deliberately NOT normalised:
+changing an entry's heading is a rewrite of the record, which is the one thing this file forbids.
+
+**Adding an entry costs one line here.** That is the whole maintenance contract, and it is the
+reason this is an index rather than a taxonomy — nothing can mechanically check that an entry is
+filed under the right theme, but anything can check that it is listed.
+
+- Pokémon Crystal — access-model groundwork (2026-08-17)
+- Crystal ROM revision, and the decomp build matches it byte-for-byte
+- Crystal player and map addresses
+- GB/GBC decomps must be built to yield addresses at all
+- Pokémon Red/Blue, FireRed, Platinum — access-model groundwork (2026-08-17)
+- Red and Blue: both ROMs match, and one build produces both
+- Archipelago's Crystal patch rearranges WRAM, non-uniformly (2026-08-17)
+- Crystal: what the game itself writes when it spawns the player (2026-08-17)
+- Crystal: a spawned object event renders — the create tier works on an emulator (2026-08-18)
+- Crystal: writing the object struct directly makes a half-owned object (2026-08-18)
+- Crystal: the in-game gate, and a 2-second window where plausible data is not yet safe (2026-08-18)
+- Crystal: the gate must be `wMapStatus` ALONE — the other flags flicker every step (2026-08-18)
+- Crystal: the engine only adopts objects scrolling onto the screen EDGE (2026-08-18)
+- Crystal: the engine ADOPTED our map object — the create tier works properly (2026-08-18)
+- Crystal: a map reload restores objects a spawn disturbed (2026-08-18)
+- Crystal: `wMapStatus` stays HANDLE through a battle — the gate needs `wBattleMode` (2026-08-18)
+- Crystal: leaving a battle is a map re-entry (2026-08-18)
+- Crystal: a false ADOPTED — the slot was reused by another map's NPC (2026-08-18)
+- Crystal: hand-linking both halves does NOT make the engine drive an object (2026-08-18)
+- Crystal: the engine CULLS objects that leave the visible window (2026-08-18)
+- Crystal: the struct diff is clean — and the "half-owned" conclusion is now suspect (2026-08-18)
+- RETRACTION: that struct diff compared our object against our own other object (2026-08-18)
+- Crystal: a VALID struct diff — nine differences, and two explain everything (2026-08-18)
+- Crystal: the engine IS driving our object — it was invisible, not unowned (2026-08-18)
+- Crystal: A REAL SPAWNED CHARACTER — visible, engine-driven, correctly rendered (2026-08-18)
+- Crystal: spawned beside the player, on demand — mechanism complete (2026-08-18)
+- Crystal: a ghost that looks like the player, spawned on demand — Phase 9's goal reached (2026-08-18)
+- Crystal: the anatomy of one step, captured frame by frame (2026-08-18)
+- Crystal: the ghost WALKS — the full cosmetic mechanism is complete (2026-08-18)
+- Crystal: a spawned ghost is solid, TALKABLE, and can be knocked off its tile (2026-08-18)
+- Crystal: zeroing a script pointer froze the game (2026-08-18)
+- Crystal: the ghost drifted 2px per step, and the interaction was innocent (2026-08-18)
+- Crystal: the 2px-per-step fix holds — movement is correct (2026-08-18)
+- Crystal: the "off" collision was the engine's own behaviour, not a defect (2026-08-18)
+- Crystal: the ROM guard refuses a REAL Archipelago ROM (2026-08-18)
+- Crystal: the ROM guard becomes three-way — warn on unknown, refuse only the known-wrong (2026-08-18)
+- Crystal: the guard warns on EVERYTHING and refuses nothing by default (2026-08-18)
+- Crystal: LOOPBACK WORKS — a network-driven ghost that moves and faces correctly (2026-08-18)
+- Crystal: on an Archipelago ROM nothing spawns, because the READS are wrong too (2026-08-18)
+- Crystal/Archipelago: five addresses derived from one published value (2026-08-18)
+- Crystal/AP: the contiguity derivation is REFUTED — those are not the player's coordinates (2026-08-18)
+- Crystal/AP: the player's coordinates, MEASURED by reversal — 7358 = Y, 7359 = X (2026-08-18)
+- Crystal/AP: wObjectStructs is 0x14DC, confirmed by fingerprint (2026-08-18)
+- Crystal/AP: wMapGroup, wMapNumber and wMapStatus measured; the block is intact after all (2026-08-18)
+- Crystal/AP: wBGMapOffsetX/Y are 0x1153/0x1154, measured by correlation (2026-08-18)
+- Crystal/AP: a ghost spawns, walks and faces correctly on an Archipelago ROM (2026-08-18)
+- Crystal: a vanilla client and an Archipelago client see each other correctly (2026-08-18)
+- Go side: the core dropped its relay connection twice on quic, in one session (2026-08-18)
+- Emerald: a ghost copied from the player shows the PLAYER's animation frames, until it owns tiles (2026-08-18)
+- 2026-08-19 — Crystal and Emerald, both watched by the user in one two-game session
+- 2026-08-19 — Crystal: the pause menu hides ghosts, and the adapter does nothing to make that happen
+- 2026-08-19 — Crystal publishes its own menu rectangle, and it matches what the screen showed
+- 2026-08-19 — Crystal's text box is a constant, its menu is a variable
+- 2026-08-19 — Crystal: a character on EVERY visible tile, at full speed
+- 2026-08-19 — Crystal: where the sprite table lives on the Archipelago build
+- 2026-08-19 — Archipelago Crystal: `wBattleMode` is `0x1234`, settled by a trainer battle
+- Crystal: the two tiers' collision, confirmed by walking into them (2026-08-22)
+- Crystal: appearance and collision are NOT separable at the object struct (2026-08-22)
+- Crystal: both tiers confirmed good at the dev rig's settings (2026-08-22)
+- Crystal's drawn tier: motion and animation confirmed clean, at the DEV rig — 2026-08-23
+- What the renderer now does, in one paragraph
+- Facts about the game established on the way, each measured on the running ROM
+- 2026-08-23 — Crystal's spawned tier: the idle/respawn 1-tile jump, and the flicker after it
+- A record corrected
+- CONFIRMED ON SCREEN 2026-08-23 — Crystal: a drawn ghost survived the server being shut down
+- How it was found, because two confident diagnoses were both wrong first
+- Drained from the queue 2026-08-25 — two Crystal confirmations that never moved
+- CONFIRMED ON SCREEN 2026-08-21/22 — Crystal's two tiers move properly
+- Pending — Crystal, after the 2026-08-21/22 session
+- CONFIRMED ON SCREEN 2026-08-22 — Crystal: the drawn tier's exit position and its facing
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)

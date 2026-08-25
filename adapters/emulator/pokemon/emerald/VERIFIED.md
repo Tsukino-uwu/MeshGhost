@@ -31,6 +31,175 @@ entries and carries the index to these files.
 
 Sibling registers: `../crystal/VERIFIED.md`, `../../../pseudoregalia/VERIFIED.md`, `../../../tevi/VERIFIED.md`.
 
+## Index — every entry in this file
+
+**Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
+from it.** Added 2026-08-25: this file is append-only and only grows, so without an index the
+cheapest way to find a fact was to read the whole record. Now it is to read this list.
+
+**Entries sit at two heading levels** — the earliest are `###` under "Confirmed facts", later ones
+are `##` — and both are indexed. The levels are historical and are deliberately NOT normalised:
+changing an entry's heading is a rewrite of the record, which is the one thing this file forbids.
+
+**Adding an entry costs one line here.** That is the whole maintenance contract, and it is the
+reason this is an index rather than a taxonomy — nothing can mechanically check that an entry is
+filed under the right theme, but anything can check that it is listed.
+
+- Emerald ROM revision
+- pokeemerald local build matches the real ROM
+- Emerald gSaveBlock1Ptr address
+- TEVI Phase 6 — ghost does not visually intrude on full-screen menus (unlike Emerald)
+- Emerald local player X/Y position and direction mapping
+- Emerald map bank/number fields
+- Emerald map bank/number change on a real map transition, and gSaveBlock1Ptr relocation
+- Emerald pause-menu submenus (bag, options, player profile) do not invalidate x/y/map
+- Emerald map bank/number transition confirmed in reverse (indoors→outdoors)
+- Emerald NPC dialogue does not invalidate x/y/map
+- Emerald scripted forced-movement event (NPC blocker) does not invalidate x/y
+- Emerald multi-tile forced-movement cutscene tracks correctly
+- Emerald runningState and flags behavior confirmed
+- Emerald cutscene-driven warp/teleport does not invalidate position
+- Emerald CONTROLLABLE flag tracks the post-warp control-lock window
+- Emerald entering a house transiently reads a fixed placeholder state for one frame
+- The placeholder-glitch does not happen on every house entry, but is not house-specific either
+- Emerald runningState=2 confirmed during sustained walking, and battle does not invalidate position
+- Emerald runningState does not track forced/scripted movement, only player input
+- Emerald trainer battle also does not invalidate position
+- Emerald dash flag (running shoes) confirmed
+- Emerald dash and runningState toggle independently mid-movement
+- Emerald gObjectEvents address and facing direction confirmed
+- Emerald seamless town/route connections can transiently report out-of-bounds coordinates
+- Archipelago-patched ROM: SaveBlock1 fields hold, PlayerAvatar/ObjectEvents fields do not
+- Emerald Phase 2 ghost overlay renders and tracks the player near screen center
+- Emerald Phase 2 ghost offset survives map transitions (house entry, route change)
+- Emerald cold boot (title screen → intro → save load) shows a zero-placeholder frame and a lagging facingDirection
+- Emerald Phase 2 ghost offset holds at a real camera-pinned map edge
+- Emerald Phase 2 ghost tracks the wrong thing during battle — sprite slot reuse, not a math bug
+- Emerald Phase 2 ghost is stable within a map, jitters briefly crossing route/town connections
+- Emerald Phase 2 ghost also glitches briefly on door-warp transitions (dips, then corrects)
+- LuaSocket (vendored) requires lua54.dll to be pre-loaded by full path before it will load
+- adapters/emulator/pokemon/emerald/probes/phase3_loopback.lua did not detect its own bridge connection dying
+- Phase 3 loopback: full round trip confirmed, ghost trails the player correctly
+- Phase 4: two real BizHawk/Emerald instances render each other's ghosts correctly
+- Phase 4: unclean core kill (Task Manager End Task) also despawns correctly, and the killed peer's own adapter detects it
+- Phase 4: local-battle ghost-anchor corruption confirmed with a real remote ghost, matching Phase 2's prediction exactly
+- Emerald gMain.callback2 / CB2_Overworld confirmed as a general "not showing the overworld" signal
+- phase4_multiplayer.lua's overworld gate correctly hides/reshows remote ghosts, per-viewer only
+- phase4_multiplayer.lua's remote ghost placement needed a one-tile vertical correction
+- Emerald base pause-menu list does not trigger the overworld gate — accepted, not a bug
+- gObjectEventPic_BrendanNormal / gObjectEventPal_Brendan decode to a real Brendan sprite
+- gui.drawPixel color format is 0xAARRGGBB, not 0xRRGGBBAA — and the decoded sprite renders correctly on screen
+- Emerald player movement: 16 frames/tile walking, 8 frames/tile running
+- Phase 5.5 Step 3: remote ghost facing and walk/run animation confirmed live with two real peers
+- Emerald running uses a genuinely separate pic table, not a faster walk cycle
+- Phase 5.5 Step 4: gender-correct remote rendering confirmed live, and every Phase 1/2 address re-verified on a female save
+- Emerald first real cross-machine online session (open port, two different PCs)
+- Emerald Lua adapter sweep fixes, live-verified via loopback
+- Real two-peer Emerald test, non-loopback (Phase 4 shape, closes the sweep's Lua-not-live-tested-outside-loopback gap)
+- Gender read correctly deferred past character creation on a fresh save
+- Archipelago-recompiled CB2_Overworld address found, closing the ghost-never-renders gap
+- Archipelago-patched ROM: gObjectEventPic_BrendanNormal/gObjectEventPal_Brendan decode to garbage, not a real sprite
+- Archipelago-relocated gObjectEvents/gPlayerAvatar found and fixed -- ghost confirmed following correctly on screen
+- Archipelago avatar-detection timing bug found and fixed: script loaded during the intro cutscene no longer gets stuck
+- Emerald walk/run sub-tile glide: fixed-duration constants confirmed pixel-exact, and a real transition-snap bug found and fixed
+- A client could be orphaned into a room that had already been dropped
+- FireRed: ROM matches, decomp builds byte-identical with the existing agbcc
+- Emerald spawns a real object event: visible, engine-drawn, engine-walked, and behind the pause menu (2026-08-18)
+- Emerald: a map load destroys the ghost completely, and identity is the only safe liveness test (2026-08-18)
+- Emerald: every special player state is a different graphicsId, and fishing is fully characterised (2026-08-18)
+- Emerald: two spawn-path bugs found by playing, not by reading (2026-08-18)
+- Emerald: route boundaries are connections, not warps — and that leaked a solid ghost every crossing (2026-08-18)
+- Emerald: what the game means by "water", and why a solid tile is not it (2026-08-18)
+- Emerald: fishing works on a synthesised water tile — and can never catch anything there (2026-08-18)
+- 2026-08-19 — Emerald: the orphan sweep's predicate never fired outside the overworld
+- A core that "would not reconnect" was dialing a relay nobody was running — 2026-08-19
+- Two Emerald instances no longer share one log file — 2026-08-19
+- Emerald: where the game draws its UI panels, measured on a SECOND map — 2026-08-19
+- Same day, an A/B that closes it from the adapter's own side
+- Emerald/Archipelago: the graphics-info POINTER TABLE moves too, and that is why nothing spawned — 2026-08-19
+- Emerald's drawn tier clips a REAL panel, not just a fake one — 2026-08-19
+- Emerald's spawn adapter, end to end in one sitting — 2026-08-19
+- The in-game gate, exercised by a HARD reset
+- Emerald: where the game draws its panels, measured with a box and a menu open — 2026-08-19
+- A peer's own STATE renders on the spawned tier — fishing confirmed, 2026-08-19
+- Emerald: peer STATE, ledges and shadows — a long confirmation pass, 2026-08-19
+- A peer's state renders on both tiers now
+- Ledge hops — three attempts, and only the measurement worked
+- The jump shadow — a bandage, and almost none of it is invented
+- Also confirmed in the same pass
+- "Both ghosts move while fishing" — CLOSED, and it was two real bugs plus an illusion
+- Still open from this pass
+- The fishing snap: four real defects, and what "1:1" turned out to mean — 2026-08-19
+- Emerald: fishing is 1:1 on BOTH tiers — 2026-08-19
+- The mechanisms (decomp-cited, so citable rather than measured)
+- The behavioural readings (from `probes/animtrace.log`, agent-read, no watching involved)
+- Capability confirmed
+- What it cost, for the next estimate
+- Emerald: the surfing ghost's Pokemon, on the spawned tier — 2026-08-19
+- Emerald: a drawn ghost's water reflection, 1:1 with the engine — 2026-08-19
+- Emerald: the Mach Bike, and walk-through ghosts — 2026-08-20
+- Emerald: a ghost you can walk through, using the engine's own rule — 2026-08-20
+- Emerald: the muddy slope, where facing and movement come apart — 2026-08-20
+- Emerald: a drawn ghost hides behind the map — 2026-08-20
+- Emerald: grass drawn over a painted ghost — 2026-08-20
+- Emerald: a drawn ghost in tall grass — 2026-08-20
+- Emerald: the Acro Bike — 2026-08-20
+- 2026-08-20 — Every Acro Bike wheelie action DOES complete, on the engine's own object
+- 2026-08-20 — Emerald: the spawned ghost's Acro Bike idle pose, confirmed on screen
+- 2026-08-20 — Emerald: collision is readable, so a scripted ride can path
+- 2026-08-20 — Emerald: bike mount/dismount is 1:1 on the spawned tier, confirmed
+- 2026-08-20 — Emerald: cross-map ghosts — the structures, the engine's behaviour, and the feature
+- 2026-08-20 — Emerald: seam crossings are clean — the pop was the core's cross-area filter
+- 2026-08-20 — Emerald: the drawn ghost's hat survives Mach speed, confirmed
+- 2026-08-20 — Emerald: plain Acro Bike riding left/right is correct, and no ghost invents a hop
+- 2026-08-20 — Emerald: two peers could share one object slot, and a doorway made it constant
+- 2026-08-20 — Emerald: the moving-around lag, priced, fixed, and user-confirmed
+- 2026-08-21 — BizHawk 2.11 has no scanline hook, and Emerald does not need one
+- 2026-08-21 — Emerald: the shadow-OAM window above `gOamLimit` is real, measured live
+- 2026-08-21 — Emerald: a hardware sprite is DRAWN from Lua, and costs nothing measurable
+- 2026-08-21 — Emerald: the hardware-sprite tier is FLAT in ghosts, 1 to 56
+- 2026-08-21 — Emerald: the three tiers priced against each other, standing still
+- 2026-08-21 — Emerald: both cheap tiers FULL at once is still free
+- 2026-08-21 — Emerald: the `spawn -> OAM -> drawn` ladder is built and running
+- 2026-08-21 — Emerald: hardware-sprite ghosts move correctly on screen (user-confirmed)
+- 2026-08-21 — Emerald: the hardware-sprite tier renders correctly (user-confirmed)
+- The two defects, and what each one actually was
+- The compare copy is pinned, and that is the point
+- OBJ VRAM: a 944-tile leak that predates this tier
+- 2026-08-21 — Emerald: hardware-sprite ghosts ARE occluded by scenery (user-confirmed)
+- Emerald: the Acro Bike is FINISHED — shadow, dust and facing, on all three tiers (2026-08-21)
+- 2026-08-21 (later) -- Emerald: warp fades, the unpinned jump arc, and the water tiers
+- A cave mouth fades to WHITE, and a brightness RATIO cannot see that -- USER-CONFIRMED
+- The jump arc never reached an UNPINNED peer on either self-drawn tier
+- The hardware tier had no surf blob and no reflection -- USER-CONFIRMED
+- A reflection is about the GROUND, not about surfing -- USER-CONFIRMED
+- The water trail, fully specified from the game -- NOT YET CONFIRMED
+- The idle pose, and the two reflection defects it was hiding -- ALL USER-CONFIRMED
+- Emerald: how a character actually gets onto the water, measured on the player (2026-08-21)
+- Emerald: the grey/flashing spawned ghost at the start of surfing — USER-CONFIRMED FIXED (2026-08-21)
+- Emerald: the drawn copy no longer vanishes through the HM splash — user-confirmed (2026-08-21)
+- Emerald: savestate loads no longer break any tier — user-confirmed (2026-08-21)
+- Emerald: the orange glitched sprite (and the wrong Pokémon in the HM banner) — user-confirmed fixed (2026-08-21)
+- Emerald: the orange sprite was a PALETTE SLOT, not tiles (2026-08-21)
+- Emerald: the DIVE black screen was ours, and the OAM tier cannot draw underwater (2026-08-21)
+- Emerald: SURFING AND DIVING ARE DONE — user-confirmed (2026-08-21)
+- Emerald: ice sliding is 1:1 on all three tiers — user-confirmed (2026-08-21)
+- Three defects, found in the order the user saw them
+- Why `spaused` was not already enough — the pair, and what each means
+- The held frame is NOT a fixed one — the measurement that mattered
+- The stop: two glide defects behind one symptom
+- `goto_map` was placing nobody, and it trapped the user twice
+- Emerald: the OAM tier's stand-down was written for the wrong reason, and fog proved it (2026-08-21)
+- What it is, measured (`dev-scripts/fog.log`, `fog2.log`)
+- The earlier reading was wrong, and the player is what disproves it
+- What shipped
+- Emerald: fog and cave darkness — user-confirmed (2026-08-21)
+- Cave darkness: the painted tier now clips to the flash circle
+- Two write-only registers that lie when read
+- Emerald is FEATURE COMPLETE — the user's call (2026-08-21)
+- Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
+- CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
+
 ## Confirmed facts
 
 ### Emerald ROM revision
