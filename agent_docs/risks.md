@@ -87,7 +87,7 @@
   occurred during the intro, it would have silently locked in the wrong gender for the rest of
   the session (no crash, no error — exactly the "plausible number instead of crashing" case
   CLAUDE.md warns about). **Fix**: the gender read is now additionally gated on `inOverworld()`
-  (`adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua`), the same gate already used before drawing
+  (`adapters/emulator/pokemon/emerald/meshghost_emerald.lua`), the same gate already used before drawing
   remotes. **Confirmed live 2026-08-14**: user started BizHawk fresh with an existing female
   save, deleted it, created a new male-gender save, and watched the Lua Console directly — the
   `MeshGhost: local gender = ...` line did not print at all during the title screen/intro/
@@ -357,7 +357,7 @@
     works with no regression. This closes the fourth and final Archipelago rendering bug found
     via this investigation.
   - **Correction, found live 2026-08-14 (Stage 1/2 of the VRAM investigation,
-    `adapters/bizhawk/pokemon/emerald/probes/vram_probe.lua`), to the "directly corroborates the pointer-based
+    `adapters/emulator/pokemon/emerald/probes/vram_probe.lua`), to the "directly corroborates the pointer-based
     fields surviving" claim two paragraphs up: that reasoning conflated "Archipelago's own
     client also reads a `gMain.callback2`-shaped anchor" with "Archipelago's own client uses the
     *same numeric* `CB2_Overworld` value this project's vanilla-derived address (0x08085e5c)

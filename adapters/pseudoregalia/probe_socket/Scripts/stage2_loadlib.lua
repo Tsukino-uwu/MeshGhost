@@ -8,7 +8,7 @@
 -- deployed ue4ss/Mods/MeshGhostSocketProbe/Scripts/main.lua, then copy THIS file over it,
 -- restart the game, and watch UE4SS.log. Restore the Stage 1 main.lua afterward either way.
 --
--- Why this is riskier than Emerald's equivalent (adapters/bizhawk/pokemon/emerald/probes/phase3_loopback.lua):
+-- Why this is riskier than Emerald's equivalent (adapters/emulator/pokemon/emerald/probes/phase3_loopback.lua):
 -- BizHawk's Lua host is a real, separate lua54.dll, so Phase 3 could preload a byte-identical
 -- copy of BizHawk's own lua54.dll and know the socket core binds to a compatible instance
 -- (confirmed empirically at the time, see phase3_loopback.lua's own comment and

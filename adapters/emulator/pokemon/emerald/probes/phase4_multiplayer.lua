@@ -1,34 +1,47 @@
--- Phase 3: loopback. Sends the local player's real state through the actual Go networking
--- layer (bridge -> core -> relay -> core -> bridge) and draws whatever comes back as a
--- trailing ghost. With a real second player absent (that's Phase 4), the relay's dev-only
--- `-loopback` flag (internal/relay/relay.go, agent_docs/phases/phase3.md) echoes this
--- client's own state back under a synthetic "<id>-ghost" player_id, so this script exercises
--- the full round trip -- and real core-side interpolation -- with only one BizHawk instance.
--- Never writes memory.
+-- Phase 4: two players. Same adapter <-> bridge <-> core round trip as
+-- adapters/emulator/pokemon/emerald/probes/phase3_loopback.lua (state reading, screen-position anchor, JSON,
+-- bridge protocol, remote-ghost set, tick model -- all unchanged, see that script's header
+-- for the full derivation and citations), run against a real second peer instead of the
+-- relay's dev-only `-loopback` echo. Never writes memory.
+--
+-- The only functional difference from phase3_loopback.lua: BRIDGE_PORT is read from the
+-- MESHGHOST_BRIDGE_PORT environment variable (falling back to 7778, the same default
+-- cmd/meshghost/main.go's own `-bridge` flag uses) instead of being hardcoded. Two BizHawk
+-- instances on one machine each need their own core process, each core needs its own
+-- `-bridge` port (`cmd/meshghost/main.go`'s `-bridge`/`-name` flags), and this script has no
+-- other way to know which port its own instance's core is listening on -- see
+-- agent_docs/phases/phase4.md's "known gap to close first". os.getenv is confirmed available
+-- in this BizHawk Lua sandbox already (used below for PROCESSOR_ARCHITECTURE, and originally
+-- confirmed live in Phase 3).
+--
+-- To run two instances: set MESHGHOST_BRIDGE_PORT in the environment each BizHawk process
+-- inherits before launching it (e.g. a small per-instance launch script that does
+-- `set MESHGHOST_BRIDGE_PORT=7778` / `set MESHGHOST_BRIDGE_PORT=7779` then starts BizHawk),
+-- matching each instance's `meshghost.exe -bridge=127.0.0.1:<port>`. BizHawk reads the
+-- variable once, at script start, via this file -- there is no live-reload path, so the
+-- environment must be set before BizHawk (and this script) starts.
 --
 -- This is the first script in the project that opens a socket at all. Per
 -- agent_docs/contract.md's "two protocols" section, this socket is to the *local core
 -- process only* (127.0.0.1, the bridge port) -- it never learns a relay address and never
 -- speaks the relay protocol directly. The core is the only thing that talks to the relay.
 --
--- State reading: same addresses as adapters/bizhawk/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
+-- State reading: same addresses as adapters/emulator/pokemon/emerald/probes/phase1_probe.lua (gSaveBlock1Ptr,
 -- gPlayerAvatar, gObjectEvents), same pokeemerald citations, not re-derived here.
--- Screen-position anchor: same formula as adapters/bizhawk/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
+-- Screen-position anchor: same formula as adapters/emulator/pokemon/emerald/probes/phase2_ghost.lua (gSprites,
 -- gSpriteCoordOffsetX/Y), reused rather than reimplemented -- see that script's header for
 -- the exact addresses and source citations.
 --
--- Ghost placement for a REMOTE player (new in this phase, since Phase 2 only ever drew an
--- offset from the LOCAL player's own screen position): the remote's map-tile position differs
--- from the local player's, so screen placement can't reuse Phase 2's formula unmodified. This
--- deliberately does not re-derive camera-scroll math independently (the actual risk Phase 2's
--- edge-of-map test was designed to retire, for the LOCAL player only) -- instead it anchors on
--- the already-verified local player screen position and adds the tile-space delta between the
--- remote and the local player, scaled by TILE:
+-- Ghost placement for a REMOTE player: the remote's map-tile position differs from the local
+-- player's, so screen placement can't reuse Phase 2's local-player-only formula unmodified.
+-- This deliberately does not re-derive camera-scroll math independently (the actual risk
+-- Phase 2's edge-of-map test was designed to retire, for the LOCAL player only) -- instead it
+-- anchors on the already-verified local player screen position and adds the tile-space delta
+-- between the remote and the local player, scaled by TILE:
 --   ghostScreenX = playerScreenX + (ghostMapX - playerMapX) * TILE
 --   ghostScreenY = playerScreenY + (ghostMapY - playerMapY) * TILE
--- TILE = 16 (GBA tile size) is ASSUMED, NOT YET CONFIRMED ON SCREEN -- the on-screen test is
--- "one tile of player movement moves the loopback ghost by the same screen distance", per
--- agent_docs/phases/phase3.md. If it's off, this is the constant to fix.
+-- TILE = 16 (GBA tile size) was confirmed on screen in Phase 3 (agent_docs/verified.md) via
+-- the loopback ghost; unchanged here since the placement math itself doesn't change.
 --
 -- LuaSocket: vendored binary, not BizHawk's own comm.* (see agent_docs/licensing.md and the
 -- Phase 3 ADR in agent_docs/architecture.md for why: comm.* uses a length-prefixed framing
@@ -48,11 +61,39 @@ local SPRITE_SIZE = 0x44
 local GSPRITECOORDOFFSETX_ADDR = 0x02021bbc
 local GSPRITECOORDOFFSETY_ADDR = 0x02021bbe
 
-local TILE = 16 -- ASSUMED, see header. Confirm on screen before trusting.
+-- Overworld-screen gate: skip drawing remote ghosts whenever the game isn't currently
+-- showing the overworld at all -- battle, or a full-screen pause-menu submenu (Pokedex, Bag,
+-- Player Card, Options) -- since playerScreenPos()'s sprite-slot read becomes unreliable in
+-- those states (confirmed live, see agent_docs/verified.md's battle-anchor entry) and there's
+-- no overworld to draw an overlay onto regardless. Ordinary NPC dialogue and the base pause
+-- menu are NOT gated -- confirmed live that talking to an NPC leaves gMain.callback2
+-- completely unchanged, matching Phase 1/2's existing confirmed "dialogue doesn't break
+-- tracking" behavior.
+--
+-- gMain = 0x030022C0 (pokeemerald.map/.sym, size 0x43C matches struct Main). callback2 field
+-- is at +0x004 (include/main.h L11), so its address is 0x030022C4 -- a u32 GBA function
+-- pointer for the game's current top-level state-machine callback, re-read every frame like
+-- every other field in this script (never cached).
+-- CB2_Overworld = 0x08085E5C (pokeemerald.map/.sym), the callback for ordinary field play
+-- (src/overworld.c L1484). Confirmed live (2026-08-11, adapters/emulator/pokemon/emerald/probes/battle_probe.lua) the
+-- runtime value actually read is 0x08085E5D -- the address with the GBA Thumb-mode bit set,
+-- as expected for a Thumb function pointer, not assumed. Checking both forms below in case a
+-- different callsite ever stores it without the bit.
+local GMAIN_CALLBACK2_ADDR = 0x030022c4
+local CB2_OVERWORLD_ADDR = 0x08085e5c
+
+local function inOverworld()
+    local callback2 = memory.read_u32_le(GMAIN_CALLBACK2_ADDR)
+    return callback2 == CB2_OVERWORLD_ADDR or callback2 == CB2_OVERWORLD_ADDR + 1
+end
+
+local TILE = 16 -- confirmed on screen in Phase 3, see header.
 local GHOST_IMAGE_SIZE = 16
 
 local BRIDGE_HOST = "127.0.0.1"
-local BRIDGE_PORT = 7778
+-- Falls back to 7778 (cmd/meshghost/main.go's own `-bridge` default) if unset, so a single
+-- instance still works with no environment setup, matching Phase 3's behavior.
+local BRIDGE_PORT = tonumber(os.getenv("MESHGHOST_BRIDGE_PORT") or "") or 7778
 
 local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 
@@ -88,7 +129,7 @@ local FACING = { [1] = "south", [2] = "north", [3] = "west", [4] = "east" }
 local function scriptDir()
     local pwd = io.popen and io.popen("cd"):read("*l")
     if not pwd or pwd == "" then
-        error("MeshGhost Phase 3: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
+        error("MeshGhost Phase 4: could not determine the script's own directory (io.popen \"cd\" unavailable or returned nothing).")
     end
     return pwd .. "\\"
 end
@@ -134,15 +175,15 @@ end
 
 local function loadSocketCore()
     if package.config:sub(1, 1) ~= "\\" then
-        error("MeshGhost Phase 3: only Windows is supported by the vendored LuaSocket binary so far.")
+        error("MeshGhost Phase 4: only Windows is supported by the vendored LuaSocket binary so far.")
     end
     local luaMajor, luaMinor = _VERSION:match("Lua (%d+)%.(%d+)")
     if luaMajor ~= "5" or luaMinor ~= "4" then
-        error("MeshGhost Phase 3: only Lua 5.4 is supported by the vendored LuaSocket binary so far (got " .. _VERSION .. ").")
+        error("MeshGhost Phase 4: only Lua 5.4 is supported by the vendored LuaSocket binary so far (got " .. _VERSION .. ").")
     end
     local arch = os.getenv("PROCESSOR_ARCHITECTURE") or ""
     if not arch:find("64") then
-        error("MeshGhost Phase 3: only x64 is supported by the vendored LuaSocket binary so far.")
+        error("MeshGhost Phase 4: only x64 is supported by the vendored LuaSocket binary so far.")
     end
     preloadLua54()
     local dllPath = SCRIPT_DIR .. "../lib/x64/socket-windows-5-4.dll"
@@ -332,7 +373,7 @@ end
 
 local function resetBridge()
     if connected then
-        console.log("MeshGhost Phase 3: bridge connection lost, will retry connecting.")
+        console.log("MeshGhost Phase 4: bridge connection lost, will retry connecting.")
     end
     if sock then pcall(function() sock:close() end) end
     sock = nil
@@ -428,7 +469,8 @@ end
 -- adapter-owned map the core upserts into via render_remote and removes
 -- from via despawn_remote; it is redrawn from this table every frame
 -- regardless of when new network data last arrived, never drawn once per
--- receipt.
+-- receipt. With a real second peer (unlike Phase 3's single synthetic
+-- loopback ghost) this table can hold more than one entry at once.
 ----------------------------------------------------------------------------
 
 local remotes = {}
@@ -472,13 +514,9 @@ local function drainBridge()
         else
             -- Any outcome other than "timeout" means the connection is no
             -- longer usable -- treat it as fatal rather than assuming the
-            -- specific string "closed" is the only failure mode. Found
-            -- live (2026-08-11): the original code special-cased
-            -- err == "closed" and treated everything else as a harmless
-            -- timeout, so whatever LuaSocket actually reports when the
-            -- core process is closed (a forcibly-terminated peer, not
-            -- necessarily a graceful close) fell through unnoticed,
-            -- leaving connected == true and a stale ghost drawn forever.
+            -- specific string "closed" is the only failure mode (Phase 3
+            -- found live that the original code's opposite assumption left
+            -- a stale ghost drawn forever after a forcibly-killed peer).
             resetBridge()
             remotes = {} -- don't leave a stale ghost frozen on screen forever
             return
@@ -487,16 +525,23 @@ local function drainBridge()
 end
 
 ----------------------------------------------------------------------------
--- Drawing. See the header for the tile-delta placement formula and the
--- TILE assumption that needs on-screen confirmation.
+-- Drawing. See the header for the tile-delta placement formula.
 ----------------------------------------------------------------------------
+
+-- playerScreenPos() returns the top-left corner of the player's own sprite bounding box
+-- (confirmed source: pokeemerald's event_object_movement.c, see the header), not the tile
+-- they're standing on -- overworld character sprites are taller than one tile, so that
+-- anchor sits above the player's actual feet/tile position. GHOST_Y_CORRECTION shifts the
+-- ghost down to compensate -- NOT YET CONFIRMED ON SCREEN, first guess based on GBA overworld
+-- sprites commonly being 16x32 (one TILE's worth of correction).
+local GHOST_Y_CORRECTION = TILE
 
 local function drawRemotes(localAreaId, playerMapX, playerMapY)
     local playerScreenX, playerScreenY = playerScreenPos()
     for _, remote in pairs(remotes) do
         if remote.areaId == localAreaId then
             local screenX = playerScreenX + (remote.x - playerMapX) * TILE
-            local screenY = playerScreenY + (remote.y - playerMapY) * TILE
+            local screenY = playerScreenY + (remote.y - playerMapY) * TILE + GHOST_Y_CORRECTION
             gui.drawImage(GHOST_IMAGE_PATH, screenX, screenY, GHOST_IMAGE_SIZE, GHOST_IMAGE_SIZE)
         end
         -- A remote in a different area is deliberately not drawn at all --
@@ -518,30 +563,19 @@ if not memory.usememorydomain("System Bus") then
     return
 end
 
-console.log("MeshGhost Phase 3 loopback adapter running.")
+console.log("MeshGhost Phase 4 multiplayer adapter running.")
 console.log("Connecting to bridge at " .. BRIDGE_HOST .. ":" .. BRIDGE_PORT .. " ...")
 
 while true do
-    -- Confirmed live (2026-08-11), against BizHawk's own gui.d.lua doc
-    -- ("gui.clearGraphics -- clears all lua drawn graphics from the
-    -- screen") and real precedent in BizHawk's own bundled scripts
-    -- (Gargoyles.lua, Earthworm Jim 2.lua, Super Mario World.lua all call
-    -- it for the same reason): drawn images do NOT auto-clear between
-    -- frames the way this project's own contract.md assumed when it was
-    -- written (that assumption was never actually tested against "stop
-    -- drawing entirely," only against "draw every frame vs. draw at
-    -- network rate," and turned out to be wrong for the former case). A
-    -- ghost that stops being drawn just freezes in its last position
-    -- forever instead of disappearing. Clearing unconditionally, every
-    -- frame, before the connect/send/draw logic below (not only when
-    -- connected) is what makes "nothing to draw" actually mean nothing is
-    -- shown, matching the tick model's actual intent.
+    -- Unconditional gui.clearGraphics() every frame, before connect/send/draw --
+    -- BizHawk's overlay does not auto-clear on its own (confirmed live in Phase 3,
+    -- see agent_docs/verified.md and the correction in contract.md's tick model).
     gui.clearGraphics()
 
     if not connected then
         connectBridge()
         if connected then
-            console.log("MeshGhost Phase 3: connected to bridge.")
+            console.log("MeshGhost Phase 4: connected to bridge.")
         end
     end
 
@@ -557,7 +591,7 @@ while true do
             drainBridge()
         end
 
-        if connected then
+        if connected and inOverworld() then
             local base = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
             if base ~= 0 then
                 local playerMapX = memory.read_s16_le(base + 0x00)

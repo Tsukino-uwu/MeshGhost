@@ -13,7 +13,7 @@ it more cheaply than endurance does.
 
 **Rules that are already loaded, and are not repeated here:** the root `CLAUDE.md`, plus
 `adapters/CLAUDE.md` (every-adapter hard rules) which loads itself the moment you touch anything
-under `adapters/`, plus `adapters/bizhawk/CLAUDE.md` if the game is an emulated one.
+under `adapters/`, plus `adapters/emulator/CLAUDE.md` if the game is an emulated one.
 
 ## Before you decide anything
 

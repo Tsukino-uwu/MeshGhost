@@ -1039,7 +1039,7 @@ three gets re-tried blind:
   when a line straddles the read boundary; code that only checks the first two returns discards
   `partial` outright, and the next successful read starts mid-line. `send()` on the same kind of
   socket can accept only part of a buffer, silently truncating the newline-terminated line if the
-  return isn't checked against the full length. Found in `adapters/bizhawk/pokemon/emerald/
+  return isn't checked against the full length. Found in `adapters/emulator/pokemon/emerald/
   meshghost_emerald.lua`'s `drainBridge`/`sendLine` (fixed: resume `receive("*l", partial)`,
   drop-and-reconnect on a partial send) and, as a partial-send-only variant, in
   `BridgeClient::send_line` (`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.cpp`,
@@ -1520,7 +1520,7 @@ next adapter author doesn't re-diagnose them as adapter bugs:
   vanilla+7 first costs nothing and is right often — but an address enters the table only after it
   was measured on the build in front of you. In this adapter that is enforced structurally: an
   unmeasured entry is `nil`, a `nil` refuses to run, and the refusal names what is missing. See
-  `ADDRESSES` in `adapters/bizhawk/pokemon/crystal/meshghost_crystal.lua` and the method in
+  `ADDRESSES` in `adapters/emulator/pokemon/crystal/meshghost_crystal.lua` and the method in
   `adapters/_template/probes.md`.
 - **A byte can pass every still-life test and fail the moment the game moves.** `0x0FB1` was the
   single survivor of two four-snapshot state runs for `wMapStatus`: 2 in the overworld on four
@@ -2129,7 +2129,7 @@ perception, and the next move is to count it rather than ask them to look again.
 Both found in one two-instance Emerald session, and they are the same mistake in two places: a
 name that is not unique per instance.
 
-- **Symptom.** Lines in `adapters/bizhawk/pokemon/emerald/logs/` mangled mid-write —
+- **Symptom.** Lines in `adapters/emulator/pokemon/emerald/logs/` mangled mid-write —
   `atus: frame=...` where one write landed inside another.
   **Cause.** The log name resolved only to the second (`meshghost_emerald_%Y%m%d_%H%M%S.log`), and
   two emulators running the same adapter reload in the same second every time a shared control
@@ -2226,7 +2226,7 @@ died.
 bare `while true ... emu.frameadvance()` and sets no `MESHGHOST_DEV_TICK`. Loaded as a loader
 target, that loop never returns, so it runs **inside** the loader's own `loadTarget` call forever.
 The loader's header has always stated the contract; the pre-loader probes were never updated to it,
-and **~33 of them are in the same state** (`for f in adapters/bizhawk/pokemon/*/probes/*.lua; do
+and **~33 of them are in the same state** (`for f in adapters/emulator/pokemon/*/probes/*.lua; do
 grep -q 'while true do' "$f" && ! grep -q MESHGHOST_DEV_TICK "$f" && echo "$f"; done`).
 
 **Fix.** The loader now **refuses** such a target by inspecting its text before loading it, and says
@@ -2338,7 +2338,7 @@ operator and array index downstream of it is a trap. Grep for `>>`, `<<`, `&` an
 derived from a smoothed coordinate.
 
 Worth noting what hid it: the blanket per-frame `pcall` caught it, so the adapter kept running and
-the clipping silently did nothing. `adapters/bizhawk/pokemon/emerald/BANDAGES.md` entry 2.
+the clipping silently did nothing. `adapters/emulator/pokemon/emerald/BANDAGES.md` entry 2.
 
 ## A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance (2026-08-19)
 
@@ -5071,8 +5071,8 @@ carries its own query can be re-run; one that carries only a line number cannot.
 
 ## Two probes had never parsed, and nothing in the repo could have told us (2026-08-25)
 
-**Symptom.** None — that is the entry. `adapters/bizhawk/pokemon/crystal/probes/noclip_off.lua`
-and `adapters/bizhawk/pokemon/emerald/probes/framedump.lua` were committed, reviewed and sitting
+**Symptom.** None — that is the entry. `adapters/emulator/pokemon/crystal/probes/noclip_off.lua`
+and `adapters/emulator/pokemon/emerald/probes/framedump.lua` were committed, reviewed and sitting
 in the tree as ordinary tools. Neither had ever been a valid Lua file.
 
 **Cause, and it is one this file already warns about twice: a scripted edit wrote Windows
@@ -5160,7 +5160,7 @@ how stepping obviously worked.
 opposite — the map coordinate **is the destination, and is set at the START**, in the same frame as
 everything else, with the sprite sliding to catch up over the following ~16 frames. Every frame
 after the first is the engine's own work. The mechanism now lives where a game fact belongs, in
-`adapters/bizhawk/pokemon/crystal/documentation.md`.
+`adapters/emulator/pokemon/crystal/documentation.md`.
 
 **What the wrong model would have cost.** A character that teleports while looking like it is
 walking — and a bug that presents as a *smoothing* fault, so the search starts in the interpolation

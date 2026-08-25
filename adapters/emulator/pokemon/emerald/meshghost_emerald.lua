@@ -10,7 +10,7 @@
 -- This is the real, actively-maintained Emerald adapter -- what actually ships (see
 -- packaging/README.md and .github/workflows/release.yml, which stage this file as
 -- games/pokemon/emerald/meshghost_emerald.lua in the release zip) and what any future fix or
--- feature for this game should be made in. adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua was a
+-- feature for this game should be made in. adapters/emulator/pokemon/emerald/probes/phase5_5_sprite.lua was a
 -- byte-identical copy of this file at the moment it was renamed here from that original
 -- development-phase name (2026-08-14, once this had been the stable, shipped adapter for a
 -- while and "phase5_5_sprite" no longer read as the current, final one it actually was) --
@@ -20,7 +20,7 @@
 --
 -- Otherwise unchanged from its original Phase 5.5 content: real Brendan/May ghost sprite
 -- instead of the magenta placeholder box. Same adapter <-> bridge <-> core round trip as
--- adapters/bizhawk/pokemon/emerald/probes/phase4_multiplayer.lua (state reading, screen-position anchor,
+-- adapters/emulator/pokemon/emerald/probes/phase4_multiplayer.lua (state reading, screen-position anchor,
 -- JSON, bridge protocol, remote-ghost set, tick model, overworld gate, LuaSocket loading --
 -- all unchanged, see that script's header for the full derivation and citations, not
 -- re-derived here). That inherited content is read-only; the RAM writes this adapter now does
@@ -34,7 +34,7 @@
 -- field is already free-form/opaque, no core/relay change needed); a remote's advertised
 -- gender picks which pic table its ghost is drawn from.
 --
--- Sprite decode: see adapters/bizhawk/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
+-- Sprite decode: see adapters/emulator/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
 -- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
 -- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
 -- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
@@ -121,7 +121,7 @@ local CB2_OVERWORLD_ADDR = 0x08085e5c
 -- address for every player on that patch version, not just one specific seed. No decomp source
 -- exists for the patched build to cite the normal way, so this was instead confirmed the way
 -- this project's own verification standard treats as equally valid when source isn't available:
--- watched live, 2026-08-14, via adapters/bizhawk/pokemon/emerald/probes/battle_probe.lua against a real
+-- watched live, 2026-08-14, via adapters/emulator/pokemon/emerald/probes/battle_probe.lua against a real
 -- .apemerald-patched ROM. callback2 read 0x080867F1 while standing idle in the overworld, held
 -- steady through walking and a route change (no line printed -- no change), and through a full
 -- door-transition round trip (entering AND leaving a house) it briefly showed 0x08086965 ->
@@ -997,7 +997,7 @@ local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil
 
 -- meshghost.exe is not shipped beside this script (it is 9 MB and every game would carry a copy),
 -- so look where it actually is: the release root is three levels up from games/pokemon/emerald,
--- and a source checkout is four up from adapters/bizhawk/pokemon/emerald. Beside the script wins
+-- and a source checkout is four up from adapters/emulator/pokemon/emerald. Beside the script wins
 -- if someone put one there deliberately.
 local function findCoreExe()
     local candidates = {
@@ -2070,7 +2070,7 @@ local function drainBridge()
         if not connected or not sock then return end
         -- With settimeout(0), a line straddling this call's read boundary comes back as
         -- nil, "timeout", partial -- LuaSocket 3.0's documented behavior for a pattern that
-        -- can't complete before the timeout (see adapters/bizhawk/pokemon/emerald/lib/x64/
+        -- can't complete before the timeout (see adapters/emulator/pokemon/emerald/lib/x64/
         -- luasocket.LICENSE.txt for the vendored version). The old code discarded that
         -- partial outright, which is almost certainly the "receive-side corruption" noted in
         -- MeshGhostPseudo/Mod/src/BridgeClient.hpp:4-6 -- every line after the first split
@@ -2475,7 +2475,7 @@ local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_T
 -- and sub-tile sliding played by the engine rather than reimplemented here.
 --
 -- The full derivation, and every trap that cost a live test, is in
--- adapters/bizhawk/pokemon/emerald/probes/spawn_test.lua and agent_docs/verified.md. The three that
+-- adapters/emulator/pokemon/emerald/probes/spawn_test.lua and agent_docs/verified.md. The three that
 -- matter most when reading this code:
 --   * the ObjectEvent is synthesised from InitObjectEventStateFromTemplate's own field list;
 --   * the Sprite is COPIED from the player's (four ROM pointers cannot be synthesised) but must

@@ -55,12 +55,16 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   `adapters/_template/`. Each adapter also carries a **`FLAGS.md`** (its compile-time flag
   register — shipped behaviour / probe / dormant) and a **`documentation.md`** (how that GAME
   works, never our compensations). All four shipped adapters have all three, as of 2026-08-18.
-- **`adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` — rules that load themselves.** A nested
-  `CLAUDE.md` is read automatically the first time a session touches a file in that folder, and
-  costs nothing on a session that never does. The first holds the hard rules common to every
-  adapter; the second holds the BizHawk/Lua host rules Crystal and Emerald share. Both are capped
-  at 300 lines for the same reason the root file is, and neither restates it. Added 2026-08-25,
-  moving content out of `_template/` that was only reachable by reading it end to end.
+- **Four `CLAUDE.md` files under `adapters/` — rules that load themselves.** A nested `CLAUDE.md`
+  is read automatically the first time a session touches a file in that folder, and costs nothing
+  on a session that never does. `adapters/CLAUDE.md` holds the rules common to every adapter;
+  `emulator/CLAUDE.md`, `tevi/CLAUDE.md` and `pseudoregalia/CLAUDE.md` hold the emulator, Unity and
+  Unreal **host** rules. Each declares its own cap for the same reason the root file has one, and
+  none restates a parent. Added 2026-08-25, moving content out of `_template/` that was only
+  reachable by reading it end to end.
+  **Why the last two sit at game scope:** `adapters/CLAUDE.md`'s create-a-level-only-when-two-
+  things-share-it rule. A second Unity or Unreal game is what creates that level, and each file
+  says at its top that it is what moves up when one arrives.
 - **`.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/` — required reading, sequenced.**
   A skill's body loads only when invoked, so these carry the order to read things in without
   spending context until the moment they apply. They are maps, not copies: every rule keeps one home.
@@ -107,8 +111,14 @@ in agent memory is invisible to all three and goes stale with nothing to catch i
   the repo root (`protocol/`, `core/`, …) — see the module-rename ADR in
   [architecture.md](architecture.md). Citations of `internal/README.md` are to a file that no
   longer exists; its content became [../docs/networking.md](../docs/networking.md) and
-  [../docs/security.md](../docs/security.md). Those paths are left as written rather than rewritten,
-  because a phase file records what was true while the phase ran.
+  [../docs/security.md](../docs/security.md). **The same applies to the 2026-08-25 adapter rename:**
+  read any `adapters/bizhawk/` in a phase file as `adapters/emulator/`. Those paths are left as
+  written rather than rewritten, because a phase file records what was true while the phase ran —
+  and each affected phase file carries the note at its top. **Live documents are the opposite
+  case and were rewritten**, including citations inside the append-only `VERIFIED.md` records: a
+  citation's whole job is to point at the file, so a stale one has failed at it. The one thing not
+  rewritten anywhere is a **verbatim quote** — a pasted log line saying `...\adapters\bizhawk\...`
+  still says it, because the log did.
 - [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` holds a hard 300-line cap, and why
   `status.md`'s cap is per-item rather than a flat line count. The evidence behind two rules
   that otherwise read as arbitrary.

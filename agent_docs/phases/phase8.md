@@ -2,6 +2,9 @@
 
 > **A dated record. Package paths here predate the 2026-08-17 module move** — read any
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
+> **Adapter paths predate the 2026-08-25 folder rename** — read any `adapters/bizhawk/` as
+> `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
+> while the phase ran.
 
 **Status: in progress, but the PEER-STATE work inside it is closed — Emerald is FEATURE COMPLETE
 as of 2026-08-21, the user's call** (`verified.md`): every way this game moves a character and

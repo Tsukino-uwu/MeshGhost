@@ -307,15 +307,15 @@ jobs:
           }
           Remove-Item packaging\release\games\client-config-template.json
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
-          Copy-Item adapters\bizhawk\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
-          Copy-Item -Recurse adapters\bizhawk\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
+          Copy-Item adapters\emulator\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
+          Copy-Item -Recurse adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
           # Crystal, the same way. Its lib\ comes from Emerald's: it is the same BizHawk LuaSocket
-          # build, and adapters/bizhawk/pokemon/crystal/ deliberately has no copy of its own -- in a source
+          # build, and adapters/emulator/pokemon/crystal/ deliberately has no copy of its own -- in a source
           # checkout the script falls back to ../emerald/lib/x64/, and a release gives each game
           # folder its own so that fallback is never needed by a player.
           New-Item -ItemType Directory -Force packaging\release\games\pokemon\crystal | Out-Null
-          Copy-Item adapters\bizhawk\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\meshghost_crystal.lua
-          Copy-Item -Recurse adapters\bizhawk\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
+          Copy-Item adapters\emulator\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\meshghost_crystal.lua
+          Copy-Item -Recurse adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
           # An experiment flag beside the adapter would make it run an Archipelago ROM on an
           # unconfirmed address. It is gitignored, so this only catches a stray local copy -- but
           # a release is exactly where that must not slip through.
@@ -325,7 +325,7 @@ jobs:
           # adapter and Emerald's lib) -- so the flag could never be there and the guard could
           # never fire. The adapter reads it from its own directory (SCRIPT_DIR .. "/ap_try.flag"),
           # which is where a stray one actually lives.
-          if (Test-Path adapters\bizhawk\pokemon\crystal\ap_try.flag) {
+          if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
             Write-Host "::error::ap_try.flag must never be packaged"
             exit 1
           }

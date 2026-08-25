@@ -2,6 +2,9 @@
 
 > **A dated record. Package paths here predate the 2026-08-17 module move** — read any
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
+> **Adapter paths predate the 2026-08-25 folder rename** — read any `adapters/bizhawk/` as
+> `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
+> while the phase ran.
 
 Folded back into `agent_docs/plans.md` as complete (2026-08-11); kept here for the detailed
 task-by-task record. Per `agent_docs/README.md`'s rule: a phase earns a file when it's live,

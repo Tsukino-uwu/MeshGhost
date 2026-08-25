@@ -7,8 +7,8 @@ the adapter it belongs to:
 
 | Game | File | Entries |
 | --- | --- | --- |
-| Pokémon Crystal | [../adapters/bizhawk/pokemon/crystal/UNVERIFIED.md](../adapters/bizhawk/pokemon/crystal/UNVERIFIED.md) | 35 |
-| Pokémon Emerald | [../adapters/bizhawk/pokemon/emerald/UNVERIFIED.md](../adapters/bizhawk/pokemon/emerald/UNVERIFIED.md) | 21 |
+| Pokémon Crystal | [../adapters/emulator/pokemon/crystal/UNVERIFIED.md](../adapters/emulator/pokemon/crystal/UNVERIFIED.md) | 35 |
+| Pokémon Emerald | [../adapters/emulator/pokemon/emerald/UNVERIFIED.md](../adapters/emulator/pokemon/emerald/UNVERIFIED.md) | 21 |
 
 **There is no Pseudoregalia or TEVI queue, and that is not an oversight** — nothing was ever
 written for them here. Create one when the first item exists.

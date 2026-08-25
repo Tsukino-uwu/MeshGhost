@@ -1,6 +1,6 @@
 -- FROZEN, 2026-08-14: this file is no longer the shipped/maintained adapter -- it's kept only
 -- as a historical snapshot under its original development-phase name, byte-identical to
--- adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua only at the moment of that split. That file
+-- adapters/emulator/pokemon/emerald/meshghost_emerald.lua only at the moment of that split. That file
 -- is the real, actively-maintained one -- what .github/workflows/release.yml ships and what any future
 -- Emerald fix/feature belongs in -- and has since diverged substantially (Archipelago address
 -- auto-detection, gender-read timing, the sub-tile smoothing rewrite, the loopback ghost
@@ -8,7 +8,7 @@
 -- below this point is Phase 5.5 content only, predating all of that.
 --
 -- Phase 5.5: real Brendan/May ghost sprite instead of the magenta placeholder box. Same
--- adapter <-> bridge <-> core round trip as adapters/bizhawk/pokemon/emerald/probes/phase4_multiplayer.lua (state
+-- adapter <-> bridge <-> core round trip as adapters/emulator/pokemon/emerald/probes/phase4_multiplayer.lua (state
 -- reading, screen-position anchor, JSON, bridge protocol, remote-ghost set, tick model,
 -- overworld gate, LuaSocket loading -- all unchanged, see that script's header for the full
 -- derivation and citations, not re-derived here). Never writes memory.
@@ -21,7 +21,7 @@
 -- field is already free-form/opaque, no core/relay change needed); a remote's advertised
 -- gender picks which pic table its ghost is drawn from.
 --
--- Sprite decode: see adapters/bizhawk/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
+-- Sprite decode: see adapters/emulator/pokemon/emerald/probes/sprite_probe.lua (Step 1, confirmed 2026-08-11) and
 -- sprite_ghost_test.lua (Step 2, confirmed 2026-08-11) for the 4bpp-tile/BGR555-palette decode
 -- math and the gui.drawPixel color-format fix (0xAARRGGBB, not 0xRRGGBBAA), both cited in
 -- agent_docs/verified.md. Addresses (pokeemerald.sym, same make-compare-verified build as
@@ -671,7 +671,7 @@ local function drainBridge()
     while true do
         -- With settimeout(0), a line straddling this call's read boundary comes back as
         -- nil, "timeout", partial -- LuaSocket 3.0's documented behavior for a pattern that
-        -- can't complete before the timeout (see adapters/bizhawk/pokemon/emerald/lib/x64/
+        -- can't complete before the timeout (see adapters/emulator/pokemon/emerald/lib/x64/
         -- luasocket.LICENSE.txt for the vendored version). The old code discarded that
         -- partial outright, which is almost certainly the "receive-side corruption" noted in
         -- MeshGhostPseudo/Mod/src/BridgeClient.hpp:4-6 -- every line after the first split

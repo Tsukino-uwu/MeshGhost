@@ -458,7 +458,7 @@ clear, so a hardware sprite draws in front of it.
 
 ## Links
 
-`adapters/bizhawk/pokemon/crystal/README.md` (reader-facing) · `architecture.md` (the spawn ADR) ·
+`adapters/emulator/pokemon/crystal/README.md` (reader-facing) · `architecture.md` (the spawn ADR) ·
 `verified.md` (all evidence, dated) · `pitfalls.md` (the BizHawk Lua lifecycle trap) ·
 `environment.md` (decomp toolchain) · `licensing.md` (the `pret` family row)
 

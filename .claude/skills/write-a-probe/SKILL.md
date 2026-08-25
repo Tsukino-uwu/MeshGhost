@@ -50,7 +50,7 @@ measurement.**
 - **Make a probe verify its own assumption**, and have it say what it could not see — an
   instrument reports its own coverage, not just its findings.
 - **Buffer the log and flush on a timer.** This is about anything running every frame, shipped
-  code first — not just probes. On BizHawk the numbers are in `adapters/bizhawk/CLAUDE.md`.
+  code first — not just probes. On BizHawk the numbers are in `adapters/emulator/CLAUDE.md`.
 
 ## Where the results go
 

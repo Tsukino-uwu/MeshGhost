@@ -217,7 +217,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   like any other object, not painted over it. Player at (7,7), ghost at (9,7), in
   `PLAYERS_HOUSE_2F`. Log: `ROM guard passed: vanilla Crystal V1.0` then
   `Wrote slot 1 at frame 120`.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/spawn_test.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/spawn_test.lua`.
 - Notes: **this is the milestone the 2026-08-17 spawn ADR was written for.** MeshGhost has drawn
   overlays on an emulated game since Emerald; this is the first time it has asked the game itself
   to render a character, and the first game-RAM write in the project's history. It validates the
@@ -246,7 +246,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   character's **collision sat two tiles away from where its sprite was drawn** — user, verbatim:
   *"the hitbox/collission of the sprite seems to be 2 tiles to the right of where the sprite is
   shown"*, and then *"its now an 'invisible blocked tile' i can't walk onto"*.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/spawn_test.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/spawn_test.lua`.
 - Notes: **the two tiles are exactly the offset the script applied**, which identifies the cause
   precisely. `OBJECT_MAP_X`/`MAP_Y` drive collision and we set them to +2; the sprite is drawn from
   `OBJECT_SPRITE_X`/`Y`, which we copied from the player and **the engine never recomputed** — the
@@ -745,7 +745,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
   copied — produced **a second, correctly drawn character**. It wears Professor Elm's appearance
   because Elm was the template object, which is exactly what the test intended. User: *"it
   duplicated an npc, 4 tiles left of Elm, and it also looks like elm"*.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/spawn_test6.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/spawn_test6.lua`.
 - Notes: **this closes the mechanism question the 2026-08-17 ADR opened.** A character can be
   created at an arbitrary position, without waiting for the engine's map-load or screen-edge
   adoption paths, by writing a linked map object + object struct copied from a live NPC and
@@ -774,7 +774,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - Observed: **watched by the user.** After correcting placement to read the player's own object
   struct rather than `wXCoord`/`wYCoord`, `spawn_test6.lua` put a character **two tiles to the
   right of the player**, exactly where asked. User: *"yes, placed 2 tiles to the right of me"*.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/spawn_test6.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/spawn_test6.lua`.
 - Notes: **this completes the mechanism the 2026-08-17 ADR set out to establish.** A character can
   be created at an arbitrary chosen position, at any time during play, and the game renders and
   animates it with no drawing code from us. The recipe, all of it necessary and none of it
@@ -801,7 +801,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - Observed: **watched by the user.** `spawn_test7.lua` — NPC template for behaviour, plus the
   player's `SPRITE`, `SPRITE_TILE` and `PALETTE` — produced a second **player-looking character**
   standing two tiles to the right of the player. User: *"yes, looks like the player"*.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/spawn_test7.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/spawn_test7.lua`.
 - Notes: **this is what the 2026-08-17 ADR set out to prove, complete.** A peer can be represented
   by a real in-game object event, created at any position at any time, rendered and animated by
   Crystal's own engine, with **no drawing code in the adapter at all** — the thing Emerald has to
@@ -864,7 +864,7 @@ scheduled. All established by the agent with local tools; nothing here is a visu
 - Observed: **watched by the user.** `walk_test.lua` spawned a player-looking ghost and paced it
   four tiles right and four left by writing the step-initiation set once per tile. User: *"yee it
   looks normal i think, just like any other random npc walking around"*.
-- Source: live session; `adapters/bizhawk/pokemon/crystal/probes/walk_test.lua`.
+- Source: live session; `adapters/emulator/pokemon/crystal/probes/walk_test.lua`.
 - Notes: **this completes the cosmetic mechanism Phase 9 set out to build.** A peer can be
   represented by a real in-game character that is spawned on demand at any position, wears the
   player's appearance, and **walks with the game's own step animation** — and the adapter draws

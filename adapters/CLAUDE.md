@@ -1,10 +1,10 @@
 # Adapters — the rules that apply to every one
 
-<!-- line-cap: 250 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
 
 **Loaded automatically** the first time this session reads or edits anything under `adapters/`.
 You do not have to go and find it, and it costs nothing on a session that never touches an
-adapter. Host-specific rules live one level down (`bizhawk/CLAUDE.md`); per-game facts live in
+adapter. Host rules live in the nearest `CLAUDE.md` below this one; per-game facts live in
 each adapter's own `documentation.md`, `FLAGS.md` and `BANDAGES.md`.
 
 **Capped at 300 lines**, for the reason the root `CLAUDE.md` is: this loads without being asked,
@@ -16,6 +16,27 @@ with two homes is a rule that drifts, which this repo can already demonstrate in
 
 Moved verbatim from `adapters/_template/README.md` on 2026-08-25, where they were reachable only
 by reading 1,723 lines end to end. `_template/` keeps a headed pointer at each site.
+
+## How this folder is arranged: create a level only when two things share it
+
+**The tree's job is not finding things — grep and the doc index do that. Its only job is making
+rules auto-load at the right scope.** A nested `CLAUDE.md` is read automatically on first contact
+with its folder, so a folder level is worth creating exactly when there is a rule-set that belongs
+to more than one thing underneath it, and worth nothing otherwise.
+
+So the rule, set 2026-08-25: **a level gets created when a second thing actually shares it, not in
+anticipation.** A second emulator is what creates `emulator/bizhawk/`; a second Unity game is what
+creates `unity/`. Until then the host rules sit at the level that exists — which is why
+`tevi/CLAUDE.md` and `pseudoregalia/CLAUDE.md` hold Unity and Unreal rules at *game* scope, and
+each says so at the top.
+
+**Do not sort adapters by anything a reader would have to look up.** Sorting by engine was
+considered and rejected on the user's call: nobody should need to know what a game was built in to
+find it, and the release the player actually installs is flat and named by game
+(`packaging/release/games/<game>/`) precisely because that knowledge is ours, not theirs.
+Commercial category (indie/AAA) was rejected for the same reason and a worse one — it predicts
+nothing about the adapter. Where access difficulty genuinely differs, that is an **access model**,
+and `agent_docs/access-models.md` is its one home.
 
 ## Hard rule: anything the player can do, anything else should be able to do
 

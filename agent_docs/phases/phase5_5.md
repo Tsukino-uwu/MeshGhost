@@ -1,5 +1,9 @@
 # Phase 5.5 — Real Emerald ghost sprite (gender-correct, no more magenta box)
 
+> **A dated record. Adapter paths here predate the 2026-08-25 folder rename** — read any
+> `adapters/bizhawk/` as `adapters/emulator/`. Left as written because a phase file records what
+> was true while the phase ran; the convention is in [../README.md](../README.md).
+
 **Status: complete**, 2026-08-11. Inserted between Phase 5 and Phase 6 — see
 `agent_docs/plans.md`. Not a numbered roadmap phase in the original sense (it doesn't gate the
 game-count milestones), same treatment as the unnumbered "Post-Phase-4 — Room codes" entry, but

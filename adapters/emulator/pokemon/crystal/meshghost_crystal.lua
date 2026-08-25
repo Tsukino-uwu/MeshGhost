@@ -341,7 +341,7 @@ local UNASSIGNED = 0xFF
 -- one here produced four failed paths on the first run (2026-08-18).
 --
 -- The working directory IS the script's directory when BizHawk loads a Lua file, confirmed live:
--- `cd` returned C:\dev\MeshGhost\adapters\bizhawk\pokemon\crystal. So pwd is the primary answer here, not
+-- `cd` returned C:\dev\MeshGhost\adapters\emulator\pokemon\crystal. So pwd is the primary answer here, not
 -- the fallback.
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
@@ -475,7 +475,7 @@ local function loadSocketCore()
 	local candidates = {
 		SCRIPT_DIR .. "/lib/x64/",
 		SCRIPT_DIR .. "/../emerald/lib/x64/",
-		"adapters/bizhawk/pokemon/emerald/lib/x64/",
+		"adapters/emulator/pokemon/emerald/lib/x64/",
 	}
 	for _, dir in ipairs(candidates) do
 		pcall(function()

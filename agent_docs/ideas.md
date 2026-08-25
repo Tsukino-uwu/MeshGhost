@@ -391,7 +391,7 @@ passed and a real corruption bug wasn't found until sustained traffic later):
    exists anywhere in this repo, only the opaque "182" quoted below from a project that isn't
    cloned locally.** Stage 1's real job is to *discover* a candidate free region empirically
    (cross-checked against the game's own sprite-tile allocator bookkeeping), not to verify a
-   guessed one — see `adapters/bizhawk/pokemon/emerald/probes/vram_probe.lua`.
+   guessed one — see `adapters/emulator/pokemon/emerald/probes/vram_probe.lua`.
 2. Same probe, on a real `.apemerald`-patched ROM — does the patch touch whatever region Stage
    1 found?
 3. First real write: one static test sprite, vanilla only, easily reversible.
@@ -1507,7 +1507,7 @@ only one of those where the work is bounded and the benefit reaches users direct
 
 Split into one file per adapter, so each game's compensations sit next to its own `README.md`:
 `adapters/pseudoregalia/BANDAGES.md`, `adapters/tevi/BANDAGES.md`,
-`adapters/bizhawk/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
+`adapters/emulator/pokemon/emerald/BANDAGES.md`, and `agent_docs/bandages-core.md` for the Go side.
 The rule itself lives in `adapters/_template/README.md`, with a blank register beside it.
 
 ## Slide: the render-Z bandage is gone — DONE 2026-08-17
@@ -2496,7 +2496,7 @@ adapters/games"*), keeping the full release at the top:
 `release.yml`, and every split above is a different staging list over artifacts that already
 exist -- the Go side already cross-compiles in CI, so the linux/mac server-client rows are mostly
 "stop discarding what CI already builds". The category split maps cleanly onto the repo's own
-layout (`adapters/bizhawk/` IS the emulator category; TEVI/Pseudoregalia are the indie one; AAA is
+layout (`adapters/emulator/` IS the emulator category; TEVI/Pseudoregalia are the indie one; AAA is
 empty today, which is fine -- the row exists so the scheme does not need reshaping when it stops
 being empty).
 
@@ -2785,7 +2785,7 @@ isolate a regression.
 - **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Per-remote blocks
   are the next extraction; on the adapter's hot path, so it needs a live session.
 - **The two BizHawk Lua adapters duplicate ~400-500 lines each** (JSON codec, socket loader, port
-  walk, framing). A shared `adapters/bizhawk/lib/` would need a matching `release.yml` staging
+  walk, framing). A shared `adapters/emulator/lib/` would need a matching `release.yml` staging
   change. Note the JSON codec is no longer identical across the two once the decoder guard lands.
 - **Probe boilerplate: a near-identical block across the Crystal probes**, including the ROM
   guard. **Ten** probes carry the `PM_CRYSTAL` header check (`spawn_test`, `spawn_test2`-`7`,
@@ -2824,7 +2824,7 @@ from its genre and vintage, not a measurement.
 
 Two passes have now touched this. The 2026-08-25 **repair** pass fixed facts and collapsed
 duplication. The 2026-08-25 **staged-context** pass (commits `64c3162`..`47d4537`) built the
-delivery mechanism: `adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` (nested files that load
+delivery mechanism: `adapters/CLAUDE.md` and `adapters/emulator/CLAUDE.md` (nested files that load
 themselves on contact), `.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/`, and the
 `CLAUDE.md` cap reclaimed from 299 to 278 by deleting an index that duplicated
 `agent_docs/README.md`.
@@ -3004,7 +3004,7 @@ section 4 — the segmentation rule, and why its conservation check could not ca
   deliberately broken tree on their first run — see `pitfalls.md`, "A check that lists no files
   passes every time".
 - **The `_template` condense.** Four hard rules reduced to imperative plus dated stub; the Lua
-  200-local ceiling moved to `bizhawk/CLAUDE.md` where it loads on contact; both files gained the
+  200-local ceiling moved to `emulator/CLAUDE.md` where it loads on contact; both files gained the
   table of contents neither had. **The honest number: 3,302 → 3,216 lines, 2.6%.** The composition
   changed more than the count. Anyone hoping this halves the mandated reading should know it did not.
 - **The per-game split.** `verified.md` 10,174 → 1,072 across five files; `unverified.md` 1,670 → 36

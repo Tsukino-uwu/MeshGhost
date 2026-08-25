@@ -131,7 +131,7 @@ disaster!" call on Route 30. Permitted to confirm visually because the ROM is pa
 **Measured 2026-08-19 on the VANILLA instance, and it changes the proposed fix.** The call panel
 itself was **not observed** — no call came in during the session, so its geometry is still unknown
 and the item above stands. What *was* measured is the trap the naive version of the fix walks into.
-`adapters/bizhawk/pokemon/crystal/probes/uiframe_probe.lua` scans **both** tilemaps on **every**
+`adapters/emulator/pokemon/crystal/probes/uiframe_probe.lua` scans **both** tilemaps on **every**
 row for the frame corner and logs the window registers beside it. In New Bark Town, with nothing
 open and the player walking, it found a full-width frame top at **BG row 12 while `WY` was parked
 at 144** — i.e. the frame tiles were sitting in the tilemap with **no panel on screen at all**, and
@@ -1099,7 +1099,7 @@ survived a session that was otherwise clean.
 of `phase9.md`'s 2026-08-19 animation enumeration; this is the rest of it — spin (which includes
 turning in place, spin tiles, Teleport and Dig), the Dig/Teleport flicker, fishing, and the Fly
 landing. Written from the decompilation, cited per class in
-`adapters/bizhawk/pokemon/crystal/documentation.md`; the narrative is in `phases/phase9.md`.
+`adapters/emulator/pokemon/crystal/documentation.md`; the narrative is in `phases/phase9.md`.
 
 **Where it lives:** `facingFrames.pose` in `meshghost_crystal.lua`, called once per peer per frame
 and shared by the drawn and hardware tiers. It replaces the bump special case and returns exactly

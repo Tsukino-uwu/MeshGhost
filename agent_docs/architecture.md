@@ -431,7 +431,7 @@ ADR text was changed. **Give a new one a heading.**
   edit a text file to match." The cost is a small ordering contract every future adapter must
   follow (hello before any `local_state`) that a purely-flag-driven adapter never had to think
   about — documented in `contract.md` and `adapters/_template/PROTOCOL.md`, and demonstrated in
-  both shipped adapters (`adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua`,
+  both shipped adapters (`adapters/emulator/pokemon/emerald/meshghost_emerald.lua`,
   `adapters/tevi/MeshGhostTevi/BridgeClient.cs`).
 
 ---
@@ -998,7 +998,7 @@ ADR text was changed. **Give a new one a heading.**
     no-numbers-from-memory rule, the per-message byte figures are not estimated — they come from
     actually marshaling a real `protocol.State`/`protocol.Envelope` through the identical
     `json.Marshal` path `relay.go`'s `sendEnvelope` uses, with field shapes and example values
-    matching the two adapters' own real outgoing payloads (Emerald: `adapters/bizhawk/pokemon/emerald/
+    matching the two adapters' own real outgoing payloads (Emerald: `adapters/emulator/pokemon/emerald/
     meshghost_emerald.lua`'s `encodeLocalState`, `:463-466`; Pseudoregalia: `adapters/
     pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp`'s local-state `std::format` call,
     `:7538-7592`). Measured once via a throwaway `cmd/` program, run, and deleted — not committed,
@@ -1913,7 +1913,7 @@ ADR text was changed. **Give a new one a heading.**
   intended now for crystal, so we don't start doing this game with bandaids from the get go"*.
   **Implemented and confirmed on screen 2026-08-18** — the original status line here read "Nothing
   is implemented", true only on the day it was written.
-  `adapters/bizhawk/pokemon/crystal/probes/object_slot_probe.lua` was the first, strictly read-only
+  `adapters/emulator/pokemon/crystal/probes/object_slot_probe.lua` was the first, strictly read-only
   step; `meshghost_crystal.lua` now spawns a real object event beside the player mid-map, walks it
   with the game's own step animation, and drives it off `render_remote` over the bridge — a
   loopback ghost was watched moving and facing correctly. `verified.md`, `phases/phase9.md`.
@@ -2003,7 +2003,7 @@ ADR text was changed. **Give a new one a heading.**
     maps use them. The adapter needs a defined behaviour when none is free.
   - **A new bandage risk of its own**: if spawning proves unreliable, the tempting fix is to fall
     back to drawing and leave both paths in. That would be a compensation, and belongs in
-    `adapters/bizhawk/pokemon/crystal/BANDAGES.md` if it ever happens, not left unremarked.
+    `adapters/emulator/pokemon/crystal/BANDAGES.md` if it ever happens, not left unremarked.
 
 ### 2026-08-18 — Emerald spawns too: the Crystal spawn ADR extends to Emerald, and call-vs-imitate is answered
 
@@ -2015,7 +2015,7 @@ ADR text was changed. **Give a new one a heading.**
   never touches the game, no gameplay authority) is unchanged and restated by reference, not
   relaxed.
 - **Status:** Requested by the user 2026-08-18 — *"lets fix up emerald so spawns instead of draw"*.
-  The read-only evidence step (`adapters/bizhawk/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day.
+  The read-only evidence step (`adapters/emulator/pokemon/emerald/probes/object_slot_probe.lua`) ran the same day.
   **Shipped the same day**: `meshghost_emerald.lua` spawns on a vanilla ROM and the user confirmed
   it piece by piece on screen — appears, follows, walks, runs, stays on-grid, leaks nothing. The
   end-to-end pass is still queued (`unverified.md`).
@@ -2059,7 +2059,7 @@ ADR text was changed. **Give a new one a heading.**
   the adapter spawns on a vanilla ROM and falls back to the overlay on an Archipelago-patched one
   (`avatarAddrOffset ~= 0`). Keeping both is exactly the shape of a compensation, so it went in
   where this bullet said it must: registered in
-  `adapters/bizhawk/pokemon/emerald/BANDAGES.md` ("Two render paths at once"), with its own
+  `adapters/emulator/pokemon/emerald/BANDAGES.md` ("Two render paths at once"), with its own
   retirement condition — verifying `gSprites` for *writing* on a patched ROM — rather than left as
   a leftover.
 - **Consequences, accepted going in:** the same three the Crystal ADR lists — per-map object state

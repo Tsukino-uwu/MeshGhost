@@ -25,8 +25,8 @@ runs in that same prefix.
 
 ## Games
 
-- [Pokémon Emerald](adapters/bizhawk/pokemon/emerald/README.md)
-- [Pokémon Crystal](adapters/bizhawk/pokemon/crystal/README.md)
+- [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md)
+- [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md)
 - [TEVI](adapters/tevi/README.md)
 - [Pseudoregalia](adapters/pseudoregalia/README.md)
 

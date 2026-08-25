@@ -297,7 +297,7 @@ different questions.
 
 ## Don't pay a relaunch per probe revision (BizHawk) — moved
 
-The dev-loader contract now lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md), which loads
+The dev-loader contract now lives in [../emulator/CLAUDE.md](../emulator/CLAUDE.md), which loads
 itself the moment you touch a BizHawk adapter.
 
 ## A probe's read budget is real — an emulator's script host is slow
@@ -507,7 +507,7 @@ session inherits it. And read the decomp to plan the route — knowing what a sc
 value.** Emerald's surf and fishing work needed water, and the water was several maps away. Walking
 there costs the user's time; warping needed machinery we did not have. But a tile is water because
 one halfword says so — so the tile the player was standing next to became water, and the state was
-reachable in seconds. `adapters/bizhawk/pokemon/emerald/probes/watertile.lua` is the worked example.
+reachable in seconds. `adapters/emulator/pokemon/emerald/probes/watertile.lua` is the worked example.
 
 The generalisable parts, in the order they matter:
 
@@ -857,7 +857,7 @@ than tuned afterwards:
   flush on a timer and on close, and send only the opening lines to the console. **Both halves cost
   independently** — fixing one and declaring victory is a wasted cycle, and it was, twice in one
   evening. The host-specific form and its measured numbers are in
-  [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md); the rule itself is not host-specific.
+  [../emulator/CLAUDE.md](../emulator/CLAUDE.md); the rule itself is not host-specific.
 - **Per-frame work is the other half.** Enumerate once per frame, not once per peer; compare by
   pointer or index rather than by name; and never re-scan an array you already scanned this frame.
 - **Measure it, do not assume it.** `dev-scripts/bizhawk-hitch-meter.lua` is standing rig: attach it
@@ -1047,7 +1047,7 @@ so an object can report a pose it is not displaying. Any engine that copies fram
 than pointing at them can do this.
 
 **The probe is trivial and worth writing early:** find both sprites' tile ranges, read them, count
-the bytes that differ (`adapters/bizhawk/pokemon/emerald/probes/posediff.lua`). It said 120 of 512
+the bytes that differ (`adapters/emulator/pokemon/emerald/probes/posediff.lua`). It said 120 of 512
 while every field matched.
 
 **Two rules came out of it, both general:**
@@ -1096,7 +1096,7 @@ draws through a subsprite table parks its struct's own tile entry — reading it
 "its" pixels are whatever lives there. The trustworthy comparison resolves (animation, index)
 through the graphic's own anims table to a ROM image and diffs against that: it owes nothing to
 either sprite, and it splits "the copy did not land" from "we asked for the wrong frame" in one
-reading (`adapters/bizhawk/pokemon/emerald/probes/posediff.lua`, the `ghost vs ROM` column).
+reading (`adapters/emulator/pokemon/emerald/probes/posediff.lua`, the `ghost vs ROM` column).
 
 **A dev-loader reload is part of the experiment.** Reloading the adapter respawns its ghosts, and a
 respawn re-derives exactly the state a transition bug corrupts — so "add the screenshot probe, then
@@ -1274,7 +1274,7 @@ from "we are drawing the wrong thing".
 
 ## Seeing BETWEEN frames — moved (BizHawk write breakpoints)
 
-The instrument is BizHawk-specific and lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md). The
+The instrument is BizHawk-specific and lives in [../emulator/CLAUDE.md](../emulator/CLAUDE.md). The
 general point holds on any host: **a defect that exists at RENDER time is invisible to every
 per-frame probe by construction**, so reach for an instrument that fires on the write, not on the
 tick.
@@ -1317,7 +1317,7 @@ the player) and check it before reading the result.
 
 ## Write-only registers read back as convincing noise — moved (GBA)
 
-The register list is GBA-specific and lives in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+The register list is GBA-specific and lives in [../emulator/CLAUDE.md](../emulator/CLAUDE.md).
 Generally: **check a register's read/write status before building an argument on a dump**, and
 prefer the engine's own copy to a hardware read wherever both exist.
 

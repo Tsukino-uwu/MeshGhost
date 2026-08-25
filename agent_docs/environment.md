@@ -108,7 +108,7 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
 - Lua socket support (Phase 3): BizHawk's own `comm.*` (`CommLuaLibrary`) is present in this
   2.11 build but uses length-prefixed framing, not NDJSON — inspected directly via
   `BizHawk.Client.Common.dll`'s embedded doc strings (2026-08-11), not used. LuaSocket
-  (vendored, `adapters/bizhawk/pokemon/emerald/lib/x64/socket-windows-5-4.dll`) is used instead — see
+  (vendored, `adapters/emulator/pokemon/emerald/lib/x64/socket-windows-5-4.dll`) is used instead — see
   `agent_docs/licensing.md` and the Phase 3 ADR in `architecture.md`.
 - BizHawk's Lua host (`LuaLibraries.cs`, confirmed by reading source 2026-08-11) is a plain
   `new Lua()` (NLua) with no standard library removed afterward — `debug`, `os`, `package`,
@@ -322,7 +322,7 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   dialog, never by the API's return value, and clear what you added
   (`dev-scripts/bizhawk-cheat-clear.lua`). Full write-up, including the Gold/Silver-code trap that
   writes into Crystal's object array: `pitfalls.md`. **For GBA, prefer writing the real save
-  structure at decomp-verified offsets** — `adapters/bizhawk/pokemon/emerald/probes/testkit.lua`.
+  structure at decomp-verified offsets** — `adapters/emulator/pokemon/emerald/probes/testkit.lua`.
 - **To enumerate what a BizHawk build actually implements**, `client.getluafunctionslist()`
   returns the real list — better than reading DLL strings, which include functions that are nil at
   runtime.
@@ -533,7 +533,7 @@ UE4SS entry below for that last one specifically, which is currently unresolved)
   `SURFING_GFX`/`spawnSurfBlob` in the spawn), each time costing a live test to find, and the
   third one presented as "the surf blob feature does nothing at all".
   Run it over any Lua that has grown past a screen:
-  `python dev-scripts/lua-forward-refs.py adapters/bizhawk/pokemon/*/meshghost_*.lua`.
+  `python dev-scripts/lua-forward-refs.py adapters/emulator/pokemon/*/meshghost_*.lua`.
   It considers **file-scope** locals only (a local inside a function cannot be the trap), ignores
   strings, comments, field access, method calls and table keys, and understands a forward
   declaration as the fix rather than an instance. **It reports candidates for a human to judge, not

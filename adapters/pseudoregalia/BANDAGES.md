@@ -9,8 +9,8 @@ From the repo-wide audit of 2026-08-16. Its headline holds here too: most things
 bandages are not — the great majority carry the live incident, the rejected alternative, and the
 derivation right beside them. Ranked by how likely each is to cause a real bug.
 
-Other registers: `../tevi/BANDAGES.md`, `../bizhawk/pokemon/emerald/BANDAGES.md`,
-`../bizhawk/pokemon/crystal/BANDAGES.md`,
+Other registers: `../tevi/BANDAGES.md`, `../emulator/pokemon/emerald/BANDAGES.md`,
+`../emulator/pokemon/crystal/BANDAGES.md`,
 `../../agent_docs/bandages-core.md`.
 
 ## Is this a bandage?

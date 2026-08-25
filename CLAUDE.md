@@ -274,7 +274,7 @@ loaded and that index is not, so a trigger kept here still fires and a descripti
   if you have not reached the last line you have not read it.** Reading the top and starting work
   is THE failure mode — it happened twice on 2026-08-17, both times with the answer sitting
   further down the file. **Answers are at the bottom as often as the top.**
-- **`adapters/CLAUDE.md` and `adapters/bizhawk/CLAUDE.md` load themselves** on first contact with
+- **`adapters/CLAUDE.md` and `adapters/emulator/CLAUDE.md` load themselves** on first contact with
   those folders — the every-adapter hard rules and the BizHawk host rules. Do not restate either
   here, or in `_template/`: a rule with two homes drifts, and this repo can show that twice.
 - **`_template/` is the gold standard and may never lag**: a rule, file or trap added to a shipped

@@ -412,7 +412,7 @@ function Git-LastCommit($path) {
     if ($ts) { return [int]$ts } else { return $null }
 }
 $adapters = @(
-    "adapters/bizhawk/pokemon/crystal", "adapters/bizhawk/pokemon/emerald",
+    "adapters/emulator/pokemon/crystal", "adapters/emulator/pokemon/emerald",
     "adapters/pseudoregalia", "adapters/tevi"
 )
 $lagging = @()

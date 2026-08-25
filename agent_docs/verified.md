@@ -56,8 +56,8 @@ moved, verbatim and in their original order, to a `VERIFIED.md` beside each adap
 
 | Game | File | Entries |
 | --- | --- | --- |
-| Pokémon Crystal | [../adapters/bizhawk/pokemon/crystal/VERIFIED.md](../adapters/bizhawk/pokemon/crystal/VERIFIED.md) | 63 |
-| Pokémon Emerald | [../adapters/bizhawk/pokemon/emerald/VERIFIED.md](../adapters/bizhawk/pokemon/emerald/VERIFIED.md) | 120 |
+| Pokémon Crystal | [../adapters/emulator/pokemon/crystal/VERIFIED.md](../adapters/emulator/pokemon/crystal/VERIFIED.md) | 63 |
+| Pokémon Emerald | [../adapters/emulator/pokemon/emerald/VERIFIED.md](../adapters/emulator/pokemon/emerald/VERIFIED.md) | 120 |
 | Pseudoregalia | [../adapters/pseudoregalia/VERIFIED.md](../adapters/pseudoregalia/VERIFIED.md) | 104 |
 | TEVI | [../adapters/tevi/VERIFIED.md](../adapters/tevi/VERIFIED.md) | 18 |
 | Go side, cross-game, governance | this file | 37 |
@@ -1064,7 +1064,7 @@ invites someone to schedule it, and this one is attractive enough to come back o
   (Archipelago etc.) stay agent-confirmable visually — user's correction, same day** — as do
   Go-side facts (core/relay/transport/bridge/cmd). `CLAUDE.md` carries the rule.
 - **The entry "how a character actually gets onto the water, measured on the player" (moved
-  2026-08-25 to [../adapters/bizhawk/pokemon/emerald/VERIFIED.md](../adapters/bizhawk/pokemon/emerald/VERIFIED.md)) is
+  2026-08-25 to [../adapters/emulator/pokemon/emerald/VERIFIED.md](../adapters/emulator/pokemon/emerald/VERIFIED.md)) is
   hereby reclassified as UNVERIFIED under the new rule.** Its measurements also fed a diagnosis
   the user's screen later contradicted the same day — the correction is in `pitfalls.md` ("THE
   PAIR was wrong — and fixing it did NOT clear the symptoms"). Appended rather than deleted,

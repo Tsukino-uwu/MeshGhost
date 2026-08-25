@@ -19,7 +19,7 @@
 # Exception: LuaSocket is a real vendored dependency for the Emerald BizHawk
 # adapter (agent_docs/licensing.md, agent_docs/architecture.md's Phase 3
 # ADR), not Go build output -- must actually be committed.
-!/adapters/bizhawk/pokemon/emerald/lib/**/*.dll
+!/adapters/emulator/pokemon/emerald/lib/**/*.dll
 
 # Probe/test logs. Every probe writes a timestamped log beside itself, deliberately (a verdict
 # that lives only in the Lua Console has to be copied back by hand) -- but they are personal
@@ -28,23 +28,23 @@
 # committed: they are the record of how each fact was established, and several have been reused
 # to chase the same class of bug on a later ROM. 72 such logs (1.1MB) were untracked on
 # 2026-08-18 when this rule replaced the two narrower ones it supersedes.
-/adapters/bizhawk/pokemon/**/*.log
+/adapters/emulator/pokemon/**/*.log
 # Probe control files: a session writes a verb into one to drive a probe. Transient, like the logs.
-/adapters/bizhawk/pokemon/**/*.cmd
+/adapters/emulator/pokemon/**/*.cmd
 # The cross-map scan cache the Emerald adapter writes beside its logs -- a per-machine runtime
 # artifact (a ROM-keyed address), never repo content.
-/adapters/bizhawk/pokemon/**/xmap_cache.txt
+/adapters/emulator/pokemon/**/xmap_cache.txt
 
 # The adapter script + lib/ under packaging/release/games/pokemon/emerald/ are assembled by
-# .github/workflows/release.yml (copied fresh from adapters/bizhawk/pokemon/emerald/ each run) or by a
+# .github/workflows/release.yml (copied fresh from adapters/emulator/pokemon/emerald/ each run) or by a
 # local dry run -- never hand-edited, never committed (avoids a second copy of the adapter
-# script drifting from the real one at adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua).
+# script drifting from the real one at adapters/emulator/pokemon/emerald/meshghost_emerald.lua).
 # README.txt at this same path is NOT covered by these two patterns -- see the exception below;
 # it's hand-written and committed, same as TEVI's/Pseudoregalia's games/<game>/README.txt.
 /packaging/release/games/pokemon/emerald/meshghost_emerald.lua
 /packaging/release/games/pokemon/emerald/lib/
 
-# Same deal for Crystal: assembled by release.yml from adapters/bizhawk/pokemon/crystal/, never
+# Same deal for Crystal: assembled by release.yml from adapters/emulator/pokemon/crystal/, never
 # hand-edited, never committed. README.txt at that path IS committed, as with every other game.
 /packaging/release/games/pokemon/crystal/meshghost_crystal.lua
 /packaging/release/games/pokemon/crystal/lib/
@@ -59,7 +59,7 @@
 # re-creating it from memory later. Without the glob that parked file shows up untracked and the
 # same over-broad `git add -A` sweeps it in, which is precisely how the live one got committed.
 # release.yml still checks for the exact name `ap_try.flag`, so a parked one cannot fail a build.
-/adapters/bizhawk/pokemon/crystal/ap_try.flag*
+/adapters/emulator/pokemon/crystal/ap_try.flag*
 
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
 # .csproj needs the user's own proprietary game DLLs, which are never committed,

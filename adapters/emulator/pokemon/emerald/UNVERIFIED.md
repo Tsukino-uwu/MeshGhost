@@ -204,7 +204,7 @@ on screen (`verified.md`: the Acro Bike is FINISHED 2026-08-21, surfing and divi
     *Self-tested* by reading back what the game computes at that tile: `behaviour 21
     (OCEAN_WATER)`, collision 0, elevation 1, player at elevation 3 adjacent. **Not confirmed on
     screen, and no rod has successfully been cast on it yet.**
-- **Archipelago ROMs still use the old drawn overlay.** See `adapters/bizhawk/pokemon/emerald/BANDAGES.md`
+- **Archipelago ROMs still use the old drawn overlay.** See `adapters/emulator/pokemon/emerald/BANDAGES.md`
   — one live run on a patched seed either closes it or refuses safely.
 
 ## Pending — Emerald: what a BLOCKED rider actually does (2026-08-20)

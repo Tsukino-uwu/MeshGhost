@@ -5968,7 +5968,7 @@ namespace MeshGhostPseudo
             if (it != remotes.end())
             {
                 // Loopback ghost offset, 2026-08-14 -- user-requested, generalized from the same
-                // fix in adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua's drawRemotes(). A
+                // fix in adapters/emulator/pokemon/emerald/meshghost_emerald.lua's drawRemotes(). A
                 // loopback-echoed ghost (internal/relay's dev-only -loopback flag, id =
                 // "<id>-ghost") otherwise renders exactly on top of the real player -- it's an
                 // echo of your own position by definition -- which made it hard to visually

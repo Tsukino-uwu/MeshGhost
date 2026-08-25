@@ -27,7 +27,7 @@ entries and carries the index to these files.
 > `internal/` for the repo root that day — read any `internal/X` as `X/`. Left as written,
 > because a dated record records what was true when it was written.
 
-Sibling registers: `../tevi/VERIFIED.md`, `../bizhawk/pokemon/crystal/VERIFIED.md`, `../bizhawk/pokemon/emerald/VERIFIED.md`.
+Sibling registers: `../tevi/VERIFIED.md`, `../emulator/pokemon/crystal/VERIFIED.md`, `../emulator/pokemon/emerald/VERIFIED.md`.
 
 ## Confirmed facts
 

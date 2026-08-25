@@ -185,7 +185,7 @@ PC — nothing to do with anyone else) read as clearly different things at a gla
 ## Adding a game to the release
 
 Nothing under `adapters/` is picked up automatically — that tree holds source and history, not
-shippable output (other Lua scripts under `adapters/bizhawk/pokemon/emerald/` are frozen/dev artifacts;
+shippable output (other Lua scripts under `adapters/emulator/pokemon/emerald/` are frozen/dev artifacts;
 `adapters/tevi/MeshGhostTevi/` is a C# project; pseudoregalia carries a submodule). Emerald is
 the easy case only because `meshghost_emerald.lua` *is* the shipped file. Each game gets its own
 step in `.github/workflows/release.yml`'s assemble job when its adapter is genuinely ready to

@@ -74,7 +74,7 @@ TEVI replaced the brief's original Ori: Will of the Wisps pick.
   of play per attempt and the tester's own save is expendable during development. The carve-out is
   a probe in `probes/`, never an adapter and never in a release; the full statement and its three
   conditions are in `adapters/_template/README.md`, and the worked example is
-  `adapters/bizhawk/pokemon/emerald/probes/testkit.lua`.
+  `adapters/emulator/pokemon/emerald/probes/testkit.lua`.
 
 ### Efficiency is a standing goal — and the size of the win is not the test
 
@@ -702,7 +702,7 @@ game it's running (it's the script/mod the user loaded) — typing it a second t
 {"game_id":"..."}}`) is now sent by the adapter as the first message on a fresh bridge
 connection; `core.Core.ConnectRelayOnAdapterHello` connects to the relay lazily on
 that first hello instead of requiring `-game`/`config.json`'s `"game"` up front. Both shipped
-adapters updated (`adapters/bizhawk/pokemon/emerald/probes/phase5_5_sprite.lua`,
+adapters updated (`adapters/emulator/pokemon/emerald/probes/phase5_5_sprite.lua`,
 `adapters/tevi/MeshGhostTevi/BridgeClient.cs` + `Plugin.cs`, TEVI's DLL rebuilt and
 recommitted). `-game`/`"game"` still work as an explicit override — needed by
 `dev-scripts/run-core-*.bat` (each game's dev launcher still passes it explicitly) and

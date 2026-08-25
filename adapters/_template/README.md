@@ -26,7 +26,7 @@ something already went wrong.
 find out how the GAME does it before you work around it · never let a ghost exist before the player
 is in the game · ship the bare minimum · never write a save or game state · this folder is the gold
 standard. Six more hard rules load themselves from [../CLAUDE.md](../CLAUDE.md) on first contact
-with `adapters/`, and the BizHawk host rules from [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+with `adapters/`, and the BizHawk host rules from [../emulator/CLAUDE.md](../emulator/CLAUDE.md).
 
 **Starting out**: what's here · folder convention · starting a new game's adapter · first, work out
 what you will be able to READ · a new game gets its own `phaseN.md`.
@@ -48,8 +48,8 @@ the SHIPPED settings · when a renderer looks wrong, measure THE WIRE first.
 ## Hard rule: this folder is the gold standard, and it is never allowed to go stale
 
 **Anything a shipped adapter learns belongs here too.** A new rule, a new file convention, a hard-won
-trap, a new per-adapter document — when it lands in `bizhawk/pokemon/emerald/`,
-`bizhawk/pokemon/crystal/`, `tevi/` or `pseudoregalia/`, back-port it to `_template/` in the same
+trap, a new per-adapter document — when it lands in `emulator/pokemon/emerald/`,
+`emulator/pokemon/crystal/`, `tevi/` or `pseudoregalia/`, back-port it to `_template/` in the same
 pass, not "later". The next game starts from this folder,
 so whatever is missing here is a lesson the next adapter gets to learn the hard way a second time.
 
@@ -103,7 +103,7 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
   in-process shortcut used only by `cmd/meshghost-fakeadapter` and Go tests
   (`core/core_test.go`'s `TestRunAdapterInProcess`) to drive the core without a socket
   at all. A real adapter — including TEVI's — never implements it; it dials the bridge and
-  speaks NDJSON, exactly like `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua` does. See
+  speaks NDJSON, exactly like `adapters/emulator/pokemon/emerald/meshghost_emerald.lua` does. See
   [PROTOCOL.md](PROTOCOL.md) for why this distinction matters and where to look for a worked
   example of each.
 
@@ -111,15 +111,23 @@ The counterpart rule for content lives in each file: `BANDAGES.md` for compensat
 
 One folder per game, named after the game itself (`emerald`, `tevi`, `pseudoregalia`).
 
-**Games driven through an emulator are grouped under that emulator; native games sit at the top
-level.** So `adapters/bizhawk/pokemon/emerald/` and `adapters/tevi/`. Added 2026-08-18, on the
-user's call, because "how this adapter reaches the game" is the division that actually predicts
-what an adapter looks like: everything under `bizhawk/` is Lua reading emulator memory against a
-decompilation, while a native game is a mod inside the process using the engine's own API. A
-future `adapters/dolphin/` or `adapters/duckstation/` would sit beside `bizhawk/`.
+**Games running inside an emulator are grouped under `emulator/`; everything else sits at the top
+level.** So `adapters/emulator/pokemon/emerald/` and `adapters/tevi/`. Added 2026-08-18 and
+renamed from `bizhawk/` on 2026-08-25, both on the user's call, because "how this adapter reaches
+the game" is the division that actually predicts what an adapter looks like: everything under
+`emulator/` is a script reading emulated machine memory against a decompilation, while everything
+else is a mod inside the game's own process using its engine's API. A future Dolphin or
+DuckStation game goes **inside** `emulator/`, not beside it.
 
-Within an emulator, games in the same franchise are grouped again —
-`adapters/bizhawk/pokemon/emerald/`, with a future `adapters/bizhawk/pokemon/platinum/` alongside
+**There is deliberately no `emulator/bizhawk/` level, and no `unity/` or `unreal/` level.** The
+rule — stated once, in [../CLAUDE.md](../CLAUDE.md), which loads itself — is **create a level only
+when two things actually share it.** A second emulator is what creates `emulator/bizhawk/`; a
+second Unity game is what creates `unity/`. Until then host rules sit at the level that exists
+(`emulator/CLAUDE.md`, `tevi/CLAUDE.md`, `pseudoregalia/CLAUDE.md`), and each of those says so at
+its top so the move is obvious when it comes.
+
+Within `emulator/`, games in the same franchise are grouped again —
+`adapters/emulator/pokemon/emerald/`, with a future `adapters/emulator/pokemon/platinum/` alongside
 it — purely for browsability as more games get added; it's not a code-sharing boundary. A hypothetical Platinum adapter (NDS, a
 different console/engine than Emerald's GBA) would share essentially no code with Emerald's,
 same as any two unrelated games — grouping by franchise just keeps the top level of
@@ -148,10 +156,10 @@ within a day of being started, at which point its four `.md` files were genuinel
 the listing. **The probes themselves are committed and kept** — they are the record of how each
 fact was established, and several written for a vanilla ROM were re-run later against a
 patched one to chase the same class of bug (Emerald's four `avatar_*` probes, 2026-08-14). **Their logs are not**: `.gitignore` covers
-`/adapters/bizhawk/pokemon/**/*.log`, because once a run has been read its conclusions belong in
+`/adapters/emulator/pokemon/**/*.log`, because once a run has been read its conclusions belong in
 `verified.md`, not in a megabyte of raw text. Convention adopted 2026-08-18, on the user's ask, and
 applied to Emerald and Crystal together — **the ignore rule is still scoped to those two**, so a new
-adapter outside `bizhawk/pokemon/` must widen it or its logs will be committed.
+adapter outside `emulator/pokemon/` must widen it or its logs will be committed.
 
 **This replaces an earlier carve-out, overturned by the user 2026-08-18**, which said
 `documentation.md` was needed only for games with no readable source — on the reasoning that
@@ -229,7 +237,7 @@ deliberately no template, since a stub with no content would go stale immediatel
    per-frame send/receive, redraw-every-frame) independent of any particular language.
 3. For a worked, complete reference of a real adapter speaking this protocol end-to-end
    (connection retry, the hello handshake, NDJSON framing, the remote-ghost set, the tick
-   loop), read `adapters/bizhawk/pokemon/emerald/meshghost_emerald.lua`. Its game-reading parts are
+   loop), read `adapters/emulator/pokemon/emerald/meshghost_emerald.lua`. Its game-reading parts are
    Emerald-specific and won't transfer; its bridge-connection, hello, and tick-loop shape will.
 4. Figure out, for the new game: what counts as `area_id` (a scene/level identifier), what
    `position` looks like (2D or 3D — the schema doesn't fix this), what `anim` tags are
@@ -255,7 +263,7 @@ deliberately no template, since a stub with no content would go stale immediatel
    `.github/workflows/release.yml`'s "Assemble release package" step, under
    `packaging/release/games/<game>/` (or `games/<franchise>/<game>/` if the game is grouped, as
    `games/pokemon/emerald/` is — the release groups by franchise the way `adapters/` does, but
-   **not** by emulator: there is no `games/bizhawk/`, because a player installing a game's files
+   **not** by emulator: there is no `games/emulator/`, because a player installing a game's files
    does not care which host reads them) — nothing
    under `adapters/` is picked up automatically. See
    [packaging/README.md](../../packaging/README.md)'s "Adding a game to the release" for the
@@ -278,7 +286,7 @@ deliberately no template, since a stub with no content would go stale immediatel
 
 ## An emulator adapter is Lua-only — never patch the ROM (moved)
 
-The rule and its full reasoning are in [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md), which loads
+The rule and its full reasoning are in [../emulator/CLAUDE.md](../emulator/CLAUDE.md), which loads
 itself when you touch a BizHawk adapter. The one-line version, which is also in the root
 `CLAUDE.md`: an emulator adapter never ships, generates or requires a patched ROM — that is what
 lets MeshGhost run on top of an Archipelago seed instead of fighting it.
@@ -528,7 +536,7 @@ Three rules that are one rule, and every adapter has paid for at least one of th
   assume.
 - **It is not only about probes.** The same cost applies to anything that runs every frame, shipped
   code first — and both Lua adapters got that wrong. When anyone says "choppy", measure PACING, not
-  rate: an average cannot see a hitch. Host-specific numbers: [../bizhawk/CLAUDE.md](../bizhawk/CLAUDE.md).
+  rate: an average cannot see a hitch. Host-specific numbers: [../emulator/CLAUDE.md](../emulator/CLAUDE.md).
 
 ### If you are about to start effect work, read the playbook first
 
@@ -650,7 +658,7 @@ note at the bottom of that list says so too.
 **Carry a "Limits that come from the game, not from us" section near the top**, before the build
 story. Every game has a ceiling — how many peers it can show at once, and what happens past it —
 and a reader deserves to meet it in the adapter's own README rather than discover it in a session.
-`adapters/bizhawk/pokemon/crystal/README.md` has the worked example; the numbers and the measuring
+`adapters/emulator/pokemon/crystal/README.md` has the worked example; the numbers and the measuring
 rig live in [agent_docs/crowd-limits.md](../../agent_docs/crowd-limits.md), and the README carries
 the short version with a link.
 
@@ -677,7 +685,7 @@ working.** Use this layout verbatim — user-facing and direct, quoted names, no
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
 ```
 
-(`isos` where that is what the platform uses.) `adapters/bizhawk/pokemon/emerald/README.md` carries the live
+(`isos` where that is what the platform uses.) `adapters/emulator/pokemon/emerald/README.md` carries the live
 one. **Keep it a bare list of names**: a player checks their own copy against it at a glance, and
 turning it into prose defeats the entire point.
 
@@ -924,7 +932,7 @@ process rather than calling an engine API from within it.
 **Emerald then re-tested the constraint and moved, exactly as point 4 below asks.** "We cannot
 create, because writes are refused" had stopped being true, and the 2026-08-18 ADR extended
 Crystal's to Emerald: a peer there is now a real object event first, with the OAM and drawn tiers
-below it (`adapters/bizhawk/pokemon/emerald/README.md`, step 18). The overlay was never *wrong* —
+below it (`adapters/emulator/pokemon/emerald/README.md`, step 18). The overlay was never *wrong* —
 it shipped and was proven — it was resting on a premise nobody had re-checked.
 
 The difference between those two is not the tier. It is that one had a blocker anyone could state
@@ -1348,7 +1356,7 @@ correctly refuse to build it.
 
 Reaching a state the adapter cannot yet handle — surfing, a bike, the far side of the map, eight
 badges — costs an hour of play per attempt otherwise. A dev probe may write whatever it takes,
-including save data (`adapters/bizhawk/pokemon/emerald/probes/testkit.lua` is the worked example).
+including save data (`adapters/emulator/pokemon/emerald/probes/testkit.lua` is the worked example).
 
 The carve-out is narrow, and each clause is load-bearing:
 

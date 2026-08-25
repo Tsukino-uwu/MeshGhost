@@ -57,7 +57,7 @@ sending leaves their marker frozen where it was — see
 
 Second game, and by far the fastest: about 1 hour from start to a ghost following the player
 with all animations working. Server/client and the general approach were already proven by
-the `bizhawk/pokemon/emerald` adapter, so this was adapter-only work. BepInEx plus being able to
+the `emulator/pokemon/emerald` adapter, so this was adapter-only work. BepInEx plus being able to
 decompile the game made this easier and faster than Emerald, even though Emerald had a full
 source decompilation available to reference — a lot of things (notably the animations) just
 worked as soon as they were wired up, with no equivalent of Emerald's memory-probing phase.

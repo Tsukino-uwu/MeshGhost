@@ -1,5 +1,9 @@
 # Phase 1 — Emerald read-only verification
 
+> **A dated record. Adapter paths here predate the 2026-08-25 folder rename** — read any
+> `adapters/bizhawk/` as `adapters/emulator/`. Left as written because a phase file records what
+> was true while the phase ran; the convention is in [../README.md](../README.md).
+
 Folded back into `agent_docs/plans.md` as complete (2026-08-11); kept here for the detailed
 task-by-task record. Per `agent_docs/README.md`'s rule: a phase earns a file when it's live,
 and gets folded back once it's done. Phase 2 followed this one; `agent_docs/status.md` has the current phase — see
