@@ -108,6 +108,26 @@ since roughly doubled in size. Neither has solved this, and the constants-onto-t
 that bought Emerald its last few names is a bandage, not a fix. The fix is modules, each with its
 own 200-local budget — `agent_docs/ideas.md`'s deferred-refactor list.
 
+**Measure the headroom, do not count `local` lines.** Lua's limit is on NAMES, so
+`local a, b, c` spends three and `grep -c '^local '` undercounts — it reads 193/156 against the
+real 197/188. Append N throwaway locals to a copy and compile it, halving N until it flips:
+
+```sh
+C:/msys64/mingw64/bin/luac.exe -p <copy-with-N-extra-locals.lua>
+```
+
+Both figures above were re-confirmed that way 2026-08-25 — Emerald compiles with 3 added and fails
+with 4, Crystal compiles with 12 and fails with 13. A number nothing re-measures is a number that
+was true once.
+
+**The modules fix has one trap already paid for twice, and it must be designed around.** A file
+loaded with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE path, so a shared module that
+calls `scriptDir()` itself resolves to `"."` — which passes the absolute-path guard's sibling branch,
+skips the pwd fallback, and then fails where it actually matters, because `package.loadlib` resolves
+a relative DLL path against BizHawk's process directory and never the working directory. Both
+adapters' own `scriptDir()` carries the dated warning (2026-08-18, twice in one day). **So a shared
+module never resolves its own directory: the host adapter resolves `SCRIPT_DIR` and passes it in.**
+
 **So group by default, from the first file.** Related constants and state go on one table
 (`local oam = {...}`, `local COMPARE = {...}`), not one name each. Field offsets, addresses, tier
 state and per-frame scratch are all natural groups. Retrofitting this under pressure — which is how

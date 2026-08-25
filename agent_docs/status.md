@@ -29,8 +29,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   duplication, Crystal's probe boilerplate, TEVI's send gate. (`internal/cfg` shipped.) `ideas.md`.
 - **The append-only ledgers are indexed, not split** — every entry is dated 2026-08, so the period
   axis does not exist yet; all five carry an index and a check. `doc-history.md`, "The third pass".
-- **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188 (re-counted
-  2026-08-25; the old figure of 157 for Crystal is two measurements stale). `emulator/CLAUDE.md`.
+- **Both Lua adapters are near the 200-local wall** — Emerald 197, Crystal 188, re-measured with
+  `luac` 2026-08-25 (not grepped). The modules fix is designed, not started. `emulator/CLAUDE.md`.
 
 Fixed-and-confirmed work is not listed here — see `verified.md` and the phase files.
 
