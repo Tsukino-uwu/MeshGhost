@@ -14,8 +14,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   2026-08-22/23; most of what is open below is a fix built since and never watched. `verified.md`.
 - **Rig SHUT DOWN.** It DID run 2026-08-25 for the four-adapter smoke test (`verified.md`), on ROM
   **V1.0**. Rebuild with `run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`.
-- **NEXT SESSION STARTS HERE: Crystal's in-place animations are built and need ONE live run.**
-  Six things to watch, with what correct looks like, are in `crystal/UNVERIFIED.md` (2026-08-25).
+- **NEXT SESSION STARTS HERE: Crystal's six animation classes still need ONE live run** — never
+  seen on screen. What to watch: `crystal/UNVERIFIED.md`. The movement work below landed first.
 - **Savestate slots on that rig:** 1 the user's, 7 their Route 39 spot, 8 `goto_map`'s undo, **9 the
   9x9 square start**. The mechanism, and the savestate-is-not-a-save trap: `environment.md`.
 
@@ -58,6 +58,10 @@ that a peer's state genuinely differs from the local player's, which loopback co
   they PARSE (preflight runs `luac -p` on all of them); none has been RUN in a game. `pitfalls.md`.
 - **Crystal's loopback ghost moved to Emerald's 2-tile side offset (2026-08-25)** — user's request;
   parses, never watched, and the gate to `-ghost` ids is the part to check. `crystal/UNVERIFIED.md`.
+- **Crystal's promotion seam and drawn stop were rebuilt 2026-08-25** — three layers plus the stop
+  freeze, all traced clean, user's read is hedged. `crystal/UNVERIFIED.md`.
+- **The drawn tier's beat is smoother than the engine's, and stays that way for now** — user's call;
+  the retiring mechanism is written down. `crystal/BANDAGES.md` #2.
 
 **Crystal's open work is grouped, not listed one fix per line** (2026-08-25). Sixteen entries here
 were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which is a 1,186-line

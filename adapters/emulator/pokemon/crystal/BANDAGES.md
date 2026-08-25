@@ -7,9 +7,11 @@ was to build this adapter without starting from a compensation: *"i want to actu
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*
 (2026-08-17). It carried nothing under Shipped for two days.
 
-**It carries one now, deliberately and on the user's instruction**: the drawn-overflow tier. The
-entry below is written the way the guide asks — what it compensates for, what it costs, and what
-would retire it.
+**It carries two now**, both deliberate and both on the user's call: the drawn-overflow tier
+(2026-08-19) and that tier's camera-clocked beat (2026-08-25). Each entry below is written the way
+the guide asks — what it compensates for, what it costs, and what would retire it. The second is
+the more instructive one: its proper mechanism is **known and written down**, which is what makes
+it debt rather than a ceiling.
 
 **A file that is present and empty is the goal; a file that is absent is a gap.** An absent register
 cannot tell you whether an adapter has no compensations or merely never wrote them down.
@@ -80,6 +82,49 @@ walking, it is hiding a new cause rather than guarding against an old one — an
 is the first clue to what. It must not be allowed to become the reason a drift is tolerable.
 
 **What retires it.** Nothing planned. It is cheap, silent when healthy, and self-reporting when not.
+
+### 2. The drawn tier's beat and paint are both the CAMERA, so its rhythm is smoother than the game's
+
+**What it is.** The drawn model moves on the frames the background scroll register changes, and is
+painted by a camera formula (an accumulator plus a constant `K`, with a park-time nudge repaying
+the drift between that formula and the tile-derived one).
+
+**What it compensates for.** `screenCoords()` — tile, camera offset and scroll — is only coherent
+at tile boundaries, because those terms update at different moments inside a step. The camera
+accumulator exists to have a world-to-screen mapping that survives mid-scroll.
+
+**What it costs, measured 2026-08-25** (three-way trace, raw frames, dev rig at `-interp=0`):
+
+- **The drawn ghost's beat is metronomic where the engine's is not.** The player advances at frames
+  649, 651, 652, 654 — gaps of 2, 1, 2, 2 — and the model at 647, 649, 651, 653, a perfect 2 every
+  time. Smoother than the game, which `adapters/CLAUDE.md` names as its own defect: *"the engine's
+  RHYTHM is as visible as its speed"*. The spawned ghost does not have this, because the engine
+  moves it and it inherits the irregularity for free.
+- **A constant one-frame phase** behind the player and the spawned ghost. Constant, so it is the
+  invisible kind — the user, looking at all three side by side: *"it looks visually the same to me
+  i think"* — but it is not 1:1 and is recorded rather than called finished.
+- **All the machinery listed above is this entry's cost too**: `K`, the drift accumulator, the park
+  nudge, the 1px repayment, the rebase plausibility test. Each exists to survive the mapping.
+
+**What would retire it — the mechanism is known, which is why this is debt and not a ceiling.**
+`liveScreenCoords()` (written 2026-08-25 for the promotion fix) maps any world position to the
+screen exactly on **every** frame, mid-scroll included, by anchoring on the player's own object
+rather than on the scroll registers. Paint from that and the camera formula and its whole
+repayment apparatus are unnecessary. The rhythm then has to come from **the peer's own `prog`**,
+which is already on the wire and carries the peer's engine's irregular timing — **not** from the
+local player, which would look perfect in loopback and be wrong the moment a second machine joins,
+since a real peer walks while the local player stands still. The model itself stays: its remaining
+job is smoothing arrival jitter (~7% of frames carry zero or two messages).
+
+**Proven so far:** `liveScreenCoords` is measured correct for *placement* — 8 promotions, every
+landing 0.0px, no wobble. It has **not** been tried as a per-frame paint origin; that is the first
+measurement, and it is cheap (paint the compare copy from it and diff frame by frame against the
+current formula).
+
+**Why it is still here.** The user's call, 2026-08-25, after watching all three: *"good nuff/
+intended bandage to keep it as it is right now then?"* — taken with the queue in `UNVERIFIED.md`
+unwatched, including six animation classes never seen on screen at all. Left deliberately, with
+the route out written down, rather than rested at.
 
 ## Deliberate — measured decisions, not bandages
 
