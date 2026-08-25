@@ -3489,3 +3489,37 @@ own copy — for the flash circle, the scanline buffer. `pitfalls.md`, `_templat
   reason it is not polish or a custom feature. The class of work is finished; the next Emerald
   entry here should be a defect, a state nobody had watched, or something the game does not do.
 
+
+### Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
+
+- Date: 2026-08-25 (the confirmation itself is dated 2026-08-21)
+- Confirmed by: **the user, on screen** — *"a acro bike is confirmed done now"*. Nothing here
+  is newly confirmed. The entry had been marked CLOSED in the queue since 2026-08-21 and
+  stayed there because it carries a reusable method: a watchdog on `ghostIsIdle` that logs
+  what it frees, and a theory disproved by driving the same actions on the PLAYER. The method
+  is worth keeping; the queue is not where it belongs.
+
+## CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
+
+**CLOSED 2026-08-21: the Acro Bike is FINISHED on all three tiers, user-confirmed on screen**
+(`verified.md`, *"a acro bike is confirmed done now"*). Kept for the method — the watchdog and
+the disproof below are the reusable part, and the entry recorded its own disproof inline without
+ever changing status.
+
+A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog added to
+`ghostIsIdle`, which logs what it frees: 0x69, 0x6B and 0x6D (`ACRO_POP_WHEELIE_UP/RIGHT`,
+`ACRO_END_WHEELIE_FACE_UP`) each held a ghost for the full 60-frame limit, repeatedly. A blocked
+ghost takes no further steps, falls behind, and is then teleported by the catch-up -- which is what
+the user saw as sliding.
+
+**They are mirrored again as of 2026-08-20**, because the reason for dropping them turned out to be
+untrue -- see the disproof below. Re-enabling them brought back the older *"not following me when
+im jumping and moving"* once, since the branch that issues a pose returns without stepping; a pose
+is now issued only when the ghost is already at the peer's tile.
+
+- [ ] **Why do they never finish?** **The acro-state theory is DISPROVED, 2026-08-20**: driven on
+      the player, every one of these actions completes -- `0x6B` itself ran nine frames and reported
+      finished (`verified.md`, `probes/wheelie_watch.lua`). The fault is a property of the ghost, so
+      the next step is the ghost's own fields during the same action beside the player's, not
+      another theory. A fix would restore the standing wheelie, which peers cannot see today.
+

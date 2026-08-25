@@ -23,10 +23,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 - **Everything after `7f95e8b` is UNPUSHED as of 2026-08-25, and two commits are `.go`** — so CI
   has never seen the bridge-bind guard or its test. `gh run list` once pushed; the user pushes.
-- **Staged-context pass DONE 2026-08-25** (`64c3162`..`47d4537`): nested `adapters/CLAUDE.md` +
-  `bizhawk/CLAUDE.md`, two skills, `CLAUDE.md` 299->278. Volume problem NOT solved. `ideas.md`.
-- **Doc restructuring still open: the rule/evidence condense, four duplications, three preflight
-  checks, the `verified.md` per-game split.** All designed and measured in `ideas.md` (2026-08-25).
+- **Two doc items left open on purpose** — incident narrative still inside several ADRs and one
+  `risks.md` bullet; `status.md` still three screens. Both are judgement calls. `ideas.md` §5.
 - **Five refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua
   adapters' duplication, Crystal's probe boilerplate, `internal/cfg`, TEVI's send gate. `ideas.md`.
 
@@ -151,11 +149,10 @@ diagnostic methodology rules).
 
 ## Update guidance
 
-This file is an **index of what is open**, not a record of anything. Every item here is a pointer;
-the record lives in `verified.md`, `pitfalls.md`, or a phase file.
+**The rule lives in `CLAUDE.md`, which is always loaded** — an index of what is open, not a record;
+two lines per item, maximum; delete an item the moment it is fixed and confirmed; overwrite in
+place when the phase changes rather than appending. **Why it is per-item and not a flat line cap
+(this file reached 628 lines with a flat cap nominally in force):**
+[claude-md-cap.md](claude-md-cap.md).
 
-- **Two lines per item, maximum: what is open, and where the detail lives.** A third line means it
-  belongs in `verified.md`/`pitfalls.md`/`phases/phaseN.md` — move it, leave a pointer. (Replaced a
-  flat line cap on 2026-08-16, which capped the file but not per-item verbosity, so it crept back.)
-- **Delete an item the moment it is fixed and confirmed** — never leave a "FIXED" entry behind.
-- Update whenever the active phase changes — overwrite in place, never append.
+Stated once, here as a pointer, because a rule with three homes drifts — and this one had them.

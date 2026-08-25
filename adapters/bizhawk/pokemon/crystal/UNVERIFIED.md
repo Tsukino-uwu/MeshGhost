@@ -25,8 +25,11 @@ considered done/fixed until i actually confirm it as such."*
 was 1,670 lines and, unlike `verified.md`, was already 100% per-game — Crystal and Emerald only,
 no Pseudoregalia or TEVI entries by design. Sibling queues: `../emerald/UNVERIFIED.md`.
 
-Several entries below were closed by later work and never restatused; those now say so in place.
-An entry with no CLOSED line has not been checked against `VERIFIED.md` since 2026-08-25.
+**This queue drains.** Every entry marked CLOSED or CONFIRMED was moved to `VERIFIED.md` on
+2026-08-25 and deleted here — the file had been carrying confirmed items indefinitely, each
+explaining that it stayed because `verified.md` was "the user's to append". A queue that does not
+drain is not a queue. Confirmed items go to `VERIFIED.md` with the date; declined ones go back to
+being work. An entry still here has not been confirmed.
 
 ---
 
@@ -297,65 +300,6 @@ the decomp that the screen may well refute:
 4. **The three-way comparison itself**: hardware 4 tiles left, drawn 2 tiles left, spawned 2 tiles
    right. Each copy is pinned to one rung — without that the hardware tier claims the drawn copy
    too and the comparison silently becomes a renderer against itself.
-
-## CONFIRMED ON SCREEN 2026-08-21/22 — Crystal's two tiers move properly
-
-Listed here rather than in `verified.md` only because that file is the user's to append; these were
-each confirmed by the user watching a loopback session on Route 39, in their own words:
-
-- **The painted tier walks** rather than teleporting, with no wiggle and no stutter — *"perfect
-  now"*. **The confirmation stands; the mechanism named here does not.** It read "player-relative
-  placement with sub-tile progress from `extras.prog`", which was true when written and was
-  reworked by `25277b9`/`ba10a53`: the sub-tile position now rides in `position` itself, the ghost
-  walks from the destination tile rather than being placed at an offset, and progress is *derived*
-  from the interpolated position so it cannot disagree with it
-  (`meshghost_crystal.lua`, "THE GHOST WALKS; IT IS NOT PLACED"). `extras.prog` still exists but
-  now only picks the animation frame. Corrected 2026-08-25.
-- **The painted tier disappears properly across a door transition** — *"the drawn ghost is going away
-  properly now when going in/out of the house"*. It was never being drawn during the crossing; the
-  drawing layer was simply not cleared.
-- **The spawned ghost stays visible and animates.** The inherited `SLIDING` flag was suppressing the
-  walk cycle; after the fix the ghost's step frame matches the player's frame for frame.
-
-## Pending — Crystal, after the 2026-08-21/22 session
-
-1. **The hardware (OAM) tier has never been judged on screen.** It is built, shipped OFF, and proven
-   to reach the hardware by reading entry 39 back from the `OAM` domain. Two questions only the user
-   can answer: does an injected sprite draw OVER a text box (the decomp predicts it does, which is
-   the opposite of what a hardware tier is usually wanted for), and does opening START remove it.
-2. **`extras.act` has still never been tested** — on the wire since the start of that session. It is
-   the byte that would let the engine play fishing, bumping, spinning, the "!" emote and the Fly
-   landing on a spawned ghost. It rests on an unchecked assumption that `probes/action_watch.lua`
-   exists to settle: that the PLAYER's own object carries those action values at all.
-3. **The end-of-step lag is the loopback round trip**, 3–5 frames measured. It is a rig property, not
-   an adapter defect; three attempts to hide it locally all made things worse.
-4. **`playerHistory.age` is tuned by eye** (currently 2). Direction is documented in the source: too
-   high and the painted ghost races, too low and it snaps backwards at tile boundaries.
-5. **Emerald's logging fix is unmeasured.** The same change was made there as in Crystal, but that
-   adapter has not been run since, so the frame-pacing improvement is inferred rather than measured.
-6. **Emerald sits at 198 of Lua's 200 top-level locals** — two names from an adapter that silently
-   does not load. Consolidation there is due before its next feature.
-
-## CONFIRMED ON SCREEN 2026-08-22 — Crystal: the drawn tier's exit position and its facing
-
-Listed here rather than in `verified.md` only because that file is the user's to append; both were
-confirmed by the user watching a loopback session in New Bark Town, in their own words.
-
-- **A drawn ghost no longer appears in the wrong place on the way out of a door** — *"yes this is
-  fixed"*. The painted position measures the peer against the player as they were `age` frames ago;
-  after a map load the ring still held the PREVIOUS map's samples, so the first painted frames
-  placed the ghost against a world that was gone. The tier now WAITS until enough samples describe
-  the current map. **Clearing the ring instead is what a first attempt did, and it was a
-  regression**: an empty ring makes the aged lookup miss and fall through to this frame's own
-  sample — a wrong reference rather than a missing one — which the user saw as the ghost wiggling
-  while simply walking up. `pitfalls.md`.
-- **The drawn ghost sits on its tile in all four directions** — *"absolutely perfect/static in all
-  directions now"*. Right-facing drew 8px left because the learned frame measured its parts from OAM
-  entry 0, which is the top-RIGHT part on a mirrored sprite. `pitfalls.md`.
-- **The drawn ghost faces the right way in all four directions** — *"seems to work properly now"*,
-  after six attempts. Cause and method: `pitfalls.md`, "our own ghost's OAM entries are
-  indistinguishable from the player's". Verified in the log as well as on screen: four facings,
-  each holding only its own view, zero invariant violations.
 
 ## Pending — Crystal, after the 2026-08-22 session
 

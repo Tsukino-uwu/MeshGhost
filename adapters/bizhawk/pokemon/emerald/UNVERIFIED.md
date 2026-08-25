@@ -25,8 +25,11 @@ considered done/fixed until i actually confirm it as such."*
 was 1,670 lines and, unlike `verified.md`, was already 100% per-game — Crystal and Emerald only,
 no Pseudoregalia or TEVI entries by design. Sibling queues: `../crystal/UNVERIFIED.md`.
 
-Several entries below were closed by later work and never restatused; those now say so in place.
-An entry with no CLOSED line has not been checked against `VERIFIED.md` since 2026-08-25.
+**This queue drains.** Every entry marked CLOSED or CONFIRMED was moved to `VERIFIED.md` on
+2026-08-25 and deleted here — the file had been carrying confirmed items indefinitely, each
+explaining that it stayed because `verified.md` was "the user's to append". A queue that does not
+drain is not a queue. Confirmed items go to `VERIFIED.md` with the date; declined ones go back to
+being work. An entry still here has not been confirmed.
 
 ---
 
@@ -43,30 +46,6 @@ the likely fault; that guess is written up in `pitfalls.md` as its own lesson.)
 - [ ] **A ghost cannot abandon a step it has started.** The general form of the corner snapping:
       when the muddy slope reverses a peer mid-tile the ghost finishes its current tile first.
       Measured, not yet judged on screen -- it may read as nothing.
-
-## CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
-
-**CLOSED 2026-08-21: the Acro Bike is FINISHED on all three tiers, user-confirmed on screen**
-(`verified.md`, *"a acro bike is confirmed done now"*). Kept for the method — the watchdog and
-the disproof below are the reusable part, and the entry recorded its own disproof inline without
-ever changing status.
-
-A ghost never COMPLETES the wheelie transition actions. Measured by the watchdog added to
-`ghostIsIdle`, which logs what it frees: 0x69, 0x6B and 0x6D (`ACRO_POP_WHEELIE_UP/RIGHT`,
-`ACRO_END_WHEELIE_FACE_UP`) each held a ghost for the full 60-frame limit, repeatedly. A blocked
-ghost takes no further steps, falls behind, and is then teleported by the catch-up -- which is what
-the user saw as sliding.
-
-**They are mirrored again as of 2026-08-20**, because the reason for dropping them turned out to be
-untrue -- see the disproof below. Re-enabling them brought back the older *"not following me when
-im jumping and moving"* once, since the branch that issues a pose returns without stepping; a pose
-is now issued only when the ghost is already at the peer's tile.
-
-- [ ] **Why do they never finish?** **The acro-state theory is DISPROVED, 2026-08-20**: driven on
-      the player, every one of these actions completes -- `0x6B` itself ran nine frames and reported
-      finished (`verified.md`, `probes/wheelie_watch.lua`). The fault is a property of the ghost, so
-      the next step is the ghost's own fields during the same action beside the player's, not
-      another theory. A fix would restore the standing wheelie, which peers cannot see today.
 
 ## Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
 

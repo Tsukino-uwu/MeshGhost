@@ -358,6 +358,10 @@ $canon = @(
        Home = 'agent_docs/README.md'
        HomePattern = 'internal/protocol\|transport'
        LinkTo = 'README.md' }
+    @{ Name = "status.md's two-lines-per-item rule"
+       Pattern = 'two lines per item'
+       Home = 'agent_docs/claude-md-cap.md'
+       LinkTo = 'claude-md-cap.md' }
 )
 foreach ($rule in $canon) {
     $homePat = if ($rule.HomePattern) { $rule.HomePattern } else { $rule.Pattern }
