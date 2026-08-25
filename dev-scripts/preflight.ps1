@@ -268,6 +268,142 @@ Check-Deployed "TEVI (alt install)" "packaging\release\games\tevi\MeshGhost\Mesh
 Check-Deployed "Pseudoregalia" "packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\dlls\main.dll" "MESHGHOST_PSEUDO_DLL"
 
 # ---------------------------------------------------------------------------
+Section "Markdown link integrity"
+
+# Tracked markdown, listed WITHOUT a git pathspec glob. `git ls-files '*.md'` cannot be trusted
+# here: PowerShell resolves `git` to the devkitPro/MSYS2 copy on this machine, whose runtime
+# glob-expands `*.md` against the top-level directory BEFORE git sees it -- so it returned the 2
+# root-level files instead of all 70, and both doc checks below "passed" while a deliberately
+# broken link sat in the tree. (`*.lua` escapes this only by luck: nothing matches at top level,
+# so the pattern reaches git intact.) Fourth appearance of the wrong-install-on-PATH trap --
+# CLAUDE.md and pitfalls.md carry the other three.
+$trackedMd = @(& git ls-files | Where-Object { $_ -like '*.md' })
+if ($trackedMd.Count -lt 40) {
+    Report-Fail "only $($trackedMd.Count) tracked .md file(s) found -- the listing is broken, so the doc checks below would pass vacuously. Not a clean result."
+}
+
+# Every relative .md link must resolve. Four broken ones sat in the tree unnoticed until
+# 2026-08-25: the staged-context pass copied rule text between files without adjusting the link
+# depth, and a fifth pointed at adapters/oribf/, a folder deleted on 2026-08-25.
+# A broken relative link fails silently in every markdown viewer, so nothing surfaces it.
+$badLinks = @()
+foreach ($md in $trackedMd) {
+    $dir = Split-Path -Parent $md
+    if (-not $dir) { $dir = "." }
+    foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $md), '\]\(([^)#\s]+\.md)(#[^)]*)?\)')) {
+        $target = $m.Groups[1].Value
+        if ($target -match '^[a-z]+://') { continue }
+        if (-not (Test-Path (Join-Path $dir $target))) { $badLinks += "$md -> $target" }
+    }
+}
+if ($badLinks.Count -gt 0) {
+    Report-Fail "$($badLinks.Count) broken relative markdown link(s):"
+    $badLinks | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every relative markdown link resolves"
+}
+
+# ---------------------------------------------------------------------------
+Section "Canonical source for multiply-stated rules"
+
+# A rule stated in many files drifts, and prose asking people not to let it drift does not stop
+# it: on 2026-08-25 the bandage register said "seven after-the-fact tells" in two files and
+# "eight" in three more, while ALL of them listed seven. The canonical list has eight. Nobody
+# noticed because nothing checked.
+#
+# The rule enforced here: a file may STATE one of these rules only if it is the rule's home, or
+# it links to the home. A copy that links cannot silently drift free of its source -- the reader
+# always has one hop to the version that is maintained.
+$canon = @(
+    @{ Name = "a flag flip is not a revert"
+       Pattern = 'flag flip is not a revert'
+       Home = 'agent_docs/pitfalls.md'
+       LinkTo = 'pitfalls.md' }
+    @{ Name = "the eight after-the-fact bandage tells"
+       Pattern = 'tells that only show up later'
+       Home = 'adapters/_template/BANDAGES.md'
+       LinkTo = '_template/BANDAGES.md' }
+    @{ Name = "the 2026-08-17 module move disclaimer"
+       Pattern = 'predate the 2026-08-17 module move'
+       Home = 'agent_docs/README.md'
+       HomePattern = 'internal/protocol\|transport'
+       LinkTo = 'README.md' }
+)
+foreach ($rule in $canon) {
+    $homePat = if ($rule.HomePattern) { $rule.HomePattern } else { $rule.Pattern }
+    $homeText = if (Test-Path $rule.Home) { Get-Content -Raw -LiteralPath $rule.Home } else { "" }
+    if ($homeText -notmatch $homePat) {
+        Report-Fail "'$($rule.Name)' is registered as living in $($rule.Home), but that file does not state it"
+        continue
+    }
+# The pointer must sit NEAR the statement, not merely somewhere in the same file. A whole-file
+# match is satisfied by an unrelated mention -- status.md cites pitfalls.md in its own link
+# footer, which would vouch for a drifted copy of the rule pasted anywhere above it. This is the
+# same defect as licensing.md's unanchored provenance grep, found in this very check while
+# negative-testing it on 2026-08-25. Write the check, then try to fool it.
+    $strays = @()
+    foreach ($md in $trackedMd) {
+        if ($md -eq $rule.Home) { continue }
+        if ($md -eq 'agent_docs/ideas.md') { continue }   # the restructuring record QUOTES these rules
+        $lines = @(Get-Content -LiteralPath $md)
+        for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i] -notmatch $rule.Pattern) { continue }
+            $lo = [math]::Max(0, $i - 4)
+            $hi = [math]::Min($lines.Count - 1, $i + 4)
+            $near = ($lines[$lo..$hi] -join "`n")
+            if ($near -notmatch [regex]::Escape($rule.LinkTo)) { $strays += "${md}:$($i + 1)" }
+        }
+    }
+    if ($strays.Count -gt 0) {
+        Report-Fail "'$($rule.Name)' is restated without linking to $($rule.Home):"
+        $strays | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "'$($rule.Name)' -- every copy links to $($rule.Home)"
+    }
+}
+
+# ---------------------------------------------------------------------------
+Section "_template back-port freshness"
+
+# CLAUDE.md requires _template/ never to lag a shipped adapter: a rule, file or trap added to a
+# real adapter is back-ported in the SAME pass. That was prose only, and _template/documentation.md
+# sat untouched from 2026-08-18 through the whole Crystal phase.
+#
+# Commit dates, not file mtimes -- mtime is when the file was checked out, which says nothing.
+# A WARN, not a FAIL: an adapter register gaining one game-specific entry is not a template gap.
+# It is here to make the gap visible, which is the part that was missing.
+function Git-LastCommit($path) {
+    if (-not (Test-Path $path)) { return $null }
+    $ts = & git log -1 --format=%ct -- $path
+    if ($ts) { return [int]$ts } else { return $null }
+}
+$adapters = @(
+    "adapters/bizhawk/pokemon/crystal", "adapters/bizhawk/pokemon/emerald",
+    "adapters/pseudoregalia", "adapters/tevi"
+)
+$lagging = @()
+foreach ($name in @("README.md", "FLAGS.md", "BANDAGES.md", "documentation.md")) {
+    $tplTime = Git-LastCommit "adapters/_template/$name"
+    if (-not $tplTime) { continue }
+    foreach ($a in $adapters) {
+        $aTime = Git-LastCommit "$a/$name"
+        # One day of slack: the rule is "back-port in the SAME pass", so a sub-day gap is almost
+        # always this session's own commits, and a check that cries wolf every session is a check
+        # nobody reads -- which is exactly how the pitfalls.md taxonomy stopped being maintained.
+        if ($aTime -and ($aTime - $tplTime) -gt 86400) {
+            $days = [math]::Round(($aTime - $tplTime) / 86400.0, 1)
+            $lagging += "_template/$name is $days day(s) behind $a/$name"
+        }
+    }
+}
+if ($lagging.Count -gt 0) {
+    Report-Warn "$($lagging.Count) template file(s) last changed before an adapter's counterpart -- check nothing needs back-porting:"
+    $lagging | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "_template is no older than any shipped adapter's counterpart"
+}
+
+# ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
 
 # Leaving a relay alive is how a later run silently binds the wrong port.

@@ -4928,3 +4928,45 @@ the problem is usually its trigger, not the tool.**
 **And the narrower one:** never let a scripted edit put a Windows path into a language with
 backslash escapes. Prefer resolving the script's own directory (`debug.getinfo`), which is what
 both files do now, and which removes the reason to write an absolute path at all.
+
+## A check that lists no files passes every time (2026-08-25)
+
+**Symptom.** Two new `preflight.ps1` checks — one for broken markdown links, one for rules restated
+without a pointer home — reported `PASS` on a tree with a deliberately broken link and a
+deliberately orphaned rule sitting in `agent_docs/status.md`. Both had been written minutes
+earlier and had never once been seen to fail.
+
+**Cause, one layer down.** Both looped over `& git ls-files '*.md'`, which returned **2** files
+instead of 70. PowerShell resolves `git` on this machine to `c:\devkitPro\msys2\usr\bin\git.exe`,
+and the MSYS2 runtime **glob-expands the argument against the current directory before git ever
+sees it**. Two `.md` files exist at the repo root, so `*.md` became `CLAUDE.md README.md`. The loop
+then ran over two files, found nothing wrong in them, and reported success. Nothing errored.
+
+**The part worth keeping.** `'*.lua'` in the same script is fine, and only by luck: no `.lua` file
+sits at the top level, so nothing matches, the pattern reaches git intact, and all 162 are listed.
+The identical line is correct or silently broken depending on **where in the tree the file type
+happens to live**. `'*.go'` is in the same position and equally lucky.
+
+**Fix.** List with a bare `git ls-files` and filter in PowerShell (`-like '*.md'`), which no shell
+runtime can rewrite — then assert a floor: fewer than 40 tracked `.md` files is itself a `FAIL`,
+because the honest report for a broken listing is "not a clean result", never "clean". **Any check
+that iterates a collection needs to fail when the collection is empty**, or its passing state means
+nothing. This is `agent_docs/verified.md`'s "a verification rule that reports clean while the thing
+it checks is broken", arrived at from a new direction.
+
+**And a second defect in the same check, found the same way.** The canonical-source check asked
+"does this file mention `pitfalls.md` anywhere?" — which `status.md` does, in its link footer. So a
+drifted copy of a rule pasted anywhere in that file would have been vouched for by an unrelated
+line hundreds of lines away. Fixed by requiring the pointer **within 4 lines of the statement**.
+This is structurally identical to the unanchored provenance grep in `agent_docs/licensing.md`
+repaired in the same session: *a bare phrase match is satisfied by text that has nothing to do with
+the thing being checked.* Anchor on position or on syntax, never on a phrase alone.
+
+**Method, which is the transferable part.** Neither defect was found by reading the code — both
+were found by **planting the failure the check exists to catch and confirming it fires**. A check
+is not finished when it passes; it is finished when it has been *seen to fail on purpose*. Write
+it, then try to fool it. It cost about two minutes and caught two false-clean checks.
+
+**Fourth appearance of the wrong-install-on-PATH trap**, after `cmake` (2026-08-13), `git` itself
+(2026-08-15), and `cmd` (2026-08-17). It no longer costs a build — it now costs *a check that
+claims the tree is clean*, which is worse, because a failed build announces itself.
