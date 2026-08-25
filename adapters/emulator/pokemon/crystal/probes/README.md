@@ -44,7 +44,8 @@ permanent, so savestate first and reload after. `noclip_off.lua` restores the co
 **The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
 what each one changed stays obvious when something later looks wrong.
 
-**Three hold the d-pad**: `door_loop.lua`, `square_drive.lua`, and anything loaded with them.
+**Four hold the controller**: `door_loop.lua`, `square_drive.lua` and `fish_drive.lua` (which
+also loads a savestate), and anything loaded with them.
 Unload them before handing the game back — in a loopback session the ghost IS the local player
 echoed, so a probe jittering the player jitters the ghost, and that reads as a rendering fault.
 One left loaded on 2026-08-22 became a suspect for a ghost wiggle and cost a round of diagnosis.
@@ -89,6 +90,8 @@ of this group.
 | --- | --- |
 | `action_watch.lua` | Read-only. Whether the PLAYER's own object actually carries the `OBJECT_ACTION` values the decomp says drive fishing, bumping, spinning and emotes — reading the source is not watching it happen. |
 | `action_probe.lua` | The generalisation of `bump_probe.lua`: every non-walking animation class in the engine's own terms, how long each facing holds in video frames, and how fast the engine's object clock actually ticks. The **cadence** a still frame cannot show. |
+| `fish_drive.lua` | **Holds the controller and loads a savestate.** Casts the rod, holds it, presses B to clear the text and casts again — because a BITE is the interesting case and reloading a savestate replays one RNG state. Logs the player's and every ghost's action/facing/position, run-length encoded. |
+| `rod_check.lua` | Read-only, one shot. Diffs the two rod tiles we read from the cartridge against the ones the engine has in VRAM while the player is fishing — which is how `FishingRodGFX` was found to be the wrong asset entirely (`LoadFishingGFX` overwrites it). |
 | `bump_probe.lua` | What a bump looks like in the struct AND in the tiles drawn — walking stays `STANDING`, action reads 3, facing alternates, and the drawn tile follows the facing byte. |
 | `stride_probe.lua` | Read-only. What the engine draws across one step, per direction — measuring the drawn tier's two guesses (two mid-step arrangements per facing, an 8-frame `WALK_FRAME_HOLD`), neither of which had ever been seen running. Pair with `square_drive.lua` and it needs nobody. |
 | `posediff_probe.lua` | Read-only. Which of lag / speed / phase / rounding is behind *"walking left/right feels a bit off... not 1:1"* — four causes needing four different fixes, so it measures instead of guessing. |

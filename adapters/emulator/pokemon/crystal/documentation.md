@@ -456,7 +456,7 @@ Reading the facing byte the way the engine does:
 | facing byte | what it names | drawn as |
 | --- | --- | --- |
 | `0x00`–`0x0f` | `STEP_<dir>_<0..3>`: direction is the byte over four, stride is the low two bits | strides 0 and 2 are the **standing** view, 1 and 3 the two **stepping** ones |
-| `0x10`–`0x13` | `FISH_DOWN` / `UP` / `LEFT` / `RIGHT` | the character's own **standing** view for that direction, **plus a fifth sprite** for the rod |
+| `0x10`–`0x13` | `FISH_DOWN` / `UP` / `LEFT` / `RIGHT` | the character's **standing** view for that direction, **plus a fifth sprite** for the rod — but the bottom half of that view and the rod have both been overwritten in VRAM by the fishing sheet (see `FISHING` below) |
 | `0x14` | `EMOTE` | four tiles of the emote box **instead of** the character — and it is a separate object, never a player |
 | `0x15` and up | `SHADOW`, the dolls, the tree, boulder dust, shaking grass | scenery; a player object never holds one |
 | `0xff` | `STANDING` | **nothing is drawn.** The engine skips the object entirely |
@@ -494,14 +494,22 @@ All of these are from `engine/overworld/map_object_action.asm` unless another fi
   `STANDING`, so **the character is not drawn on that tick**. `Dig` alternates it with `SPIN` on
   odd and even ticks, and that alternation *is* the flicker: the character is visibly present half
   the time while it spins.
-- **`FISHING` (6)** — the facing becomes `FISH_` plus the direction. The body is the character's
-  ordinary standing art; the **rod is one extra sprite**, and it is not part of the character's
-  graphics — its tile id is absolute rather than relative to the character's tile base, so it comes
-  from a pair of shared tiles the game loads on demand (`data/sprites/emotes.asm` lists the rod as
-  two tiles, sharing its slot with the jump shadow). The rod sits below the character facing down,
-  above it facing up, and to the side facing left or right. **It has no fixed length** — the action
-  is set when the rod is cast and stays until the fishing script ends it, so this is the one class
-  that can hold for many seconds.
+- **`FISHING` (6)** — the facing becomes `FISH_` plus the direction, and **fishing is a graphics
+  swap done in place, not just a pose.** The facing table asks for the character's ordinary
+  standing view plus one extra sprite for the rod, whose tile id is *absolute* rather than relative
+  to the character's tile base. But before the pose is ever drawn, `Script_FishCastRod` runs
+  `loademote EMOTE_ROD` and then `callasm LoadFishingGFX`, **and the second overwrites what the
+  first loaded**: `engine/events/fishing_gfx.asm` copies four two-tile blocks out of
+  `chris_fish.2bpp` (or `kris_fish.2bpp`, by `wPlayerGender`) into **VRAM bank 1** — sprite tiles
+  `$02`, `$06` and `$0a`, which are the **bottom half** of the standing down, up and left views,
+  and `$fc`, the rod. So a fishing character is its own top half over the fishing sheet's bottom
+  half, wearing a rod that is also from that sheet. The rod sits below the character facing down,
+  above it facing up, and to the side facing left or right.
+  **It has no fixed length** — the action is set when the rod is cast and stays until the fishing
+  script ends it, so this is the one class that can hold for many seconds.
+  Confirmed on screen 2026-08-25 (`probes/rod_check.lua`): while the player fished facing down, the
+  engine's own rod sprite named tile `$fc` in bank 1, and bank 1 `$fc` held `chris_fish.2bpp`
+  tile 6 — a vertical line — where `FishingRodGFX` tile 0 is a diagonal.
 - **`SKYFALL` (16)** — the Fly landing. Identical arithmetic to a walking step except that
   `OBJECT_STEP_FRAME` goes up by **two** a tick instead of one, so the stride advances every **2
   ticks**: the character runs its walk cycle at **double speed** while it falls. The fall itself is

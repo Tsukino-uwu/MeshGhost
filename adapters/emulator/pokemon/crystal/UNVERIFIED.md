@@ -1139,6 +1139,79 @@ reads `FishingRodGFX` from ROM (`41:4560` on our own hash-verified `pokecrystal`
 the sprite table it has no cheap signature check, which is why the gate is ROM identity. On any
 other build the rod is simply absent.
 
+### THE ROD WAS THE WRONG ASSET ENTIRELY — `FishingRodGFX` is overwritten before it is drawn
+
+**Found 2026-08-26, from the user's report** — *"the fishing rod sprite is glitchy/weird for both
+the drawn & spawned ghost. they both spawn a rod but it looks sideways/weird"*. Both copies were
+painted, so both rods came from our own table, and both were wrong the same way.
+
+**What the game actually does.** `Script_FishCastRod` runs `loademote EMOTE_ROD` and then
+`callasm LoadFishingGFX` — and the second overwrites what the first loaded.
+`engine/events/fishing_gfx.asm` copies four two-tile blocks out of `chris_fish.2bpp` (or
+`kris_fish.2bpp`, by `wPlayerGender`) into **VRAM bank 1**: sprite tiles `$02`, `$06` and `$0a` —
+the **bottom half** of the standing down, up and left views — and `$fc`, the rod. So fishing is a
+graphics swap done in place, not merely a pose, and `FishingRodGFX` is on screen for a few frames
+at most and never during the pose.
+
+**How it was settled, and why nothing cheaper would have.** `probes/rod_check.lua` dumps the two
+tiles we read from the cartridge beside the ones the engine has in VRAM, while the player is
+fishing. ROM tile 0 is a **diagonal**; VRAM bank 1 `$fc` — the tile the engine's own OAM entry
+named — is a **vertical line**, and equals `chris_fish.2bpp` tile 6. That is the whole diagnosis in
+one screenful. **The offline audit above could not have caught it**: it checked that
+`FISHING_ROD_ROM` pointed at `FishingRodGFX`, which it did, exactly and byte for byte. The address
+was right and the *asset* was wrong — a class of error that survives every check that starts from
+the name.
+
+**The fix.** `FISHING_ROD_ROM` is replaced by `FISHING_GFX_ROM` (`2e:44f2` → `0xB84F2`, Chris) and
+`FISHING_GFX_ROM_KRIS` (`2e:4582` → `0xB8582`). The rod is that sheet's tiles 6 and 7, and
+`drawCharacter` now takes the sheet and swaps the bottom-half tiles for it —
+`facingFrames.fishTile` maps sprite offsets 2,3 / 6,7 / 10,11 onto fishing tiles 0..5. **Which
+sheet a peer gets is the PEER's sprite id** (`SPRITE_CHRIS` 1, `SPRITE_KRIS` `$60`), never the
+local `wPlayerGender`: in a two-player session those routinely differ.
+
+**Built, live, and NOT confirmed.** In loopback the body half was already right by accident — the
+local player is fishing, so VRAM `$02`/`$03` already held the fishing art the peer was drawn from.
+The body half of this fix is therefore only exercised by a real second machine.
+
+**Still open on the spawned tier**: a spawned ghost's rod is drawn by the engine from those same
+shared tiles, which on a receiving machine hold the jump shadow unless the local player is also
+fishing. Loopback cannot show that, and nothing has been done about it.
+
+### A CATCH MOVES BOTH GHOSTS BACK A TILE — reported, not yet explained
+
+**User, 2026-08-26**: *"if i catch a fish, the 2 ghosts move back 1 tile (that is not supposed to
+happen)"*, with the method — *"you can't replicate this if you keep reloading the savestate7, need
+to press A and try to fish again"*. `probes/fish_drive.lua` was rewritten around that: it presses
+**B** to clear the text and recasts, and reloads the savestate only when a battle starts.
+
+**What the first catch showed, and what it ruled out.** Through the whole bite the player's
+`OBJECT_WALKING` stays `STANDING` and its map tile never changes, so the send side's mid-step
+correction — the obvious suspect, since it moves a peer backward along its facing by design —
+never runs. What the bite *does* produce is `STEP_TYPE_GOT_BITE` counting `sd` 7→0 while
+`OBJECT_SPRITE_Y_OFFSET` alternates 0/1 (`StepFunction_GotBite`, exactly as written), and **an
+emote object appearing in object struct 1** — action 8, facing `$14`, y offset 240 — which is
+`SpawnEmote` putting the "!" on the player's own tile.
+
+**FOUND, and it is not a fishing bug at all.** With the camera terms in the same log, the next
+catch named it in one line: the value the drawn tier reads as *"the player's OAM y"* went **76 → 60
+on the exact frame the emote object appeared** — sixteen pixels, one tile, while the player's tile,
+sprite position and offsets were all provably unchanged.
+
+`InitSprites` emits by PRIORITY — HIGH, then NORM, then LOW, and only within a class in struct
+order — so **the first four OAM entries belong to the highest-priority object that has a sprite**,
+not to the player. `SpawnEmote` makes the "!" a HIGH_PRIORITY object 16px above the tile, so while
+it is up the calibration is a tile too high and every painted peer moves with it.
+
+**Fixed** by finding the player's entries by their tile ids instead: a sprite's graphics are a
+12-tile block plus the same block `0x80` above it, and everything that displaces the player is
+drawn from ABSOLUTE tiles (`$f8`-`$fb` an emote, `$fc`-`$fd` a rod), outside any block by
+construction. The run is bounded to four entries so a ghost wearing the same sprite cannot join it,
+and there is a fallback to the old read for a frame where the player is not in the buffer at all.
+
+**Built, live, not confirmed.** And the scope is much wider than the report: **any emote over any
+character's head moved every painted peer**, in every map, since the drawn tier existed. Fishing is
+just where it was finally noticed.
+
 ### The fishing path was audited against the decompilation offline, 2026-08-25
 
 **No fault found, and that is not a confirmation** — every check below is a source/ROM comparison

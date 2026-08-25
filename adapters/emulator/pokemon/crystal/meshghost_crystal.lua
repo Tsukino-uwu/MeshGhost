@@ -228,14 +228,25 @@ local ADDRESSES = {
 		-- (address, size, bank, type, palette), indexed by SPRITE_* - 1. Used by the drawn tier to
 		-- read a peer's graphics straight from the cartridge.
 		OVERWORLD_SPRITES_ROM = 0x14736,
-		-- FishingRodGFX, 41:4560 -> 0x41 * 0x4000 + (0x4560 - 0x4000). Two tiles, which the game
-		-- loads into VRAM $fc/$fd on demand (the `emote` table in `data/sprites/emotes.asm` --
-		-- FishingRodGFX shares those two tiles with the jump shadow, so the local VRAM copy is
-		-- only the rod while the LOCAL player is fishing). A peer fishing is exactly the case
-		-- where it is not, so the drawn tier reads the cartridge instead. VANILLA V1.0 ONLY --
-		-- gated on classifyRom() saying "known" below, because unlike the sprite table this one
-		-- has no cheap signature to check and an unknown build would paint whatever is there.
-		FISHING_ROD_ROM = 0x104560,
+		-- THE FISHING SHEET, and it is NOT FishingRodGFX. `Script_FishCastRod` does
+		-- `loademote EMOTE_ROD` and then `callasm LoadFishingGFX` -- and the second overwrites
+		-- what the first loaded. `engine/events/fishing_gfx.asm` copies four 2-tile blocks out of
+		-- `chris_fish.2bpp` / `kris_fish.2bpp` into VRAM BANK 1: sprite tiles $02, $06 and $0a
+		-- (the BOTTOM half of the standing down/up/left views) and $fc (the rod). So a fishing
+		-- character is its own top half plus this sheet's bottom half, and the rod is this
+		-- sheet's tiles 6-7 -- FishingRodGFX is on screen for a few frames at most and never
+		-- during the pose. Measured on screen 2026-08-25: VRAM bank 1 $fc held a vertical line
+		-- where FishingRodGFX tile 0 is a diagonal, which is what the user saw as a rod that
+		-- looked *"sideways/weird"*. See UNVERIFIED.md.
+		--
+		-- FishingGFX, 2e:44f2 -> 0x2e * 0x4000 + (0x44f2 - 0x4000); KrisFishingGFX at 2e:4582.
+		-- Nine tiles each, of which the engine uses the first eight. Which one a PEER gets is its
+		-- own sprite id (SPRITE_CHRIS 1, SPRITE_KRIS $60) and never the local player's gender.
+		-- VANILLA V1.0 ONLY -- gated on classifyRom() saying "known" below, because unlike the
+		-- sprite table this one has no cheap signature and an unknown build would paint whatever
+		-- is there.
+		FISHING_GFX_ROM = 0xB84F2,
+		FISHING_GFX_ROM_KRIS = 0xB8582,
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -2086,19 +2097,59 @@ end
 -- are the engine's own, read off `data/sprites/facings.asm` (the rows are `db y, x, attr, tile`).
 -- Keyed by this adapter's dir index; `t` is the tile within FishingRodGFX.
 facingFrames.ROD = {
-	[0] = { dx = 0, dy = 16, t = 0 }, -- down: below the character
-	[1] = { dx = 0, dy = -8, t = 0 }, -- up: above it
-	[2] = { dx = -8, dy = 5, t = 1, flip = true }, -- left
-	[3] = { dx = 16, dy = 5, t = 1 }, -- right
+	[0] = { dx = 0, dy = 16, t = 6 }, -- down: below the character
+	[1] = { dx = 0, dy = -8, t = 6 }, -- up: above it
+	[2] = { dx = -8, dy = 5, t = 7, flip = true }, -- left
+	[3] = { dx = 16, dy = 5, t = 7 }, -- right
 }
+
+-- WHICH FISHING SHEET A PEER GETS, from the peer's own sprite id rather than from wPlayerGender.
+-- A receiving machine's local gender says nothing about the peer, and in a two-player session the
+-- two are routinely different. nil means "not a player sprite, or not a build we have this
+-- address for" -- the peer is then drawn without the fishing half rather than with somebody
+-- else's art.
+function facingFrames.fishRom(spriteId)
+	if not facingFrames.fishChris then
+		return nil
+	end
+	if spriteId == 0x60 then -- SPRITE_KRIS
+		return facingFrames.fishKris
+	end
+	if spriteId == 0x01 then -- SPRITE_CHRIS
+		return facingFrames.fishChris
+	end
+	return nil
+end
+
+-- The bottom half of a standing view is what the fishing sheet replaces, and this is the whole
+-- mapping: sprite tile offsets 2,3 (down), 6,7 (up) and 10,11 (left, and right x-flipped) become
+-- fishing tiles 0..5 in that order. `engine/events/fishing_gfx.asm` loads them as three 2-tile
+-- blocks at $02, $06 and $0a. Returns nil for a tile the sheet does not replace.
+function facingFrames.fishTile(offset)
+	if offset > 11 or (offset % 4) < 2 then
+		return nil
+	end
+	return (offset // 4) * 2 + (offset % 2)
+end
 
 -- source is { vram = <tile base> } for a sprite the map has loaded, or { rom = <gfx offset> } for
 -- one read straight from the cartridge. Everything else is identical, which is the point: the
 -- arrangement is learned once from the engine and applies to both.
-local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, stride)
+local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, stride, fishRom)
 	local colors = paletteColors(palIndex or 0)
 	local frame = facingFrames.pick(facing, walking, prog or 0, stride)
 	local function partRows(offset)
+		-- A FISHING CHARACTER IS TWO SHEETS. The engine replaces the bottom half of the standing
+		-- view in place (LoadFishingGFX, see FISHING_GFX_ROM), so the top half is the peer's own
+		-- art and the bottom half is the fishing sheet's -- and on a receiving machine those tiles
+		-- hold the peer's WALKING art, because the local player is not fishing. Reading the
+		-- cartridge is the only way to get the half the engine would have swapped in.
+		if fishRom then
+			local ft = facingFrames.fishTile(offset)
+			if ft then
+				return decodeRomTile(fishRom, ft)
+			end
+		end
 		if source.rom then
 			-- THE CARTRIDGE LAYOUT IS NOT THE VRAM LAYOUT, and an offset carries the VRAM one.
 			--
@@ -3087,12 +3138,55 @@ function drawOverflow()
 	-- +/-8 px in a 20-second walk, which survived two other fixes because neither was the cause.
 	-- The minimum across the four is the character's top-left corner, which does not care about
 	-- ordering or flips.
+	--
+	-- AND THE PLAYER DOES NOT OWN ENTRIES 0-3. `InitSprites` emits by PRIORITY -- HIGH, then NORM,
+	-- then LOW, and only within a class in struct order -- so the first four entries belong to the
+	-- highest-priority object that has a sprite, which is the player only when nothing outranks it.
+	-- The "!" over a character's head does: `SpawnEmote` creates a HIGH_PRIORITY object sitting
+	-- 16px above the tile, so while it is on screen entries 0-3 are the EMOTE'S and this
+	-- calibration reads a y a whole tile too high. Every painted peer then moves up a tile and back
+	-- -- the user, watching a fishing bite, 2026-08-26: *"if i catch a fish, the 2 ghosts move back
+	-- 1 tile"*. Measured the same day: the player's own OAM y went 76 -> 60 on the frame the emote
+	-- object appeared, with its tile, sprite position and offsets all provably unchanged.
+	--
+	-- FIND THE PLAYER'S ENTRIES BY THEIR TILE IDS instead of by their position in the list. A
+	-- sprite's graphics occupy a 12-tile block (standing) plus the same block 0x80 above it
+	-- (stepping), so an entry belongs to the player exactly when its tile is inside the player's
+	-- own block -- and everything that displaces it is drawn from ABSOLUTE tiles ($f8-$fb for an
+	-- emote, $fc-$fd for a fishing rod), which are outside any block by construction. The run ends
+	-- at the first entry that does not match, which is also what keeps a fishing player's FIFTH
+	-- sprite (the rod) out of the corner.
 	local playerOamX, playerOamY = 255, 255
-	for i = 0, 3 do
+	local pBase, pFound = (u8(OBJECT_STRUCTS + F_SPRITE_TILE) or 0) & 0x7F, 0
+	for i = 0, oam.ENTRIES - 1 do
 		local y = memory.read_u8(i * 4, "OAM") or 255
-		local x = memory.read_u8(i * 4 + 1, "OAM") or 255
-		if y < playerOamY then playerOamY = y end
-		if x < playerOamX then playerOamX = x end
+		if y >= 160 then -- OAM_YCOORD_HIDDEN, what `.fill` writes into every unused entry
+			break -- the engine packs from 0 and hides the tail, so there is nothing past here
+		end
+		local d = ((memory.read_u8(i * 4 + 2, "OAM") or 255) - pBase) & 0xFF
+		if d <= 0x0B or (d >= 0x80 and d <= 0x8B) then
+			local x = memory.read_u8(i * 4 + 1, "OAM") or 255
+			if y < playerOamY then playerOamY = y end
+			if x < playerOamX then playerOamX = x end
+			pFound = pFound + 1
+			if pFound >= 4 then
+				break -- a character is four body entries, and the player is the first object in
+				-- struct order wearing this block -- a ghost wearing the same sprite comes later
+			end
+		elseif pFound > 0 then
+			break -- the player's own run has ended; anything further is somebody else
+		end
+	end
+	if pFound == 0 then
+		-- The player is not in the buffer at all (facing STANDING, or the engine skipped it).
+		-- Fall back to what this read did before, so a frame with no match behaves as it always
+		-- has rather than painting at 255,255.
+		for i = 0, 3 do
+			local y = memory.read_u8(i * 4, "OAM") or 255
+			local x = memory.read_u8(i * 4 + 1, "OAM") or 255
+			if y < playerOamY then playerOamY = y end
+			if x < playerOamX then playerOamX = x end
+		end
 	end
 	-- CALIBRATED EVERY FRAME, and it must be: this is the term that tracks the CAMERA, so freezing
 	-- it stops the painted copy following the scroll at all.
@@ -4996,9 +5090,10 @@ function drawOverflow()
 						-- branch each. The two lines it replaced are still exactly what happens
 						-- for action 3: facing byte 0x00-0x0F, stride = byte & 3, stepping on the
 						-- odd strides.
+						local fishRom = poseRod and facingFrames.fishRom(o.sprite) or nil
 						drawCharacter(source, sx, sy, palette, poseFacing,
-							poseWalking, peerProg, poseStride)
-						if poseRod and facingFrames.rodRom then
+							poseWalking, peerProg, poseStride, fishRom)
+						if poseRod and fishRom then
 							-- The fifth sprite of a fishing pose. Drawn AFTER the character so it
 							-- overlaps the same way the engine's OAM order does (the rod entry is
 							-- appended last in FacingFish*), and in the character's own palette,
@@ -5007,7 +5102,7 @@ function drawOverflow()
 							-- from the object either way.
 							local r = facingFrames.ROD[poseRod]
 							if r then
-								drawRows(decodeRomTile(facingFrames.rodRom, r.t),
+								drawRows(decodeRomTile(fishRom, r.t),
 									sx + r.dx, sy + r.dy, paletteColors(palette or 0), r.flip)
 							end
 						end
@@ -6838,7 +6933,8 @@ OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartr
 -- art look like any other two tiles -- so the gate is the ROM identity rather than the contents.
 -- nil means a fishing peer's body is drawn and its rod is not, which is a missing detail rather
 -- than a wrong one. On `facingFrames` rather than a new top-level local: 200-local ceiling.
-facingFrames.rodRom = (romClass == "known") and A.FISHING_ROD_ROM or nil
+facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
+facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
 
 -- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
 -- An address is measured per ROM build, but a build nobody has seen still gets vanilla's table by

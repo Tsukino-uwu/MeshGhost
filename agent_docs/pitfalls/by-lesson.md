@@ -3736,3 +3736,59 @@ Full write-up: "A cache whose comment claims it is invalidated, and nothing ever
 Recorded again here only for the one-line check it produced, which costs nothing on sight:
 **`git grep -n '<cacheName>'` and count the references.** Declare, read, write and nothing else
 means the cache is permanent, whatever the prose above it says.
+## The right ADDRESS pointing at the wrong ASSET, and every check that starts from the name passes (2026-08-26, Crystal)
+
+**Symptom:** a peer's fishing rod is drawn, in the right place, at the right moment, and looks
+wrong — the user: *"they both spawn a rod but it looks sideways/weird"*. The player's own rod
+beside it is correct.
+
+**What passed anyway.** The adapter read `FishingRodGFX` from the cartridge, and every check
+confirmed it: the symbol is at `41:4560`, the flat offset was computed correctly, and the 32 bytes
+there are byte-identical to `gfx/overworld/fishing_rod.2bpp`. An offline audit that morning had
+verified exactly that and found nothing.
+
+**Cause.** `Script_FishCastRod` runs `loademote EMOTE_ROD` and then `callasm LoadFishingGFX`, and
+the second overwrites what the first loaded: `engine/events/fishing_gfx.asm` copies four two-tile
+blocks out of `chris_fish.2bpp` into VRAM bank 1 — the bottom half of three standing views, and
+the rod at `$fc`. `FishingRodGFX` is on screen for a few frames at most and never during the pose.
+So the address was right, the decode was right, and the asset was the wrong one.
+
+**Fix:** read the rod (and the swapped body half) from `FishingGFX` / `KrisFishingGFX`, chosen by
+the PEER's sprite id rather than the local `wPlayerGender`.
+
+**The lesson, and it is not about fishing.** *Verifying that a pointer points where its name says
+proves nothing about whether the engine draws from it.* The check that works is the one that starts
+from the SCREEN and reads backwards: take the tile id out of the engine's own OAM entry, dump that
+VRAM tile, and diff it against what you were about to draw. `probes/rod_check.lua` is ten lines of
+that and settled it in one run. Reach for it whenever art looks wrong but the numbers agree —
+**a name is a claim about intent, and VRAM is a statement about fact.**
+
+## The player does not own OAM entries 0-3, and a priority object silently moves every painted peer (2026-08-26, Crystal)
+
+**Symptom:** every painted ghost jumps a full tile and back, at a moment when the player is
+standing perfectly still. The user, on hooking a fish: *"if i catch a fish, the 2 ghosts move back
+1 tile (that is not supposed to happen)"*.
+
+**What looked guilty and was not.** The send side derives a peer's pixel position by walking it
+BACKWARD along its facing when the peer is mid-step — exactly the shape of the symptom. It was
+innocent: through the whole bite the player's `OBJECT_WALKING` stays `STANDING`, its map tile never
+changes, and its sprite position and offsets are constant. Logging those fields beside the symptom
+is what cleared it, and it took one run.
+
+**Cause.** The drawn tier calibrates screen space against the player's OAM corner, and read
+**entries 0-3** for it. But `InitSprites` emits by PRIORITY — HIGH, then NORM, then LOW, and only
+within a class in struct order — so the first four entries belong to the highest-priority object
+that has a sprite. `SpawnEmote` creates the "!" as a HIGH_PRIORITY object sitting 16px above the
+tile, so while it is up, entries 0-3 are the emote's and the calibration is a tile too high. The
+measurement: the value read as "the player's OAM y" went 76 → 60 on the exact frame the emote
+object appeared in struct 1.
+
+**Fix:** find the player's entries by their TILE IDS — a sprite's graphics are a 12-tile block plus
+the same block `0x80` above it, and everything that displaces the player is drawn from ABSOLUTE
+tiles (`$f8`-`$fb` an emote, `$fc`-`$fd` a fishing rod) which are outside any block by construction.
+
+**The lesson.** *An index into a list the engine builds is not an identity.* Any "object 0 is always
+first" assumption holds only until the engine sorts, and engines sort — by priority, by depth, by
+Y. Identify by something intrinsic (a tile block, an id) and the assumption cannot rot. Note also
+how narrow the symptom looked: this reads as a fishing bug and is nothing of the kind — **any**
+emote over **any** character's head moves every painted peer.

@@ -204,3 +204,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A cache whose comment claims it is invalidated, and nothing ever clears it (Crystal, 2026-08-25)
 - A partition measured EXACT is only exact at the rate it was measured (Crystal, 2026-08-25)
 - A cache with an invalidation comment and no invalidation (Crystal, 2026-08-25) — see by-host
+- The right ADDRESS pointing at the wrong ASSET, and every check that starts from the name passes (2026-08-26, Crystal)
+- The player does not own OAM entries 0-3, and a priority object silently moves every painted peer (2026-08-26, Crystal)
