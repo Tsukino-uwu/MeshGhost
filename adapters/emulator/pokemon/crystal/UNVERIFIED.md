@@ -1511,3 +1511,33 @@ continuous -> 0, K drift still 0px, no resyncs.
 **What remains at a reversal, measured:** ~10 relative-movement frames per lap side, the 2-3 frame
 echo rendered as the drawn copy starting its new direction late. Same class as the spawned tier's
 3-frame floor; not a speed difference.
+
+## 2026-08-25 — Crystal: the 1:1 audit, both tiers, both gaits — agent-measured, awaiting eyes
+
+**The user asked for a double-check that both ghosts are 1:1 to the player, on and off the bike.**
+Driven with `square_drive` (full 3-tile square, all four directions, corners included), compare
+rig, interp 0, light probe stack. Agent-measured throughout — nothing here is user-confirmed.
+
+**Spawned tier — clean at both gaits.**
+- Bike: rhythm 2:610 vs player 2:505 with corner pauses matching (8:31 vs 8:29); walk: 2:465 vs
+  2:450, 8:15 vs 8:14. Zero re-anchor corrections at either gait, zero resyncs, zero runaways.
+- Constant ~3-frame trail (2 loopback echo + 1 engine-acts-after-write), no per-step variation.
+
+**Drawn tier — clean mid-leg at both gaits; corners show the echo, and only the echo.**
+- Mid-leg: zero relative movement against the player, both gaits. Catch-up frames 24 (bike,
+  brief) / 0 (walk); K drift 0px over 15 walk parks and 0.0-0.9px avg over 16 bike parks; no
+  resyncs, no snaps, corrector silent.
+- At corners: ~5-7 single-stride relative moves per corner, decoded from KJUMP as (a) diagonal
+  2+2 frames -- the model finishing the old leg's committed step while the camera begins the new
+  leg -- and (b) the model completing its owed pixels during the corner breath. That is the 2-3
+  frame echo rendered as motion: a real player walking the same square 3 frames behind would
+  paint exactly this. The |dx|+|dy| histogram bins these diagonals as "4px", which is why the
+  horizontal rows look double-stride at walk; no single-axis double-stride move exists in the
+  event trace.
+- One wrinkle, watched and left alone: two bike parks on the right leg opened up to 4px off and
+  settled within 8 frames unaided; the stability gate correctly declined to chase them.
+
+**The claim this audit supports:** both tiers are 1:1 with the player up to a constant ~3-frame
+loopback delay -- same speed, same rhythm, same quantum, no accumulation, at both gaits. The
+delay itself is the rig's echo, is smaller than any real peer's, and shows only at corners and
+reversals as a beat of trailing motion, identically in kind on both tiers.
