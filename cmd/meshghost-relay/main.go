@@ -25,39 +25,6 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
-// maxLogBytes is the size at which meshghost-server.log is rotated to
-// meshghost-server.log.1. Mirrors cmd/meshghost's own cap, for the same reason:
-// the log appends rather than truncating, so something has to bound it.
-const maxLogBytes = 1 << 20 // 1 MiB
-
-// openLogFile opens (creating, and APPENDING to) meshghost-server.log next to wherever
-// the process's working directory is -- the same cwd config.json is read from, so it lands
-// beside the exe in the normal double-click-from-the-package-folder case. This exists so a
-// crash is still readable after the console window itself is gone: double-clicking an .exe
-// opens a console that closes the instant the process exits, taking any error message with
-// it -- see packaging/README.md's "No launcher .bat files" section.
-//
-// It appends, where it used to truncate on every run (os.Create). Brought in line with the
-// client 2026-08-16, after the client's appending log was the ONLY reason a Proton bug
-// report could be diagnosed remotely: six runs in one file, each with its own banner. A
-// relay that erases its own history every restart cannot answer "what happened before it
-// died", which is the question a host is asking when they go looking.
-//
-// Falls back to stderr-only, with a warning, if the file can't be opened (e.g. read-only
-// folder).
-func openLogFile(name string) io.Writer {
-	if fi, err := os.Stat(name); err == nil && fi.Size() >= maxLogBytes {
-		// Best-effort: a failed rotate must not cost the log entirely.
-		_ = os.Rename(name, name+".1")
-	}
-	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		log.Printf("meshghost-relay: warning: could not open log file %s: %v (log output will only appear in this window)", name, err)
-		return os.Stderr
-	}
-	return io.MultiWriter(os.Stderr, f)
-}
-
 // fileConfig is the shape of the "server" section of an optional JSON config
 // file (see -config), mirroring cmd/meshghost's own -- a friendlier
 // alternative to flags for whoever's hosting, per packaging/README.md. The
@@ -179,36 +146,17 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 			"every server setting is falling back to its built-in default", shown)
 		return
 	}
-	if rc.Server.Addr != nil && !explicit["addr"] {
-		*t.addr = *rc.Server.Addr
-	}
-	if rc.Server.RoomCode != nil && !explicit["room-code"] {
-		*t.roomCode = *rc.Server.RoomCode
-	}
-	if rc.Server.OnlyGame != nil && !explicit["only-game"] {
-		*t.onlyGame = *rc.Server.OnlyGame
-	}
-	if rc.Server.MaxClients != nil && !explicit["max-clients"] {
-		*t.maxClients = *rc.Server.MaxClients
-	}
-	if rc.Server.SendHz != nil && !explicit["send-hz"] {
-		*t.sendHz = *rc.Server.SendHz
-	}
-	if rc.Server.GhostCollision != nil && !explicit["ghost-collision"] {
-		*t.ghostCollision = *rc.Server.GhostCollision
-	}
-	if rc.Server.ResumeGraceSeconds != nil && !explicit["resume-grace"] {
-		*t.resumeGrace = *rc.Server.ResumeGraceSeconds
-	}
-	if rc.Server.Transport != nil && !explicit["transport"] {
-		*t.transport = *rc.Server.Transport
-	}
-	if rc.Server.QuicAddr != nil && !explicit["listen-quic"] {
-		*t.quicAddr = *rc.Server.QuicAddr
-	}
-	if rc.Server.TLS != nil && !explicit["tls"] {
-		*t.tlsMode = *rc.Server.TLS
-	}
+	sc := *rc.Server
+	cfg.Override(explicit, "addr", t.addr, sc.Addr)
+	cfg.Override(explicit, "room-code", t.roomCode, sc.RoomCode)
+	cfg.Override(explicit, "only-game", t.onlyGame, sc.OnlyGame)
+	cfg.Override(explicit, "max-clients", t.maxClients, sc.MaxClients)
+	cfg.Override(explicit, "send-hz", t.sendHz, sc.SendHz)
+	cfg.Override(explicit, "ghost-collision", t.ghostCollision, sc.GhostCollision)
+	cfg.Override(explicit, "resume-grace", t.resumeGrace, sc.ResumeGraceSeconds)
+	cfg.Override(explicit, "transport", t.transport, sc.Transport)
+	cfg.Override(explicit, "listen-quic", t.quicAddr, sc.QuicAddr)
+	cfg.Override(explicit, "tls", t.tlsMode, sc.TLS)
 }
 
 // FallbackQuicAddr is where quic goes when it cannot share -addr's port,
@@ -326,10 +274,17 @@ func main() {
 			"overrides the same field from this file")
 	flag.Parse()
 
-	log.SetOutput(openLogFile("meshghost-server.log"))
+	// Tee'd with stderr, unlike the client: a relay is normally watched in the
+	// window it was launched from, so its log file is a second copy rather than
+	// the only one. cfg.OpenLogFile returns just the file (nil on failure) and
+	// leaves that composition here, because the two binaries genuinely differ.
+	logOut := io.Writer(os.Stderr)
+	if f := cfg.OpenLogFile("meshghost-server.log", "meshghost-relay"); f != nil {
+		logOut = io.MultiWriter(os.Stderr, f)
+	}
+	log.SetOutput(logOut)
 
-	explicit := map[string]bool{}
-	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	explicit := cfg.ExplicitFlags()
 	applyFileConfig(*configPath, explicit, configTargets{
 		addr:           addr,
 		roomCode:       roomCode,

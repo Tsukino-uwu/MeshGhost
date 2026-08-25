@@ -21,9 +21,117 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"flag"
+	"io"
 	"log"
+	"os"
 	"strings"
+	"time"
 )
+
+// MaxLogBytes is the size at which a binary's own .log is rotated to .log.1 (one
+// generation, then the older one is discarded). A cap is needed because the logs
+// APPEND rather than truncating -- see OpenLogFile -- so without one a machine
+// that autostarts a client with every game session would grow it forever.
+//
+// Both mains declared this constant separately, and the relay's comment said so:
+// "Mirrors cmd/meshghost's own cap, for the same reason".
+const MaxLogBytes = 1 << 20 // 1 MiB
+
+// OpenLogFile opens (creating, and APPENDING to) a log file next to the process's
+// working directory -- the same cwd config.json is read from, so it lands beside
+// the exe in the normal double-click-from-the-package-folder case, and beside the
+// mod in the autostarted case (the adapter sets the child's working directory; see
+// the autostart ADR). This exists so a crash is still readable after the console
+// window itself is gone: double-clicking an .exe opens a console that closes the
+// instant the process exits, taking any error message with it -- see
+// packaging/README.md's "No launcher .bat files" section.
+//
+// It appends rather than truncating. Once an adapter starts the client for you
+// there is usually no console at all, so this file is the ONLY thing a remote
+// tester can send back -- and a process that dies and gets respawned would
+// truncate away the evidence of why it died, which is exactly the report worth
+// having. The relay's copy used to truncate (os.Create) and was brought in line
+// 2026-08-16, after the client's appending log was the only reason a Proton bug
+// report could be diagnosed remotely: six runs in one file, each with its own
+// banner. One rotation at MaxLogBytes bounds the growth that buys.
+//
+// Returns nil, with a warning, if the file cannot be opened (e.g. a read-only
+// folder). The CALLER decides what that means -- the two binaries genuinely
+// differ, and that difference is the whole reason this returns a plain writer
+// rather than a composed one: the client appends it to a list of writers it may
+// also add a console to, while the relay tees it with os.Stderr. Expressing that
+// as a bool parameter here would put a caller's composition inside the opener.
+//
+// prog is the binary's own name, so the warning says which program is talking.
+func OpenLogFile(name, prog string) io.Writer {
+	if fi, err := os.Stat(name); err == nil && fi.Size() >= MaxLogBytes {
+		// Best-effort: a failed rotate must not cost us the log entirely, so
+		// the error is deliberately ignored and the append below still runs.
+		_ = os.Rename(name, name+".1")
+	}
+	f, err := os.OpenFile(name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Printf("%s: warning: could not open log file %s: %v (log output will only appear in this window)", prog, name, err)
+		return nil
+	}
+	return f
+}
+
+// ExplicitFlags reports which flags were actually typed on the command line, as
+// opposed to sitting at their default. It is what makes a flag beat the config
+// file: Override below applies a file value only to a setting the caller did not
+// pass explicitly.
+//
+// flag.Visit (not VisitAll) is the whole trick -- it walks only the flags that
+// were Set. Both mains open-coded this identical two-liner.
+func ExplicitFlags() map[string]bool {
+	explicit := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	return explicit
+}
+
+// Override applies one config-file value to one flag target, unless that flag was
+// given explicitly on the command line. A nil value means the key was absent from
+// the file, which is different from being present and empty -- that is why every
+// field in both mains' fileConfig structs is a POINTER.
+//
+// This is the precedence rule the whole config system rests on -- explicit flag
+// beats config file beats built-in default -- and it was written out by hand
+// twenty-five times across the two mains as:
+//
+//	if fc.X != nil && !explicit["x"] {
+//		*t.x = *fc.X
+//	}
+//
+// Twenty-five chances to typo a flag name into a key that is never set, in a
+// pattern too regular to reread carefully. TestOverride pins the precedence.
+func Override[T any](explicit map[string]bool, flagName string, target, value *T) {
+	if value == nil || explicit[flagName] {
+		return
+	}
+	*target = *value
+}
+
+// OverrideDuration is Override for a setting the config file expresses as a
+// duration string ("250ms") and the flag holds as a time.Duration. A value that
+// does not parse is warned about and skipped, leaving the target alone -- one
+// unreadable duration must not cost the settings around it, the same principle
+// ApplyDespiteBadValue applies to one mistyped JSON value.
+//
+// key is the config-file key name (e.g. "interp"), so the warning names what the
+// user typed rather than a Go field.
+func OverrideDuration(explicit map[string]bool, flagName string, target *time.Duration, value *string, path, prog, key string) {
+	if value == nil || explicit[flagName] {
+		return
+	}
+	d, err := time.ParseDuration(*value)
+	if err != nil {
+		log.Printf("%s: warning: config file %s has an invalid %s value %q: %v", prog, path, key, *value, err)
+		return
+	}
+	*target = d
+}
 
 // StripBOM removes a leading UTF-8 byte-order mark from a config file's
 // contents, and refuses a UTF-16 one outright (returning nil) with a message
