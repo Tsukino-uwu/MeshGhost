@@ -43,8 +43,9 @@ There are three things running, and they are separate on purpose:
 - **The core** (`core`, shipped as `meshghost.exe`, `cmd/meshghost/main.go`) is the
   game-agnostic client. It owns the relay connection, the interpolation buffer, and the
   per-remote-player bookkeeping, and it serves the bridge listener the adapter connects to.
-- **The relay** (`relay`, shipped as `meshghost-server.exe` /
-  `meshghost-relay.exe`, `cmd/meshghost-relay/main.go`) is a hub. Clients connect to it; they
+- **The relay** (`relay`, `cmd/meshghost-relay/main.go`) is a hub. It ships in a release as
+  **`meshghost-server.exe`**; built from this repo it keeps the source name
+  `meshghost-relay.exe`. Same program, two names — the rename is end-user-facing only. Clients connect to it; they
   never connect to each other.
 
 The relay's whole job is: accept a connection, decide whether to admit it, hand it an id, and

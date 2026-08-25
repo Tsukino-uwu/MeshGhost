@@ -67,7 +67,11 @@ hundred lines. Rust, Python, Godot, Java, Zig — all the same shape.
 
 ### What a correct client must do
 
-1. **Connect** a TCP socket to the core's bridge address (`127.0.0.1:7778` by default).
+1. **Connect** a TCP socket to the core's bridge address. **`127.0.0.1:7778` is where the first
+   core listens, but do not hardcode it — walk the range `7778`-`7785`, taking the first that
+   answers.** Every shipped adapter does, and it is what makes two games (or two instances of one
+   game) work at the same time on one machine: the second core cannot have the first one's port,
+   so a client fixed to 7778 silently attaches to the wrong core or fails to connect at all.
 2. **Send `hello`** first, naming your `game_id`. The core will not accept anything else until
    it has one, and it uses it to decide when to dial the relay.
 3. **Send `local_state`** every frame, or as often as you can: where the local player is, which

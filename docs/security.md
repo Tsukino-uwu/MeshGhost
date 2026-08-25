@@ -124,9 +124,16 @@ you asked for — are in [docs/networking.md](networking.md)'s Transports sectio
 canonical description; they are not repeated here.
 
 The security consequence is the part that belongs here: the handshake, and therefore the room-code
-check, **always happens over tcp**. The room code crosses that leg before quic is ever reached,
-which is why TLS over tcp matters even for a session that ends up on quic, and why the tcp leg is
-the one a pinned fingerprint authenticates. **That leg is plaintext unless `"tls"` is turned on**;
+check, **always happens over tcp**. The room code crosses that leg **in addition to**, not instead
+of, the session leg — the check sits ahead of the query-only branch in the relay, so the discovery
+query must carry the code, and the joining connection (quic by default) sends it again and is
+checked again independently.
+
+**That is why TLS over tcp matters even for a session that ends up on quic, and it is stronger
+than "belt and braces": with `tls` off, an eavesdropper reads the room code from the plaintext
+discovery query and can then join over quic perfectly normally. Quic's encryption cannot protect
+a secret that already leaked on the other leg.** The tcp leg is also the one a pinned fingerprint
+authenticates. **That leg is plaintext unless `"tls"` is turned on**;
 `udp` cannot be encrypted at all, and `quic` always is. See "known gaps" below for what each of
 those does and does not mean.
 
