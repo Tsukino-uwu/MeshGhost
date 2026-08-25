@@ -188,6 +188,16 @@ jobs:
         run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidPositionsSurviveNarrowingToFloat32 30s
       - name: Fuzz protocol - envelope decode never panics
         run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzEnvelopeUnmarshalNeverPanics 30s
+      # The bridge is the OTHER protocol, and it had no fuzzing (and no tests at
+      # all) until 2026-08-25. Its exposure is different from the relay's rather
+      # than smaller: the bytes come from a game mod on the same machine -- a Lua
+      # script a user edits -- and a panic decoding them takes the core down and
+      # every ghost with it. Four adapters in three languages compose these
+      # messages by hand, so malformed input is the ordinary case, not the attack.
+      - name: Fuzz bridge - envelope decode never panics
+        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzEnvelopeUnmarshalNeverPanics 30s
+      - name: Fuzz bridge - hello decode never panics
+        run: bash dev-scripts/ci-fuzz.sh ./bridge FuzzHelloUnmarshalNeverPanics 30s
       # The four planes past cosmetic (2026-08-17) parse their own
       # attacker-controlled shapes: an event payload is opaque bytes forwarded
       # to other players, and a lease key or escrow id becomes a map key in the

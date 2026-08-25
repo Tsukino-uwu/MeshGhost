@@ -28,6 +28,25 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
+// A note on the seven types below that are nothing but a struct embedding one
+// protocol type (Event, Lease, LeaseState, Escrow, EscrowState, World,
+// WorldState). That looks like pure ceremony and it is load-bearing, so it is
+// written down here rather than rediscovered and "cleaned up":
+//
+//   - Having its own name is what stops the two channels sharing a Go type by
+//     accident. The bridge and the relay protocol are separate by contract, and
+//     the compiler is the only thing that keeps a refactor from quietly wiring
+//     one into the other.
+//   - Each wrapper carries adapter-facing semantics that exist nowhere in the
+//     protocol type -- EscrowState's apply-on-committed-and-no-other-phase rule,
+//     WorldState's apply-in-seq-order rule, Lease's ask-before-acting rule. Those
+//     are instructions to whoever writes the next adapter, and they belong on the
+//     type that adapter actually receives.
+//
+// Making them independent instead would duplicate the field lists and give
+// internal/gameblind's frozen wire-field check two places to disagree. Deleting
+// them would collapse the separation this package exists to express. They stay.
+//
 // MessageType identifies which of the bridge message shapes an Envelope
 // carries. Deliberately distinct from protocol.MessageType: the bridge is a
 // separate, private channel per agent_docs/contract.md's "two protocols"
