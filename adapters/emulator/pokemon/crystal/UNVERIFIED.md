@@ -1330,3 +1330,65 @@ doubled. If `MESHGHOST_COMPARE_TIERS` is on you should still get exactly two cop
 loaded and connected in a real session minutes earlier. It has **not** been seen running: the
 hot-swap through the dev loader did not take, because the loader polls on a frame tick and the
 emulator was paused at the time. First Crystal launch settles it.
+
+## 2026-08-25 — Crystal: the drawn ghost wears the SURF sprite on land, and only walking DOWN
+
+**A live user report, not a fix waiting for confirmation.** Nothing here is fixed; the instrument
+that settles it is built and has never been run. The user, on the compare rig (drawn ghost 2 tiles
+left, spawned 2 tiles right, interp 0, vanilla V1.0):
+
+1. *"the drawn ghost is not doing the surf animation"* — while surfing.
+2. *"its glitching after a pokemon fight, and swapping between walk/surf animation now when
+   walking around on ground"*.
+3. Then, narrowed by the user themselves: *"the drawn ghost is swapping between walking [and] surf
+   sprite only when walking downwards, after i have surfed and been in the water"*.
+
+The third line is the one that constrains a theory, and it is why nothing was changed on the
+strength of the first two.
+
+### What IS measured
+
+**The peer's sprite id is not oscillating.** A read-only probe on the player's own
+`wObjectStructs` sprite byte (`01:d4d6` field 0 — the same byte the adapter sends as
+`extras.sprite`) and on `wPlayerState` (`01:d95d`), edge-triggered, over 5,490 frames spanning
+four surf/dismount transitions: `sprite=1 playerState=0` on land for 5,096 frames and
+`sprite=83 playerState=4` on water for 394, with the four changes landing exactly at the
+mount/dismount and holding 186-713 frames each. **No flicker at all.** So whatever swaps is
+downstream of the value this machine puts on the wire.
+
+### Two theories reasoned from the code, and why BOTH are wrong
+
+Recorded because each is the obvious next idea and re-deriving them costs a session:
+
+- **"The facing cache is contaminated with surf art."** `facingFrames` is keyed by facing alone,
+  is never cleared, and learns from whatever sprite the local player is wearing — so surfing does
+  file frames captured off the blob. But a learned frame stores an **offset within its own
+  sprite's graphics**, not an absolute tile, and `SurfSpriteGFX` is a 12-tile `WALKING_SPRITE` of
+  exactly the same shape as `ChrisSpriteGFX` (`data/sprites/sprites.asm`; both sheets are 16x96).
+  So a blob-learned offset applied to the walking base still draws **walking** tiles. The cache
+  can produce a wrong POSE. It cannot produce surf ART.
+- **"The player's sprite byte is stale after a battle."** Refuted by the measurement above.
+
+### What is left, and the instrument for it
+
+`o.sprite` arriving correct and the **source** coming out wrong anyway — the drawn tier resolves
+its graphics fresh every frame through `residentSpriteTile(o.sprite)`, which scans `wUsedSprites`
+for a tile base, and falls through to the cartridge only when that misses. A `wUsedSprites` entry
+that has moved (a battle rebuilds the list; `SPRITE_SURF` stays in it after you come ashore until
+the map reloads) would hand back a base that now holds someone else's tiles, with the sprite id
+never having been wrong.
+
+**`MESHGHOST_CRYSTAL_SPRITE_TRACE` exists to answer exactly that** (`FLAGS.md`) and has **never
+been run**: per peer, the sprite id, the branch taken (`vram`/`rom`/`none`), the base or ROM offset
+it landed on, and the local player's own sprite and base — edge-triggered on that answer changing,
+so it writes one line a session unless something swaps, and a line per swap when it does.
+
+**Why "downwards only" is the fact to explain, and must not be explained away:** it is the shape
+that killed both theories above, and a run that reproduces the swap without reproducing the
+direction has not reproduced it.
+
+### How to reproduce, in order
+
+Compare rig (`probes/compare_layout.lua` + the adapter), `MESHGHOST_CRYSTAL_SPRITE_TRACE` set
+before the adapter loads. Walk on land facing every direction; surf; come ashore; walk DOWN. The
+adapter's log then says whether the id or the source went wrong, at the frame it happened.

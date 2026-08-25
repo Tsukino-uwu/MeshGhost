@@ -3063,6 +3063,43 @@ function drawOverflow()
 			end
 		end
 		if not source then nNoTile = nNoTile + 1 end
+		-- SPRITE TRACE, off unless MESHGHOST_CRYSTAL_SPRITE_TRACE is set. EDGE-TRIGGERED: it logs
+		-- only when the answer to "which graphics is this peer being drawn from" CHANGES, so a
+		-- steady session writes one line and a swapping one writes a line per swap.
+		--
+		-- WHAT IT IS FOR, 2026-08-25. The user, after surfing and coming back ashore: the drawn
+		-- ghost *"is swapping between walking [and] surf sprite only when walking downwards"*.
+		-- Two mechanisms were reasoned from this file and BOTH fail to explain "downwards only":
+		--   * the peer's sprite id is not oscillating -- measured the same day with a read-only
+		--     probe on the player's own OBJECT_SPRITE byte, which held 1 on land and 83 while
+		--     surfing across 5,490 frames with four clean transitions and no flicker; and
+		--   * the arrangement cache cannot be the source of surf ART, because a learned frame
+		--     stores an OFFSET within whatever sprite it was captured from, and SurfSpriteGFX is
+		--     a 12-tile WALKING_SPRITE exactly like ChrisSpriteGFX (`data/sprites/sprites.asm`)
+		--     -- so a blob-learned offset applied to the walking base still draws walking tiles.
+		-- What neither of those can rule out is THIS line: `o.sprite` arriving right and the
+		-- source coming out wrong anyway, via a wUsedSprites entry that has moved. So the trace
+		-- names the peer's sprite, which branch was taken, and the tile base or ROM offset it
+		-- landed on -- which is the one fact that separates "wrong id" from "right id, wrong
+		-- tiles", and cannot be recovered from the screen afterwards.
+		if facingFrames.sprTrace == nil then
+			facingFrames.sprTrace = (os.getenv("MESHGHOST_CRYSTAL_SPRITE_TRACE") or "") ~= ""
+		end
+		if facingFrames.sprTrace or _G.MESHGHOST_CRYSTAL_SPRITE_TRACE == true then
+			local kind = source and (source.vram and "vram" or "rom") or "none"
+			local where = source and (source.vram or source.rom) or -1
+			local key = string.format("%s/%s/%s/%s", tostring(o.sprite), kind, tostring(where),
+				tostring(o.facing))
+			facingFrames.sprLast = facingFrames.sprLast or {}
+			if facingFrames.sprLast[id] ~= key then
+				facingFrames.sprLast[id] = key
+				logFile(string.format("sprite-trace: f=%d %s peerSprite=%s -> %s %s "
+					.. "(facing=%s, local sprite=%s at base=%s)", drawFrames, id,
+					tostring(o.sprite), kind, tostring(where), tostring(o.facing),
+					tostring(u8(OBJECT_STRUCTS + F_SPRITE)),
+					tostring(u8(OBJECT_STRUCTS + F_SPRITE_TILE))))
+			end
+		end
 		if source then
 			-- SIGNED screen coordinates, computed here rather than borrowed from screenCoords().
 			-- That helper answers in the engine's sprite space, which is taken mod 256 and offset
