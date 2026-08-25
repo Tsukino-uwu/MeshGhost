@@ -1406,9 +1406,28 @@ from ~2px to ~3-4px per run. "K target moved on exactly 2 parked frames per park
 frames) is the standing measurement of it. The next work is on that disagreement, not on a third
 repayment rule.
 
+### The residue was then fixed the same evening, and the fix is instrument-verified
+
+The user asked for the residue fixed rather than parked. The KPARK decomposition (one line per
+park: dd plus the run's target/model/camA deltas) came back `dd=0,-3` with ALL THREE run deltas
+zero -- nothing bleeds during a run; the -3 appears at the stop itself. KSETTLE (dd sampled at
+stillness 8..64) pinned it: `still=8 -> -3, still=16 -> 0`, every park -- **a settling transient
+of at most 8 frames in the player-side reference**, plateau-shaped, so it passed the two-frame
+equality guard and the K nudge chased it down and back at every stop. That chase (24px repaid
+against 12px "drift", ~2 nudge reversals per park) WAS the on-screen 3px slide-and-return.
+
+Fix, all three from the measurement rather than a theory: the nudge now requires the target
+stable for 8 consecutive frames (outlasting the transient); the per-park drift sample moved from
+stillness 8 to 16 (at 8 it was measuring the transient and calling it the walk's bleed); KSETTLE
+stays as a regression sentinel, silent unless a park opens with a nonzero disagreement.
+
+**Verified by instrument over 12 parks: K drift 0px, worst 0px, 0 nudge frames, 0 reversals** --
+against 3px at every park before. NOT yet confirmed by the user on screen.
+
 ### What to watch, when the user next rides
 
-Up/down on the bike, compare rig: mid-run both ghosts should hold formation exactly. At each
-turn, the drawn (left) copy shows a brief hiccup of at most 8px and settles within a few frames;
-at a stop it may sit up to 3px off and slide back. If mid-run is NOT rock solid, that is new
-information and contradicts this lap's numbers -- say so.
+Up/down on the bike, compare rig: mid-run both ghosts hold formation exactly, and a stop should
+now be completely still -- no slide, no return. What REMAINS at each reversal is the drawn copy
+visibly finishing its last step a beat after the player turns -- that is the echo's real lag
+rendered at the engine's own pace, the spawned copy does the same thing, and it is not the drift.
+If a stop still slides, KSETTLE will have spoken in the log -- read it before theorising.

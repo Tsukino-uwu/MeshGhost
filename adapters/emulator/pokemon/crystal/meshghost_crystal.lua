@@ -4020,6 +4020,17 @@ function drawOverflow()
 						local stable = (facingFrames.kWantX == wantKX
 							and facingFrames.kWantY == wantKY)
 						facingFrames.kStable = stable
+						-- HOW LONG it has been stable, because two frames of equality is not
+						-- settled. KSETTLE (2026-08-25, the bike lap): at EVERY park the target
+						-- sat exactly 3px off at stillness 8 and was back to true by 16, with all
+						-- three run deltas zero -- a transient of at most 8 frames, plateau-shaped,
+						-- so it PASSES a two-frame equality check and the nudge chased it down and
+						-- back at every stop (24px repaid against 12px of drift, ~2 nudge
+						-- reversals per park -- the 2:1 signature). That chase was the user's
+						-- *"drift from their current tile"*: 3px out and 3px back at every park.
+						-- Eight frames of sustained equality outlasts the measured transient, and
+						-- parks last hundreds of frames, so real drift still gets repaid in full.
+						facingFrames.kStableFor = stable and ((facingFrames.kStableFor or 0) + 1) or 0
 						-- OUTSIDE the probe guard, deliberately. `stable` is now SHIPPED behaviour,
 						-- so the state it compares against has to advance whether or not the probe
 						-- is on -- inside the guard, a build with COMPARE_TIERS off would find
@@ -4071,7 +4082,28 @@ function drawOverflow()
 						-- Stamped by frame because this block is inside the per-peer draw loop and
 						-- `facingFrames` is shared: two drawn peers would otherwise count one park
 						-- twice.
-						if COMPARE_TIERS and (facingFrames.camStillFor or 0) == 8
+						-- HOW dd EVOLVES ACROSS THE PARK (2026-08-25). KPARK caught dd=-3 at
+						-- every entry with ALL run deltas zero -- so nothing leaks during the run,
+						-- and the -3 must be a transient in the reference that later resolves
+						-- (the nudge chasing it down and back is exactly the 2:1 repaid-to-drift
+						-- ratio on the MODEL line). This prints dd at stillness 8..64 in steps of
+						-- 8; if it decays to 0 on its own the fix is to WAIT, not to repay.
+						-- Silent while healthy (the fix landed 2026-08-25 and a verification lap
+						-- read 0,0 at every sample): it speaks again only if a park is entered
+						-- with a nonzero disagreement, which is the regression this watches for.
+						if COMPARE_TIERS and (ddx ~= 0 or ddy ~= 0)
+							and (facingFrames.camStillFor or 0) >= 8
+							and (facingFrames.camStillFor or 0) <= 64
+							and (facingFrames.camStillFor % 8) == 0
+							and facingFrames.kSettleAt ~= drawFrames then
+							facingFrames.kSettleAt = drawFrames
+							logFile(string.format("  KSETTLE f%d still=%d dd=%d,%d",
+								drawFrames, facingFrames.camStillFor, ddx, ddy))
+						end
+						-- Sampled at 16, not 8: KSETTLE showed the reference settles between
+						-- stillness 8 and 16, so a sample at 8 measured the TRANSIENT and called
+						-- it the walk's bleed. At 16 it measures what the walk actually left.
+						if COMPARE_TIERS and (facingFrames.camStillFor or 0) == 16
 							and facingFrames.kParkAt ~= drawFrames then
 							facingFrames.kParkAt = drawFrames
 							local d = math.abs(ddx) + math.abs(ddy)
@@ -4085,6 +4117,29 @@ function drawOverflow()
 							-- (sign convention, the progress reversal, which axis the camera moves),
 							-- and if all four are equal the direction is a coincidence of where the
 							-- walk/stop phase happens to place a mid-leg stop.
+							-- DECOMPOSE THE RUN, one line per park (2026-08-25, the bike session).
+							-- The identity is ddx = Δtarget - Δmodel - ΔcamA since the previous
+							-- park (K untouched between parks, by construction). For a loopback
+							-- peer the target's screen position is the same at every park, the
+							-- model walks +16 per tile and camA scrolls -16 per tile -- so each
+							-- delta has a predicted value, and the term whose delta is OFF its
+							-- prediction is the term that carries the park drift. A total like
+							-- kParkSum can say HOW MUCH bleeds per park; only this can say WHO.
+							local tgtX = wantKX + o.modelX + (facingFrames.camAX or 0)
+							local tgtY = wantKY + o.modelY + (facingFrames.camAY or 0)
+							if facingFrames.kRunTgtX then
+								logFile(string.format(
+									"  KPARK f%d dir=%s dd=%d,%d run: target=%d,%d model=%d,%d camA=%d,%d",
+									drawFrames, DIR_NAMES.letter[pDir] or "?", ddx, ddy,
+									tgtX - facingFrames.kRunTgtX, tgtY - facingFrames.kRunTgtY,
+									o.modelX - facingFrames.kRunModX, o.modelY - facingFrames.kRunModY,
+									(facingFrames.camAX or 0) - facingFrames.kRunCamX,
+									(facingFrames.camAY or 0) - facingFrames.kRunCamY))
+							end
+							facingFrames.kRunTgtX, facingFrames.kRunTgtY = tgtX, tgtY
+							facingFrames.kRunModX, facingFrames.kRunModY = o.modelX, o.modelY
+							facingFrames.kRunCamX = facingFrames.camAX or 0
+							facingFrames.kRunCamY = facingFrames.camAY or 0
 							local dl = DIR_NAMES.letter[pDir] or "?"
 							facingFrames.kParkDir = facingFrames.kParkDir or {}
 							local b = facingFrames.kParkDir[dl] or { n = 0, sum = 0, max = 0 }
@@ -4114,7 +4169,8 @@ function drawOverflow()
 						-- real drift, and is repaid in 2px units that look like an ordinary step.
 						if math.abs(ddx) > 16 or math.abs(ddy) > 16 then
 							facingFrames.camKX, facingFrames.camKY = wantKX, wantKY
-						elseif o.modelMovedAt ~= drawFrames and facingFrames.kStable then
+						elseif o.modelMovedAt ~= drawFrames
+							and (facingFrames.kStableFor or 0) >= 8 then
 							-- ON THE MODEL'S OFF-FRAMES, ONE PIXEL AT A TIME. Two better-sounding rules
 							-- were tried against the user's eyes and both were worse; the trail is kept
 							-- because each is the obvious next idea.
