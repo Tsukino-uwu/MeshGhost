@@ -9,7 +9,7 @@ frequently touched file in the repo.
 
 **The gate is unchanged, and it is the strict one.** Nothing adapter- or game-side on the
 BASE/VANILLA game goes in here until **the user has confirmed it on screen** — no probe log,
-console read or screenshot substitutes. Measurements that are not yet confirmed live in
+console read or screenshot of yours substitutes, and neither does a clean test run. Measurements that are not yet confirmed live in
 [`UNVERIFIED.md`](UNVERIFIED.md). A patched ROM (Archipelago and similar) is the agent's to confirm
 visually; say so in the entry. The full rule is in [../../../../CLAUDE.md](../../../../CLAUDE.md).
 
