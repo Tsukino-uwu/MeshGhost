@@ -66,10 +66,12 @@ const (
 	// Welcome.SendHz when its operator hasn't configured one, and the rate a
 	// client falls back to when the relay advertises nothing at all (an
 	// older relay). 20Hz, not the brief's original 10Hz hypothesis: 20Hz is
-	// the rate live-confirmed across all three shipped games as
-	// core.DefaultMinSendInterval (agent_docs/contract.md's Limits
-	// section), and this constant exists to keep the two provably equal
-	// rather than as a fresh claim about the "right" rate.
+	// the rate live-confirmed as core.DefaultMinSendInterval across the
+	// three games shipping at the time -- Emerald, TEVI and Pseudoregalia;
+	// Crystal came later (2026-08-18) and is the fourth
+	// (agent_docs/contract.md's Limits section). This constant exists to
+	// keep the two provably equal rather than as a fresh claim about the
+	// "right" rate.
 	DefaultSendHz = 20
 
 	// MinSendHz / MaxSendHz bound both server.send_hz (a relay's configured

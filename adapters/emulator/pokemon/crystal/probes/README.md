@@ -16,7 +16,7 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Fifteen of these WRITE, and three hold the controller. Read this before running one.
+## Twenty of these WRITE, and fifteen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
@@ -44,8 +44,11 @@ permanent, so savestate first and reload after. `noclip_off.lua` restores the co
 **The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
 what each one changed stays obvious when something later looks wrong.
 
-**Four hold the controller**: `door_loop.lua`, `square_drive.lua` and `fish_drive.lua` (which
-also loads a savestate), and anything loaded with them.
+**Fifteen hold the controller**, and the count keeps growing because a savestate-driven rig is now
+the normal way to reach an expensive state: `action_probe`, `bump_probe`, `dig_drive`, `door_loop`,
+`fish_drive`, `fly_drive`, `ice_probe`, `idle_cycle_drive`, `ledge_drive`, `menu_clip_check`,
+`menu_state_table`, `square_drive`, `surf_follow_probe`, `trainer_check`, `whirlpool_drive` — plus
+anything loaded alongside them.
 Unload them before handing the game back — in a loopback session the ghost IS the local player
 echoed, so a probe jittering the player jitters the ghost, and that reads as a rendering fault.
 One left loaded on 2026-08-22 became a suspect for a ghost wiggle and cost a round of diagnosis.
@@ -175,7 +178,7 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `ap_playerstate_probe.lua` | a byte that changes on a bike toggle and changes BACK. Start-state agnostic on purpose |
 | `ap_force_state.lua` | **WRITES.** Forces a player-state value to confirm the address by its EFFECT. Refuted `0x1A17` on 2026-08-27 — the write produced no visible change |
 | `wram_window.lua` | a hex dump of a WRAM window. The blunt instrument to reach for when a signature scan has just produced a confident wrong answer |
-| `idle_cycle_drive.lua` | walk, stand still past the idle rule, walk again — the demote/promote pair on a loop, with no controller. Verifies its own input landed by reading the game's tile back |
+| `idle_cycle_drive.lua` | walk, stand still past the idle rule, walk again — the demote/promote pair on a loop. HOLDS THE CONTROLLER. Verifies its own input landed by reading the game's tile back |
 | `shot_burst.lua` | a screenshot a second. Screenshots capture the emulated framebuffer WITHOUT the Lua overlay, so this separates an ENGINE character from a PAINTED one in one image |
 | `flags_step_lag.lua` | turns on the line naming WHICH term refused a peer the spawned tier (`wearable`/`blocking`/`paceable`) |
 | `flags_bike_pose.lua` | facing trace + sprite trace together: what the cache holds, and which graphics a peer resolved from |
