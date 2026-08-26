@@ -1,6 +1,6 @@
 # Pseudoregalia player fields — currently synced, and the wider schema map
 
-<!-- line-cap: 350 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 Reference doc, not narrative — see [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md)
 for the build story and [VERIFIED.md](VERIFIED.md) for the dated,

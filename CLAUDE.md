@@ -28,9 +28,12 @@ something already went wrong once. So an over-cap file does not enforce more, it
 everything less. **A 400-line CLAUDE.md is a weaker CLAUDE.md.** Adding a rule past the cap does
 not add a rule; it silently damages all the others.
 
-**This is no longer the only capped file.** Every file the project mandates as required reading now
-declares its own budget in its header (`<!-- line-cap: N -->`), and `dev-scripts/preflight.ps1`
-enforces the whole set. Same rule, same question: what comes out to make room?
+**This is no longer the only capped file.** Every file that spends an agent's instruction budget —
+the nested `CLAUDE.md`s, the skills, the indexes, the probe and pitfalls files, all of `_template/`
+— declares its own budget in its header (`<!-- line-cap: N -->`), and `dev-scripts/preflight.ps1`
+enforces the set. Same rule, same question: what comes out to make room? **A document written for
+people to read is NOT in that set** (2026-08-27, the user's call): each game's `README.md` and
+`documentation.md`, `docs/`, and the root `README.md` declare `line-cap: none` and may grow.
 
 Adding a rule is nearly always right; adding an *explanation* of a rule usually isn't — the rule
 stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full evidence:

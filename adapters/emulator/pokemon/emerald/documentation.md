@@ -1,6 +1,6 @@
 # How Pokémon Emerald works
 
-<!-- line-cap: 900 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 ## Before adding anything to this file
 

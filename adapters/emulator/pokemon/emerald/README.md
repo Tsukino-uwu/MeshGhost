@@ -1,6 +1,6 @@
 # Pokémon Emerald
 
-<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 **Status: feature complete 2026-08-21 — the user's call**, in their words: *"i consider the
 game to be fully synced up animation and effect wise now."* Every way this game moves a character

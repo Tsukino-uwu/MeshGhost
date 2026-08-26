@@ -1,6 +1,6 @@
 # MeshGhost
 
-<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
 independent copy of the game; friends show up as "ghosts" — live position, facing and animation —

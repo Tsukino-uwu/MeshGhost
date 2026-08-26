@@ -155,14 +155,20 @@ Section "Reading budgets"
 # how ~21,000 lines across the nine largest documents came to have no backstop at all while the
 # 15 that did sat at 92-97% full. "It has no cap" and "nobody gave it one" looked identical.
 #
-#   <!-- line-cap: N -->     bounded content: rules, reference, a guide, an index
-#   <!-- line-cap: none -- reason -->    a record, register or queue
+#   <!-- line-cap: N -->     bounded content an AGENT loads: rules, reference, a guide, an index
+#   <!-- line-cap: none -- reason -->    a record, register or queue -- OR a document for people
 #
 # The exemption is not a loophole, it is the other half of the rule. claude-md-cap.md's argument
 # is "cap the thing that actually grows" -- and for a LOG the thing that grows is the number of
 # entries, which is real signal about the project. Capping VERIFIED.md would mean deleting
 # evidence in order to add evidence; capping a BANDAGES.md would hide the exact smell it exists to
 # show. A record is bounded by SPLITTING it, the way the ADR log was, never by refusing entries.
+#
+# THIRD CATEGORY, added 2026-08-27 on the user's call: a cap is a budget on the AGENT's instruction
+# budget, so a file no agent loads has none to spend. Each game's README.md and documentation.md,
+# docs/, packaging/ and dev-scripts/ READMEs are written for people and are exempt for that reason,
+# not because they are records. Everything an agent auto-loads or is told to read end to end stays
+# capped. claude-md-cap.md's fourth case is the argument; this comment is only the pointer.
 $capped = 0
 $withinCap = 0
 $exempt = 0

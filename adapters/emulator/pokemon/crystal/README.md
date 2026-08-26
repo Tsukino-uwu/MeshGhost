@@ -1,6 +1,6 @@
 # Pokémon Crystal
 
-<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 **Status: shipping, and under active work — Phase 9.** `meshghost_crystal.lua` dials the bridge,
 spawns a real in-game object event for each peer, walks it with the game's own step mechanism, and
@@ -251,6 +251,10 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     which the camera's plausibility test rejected as a register rebase. The rest were one shape: a
     peer's appearance learned from the LOCAL player, which says nothing about a peer on the other
     build. Everything a build can move is now read off that cartridge rather than assumed.
+25. **Called feature complete on 2026-08-27** — the user's judgement, once the mixed-build session
+    above closed the last class of fault a same-build test could not see. It is a statement about the
+    feature SET, not about what has been watched: everything still open is in the list directly
+    below, and each item there is either unmeasured on the Archipelago build or built and unwatched.
 
 ### Further work past "good enough"
 

@@ -1,6 +1,6 @@
 # How the networking layer actually works
 
-<!-- line-cap: 700 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 This file explains the Go client/server layer: what the relay process *is*, what happens on a
 connection from the first byte to the last, and — where it isn't obvious — *why* it was built

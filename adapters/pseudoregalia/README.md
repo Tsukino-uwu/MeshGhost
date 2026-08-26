@@ -1,6 +1,6 @@
 # Pseudoregalia
 
-<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 **Status: Phase 7, 7.0–7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two players
 on two machines. First release package cut 2026-08-13, still marked experimental/pre-release

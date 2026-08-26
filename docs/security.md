@@ -1,6 +1,6 @@
 # Security and privacy posture
 
-<!-- line-cap: 550 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 ## The whole shape, in one picture
 

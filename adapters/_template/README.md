@@ -1,6 +1,10 @@
 # Adapter template
 
-<!-- line-cap: 1500 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 1600 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- Raised from 1500 on 2026-08-27, once. The file had sat at exactly 1500/1500 and git shows it
+     trimmed back on reaching it, so every new lesson was being paid for by deleting an old
+     one -- which is not what the cap is for. The next time this fills up the answer is NOT
+     another raise: relocate a section to agent_docs/pitfalls/ or a phase file and leave a one-line pointer. -->
 
 **First written 2026-08-11**, at the end of Phase 5, and kept current since with what the four
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,

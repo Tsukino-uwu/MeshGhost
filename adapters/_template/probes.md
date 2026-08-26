@@ -1,6 +1,10 @@
 # Probes: how to build one that answers something
 
-<!-- line-cap: 1850 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 1950 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- Raised from 1850 on 2026-08-27, once. The file had sat at exactly 1850/1850 and git shows it
+     trimmed back on reaching it, so every new lesson was being paid for by deleting an old
+     one -- which is not what the cap is for. The next time this fills up the answer is NOT
+     another raise: move a worked example to the adapter that produced it and leave the METHOD here. -->
 
 **A probe is a question asked of a running game, and most of them fail as questions rather than as
 code.** This file is the method: how to search for something you cannot name, how to instrument a

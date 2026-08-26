@@ -1,6 +1,6 @@
 # Adding MeshGhost to your own game
 
-<!-- line-cap: 500 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 Every other integration document here assumes you are writing an **adapter**: a mod that reads a
 game's memory from the outside and talks to a separate `meshghost.exe` over a loopback socket. That

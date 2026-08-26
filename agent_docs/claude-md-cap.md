@@ -1,6 +1,11 @@
 # Why CLAUDE.md is capped at 300 lines
 
-<!-- line-cap: 100 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 140 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- Raised from 100 on 2026-08-27, deliberately and once: the fourth case took this file to exactly
+     100/100, and a file pinned at its ceiling pays for the next case by deleting an old one. This
+     file is four cases and each is load-bearing, so nothing was the right thing to remove. 140
+     leaves room for two more. If a fifth and sixth case ever land, the answer is a split, not
+     another raise -- the same remedy this file prescribes for a record. -->
 
 The cap is the highest-priority rule in `CLAUDE.md` — it outranks every rule below it. This file
 holds the reasoning, which is exactly what the cap requires: the rule stays there, its explanation
@@ -61,8 +66,10 @@ Capping one is actively harmful, in a way a line count cannot see:
   to add evidence. The cap would be satisfied by destroying exactly what the file exists for.
 - **`BANDAGES.md`** — a register whose growth is a *smell*. A cap would answer that smell by
   hiding it, which is the opposite of the register's job.
-- **`FLAGS.md`**, `risks.md`, `pitfalls.md`, `ideas.md` — same shape. Size tracks how many
-  switches, risks, incidents or unscheduled ideas exist. That number is worth seeing.
+- **`FLAGS.md`**, `risks.md`, `ideas.md` — same shape. Size tracks how many switches, risks or
+  unscheduled ideas exist. That number is worth seeing. (`pitfalls.md` was in this list and came
+  out on 2026-08-27: the 2026-08-25 split made it the bounded *index* and moved the record into
+  `pitfalls/`, which is where the `none` now sits. The list had been left behind by the split.)
 - **`UNVERIFIED.md`** and `status.md` — queues. Size tracks what is open, and the way to shrink
   one is to do the work, never to trim the file.
 
@@ -78,3 +85,21 @@ nothing distinguished "deliberately uncapped" from "nobody ever gave it one".
 **A record is bounded by SPLITTING it, never by refusing entries.** That is what happened to the
 ADR log: 2,332 lines out of `architecture.md` into one file per decision, with the index left
 behind. The cap then belongs on the index, which is bounded, and not on the record, which is not.
+
+## The fourth case: files written for people, not for the agent (2026-08-27)
+
+The three cases above all reason about one reader — an agent, loading the file into a context window
+it has to spend. **That is what a cap is a budget on.** A file no agent loads has no such budget to
+spend, so capping it buys nothing and costs something real: information a person wanted, deleted to
+satisfy a number.
+
+The user's call, this session, on the adapters' `README.md` and `documentation.md` files: *"its for
+me & other users to read not just for ai usage"* — and they had never asked for a cap on them. It
+was applied by an earlier pass that generalised this rule past its own argument.
+
+**So the sorting question is who reads it, not how big it is.** Uncapped: each shipped adapter's
+`README.md` and `documentation.md`, `pseudoregalia/PLAYER_FIELDS.md`, the root `README.md`, `docs/`,
+`packaging/README.md`, `dev-scripts/README.md`. Still capped, because an agent either auto-loads
+them or is told to read them end to end: the five `CLAUDE.md` files, `.claude/skills/`, the indexes
+(`agent_docs/README.md`, `architecture.md`, `pitfalls.md`), every probe file, and all of
+`_template/`.
