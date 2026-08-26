@@ -6258,13 +6258,27 @@ local function renderRemote(id, state)
 	-- tiers land in step with each other.
 	local peerEntry = state.extras and tonumber(state.extras.entry) or nil
 	if peerEntry == 0xFC and not a.dropDone then
-		if a.flyX and (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
+		-- EITHER a tile jump, OR no previous position to compare against. The second half is the
+		-- CROSS-MAP fly, and leaving it out is why that case still blinked in while a same-town
+		-- fly fell correctly (the user, 2026-08-26: *"it looks fine when landing now, but only if
+		-- its flying to the same town"*). Arriving on a different map clears this peer's whole
+		-- bookkeeping -- ghosts, painted entries, and the last-known tile this comparison needs --
+		-- so there is no `flyX` left to jump FROM and the drop could never arm. A peer wearing
+		-- MAPSETUP_FLY that we have no previous position for has, by definition, just arrived
+		-- somewhere: that IS the landing.
+		if (not a.flyX) or a.flyArea ~= state.area_id
+			or (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
 			a.dropAt, a.dropDone = drawFrames, true
 		end
 	elseif peerEntry ~= 0xFC then
 		a.dropDone = nil -- the flag was shed; the next fly is a new drop
 	end
-	a.flyX, a.flyY = x, y
+	-- THE AREA IS PART OF THE COMPARISON, not decoration. Map coordinates are map-LOCAL, so a
+	-- cross-town landing routinely reads as a SHORT hop -- fly from tile 10,5 on one map to 12,6
+	-- on another and the distance test sees three tiles and declines to arm. That is the whole
+	-- reason a cross-town fly still blinked in while a same-town fly fell correctly. Comparing two
+	-- positions from different maps is meaningless in the first place; a changed area IS the jump.
+	a.flyX, a.flyY, a.flyArea = x, y, state.area_id
 	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
 	if dropT and (dropT >= 64 or dropT < 0) then
 		a.dropAt, dropT = nil, nil
@@ -6635,6 +6649,17 @@ local function renderRemote(id, state)
 			--
 			-- All three writes, the same set `stepGhost` makes: the movement byte decides what the
 			-- engine restores when a step ends, and DIRECTION/FACING are what is drawn until then.
+			-- A GHOST SPAWNED DURING A FLY LANDING FALLS ONTO ITS TILE. The cross-map fly
+			-- reaches the engine tier through this spawn, never through the teleport or the
+			-- catch-up walk -- which is exactly why the drop is armed on the envelope rather than
+			-- on any one placement path. The blanket "never on a spawn" this replaces was written
+			-- to stop a PROMOTION dropping from the sky, and the envelope already guarantees that:
+			-- it exists only when the peer wears MAPSETUP_FLY, which a peer that merely started
+			-- walking never does.
+			if dropT and ghosts[id] then
+				a.skyfallArmed = true
+				teleportGhost(ghosts[id], px, py, true)
+			end
 			local g2, want2 = ghosts[id], ORIENTATION_TO_DIR[state.orientation]
 			if g2 and want2 then
 				setGhostStanding(g2.st_base, g2.mo_base, want2)

@@ -4012,3 +4012,15 @@ The same rule applies to *events*, and that generalisation is what was missing.
 
 **And when a fix like this is corrected, check its siblings in the same file immediately** — (2)
 was sitting four lines from (1) on the identical wrong trigger and cost an extra live cycle.
+
+**It reached five before the day was out.** (4) the fly-arrival drop compared the peer's old and
+new tiles to detect a landing — but map coordinates are map-local, so a cross-town landing reads as
+a three-tile hop and never armed; and (5) the same feature carried an explicit "never on a spawn"
+guard, written to stop a promotion falling from the sky, which excluded the one path a cross-map
+arrival actually takes. **Both are the subset habit wearing a different coat: (4) compared a
+quantity that is only meaningful within one map, and (5) excluded a member of the set by name
+instead of by the property that made it wrong.** (5) is the more instructive: the guard's REASON
+was "a promotion must not drop", and the envelope already guaranteed that — so the guard was
+excluding a path for a property it did not have. **When a guard names a case rather than a
+property, check whether the property it cares about is already guaranteed elsewhere; if it is, the
+guard is not protection, it is a second, coarser trigger that will exclude the wrong things.**

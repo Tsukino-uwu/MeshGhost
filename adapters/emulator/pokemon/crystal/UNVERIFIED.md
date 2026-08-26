@@ -1451,3 +1451,29 @@ repopulated across those very frames. The window is now armed by the map-entry b
 re-armed for as long as it is stamped. **If the sprite is still glitched after this, the cause is
 elsewhere and the next step is a sprite trace** (`MESHGHOST_CRYSTAL_SPRITE_TRACE`), which names
 which source branch each peer took and the tile base it landed on.
+
+### And the cross-town landing: two reasons it could never arm
+
+**The user, after the same-town landing came good:** *"it looks fine when landing now, but only if
+its flying to the same town."* The same-town case is confirmed on screen (`VERIFIED.md`); the
+cross-town one had two independent blockers, both of them consequences of a map load:
+
+1. **Map coordinates are map-LOCAL, so a cross-town landing routinely reads as a SHORT hop.** Fly
+   from tile 10,5 on one map to 12,6 on another and the distance test sees three tiles and declines
+   to arm. Comparing two positions from different maps is meaningless in the first place — the
+   comparison now carries `area_id`, and a changed area IS the jump. (A peer with no previous
+   position at all arms too: that is a peer whose bookkeeping the map load cleared.)
+2. **A cross-map arrival reaches the engine tier through a SPAWN**, never through the teleport or
+   the catch-up walk. The blanket "never on a spawn" written a commit earlier — added to stop a
+   PROMOTION dropping out of the sky — excluded the exact path this case takes. The envelope
+   already makes promotions safe, because it exists only when the peer wears MAPSETUP_FLY and a
+   peer that merely started walking never does; so the spawn path now drops when the envelope is
+   live, and the blanket rule is gone.
+
+**Fourth and fifth instance of the same habit in one day** — a trigger that is a proper subset of
+the event that mattered. The pattern, and the one-sentence check for it, are in
+`pitfalls/by-lesson.md`.
+
+**What to watch:** fly to a DIFFERENT town — the ghost should hold hidden then fall, exactly as the
+same-town case now does. Same-town must still work. And a promotion (a ghost appearing as you start
+walking, no fly involved) must still be a plain appearance with no fall.
