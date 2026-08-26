@@ -7,8 +7,8 @@ was to build this adapter without starting from a compensation: *"i want to actu
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*
 (2026-08-17). It carried nothing under Shipped for two days.
 
-**It carries two now**, both deliberate and both on the user's call: the drawn-overflow tier
-(2026-08-19) and that tier's camera-clocked beat (2026-08-25). Each entry below is written the way
+**It carries three now**, all deliberate and all on the user's call: the drawn-overflow tier
+(2026-08-19), that tier's camera-clocked beat (2026-08-25), and the fly-arrival drop (2026-08-26). Each entry below is written the way
 the guide asks — what it compensates for, what it costs, and what would retire it. The second is
 the more instructive one: its proper mechanism is **known and written down**, which is what makes
 it debt rather than a ceiling.
@@ -125,6 +125,31 @@ current formula).
 intended bandage to keep it as it is right now then?"* — taken with the queue in `UNVERIFIED.md`
 unwatched, including six animation classes never seen on screen at all. Left deliberately, with
 the route out written down, rather than rested at.
+
+### 3. A fly ARRIVAL uses the engine's floor-fall, which is not what a Fly landing looks like
+
+**What it is.** A peer that arrives by Fly is dropped onto its tile with `STEP_TYPE_SKYFALL` (the
+Burned Tower floor-fall) on the spawned tier, mirrored on the painted tiers by a matching hide-then-
+fall envelope. Added 2026-08-26 on the user's call, in preference to the ghost simply appearing.
+
+**What it compensates for, and why it is not 1:1.** The real landing is not a fall and not the
+character: `SpriteAnimFunc_FlyTo` swoops the **Pokémon's icon** down from the top of the screen on a
+**decaying-cosine spiral**, the side-to-side swing shrinking to nothing as it settles
+(`documentation.md` has the full trace). No timing of a vertical skyfall can resemble that, so this
+is a stand-in rather than an approximation that could be tuned into correctness. The user, seeing
+it: *"they just 'dropped down' instead of doing the fly landing animation"*, and, offered the
+choice between building the real one, reverting to a plain appearance, or keeping this: *"keep the
+drop for now"*.
+
+**What it costs.** A watcher sees a motion the game never shows. It is also the one place this
+adapter animates a peer from something other than the peer's own object state, so it can never be
+made more correct by better wire data alone.
+
+**What retires it.** The real landing, which needs three things and is specified in `UNVERIFIED.md`:
+the peer's fly SPECIES on the wire, a mon-icon graphics path (icons are a different family from the
+walking sprites both tiers draw from), and the decaying-cosine descent in place of the fall. The
+spawned tier probably cannot wear an icon at all, so that peer would be hidden until it lands —
+which is what the engine does to the flier anyway.
 
 ## Deliberate — measured decisions, not bandages
 

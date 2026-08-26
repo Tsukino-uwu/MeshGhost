@@ -564,3 +564,21 @@ On completion `FlyToAnim` zeroes all shadow OAM past the player's four entries. 
 map object never runs the skyfall: `Movement_skyfall` / `STEP_TYPE_SKYFALL` belong to map scripts
 (the Burned Tower floor-fall, the Ruins chambers), not to Fly. So nothing about a Fly exists as
 object state — a character watching another player fly has nothing in this engine to show.
+
+### What the Fly LANDING actually looks like (2026-08-26)
+
+Traced to `SpriteAnimFunc_FlyTo` (`engine/sprite_anims/functions.asm`) and its setup in `FlyToAnim`:
+
+- The sprite is the **Pokémon's icon**, not the character — `FlyFunction_InitGFX` loads the icon of
+  the mon in `wCurPartyMon` into the `FIELDMOVE_FLY` tile slot.
+- It starts at `depixel 31, 10` — y = 248, i.e. **off the bottom of the byte range, which wraps to
+  above the screen** — and its Y increases by 2 per frame until it reaches `10 * TILE_WIDTH + 4`
+  (84), the centre. So it descends from the top.
+- `VAR4` starts at `11 * TILE_WIDTH` (88) and decreases by 2 per frame to zero. `VAR3` increments
+  every frame and feeds `AnimSeqs_Cosine`, whose result becomes the sprite's X offset — scaled by
+  the decaying `VAR4`.
+
+**So the landing is a decaying-cosine SPIRAL: the Pokémon swoops down from the top of the screen,
+swinging side to side, the swing shrinking to nothing as it settles on the centre tile.** It is
+neither a vertical fall nor a character animation, which is why `STEP_TYPE_SKYFALL` — the Burned
+Tower floor-fall — cannot resemble it however it is timed.

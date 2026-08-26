@@ -1555,3 +1555,19 @@ so the comparison still sees where it was before the fly whenever the decision f
 decision reads.** Deferring is not free if the state it depends on keeps moving underneath — the
 delay window quietly converts a difference into a match, and the result is not a wrong answer but
 no answer at all, which reads exactly like the feature never being reached. `pitfalls/by-lesson.md`.
+
+### The drop is a STAND-IN, and the real landing is now specified
+
+**Both tiers drop together as of the fifth attempt** — the user: *"they just 'dropped down' instead
+of doing the fly landing animation now"*, which is the envelope working and the animation being the
+wrong one. Traced the same day (`documentation.md`): the real landing swoops the **Pokémon's icon**
+down from the top of the screen on a **decaying-cosine spiral**, the swing shrinking to nothing as
+it settles. A vertical skyfall cannot be tuned into that.
+
+**Kept anyway, on the user's call** — *"keep the drop for now"* — and registered as
+[`BANDAGES.md`](BANDAGES.md) #3 rather than left to look finished. What retires it is the mon-icon
+work already queued above, plus the cosine descent in place of the fall.
+
+**Still unwatched and worth a look when convenient:** that a plain promotion (a ghost appearing as
+you start walking) never drops, and that a door or Dig arrival never does either — the envelope is
+gated on MAPSETUP_FLY, so neither should, and neither has been checked.
