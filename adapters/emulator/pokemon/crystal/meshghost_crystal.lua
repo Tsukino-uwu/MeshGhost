@@ -3701,8 +3701,36 @@ function meshghostSampleCamera()
 			local pdx = ((scx - facingFrames.camX + 128) % 256) - 128
 			local pdy = ((scy - facingFrames.camY + 128) % 256) - 128
 			local pcd = math.abs(pdx) + math.abs(pdy)
-			local plausible = (pcd == 2 or pcd == 4)
-				and (pdx == 0 or pdy == 0)
+			-- EVERY DELTA, BEFORE THE TEST THAT MIGHT REJECT IT. The histogram used to sit in the
+			-- accepted branch, so it could only ever report deltas that passed -- and then said
+			-- "no 8px deltas at turbo" when 8px deltas being thrown away was the entire fault.
+			-- `probes.md`, for the third time in one session: dump everything, filter afterwards.
+			facingFrames.camHist = facingFrames.camHist or {}
+			facingFrames.camHist[pcd] = (facingFrames.camHist[pcd] or 0) + 1
+
+			-- THE GAITS THIS CARTRIDGE HAS, not the two vanilla happens to have.
+			--
+			-- This read `pcd == 2 or pcd == 4` -- the walk and the bike -- and anything else was
+			-- treated as a register rebase and ABSORBED: camMoved false, camDelta zero, the motion
+			-- folded into camA. That is right for a real rebase (a map load moves the registers
+			-- with no walking behind it) and catastrophic for a real 8px scroll, because the screen
+			-- moves and the painted ghost does not. On the Archipelago build's fourth gait that is
+			-- every fast frame, which is exactly the glide and snap the user has been reporting:
+			-- *"it looks fine when walking, running and biking but looks snap/glide with turbo
+			-- bike"*. Walking is 2 and both running and the ordinary bike are 4 -- the two values
+			-- this test already knew -- so the discriminator points straight at the missing one.
+			--
+			-- ENGINE.gaits is measured off the cartridge's own StepVectors at load, so this accepts
+			-- exactly the strides the engine can actually produce here and nothing more: three
+			-- groups means 1, 2 and 4, four means 8 as well. A build with a fifth gait would widen
+			-- it without this line changing.
+			local ok = false
+			for g = 0, (ENGINE.gaits or 3) - 1 do
+				if pcd == GAIT_PX[g] then
+					ok = true
+				end
+			end
+			local plausible = ok and (pdx == 0 or pdy == 0)
 			if not plausible then
 				facingFrames.camAX = (facingFrames.camAX or 0) + pdx
 				facingFrames.camAY = (facingFrames.camAY or 0) + pdy
@@ -3777,8 +3805,6 @@ function meshghostSampleCamera()
 			-- Free: one table index per frame, printed once a second, and it is the measurement the
 			-- residual glide is waiting on -- the model has already been acquitted by its own
 			-- counters (0px behind, 0 catch-up, 0 resyncs across a full turbo ride).
-			facingFrames.camHist = facingFrames.camHist or {}
-			facingFrames.camHist[cd] = (facingFrames.camHist[cd] or 0) + 1
 			if cd > 8 then cd = 8 end
 			facingFrames.camDelta = cd
 			if facingFrames.stats() then
