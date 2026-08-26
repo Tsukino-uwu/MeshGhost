@@ -269,3 +269,45 @@ with a warp between them, and both halves run the same arc.
 **The fix was neither latch nor phase but the phase a flight ENDED on.** When one mechanism serves
 two phases, the state that separates them has to be recorded while both are still distinguishable
 -- afterwards they look identical.
+
+## Gating a shared graphic on the graphic ALONE, when one state borrows it
+
+**Emerald, 2026-08-26.** The engine puts the player in the SURFING graphic to sit on the fly bird,
+so for a whole flight `SURFING_GFX[remote.gfx]` was true about a character nowhere near water.
+Five separate consumers meant "is surfing" by that test — three surf blobs across three renderers,
+and two water-ripple trails — and fixing one left the other four attaching a blob and a wake to a
+character riding through the sky.
+
+**Two lessons, and the second is the one that cost the time.** A graphic is an appearance, not a
+state; when anything borrows it, the test needs the borrower's own signal too. And **when you find
+a consumer of a wrong test, grep for every other consumer before fixing the one in front of you**
+— it took a user report per renderer to find all three, one at a time.
+
+## A visual fault that only one renderer shows is a fault in THAT renderer's inputs
+
+Corollary of the free-bisection rule, and worth stating because the fly work hit it three times.
+Three tiers drew the same peer from the same wire state and each was wrong differently: the
+spawned one glitched at a graphic change, the hardware one arrived wearing a blob, the painted one
+drew the wrong pose entirely and stepped sideways. Same input, three outputs — so none of them was
+a wire or sender bug, and chasing it as one would have found nothing.
+
+**List the symptom per tier before forming any theory.** The user's per-tier report is what turned
+"flying still looks bad" into four separately-tractable bugs in one message.
+
+## An engine sequence with a WARP in the middle goes quiet, and quiet is not "finished"
+
+**Emerald, Fly, 2026-08-26.** A fly is two engine sequences with a map warp between them, and the
+wire carries nothing at all through the warp — the sender suppresses across a map change. So the
+peer's state simply stops, and everything downstream has to distinguish "this effect has ended"
+from "this effect is mid-warp and will resume".
+
+Getting that wrong is visible in both directions: treat the gap as an ending and the peer pops
+into view standing on the departure tile between the two halves; treat an ending as a gap and a
+landed peer stays hidden. **The discriminator has to be captured while both are still
+distinguishable** — here, the phase the sequence was in on its last frame.
+
+**And a second machine may never have seen the first half at all.** The watcher in the destination
+town had no ghost for the peer during the departure, so it had no history to reason from and built
+a ghost the moment the area id flipped. State kept per-ghost dies with the ghost; state kept
+per-peer survives; and a fact that needs no history at all — here the engine's own `invisible` bit
+— beats both.

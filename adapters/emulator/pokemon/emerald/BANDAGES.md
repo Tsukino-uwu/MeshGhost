@@ -90,6 +90,50 @@ per `avatarAddrOffset == 0`. Failing that, log once when the fallback is in use,
 "the ghost flicks while fishing" is immediately attributable rather than re-investigated from
 scratch — the whole investigation this came from cost about ten live cycles.
 
+### 4. Fly ships incomplete, and the user called it: *"not properly working fully yet"*
+
+`meshghost_emerald.lua`, the `flyRide` block. Fly was built on 2026-08-26 and iterated across
+roughly a dozen measured faults in one session. The user's call at the end is the honest status:
+*"Fly looks good nuff for now, but ... its not properly working fully yet. still doing some
+animations wrong and hiding ghosts wrong etc."* Registered here rather than written up as a
+finished feature, and deliberately kept OUT of the README's build story, which records only work
+that actually works.
+
+What is confirmed on screen: a same-town fly watched from a second instance — *"it looks fine from
+another instance"*, and earlier, *"the flying animation was done properly etc. the position after
+landing was right, the bird blob was done properly"*.
+
+**The four compensations, each with the real mechanism named:**
+
+- **A landed peer is REBUILT, not repaired.** A fly leaves a ghost holding six wrong things at
+  once (mount graphic, mount animation with its paused bit, a drop-table sprite offset, a cleared
+  scroll bit, a stale map position, and — on a same-town fly — nothing else that would ever
+  revisit any of them). Rather than restore six fields, the flight's end drops the ghost and lets
+  the spawn path build a correct one. It costs one frame of absence and it is a rebuild standing
+  in for a state machine that should never have got into that state. **The real fix is for the
+  fly path to own and unwind exactly what it set.**
+- **The warp gap is a 480-frame TIMEOUT.** Between a departure and its arrival the wire carries no
+  fly at all, and the ghost is held hidden across it. Eight seconds is a guess covering "the
+  arrival is coming"; a peer that quits mid-fly stays invisible for the whole of it. **The real
+  fix is a wire fact that says a flight is in progress** rather than inferring it from silence.
+- **Two different signals mean "do not draw this peer yet"** — the peer's `invisible` bit and the
+  gap latch — because a watcher in the destination town never saw the departure and has no flight
+  state to reason from. Both are needed today; one properly-scoped statement should do.
+- **A same-town fly is rebuilt through an area change that never happens.** The whole
+  despawn/respawn exists because a same-town fly changes nothing the adapter otherwise watches. On
+  a cross-town fly the area change would have done the work by itself.
+
+**Known-wrong and NOT compensated for** (so a reader does not mistake silence for correctness):
+the drawn tier falls back to the cached walker instead of the field-move pose and steps 8px
+sideways when the graphic width changes; both self-drawn tiers glitch briefly at a graphic change;
+and a peer arrives seated for the engine's 18-frame drop rather than descending through it. All
+four are in `UNVERIFIED.md` with what is known about each.
+
+**Why this is registered rather than left as an open item:** three of the four above are shapes
+this file already warns about — a restore standing in for prevention, a timeout standing in for a
+fact, and two signals answering one question. Each is fine today and each is exactly what a later
+session would otherwise "discover" and re-derive.
+
 ## Borderline — noted, not urgent
 
 - **`getLocalState()` — `FACING[facingRaw] or "south"`.** Turns a bad memory read into a

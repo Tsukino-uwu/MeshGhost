@@ -1279,18 +1279,6 @@ general point holds on any host: **a defect that exists at RENDER time is invisi
 per-frame probe by construction**, so reach for an instrument that fires on the write, not on the
 tick.
 
-## When one renderer of several is already right, that IS the bisection (Emerald, 2026-08-21)
-
-An adapter that draws a peer more than one way has a free control group, and the cheapest thing to
-do with a defect that appears on some copies and not others is to ask **what the correct one is
-reading**. On an ice slide the hardware tier held the pose while the engine-driven and painted
-copies both animated: the correct one consumed the peer's animation state straight off the wire,
-and the two wrong ones each RE-DERIVED it. Re-derivation is where a state gets dropped, so the
-answer was "carry the missing field", found in minutes and without a single guess at a fix.
-
-Ask it before reaching for any instrument. The negative case is just as informative: a defect on
-ALL copies is upstream of every renderer, which means the wire or the sender.
-
 ## Drive the state with a script, and log both sides on ONE line (Emerald, 2026-08-21)
 
 A defect that only exists during a specific movement is worth reaching mechanically rather than by
@@ -1788,18 +1776,23 @@ itself — and a dev flag renders **one** peer through **both, in the same frame
 state**, side by side. A surfing peer came out as the correct blob on one and a walking character
 standing on the sea on the other.
 
-**That single observation did more than any probe.** Everything the two renderers share is
-excluded by construction: the wire, the sprite id, the state, the frame. Only what differs can be
-the fault. No measurement, no reproduction hunt, no theory — the rig hands you the bisection.
+**That single observation did more than any probe.** Everything the two share is excluded by
+construction — wire, sprite id, state, frame — so only what differs can be the fault. No
+measurement, no reproduction hunt, no theory: the rig hands you the bisection.
 
 - **Build the comparison BEFORE you need it.** Flipping a renderer between two runs cannot do this:
   the game has moved, the place has changed, and you are comparing two moments as well as two
   renderers. The whole value is *same frame, same state*.
-- **Then trace what each side is POINTED AT, at the one seam between them.** Here that was one log
-  line per ghost naming the graphics it resolved to. `peerSprite=83 -> vram 0`, with the local
-  player also at base 0, killed every theory about the id at once and left only the pixel path.
+- **Then trace what each side is POINTED AT, at the one seam between them.** Here, one log line per
+  ghost naming the graphics it resolved to: `peerSprite=83 -> vram 0`, with the local player also
+  at base 0, killed every theory about the id and left only the pixel path.
 - **Prefer this to deepening a measurement.** Two prior theories had been reasoned carefully from
   the source and both were wrong; the disagreement between renderers needed neither.
+
+**Ask it before any instrument**, and read the negative case: a defect on ALL copies is upstream
+of every renderer — the wire or the sender. When only some are wrong, ask what the CORRECT one
+reads: on an ice slide (Emerald, 2026-08-21) it took the peer's animation off the wire while both
+wrong ones RE-DERIVED it, which is where state gets dropped.
 
 **It generalises past rendering.** Any two independent paths that should agree — two decoders, a
 cache and its source, a fast path and its fallback — can be run against one input and diffed. If
@@ -1824,27 +1817,34 @@ second whenever they can disagree — which is any time a script loads graphics 
 ## A screenshot does not contain your overlay (2026-08-26, Crystal)
 
 `client.screenshot` captures the emulator's video output. A painted ghost is a `gui.*` overlay
-composited on top of it, so it is **not in the file** — and a screenshot showing no ghost is not
-evidence that no ghost was painted. An agent spent several minutes concluding the drawn tier was
-dead while the user was watching two ghosts on screen.
+composited on top, so it is **not in the file** — a screenshot showing no ghost is not evidence
+that none was painted. An agent once concluded the drawn tier was dead while the user watched two
+ghosts on screen.
 
-So for anything a probe draws itself: **screenshots answer questions about the GAME, and the
-adapter's own counters answer questions about the OVERLAY.** Log what the tier says it drew, and
-where, rather than trying to see it. If a picture is genuinely needed, the person watching is the
-instrument — say so in the probe's own header, as `crystal/probes/fish_drive.lua` does.
+So: **screenshots answer questions about the GAME, the adapter's own counters about the OVERLAY.**
+Log what the tier says it drew and where; if a picture is genuinely needed, the person watching is
+the instrument (say so in the probe's header, as `crystal/probes/fish_drive.lua` does).
+
+**But for engine-drawn tiers, TAKE THEM — keyed on the effect, never on a timer.** Emerald's Fly,
+2026-08-26: twelve faults in one session, all with struct fields reading correct while the screen
+showed a character flying to the wrong place, in the wrong pose, wearing a surf blob. Scan each
+frame for the effect's own ROM callback and shoot while one lives plus a tail, which catches what
+it LEFT BEHIND — three of the twelve. `emerald/probes/fly_probe.lua`.
 
 ## A prepared savestate turns a user-cycle into a self-driven loop (Crystal, 2026-08-26)
 
 The fly-landing work burned half a day at one iteration per user-fly, until the user handed over
-two savestates — "slot 8: same town, press A to fly" — and a 60-line probe loaded the slot,
-pressed A, and screenshotted the landing: one iteration per minute, nobody at the controller,
-three faults fixed in the time one live request used to take.
+two savestates — "slot 8: same town, press A to fly" — and a 60-line probe loaded the slot, pressed
+A and screenshotted the landing: one iteration a minute, nobody at the controller.
 
-**The general form: when a test needs a game state that is expensive to reach, ask the user for a
-savestate AT the decision point, not for the test itself.** One savestate amortises over every
-iteration after it; the user prepares it once and confirms the result. Pair the driver with the
-feature's own trace — screenshots say what a viewer sees, the trace says why.
+**The general form: when a test needs a state that is expensive to reach, ask for a savestate AT
+the decision point, not the test itself.** One savestate amortises over every iteration after
+it. Pair the driver with the feature's own trace (screenshots say what a viewer sees, the trace
+says why), expect the two frame counters NOT to align (~120 apart here), and log to a FILE.
 
-Two mechanics: expect the driver's frame counter NOT to align with the adapter's (~120 frames
-apart here, and the first read of the evidence looked at the wrong window), and log to a FILE — a
-console-only probe is unreadable from outside the emulator.
+**Seen-by-somebody-else needs two instances and two scripts** (Emerald, 2026-08-26): DRIVER loads
+a state and presses buttons, OBSERVER does neither; check what the watcher can actually see before
+believing a clean run — two came back clean from the wrong town. And read the GAME, not the
+adapter: dump every active task's function POINTER rather than testing for the expected one, so a
+wrong constant reads as "something is running and it is not ours" rather than as silence.
+

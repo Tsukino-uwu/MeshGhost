@@ -6,12 +6,15 @@
 
 **Active phase: 9 — Crystal, with Emerald reopened for two states.** Feature complete 2026-08-21,
 *"i consider the game to be fully synced up animation and effect wise now"* — but the boat and Fly
-were the two states never tested, and are now built and awaiting a look. `verified.md`.
+were the two never tested. Fly is now built, bandaged and partly confirmed; the boat is built and
+has never been looked at. `verified.md`.
 
-- **Emerald is REOPENED for the boat and Fly (2026-08-26, user's call).** Both are built and
-  unwatched; rails stay assumed, not built for. `emerald/UNVERIFIED.md`.
-- **Emerald has not been RUN since 2026-08-22** — the local-ceiling fix touched the surf blob's
-  constants and only ever compiled. Surf is checked on the way to the boat. `emerald/UNVERIFIED.md`.
+- **Emerald Fly is BANDAGED, not finished** (2026-08-26, user: *"good nuff for now"* but *"not
+  properly working fully yet"*). Four compensations named: `emerald/BANDAGES.md` §4.
+- **Fly's confirmed scope is ONE case** — a same-town fly watched from a second instance; both
+  self-drawn tiers and the cross-town case are not. `emerald/VERIFIED.md`, `UNVERIFIED.md`.
+- **The Emerald BOAT is built and has NEVER been watched.** Nothing on 2026-08-26 touched it;
+  rails are not built for either. `emerald/UNVERIFIED.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
 - **Nothing is running** (re-confirmed end of 2026-08-26: relay and core stopped and verified gone,

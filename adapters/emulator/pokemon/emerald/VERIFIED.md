@@ -197,6 +197,7 @@ filed under the right theme, but anything can check that it is listed.
 - Cave darkness: the painted tier now clips to the flash circle
 - Two write-only registers that lie when read
 - Emerald is FEATURE COMPLETE — the user's call (2026-08-21)
+- Emerald: a same-town Fly, watched from a second instance — user-confirmed (2026-08-26)
 - Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
 - CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
 
@@ -3694,3 +3695,37 @@ is now issued only when the ghost is already at the peer's tile.
       the next step is the ghost's own fields during the same action beside the player's, not
       another theory. A fix would restore the standing wheelie, which peers cannot see today.
 
+
+
+## Emerald: a same-town Fly, watched from a second instance — user-confirmed (2026-08-26)
+
+**Confirmed, and only this.** A peer using Fly to the town it is already in, watched from a second
+BizHawk instance running the shipped configuration (no compare tiers, no hardware tier):
+
+> *"when flying to the same town, it looks fine from another instance"*
+
+and, on the run before it:
+
+> *"it looked kinda correct from another instances pov now, the flying animation was done properly
+> etc. the position after landing was right, the bird blob was done properly"*
+
+So three separate things are confirmed for that case: the departure animation, the landing
+position, and the bird itself.
+
+**What this entry does NOT cover, stated plainly because the same session produced all of it:**
+
+- **Fly as a feature is not finished, and the user said so in the same breath** — *"not properly
+  working fully yet. still doing some animations wrong and hiding ghosts wrong etc."* It is
+  registered in [`BANDAGES.md`](BANDAGES.md) §4 with its four compensations named.
+- **The cross-town fly is not confirmed.** Its last reported faults were fixed afterwards and only
+  the agent has looked at the result, from screenshots.
+- **Neither self-drawn tier is confirmed for a fly.** The drawn tier draws the wrong pose and both
+  glitch at a graphic change; `UNVERIFIED.md` has the per-tier list.
+- **Two machines were never involved.** Both instances are on one machine against one loopback
+  relay, so nothing here says anything about a real network delay across a flight.
+
+**Method note, because it is the transferable part:** this was found by driving one instance from
+the user's savestates while a second watched, with both logging, and by keying screenshots on the
+bird's own sprite callback so the frames land on the event rather than on a timer. Twelve faults
+in one session had struct fields reading correct throughout; the screenshots are what separated
+them. `_template/probes.md`.
