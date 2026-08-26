@@ -211,3 +211,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A repo-wide fix covers the files that exist that day, and a file added later brings the problem back (2026-08-26)
 - The decompilation says what the engine CAN do; only a measurement says what the game DOES (Crystal, 2026-08-26)
 - A stale coordinate is indistinguishable from a live one, and the game may never clear it (Crystal, 2026-08-26)
+- A field that describes "the most recent X" cannot describe "every X on screen" (Crystal, 2026-08-26)
+- A fix validated on the neighbouring path, not the reported one (Crystal, 2026-08-26)

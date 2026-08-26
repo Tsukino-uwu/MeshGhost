@@ -1347,3 +1347,46 @@ where it is** — worth knowing before either is proposed again:
    being fixed; the cache keeps what it learns, so this is judged after the sequence, not during.
 4. **The Fly itself is not under test.** Expect the ghost to do nothing sensible during the
    animation; that is the measured gap above, not a regression.
+
+## 2026-08-26 — Crystal: the menu rectangle is a SHARED SCRATCH SLOT, and the Fly fix was in the wrong place
+
+**Both measured live in the failing states, neither fix confirmed on screen.** Two reports on the
+first re-test of the morning's Fly fixes: *"a weird sprite showed up in my pokemon inventory when i
+tried to use surf (somewhere where i can't)"*, and *"the spawned ghost was still invisible while
+using fly"*.
+
+### The weird sprite in the party menu (FIXED, unwatched)
+
+Caught with `MESHGHOST_CRYSTAL_UI_DEBUG` on while the user reproduced it, one line carrying the
+whole mechanism: `boxOpen=true coords=12,0,17,19 — 1 painted at: p13-ghost@56,4`. The party menu
+publishes a full-screen rectangle (`0,0,17,19` — watched live), but choosing Surf where it cannot
+be used draws a "can't use that here" text box whose `12,0,17,19` **replaces** it —
+`wMenuBorder*` describes the most recent box drawn, never the union of what is on screen. One
+remembered rectangle then protected the bottom six rows of a screen that was entirely menu, and
+the ghost painted at y=4 over the party list, persisting because a covered menu never re-publishes.
+
+**Fix: `lastMenuBox` is now a list.** Every distinct rectangle published while the UI latch is
+alive stays in it, and a peer inside ANY of them is hidden. The list dies with the latch exactly as
+the single rectangle did. Stacked UI — a menu with a text box on top — is the normal case.
+
+### The Fly fix that never fired (FIXED, unwatched)
+
+The stale-rectangle clear shipped this morning lived in the **area-change** block — and flying to
+the town you are already in keeps the same area id, so the clear never ran in precisely the case
+the user reported. It now lives at the `not inPlay()` branch: `wMapStatus` leaves HANDLE across
+every warp, same-map ones included (the 2026-08-23 transition measurements), while an overlaid menu
+or text box never takes the status there at all. A battle also clears it, which is correct — no
+menu survives the battle screen either.
+
+**A placement lesson worth the ink:** the fix was tested by watching the counter clear on a rig
+where the tester walked through a DOOR — an area change — and the symptom's own trigger, a
+same-area warp, was never exercised. The fix validated on the neighbouring path, not the reported
+one.
+
+### What to watch
+
+1. **Party menu → Surf where it fails → let the text sit.** Nothing painted over the menu, and
+   nothing after dismissing it either.
+2. **Fly to the same town, walk around.** The ghost returns and stays.
+3. **The START menu and ordinary text boxes still clip** — the list must not have broken the
+   single-rectangle cases confirmed 2026-08-19.

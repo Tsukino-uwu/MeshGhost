@@ -3153,7 +3153,21 @@ function drawOverflow()
 		playerHistory.settle = playerHistory.settle - 1
 	end
 
-	if (not DRAW_OVERFLOW and not COMPARE_TIERS) or not inPlay() then
+	if not inPlay() then
+		-- THE OVERWORLD IS BEING TORN DOWN (a warp, a battle, a connection loss), and NO MENU
+		-- RECTANGLE SURVIVES THAT. This is where the stale-rectangle clear had to live, and the
+		-- first placement -- the area-change block -- was wrong in exactly the reported case:
+		-- flying to the town you are ALREADY in keeps the same area id, so the clear never fired,
+		-- and the rectangle Fly's menu left behind went on hiding painted peers (the user,
+		-- 2026-08-26, after that fix shipped: *"the spawned ghost was still invisible while using
+		-- fly"*). wMapStatus leaves HANDLE across every warp, same-map ones included -- the
+		-- 2026-08-23 transition_probe measurement below -- so this branch runs for all of them,
+		-- while an overlaid menu or text box never brings the status here at all.
+		uiSeenAt, lastMenuBox = nil, nil
+		stopDrawing()
+		return
+	end
+	if not DRAW_OVERFLOW and not COMPARE_TIERS then
 		stopDrawing()
 		return
 	end
@@ -3179,18 +3193,44 @@ function drawOverflow()
 	local uiOpen = uiPanelOpen()
 	local boxOpen = textBoxOpen()
 	local t, l, b, r = u8(MENUBOX.top), u8(MENUBOX.left), u8(MENUBOX.bottom), u8(MENUBOX.right)
-	-- MEASURED 2026-08-26, and it is the opposite of what it looks like: these coordinates are
-	-- non-zero for EXACTLY as long as a menu is open and are zeroed when it closes normally
-	-- (`probes/menu_state_table.lua` drove a START menu and logged every change: set at frame 9 of
-	-- the open, cleared at frame 9 of the close). So the level test here is right, and the stale
-	-- rectangle that hid painted peers after a Fly comes from the ONE path that does not close its
-	-- menu normally -- a warp tears it down instead. That is handled where the world is rebuilt,
-	-- not here. Two other gates were tried and killed by measurement first; see UNVERIFIED.md.
+	-- MEASURED 2026-08-26, twice, and both measurements are load-bearing:
+	--
+	-- * The coordinates are non-zero while a menu is up and zeroed when it closes NORMALLY
+	--   (`probes/menu_state_table.lua`: set at frame 9 of the open, cleared at frame 9 of the
+	--   close). A menu torn down by a warp instead -- Fly -- skips the clear; that case is
+	--   handled at the not-inPlay() branch above, because wMapStatus leaves HANDLE on every warp.
+	-- * `wMenuBorder*` IS ONE SHARED SCRATCH SLOT: it describes the most recent box DRAWN, not
+	--   the union of what is on screen. Caught live: the party menu publishes a full-screen
+	--   0,0,17,19 -- and choosing Surf where it cannot be used draws a "can't use that here" text
+	--   box whose 12,0,17,19 REPLACES it. A single remembered rectangle then protects the bottom
+	--   six rows of a screen that is entirely menu, and the ghost was painted at y=4 over the
+	--   party list (the user: *"a weird sprite showed up in my pokemon inventory"*), persisting
+	--   because nothing ever re-publishes the covered menu's rectangle.
+	--
+	-- So `lastMenuBox` is a LIST: every distinct rectangle published while the latch is alive
+	-- stays in it, and a peer inside ANY of them is hidden. Stacked UI is the normal case, not the
+	-- edge case. The list dies with the latch, exactly as the single rectangle did -- over-hiding
+	-- for the latch's 20 frames after everything closes is invisible; under-hiding is the fault
+	-- this line of fixes keeps paying for. Capped defensively; the screen is 20x18 tiles and a
+	-- session that publishes more distinct rectangles than the cap is already somewhere strange.
 	if (b or 0) > 0 and (r or 0) > 0 then
-		lastMenuBox = { top = t * 8, left = l * 8, bottom = (b + 1) * 8, right = (r + 1) * 8 }
+		local top, left, bottom, right = t * 8, l * 8, (b + 1) * 8, (r + 1) * 8
+		lastMenuBox = lastMenuBox or {}
+		local known = false
+		for _, box in ipairs(lastMenuBox) do
+			if box.top == top and box.left == left and box.bottom == bottom
+				and box.right == right then
+				known = true
+				break
+			end
+		end
+		if not known and #lastMenuBox < 8 then
+			lastMenuBox[#lastMenuBox + 1] =
+				{ top = top, left = left, bottom = bottom, right = right }
+		end
 		uiSeenAt = drawFrames -- the rectangle strobes to zero as the menu redraws; latch it
 	elseif not uiOpen then
-		lastMenuBox = nil -- no panel is up, so the last rectangle is stale
+		lastMenuBox = nil -- no panel is up, so every remembered rectangle is stale
 	end
 
 	local nWanted, nDrawn, nNoTile, nOffScreen, nHidden, nFromRom = 0, 0, 0, 0, 0, 0
@@ -4712,9 +4752,16 @@ function drawOverflow()
 				if boxOpen and sy + 16 > TEXTBOX.row * 8 then
 					hidden = true
 				end
-				if uiOpen and lastMenuBox and sx + 16 > lastMenuBox.left and sx < lastMenuBox.right
-					and sy + 16 > lastMenuBox.top and sy < lastMenuBox.bottom then
-					hidden = true
+				if uiOpen and lastMenuBox then
+					-- ANY live rectangle hides -- see the list's construction above for why one
+					-- was never enough.
+					for _, box in ipairs(lastMenuBox) do
+						if sx + 16 > box.left and sx < box.right
+							and sy + 16 > box.top and sy < box.bottom then
+							hidden = true
+							break
+						end
+					end
 				end
 				if hidden then
 					nHidden = nHidden + 1
@@ -5309,14 +5356,23 @@ function drawOverflow()
 	end
 
 	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
-		local mb = lastMenuBox
+		local rects = "none"
+		if lastMenuBox then
+			-- The whole list, because the union IS the fix -- one printed rectangle is how the
+			-- party-menu hole hid behind a healthy-looking line.
+			local parts = {}
+			for _, box in ipairs(lastMenuBox) do
+				parts[#parts + 1] = string.format("l=%d t=%d r=%d b=%d",
+					box.left, box.top, box.right, box.bottom)
+			end
+			rects = table.concat(parts, " | ")
+		end
 		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s coords=%d,%d,%d,%d "
 			.. "rect=%s wy=%d wx=%d "
 			.. "-- %d painted, %d hidden; painted at: %s",
 			tostring(boxOpen), tostring(uiOpen),
 			t or -1, l or -1, b or -1, r or -1,
-			mb and string.format("l=%d t=%d r=%d b=%d", mb.left, mb.top, mb.right, mb.bottom)
-				or "none",
+			rects,
 			memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
 			nDrawn, nHidden,
 			(#paintedSamples > 0) and table.concat(paintedSamples, " ") or "(none)"))

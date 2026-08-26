@@ -3938,3 +3938,48 @@ answer came from driving the state — no menu, menu open, menu closed — and p
 display byte for each. Both dead candidates were visible in that table at a glance, and so was the
 real behaviour: the coordinates are set at frame 9 of the open and cleared at frame 9 of the close,
 which is the level test the adapter had all along.
+
+## A field that describes "the most recent X" cannot describe "every X on screen" (Crystal, 2026-08-26)
+
+**Symptom:** a ghost painted over the top of the party menu — but only after choosing Surf
+somewhere it fails, and persisting until the adapter reloaded.
+
+**Cause:** the adapter clipped painted peers against `wMenuBorder*`, treating it as "the rectangle
+of the UI on screen". It is not — it is a scratch slot describing the most recent box the game
+DREW. The party menu publishes a full-screen rectangle; the "can't use that here" text box then
+replaces it with its own bottom strip; and the adapter went on protecting six rows of a screen
+that was entirely menu. Nothing ever re-publishes a covered menu's rectangle, so the fault
+persisted for as long as the stack stayed up.
+
+**Fix:** remember every distinct rectangle published while the UI latch is alive and hide inside
+any of them. The union dies with the latch, exactly as the single value did.
+
+**The general form: before clipping/gating against a singular engine field, ask what happens when
+two of the thing exist.** A game UI is a stack, and any "current X" register describes the top of
+it at best — usually just the most recent write. If the engine keeps only one slot, the adapter
+must keep the history itself, bounded by the same signal that says the stack is gone.
+
+**The capture method is worth keeping too:** the user could still reproduce it, so the fix waited
+for one debug line from the live failure rather than being reasoned out — `boxOpen=true
+coords=12,0,17,19 — painted at: p13-ghost@56,4` names the mechanism outright, and the debug line
+had been extended an hour earlier to carry the raw coords precisely so a healthy-looking single
+rectangle could not hide behind it.
+
+## A fix validated on the neighbouring path, not the reported one (Crystal, 2026-08-26)
+
+**Symptom:** "the spawned ghost was still invisible while using fly" — the same report the
+morning's fix had already closed.
+
+**Cause:** the stale menu-rectangle clear was placed in the AREA-CHANGE block, and the reported
+case was flying to the town you are already in — a warp that keeps the same area id. The clear
+never ran on the reported trigger. It was checked against a door crossing, which does change area:
+the fix validated on the path next to the bug, and the report's own wording ("the same town that
+you were in") already named the difference.
+
+**Fix:** moved to the `not inPlay()` branch — `wMapStatus` leaves HANDLE on every warp, same-map
+included, so the trigger set now contains the reported case by construction.
+
+**The rule: re-test a fix on the EXACT trigger in the report, not on the nearest trigger the rig
+makes convenient.** When a report distinguishes two variants ("same town" vs "another town"), that
+distinction is data about the mechanism — here it separated same-area warps from area-changing
+ones, which is precisely the line the broken fix was placed on.
