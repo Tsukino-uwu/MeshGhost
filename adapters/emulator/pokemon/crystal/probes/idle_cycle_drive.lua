@@ -37,8 +37,12 @@
 -- which is still a valid cycle -- the peer simply covers less ground -- but the walk phase then
 -- reports no tile change, and the log says so rather than leaving it to be guessed.
 
-local WALK_FRAMES = 150 -- 2.5s of held d-pad: several tiles at any gait, and short enough that a
--- cycle stays under 15s so a session produces plenty of them.
+local WALK_FRAMES = 60 -- 1s of held d-pad. DELIBERATELY SHORT OF THE RANGE CULL: the adapter
+-- gives a peer's slots back past GHOST_RANGE_TILES (8), and the first version of this script held
+-- the d-pad for 150 frames, which walks NINE tiles. Every cycle therefore crossed that boundary
+-- and the log filled with despawn/respawn pairs that were the cull, not the idle rule -- the exact
+-- transition under investigation, drowned in a different one that looks identical in a log.
+-- Four tiles keeps the whole cycle inside the peer's range so the only despawn is the one meant.
 local REST_FRAMES = 480 -- 8s, comfortably past the adapter's 300-frame idle rule.
 local DIRECTIONS = MESHGHOST_IDLE_CYCLE_DIRS or { "Left", "Right" }
 

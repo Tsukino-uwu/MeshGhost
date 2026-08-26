@@ -6036,6 +6036,38 @@ function drawOverflow()
 		end
 	end
 
+	-- DREW NOBODY? THEN CLEAR. This is the last gate, and it is the one that was missing.
+	--
+	-- Every `stopDrawing()` above is on an EARLY RETURN -- a battle, a menu, a map crossing, the
+	-- player's own sprites not on screen. They were written for the 2026-08-21 report of a painted
+	-- ghost surviving a door transition, and they cover the cases where this function bails out.
+	-- None of them covers the ordinary case where the function runs all the way through and simply
+	-- has nobody left to paint, because `overflow` is empty.
+	--
+	-- WHICH IS EXACTLY WHAT A PROMOTION DOES. A peer that starts walking after standing still is
+	-- moved from the painted tier to the spawned one: `overflow[id]` is cleared, the engine takes
+	-- over, and this loop runs zero times from that frame on. BizHawk's drawing layer PERSISTS
+	-- until something replaces or clears it -- this file says so twenty lines up, from a measured
+	-- symptom -- so the last frame this tier painted stays on screen. Frozen. Forever.
+	--
+	-- That is the "third, static ghost". User, 2026-08-26, and every clause of it is this bug:
+	-- *"whenever you move after the despawn/respawn"*, *"only 1 orphan at a time, never multiple
+	-- per player"*, *"goes away if i go out and go idle again"* (the peer is demoted, this loop
+	-- paints again, and the fresh paint replaces the stale pixels), and it *"stayed forever if i
+	-- went inside a house"* -- a map change rebuilds the object arrays and clears an engine
+	-- orphan, but it has no effect whatever on an overlay nobody is repainting.
+	--
+	-- IT IS ALSO WHY EVERY INSTRUMENT SAID THE ARRAYS WERE CLEAN, and they were: across three
+	-- probe logs and many promotion cycles the object array never held two of ours and never held
+	-- a third character. It never could. The extra character was never in the game at all -- and
+	-- a screenshot cannot see it either, because BizHawk does not capture the Lua overlay.
+	--
+	-- The counter, not a recomputation of the condition: `nDrawn` is what the summary below
+	-- reports, so the clear and the log can never disagree about whether anything was painted.
+	if nDrawn == 0 then
+		stopDrawing()
+	end
+
 	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
 		local rects = "none"
 		if lastMenuBox then
@@ -7601,6 +7633,42 @@ local function renderRemote(id, state)
 				setGhostStanding(g2.st_base, g2.mo_base, want2)
 				w8(g2.st_base + F_DIRECTION, want2 * 4)
 				w8(g2.st_base + F_FACING, want2 * 4)
+			end
+			-- WHICH WAY DID IT ACTUALLY END UP FACING? Read back from the object, not from `want2`
+			-- -- reporting the value just written proves only that the write happened.
+			--
+			-- Added 2026-08-26 for the report that a briefly-appearing ghost is *"always looking
+			-- down, no matter what direction the player was facing"*. Down is dir 0, which is what
+			-- every fallback in this path degrades to: `ORIENTATION_TO_DIR` missing an orientation
+			-- makes `want2` nil and skips the re-pin entirely, leaving whatever the cloned TEMPLATE
+			-- NPC happened to be facing; and `setGhostStanding` falls back to
+			-- SPRITEMOVEDATA_STANDING_BY_DIR[0] for an unknown direction. Those are different bugs
+			-- with one symptom, and only the peer's own reported orientation beside the byte that
+			-- reached the object tells them apart.
+			--
+			-- One line per SPAWN, which already logs a line -- nothing per frame.
+			--
+			-- AND THE SPRITE ON THE SAME LINE, because facing is only one of the fields a fresh
+			-- clone inherits from its donor. The user's question, 2026-08-26: *"what about
+			-- bike/surf etc as well? not just facing direction?"* -- and it is the same shape.
+			-- `spawnGhost` copies a template NPC wholesale, so until each field is re-pinned the
+			-- ghost is wearing that NPC's identity, and a peer who is BIKING or SURFING says so
+			-- only through its sprite id. If `applyPeerSprite` refused -- the tiles are not
+			-- resident, or the peer's cartridge numbers sprites differently from ours and the
+			-- `gfx` gate dropped the id -- the ghost stands there as this machine's own walking
+			-- character while its peer is on a bike, which is the same class of wrong as facing
+			-- down while the peer faces up, and equally invisible in a log that reports neither.
+			--
+			-- Three values, all read back from the object rather than from what we meant to write.
+			if g2 then
+				logFile(string.format("MeshGhost: %s spawned facing %s wearing sprite %s "
+					.. "(peer orientation %q -> dir %s; peer sprite %s, local %s; object now "
+					.. "DIRECTION=%s FACING=%s)", id,
+					DIR_NAMES[(u8(g2.st_base + F_DIRECTION) or 0)] or "?",
+					tostring(u8(g2.st_base + F_SPRITE)),
+					tostring(state.orientation), tostring(want2),
+					tostring(peerSprite), tostring(u8(OBJECT_STRUCTS + F_SPRITE)),
+					tostring(u8(g2.st_base + F_DIRECTION)), tostring(u8(g2.st_base + F_FACING))))
 			end
 			if overflow[id] then
 				logFile(string.format("tier: %s painted -> spawned", id))
