@@ -235,6 +235,12 @@ local ADDRESSES = {
 		-- re-checks the signature here and scans for it if this address is wrong, because a
 		-- build we do not recognise is handed this table by the run-anyway fallback.
 		STEP_VECTORS_ROM = 0x4700,
+		-- THE CAMERA. `hSCX`/`hSCY`, from our own build's pokecrystal.sym, read on the SYSTEM BUS
+		-- rather than the WRAM domain this table otherwise serves -- HRAM is not in it. These sat
+		-- as inline literals until 2026-08-26, which `UNVERIFIED.md` had flagged on 2026-08-23 as
+		-- the one pair bypassing this table; see the Archipelago entry below for what that cost.
+		H_SCX = 0xFFCF,
+		H_SCY = 0xFFD0,
 		-- THE FISHING SHEET, and it is NOT FishingRodGFX. `Script_FishCastRod` does
 		-- `loademote EMOTE_ROD` and then `callasm LoadFishingGFX` -- and the second overwrites
 		-- what the first loaded. `engine/events/fishing_gfx.asm` copies four 2-tile blocks out of
@@ -356,6 +362,33 @@ local ADDRESSES = {
 		-- no engine change was needed on their side and none is needed here beyond knowing it is
 		-- there. Same hint-not-constant status as vanilla's above: re-checked at load.
 		STEP_VECTORS_ROM = 0x48C9,
+		-- THE CAMERA, AND IT IS NOT WHERE VANILLA KEEPS IT. Vanilla's $FFCF/$FFD0 are DEAD BYTES
+		-- on this build: across a 35-second run of real walking they never changed once, on either
+		-- axis, while the adapter read them every frame as the clock its drawn tier is anchored to.
+		--
+		-- That is the exact failure `UNVERIFIED.md` predicted on 2026-08-23 -- "HRAM always reads,
+		-- so a wrong entry would produce a believable scroll value and the graceful fallback would
+		-- never fire" -- and it did not surface until a mixed vanilla/Archipelago room was run for
+		-- the first time on 2026-08-26. The symptom was not a missing ghost or an error: a peer
+		-- STANDING PERFECTLY STILL was painted gliding across the ground as the local player
+		-- walked, and stuck at the edge of the screen once the player got far enough away. The
+		-- vanilla client, same adapter, same peer, was correct throughout.
+		--
+		-- MEASURED, never derived, by sweeping all 127 bytes of HRAM for the camera's own
+		-- signature -- constant while standing, changing several times WITHIN a step, moving on
+		-- one axis only, walking a run of evenly spaced values (`probes/ap_hram_scroll_probe.lua`):
+		--   $FFC7  still 0, 404 changes on left/right vs 28 on up/down, gap 2 on 39 of 39 steps
+		--   $FFC8  still 0, 394 changes on up/down vs 0 on left/right, gap 2 on 38 of 39 steps
+		-- The pair is adjacent and in vanilla's own X-then-Y order, and both are vanilla-8. That
+		-- delta is corroboration AFTER the fact and not the derivation -- each was measured on its
+		-- own, which is the rule this build's other four entries exist to enforce.
+		--
+		-- $FFC7's 28 stray up/down changes are a walk not being perfectly axis-pure, and they are
+		-- why the probe's FIRST version reported zero X candidates: it filtered on "moved on one
+		-- axis ONLY" before printing anything. A filter applied before you look is a guess about
+		-- the answer (`_template/probes.md`), and that one discarded the right address.
+		H_SCX = 0xFFC7,
+		H_SCY = 0xFFC8,
 
 		-- NOT the table. These are the leading unconfirmed candidates for the entries still nil
 		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
@@ -1067,6 +1100,64 @@ function ENGINE.gait(g)
 	end
 	local max = (ENGINE.gaits or 3) - 1
 	return g > max and max or g
+end
+
+-- IS THE CAMERA PAIR ACTUALLY THE CAMERA ON THIS BUILD? Asked of the running game, once, and only
+-- while the local player is genuinely mid-step.
+--
+-- THE HOLE THIS FILLS. Every other address in this adapter fails loudly on a build it was not
+-- measured for -- a nil entry refuses, and a wrong WRAM read tends to break the in-play gate. The
+-- camera pair cannot: it lives in HRAM, which always reads, so a wrong address returns a
+-- plausible small number every frame and the `or W_BGMAPOFFSET` fallback beside it never fires.
+-- `UNVERIFIED.md` predicted precisely that on 2026-08-23 and it came true on 2026-08-26 -- on the
+-- Archipelago build the adapter had been reading two DEAD BYTES as its camera clock, and what
+-- reached the screen was a peer standing perfectly still painted gliding across the ground.
+--
+-- The test is the same one the probe uses, reduced to what can be asked for free every frame: a
+-- camera MUST change while the player is walking. Sixty seconds of the player mid-step with two
+-- or fewer distinct values on both registers is not a camera, whatever else it is. On a build
+-- where the pair is right this arms in the first step or two and then costs one comparison.
+--
+-- IT DEMOTES RATHER THAN REFUSES. `wPlayerBGMapOffset` is measured on both builds and is a worse
+-- clock -- a per-frame delta rather than an absolute, disagreeing with the camera on ~9% of
+-- frames (`documentation.md`) -- but a worse clock is enormously better than a dead one, and a
+-- ghost that is slightly rough beats a ghost that slides across the map. It says so once, by
+-- address, so the next session measures the pair instead of rediscovering the symptom.
+ENGINE.camSeen = {}
+function ENGINE.camCheck(hcx, hcy)
+	if ENGINE.camDead or ENGINE.camOk then
+		return
+	end
+	-- ONLY WHILE THE PLAYER IS MID-STEP. A camera is *supposed* to hold still otherwise, so
+	-- counting standing frames would be counting the thing that makes a dead byte look alive.
+	if (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING then
+		return
+	end
+	local n = (ENGINE.camWalked or 0) + 1
+	ENGINE.camWalked = n
+	local s = ENGINE.camSeen
+	if hcx then s["x" .. hcx] = true end
+	if hcy then s["y" .. hcy] = true end
+	local nx, ny = 0, 0
+	for k in pairs(s) do
+		if k:sub(1, 1) == "x" then nx = nx + 1 else ny = ny + 1 end
+	end
+	-- Three distinct values on either axis is a register that is being written as the world
+	-- scrolls; that is enough, and stopping there keeps this off the frame budget for good.
+	if nx > 2 or ny > 2 then
+		ENGINE.camOk = true
+		return
+	end
+	if n >= 3600 then -- a full minute of WALKING, not of wall-clock
+		ENGINE.camDead = true
+		log(string.format("MeshGhost: $%04X/$%04X do not behave like the camera on this ROM -- "
+			.. "%d distinct X and %d distinct Y across %d frames of the player actually walking. "
+			.. "Falling back to the BG map offset, which is measured on this build but is a "
+			.. "per-frame delta rather than an absolute scroll, so a painted peer will be rougher "
+			.. "than it should be. MEASURE the camera pair on this build "
+			.. "(probes/ap_hram_scroll_probe.lua) and put it in this adapter's address table.",
+			ENGINE.scxAddr or 0, ENGINE.scyAddr or 0, nx, ny, n))
+	end
 end
 
 -- Which gait an object is walking at, or nil while it is standing (the byte is $FF then and says
@@ -3323,7 +3414,19 @@ function meshghostSampleCamera()
 		-- hSC where `_HandlePlayerStep` SUBTRACTS it from the offset
 		-- (`player_step.asm:29-47`), so `dOff == -dHSC` and negating the source
 		-- leaves every sign convention, the plausibility test and `K` untouched.
-		local hcx, hcy = u8(0xFFCF, "System Bus"), u8(0xFFD0, "System Bus")
+		-- FROM THE PER-BUILD TABLE, not an inline literal, since 2026-08-26. `UNVERIFIED.md` had
+		-- flagged this pair on 2026-08-23 as the one address in the adapter bypassing that table,
+		-- and named the consequence exactly: the Archipelago build's values were ASSUMED, HRAM
+		-- always reads, so a wrong pair returns a believable scroll value and the `or` fallback
+		-- below never fires. It was wrong -- vanilla's $FFCF/$FFD0 are dead bytes there -- and the
+		-- symptom was a peer standing still being painted gliding across the ground.
+		--
+		-- `camDead` is what makes that self-diagnosing rather than something that has to be
+		-- noticed by eye on each new build: see ENGINE.camCheck below. Until it has decided, and
+		-- forever on a build where the pair is right, this reads the camera as it always did.
+		local hcx = not ENGINE.camDead and u8(ENGINE.scxAddr, "System Bus") or nil
+		local hcy = not ENGINE.camDead and u8(ENGINE.scyAddr, "System Bus") or nil
+		ENGINE.camCheck(hcx, hcy)
 		local scx = hcx and ((256 - hcx) % 256) or (u8(W_BGMAPOFFSETX) or 0)
 		local scy = hcy and ((256 - hcy) % 256) or (u8(W_BGMAPOFFSETY) or 0)
 		-- WAS THIS REGISTER EVER THE CAMERA? Read from `pret/pokecrystal`, not
@@ -8373,6 +8476,14 @@ ENGINE.entryAddr = (romClass == "known") and 0xFF9F or nil
 -- unrecognised build is handed vanilla's addresses by the run-anyway fallback, and a wrong offset
 -- here would count groups out of unrelated bytes. When the hint fails, bank 1 is searched for the
 -- table's own signature, which is what makes a build nobody has measured still get a real answer.
+-- THE CAMERA, per build. HRAM, so the System Bus rather than the WRAM domain the rest of this
+-- block serves. Vanilla's pair is from our own hash-verified build's pokecrystal.sym; the
+-- Archipelago build's was measured 2026-08-26 after vanilla's turned out to be dead bytes there.
+-- An unrecognised build gets vanilla's by way of the run-anyway fallback, exactly as it gets every
+-- other address -- and ENGINE.camCheck is what notices when that is wrong, since this is the one
+-- pair that cannot fail loudly on its own.
+ENGINE.scxAddr, ENGINE.scyAddr = A.H_SCX, A.H_SCY
+
 ENGINE.gaits = ENGINE.gaitGroups(A.STEP_VECTORS_ROM)
 if not ENGINE.gaits then
 	local found, at = ENGINE.gaitGroups(nil)

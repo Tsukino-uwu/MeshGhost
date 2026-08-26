@@ -43,9 +43,38 @@ local function flat(cpu_addr)
 	return 0x1000 + (cpu_addr - 0xD000)
 end
 
--- Vanilla V1.0, the same addresses the adapter's vanilla table uses.
-local OBJECT_STRUCTS = flat(0xD4D6)
-local MAP_OBJECTS = flat(0xD71E)
+-- PER BUILD, exactly like the adapter's own table -- and it was NOT, until 2026-08-26.
+--
+-- This probe hardcoded vanilla's two addresses. Run on the Archipelago build, where the object
+-- array is somewhere else entirely, it read unrelated bytes, found nothing carrying the
+-- fingerprint, and wrote a log that says so in a calm voice. **An empty log from a blind
+-- instrument is indistinguishable from a clean map**, and that is exactly how it was read for
+-- most of an hour while the user was looking at the extra character it was supposed to name.
+-- `probes.md`: "it measured correct" is not evidence, and a clean instrument beside a symptom the
+-- user can still see means the instrument is the thing to doubt first.
+--
+-- Both pairs are the adapter's own measured entries -- vanilla's from our hash-verified
+-- pokecrystal build, the Archipelago build's from the `ap_*` probe family (`verified.md`,
+-- 2026-08-18). Selected by the ROM header title, the same cheap seed-independent signal
+-- classifyRom() uses: the patch renames it to AP_*.
+local function romTitle()
+	local t = {}
+	for i = 0, 9 do
+		local c = memory.read_u8(0x134 + i, "ROM")
+		if not c then
+			return ""
+		end
+		t[#t + 1] = string.char(c)
+	end
+	return table.concat(t)
+end
+
+local OBJECT_STRUCTS, MAP_OBJECTS = flat(0xD4D6), flat(0xD71E)
+local BUILD = "vanilla"
+if romTitle():sub(1, 3) == "AP_" then
+	OBJECT_STRUCTS, MAP_OBJECTS = 0x14DC, 0x16F4
+	BUILD = "Archipelago"
+end
 local OBJECT_LENGTH, MAPOBJECT_LENGTH = 0x28, 0x10
 local NUM_OBJECT_STRUCTS, NUM_MAP_OBJECTS = 13, 16
 
@@ -119,6 +148,12 @@ open_log()
 log("=== MeshGhost Crystal orphan check (READ-ONLY) ===")
 log("Looking for characters carrying this adapter's fingerprint that nothing is driving.")
 log("Silent while nothing changes. A map change clears any orphan by rebuilding the arrays.")
+-- SAY WHICH BUILD, AND WHERE IT IS LOOKING. This probe was silent on the Archipelago build for an
+-- hour because it was reading vanilla's addresses, and nothing in its output said so -- an empty
+-- log looked exactly like a clean map. A one-line coverage statement is the difference between
+-- "nothing is there" and "I cannot see".
+log(string.format("build: %s -- object structs at 0x%04X, map objects at 0x%04X (title %q)",
+	BUILD, OBJECT_STRUCTS, MAP_OBJECTS, romTitle()))
 
 local frames = 0
 local lastReport = nil
@@ -263,7 +298,21 @@ local function tick()
 				marks[#marks + 1] = "ORPHAN: past the 5s the adapter would have released it"
 			end
 
-			if looksOurs or not linkOk then
+			-- EVERY CHARACTER IN THE ARRAY, not only the ones matching the fingerprint.
+			--
+			-- This was `if looksOurs or not linkOk`, and that filter is why this probe spent an
+			-- evening reporting "exactly one, ours, being driven" while the user was looking at
+			-- THREE characters on screen (2026-08-26). An extra object wearing any other sprite --
+			-- a template NPC's, a peer's -- was dropped before it could be printed, so the probe's
+			-- calm one-line answer was not a measurement of the array at all. `probes.md` says it
+			-- twice and this file broke it anyway: dump everything, filter afterwards.
+			--
+			-- Thirteen structs is a short table. There is no cost worth a filter here, and the
+			-- whole value of the dump is being able to count what is in the array against what is
+			-- on the screen -- which cannot be done from a list of the ones already believed to
+			-- matter. `looksOurs` is still computed and still marks the row; it just no longer
+			-- decides whether you get to see it.
+			do
 				rows[#rows + 1] = string.format(
 					"    struct %-2d -> map object %-3s  sprite %-3d at %d,%d  still for %ds  [%s]%s",
 					st, tostring(mo), sprite, u8(base + F_MAP_X) or 0, u8(base + F_MAP_Y) or 0,
@@ -282,10 +331,14 @@ local function tick()
 	lastReport = report
 
 	if #rows == 0 then
-		log(string.format("  [%ds] nothing carrying our fingerprint is in the arrays.", frames // 60))
+		log(string.format("  [%ds] the object array holds no characters at all besides the player.",
+			frames // 60))
 		return
 	end
-	log(string.format("  [%ds] characters worth explaining:", frames // 60))
+	-- COUNT IT, so the log can be held against the screen without anyone counting rows by eye.
+	-- "3 characters in the array" beside "I can see 3" is an answer; a list is homework.
+	log(string.format("  [%ds] %d character(s) in the array besides the player:",
+		frames // 60, #rows))
 	log(report)
 	log("    (\"still for\" counts seconds without changing tile. A ghost the adapter is driving")
 	log("     resets that every time its peer moves; an ORPHAN's just keeps climbing.)")
