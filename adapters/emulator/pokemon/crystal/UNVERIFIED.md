@@ -1735,3 +1735,46 @@ the 2x2 tile order from `.OAMData_RedWalk`. Species -> icon is two hops in bank 
    the icon flies in is the parking write not landing.
 4. **A peer on a build we do not know** gets no icon at all (the ROM gate) and should simply appear
    — worth knowing, not worth testing today.
+
+### The landing seen working in driven runs — and three more faults it took to get there
+
+**Status: working in the agent's own savestate-driven runs, on screen, both towns — awaiting the
+user's confirmation.** The user prepared two savestates (slot 8 same-town, slot 9 cross-town, "press
+A to fly"), which turned each iteration from a request on their time into `probes/fly_drive.lua`
+pressing A itself and photographing the landing. The screenshots show the mon's icon descending on
+the spiral and both copies standing beside the player afterwards; the trace shows the full chain
+(`wireFly=155 heldFly=155 icon=586509 iconPaints=88`).
+
+Three faults stood between the species arriving and the icon painting, each measured:
+
+1. **`peerFly` was never declared** — a silently-failed edit left it a nil global at both use
+   sites, the file's fifth use-before-declaration. The log had said so outright (`fly=155` and
+   `wireFly=nil` printed from the same state) for a full cycle before it was read correctly.
+2. **A same-spot fly never armed the drop.** Take off beside the landing tile and the position
+   never jumps; the geometry test was the wrong signal for the local case. The map reloading WHILE
+   the peer wears the fly flag is itself a landing (`a.flyPending`), armed when the world settles.
+   A real remote peer flying tile-to-same-tile in our view still gets no drop — genuinely no
+   signal exists for that case; recorded rather than papered over.
+3. **A dropping peer must be a PAINTED peer.** The engine object was parked invisible for the
+   drop, which on a cross-town fly (object freshly spawned) left the real position with no painted
+   entry and therefore no icon: `ov=false iconPaints=44` against the same-town run's 88. The
+   object is now released for the drop and the ordinary promotion machinery re-adopts the peer
+   when it next moves.
+
+## 2026-08-26 — Crystal: the painted tier is gated on the game's own sprite-engine byte (SELF-TESTED)
+
+**The user's diagnosis, verbatim:** ghosts appeared over the party menu and the fly map screen
+after an adapter reload — *"so probly no check if they can't spawn/show there? just a check that
+they should be hidden if going into those menus?"* Exactly right, and the deny-list problem in one
+sentence: every rectangle heuristic added this session protects against one screen at a time.
+
+**The positive check exists and is the game's own:** `wSpriteUpdatesEnabled` ($c2ce) —
+`DisableSpriteUpdates` (home/sprite_updates.asm) sets it FALSE and is what every full-screen UI
+calls on the way in. Polarity measured live from the prepared savestate: 0 on the fly map screen,
+1 on the overworld, **and 1 through the landing animation**, which is why the painted descent
+still draws. The painted tier now refuses to paint while it reads 0. Vanilla-gated; nil on an
+unmeasured build, where behaviour is unchanged.
+
+**Self-tested on the user's exact reproduction**: adapter reloaded with the fly map screen up —
+nothing painted over it (screenshot), landing still runs, ghost back afterwards. The rectangle
+machinery stays for PARTIAL menus (START, text boxes), which never disable the sprite engine.

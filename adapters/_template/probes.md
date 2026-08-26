@@ -1832,3 +1832,23 @@ So for anything a probe draws itself: **screenshots answer questions about the G
 adapter's own counters answer questions about the OVERLAY.** Log what the tier says it drew, and
 where, rather than trying to see it. If a picture is genuinely needed, the person watching is the
 instrument — say so in the probe's own header, as `crystal/probes/fish_drive.lua` does.
+
+## A prepared savestate turns a user-cycle into a self-driven loop (Crystal, 2026-08-26)
+
+The fly-landing work burned half a day at one iteration per user-fly. What ended that was the user
+handing over two savestates — "slot 8: same town, press A to fly" — after which a 60-line probe
+loaded the slot, pressed A, and screenshotted the landing, and the loop ran at one iteration per
+minute with nobody at the controller. Three faults were found and fixed in the time one live
+request used to take.
+
+**The general form: when a test needs a game state that is expensive to reach, ask the user for a
+savestate AT the decision point, not for the test itself.** One savestate amortises over every
+iteration that follows, and the user's involvement drops to preparing it once and confirming the
+final result. Pair the driver with the feature's own trace: the screenshots say what a viewer
+would see, the trace says why.
+
+Two mechanics that matter: number screenshots by the driver's own frame counter and expect it NOT
+to align with the adapter's (this rig's two counters were ~120 frames apart, and the first read of
+the evidence looked at the wrong window); and write the probe's log to a FILE — a console-only
+probe is unreadable from outside the emulator, and one run here produced nothing but an invisible
+console line.

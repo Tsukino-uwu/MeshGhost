@@ -263,6 +263,15 @@ local ADDRESSES = {
 		-- icon, which is why this indirection exists at all.
 		-- IconPointers, 23:6bbf -> the same arithmetic. Two bytes per icon, an address inside
 		-- bank 0x23 (`BANK(Icons)`), eight tiles each: two 2x2 frames.
+		-- THE GAME'S OWN "the overworld sprite engine is running" byte, and the positive answer
+		-- to "may a character be shown at all right now" -- the user's own framing, 2026-08-26,
+		-- after ghosts painted over the party menu and the fly map screen on an adapter reload:
+		-- *"no check if they can't spawn/show there? just a check that they should be hidden"* --
+		-- the deny-list problem in one sentence. `DisableSpriteUpdates` (home/sprite_updates.asm)
+		-- sets this FALSE and is what every full-screen UI calls; polarity measured live from the
+		-- prepared fly savestate: 0 on the fly map screen, 1 on the overworld AND 1 through the
+		-- landing animation, which is why the painted descent still draws.
+		W_SPRITEUPDATESON = flat(0xC2CE),
 		W_CURPARTYMON = flat(0xD109),
 		W_PARTYSPECIES = flat(0xDCD8),
 		MON_ICONS_ROM = 0x8EAC4,
@@ -3318,6 +3327,15 @@ function drawOverflow()
 		stopDrawing()
 		return
 	end
+	-- THE POSITIVE GATE: characters may only be painted while the game itself is running its
+	-- overworld sprite engine. Every full-screen UI -- the party menu, the fly map, the PC --
+	-- calls DisableSpriteUpdates on the way in, so this one byte covers the entire family the
+	-- deny-list approach kept losing to, stale rectangles included. See W_SPRITEUPDATESON in the
+	-- address table for the measurement.
+	if ENGINE.sprOn and (u8(ENGINE.sprOn) or 0) == 0 then
+		stopDrawing()
+		return
+	end
 
 	-- LET A REBUILT WORLD SETTLE BEFORE PAINTING ON IT.
 	--
@@ -5417,8 +5435,15 @@ function drawOverflow()
 					-- engine draws no character at all -- `FlyToAnim` hides them and flies a
 					-- cutscene sprite carrying the mon's icon -- so the ghost is hidden here and
 					-- the icon painted below in its place.
+					-- NO ICON MEANS NO SPECIAL LANDING -- it must never mean an invisible peer.
+					-- The parking write and this hide together draw nothing for 44 frames, which
+					-- is correct only while something is painted in the Pokemon's place; when the
+					-- species is missing (an unrecognised ROM, an older client, or the wire fault
+					-- being chased on 2026-08-26) the peer simply vanished instead. The user saw
+					-- exactly that: *"both ghosts were invisible when flying to another town"*.
+					-- So the hide is conditional on having the icon to show.
 					local flyIcon = o.drop and o.flyMon and facingFrames.iconGfx(o.flyMon) or nil
-					if o.drop then
+					if flyIcon then
 						poseHide = true
 					end
 					local onHardware = false
@@ -5437,6 +5462,7 @@ function drawOverflow()
 						-- cos(k * pi/32) to the side, so the swing decays into the landing exactly
 						-- as the game's does. Two frames of art alternating every 8, the fourth
 						-- x-flipped, from `.Frameset_RedWalk`.
+						facingFrames.iconPaints = (facingFrames.iconPaints or 0) + 1
 						local fdx, fdy = facingFrames.flyOffset(o.drop)
 						local fbase, fflip = facingFrames.flyFrame(o.drop)
 						nDrawn = nDrawn + 1
@@ -6498,6 +6524,14 @@ local function renderRemote(id, state)
 	-- a quarter sine -- the very curve the engine computes (`Sine` scaled by $60). The SPAWNED
 	-- ghost runs the real thing (see teleportGhost); this block drives the PAINTED copies, so the
 	-- tiers land in step with each other.
+	-- THE SPECIES THAT CARRIED THIS PEER. Declared HERE, above every use -- it was missing
+	-- entirely for three live cycles, and Lua gave no hint: an undeclared name is a nil GLOBAL,
+	-- so `peerFly` simply read nil at both sites while `extras.fly` was arriving perfectly. The
+	-- log said so outright once the received keys were printed -- `fly=155` on one line and
+	-- `wireFly=nil` on the next, from the same state, in the same trace block. Fifth time this
+	-- file has been bitten by a use-before-declaration (`pitfalls.md`), and the first four are
+	-- documented within a few hundred lines of here.
+	local peerFly = state.extras and tonumber(state.extras.fly) or nil
 	-- ARMED BELOW THE AREA GATE AND AFTER THE WORLD HAS SETTLED, so t=0 is the first frame this
 	-- peer is actually renderable here -- which is the whole of the cross-town fault. Measured
 	-- 2026-08-26 with the trace: `f=3659 hide t=0 ghost=false` then `f=3691 fall t=32 ghost=true
@@ -6509,6 +6543,19 @@ local function renderRemote(id, state)
 	-- kinda just teleporting"*. A same-town fly never showed it because nothing is reloading, so
 	-- the ghost is placeable on the very frame the drop arms and both clocks start together.
 	local peerEntry = state.extras and tonumber(state.extras.entry) or nil
+	-- THE MAP RELOADING WHILE THE PEER WEARS THE FLAG IS ITSELF A LANDING, whatever the
+	-- coordinates say. The geometry test below exists for a REMOTE peer landing in our view --
+	-- there a tile jump is the only evidence we get. But a fly to the town you are already in can
+	-- land you on the very tile you left from, and the game plays the whole landing anyway; on
+	-- that fly the position never jumps and the drop never armed (measured 2026-08-26: one
+	-- `flagged` trace line, no hide, no fall, wireFly arriving fine). Our own map load is the
+	-- settle window, so: flag worn while the world rebuilds -> a landing is pending, armed the
+	-- moment the world settles. A real remote peer flying tile-to-same-tile in our view still
+	-- gets no drop -- there is genuinely no signal for that case -- and that is recorded as a
+	-- known limit, not silently.
+	if peerEntry == 0xFC and (playerHistory.settle or 0) > 0 then
+		a.flyPending = true
+	end
 	if peerEntry == 0xFC and not a.dropDone and (playerHistory.settle or 0) == 0 then
 		-- EITHER a tile jump, OR no previous position to compare against. The second half is the
 		-- CROSS-MAP fly, and leaving it out is why that case still blinked in while a same-town
@@ -6518,14 +6565,29 @@ local function renderRemote(id, state)
 		-- so there is no `flyX` left to jump FROM and the drop could never arm. A peer wearing
 		-- MAPSETUP_FLY that we have no previous position for has, by definition, just arrived
 		-- somewhere: that IS the landing.
-		if (not a.flyX) or a.flyArea ~= state.area_id
+		if a.flyPending or (not a.flyX) or a.flyArea ~= state.area_id
 			or (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
-			a.dropAt, a.dropDone = drawFrames, true
+			a.dropAt, a.dropDone, a.flyPending = drawFrames, true, nil
 		end
 	elseif peerEntry ~= 0xFC then
-		a.dropDone = nil -- the flag was shed; the next fly is a new drop
+		a.dropDone, a.flyPending = nil, nil -- the flag was shed; the next fly is a new drop
 	end
 	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
+	-- LATCHED THE MOMENT IT ARRIVES, not once the drop is already running -- which is the whole of
+	-- the "no Pokemon sprite" fault. `extras.fly` reaches us with the peer's first post-fly state
+	-- and the drop arms LATER, because it waits for the world to settle: a latch gated on `dropT`
+	-- could only catch the species on a frame where it happened to still be on the wire, and it
+	-- never was. Measured 2026-08-26 by logging the received keys -- `fly=155` arriving while that
+	-- same run's `heldFly` stayed nil through every phase of the landing.
+	--
+	-- It also has to outlive the sender's window, which closes well before a distant peer has
+	-- finished landing. So it is held until the peer sheds the fly flag with no drop in progress.
+	if peerFly then
+		a.flySpecies = peerFly
+	elseif peerEntry ~= 0xFC and not dropT then
+		a.flySpecies = nil
+	end
+
 	-- BRACKET EVERY FLY WITH A FULL CACHE DUMP. The garbled sprite survives the landing and the
 	-- cache is never cleared except by an adapter reload -- which is exactly what deploying a fix
 	-- does, so the evidence has been destroyed by every attempt to look at it. Dumping on the drop
@@ -6562,17 +6624,34 @@ local function renderRemote(id, state)
 		if ENGINE.flyPh ~= ph or ENGINE.flyId ~= id then
 			ENGINE.flyPh, ENGINE.flyId = ph, id
 			local gg = ghosts[id]
-			logFile(string.format("fly: f=%d %s %s t=%s entry=%s area=%s at %d,%d "
-				.. "(was %s,%s area %s) ghost=%s step=%s yoff=%s armed=%s",
+			-- EVERY KEY THAT ACTUALLY ARRIVED, because `entry` crosses the wire and `fly` does
+			-- not while both are built by one table literal under the same guard -- which is not
+			-- possible unless one of them was never put there. Reading the received keys settles
+			-- whether this is a send fault or a receive fault; nothing else has.
+			local ks = {}
+			for k2, v2 in pairs(state.extras or {}) do
+				ks[#ks + 1] = k2 .. "=" .. tostring(v2)
+			end
+			table.sort(ks)
+			logFile("fly-extras: " .. table.concat(ks, " "))
+			logFile(string.format("fly: f=%d %s %s t=%s entry=%s wireFly=%s heldFly=%s icon=%s "
+				.. "area=%s at %d,%d (was %s,%s area %s) ghost=%s facing=%s armed=%s",
 				drawFrames, id, ph, tostring(dropT), tostring(peerEntry),
+				tostring(peerFly), tostring(a.flySpecies),
+				tostring(a.flySpecies and facingFrames.iconGfx(a.flySpecies)),
 				tostring(state.area_id), x, y, tostring(a.flyX), tostring(a.flyY),
 				tostring(a.flyArea), tostring(gg ~= nil),
-				gg and tostring(u8(gg.st_base + F_STEP_TYPE)) or "-",
-				gg and tostring(u8(gg.st_base + emote.F_YOFF)) or "-",
-				tostring(a.skyfallArmed)))
+				gg and tostring(u8(gg.st_base + F_FACING)) or "-",
+				tostring(a.skyfallArmed))
+				.. string.format(" ov=%s ovDrop=%s iconPaints=%s",
+					tostring(overflow[id] ~= nil),
+					tostring(overflow[id] and overflow[id].drop),
+					tostring(facingFrames.iconPaints or 0)))
 		end
 	end
-	if dropT and (dropT >= 64 or dropT < 0) then
+	-- 44 FRAMES, WHICH IS THE ENGINE'S OWN LANDING and not a duration of ours:
+	-- `SpriteAnimFunc_FlyTo` moves 2px a frame from a wrapped 252 to its resting 84.
+	if dropT and (dropT >= facingFrames.FLY_FRAMES or dropT < 0) then
 		a.dropAt, dropT = nil, nil
 	end
 	-- UPDATED LAST, BELOW THE TRACE, because a trace that prints the value it has just written
@@ -6910,7 +6989,7 @@ local function renderRemote(id, state)
 		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
 		-- (px == nil is the mid-step deferral above -- stay painted this frame.)
-		if px and spawnGhost(id, px, py, peerSprite) then
+		if px and not dropT and spawnGhost(id, px, py, peerSprite) then
 			-- FACE THE WAY THE PEER IS FACING, IMMEDIATELY.
 			--
 			-- `spawnGhost` pins the new object's standing facing to whatever direction the TEMPLATE
@@ -6934,10 +7013,6 @@ local function renderRemote(id, state)
 			-- to stop a PROMOTION dropping from the sky, and the envelope already guarantees that:
 			-- it exists only when the peer wears MAPSETUP_FLY, which a peer that merely started
 			-- walking never does.
-			if dropT and ghosts[id] then
-				a.skyfallArmed = true
-				teleportGhost(ghosts[id], px, py)
-			end
 			local g2, want2 = ghosts[id], ORIENTATION_TO_DIR[state.orientation]
 			if g2 and want2 then
 				setGhostStanding(g2.st_base, g2.mo_base, want2)
@@ -7068,15 +7143,19 @@ local function renderRemote(id, state)
 	-- This replaces STEP_TYPE_SKYFALL, which was BANDAGES.md #3 -- the Burned Tower floor-fall
 	-- borrowed because it was the closest thing the engine would do to a character. It is not
 	-- needed once the ghost stops being a character for those 44 frames.
-	if dropT then
-		if not a.skyfallArmed then
-			a.skyfallArmed = true
-			teleportGhost(g, x, y)
-		end
-		w8(g.st_base + F_FACING, STANDING) -- the engine draws nothing for a STANDING facing
+	-- A DROPPING PEER IS A PAINTED PEER, full stop. The engine object has no part in a landing --
+	-- the descent is the Pokemon's icon, which only the painted tier can draw -- and the painted
+	-- tier only registers a peer the spawned tier is not holding. The first version PARKED the
+	-- object invisible instead, which on a cross-town fly (where the object is freshly spawned)
+	-- left the real position with a parked ghost, no painted entry, and therefore no icon:
+	-- measured 2026-08-26, `ov=false iconPaints=44` -- one copy's worth -- against the same-town
+	-- run's `ov=true iconPaints=88`. So the object is released for the drop's duration; the peer
+	-- falls as the icon, lands painted on its tile, and the ordinary promotion machinery gives it
+	-- back an engine object the next time it moves.
+	if dropT and a.flySpecies and facingFrames.iconGfx(a.flySpecies) then
+		despawnGhost(id)
 		return
 	end
-	a.skyfallArmed = nil
 
 	if walking == STANDING and (stepType == 2 or stepType == 7) then
 		w8(g.st_base + F_STEP_TYPE, 1) -- STEP_TYPE_FROM_MOVEMENT
@@ -7661,6 +7740,7 @@ facingFrames.iconTbl = (romClass == "known") and A.MON_ICONS_ROM or nil
 facingFrames.iconPtrs = (romClass == "known") and A.ICON_POINTERS_ROM or nil
 facingFrames.iconBank = A.ICONS_BANK
 ENGINE.curPartyMon, ENGINE.partySpecies = A.W_CURPARTYMON, A.W_PARTYSPECIES
+ENGINE.sprOn = A.W_SPRITEUPDATESON -- nil on an unmeasured build: the gate simply never fires
 facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
 -- HOW THE PLAYER LAST ENTERED A MAP. `hMapEntryMethod` ($ff9f -- HRAM, unbanked, read via the
@@ -7821,10 +7901,24 @@ local function tick()
 			-- LATCHED WITH THE ENTRY BYTE, not read later: `wCurPartyMon` is the party cursor and
 			-- moves the moment the player opens a menu again, so by the time a peer's ghost is
 			-- ready to show the landing the answer would already be a different Pokemon.
-			if m == 0xFC and ENGINE.curPartyMon and ENGINE.partySpecies then
-				local slot = u8(ENGINE.curPartyMon) or 0
-				if slot < 6 then
-					ENGINE.flySpecies = u8(ENGINE.partySpecies + slot)
+			if m == 0xFC then
+				local slot = ENGINE.curPartyMon and u8(ENGINE.curPartyMon) or nil
+				local sp = (slot and slot < 6 and ENGINE.partySpecies)
+					and u8(ENGINE.partySpecies + slot) or nil
+				if sp and sp > 0 then
+					ENGINE.flySpecies = sp
+				end
+				-- ONE LINE PER FLY, and it exists because the first live run reported
+				-- `wireFly=nil` while `entry=252` arrived fine: the map-entry byte crossed the
+				-- wire and the species did not, which puts the fault in exactly these three
+				-- reads. Naming all of them means the next run cannot be ambiguous about which.
+				if _G.MESHGHOST_CRYSTAL_FLY_TRACE and ENGINE.flyLoggedAt ~= ENGINE.entryAt then
+					ENGINE.flyLoggedAt = ENGINE.entryAt
+					logFile(string.format("fly-latch: f=%d curPartyMon addr=%s slot=%s "
+						.. "partySpecies addr=%s species=%s -> flySpecies=%s",
+						emu.framecount(), tostring(ENGINE.curPartyMon), tostring(slot),
+						tostring(ENGINE.partySpecies), tostring(sp),
+						tostring(ENGINE.flySpecies)))
 				end
 			end
 			-- AND HOLD THE PAINTED TIER OFF WHILE THE WORLD IS BEING REBUILT. This window was
