@@ -1,0 +1,65 @@
+name: Docs
+
+# Until 2026-08-27, NOTHING in CI ran any of the documentation gates. ci.yml filters on '**.go'
+# and lua.yml on '**.lua', so a push that changed only prose produced no run at all -- and the
+# fifteen tree-level checks in dev-scripts/preflight.ps1 (reading budgets, markdown link
+# integrity, the canonical-source register, index coverage for pitfalls / VERIFIED / the ADRs /
+# the phase files / the dev-scripts README / each adapter's mandated file set, the bridge
+# constants, invented durations, and more) held only when somebody remembered to run the script.
+#
+# THE EVIDENCE THAT THIS IS NOT HYPOTHETICAL. Commit b77b2cf shipped adapters/_template/probes.md
+# at 1,854 lines against its own declared 1,850-line cap; it was trimmed back two commits later.
+# The same audit found ten pitfalls entries governed by nothing, an index sealed inside a code
+# fence, and a duration gate that had reported PASS since it was written because three of its six
+# patterns contained literal backspace bytes. Every one of those is a check that existed and was
+# not run.
+#
+# -TreeOnly is the point: it runs exactly the checks a bare checkout can answer, and SKIPS the
+# ones that need a working copy -- built binaries, deployed mod DLLs, an installed Lua, running
+# processes. Those stay local, because a runner genuinely cannot answer them, and pretending
+# otherwise would be worse than not checking. gofmt and the Lua parse are already covered by
+# ci.yml and lua.yml respectively.
+#
+# Separate workflow rather than a job in ci.yml for the reason lua.yml is separate: triggers are
+# per-workflow, and ci.yml filters on '**.go' deliberately so a docs-only push spends nothing on
+# the race detector and the fuzzers.
+#
+# windows-latest because preflight.ps1 is PowerShell and this repo's own environment is Windows;
+# running it anywhere else would be checking a different script than the one people run locally.
+# fetch-depth: 0 because the _template back-port check compares COMMIT dates, not file mtimes.
+
+on:
+  push:
+    paths:
+      - '**.md'
+      - 'dev-scripts/preflight.ps1'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    paths:
+      - '**.md'
+      - 'dev-scripts/preflight.ps1'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tree-checks:
+    name: Documentation gates that need no working copy
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The _template back-port freshness check runs `git log -1 --format=%ct -- <path>`,
+          # which needs history. With the default shallow clone it silently finds nothing for
+          # every path and reports a clean result -- the exact failure mode this workflow exists
+          # to stop.
+          fetch-depth: 0
+
+      - name: preflight -TreeOnly
+        shell: pwsh
+        run: |
+          # A SKIP is not a pass and must not read like one, so the log is worth reading rather
+          # than just the exit code. Exit 1 = at least one FAIL; warnings never fail the run.
+          ./dev-scripts/preflight.ps1 -TreeOnly

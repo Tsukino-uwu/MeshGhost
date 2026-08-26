@@ -591,6 +591,22 @@ game launch and a replayed save, so this is the cheapest minute in the loop.
 powershell -ExecutionPolicy Bypass -File dev-scripts\preflight.ps1
 ```
 
+**`-TreeOnly` runs only the checks a bare checkout can answer**, skipping everything that needs a
+working copy — built binaries, deployed mod DLLs, an installed Lua, running processes:
+
+```
+powershell -ExecutionPolicy Bypass -File dev-scripts\preflight.ps1 -TreeOnly
+```
+
+That is what `.github/workflows/docs.yml` runs on every push touching a `.md` file, added
+2026-08-27. **Before that, no workflow ran any doc gate at all** — `ci.yml` filters on `**.go` and
+`lua.yml` on `**.lua`, so a prose-only push produced no run, and fifteen checks held only when
+somebody remembered this script. Commit `b77b2cf` is what that looks like: it shipped
+`_template/probes.md` four lines over that file's own declared cap, and it was trimmed back two
+commits later. **A `SKIP` is not a `PASS`** — run it without the switch before handing anyone a
+game, because the skipped half is the half that says whether the artifacts a game would load are
+the ones we think they are.
+
 What it checks — **the script's own `Section` headings are the list, and this prose is not it**
 (it named 7 of them while there were 22, and was corrected on 2026-08-27; read
 `dev-scripts/preflight.ps1` rather than trusting a count restated here). Two groups:

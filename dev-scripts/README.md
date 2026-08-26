@@ -52,7 +52,10 @@ full note.
   game installs (`MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT`, `MESHGHOST_PSEUDO_DLL` — env vars
   rather than literals, because install paths are machine-specific and this repo is public). It
   never builds, deploys or commits. Exit 0 = everything fresh, 1 = at least one FAIL; warnings do
-  not fail the run. Run it before asking anyone to launch a game. See `agent_docs/testing.md`.
+  not fail the run. Run it before asking anyone to launch a game. **`-TreeOnly` runs only the
+  checks a bare checkout can answer** and skips the rest, which is what
+  `.github/workflows/docs.yml` runs on every `.md` push (2026-08-27); a `SKIP` is not a `PASS`, so
+  run it without the switch before a live test. See `agent_docs/testing.md`.
 
   Its runtime counterparts, for a session already running: add `-stats=10s` to any `meshghost.exe`
   launch for a one-line client summary (link rtt, clock offset, peers known versus rendered, bytes

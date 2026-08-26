@@ -43,7 +43,7 @@ func TestPerHourReportsUnknownRatherThanDividingByZero(t *testing.T) {
 	// `uptime <= 0`, so a negative duration -- which a clock adjustment can
 	// hand you -- has to take the same branch as zero.
 	for _, d := range []time.Duration{0, -time.Second} {
-		if got := PerHour(1 << 20, d); got != "rate unknown" {
+		if got := PerHour(1<<20, d); got != "rate unknown" {
 			t.Errorf("PerHour(1MiB, %v) = %q, want %q", d, got, "rate unknown")
 		}
 	}

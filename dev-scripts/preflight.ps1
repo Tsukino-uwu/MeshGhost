@@ -1,3 +1,14 @@
+[CmdletBinding()]
+param(
+    # Run ONLY the checks that a bare checkout can answer, skipping everything that needs a
+    # working copy (built binaries, deployed DLLs, installed toolchains, running processes).
+    # This is what .github/workflows/docs.yml runs on every push touching a .md file, because
+    # until 2026-08-27 nothing in CI ran any of the doc gates at all -- they held only when
+    # somebody remembered this script, and commit b77b2cf shipped _template/probes.md four lines
+    # over its own declared cap, trimmed back two commits later, which is what that looks like.
+    [switch]$TreeOnly
+)
+
 # MeshGhost -- run this BEFORE handing the user a game to test.
 #
 # Every check here exists because the thing it checks actually went wrong and cost a live test.
@@ -26,6 +37,7 @@ function Report-Pass($msg) { Write-Host "  PASS  $msg" }
 function Report-Fail($msg) { Write-Host "  FAIL  $msg" -ForegroundColor Red; $script:failures++ }
 function Report-Warn($msg) { Write-Host "  WARN  $msg" -ForegroundColor Yellow; $script:warnings++ }
 function Section($name)    { Write-Host ""; Write-Host "== $name ==" }
+function Report-Skip($msg) { Write-Host "  SKIP  $msg" -ForegroundColor DarkGray }
 
 # Both grep gates below are three-way, and used not to be. `git grep` exits 0 for "matches found",
 # 1 for "none", and >1 for "I could not run" -- and `if ($LASTEXITCODE -eq 0 -and $hits)` sent that
@@ -72,12 +84,26 @@ if ($missingTracked.Count -gt 0) {
 
 # ---------------------------------------------------------------------------
 Section "Go source hygiene"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
-$unformatted = & gofmt -l (& git ls-files '*.go')
+# TRACKED AND UNTRACKED BOTH, since 2026-08-27. `git ls-files` lists only what git already
+# knows about, so a brand-new .go file -- which is exactly what adding a test looks like -- was
+# invisible to this check until it was staged. It happened the same day this comment was written:
+# a new test file was written, this check was run and reported clean, and the file went into the
+# commit unformatted. CI's own gofmt step caught nothing either, for the same reason it caught
+# nothing here: it runs after the add. Same shape as "a check that lists no files passes every
+# time", one step earlier in the process.
+$goFiles = @(& git ls-files '*.go')
+$goFiles += @(& git status --porcelain --untracked-files=all |
+              Where-Object { $_ -like '?? *.go' -or $_ -like '?? *' -and $_ -match '\.go$' } |
+              ForEach-Object { $_.Substring(3).Trim('"') })
+$goFiles = @($goFiles | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Sort-Object -Unique)
+$unformatted = & gofmt -l $goFiles
 if ($unformatted) {
     Report-Fail "not gofmt-clean: $($unformatted -join ', ')  -- run: gofmt -w <file>"
 } else {
-    Report-Pass "every tracked .go file is gofmt-clean"
+    Report-Pass "all $($goFiles.Count) .go file(s) are gofmt-clean, tracked and untracked"
+}
 }
 
 # ---------------------------------------------------------------------------
@@ -217,6 +243,7 @@ if ($capped -eq 0) {
 
 # ---------------------------------------------------------------------------
 Section "Root binaries vs Go source"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # dev-scripts/*.bat launch these exact named binaries. go build/vet/test do NOT refresh them, so a
 # bug repro can run against binaries a full day stale -- found live 2026-08-14.
@@ -240,9 +267,11 @@ foreach ($exe in @("meshghost.exe", "meshghost-relay.exe", "meshghost-fakeadapte
         Report-Pass "$exe is newer than the newest .go file"
     }
 }
+}
 
 # ---------------------------------------------------------------------------
 Section "Committed mod DLLs vs their source"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # Reproduces .github/workflows/release.yml's staleness gate locally. CI cannot build these (a
 # proprietary game DLL and a private UE4SS dependency), which is exactly why they are committed --
@@ -283,6 +312,7 @@ if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
         Report-Pass "Pseudoregalia CMakeLists.txt matches its recorded hash"
     }
 }
+}
 
 # ---------------------------------------------------------------------------
 Section "No reproduced expression in documentation.md"
@@ -317,6 +347,7 @@ if ($fenced.Count -eq 0) {
 
 # ---------------------------------------------------------------------------
 Section "Lua parses"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # Every adapter and probe is Lua, and nothing else in this repo checks that it COMPILES.
 # BizHawk embeds Lua 5.4, so a syntax error does not fail loudly -- the script simply never
@@ -346,9 +377,11 @@ if (-not (Test-Path $luac)) {
         Report-Pass "all $($luaFiles.Count) tracked .lua files parse under Lua 5.4"
     }
 }
+}
 
 # ---------------------------------------------------------------------------
 Section "LF-pinned sources"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # .gitattributes pins these to eol=lf because the release gate hashes them on a Windows runner.
 # A scripted edit that writes CRLF makes the gate fail claiming the DLL is stale when it is fresh,
@@ -369,9 +402,11 @@ if ($crlf.Count -gt 0) {
 } else {
     Report-Pass "every LF-pinned adapter source is still LF"
 }
+}
 
 # ---------------------------------------------------------------------------
 Section "Deployed copies in the live game installs"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # The repo's staging copy being fresh does NOT mean the game is running it. A full cleanup pass
 # once rebuilt both DLLs, verified the in-repo gates, and never copied them out -- which would have
@@ -393,6 +428,7 @@ function Check-Deployed($label, $stagedPath, $envName) {
 Check-Deployed "TEVI" "packaging\release\games\tevi\MeshGhost\MeshGhostTevi.dll" "MESHGHOST_TEVI_DLL"
 Check-Deployed "TEVI (alt install)" "packaging\release\games\tevi\MeshGhost\MeshGhostTevi.dll" "MESHGHOST_TEVI_DLL_ALT"
 Check-Deployed "Pseudoregalia" "packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\dlls\main.dll" "MESHGHOST_PSEUDO_DLL"
+}
 
 # ---------------------------------------------------------------------------
 Section "Markdown link integrity"
@@ -957,6 +993,7 @@ if (Test-Path $wfDir) {
 
 # ---------------------------------------------------------------------------
 Section "Leftover scaffolding"
+if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # Leaving a relay alive is how a later run silently binds the wrong port.
 $strays = Get-Process -Name "meshghost", "meshghost-relay", "meshghost-fakeadapter", "meshghost-netsim" -ErrorAction SilentlyContinue
@@ -982,13 +1019,24 @@ if ($shells) {
 } else {
     Report-Pass "no leftover dev-script launcher shells"
 }
+}
 
 # ---------------------------------------------------------------------------
 Write-Host ""
 if ($script:failures -gt 0) {
     Write-Host "PREFLIGHT FAILED: $($script:failures) problem(s), $($script:warnings) warning(s)." -ForegroundColor Red
-    Write-Host "Fix these before asking anyone to launch a game -- a live cycle costs them a real playthrough."
+    if ($TreeOnly) {
+        Write-Host "These are all answerable from the tree alone -- no game, no build, no install needed."
+    } else {
+        Write-Host "Fix these before asking anyone to launch a game -- a live cycle costs them a real playthrough."
+    }
     exit 1
 }
-Write-Host "Preflight clean ($($script:warnings) warning(s)). Safe to hand over a game." -ForegroundColor Green
+if ($TreeOnly) {
+    # Deliberately does NOT say "safe to hand over a game": this mode skipped every check that
+    # could tell you whether the artifacts a game would load are the ones we think they are.
+    Write-Host "Tree checks clean ($($script:warnings) warning(s)). Run without -TreeOnly before handing over a game." -ForegroundColor Green
+} else {
+    Write-Host "Preflight clean ($($script:warnings) warning(s)). Safe to hand over a game." -ForegroundColor Green
+}
 exit 0
