@@ -6280,6 +6280,26 @@ local function renderRemote(id, state)
 	-- positions from different maps is meaningless in the first place; a changed area IS the jump.
 	a.flyX, a.flyY, a.flyArea = x, y, state.area_id
 	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
+	-- FLY TRACE, off unless MESHGHOST_CRYSTAL_FLY_TRACE is set. Three live cycles have now been
+	-- spent guessing which placement path a landing takes, so this prints the whole envelope
+	-- instead: when it armed and why, what the peer is reporting, whether the ghost object exists,
+	-- and what the engine has done with its step type. Edge-triggered on the phase so a drop is a
+	-- handful of lines, not 64.
+	if _G.MESHGHOST_CRYSTAL_FLY_TRACE and (dropT or peerEntry == 0xFC) then
+		local ph = dropT and ((dropT < 32) and "hide" or "fall") or "flagged"
+		if ENGINE.flyPh ~= ph or ENGINE.flyId ~= id then
+			ENGINE.flyPh, ENGINE.flyId = ph, id
+			local gg = ghosts[id]
+			logFile(string.format("fly: f=%d %s %s t=%s entry=%s area=%s at %d,%d "
+				.. "(was %s,%s area %s) ghost=%s step=%s yoff=%s armed=%s",
+				drawFrames, id, ph, tostring(dropT), tostring(peerEntry),
+				tostring(state.area_id), x, y, tostring(a.flyX), tostring(a.flyY),
+				tostring(a.flyArea), tostring(gg ~= nil),
+				gg and tostring(u8(gg.st_base + F_STEP_TYPE)) or "-",
+				gg and tostring(u8(gg.st_base + emote.F_YOFF)) or "-",
+				tostring(a.skyfallArmed)))
+		end
+	end
 	if dropT and (dropT >= 64 or dropT < 0) then
 		a.dropAt, dropT = nil, nil
 	end

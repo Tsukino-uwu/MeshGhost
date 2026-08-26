@@ -1477,3 +1477,31 @@ the event that mattered. The pattern, and the one-sentence check for it, are in
 **What to watch:** fly to a DIFFERENT town — the ghost should hold hidden then fall, exactly as the
 same-town case now does. Same-town must still work. And a promotion (a ghost appearing as you start
 walking, no fly involved) must still be a plain appearance with no fall.
+
+## 2026-08-26 — Crystal: a flying peer should wear its POKEMON, and does not (NOT BUILT)
+
+**Spotted by the user while testing the drop:** *"both same/different town teleports are not
+changing their sprites to the 'pokemon that used fly' like the player does."* Correct, and it is a
+parity gap rather than a nicety — anything the player can do, a ghost must too.
+
+**How the game does it** (`engine/events/field_moves.asm`, `engine/gfx/mon_icons.asm`):
+`FlyFromAnim` and `FlyToAnim` call `FlyFunction_InitGFX`, which reads `wCurPartyMon` -> the party's
+species and loads THAT MON'S ICON through `FlyFunction_GetMonIcon` into the `FIELDMOVE_FLY` tile
+slot ($84). The flier is then animated by the cutscene sprite-anim system, not by its map object —
+which is the same reason the object carries no fly animation at all (`documentation.md`).
+
+**What it needs, none of it built:**
+
+- **The species on the wire.** A new `extras` field, sent for the same window the `entry` byte uses.
+  One byte; a peer on an older build sends nothing and simply keeps its own sprite, as today.
+- **Mon icons are not overworld sprites.** They are a different graphics family (2x2 tiles, their
+  own table and bank) from the walking-sprite tiles both tiers currently draw from, so the drawn
+  tier needs a second decode path and the spawned tier cannot use its usual sprite-id route at all.
+- **A decision on WHAT a watcher should see**, which is the user's to make: the fly itself is a
+  private cutscene, so a peer taking off is on a map you may not be on. The visible cases are the
+  take-off (peer on your map, flies away) and the landing (this drop). Whether the mon icon should
+  replace the ghost for both, or only the departure, is not obvious from the game.
+
+**Sequenced after the drop lands**, deliberately: this queue already carries three unwatched fly
+fixes, and adding a graphics path on top of an unsettled animation is how a session stops being
+able to tell which change did what.
