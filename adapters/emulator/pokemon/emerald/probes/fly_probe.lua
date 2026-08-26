@@ -45,12 +45,25 @@ local SPRITE_SIZE = 0x44
 local GTASKS_ADDR = 0x03005e00
 local TASK_SIZE = 0x28
 local GHOST_LOCAL_ID = 255
+-- gSaveBlock1Ptr, for the map the LOCAL player is standing in. Two instances only ever exchange
+-- ghosts while their area ids match, so "was there even a ghost to watch" is a question about
+-- this pair of bytes before it is a question about anything in the fly code -- and the first
+-- paired run failed on exactly that: the watcher held one ghost all run and it was its own.
+local GSAVEBLOCK1PTR_ADDR = 0x03005d8c
+local function localArea()
+    local b = memory.read_u32_le(GSAVEBLOCK1PTR_ADDR)
+    if b == 0 then return "?:?" end
+    return string.format("%d:%d", memory.read_s8(b + 0x04), memory.read_s8(b + 0x05))
+end
 
 -- Beside this script, never an absolute path: this repo is public (CLAUDE.md).
 local BS = string.char(92)
 local DIR = debug.getinfo(1, "S").source:sub(2)
     :match("^(.*)[/" .. BS .. "][^/" .. BS .. "]*$") or "."
-local out = io.open(DIR .. "/fly_probe.log", "w")
+-- Separate files per role, so a driven run and an observed run never overwrite each other --
+-- they are the two halves of one measurement and are read side by side.
+local out = io.open(DIR .. (MESHGHOST_FLY_OBSERVE and "/fly_probe_watch.log"
+    or "/fly_probe.log"), "w")
 -- Buffered, flushed in batches. A per-line flush was measured at 63-83ms on this emulator --
 -- four to five frames, on the emulator's own thread (adapters/emulator/CLAUDE.md).
 if out then out:setvbuf("full", 1 << 16) end
@@ -92,6 +105,16 @@ local function describe(tag, objId)
         (r8(d + 0x3e) >> 1) & 1,        -- coordOffsetEnabled
         (r8(d + 0x3e) >> 2) & 1,        -- invisible
         r8(d + 0x2a), r8(d + 0x2b))
+        -- WHICH TILES IT IS ACTUALLY DRAWN FROM, and the shape it is drawn with. A "broken
+        -- sprite" is by definition a thing no struct field can show: graphicsId, animation number
+        -- and position can all agree while the picture is wrong, because the picture lives in the
+        -- tile range OAM points at and in the shape/size bits that say how to read it. This is the
+        -- half that was missing when every earlier field came back clean and the user still saw a
+        -- broken character after a cross-map fly.
+        .. string.format(" | oam=%04X %04X %04X tile=%d pal=%d shape=%d size=%d sub=%02X",
+            r16(d + 0x00), r16(d + 0x02), r16(d + 0x04),
+            r16(d + 0x04) & 0x3ff, (r16(d + 0x04) >> 12) & 0x0f,
+            (r16(d + 0x00) >> 14) & 0x03, (r16(d + 0x02) >> 14) & 0x03, r8(d + 0x42))
 end
 
 -- Every ACTIVE task, with its function pointer. The point is the pointer: a fly that is running
@@ -144,10 +167,38 @@ local function ghostObjIds(playerObjId)
     return ids
 end
 
-local phase, n, logged = "settle", 0, 0
+-- OBSERVER MODE: log, drive nothing. The instance that WATCHES a flying peer is the one the
+-- remaining bugs live on, and it must not load a state or touch the controller while the other
+-- instance is being driven -- two scripts pressing A at each other proves nothing. Set
+-- MESHGHOST_FLY_OBSERVE on the watching instance and drive the other one.
+local OBSERVE = MESHGHOST_FLY_OBSERVE or os.getenv("MESHGHOST_FLY_OBSERVE")
+
+local phase, n, logged = OBSERVE and "log" or "settle", 0, 0
 
 local function tick()
     n = n + 1
+    if OBSERVE then
+        -- Never stops, and never touches the controller. The window that matters is whenever the
+        -- OTHER instance flies, which this one cannot predict.
+        --
+        -- It may still be PLACED once, though, which is a different thing from being driven: a
+        -- watcher has to be standing somewhere sensible to watch from, and after a relaunch it is
+        -- sitting on a title screen. MESHGHOST_FLY_OBSERVE_LOAD_SLOT loads one state, once, and
+        -- then never again -- deliberately not re-applied on a script reload, because a slot that
+        -- reloads on every re-attach is the trap `status.md` records for the square-drive probe.
+        local slot = tonumber(MESHGHOST_FLY_OBSERVE_LOAD_SLOT
+            or os.getenv("MESHGHOST_FLY_OBSERVE_LOAD_SLOT") or "")
+        if slot and n == SETTLE_FRAMES then
+            pcall(function() savestate.loadslot(slot) end)
+            console.log("fly_probe: OBSERVE -- placed from slot " .. slot .. ", now watching.")
+        end
+        if n == 1 then
+            console.log("fly_probe: OBSERVE mode -- logging only, no input.")
+            log("=== fly_probe OBSERVE emuframe=" .. emu.framecount() .. " ===")
+        end
+        if slot and n < SETTLE_FRAMES then return end
+        phase = "log"
+    end
     if phase == "settle" then
         if n < SETTLE_FRAMES then return end
         pcall(function() savestate.loadslot(SLOT) end)
@@ -177,14 +228,14 @@ local function tick()
         skip[r8(objAddr(gObj) + 0x04)] = true
     end
     -- `loose` takes two ids to skip; with several ghosts, pass the set instead.
-    log(string.format("f=%d | %s | TASKS %s | LOOSE %s",
-        emu.framecount(),
+    log(string.format("f=%d area=%s | %s | TASKS %s | LOOSE %s",
+        emu.framecount(), localArea(),
         table.concat(parts, " | "),
         tasks(),
         loose(skip)))
     logged = logged + 1
 
-    if phase == "log" and n >= LOG_FRAMES then
+    if not OBSERVE and phase == "log" and n >= LOG_FRAMES then
         phase = "done"
         if out then out:flush() end
         console.log("fly_probe: done -- " .. logged .. " frames in probes/fly_probe.log")

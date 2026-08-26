@@ -5344,13 +5344,24 @@ end
 -- lines and a session that never flies writes none.
 flyRide.trace = function(g, remote, where)
     if not remote.fly and not g.flyTraceKey then return end
-    local k = string.format("%s/%s/%s/%s/%s", where, tostring(remote.fly), tostring(remote.flyk),
-        tostring(g.birdSprId), tostring(g.flyDone))
+    -- THE DECISIVE PAIR IS "WHERE THE PEER SAYS IT IS" NEXT TO "WHERE THE GHOST ACTUALLY IS", and
+    -- the two must come from different places or the line proves nothing: the first is received
+    -- input, the second is read back out of the engine's own object. A trace that printed only
+    -- what we intended would agree with itself through every one of these bugs.
+    local a = g.objId and objAddr(g.objId)
+    local gx = a and (rs16(a + 0x10) - MAP_OFFSET) or -1
+    local gy = a and (rs16(a + 0x12) - MAP_OFFSET) or -1
+    local k = string.format("%s/%s/%s/%s/%s/%d/%d/%s", where, tostring(remote.fly),
+        tostring(remote.flyk), tostring(g.birdSprId), tostring(g.flyDone), gx, gy,
+        tostring(g.gfx))
     if g.flyTraceKey == k then return end
     g.flyTraceKey = k
-    logFile(string.format("FLY %s fly=%s flyk=%s bird=%s done=%s gfx=%s obj=%s f=%d",
+    logFile(string.format(
+        "FLY %s fly=%s flyk=%s bird=%s done=%s gfx=%s obj=%s | peer=%s (%.2f,%.2f) area=%s "
+            .. "| ghost=(%d,%d) f=%d",
         where, tostring(remote.fly), tostring(remote.flyk), tostring(g.birdSprId),
-        tostring(g.flyDone), tostring(g.gfx), tostring(g.objId), frameCounter))
+        tostring(g.flyDone), tostring(g.gfx), tostring(g.objId), tostring(remote.gfx),
+        remote.x or -1, remote.y or -1, tostring(remote.areaId), gx, gy, frameCounter))
 end
 
 flyRide.apply = function(g, remote, playerId)
@@ -6257,7 +6268,23 @@ local function syncGhost(playerId, remote)
                     if remote.sox then w16(d + 0x24, remote.sox & 0xffff) end
                     if remote.soy then w16(d + 0x26, remote.soy & 0xffff) end
                 end
-                loadGhostFrameNow(ng, graphicsInfo(wantNow), remote.sanim, remote.sidx)
+                -- THE GRAPHIC THE GHOST IS ACTUALLY WEARING, not the one that was asked for.
+                --
+                -- `wantNow` is nil for every spawn where the peer's own graphic is not being
+                -- adopted -- which is the normal case, since the peer-graphics gate is off -- and
+                -- spawnGhost then falls back to the local player's. Passing the nil through means
+                -- `graphicsInfo(nil)` is nil, loadGhostFrameNow takes its early return, and the
+                -- freshly claimed tile range is never written: the ghost draws from VRAM nobody
+                -- has filled. That routine's own header describes the result exactly -- grey
+                -- rubbish -- and it was survivable only because something else usually repaints a
+                -- ghost within a frame or two.
+                --
+                -- A fly is where that stopped being true. The rebuild after a landing spawns a
+                -- ghost for a peer who has just come to a standstill, so it arrives paused with
+                -- nothing to repaint it, and the rubbish stays: the user, after every other fly
+                -- fault was fixed, *"the spawned ghost sprite still looks broken/glitched"* only
+                -- ever after a landing. `ng.gfx` is what spawnGhost actually chose.
+                loadGhostFrameNow(ng, graphicsInfo(ng.gfx), remote.sanim, remote.sidx)
             end
         end
         return
