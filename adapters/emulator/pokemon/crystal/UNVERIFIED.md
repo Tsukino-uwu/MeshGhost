@@ -1702,3 +1702,36 @@ insurance — but it now logs once, the first time it ever fires, saying outrigh
 never appears it is dead weight. A later session can delete it on evidence rather than on either of
 our guesses. **Two theories in a row about this sprite were wrong; the deciding measurement in both
 cases was one that had been read out of the wrong place.**
+
+## 2026-08-26 — Crystal: the REAL fly landing, and the bandage retired (BUILT, unwatched)
+
+**The user's call:** *"try to fix the 'pokemon sprite & landing animation, for a different town' so
+we don't have to use the 'falling' bandage anymore"*, after reporting that same-town already looked
+like a proper landing while a different town still fell, and **neither wore the Pokemon**.
+
+**The species crosses the wire.** `extras.fly` is the mon that carried the player, latched at the
+same instant as the map-entry byte — `wCurPartyMon` is the party cursor and moves the moment a menu
+opens, so reading it later answers with a different Pokemon. Held for the whole descent on the
+receiving side, since the sender's fly window closes before a distant peer has finished landing.
+
+**A landing peer stops being a character.** For 44 frames the engine object is parked with a
+STANDING facing, which draws nothing — the same thing the game does to every character through a
+fly — and the painted tier flies the mon's ICON down instead. This is what retires
+[`BANDAGES.md`](BANDAGES.md) #3: no character falls any more, so the Burned Tower floor-fall has
+nothing to do and `STEP_TYPE_SKYFALL` is gone along with the two guards that existed only for it.
+
+**Every number is the engine's**, from `SpriteAnimFunc_FlyTo` and `.Frameset_RedWalk`: 44 frames at
+2px, `88 - 2k` pixels above the landing tile, `(88 - 2k) * cos(k * pi/32)` to the side so the swing
+decays into the landing, two frames of art alternating every eight with the fourth x-flipped, and
+the 2x2 tile order from `.OAMData_RedWalk`. Species -> icon is two hops in bank 0x23
+(`MonMenuIcons[species-1]` -> `IconPointers[icon]`), memoised, and ROM-gated like the fishing rod.
+
+**What to watch:**
+
+1. **Fly to another town and to the same town.** Both should now look alike: the Pokemon swoops
+   down swinging, the swing settling, and the character appears as it lands.
+2. **It should be YOUR Pokemon** — fly with a different mon and the icon must change with it.
+3. **No character visible during the descent** in either tier. A ghost standing on the tile while
+   the icon flies in is the parking write not landing.
+4. **A peer on a build we do not know** gets no icon at all (the ROM gate) and should simply appear
+   — worth knowing, not worth testing today.

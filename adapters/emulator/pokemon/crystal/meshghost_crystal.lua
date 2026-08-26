@@ -252,6 +252,22 @@ local ADDRESSES = {
 		-- table is how a receiver turns "emote number N" back into pixels. The "!" over a
 		-- character's head is one of these, and it is a SEPARATE map object, not a pose.
 		EMOTES_ROM = 0x1444D,
+		-- THE FLYING POKEMON. `FlyFunction_InitGFX` reads wCurPartyMon, takes that party slot's
+		-- species, and loads THAT MON'S ICON as the thing the player rides -- so a peer's fly is
+		-- only reproducible if its species crosses the wire. All four are vanilla V1.0 and gated
+		-- on classifyRom() saying "known", like the fishing graphics: an unknown build would read
+		-- a species out of the wrong place and paint whatever the pointer landed on.
+		--
+		-- MonMenuIcons, 23:6ac4 -> 0x23 * 0x4000 + (0x6ac4 - 0x4000). One byte per species,
+		-- indexed species-1 (`ReadMonMenuIcon`), giving an ICON index -- several species share an
+		-- icon, which is why this indirection exists at all.
+		-- IconPointers, 23:6bbf -> the same arithmetic. Two bytes per icon, an address inside
+		-- bank 0x23 (`BANK(Icons)`), eight tiles each: two 2x2 frames.
+		W_CURPARTYMON = flat(0xD109),
+		W_PARTYSPECIES = flat(0xDCD8),
+		MON_ICONS_ROM = 0x8EAC4,
+		ICON_POINTERS_ROM = 0x8EBBF,
+		ICONS_BANK = 0x23,
 	},
 
 	-- Archipelago's Crystal patch. MEASURED, never derived -- three separate vanilla relationships
@@ -1032,7 +1048,11 @@ local function getLocalState()
 			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
 			emote = ENGINE.playerEmote(),
 			entry = (ENGINE.entryAt and emu.framecount() - ENGINE.entryAt < 240)
-				and ENGINE.entry or nil },
+				and ENGINE.entry or nil,
+			-- The species that carried this player, for the same window as `entry`. One byte, and
+			-- only ever non-nil around a fly.
+			fly = (ENGINE.entry == 0xFC and ENGINE.entryAt
+				and emu.framecount() - ENGINE.entryAt < 240) and ENGINE.flySpecies or nil },
 	}
 end
 
@@ -2286,6 +2306,67 @@ facingFrames.ROD = {
 	[1] = { dx = 0, dy = -8, t = 6 }, -- up: above it
 	[2] = { dx = -8, dy = 5, t = 7, flip = true }, -- left
 	[3] = { dx = 16, dy = 5, t = 7 }, -- right
+}
+
+-- THE FLYING POKEMON'S ICON, and the descent the engine flies it in on.
+--
+-- `FlyToAnim` does not animate the player's map object at all -- it hides every character and runs
+-- a cutscene sprite whose graphics are the icon of the mon in `wCurPartyMon`
+-- (`FlyFunction_InitGFX`, `engine/events/field_moves.asm`). So a peer's landing is only 1:1 if the
+-- ghost becomes that Pokemon for the descent, which is what these two functions are for.
+--
+-- SPECIES -> GRAPHICS is two hops, both in bank 0x23: `MonMenuIcons[species - 1]` gives an ICON
+-- index (several species share one), and `IconPointers[icon]` gives the address of its eight
+-- tiles. Memoised per species -- neither table can change.
+facingFrames.iconRom = {}
+facingFrames.iconGfx = function(species)
+	if not facingFrames.iconTbl or not facingFrames.iconPtrs or not species
+		or species < 1 or species > 251 then
+		return nil
+	end
+	local cached = facingFrames.iconRom[species]
+	if cached ~= nil then
+		return (cached ~= false) and cached or nil
+	end
+	local icon = romByte(facingFrames.iconTbl + species - 1)
+	local e = facingFrames.iconPtrs + icon * 2
+	local addr = romByte(e) | (romByte(e + 1) << 8)
+	local at = (addr >= 0x4000) and (facingFrames.iconBank * 0x4000 + (addr - 0x4000)) or false
+	facingFrames.iconRom[species] = at
+	return at or nil
+end
+
+-- THE ENGINE'S OWN LANDING CURVE, read off `SpriteAnimFunc_FlyTo` rather than invented.
+--
+-- The cutscene sprite starts at `depixel 31, 10` -- y = 252, which wraps to just above the screen
+-- -- and adds 2 to its y every frame until it reaches 84, its resting line: 44 frames. In the same
+-- frames `VAR4` decays 88 -> 0 by 2, and `VAR3` counts up feeding `Sprites_Cosine`, whose result
+-- (`a = d * cos(a * pi/32)`) becomes the sprite's X offset. So the mon SPIRALS down: swinging
+-- side to side, the swing shrinking to nothing exactly as it settles.
+--
+-- Expressed here relative to the LANDING TILE rather than to the screen, because a ghost lands on
+-- its own tile and not at the screen's centre: at frame k the icon is `88 - 2k` pixels above its
+-- destination and `(88 - 2k) * cos(k * pi/32)` pixels to the side. Height and swing share the one
+-- decaying amplitude, which is the engine's arithmetic and not a coincidence worth re-deriving.
+facingFrames.FLY_FRAMES = 44
+facingFrames.flyOffset = function(k)
+	local amp = 88 - 2 * k
+	if amp < 0 then amp = 0 end
+	return math.floor(amp * math.cos(k * math.pi / 32) + 0.5), -amp
+end
+
+-- Which of the icon's two frames, and flipped or not. `.Frameset_RedWalk` holds each for 8 frames
+-- and x-flips the second one every other cycle: A, B, A, B-flipped.
+facingFrames.flyFrame = function(k)
+	local cycle = (k // 8) % 4
+	return (cycle == 1 or cycle == 3) and 4 or 0, cycle == 3
+end
+
+-- The icon's four tiles, from `.OAMData_RedWalk`: a 2x2 block, tiles 0..3 left-to-right then
+-- top-to-bottom, drawn here from the block's own top-left rather than the engine's centre anchor.
+facingFrames.ICON_BOX = {
+	{ dx = 0, dy = 0, t = 0 }, { dx = 8, dy = 0, t = 1 },
+	{ dx = 0, dy = 8, t = 2 }, { dx = 8, dy = 8, t = 3 },
 }
 
 -- WHERE ONE EMOTE'S FOUR TILES LIVE IN THE CARTRIDGE, memoised.
@@ -5332,10 +5413,12 @@ function drawOverflow()
 					local poseFacing, poseWalking, poseStride, poseHide, poseRod =
 						facingFrames.pose(o.act, o.face, o.facing, moving,
 							o.stepLatch and (o.stepLatch - 1) or 0)
-					-- The first half of a fly-arrival drop: the engine hides an object through
-					-- StepFunction_Skyfall's wait phase (action 00 -> SetFacingStanding), so the
-					-- painted copies hide too. The falling half rides in o.yoff.
-					if o.drop and o.drop < 32 then
+					-- A LANDING PEER IS THE POKEMON, NOT THE CHARACTER. For the whole descent the
+					-- engine draws no character at all -- `FlyToAnim` hides them and flies a
+					-- cutscene sprite carrying the mon's icon -- so the ghost is hidden here and
+					-- the icon painted below in its place.
+					local flyIcon = o.drop and o.flyMon and facingFrames.iconGfx(o.flyMon) or nil
+					if o.drop then
 						poseHide = true
 					end
 					local onHardware = false
@@ -5348,6 +5431,20 @@ function drawOverflow()
 					elseif o.only == "hw" then
 						nOam = nOam -- pinned to a rung that had no room: show nothing rather than
 						-- quietly painting it, which would make the comparison a lie
+					elseif flyIcon then
+						-- THE DESCENT, on the engine's own curve (see facingFrames.flyOffset):
+						-- `88 - 2k` pixels above the landing tile and the same amount times
+						-- cos(k * pi/32) to the side, so the swing decays into the landing exactly
+						-- as the game's does. Two frames of art alternating every 8, the fourth
+						-- x-flipped, from `.Frameset_RedWalk`.
+						local fdx, fdy = facingFrames.flyOffset(o.drop)
+						local fbase, fflip = facingFrames.flyFrame(o.drop)
+						nDrawn = nDrawn + 1
+						for _, part in ipairs(facingFrames.ICON_BOX) do
+							drawRows(decodeRomTile(flyIcon, fbase + part.t),
+								sx + fdx + (fflip and (8 - part.dx) or part.dx), sy + fdy + part.dy,
+								paletteColors(0), fflip)
+						end
 					elseif poseHide then
 						nDrawn = nDrawn -- the engine itself draws nothing for this peer on this
 						-- frame (OBJECT_FACING is STANDING), so neither do we. Not counted as
@@ -5907,12 +6004,6 @@ local function applyPeerAction(g, act)
 	if act == nil or not ACTIONS.peer[act] then
 		return
 	end
-	-- A skyfall in progress owns the action byte: its wait phase holds action 00 (hidden) and its
-	-- fall writes OBJECT_ACTION_STEP itself. The peer meanwhile reports STAND, and writing that
-	-- mid-fall would swap the falling walk-cycle for a frozen standing pose.
-	if u8(g.st_base + F_STEP_TYPE) == 0x0E then
-		return
-	end
 	if u8(g.st_base + F_ACTION) ~= act then
 		w8(g.st_base + F_ACTION, act)
 	end
@@ -6033,7 +6124,7 @@ end
 -- zero, so a healthy session stays silent.
 local snaps = { n = 0, at = 0, runaways = 0 }
 
-local function teleportGhost(g, x, y, skyfall)
+local function teleportGhost(g, x, y)
 	-- A warp's path is not walkable; the queue would make the ghost walk toward where the peer
 	-- USED to be after a teleport placed it where the peer IS.
 	g.path, g.pathX, g.pathY = nil, nil, nil
@@ -6054,18 +6145,9 @@ local function teleportGhost(g, x, y, skyfall)
 	local sx, sy = liveScreenCoords(x, y)
 	w8(g.st_base + F_SPRITE_X, sx)
 	w8(g.st_base + F_SPRITE_Y, sy)
-	if skyfall then
-		-- THE ENGINE'S OWN FALL, not an imitation of one. STEP_TYPE_SKYFALL (0x0e) is what the
-		-- Burned Tower floor gives the player (`Movement_skyfall`, engine/overworld/movement.asm):
-		-- 16 ticks hidden (action 00 -> the engine draws nothing), then 16 ticks falling from
-		-- -96px to the tile on the engine's own Sine, ending in STEP_TYPE_FROM_MOVEMENT -- which
-		-- reads this ghost's STANDING movement byte and parks it, exactly like a step that
-		-- finished normally. OBJECT_STEP_INDEX (0x1c) is the anon-jumptable cursor every
-		-- StepFunction runs on; zeroed so the fall starts from its first phase rather than
-		-- wherever the previous step type left the cursor.
-		w8(g.st_base + F_STEP_TYPE, 0x0E)
-		w8(g.st_base + 0x1C, 0)
-	end
+	-- STEP_TYPE_SKYFALL used to be written here, and is not any more: a landing peer is now the
+	-- flying Pokemon's icon for the whole descent (BANDAGES.md #3, retired 2026-08-26), so no
+	-- character falls and the engine's floor-fall has nothing to do.
 end
 
 -- Inbound state is peer-controlled: bound every number before it reaches a memory write.
@@ -6555,7 +6637,7 @@ local function renderRemote(id, state)
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
 		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT,
+			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
@@ -6594,7 +6676,7 @@ local function renderRemote(id, state)
 			state.extras and tonumber(state.extras.sprite) or nil, peerYoff, peerEmote }
 		local dO = (dv.n > 3) and dv[((dv.n - 3) % 4) + 1] or dv[(dv.n % 4) + 1]
 		overflow[ck] = { prog = dO[3], walking = dO[4], face = dO[5], act = dO[6], gait = dO[7],
-			yoff = (dropT and dropT >= 32) and peerYoff or dO[12], emote = dO[13], drop = dropT,
+			yoff = dO[12], emote = dO[13], drop = dropT, flyMon = a.flySpecies,
 			pixX = dO[8] and (dO[8] + COMPARE.drawn * 16), pixY = dO[9],
 			compare = true, only = "drawn", x = dO[1] + COMPARE.drawn, y = dO[2],
 			sprite = FORCE_PEER_SPRITE or dO[11],
@@ -6690,7 +6772,7 @@ local function renderRemote(id, state)
 		end
 		local prev = overflow[id]
 		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT,
+			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6854,7 +6936,7 @@ local function renderRemote(id, state)
 			-- walking never does.
 			if dropT and ghosts[id] then
 				a.skyfallArmed = true
-				teleportGhost(ghosts[id], px, py, true)
+				teleportGhost(ghosts[id], px, py)
 			end
 			local g2, want2 = ghosts[id], ORIENTATION_TO_DIR[state.orientation]
 			if g2 and want2 then
@@ -6895,7 +6977,7 @@ local function renderRemote(id, state)
 		else
 			local prev = overflow[id]
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT,
+			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6978,18 +7060,23 @@ local function renderRemote(id, state)
 	-- once per drop (the envelope only exists when the peer wears MAPSETUP_FLY *and* its tile
 	-- jumped), and this function then returns until the engine's own skyfall finishes -- nothing
 	-- may step, chain or catch-up a ghost that is in mid-air.
+	-- DURING A LANDING THE ENGINE OBJECT IS PARKED AND INVISIBLE, which is what the game does to
+	-- the flier itself: no character is drawn anywhere in Crystal for the length of a fly. The
+	-- descent belongs to the painted icon above; this tier's job is to be waiting, in the right
+	-- place, wearing the right facing, at the instant the icon lands.
+	--
+	-- This replaces STEP_TYPE_SKYFALL, which was BANDAGES.md #3 -- the Burned Tower floor-fall
+	-- borrowed because it was the closest thing the engine would do to a character. It is not
+	-- needed once the ghost stops being a character for those 44 frames.
 	if dropT then
 		if not a.skyfallArmed then
 			a.skyfallArmed = true
-			teleportGhost(g, x, y, true)
+			teleportGhost(g, x, y)
 		end
+		w8(g.st_base + F_FACING, STANDING) -- the engine draws nothing for a STANDING facing
 		return
 	end
 	a.skyfallArmed = nil
-	-- The engine still owns the object until its fall ends, even past the envelope.
-	if stepType == 0x0E then
-		return
-	end
 
 	if walking == STANDING and (stepType == 2 or stepType == 7) then
 		w8(g.st_base + F_STEP_TYPE, 1) -- STEP_TYPE_FROM_MOVEMENT
@@ -7148,11 +7235,7 @@ local function renderRemote(id, state)
 	-- ABOVE the idle branch, not inside it, because these are not all idle animations: a ledge hop
 	-- changes tile while the arc is running. Written every update rather than on entry, since the
 	-- value changes per engine tick and returns to 0 on its own at the end of each animation.
-	-- NOT while the engine's own skyfall owns the byte: the peer reports yoff 0 the whole time it
-	-- stands on its landing tile, and writing that zero mid-fall would pin the falling ghost to
-	-- the ground for the second half of its own drop.
-	if peerYoff ~= nil and u8(g.st_base + F_STEP_TYPE) ~= 0x0E
-		and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
+	if peerYoff ~= nil and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
 		w8(g.st_base + emote.F_YOFF, peerYoff & 0xFF)
 	end
 	if cx == x and cy == y then
@@ -7573,6 +7656,11 @@ OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartr
 -- nil means a fishing peer's body is drawn and its rod is not, which is a missing detail rather
 -- than a wrong one. On `facingFrames` rather than a new top-level local: 200-local ceiling.
 EMOTES_ROM = (romClass == "known") and A.EMOTES_ROM or nil
+-- The flying Pokemon's icon, same ROM gate and same reasoning as the fishing graphics below.
+facingFrames.iconTbl = (romClass == "known") and A.MON_ICONS_ROM or nil
+facingFrames.iconPtrs = (romClass == "known") and A.ICON_POINTERS_ROM or nil
+facingFrames.iconBank = A.ICONS_BANK
+ENGINE.curPartyMon, ENGINE.partySpecies = A.W_CURPARTYMON, A.W_PARTYSPECIES
 facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
 -- HOW THE PLAYER LAST ENTERED A MAP. `hMapEntryMethod` ($ff9f -- HRAM, unbanked, read via the
@@ -7730,6 +7818,15 @@ local function tick()
 		local m = memory.read_u8(ENGINE.entryAddr, "System Bus") or 0
 		if m ~= 0 then
 			ENGINE.entry, ENGINE.entryAt = m, emu.framecount()
+			-- LATCHED WITH THE ENTRY BYTE, not read later: `wCurPartyMon` is the party cursor and
+			-- moves the moment the player opens a menu again, so by the time a peer's ghost is
+			-- ready to show the landing the answer would already be a different Pokemon.
+			if m == 0xFC and ENGINE.curPartyMon and ENGINE.partySpecies then
+				local slot = u8(ENGINE.curPartyMon) or 0
+				if slot < 6 then
+					ENGINE.flySpecies = u8(ENGINE.partySpecies + slot)
+				end
+			end
 			-- AND HOLD THE PAINTED TIER OFF WHILE THE WORLD IS BEING REBUILT. This window was
 			-- already the intent -- "do not paint over the fade-in" -- but it was armed only by an
 			-- AREA CHANGE, and a warp that lands you on the map you were already on never changes

@@ -7,8 +7,10 @@ was to build this adapter without starting from a compensation: *"i want to actu
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*
 (2026-08-17). It carried nothing under Shipped for two days.
 
-**It carries three now**, all deliberate and all on the user's call: the drawn-overflow tier
-(2026-08-19), that tier's camera-clocked beat (2026-08-25), and the fly-arrival drop (2026-08-26). Each entry below is written the way
+**It carries two live**, both deliberate and both on the user's call: the drawn-overflow tier
+(2026-08-19) and that tier's camera-clocked beat (2026-08-25). A third — the fly-arrival drop —
+was added and retired on 2026-08-26, and is kept below marked as such: the route out was written
+into the entry, and it is the route that was taken. Each entry below is written the way
 the guide asks — what it compensates for, what it costs, and what would retire it. The second is
 the more instructive one: its proper mechanism is **known and written down**, which is what makes
 it debt rather than a ceiling.
@@ -126,7 +128,31 @@ intended bandage to keep it as it is right now then?"* — taken with the queue 
 unwatched, including six animation classes never seen on screen at all. Left deliberately, with
 the route out written down, rather than rested at.
 
-### 3. A fly ARRIVAL uses the engine's floor-fall, which is not what a Fly landing looks like
+### 3. RETIRED 2026-08-26, the same day it was added — the fly arrival is the real animation now
+
+**Kept below as written, because a retired entry is evidence and this register is append-only in
+spirit: it shows what the compensation was, and that the route out written into it was the route
+actually taken.** The user's call, hours after choosing to keep it: *"try to fix the 'pokemon
+sprite & landing animation, for a different town' so we don't have to use the 'falling' bandage
+anymore."*
+
+**What replaced it.** The peer's fly SPECIES now crosses the wire (`extras.fly`, latched with the
+map-entry byte because `wCurPartyMon` moves as soon as a menu opens), and for the 44 frames of a
+landing the ghost is not a character at all: the engine object is parked with a STANDING facing —
+drawing nothing, exactly as the game hides every character through a fly — while the painted tier
+flies that Pokemon's ICON down on `SpriteAnimFunc_FlyTo`'s own curve. `88 - 2k` pixels above the
+landing tile, `(88 - 2k) * cos(k * pi/32)` to the side, two frames of art alternating every eight
+with the fourth x-flipped. Every number is the engine's; none is tuned.
+
+**What this entry cost while it stood**: about half a day of live cycles, because a vertical fall
+was near enough to look like a bug rather than a placeholder, and each attempt to make it land
+correctly was work on the wrong animation. **The lesson is not "do not use a stand-in" — it is that
+a stand-in for something ANIMATED reads as a defect, so it buys much less time than one for
+something static.**
+
+---
+
+### 3 (as it stood). A fly ARRIVAL uses the engine's floor-fall, which is not what a Fly landing looks like
 
 **What it is.** A peer that arrives by Fly is dropped onto its tile with `STEP_TYPE_SKYFALL` (the
 Burned Tower floor-fall) on the spawned tier, mirrored on the painted tiers by a matching hide-then-
