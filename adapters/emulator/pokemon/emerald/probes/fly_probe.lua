@@ -175,6 +175,32 @@ local OBSERVE = MESHGHOST_FLY_OBSERVE or os.getenv("MESHGHOST_FLY_OBSERVE")
 
 local phase, n, logged = OBSERVE and "log" or "settle", 0, 0
 
+-- SCREENSHOTS, KEYED ON THE BIRD. Every struct field agreed through five fly bugs while the
+-- screen was wrong, so the screen itself is now part of the record: whenever any sprite is
+-- running the fly-swoop callback, and for six seconds after the last one, a frame is captured
+-- every fourth frame. A screenshot sees the spawned and hardware tiers (real sprites); it cannot
+-- see the painted overlay -- known, and fine, because the shipped watcher draws peers spawned.
+-- client.screenshot reads the emulated frame, so a backgrounded window captures the same.
+local shotUntil, shots = nil, 0
+local SHOT_CAP = 150
+local function birdOnScreen()
+    for si = 0, 63 do
+        local d = sprAddr(si)
+        if (r8(d + 0x3e) & 0x01) ~= 0 and r32(d + 0x1c) == 0x080B963D then return true end
+    end
+    return false
+end
+local function maybeShoot()
+    if birdOnScreen() then shotUntil = n + 360 end
+    if shotUntil and n <= shotUntil and shots < SHOT_CAP and n % 4 == 0 then
+        shots = shots + 1
+        pcall(function()
+            client.screenshot(string.format("%s/flyshot_%s_%06d.png",
+                DIR, OBSERVE and "w" or "d", emu.framecount()))
+        end)
+    end
+end
+
 local function tick()
     n = n + 1
     if OBSERVE then
@@ -234,6 +260,7 @@ local function tick()
         tasks(),
         loose(skip)))
     logged = logged + 1
+    maybeShoot()
 
     if not OBSERVE and phase == "log" and n >= LOG_FRAMES then
         phase = "done"

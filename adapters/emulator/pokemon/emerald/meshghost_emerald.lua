@@ -5167,6 +5167,27 @@ flyRide.setHidden = function(g, hidden)
     end
 end
 
+-- PUT A CARRIED SPRITE BACK ON THE MAP.
+--
+-- The bird's callback drives its passenger's sprite in SCREEN coordinates with coordOffsetEnabled
+-- cleared -- and nothing on the engine's side ever recomputes an object event's sprite position
+-- from its map coordinates. Movement actions write it, MoveObjectEventToMapCoords writes it, and
+-- otherwise it just IS. So when a carry ends, the sprite stays wherever the arc left it while the
+-- object underneath stands on the right tile, and a stationary peer gives the engine no movement
+-- to write it back with. The user, watching a landing: *"the 'player/ghost' shows up 3 tiles
+-- left, 4 tiles up. instead of where its actually landing"* -- the release point of the arc --
+-- and then *"teleporting kinda after the fly landing"* when the rebuild finally snapped it home.
+--
+-- Same formula as spawnGhost's placement, and the same caveat: exact only on a settled camera,
+-- which a landing gives us -- the watcher is standing still to watch.
+flyRide.reground = function(g)
+    local a, d = objAddr(g.objId), sprAddr(g.sprId)
+    local sx, sy = spriteScreenPos(rs16(a + 0x10), rs16(a + 0x12), r8(d + 0x29))
+    w16(d + 0x20, sx) w16(d + 0x22, sy)
+    w16(d + 0x24, 0) w16(d + 0x26, 0)
+    w8(d + 0x3e, r8(d + 0x3e) | 0x02)  -- coordOffsetEnabled: back on the map's clock
+end
+
 -- THE BIRD IS THE ENGINE'S, AND SO IS THE FLIGHT.
 --
 -- SpriteCB_FlyBirdSwoopDown walks a cosine/sine arc and, whenever its sPlayerSpriteId (data[6])
@@ -5201,9 +5222,29 @@ flyRide.spawnBird = function(g, k)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, affinePtr)
     w32(d + 0x1c, flyRide.rom(flyRide.BIRD_SWOOP_CB))
-    -- StartFlyBirdSwoopDown's own starting point: the top of the screen, horizontally centred, in
-    -- SCREEN coordinates -- which is why coordOffsetEnabled stays clear below. DISPLAY_WIDTH/2.
-    w16(d + 0x20, 120) w16(d + 0x22, 0)
+    -- THE ARC IS CENTRED ON THE CHARACTER IT SERVES, not on the screen.
+    --
+    -- StartFlyBirdSwoopDown parks the bird at (120,0) -- top of the screen, horizontally centred
+    -- -- and the whole cosine arc hangs off that anchor, its low point landing at screen centre.
+    -- That is only correct because the engine flies exactly one character, the player, who IS the
+    -- screen centre. A ghost is not: on the watcher's screen the peer stands wherever it stands,
+    -- and an arc anchored at (120,0) swoops down to the WATCHER's own feet and carries the ghost
+    -- there first. Seen twice on 2026-08-26 before this was written: on the compare rig both
+    -- birds stacked into one dark jumble at screen centre (the loopback ghost's arc ignored its
+    -- two-tile offset), and on a watcher any peer's departure teleported the ghost to centre
+    -- before lifting it.
+    --
+    -- The engine's own anchor is kept and TRANSLATED by where the ghost stands relative to the
+    -- local player -- who is at the exact screen position the peer occupied on their own screen,
+    -- so the translation preserves the engine's arc-to-character relationship 1:1. The ghost's
+    -- half comes from its OBJECT coordinates via spriteScreenPos, not from its sprite, which
+    -- could still be stranded mid-air by an earlier carry.
+    local ga = objAddr(g.objId)
+    local gsx, gsy = spriteScreenPos(rs16(ga + 0x10), rs16(ga + 0x12),
+        r8(sprAddr(g.sprId) + 0x29))
+    local pd = sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
+    w16(d + 0x20, (120 + gsx - rs16(pd + 0x20)) & 0xffff)
+    w16(d + 0x22, (gsy - rs16(pd + 0x22)) & 0xffff)
     -- centerToCornerVec, which every engine-made sprite carries and a hand-built one must be
     -- given: -(width/2), -(height/2) for a 32x32 frame, so the sprite's position means its centre.
     -- The surf blob was drawn a full tile down-right for want of exactly this.
@@ -5237,11 +5278,10 @@ flyRide.despawnBird = function(g)
             at = frameCounter })
     end
     g.birdSprId, g.birdTileStart = nil, nil
-    -- GIVE THE PASSENGER BACK TO THE MAP. The bird's callback clears coordOffsetEnabled on whoever
-    -- it is carrying and writes screen coordinates into it; leaving that clear would park the
-    -- ghost wherever the arc ended and hold it there while the world scrolled underneath.
-    local cd = sprAddr(g.sprId)
-    w8(cd + 0x3e, r8(cd + 0x3e) | 0x02)
+    -- GIVE THE PASSENGER BACK TO THE MAP -- position included, not just the scroll bit. The
+    -- first version restored only coordOffsetEnabled, and the sprite kept the arc's last screen
+    -- position for as long as the peer stood still: flyRide.reground's header is the symptom.
+    flyRide.reground(g)
 end
 
 -- THE VEHICLE IS A SPRITE OF ITS OWN, and the ghost inside it is simply hidden.
@@ -5382,6 +5422,11 @@ flyRide.apply = function(g, remote, playerId)
     -- sites, and this runs before either of them in the frame.
     g.noBlob = remote.fly ~= nil or nil
     if remote.fly then
+        -- A FLY RESUMING AFTER A GAP IS A NEW FLIGHT. The departure ended with the latch set and
+        -- the wire going quiet through the warp; these frames are the ARRIVAL, on its own fresh
+        -- arc, and the latch held over from the departure would refuse it a bird and keep the
+        -- landing hidden.
+        if g.flyGapAt then g.flyGapAt = nil; g.flyDone = nil; g.flyLastPhase = nil end
         despawnSurfBlob(g)
         g.wasFlying = true
         flyRide.despawnVehicle(g)
@@ -5408,7 +5453,16 @@ flyRide.apply = function(g, remote, playerId)
             if remote.flyk >= 0x80 then
                 -- The peer's arc is ALREADY over -- a fly noticed late, across a network delay.
                 -- Starting a bird here would draw the second half of a swoop with no first half.
-                if remote.fly == 2 then g.flyDone = true end
+                --
+                -- LATCHED WHATEVER THE PHASE. This used to require fly==2, on the reasoning that
+                -- only a carried peer has an arc worth finishing -- and an ARRIVAL breaks that:
+                -- the engine hands its character off the bird partway down and finishes the
+                -- descent with its own drop table, so the peer reports fly==1 for the rest of a
+                -- flight whose arc is still running. The latch never took, and the wire repeats a
+                -- flyk for several frames at 20Hz against 60fps, so the frame after each teardown
+                -- still read an under-0x80 arc with no bird and built another one. Measured
+                -- 2026-08-26 across an arrival: bird 58, nil, 58, nil on consecutive frames.
+                g.flyDone = true
             elseif not g.birdSprId then
                 flyRide.spawnBird(g, remote.flyk)
             end
@@ -5426,10 +5480,14 @@ flyRide.apply = function(g, remote, playerId)
             w16(sprAddr(g.birdSprId) + 0x3a,
                 (remote.fly == 2) and g.sprId or flyRide.NO_RIDER)
             if r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
-                if remote.fly == 2 then g.flyDone = true end
+                g.flyDone = true   -- phase-independent, for the reason just above
                 flyRide.despawnBird(g)
             end
         end
+        -- WHICH WAY THIS FLIGHT ENDED is the only thing that separates a departure from an
+        -- arrival once the wire goes quiet, and the two need opposite treatment. See the gap
+        -- branch below.
+        g.flyLastPhase = remote.fly
         if remote.fly == 2 then
             -- THE ARC HAPPENS ONCE, AND "DONE" HAS TO BE LATCHED. Measured 2026-08-26
             -- (`probes/fly_probe.lua`): without the latch this spawned and destroyed a bird on
@@ -5458,12 +5516,50 @@ flyRide.apply = function(g, remote, playerId)
         -- ordinary way -- and if a bird is still attached from the swoop, this is where it is let
         -- go, which is also the arrival case: the peer is set down and the bird leaves.
         --
-        -- The latch clears here as well as off the fly entirely, because an arrival is a SECOND
-        -- flight: the fly-in task carries the peer down on its own fresh arc, and a latch held
-        -- over from the departure would hide the landing.
+        -- THE LATCH IS NOT CLEARED HERE, and that was the arrival's whole bug. An arrival IS a
+        -- second flight and does need a fresh latch -- but it is already separated from the
+        -- departure by frames where the wire carries no fly at all (the warp), and the gap branch
+        -- below clears it on the way back in. Clearing it here instead cleared it every frame of
+        -- every descent, which re-armed the spawn immediately after each teardown.
+        -- THE RELEASE IS WHERE THE SPRITE GETS STRANDED. The peer reports fly 2 -> 1 the moment
+        -- the engine hands its own character off the bird -- which happens partway down the arc,
+        -- not at its end -- and from that frame our bird stops writing the ghost's sprite. The
+        -- object is on the landing tile; the sprite is wherever the arc let go. Re-anchored here,
+        -- every frame the scroll bit says a bird had it, so the pose plays AT THE LANDING TILE
+        -- instead of hanging in the air off to the side.
+        if (r8(sprAddr(g.sprId) + 0x3e) & 0x02) == 0 then flyRide.reground(g) end
         flyRide.setHidden(g, false)
         return false
     end
+
+    -- FLY OVER THE WIRE ENDED. Two very different reasons produce the same nil, and the latch is
+    -- what tells them apart:
+    --
+    --   * the last phase was 2 -- the peer was CARRIED AWAY and is now mid-warp, behind its own
+    --     fade, with the fly-out task destroyed and the fly-in task not yet created. On a
+    --     same-town fly this gap is ~25 frames, and rebuilding here put a standing ghost on the
+    --     takeoff tile between the two halves of the flight -- a pop the player being watched
+    --     never shows, because their screen is black. So the ghost stays hidden and NOTHING is
+    --     rebuilt until the arrival's own fly frames arrive (a fresh flight: the latch clears
+    --     below), a different area tears the ghost down, or a timeout says it is not coming.
+    --   * the last phase was 1 -- the peer was SET DOWN. The engine releases its character
+    --     partway down the arrival arc and finishes with its own drop table, so a landed peer's
+    --     last word is always phase 1, and a departed one's is always phase 2. That is the whole
+    --     discriminator, and it has to be the phase rather than the done-latch: the arrival runs
+    --     an arc of its own, so it ends latched too, and testing the latch hid every peer that
+    --     had just landed for the full timeout -- the user, watching arrivals, *"they appear for
+    --     a bit, go invisible, and then appear again"*.
+    if g.flyLastPhase == 2 then
+        g.flyGapAt = g.flyGapAt or frameCounter
+        if frameCounter - g.flyGapAt < 480 then
+            flyRide.despawnBird(g)
+            g.noBlob = true
+            flyRide.setHidden(g, true)
+            return true
+        end
+    end
+    g.flyGapAt = nil
+    g.flyLastPhase = nil
     flyRide.despawnBird(g)
     g.flyDone = nil
 
