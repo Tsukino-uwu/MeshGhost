@@ -1622,3 +1622,30 @@ Fly several times — it took three to show. During each landing the ghost shoul
 artwork, and afterwards too. A ghost that vanishes during the landing instead means the cartridge
 path is refusing (that gate is ROM identity, so it is vanilla-only); wrong-looking art that
 persists after landing is fault 2 still alive.
+
+### The timer expired before the game restored the tiles — so the check is now content-driven
+
+**Not confirmed; the user's "think it worked, not seeing any bad sprite now" was watched on the
+TIMER build**, and the trace from that same build shows why it was marginal rather than fixed:
+
+```
+f=11374  -> rom 786432        the cartridge path fires
+f=11587  -> vram 0 sig=036A   window expired, back on the cutscene's pixels
+f=11750  -> vram 0 sig=0906   the game finally restores them
+```
+
+Measured swaps ran 175-220 frames, from a start this code cannot observe, so the 240-frame window
+sat right on the boundary — a fall that landed inside those ~160 exposed frames would still garble,
+and one that missed them would look perfect. **Any constant here is a guess**, and picking constants
+is what several of today's fixes got wrong in a row.
+
+**So the resident-tile check now compares the PIXELS.** The signature a base had while nothing was
+borrowing VRAM is remembered (keyed by base and sprite id, so the bike and surfing re-learn rather
+than reading as a permanent mismatch), and a base whose content has since changed falls through to
+the cartridge. No duration to be wrong about, self-correcting the moment the game restores the
+tiles, and it covers anything else that borrows sprite VRAM rather than Fly alone.
+
+**What would confirm it:** several flies with no garbled frame at any point in the landing. What
+would refute it: a ghost that vanishes during a landing (the cartridge gate is ROM identity, so
+vanilla only) or one whose art is wrong in ordinary play, which would be the signature check
+mis-firing on a legitimate sprite change.

@@ -3615,9 +3615,39 @@ function drawOverflow()
 		-- So during a local fly the peer is drawn from the CARTRIDGE instead, which is the path
 		-- that already exists for a peer wearing a sprite this map never loaded. Same tiles the
 		-- game itself would use, unaffected by what the cutscene is doing to VRAM.
+		--
+		-- DETECTED FROM THE CONTENT, NOT TIMED. A 240-frame window was tried first and expired
+		-- while the tiles were still swapped -- the trace caught it exactly: `f=11374 -> rom`,
+		-- then `f=11587 -> vram sig=036A` with the cutscene graphics still in place, and the real
+		-- restore only at `f=11750`. Measured swaps ran 175-220 frames from a start this code
+		-- cannot see, so any constant here is a guess that will be wrong on some machine or some
+		-- route -- and picking timers is what several of today's fixes got wrong in a row.
+		--
+		-- Instead: remember the signature this base had while the game was NOT flying, and treat
+		-- any base whose pixels have since changed as unusable. It needs no duration, it
+		-- self-corrects the moment the game restores the tiles, and it generalises past Fly to
+		-- anything else that borrows sprite VRAM.
 		local flying = ENGINE.entry == 0xFC and ENGINE.entryAt
-			and (emu.framecount() - ENGINE.entryAt) < 240
-		local tile = (not flying) and residentSpriteTile(o.sprite) or nil
+			and (emu.framecount() - ENGINE.entryAt) < 600
+		local tile = residentSpriteTile(o.sprite)
+		if tile then
+			local sig = 0
+			for b = 0, 15 do
+				sig = (sig + (memory.read_u8(tile * 16 + b, "VRAM") or 0)) & 0xFFFF
+			end
+			ENGINE.vsig = ENGINE.vsig or {}
+			if not flying and not o.drop then
+				-- Learned only while nothing is borrowing VRAM, so the reference can never be the
+				-- cutscene's own graphics. Keyed by base AND sprite id: a base legitimately
+				-- changes hands (the bike, surfing), and that must re-learn rather than read as a
+				-- permanent mismatch.
+				ENGINE.vsig[tile .. "/" .. tostring(o.sprite)] = sig
+			end
+			local good = ENGINE.vsig[tile .. "/" .. tostring(o.sprite)]
+			if good and good ~= sig then
+				tile = nil -- these are not this sprite's pixels right now; fall through to the ROM
+			end
+		end
 		if tile then
 			source = { vram = tile }
 		else
