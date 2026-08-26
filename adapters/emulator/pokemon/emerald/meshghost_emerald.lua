@@ -4690,6 +4690,22 @@ surfBlob.subPriority = 150
 -- (StartUnderwaterSurfBlobBobbing on the player's own sprite), and is not handled here.
 SURFING_GFX = { [2] = true, [92] = true } -- Brendan, May
 
+-- IS THIS PEER ACTUALLY SURFING? The graphic alone cannot answer it.
+--
+-- A fly borrows the surfing graphic as the pose for sitting on the bird
+-- (FlyOutFieldEffect_JumpOnBird), so for the length of a flight `SURFING_GFX[remote.gfx]` is true
+-- about a character who is nowhere near water. Every consumer of that test means "surfing", and
+-- there are five of them across three tiers: the spawned tier's blob, the hardware tier's painted
+-- blob, the painted tier's blob, and both tiers' water-ripple trails.
+--
+-- Gating only the spawned tier's -- which is what the first pass did -- left the other four
+-- running: the user, watching a cross-town fly, *"OAM ... when flying to another town it arrives
+-- with the surf blob instead of the bird"*. A blob and a ripple trail under a character riding a
+-- Pokemon through the sky is the same fault wearing three different renderers.
+function peerIsSurfing(remote)
+    return remote and remote.gfx ~= nil and SURFING_GFX[remote.gfx] and not remote.fly
+end
+
 -- MESHGHOST_EMERALD_NO_BLOB (probe): spawn ghosts, but give them no blob and no underwater
 -- bobber. Exists to bisect a hard failure found 2026-08-21 -- diving with the adapter loaded
 -- black-screened the GAME (its show-mon effect waited forever on a Pokemon sprite that had been
@@ -5392,7 +5408,7 @@ flyRide.trace = function(g, remote, where)
     local gx = a and (rs16(a + 0x10) - MAP_OFFSET) or -1
     local gy = a and (rs16(a + 0x12) - MAP_OFFSET) or -1
     local k = string.format("%s/%s/%s/%s/%s/%d/%d/%s", where, tostring(remote.fly),
-        tostring(remote.flyk), tostring(g.birdSprId), tostring(g.flyDone), gx, gy,
+        tostring(remote.flyk), tostring(g.birdSprId), tostring(remote.flyDone), gx, gy,
         tostring(g.gfx))
     if g.flyTraceKey == k then return end
     g.flyTraceKey = k
@@ -5400,10 +5416,20 @@ flyRide.trace = function(g, remote, where)
         "FLY %s fly=%s flyk=%s bird=%s done=%s gfx=%s obj=%s | peer=%s (%.2f,%.2f) area=%s "
             .. "| ghost=(%d,%d) f=%d",
         where, tostring(remote.fly), tostring(remote.flyk), tostring(g.birdSprId),
-        tostring(g.flyDone), tostring(g.gfx), tostring(g.objId), tostring(remote.gfx),
+        tostring(remote.flyDone), tostring(g.gfx), tostring(g.objId), tostring(remote.gfx),
         remote.x or -1, remote.y or -1, tostring(remote.areaId), gx, gy, frameCounter))
 end
 
+-- THE FLIGHT'S STATE LIVES ON THE PEER, NOT ON THE GHOST -- because a cross-town fly destroys the
+-- ghost halfway through it. The peer's area id changes the moment the warp completes, which on the
+-- ARRIVAL side means the watcher suddenly has a peer in its own map and builds a ghost for it: a
+-- fresh record, no idea a flight is in progress. So the peer stood on the landing tile for a
+-- moment, the arrival's own fly frames then hid it again, and the bird brought it in. The user:
+-- *"the ghost briefly spawn, goes invisible, and then becomes visible with the bird flying
+-- animation happening"* -- three states where there should have been one.
+--
+-- `remotes[playerId]` is updated in place and outlives any number of ghost rebuilds, so it is the
+-- only place a fact about the whole flight can be kept.
 flyRide.apply = function(g, remote, playerId)
     flyRide.trace(g, remote, "enter")
     -- THE SURFING GRAPHIC DOES NOT MEAN SURFING HERE, and this is the one place in the game where
@@ -5426,7 +5452,9 @@ flyRide.apply = function(g, remote, playerId)
         -- the wire going quiet through the warp; these frames are the ARRIVAL, on its own fresh
         -- arc, and the latch held over from the departure would refuse it a bird and keep the
         -- landing hidden.
-        if g.flyGapAt then g.flyGapAt = nil; g.flyDone = nil; g.flyLastPhase = nil end
+        if remote.flyGapAt then
+            remote.flyGapAt = nil; remote.flyDone = nil; remote.flyLastPhase = nil
+        end
         despawnSurfBlob(g)
         g.wasFlying = true
         flyRide.despawnVehicle(g)
@@ -5449,7 +5477,7 @@ flyRide.apply = function(g, remote, playerId)
         -- the passenger slot is written every frame from the peer's own answer. Both halves then
         -- happen at the same arc positions they happened at on the peer's screen, which is the
         -- only definition of 1:1 available here.
-        if not g.flyDone and remote.flyk then
+        if not remote.flyDone and remote.flyk then
             if remote.flyk >= 0x80 then
                 -- The peer's arc is ALREADY over -- a fly noticed late, across a network delay.
                 -- Starting a bird here would draw the second half of a swoop with no first half.
@@ -5462,7 +5490,7 @@ flyRide.apply = function(g, remote, playerId)
                 -- flyk for several frames at 20Hz against 60fps, so the frame after each teardown
                 -- still read an under-0x80 arc with no bird and built another one. Measured
                 -- 2026-08-26 across an arrival: bird 58, nil, 58, nil on consecutive frames.
-                g.flyDone = true
+                remote.flyDone = true
             elseif not g.birdSprId then
                 flyRide.spawnBird(g, remote.flyk)
             end
@@ -5480,14 +5508,14 @@ flyRide.apply = function(g, remote, playerId)
             w16(sprAddr(g.birdSprId) + 0x3a,
                 (remote.fly == 2) and g.sprId or flyRide.NO_RIDER)
             if r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
-                g.flyDone = true   -- phase-independent, for the reason just above
+                remote.flyDone = true   -- phase-independent, for the reason just above
                 flyRide.despawnBird(g)
             end
         end
         -- WHICH WAY THIS FLIGHT ENDED is the only thing that separates a departure from an
         -- arrival once the wire goes quiet, and the two need opposite treatment. See the gap
         -- branch below.
-        g.flyLastPhase = remote.fly
+        remote.flyLastPhase = remote.fly
         if remote.fly == 2 then
             -- THE ARC HAPPENS ONCE, AND "DONE" HAS TO BE LATCHED. Measured 2026-08-26
             -- (`probes/fly_probe.lua`): without the latch this spawned and destroyed a bird on
@@ -5509,7 +5537,7 @@ flyRide.apply = function(g, remote, playerId)
             --
             -- So: the flight is attempted once per fly. Latched done, the peer stays hidden, which
             -- is what the player themselves is -- off the top of the screen, on the way somewhere.
-            flyRide.setHidden(g, g.flyDone == true)
+            flyRide.setHidden(g, remote.flyDone == true)
             return true
         end
         -- fly == 1: on the ground, in the field-move pose. An ordinary character drawn the
@@ -5549,19 +5577,19 @@ flyRide.apply = function(g, remote, playerId)
     --     an arc of its own, so it ends latched too, and testing the latch hid every peer that
     --     had just landed for the full timeout -- the user, watching arrivals, *"they appear for
     --     a bit, go invisible, and then appear again"*.
-    if g.flyLastPhase == 2 then
-        g.flyGapAt = g.flyGapAt or frameCounter
-        if frameCounter - g.flyGapAt < 480 then
+    if remote.flyLastPhase == 2 then
+        remote.flyGapAt = remote.flyGapAt or frameCounter
+        if frameCounter - remote.flyGapAt < 480 then
             flyRide.despawnBird(g)
             g.noBlob = true
             flyRide.setHidden(g, true)
             return true
         end
     end
-    g.flyGapAt = nil
-    g.flyLastPhase = nil
+    remote.flyGapAt = nil
+    remote.flyLastPhase = nil
     flyRide.despawnBird(g)
-    g.flyDone = nil
+    remote.flyDone = nil
 
     -- A LANDED PEER IS REBUILT, NOT REPAIRED.
     --
@@ -6275,6 +6303,39 @@ local function syncGhost(playerId, remote)
         targetY = targetY + LOOPBACK_GHOST_OFFSET_TILES_Y
     end
 
+    -- DO NOT BUILD A GHOST FOR A PEER WHO IS IN THE AIR BETWEEN TWO TOWNS.
+    --
+    -- The state above survives a ghost being torn down; this is what stops a new one being made in
+    -- the first place. A cross-town fly changes the peer's area id the instant the warp completes,
+    -- which is BEFORE its arrival task starts -- so on the destination side the peer becomes
+    -- local, gets a ghost, and stands on the landing tile for a beat before the fly-in hides it
+    -- again. Suppressed here, at the one door every ghost comes through, the peer simply is not
+    -- there until the bird brings it in, which is what the game shows the player themselves.
+    --
+    -- Only for a peer that was CARRIED AWAY and is inside the gap window; a landed peer, or one
+    -- whose arrival never came, falls straight through.
+    -- ...and NOT while the peer is actively flying. The arrival's own fly frames are what end the
+    -- gap, and they arrive before anything clears it -- so without this the suppression outlived
+    -- the thing it was waiting for and held the peer invisible for the whole 480-frame timeout.
+    if remote.flyLastPhase == 2 and remote.flyGapAt and not remote.fly
+        and frameCounter - remote.flyGapAt < 480 and not ghosts[playerId] then
+        return
+    end
+    -- AND NEVER BUILD ONE FOR A PEER THE ENGINE IS NOT DRAWING. The clause above can only fire on
+    -- a watcher that SAW the departure -- and the one watching the destination town never did,
+    -- because the peer was in another area with no ghost and `flyRide.apply` never ran for it. So
+    -- that side had no flight state at all: the peer's area id flipped to the local one mid-warp
+    -- and a ghost was built on the spot, standing on the landing tile a beat before the arrival
+    -- hid it again. The user: *"the ghost briefly spawn, goes invisible, and then becomes visible
+    -- with the bird flying animation"*.
+    --
+    -- The peer's own `invisible` bit is the answer, and it needs no history: the engine clears it
+    -- in FlyInFieldEffect_BirdSwoopDown, so it is set for exactly the window between the warp
+    -- landing and the arrival starting. Same rule the whole file already follows for a door --
+    -- while the game will not draw its own player, there is nobody for a ghost to stand beside --
+    -- applied one step earlier, at the spawn instead of after it.
+    if remote.invis and not ghosts[playerId] then return end
+
     local g = ghosts[playerId]
     if g and not ghostAlive(g) then
         -- The engine cleared it (map load) or culled it (walked out of view). Both are normal, and
@@ -6813,7 +6874,8 @@ local function syncGhost(playerId, remote)
     -- swap-time spawn used the wire's smoothed position and put the blob on the LAND tile, where
     -- BOB_NONE then faithfully kept it (*"its still on the grass... then teleports when the
     -- spawned ghost actually gets onto the water"*).
-    if inJs and not g.jsDismount and not g.blobSprId and g.gfx and SURFING_GFX[g.gfx] then
+    if inJs and not g.jsDismount and not g.blobSprId and g.gfx and SURFING_GFX[g.gfx]
+        and not g.noBlob then
         local ja = objAddr(g.objId)
         local heldAct = r8(ja + 0x1c)
         if heldAct >= 0x3a and heldAct <= 0x3d then
@@ -8475,7 +8537,7 @@ end
 --   bit: a reflection that does not shimmer, rather than a sprite drawn through a stale matrix.
 function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- THE BLOB -- surfing only, because a blob IS surfing.
-    if remote.gfx and SURFING_GFX[remote.gfx] then
+    if peerIsSurfing(remote) then
         -- PARKED DURING A JUMP, like the game's own. On a dismount the engine sets the blob to
         -- BOB_JUST_MON and it stops following the rider (field_effect_helpers.c:1124-1133) --
         -- the rider arcs ashore, the blob stays in the water. This tier rebuilt the blob at the
@@ -8630,7 +8692,7 @@ function hwDrawSurf(playerId, rec, remote, info, sx, sy, arcY, hFlip)
     -- reflection's own bookkeeping answers "did this peer just step" for free -- and it answers it
     -- about the tile THIS tier drew on, which is the one the trail belongs to.
     if genderFrames.rippleDue(tiering.hwLastTile or {}, playerId,
-        remote.gfx and SURFING_GFX[remote.gfx]) then
+        peerIsSurfing(remote)) then
         local w = info.width or FRAME_WIDTH_PX
         local h = info.height or FRAME_HEIGHT_PX
         tiering.hw.ripples[#tiering.hw.ripples + 1] = {
@@ -9897,7 +9959,7 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             local rlist = tiering.ripples[playerId]
                             if not rlist then rlist = {} tiering.ripples[playerId] = rlist end
                             if genderFrames.rippleDue(tiering.lastTile, playerId,
-                                remote.gfx and SURFING_GFX[remote.gfx]) then
+                                peerIsSurfing(remote)) then
                                 rlist[#rlist + 1] = { at = frameCounter,
                                     bx = screenX + cx + (info.width >> 1) - 8
                                         - rs16(GSPRITECOORDOFFSETX_ADDR),
@@ -9925,11 +9987,11 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- top-left terms it is eight pixels lower and not moved sideways at
                             -- all (probes/surfblob_probe.lua, 2026-08-19).
                             local bruns, bflip
-                            if not SURFING_GFX[remote.gfx] then
+                            if not peerIsSurfing(remote) then
                                 remote.blobParkPx, remote.blobParkHold, remote.blobParkKind =
                                     nil, nil, nil
                             end
-                            if SURFING_GFX[remote.gfx] then
+                            if peerIsSurfing(remote) then
                                 bruns, bflip = genderFrames.runsForSurfBlob(
                                     genderFrames.dirOf[remote.orientation] or 1)
                             end
