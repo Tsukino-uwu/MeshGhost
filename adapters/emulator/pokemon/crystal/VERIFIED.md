@@ -126,6 +126,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the Fly landing, with the Pokemon, and the menu gate
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: a peer gliding on ice does not run the walk cycle
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: ledge hops, on both tiers, with shadows
+- CONFIRMED ON SCREEN 2026-08-26 — Crystal: Dig / Escape Rope, both tiers
 
 ## Confirmed facts
 
@@ -2178,3 +2179,52 @@ adapter's tile model. It did not.
   other build the painted ghost has no shadow.
 - The `SPIN_FLICKER` / Dig work from the same day is separate and is **not** confirmed by this —
   see `UNVERIFIED.md`.
+
+## CONFIRMED ON SCREEN 2026-08-26 — Crystal: Dig / Escape Rope, both tiers
+
+**The user:** *"yes also confirmed, it looked fine"*, after an earlier hedged read
+(*"escape rope seems to already work ? think both ghosts are spinning ?"* … *"but double
+check/test"*) that was deliberately left in the queue rather than promoted. The double-check was a
+driven repeat; the promotion waited for this.
+
+**Dig and Escape Rope are ONE feature, so this covers both.** `EscapeRopeFunction` and
+`DigFunction` differ by a single byte written to `wEscapeRopeOrDigType` and fall into the same
+`EscapeRopeOrDig`, which queues the same `.UsedDigOrEscapeRopeScript`
+(`engine/events/overworld.asm`). The only differences either way are the text box and, for Escape
+Rope, a `SpecialKabutoChamber` call. **The item is what was actually used on screen**; the move was
+not, and does not need to be.
+
+**What a peer's Dig looks like, and it needed no new code** — the wire already carried
+`OBJECT_ACTION`, and both tiers already honoured it:
+
+- **Departure:** a plain counterclockwise spin in place for 32 engine ticks, then the character is
+  hidden. **No flicker on the way out.**
+- **Arrival:** spin *and flicker* — present half the time — for another 32 ticks, then standing.
+- **No vertical movement at any point.**
+
+**The agent-side measurement behind it**, two independent captures (the user's own use and a driven
+repeat via `probes/dig_drive.lua`, both read with `probes/fly_probe.lua`), agreeing with the
+decompilation on every number: departure 62–64 video frames of `OBJECT_ACTION_SPIN` (4) with the
+facing cycling `0C → 04 → 08 → 00` one direction per 4 ticks; arrival 63 frames of action 4/5
+alternating in two-frame pairs. Both are exactly the 32 ticks `step_dig 32` and `return_dig 32` ask
+for. **`OBJECT_SPRITE_Y_OFFSET` read `+0` on every line of both runs.**
+
+**`SPIN_FLICKER` (action 5) was produced for the first time in this project's history.** The
+whirlpool session earlier the same day recorded its absence from every capture ever taken as the
+specific reason Dig/Teleport stayed unmeasured. The spawned ghost received it: 34 frames at action
+5 against 50 at action 4 in the driven run.
+
+**Notes — what this does NOT cover.**
+
+- **There is no "Dig fall", and the phrase was deleted from the adapter's comments rather than
+  implemented.** Several of them called `extras.yoff` "the Fly, Dig and Teleport falls".
+  **Teleport** genuinely raises the sprite — `StepFunction_TeleportFrom`'s `.DoSpinRise` feeds
+  `OBJECT_JUMP_HEIGHT` through `Sine` into `OBJECT_SPRITE_Y_OFFSET` over 16 ticks. **Dig never
+  touches that byte.** Teleport itself is still unmeasured and unwatched.
+- **Loopback only**, so the same caveat as Fly applies: the peer's Dig was also the watcher's. A
+  remote peer's Dig has never been seen.
+- **The arrival wears `MAPSETUP_DOOR` ($F5), not a Dig-specific value.** A receiver cannot tell a
+  Dig arrival from an ordinary door warp, and nothing currently tries to.
+- **The drawn tier's flicker phase lags the player's by 3–4 frames** on a 2-frame alternation, which
+  is the wire at `-interp=0ms`. Judged fine on screen; it is not a claim that the two are in phase.
+- **The hardware (OAM) tier ships off and was not exercised.**

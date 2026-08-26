@@ -21,16 +21,16 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
   `crystal/UNVERIFIED.md`.
-- **NEXT SESSION STARTS HERE: hop a ledge and THEN cast a rod, in one session.** Ledge hops are
-  CONFIRMED (2026-08-26, both tiers, shadows); the rod shares the shadow's tile `$fc` and was never
-  re-tested after. `crystal/VERIFIED.md`.
-- **Dig/Escape Rope is MEASURED and matches the decomp on every number** (two captures, 2026-08-26).
-  They are one routine; `SPIN_FLICKER` (5) now produced; there is no Dig fall. `crystal/UNVERIFIED.md`.
+- **NEXT SESSION STARTS HERE: hop a ledge and THEN cast a rod, in one session** — the jump shadow
+  and the fishing rod share vtile `$fc` and have never been on screen together. `crystal/UNVERIFIED.md`.
+- **Dig/Escape Rope is DONE and confirmed** (2026-08-26, both tiers). One routine, so the item
+  covers the move; `SPIN_FLICKER` (5) produced at last; **there is no Dig fall.** `crystal/VERIFIED.md`.
 - **Ledge hops are DONE and confirmed** (2026-08-26): real engine jumps, shadows on both tiers.
   What the confirmation does not cover is the part to read. `crystal/VERIFIED.md`.
 - **A savestate load crashed the adapter; fixed, trigger not reproduced** — load the savestate that
   originally broke it. Second door into a dereference closed the same day. `crystal/UNVERIFIED.md`.
-- **Teleport remains unmeasured**, and unlike Dig it DOES raise the sprite. Nobody has asked for it.
+- **Teleport is the LAST action class, unmeasured and unwatched** — and unlike Dig it DOES raise
+  the sprite (`StepFunction_TeleportFrom`). Nobody has asked for it. `crystal/documentation.md`.
 - **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
   cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
   equivalent state before grinding live cycles at any other expensive-to-reach case — it is what

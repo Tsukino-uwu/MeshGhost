@@ -2046,127 +2046,18 @@ is group 24 (`documentation.md` says so independently) and `ROUTE_40` is `22:1` 
 running game by `trainer_check.lua`). Both are now cited in `goto_map.lua` beside the table, along
 with the corrected entries and the retracted dark-cave explanation.
 
-## 2026-08-26 — Crystal: Dig / Escape Rope MEASURED, and the ledge-hop emote fixed
+## DRAINED 2026-08-26 — Crystal: Dig / Escape Rope, and the ledge-hop emote
 
-### Dig and Escape Rope are one feature, and the measurement is complete
+**Both confirmed on screen and moved out.** The user, on Dig/Escape Rope: *"yes also confirmed, it
+looked fine"* — after an earlier hedged read that was deliberately left here rather than promoted,
+which is the queue working as intended. The emote fix went out with the ledge-hop entry.
 
-**They are not two things.** `EscapeRopeFunction` and `DigFunction` differ by one byte written to
-`wEscapeRopeOrDigType` and fall into the same `EscapeRopeOrDig` routine, which queues the same
-`.UsedDigOrEscapeRopeScript` (`engine/events/overworld.asm`). Same `applymovement PLAYER, .DigOut`,
-same `newloadmap MAPSETUP_DOOR`, same `applymovement PLAYER, .DigReturn`. The only differences
-either way are the text box and, for Escape Rope, a `SpecialKabutoChamber` call. One measurement
-covers both, and the Escape Rope is the cheap way to produce it.
+The full record, the two captures behind it, and **the five things the confirmation does NOT
+cover** are in [`VERIFIED.md`](VERIFIED.md), "Dig / Escape Rope, both tiers".
 
-**Two independent captures**, both `probes/fly_probe.lua` (read-only): the user's own use at
-f=1873-2042, and a driven repeat from `probes/dig_drive.lua` at f=360-528. They agree on every
-number, and every number matches the decompilation:
-
-| phase | what the source predicts | measured |
-|---|---|---|
-| departure | `step_dig 32` -> `Movement_step_dig` writes `OBJECT_ACTION_SPIN` (4) and `STEP_TYPE_SLEEP`, then `hide_object` | action 4 throughout, facing `0C -> 04 -> 08 -> 00` (counterclockwise, one direction per 4 ticks), **62-64 video frames = 32 engine ticks** |
-| arrival | `return_dig 32` -> `STEP_TYPE_RETURN_DIG` -> `StepFunction_DigTo` alternates `SPIN` (4) and `SPIN_FLICKER` (5) on bit 0 of `OBJECT_STEP_DURATION` | act alternates 4/5 in **2-video-frame pairs = 1 tick each**, **63 frames = 32 ticks** |
-| vertical | nothing on the Dig path touches `OBJECT_SPRITE_Y_OFFSET` | `yoff = +0` on **every line of both runs** |
-
-**`SPIN_FLICKER` (action 5) has now been produced.** It had never appeared in any capture this
-project had taken — the whirlpool session (2026-08-26) recorded that absence as the specific reason
-Dig/Teleport stayed unmeasured. It is on the **arrival only**; the departure is a plain spin. The
-spawned ghost received it: 34 frames at act 5 against 50 at act 4 in the driven run.
-
-**THERE IS NO DIG FALL, and the phrase should be deleted rather than implemented.** Several
-comments in `meshghost_crystal.lua` call `extras.yoff` "the Fly, Dig and Teleport falls".
-**Teleport** genuinely raises the sprite — `StepFunction_TeleportFrom`'s `.DoSpinRise` feeds
-`OBJECT_JUMP_HEIGHT` through `Sine` into `OBJECT_SPRITE_Y_OFFSET`. **Dig never touches that byte**,
-in the source or in either capture. Teleport itself remains unmeasured: it is a different step
-function and the user has not asked for it.
-
-**What to look at, and what correct looks like.** Use an Escape Rope in a cave, on the compare rig.
-Both ghosts should **spin in place for about a second** where the peer stood, vanish with the map,
-and then on the far side **spin while flickering in and out** for about another second before
-standing. No rising, no falling, no drop — the character never leaves its tile height. A ghost that
-spins on the way out and then merely *appears* on the far side is the arrival being dropped.
-
-**What this does NOT cover.** Loopback only, so a remote peer's Dig has never been watched — and
-the same caveat as Fly applies, that in loopback the peer's Dig is also the watcher's. The drawn
-tier's flicker phase lags the player's by 3-4 frames on a 2-frame alternation, which is the wire at
-`-interp=0ms`; whether that reads as wrong on screen is a question for eyes, not the log. The
-arrival's entry byte is `MAPSETUP_DOOR` ($F5), **not a Dig-specific value** — a receiver cannot
-tell a Dig arrival from an ordinary door, and nothing currently tries to.
-
-**User's read is hedged and is being left here deliberately**: *"escape rope seems to already work ?
-think both ghosts are spinning ?"*, followed by *"but double check/test"*. The double-check is the
-driven run above. It does not promote the entry — that needs a look that is not a question.
-
-### The "!" over a hopping ghost: `EMOTE_OBJECT` does not mean "emote"
-
-**Fixed, unwatched.** The user, on the compare rig: *"the drawn ghost is doing a '!' emote while
-jumping, its not supposed to do that"*.
-
-`ENGINE.playerEmote()` scanned for an object that had a sprite, sat on the player's tile, and had
-bit 7 of `OBJECT_FLAGS1` set — `EMOTE_OBJECT`. **That flag means "attached decoration object", not
-"emote".** `data/sprites/map_objects.asm` gives the same flags1 byte
-(`WONT_DELETE | FIXED_FACING | SLIDING | EMOTE_OBJECT`) to **three** movement datas: `_EMOTE`,
-`_SHADOW` and `_SCREENSHAKE`. A ledge hop calls `SpawnShadow`, which puts a shadow object on the
-hopping character's own tile for the length of the hop — so the scan found it, called it an emote,
-and the VRAM tile match then named whichever emote was resident.
-
-**The fix is the action byte, which is a maintained field rather than an initial value**:
-`MovementFunction_Emote` writes `OBJECT_ACTION_EMOTE` (8) and `MovementFunction_Shadow` writes
-`OBJECT_ACTION_SHADOW` (7) every time each runs (`engine/overworld/map_objects.asm`), and the
-screenshake object holds `OBJECT_ACTION_00`. Requiring action 8 alongside the flag separates all
-three.
-
-**Worth noting how it survived:** this is the *same fact* that got `OBJECT_ACTION_EMOTE` removed
-from `ACTIONS.peer` on 2026-08-25 — the emote is a separate object, not a pose a character adopts.
-That was read on the RECEIVE side and never carried to the SEND side, so one half of the file had
-already fixed what the other half was still doing wrong.
-
-**What to look at:** hop a ledge on the compare rig. Neither ghost should show a "!" at any point.
-A real "!" — the fishing bite — must still work, so cast a rod afterwards in the same session; that
-is the half a too-narrow fix would break.
-
-### Ledge hops: still unmeasured, and nothing on the wire says "jump"
-
-**Not a regression — never implemented.** `VERIFIED.md` (2026-08-25) says outright that ledge hops
-were not exercised, and the adapter has no jump handling anywhere in it.
-
-From the source: `.TryJump` issues `STEP_LEDGE`, which `.DoStep` turns into the `jump_step`
-movement, i.e. `JumpStep` (`engine/overworld/movement.asm`). That writes
-`OBJECT_ACTION = OBJECT_ACTION_STEP` (2) — the ordinary walking action — and
-`OBJECT_WALKING = STEP_WALK << 2 | dir`, the ordinary walking gait. **So `act` says "walking" and
-`gait` says "walking".** The only field that distinguishes a hop is
-`OBJECT_STEP_TYPE = STEP_TYPE_PLAYER_JUMP` (9), which the adapter does not send.
-
-Three consequences, none yet confirmed on screen:
-
-1. **The arc did NOT work for free -- it was broken, is now fixed, and is unwatched.**
-   `StepFunction_PlayerJump` runs `UpdateJumpPosition` once per tile, writing
-   `OBJECT_SPRITE_Y_OFFSET` from a fixed table
-   (`-4,-6,-8,-10,-11,-12,-12,-12,-11,-10,-9,-8,-6,-4,0,0`). `yoff` went on the wire 2026-08-26,
-   but on the spawned tier the write sat **below `renderRemote`'s `walking ~= STANDING` hard
-   return** -- so it stopped the instant the ghost began moving, which is exactly the window a hop
-   occupies. Measured on one driven hop:
-
-   | | arc |
-   |---|---|
-   | player | -4 -6 -8 -8 -10 -11 -11 -12 -12 -12 -11 -11 -10 -9 -8 -6 -6 -4 |
-   | ghost, **before** | -4 -6 then **frozen at -6** for the rest of the hop |
-   | ghost, **after** | -4 -6 -8 -10 -11 -12 -12 -11 -10 -9 -8 -6 -- the full curve, ~3 frames behind |
-
-   **The comment on that write already said the right reason and applied it to the wrong branch**
-   ("ABOVE the idle branch... a ledge hop changes tile while the arc is running"). The idle branch
-   was not the one dropping it. This is the second time this session that a fact was correctly
-   written down in one place and not carried to the place that needed it -- the other was the
-   emote.
-2. **The spawned ghost is the suspect.** It crosses tiles by asking the engine to step it, and a
-   ledge is impassable in the hop direction, so `CanObjectMoveInDirection` is the most likely thing
-   to refuse the step. A prediction, not a result.
-3. **No shadow on either ghost, and that is expected today.** The user noticed: *"don't think
-   either of the ghosts had a shadow below them while jumping"*. `SpawnShadow` creates a separate
-   map object — structurally the same problem as the "!" and not fixable by writing a byte onto the
-   ghost's own body.
-
-New instrument: `probes/ledge_drive.lua` (loads a prepared savestate, holds Down, shoots every 4
-frames because a hop is over in ~32).
+**The one to carry forward: there is no Dig fall.** Teleport raises the sprite; Dig never touches
+`OBJECT_SPRITE_Y_OFFSET`. **Teleport remains unmeasured and unwatched** and is now the last
+action class.
 
 ## DRAINED 2026-08-26 — Crystal: ledge hops
 
@@ -2233,3 +2124,40 @@ local player's sprite, `WONT_DELETE`, stationary past the adapter's own release 
 **The trap for a later session:** a state prepared for driving a probe may contain a ghost from the
 session that made it, and that ghost will appear in every run of that probe forever. If a driven
 run shows one more character than it should, suspect the savestate before the adapter.
+
+## 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
+
+**Nothing is known to be wrong here. This is a named risk with a named test**, logged at the user's
+request rather than left as a line in `status.md`.
+
+**The fact.** `data/sprites/emotes.asm` loads **`JumpShadowGFX`** and **`FishingRodGFX`** to the
+**same vtile `$fc`**, on demand. So VRAM `$fc` holds the jump shadow normally and the fishing rod
+while somebody has one out. They are neighbours in ROM too — `41:4550` and `41:4560`.
+
+**Why it matters to this adapter specifically.** Both of the drawn tier's uses of that tile read
+from the **cartridge**, not from VRAM, precisely so that a peer's rod and a peer's shadow cannot be
+decided by what this machine's player happens to be doing:
+
+- the rod, `A.FISHING_GFX_ROM` — and note this is the FISHING SHEET, not `FishingRodGFX`; the
+  distinction was itself a live bug (`VERIFIED.md`, 2026-08-26, the rod that looked *"sideways/weird"*)
+- the shadow, `A.SHADOW_GFX_ROM` — added 2026-08-26 with the ledge-hop work
+
+**So the design says the two cannot collide.** What has never happened is anyone watching them in
+one session.
+
+**Why the existing confirmations do not cover it.** Fishing was confirmed on screen **earlier the
+same day, before the shadow existed**, so nothing has exercised `$fc` for both purposes since the
+second reader was added. Ledge hops were confirmed **without a rod ever being cast** in that
+session.
+
+**The test, and it is one session and about a minute.** On the compare rig: hop a ledge (both
+ghosts should have a ground shadow), then cast a rod (both ghosts should hold the fishing pose with
+a correct-looking rod). Order does not matter; doing both without reloading is the whole point.
+
+**What a failure would look like**, so it is recognisable rather than merely surprising: a ghost
+casting a **shadow shape where the rod should be**, or a **rod-shaped smudge under a hopping
+ghost** — i.e. one of the two readers picking up the other's tile. A ghost with no shadow or no rod
+at all is a different fault (the ROM gate declining on a non-vanilla build), not this one.
+
+**Scope: vanilla V1.0.** Both reads are gated on `classifyRom()` returning `known`, so on any other
+build both are simply absent and this risk does not arise.
