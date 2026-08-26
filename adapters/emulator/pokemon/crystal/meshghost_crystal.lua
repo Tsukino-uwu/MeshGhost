@@ -2840,6 +2840,14 @@ end
 -- selected by LCDC bit 3; `corner`/`edge` are the frame tiles LoadFrame copies; `row` is
 -- TEXTBOX_Y = SCREEN_HEIGHT - TEXTBOX_HEIGHT = 18 - 6.
 local TEXTBOX = { lo = 0x1800, hi = 0x1C00, row = 12, corner = 121, edge = 122 }
+-- Whatever `wMenuBorder*` holds at ADAPTER LOAD is refused until it changes, the same way a
+-- warp-teardown's leavings are (see the not-inPlay() branch in drawOverflow): a mid-session
+-- reload cannot tell a live menu's rectangle from one a Fly left behind hours ago, and trusting
+-- it re-creates the hidden-ghost state the snapshot exists to end. If a menu genuinely is open at
+-- load, its close writes zero, the slot moves, and everything after is trusted -- self-healing in
+-- one menu cycle, in the direction that paints too much rather than hides too much.
+TEXTBOX.stale = string.format("%d,%d,%d,%d", u8(MENUBOX.top) or 0, u8(MENUBOX.left) or 0,
+	u8(MENUBOX.bottom) or 0, u8(MENUBOX.right) or 0)
 
 local function textBoxOpen()
 	local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
@@ -3164,6 +3172,19 @@ function drawOverflow()
 		-- 2026-08-23 transition_probe measurement below -- so this branch runs for all of them,
 		-- while an overlaid menu or text box never brings the status here at all.
 		uiSeenAt, lastMenuBox = nil, nil
+		-- AND REMEMBER WHAT THE TEARDOWN LEFT IN THE SLOT, because clearing our latch alone is
+		-- useless: the game never zeroes `wMenuBorder*` after a warp-teardown, so the level test
+		-- re-reads the same stale coordinates one frame after landing and re-latches. Measured on
+		-- the user's own re-test (2026-08-26, the SECOND failed fix for this symptom): after the
+		-- fly, every debug line showed the fly menu's `0,10,17,19` frozen in the slot with nothing
+		-- on screen. So the latch site refuses exactly this value until the slot CHANGES -- a real
+		-- menu always changes it (a different rectangle, or the zero a normal close writes). While
+		-- a battle keeps this branch live the snapshot tracks the battle UI's own writes, so the
+		-- value held at the return to the overworld is whatever the battle left, which is equally
+		-- stale and equally refused. On TEXTBOX to spare a top-level local (three names from the
+		-- ceiling).
+		TEXTBOX.stale = string.format("%d,%d,%d,%d", u8(MENUBOX.top) or 0,
+			u8(MENUBOX.left) or 0, u8(MENUBOX.bottom) or 0, u8(MENUBOX.right) or 0)
 		stopDrawing()
 		return
 	end
@@ -3213,7 +3234,14 @@ function drawOverflow()
 	-- for the latch's 20 frames after everything closes is invisible; under-hiding is the fault
 	-- this line of fixes keeps paying for. Capped defensively; the screen is 20x18 tiles and a
 	-- session that publishes more distinct rectangles than the cap is already somewhere strange.
-	if (b or 0) > 0 and (r or 0) > 0 then
+	-- THE STALE VALUE A TEARDOWN LEFT BEHIND IS REFUSED UNTIL THE SLOT MOVES. See the snapshot at
+	-- the not-inPlay() branch: after a warp the game leaves the last menu's coordinates in the
+	-- slot forever, and a latch cleared during the warp simply refills from them on landing.
+	local rectKey = string.format("%d,%d,%d,%d", t or 0, l or 0, b or 0, r or 0)
+	if TEXTBOX.stale and rectKey ~= TEXTBOX.stale then
+		TEXTBOX.stale = nil -- the slot changed: whatever it says now is the game speaking, trust it
+	end
+	if (b or 0) > 0 and (r or 0) > 0 and not TEXTBOX.stale then
 		local top, left, bottom, right = t * 8, l * 8, (b + 1) * 8, (r + 1) * 8
 		lastMenuBox = lastMenuBox or {}
 		local known = false
@@ -5367,10 +5395,10 @@ function drawOverflow()
 			end
 			rects = table.concat(parts, " | ")
 		end
-		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s coords=%d,%d,%d,%d "
+		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s stale=%s coords=%d,%d,%d,%d "
 			.. "rect=%s wy=%d wx=%d "
 			.. "-- %d painted, %d hidden; painted at: %s",
-			tostring(boxOpen), tostring(uiOpen),
+			tostring(boxOpen), tostring(uiOpen), tostring(TEXTBOX.stale),
 			t or -1, l or -1, b or -1, r or -1,
 			rects,
 			memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
