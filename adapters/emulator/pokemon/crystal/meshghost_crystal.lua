@@ -2597,6 +2597,48 @@ function facingFrames.derive(facing)
 	-- runs, and `luac -p` has nothing to say about it -- the same class of fault as the GAIT_PX
 	-- nil-global earlier today, in the opposite direction.
 	local out
+	-- WHEN NOTHING HAS BEEN LEARNED AT ALL, BUILD THE SOURCE FROM THE FORMAT ITSELF.
+	--
+	-- Remapping a learned facing only works if SOME facing has been learned, and the cache is
+	-- filled by watching the LOCAL player -- so a client whose player has not moved since the
+	-- adapter loaded has an empty cache and every peer falls back to the standing DOWN view. That
+	-- is not a corner case: it is a player standing still watching someone ride past, which is
+	-- exactly the session that produced *"stuck in the idle bike pose"*. Measured rather than
+	-- guessed, after four wrong hypotheses: `481 of 6341 peer-frames stepped; not stepped: 446
+	-- mid-step, 5414 idle` -- 446 frames where the peer was genuinely mid-step and no step frame
+	-- existed to draw.
+	--
+	-- Every number below is measured and recorded elsewhere in this repo, which is the only reason
+	-- it may be written down rather than observed:
+	--   * a walking sprite is 24 tiles -- 12 standing, 12 stepping at +0x80 (`documentation.md`,
+	--     and confirmed 2026-08-26 by reading the cartridge: sprite table entries are 0x180 apart,
+	--     384 bytes, and all 12 stepping tiles of the BIKE differ from its standing ones);
+	--   * groups are down 0-3, up 4-7, left/right 8-11 shared, told apart by the hardware flip;
+	--   * the four parts sit at (0,0) (8,0) (0,8) (8,8), measured 2026-08-22 across every facing,
+	--     with the flipped side view mirroring them.
+	--
+	-- A LEARNED ENTRY ALWAYS WINS, and a slot derived from one wins over this: it is consulted LAST,
+	-- per slot, after the loop below has taken everything it can.
+	--
+	-- It began as an early return guarded on "nothing learned at all", and that guard was almost
+	-- never true, so it never ran. The learner rewrites `entry.stand` EVERY IDLE FRAME for whatever
+	-- direction the local player is standing in, so the cache always holds at least one stand-only
+	-- entry -- and the loop below would then remap exactly that, producing a derived facing with a
+	-- standing frame and no stepping frames. Measured after the fix that was meant to end this:
+	-- `288 of 2792 stepped; not stepped: 260 mid-step` -- half the moving frames still standing.
+	local function seedPart(i, stepping)
+		local flip = (facing == 3)
+		return {
+			offset = (stepping and 0x80 or 0) + base + i,
+			xflip = flip,
+			dx = flip and (8 - ((i % 2) * 8)) or ((i % 2) * 8),
+			dy = (i // 2) * 8,
+		}
+	end
+	local function seedFrame(stepping)
+		return { seedPart(0, stepping), seedPart(1, stepping),
+			seedPart(2, stepping), seedPart(3, stepping) }
+	end
 	for _, src in ipairs({ 0, 1, 2, 3 }) do
 		local e = facingFrames[src]
 		local from = GROUP[src]
@@ -2647,10 +2689,15 @@ function facingFrames.derive(facing)
 	end
 	-- Whatever was gathered, complete or not: a partial entry still beats the caller's down-facing
 	-- fallback, and `pick` degrades inside it exactly as it does for a learned one.
-	if out and (out.stand or out.step[0] or out.step[1] or out.step[2] or out.step[3]) then
-		return out
+	-- ANY SLOT STILL EMPTY GETS THE FORMAT'S OWN ANSWER. Without this a peer can be left holding a
+	-- standing frame and no stepping frames, which is not a missing detail -- it is a character
+	-- that never animates, which is the whole symptom this function has been chasing.
+	out = out or { step = {}, derived = true }
+	out.stand = out.stand or seedFrame(false)
+	for i = 0, 3 do
+		out.step[i] = out.step[i] or seedFrame(true)
 	end
-	return nil
+	return out
 end
 
 function facingFrames.pick(facing, walking, prog, stride)
@@ -2671,6 +2718,27 @@ function facingFrames.pick(facing, walking, prog, stride)
 	-- at double speed.
 	if walking then
 		local f = entry.step[(stride or 0) & 3]
+		-- A LEARNED ENTRY CAN BE STAND-ONLY, AND THAT IS THE COMMON CASE, NOT A RARE ONE.
+		--
+		-- `entry.stand` is rewritten EVERY IDLE FRAME for whatever direction the local player is
+		-- standing in, while `entry.step` is only filled by that player actually WALKING that way.
+		-- So a client whose player is standing still -- which is exactly the client watching a peer
+		-- ride past -- holds a learned entry with a standing frame and no stepping frames at all.
+		-- `derive` never got a look in, because it is only consulted when a facing has NO entry.
+		--
+		-- Result on screen: a peer that never animates. Four fixes aimed at `derive` missed it
+		-- entirely for this reason, and the counter said so throughout -- `288 of 2792 stepped; not
+		-- stepped: 260 mid-step`, half the moving frames drawing a stand.
+		--
+		-- So the fallback chain is completed here rather than deepened: learned step -> any learned
+		-- step for this facing -> a DERIVED step (remapped from another facing, or the sprite
+		-- format's own arrangement) -> and only then the standing frame.
+		if not f and not (entry.step[0] or entry.step[1] or entry.step[2] or entry.step[3]) then
+			local d = facingFrames.derive(facing)
+			if d then
+				f = d.step[(stride or 0) & 3] or d.step[0]
+			end
+		end
 		-- ANY STEPPING VIEW BEATS THE STANDING ONE. A slot is only filled once the local player has
 		-- walked that way on that stride, so a direction can stay short one indefinitely -- and
 		-- falling back to `stand` there DROPS THE WHOLE STEP, which on screen is a walk cycle that
