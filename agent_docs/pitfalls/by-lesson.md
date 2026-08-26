@@ -3875,3 +3875,66 @@ the next bump, and then gets edited to match rather than believed.
 **Reach for this shape whenever a rule spans copies you cannot enumerate in advance** — workflow
 action versions, bridge constants across adapters, a shared exclusion list. Assert that the copies
 agree; let the value float.
+
+## The decompilation says what the engine CAN do; only a measurement says what the game DOES (Crystal, 2026-08-26)
+
+**Symptom:** a ghost did nothing sensible during a Fly landing, and the queue confidently said it
+should fall out of the sky.
+
+**Cause:** the Fly fall was implemented from `StepFunction_Skyfall`, which expresses the whole
+descent in `OBJECT_SPRITE_Y_OFFSET` — one byte already on the wire since fishing. Every word of
+that reading was correct, and the conclusion drawn from it was still wrong: **through an entire
+Fly the player's own object holds action 1 (STAND), facing `$FF` and `yoff` 0.** The game hides the
+player object for the sequence and animates it some other way, so that step function never runs on
+the object we copy. There was nothing to send and nothing to reproduce.
+
+**Fix:** none required in the code — the correction was to the claim. `probes/fly_probe.lua`
+answered it in one run by logging the player and every occupied object slot on one line.
+
+**The lesson is a direction, not a rule reversal.** `CLAUDE.md` says to read a cleared decompilation
+FIRST, and that stands: it names fields and dispatch order a probe can never discover. What it does
+not do is say which paths this game takes. Reading tells you *where to look*; only the running game
+tells you *whether it goes there*. The failure here was reading REPLACING measuring rather than
+aiming it — the same mistake as measuring without reading, wearing the opposite coat.
+
+**The tell was available before the live test and was not asked for:** the change shipped with a
+queue entry saying the fall "may have gained its fall for free — nobody has looked." A claim that
+names itself unlooked-at is a claim to measure, not to write down and build on.
+
+## A stale coordinate is indistinguishable from a live one, and the game may never clear it (Crystal, 2026-08-26)
+
+**Symptom:** after a Fly, a painted ghost went invisible and never came back — but only when flying
+to the town you were already in. Flying somewhere else looked fine.
+
+**Cause:** `wMenuBorderTopCoord`..`RightCoord` hold a menu's geometry and are zeroed when a menu
+closes normally. Fly's menu is not closed normally — a warp tears it down — so it left `0,10,15,19`,
+the entire right half of the screen, set permanently. The adapter treated "these coordinates are
+non-zero" as "a panel is on screen", re-latched on it every frame, and hid every painted peer
+standing in that half for the rest of the session. The different-town case only *looked* fine
+because a map load respawns the peer into the ENGINE tier, which that rectangle never applied to —
+**a symptom that appears to depend on where you fly actually depended on which renderer was used.**
+
+**Fix:** clear the latch where the world is rebuilt. A menu cannot survive a map load, so a
+rectangle still set there is stale by definition.
+
+**Two better-looking gates were tried first, and measurement killed both** — the reason the fix
+lives at the map load rather than in a smarter freshness test:
+
+- **"the panel's own frame tiles are in the tilemap"** — the exact test this adapter already uses
+  for text boxes, and the drawing path really is shared (`MenuBox` → `Textbox` → `TextboxBorder`).
+  The corner **survives the menu closing**: 87 consecutive samples said present, through a menu
+  being opened and shut.
+- **LCDC window-enable / WY / WX** — byte-identical with a menu open, with none, and after closing
+  one (`LCDC=E3`, window enabled, `WY=144`, `WX=7`).
+
+**The generalisable part: ask what CLEARS a field before trusting it as a state.** A field written
+when something starts and never written when it ends is a record that it once happened, not a
+statement that it is happening — and it will read as live forever after the one code path that
+skips the teardown. When a signal has no reliable clear, do not hunt for a cleverer reading of it;
+clear it yourself at an event you already trust.
+
+**And a three-state table beats a third guess.** Two candidate signals had already failed when the
+answer came from driving the state — no menu, menu open, menu closed — and printing every cheap
+display byte for each. Both dead candidates were visible in that table at a glance, and so was the
+real behaviour: the coordinates are set at frame 9 of the open and cleared at frame 9 of the close,
+which is the level test the adapter had all along.

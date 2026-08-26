@@ -209,3 +209,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A ghost that VANISHES is usually an adapter that was unloaded, and the loader log says so in one line (2026-08-26, Crystal)
 - Splitting a file moved its content out of three exclusion lists, and CI went red on its own documentation (2026-08-26)
 - A repo-wide fix covers the files that exist that day, and a file added later brings the problem back (2026-08-26)
+- The decompilation says what the engine CAN do; only a measurement says what the game DOES (Crystal, 2026-08-26)
+- A stale coordinate is indistinguishable from a live one, and the game may never clear it (Crystal, 2026-08-26)

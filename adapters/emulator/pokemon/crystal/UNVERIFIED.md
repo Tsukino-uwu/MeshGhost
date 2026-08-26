@@ -1178,19 +1178,19 @@ interpolation at 0, so the drawn ghost can be judged against the player frame fo
 3. **Fish** — the ghost should hold the standing pose for the direction it cast in, with a rod, for
    as long as the player's rod is out. A ghost that faces down while the player fishes to the left
    is the facing byte not being read; a body with no rod is the ROM gate refusing.
-4. **Fly into a town** — during the landing the ghost should run its walk cycle at about double
-   speed, **and it should now drop out of the sky while it does it**. That second half is new and
-   untested: the fall is `OBJECT_SPRITE_Y_OFFSET`, the same byte fishing put on the wire, so it
-   arrives for free — `StepFunction_Skyfall` walks it from about -96 up to 0 over 16 engine ticks
-   (`engine/overworld/map_objects.asm`). Expect a coarser drop than the player's, because the byte
-   is sampled at the send rate rather than per frame.
-5. **Dig or Teleport** — the ghost should spin and flicker, and drop the same way. Because the
-   flicker alternates faster than the send rate, expect it to look coarser than the player's, not
-   identical.
+4. **Fly into a town** — **nothing is expected to work here, and the reason is measured.** See
+   the 2026-08-26 entry below: through an entire Fly the player's own object holds action 1
+   (STAND), facing `$FF` (the engine draws nothing for it) and `yoff` 0. The game hides the player
+   object and animates the sequence some other way, so there is no skyfall action and no fall on
+   the wire to copy — not because the adapter drops them, but because the player's object never
+   carries them. Anything a ghost does during a Fly today is an artefact.
+5. **Dig or Teleport** — unmeasured. Fly turned out not to use the player's object at all, so the
+   assumption that these do cannot be carried over; `probes/fly_probe.lua` answers it for either
+   one in a single run.
 
 **Known remaining differences, stated so they are not reported as faults:** no emote over a peer's
-head at all; the spawned tier's spin runs on the engine's own clock rather than the peer's phase.
-**The fall is no longer on this list** — see the entry above for what replaced it.
+head at all; the spawned tier's spin runs on the engine's own clock rather than the peer's phase;
+and no Fly landing at all, per the above.
 
 ## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
 
@@ -1267,7 +1267,83 @@ and the fall scales `Sine` by `$60`, so -96..+96 is the whole range the byte eve
 reaches -12, the bite wiggle 1). It is peer-controlled state that now ends in a memory write, which
 is the same reason `ACTIONS.peer` bounds the action byte.
 
-**What to watch, on the compare rig with both tiers up:** the two ghosts should now wiggle, fall
-and hop *together*. A painted ghost that drops out of the sky while the spawned one stands flat is
-this fix not reaching the write; both flat is the byte not arriving. **No new top-level local was
-spent** — the file is still 197 of 200 (`emulator/CLAUDE.md`).
+**What to watch, on the compare rig with both tiers up:** the two ghosts should wiggle and hop
+*together*. **Not the Fly or Dig fall** — the paragraph above claimed those came along for free and
+that claim was wrong; it was written from the decompilation without measuring, and the measurement
+the same day killed it. See "the Fly landing is not on the player's object at all" below. What is
+left of this entry is the bite wiggle and a ledge hop's arc, which are real and still unwatched.
+**No new top-level local was spent** — the file is still 197 of 200 (`emulator/CLAUDE.md`).
+
+## 2026-08-26 — Crystal: the Fly landing is not on the player's object at all, and two fixes from it
+
+**All of this is measured, none of it is confirmed on screen.** The user, after the morning's
+`yoff` work went live: *"fly looks really broken on the ghosts, also the spawned ghost goes
+invisible when fly is used & it goes invisible when despawned after fly has been used"*, and, asked
+which: *"drawn ghost just looks weird/bad sprite during fly"*, *"goes invisible during the fly
+animation, and also goes invisible when despawned afterwards if flying to the same town that you
+were in (seems to stay visible if flying to another town)"*.
+
+Three separate faults wearing one symptom. `probes/fly_probe.lua` (read-only, player and every
+occupied object slot on one line) and `probes/menu_state_table.lua` (drives a START menu and
+tabulates the display state) did the work.
+
+### The finding that invalidates the morning's premise
+
+**Through an entire Fly the player's own object holds `OBJECT_ACTION` 1 (STAND), `OBJECT_FACING`
+`$FF` and `OBJECT_SPRITE_Y_OFFSET` 0.** Facing `$FF` is STANDING, which is the engine's own way of
+saying *draw nothing for this object* — so the game hides the player object for the whole sequence
+and animates the landing some other way. Not one frame of the log shows action 16 (SKYFALL) or a
+non-zero `yoff`, on any object.
+
+So **there is nothing on the wire to reproduce a Fly landing from**, and the entry above this one
+was wrong to say the fall arrived for free with fishing's `yoff`. That was written from
+`StepFunction_Skyfall` in the decompilation — which does express the fall in that byte — without
+checking whether the player's object ever runs it. It does not. **The decompilation says how the
+engine CAN do a thing; only a measurement says whether this game DOES it here** — the same rule
+that already has its own bullet in `CLAUDE.md`, applied in the wrong direction for once: reading
+replaced measuring rather than the other way round.
+
+What still stands from that entry: the bite wiggle (confirmed on screen) and a ledge hop's arc
+(unwatched) are genuinely in `yoff`, and the spawned tier now applies it.
+
+### Fault 1 — the drawn ghost's "weird/bad sprite" (FIXED, unwatched)
+
+While the player's facing is `$FF` the engine emits no OAM entries for it, so entries 0-3 belong to
+whatever else is on screen. `readPlayerOamFrame` read them anyway: the log shows tile offsets `$84`
+and `$88` arriving during the Fly, and both PASS the `(offset & 0x7F) < 12` art test, so another
+character's stepping views were filed as the player's own artwork for whatever direction the player
+happened to be facing — and that cache is kept for the session. **Fix: learn nothing while the
+player's own facing is STANDING.** Fourth entry in this family; the y-range test cannot catch it,
+because those entries are a real character that really is on screen.
+
+### Fault 2 — the ghost that never comes back (FIXED, unwatched)
+
+`wMenuBorderTopCoord`..`RightCoord` (`$cf82-$cf85`) are non-zero for exactly as long as a menu is
+open and are zeroed when one closes **normally** — driven and logged, set at frame 9 of the open and
+cleared at frame 9 of the close. Fly is the exception: its menu is torn down by a warp, leaving
+`0,10,15,19` — the whole right half of the screen — set forever. `uiPanelOpen()` re-latched on that
+every frame, and every painted peer in that half was hidden for the rest of the session. Measured in
+the failed state: `uiOpen=true rect=l=80 t=0 r=160 b=144 wy=144` with no menu on screen.
+
+**Fix: clear the latch and the remembered rectangle where the world is rebuilt** — a menu cannot
+survive a map load, so a rectangle still set there is stale by definition. That block already
+clears four other pieces of per-map bookkeeping.
+
+**Two other gates were tried first and both were killed by measurement, which is why the fix is
+where it is** — worth knowing before either is proposed again:
+
+| candidate | why it looked right | what the measurement said |
+|---|---|---|
+| the panel's own frame corner is in the tilemap (the test `textBoxOpen()` already uses) | `MenuBox` → `Textbox` → `TextboxBorder` writes tiles 121/122 at the box's top-left | the corner **survives the menu closing** — 87 consecutive samples said `true`, straight through a menu being opened and shut |
+| LCDC window-enable / WY / WX | menus are panels, panels drive the window layer | **byte-identical in all three states**: `LCDC=E3`, window enabled, `WY=144`, `WX=7`, with a menu open, with none, and after closing one |
+
+### What to watch
+
+1. **Fly to the town you are already in, then walk around.** The ghost must come back and stay.
+   This is the whole point of fault 2, and the same-town case is the one that failed.
+2. **Open the START menu with a ghost beside you.** It must still be clipped by the menu — that
+   was confirmed on 2026-08-19 and fault 2's fix must not have regressed it.
+3. **The ghost's sprite after a Fly.** Wrong-looking art that persists after the Fly is fault 1 not
+   being fixed; the cache keeps what it learns, so this is judged after the sequence, not during.
+4. **The Fly itself is not under test.** Expect the ghost to do nothing sensible during the
+   animation; that is the measured gap above, not a regression.

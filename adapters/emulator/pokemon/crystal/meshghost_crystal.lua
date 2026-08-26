@@ -1757,6 +1757,29 @@ local facingFrames = {}
 
 local function readPlayerOamFrame()
 	local frame = {}
+	-- THE ENGINE DRAWS NOTHING FOR A CHARACTER WHOSE FACING IS STANDING, so if the player's is,
+	-- OAM entries 0-3 belong to somebody else BY DEFINITION and nothing here is the player's art.
+	--
+	-- Measured 2026-08-26 (`probes/fly_probe.lua`): through a Fly the player's own object holds
+	-- facing $FF for the whole animation -- the game hides the player object and animates the
+	-- sequence some other way -- while OAM entry 0 read tile offsets $84 and $88, alternating.
+	-- Both of those PASS the `(offset & 0x7F) < 12` art test below, so the learner filed another
+	-- character's stepping views as the player's own artwork for whatever direction the player
+	-- happened to be facing, and the cache keeps what it learns for the session. That is the
+	-- user's *"drawn ghost just looks weird/bad sprite during fly"*, 2026-08-26.
+	--
+	-- The y-range test below cannot catch this: those entries have perfectly normal y values,
+	-- because they are a real character that really is on screen. The only thing that separates
+	-- "the player's four entries" from "someone else's four entries" here is whether the player is
+	-- being drawn at all, and OBJECT_FACING is the engine's own answer -- `SetFacingStanding` sets
+	-- it to STANDING precisely so `_UpdateSprites` skips the object (map_objects.asm).
+	--
+	-- Fourth entry in the same family: the fishing session (2026-08-26) established that the
+	-- player does not own OAM 0-3 unconditionally, and 2026-08-22 found the learner adopting a
+	-- spawned ghost's entries. Same hole, a different way in.
+	if (u8(OBJECT_STRUCTS + F_FACING) or 0) == STANDING then
+		return nil
+	end
 	local playerTileBase = u8(OBJECT_STRUCTS + F_SPRITE_TILE) or 0
 	for i = 0, 3 do
 		local y = memory.read_u8(i * 4, "OAM") or 0
@@ -2832,6 +2855,7 @@ local function textBoxOpen()
 		and right >= TEXTBOX.corner and right <= TEXTBOX.corner + 5
 end
 
+
 -- DIAGNOSTIC, off unless MESHGHOST_CRYSTAL_UI_DEBUG is set. Answers the only question that
 -- matters when the user says "a ghost is drawn over a menu" and the counters say peers are being
 -- hidden: WHICH peers were painted, WHERE they sat, and what rectangle the adapter thought it was
@@ -3155,6 +3179,13 @@ function drawOverflow()
 	local uiOpen = uiPanelOpen()
 	local boxOpen = textBoxOpen()
 	local t, l, b, r = u8(MENUBOX.top), u8(MENUBOX.left), u8(MENUBOX.bottom), u8(MENUBOX.right)
+	-- MEASURED 2026-08-26, and it is the opposite of what it looks like: these coordinates are
+	-- non-zero for EXACTLY as long as a menu is open and are zeroed when it closes normally
+	-- (`probes/menu_state_table.lua` drove a START menu and logged every change: set at frame 9 of
+	-- the open, cleared at frame 9 of the close). So the level test here is right, and the stale
+	-- rectangle that hid painted peers after a Fly comes from the ONE path that does not close its
+	-- menu normally -- a warp tears it down instead. That is handled where the world is rebuilt,
+	-- not here. Two other gates were tried and killed by measurement first; see UNVERIFIED.md.
 	if (b or 0) > 0 and (r or 0) > 0 then
 		lastMenuBox = { top = t * 8, left = l * 8, bottom = (b + 1) * 8, right = (r + 1) * 8 }
 		uiSeenAt = drawFrames -- the rectangle strobes to zero as the menu redraws; latch it
@@ -5279,9 +5310,11 @@ function drawOverflow()
 
 	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
 		local mb = lastMenuBox
-		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s rect=%s wy=%d wx=%d "
+		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s coords=%d,%d,%d,%d "
+			.. "rect=%s wy=%d wx=%d "
 			.. "-- %d painted, %d hidden; painted at: %s",
 			tostring(boxOpen), tostring(uiOpen),
+			t or -1, l or -1, b or -1, r or -1,
 			mb and string.format("l=%d t=%d r=%d b=%d", mb.left, mb.top, mb.right, mb.bottom)
 				or "none",
 			memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
@@ -7507,6 +7540,26 @@ local function tick()
 			-- re-registers on its next state, which is at most a frame away.
 			overflow = {}
 			anchorIndex = nil -- the object array is rebuilt; last map's anchor means nothing
+			-- A MENU CANNOT SURVIVE A MAP LOAD, so a menu rectangle still set here is stale by
+			-- definition and must not go on hiding painted peers.
+			--
+			-- `wMenuBorderTopCoord`..`RightCoord` ($cf82-$cf85) are non-zero for exactly as long as
+			-- a menu is open and are zeroed when one closes -- measured 2026-08-26 by driving a
+			-- START menu open and shut (`probes/menu_state_table.lua`), which is why the level test
+			-- in drawOverflow is correct and stays. The exception is a menu torn down by a WARP
+			-- rather than closed: Fly is exactly that, so it left `0,10,15,19` -- the entire right
+			-- half of the screen -- set permanently, `uiPanelOpen()` re-latched on it every frame,
+			-- and every painted peer standing in that half was hidden for the rest of the session.
+			-- The user, 2026-08-26: *"goes invisible when despawned afterwards if flying to the same
+			-- town"*. Flying to a DIFFERENT town looked fine only because that reloads the map and
+			-- respawns the peer into the engine tier, which this rectangle never applied to.
+			--
+			-- Cleared HERE rather than by a smarter test in drawOverflow because two such tests were
+			-- tried and both were killed by measurement the same day (UNVERIFIED.md has the table):
+			-- the panel's own frame tiles survive the menu closing, and LCDC/WY/WX are byte-identical
+			-- with a menu open and shut. "The world was just rebuilt" is a fact this file already
+			-- computes and already trusts for four other pieces of bookkeeping in this very block.
+			uiSeenAt, lastMenuBox = nil, nil
 			-- STEP_LAG's tile ring is per-map: tile numbers repeat across maps, so a stale entry
 			-- would silently answer for a tile the player never took on THIS map.
 			stepLag.commit, stepLag.seen, stepLag.open, stepLag.lastCommit = {}, {}, {}, nil
