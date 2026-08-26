@@ -217,3 +217,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A gate that defers a decision must also freeze the evidence it reads (Crystal, 2026-08-26)
 - An edge-triggered trace on an ADDRESS cannot see the CONTENT change under it (Crystal, 2026-08-26)
 - An instrument blind to one of its two paths reads exactly like a quiet system (Crystal, 2026-08-26)
+- A measurement from the wrong bank motivated an entire fix (Crystal, 2026-08-26)

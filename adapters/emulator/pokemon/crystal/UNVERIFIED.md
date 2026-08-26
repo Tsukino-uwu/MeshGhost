@@ -1677,3 +1677,28 @@ warning at `decodeTileAt`**, written from the first thing the user ever said abo
 
 **Unwatched, and the reason the fly trace is back on:** this session logged ZERO drop-arms, so the
 landing fall may have regressed behind all of this. The next fly answers both questions at once.
+
+### The clean run — and the VRAM theory it does NOT support
+
+**The user, after two cross-town flies on the cartridge-validated build:** *"done, looked fine"* —
+kept here rather than in `VERIFIED.md` deliberately, because it is a mild first positive at the end
+of a long chain of fixes and the standing rule is to let a confirmation settle. The log corroborates
+the mechanical half: both flies armed correctly, `hide t=0` with the ghost already present, `fall
+t=32` with the engine's step type 14 armed, then a clean finish. The landing fall had NOT regressed
+behind the sprite work.
+
+**But the corrected instrument undercuts the reason the sprite fix was written.** Once the signature
+read VRAM **bank 1** — where character graphics actually live — it held steady at `0301` straight
+through both flies. The `0906 -> 036A -> 0906` swap that motivated the whole cartridge-validation
+path was measured in **bank 0**, which holds other graphics that legitimately change during a
+cutscene. So there is no evidence the peer's own tiles are ever borrowed during a Fly, and the fix
+that actually mattered for the garbled sprite is almost certainly the OTHER one from that session:
+the group check validating all four parts instead of one, which the facing trace caught red-handed
+(`[0,1,2,3]` alternating with `[0,1,9,3]`).
+
+**The check is kept, and instrumented to prove itself.** "A resident base contains that sprite's
+tiles" is a true invariant and the fishing-rod class of bug is real, so the guard is cheap
+insurance — but it now logs once, the first time it ever fires, saying outright that if the line
+never appears it is dead weight. A later session can delete it on evidence rather than on either of
+our guesses. **Two theories in a row about this sprite were wrong; the deciding measurement in both
+cases was one that had been read out of the wrong place.**

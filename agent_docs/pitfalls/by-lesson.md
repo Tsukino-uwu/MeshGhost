@@ -4094,3 +4094,34 @@ among four passed every test.
 out of the function.** An early `return` above the logging is enough to make an instrument
 permanently blind to half its subject, and nothing about the empty log says so. Diff the trace's
 position against the function's exits, not against its entry.
+
+## A measurement from the wrong bank motivated an entire fix (Crystal, 2026-08-26)
+
+**Symptom:** a peer's sprite garbled during a Fly landing. A pixel signature added to the sprite
+trace showed VRAM content under the peer's tile base changing on every fly — `0906 -> 036A -> 0906`
+— which looked like conclusive evidence that the cutscene borrows sprite VRAM, and three successive
+versions of a fix were built on it (a timer, a learned reference, then cartridge validation).
+
+**The signature was reading VRAM bank 0. Character graphics are in bank 1.** Once corrected, the
+signature held perfectly steady through two clean flies: the peer's tiles are never borrowed at
+all. Bank 0 holds other graphics that legitimately change during a cutscene, so the "evidence" was
+real data about the wrong thing.
+
+**What actually fixed the garbled sprite was the other change made in the same session** — the
+frame learner's group check validating all four parts of a frame instead of only the first, caught
+directly by the facing trace as the DOWN standing view alternating `[0,1,2,3]` with `[0,1,9,3]`.
+
+**Three lessons, in order of how much they cost:**
+
+- **The file already warned about this bank**, at `decodeTileAt`, written from the first thing the
+  user ever said about the drawn tier (2026-08-19) — and it was rediscovered anyway, twice in one
+  session: once in the check and once in the trace. **A warning attached to the ONE function that
+  got it right does not protect the next reader who writes their own access.** Where a domain has a
+  trap like this, the accessor should be the only way in (`readVram` + `VRAM_BANK1` here), and new
+  code that reaches past it is the smell.
+- **Two fixes shipped in one session make the confirming run ambiguous.** The group check and the
+  VRAM guard landed together, so "it looks fine now" cannot say which did it — and only the
+  corrected instrument, run afterwards, separated them. Ship one, or expect to do this work later.
+- **An unexplained fix is not a finished fix.** The cartridge guard is kept because its invariant is
+  true, but it now logs the first time it ever fires and says in that line that never appearing
+  means it is dead weight — so a later session deletes it on evidence rather than on a guess.

@@ -3661,7 +3661,20 @@ function drawOverflow()
 					have = (have + (readVram(VRAM_BANK1 + tile * 16 + b) or 0)) & 0xFFFF
 				end
 				if have ~= want then
+					local was = tile
 					tile = nil -- not this sprite's pixels right now; fall through to the cartridge
+					-- COUNTED, because whether this ever fires is an open question. Read the
+					-- comment above: the swap it was built for was measured in VRAM bank 0, and
+					-- once the read was corrected to bank 1 the signature held steady through
+					-- two clean flies. So this may be guarding nothing. One line, once, so a
+					-- later session can settle it instead of assuming either way.
+					if not facingFrames.vramMismatch then
+						facingFrames.vramMismatch = true
+						logFile(string.format("resident tiles for sprite %s did not match the "
+							.. "cartridge (base %d) -- drawing from ROM instead. FIRST TIME this "
+							.. "session; if this line never appears, the check is dead weight.",
+							tostring(o.sprite), was or -1))
+					end
 				end
 			end
 		end
