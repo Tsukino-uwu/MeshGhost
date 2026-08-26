@@ -6243,71 +6243,6 @@ local function renderRemote(id, state)
 		return
 	end
 
-	-- A PEER THAT ARRIVES BY FLY DROPS OUT OF THE SKY. `extras.entry` is the sender's own
-	-- MAPSETUP_* byte (see getLocalState); $FC is MAPSETUP_FLY. The user's call, 2026-08-26,
-	-- choosing between this and a plain teleport-in: the engine cannot show another character
-	-- FLYING (the fly itself is a private cutscene, `documentation.md`), but it can absolutely
-	-- drop one -- STEP_TYPE_SKYFALL is the same fall the Burned Tower floor gives the player.
-	--
-	-- The drop starts when the flag is worn AND the peer's tile jumps, which is the landing
-	-- reaching us; one drop per flag-wearing, so the peer walking away afterwards cannot
-	-- retrigger it. 64 frames total, matching the engine's own StepFunction_Skyfall at the
-	-- measured 2-frames-per-engine-tick: 16 ticks hidden, then 16 ticks falling from -96 to 0 on
-	-- a quarter sine -- the very curve the engine computes (`Sine` scaled by $60). The SPAWNED
-	-- ghost runs the real thing (see teleportGhost); this block drives the PAINTED copies, so the
-	-- tiers land in step with each other.
-	local peerEntry = state.extras and tonumber(state.extras.entry) or nil
-	if peerEntry == 0xFC and not a.dropDone then
-		-- EITHER a tile jump, OR no previous position to compare against. The second half is the
-		-- CROSS-MAP fly, and leaving it out is why that case still blinked in while a same-town
-		-- fly fell correctly (the user, 2026-08-26: *"it looks fine when landing now, but only if
-		-- its flying to the same town"*). Arriving on a different map clears this peer's whole
-		-- bookkeeping -- ghosts, painted entries, and the last-known tile this comparison needs --
-		-- so there is no `flyX` left to jump FROM and the drop could never arm. A peer wearing
-		-- MAPSETUP_FLY that we have no previous position for has, by definition, just arrived
-		-- somewhere: that IS the landing.
-		if (not a.flyX) or a.flyArea ~= state.area_id
-			or (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
-			a.dropAt, a.dropDone = drawFrames, true
-		end
-	elseif peerEntry ~= 0xFC then
-		a.dropDone = nil -- the flag was shed; the next fly is a new drop
-	end
-	-- THE AREA IS PART OF THE COMPARISON, not decoration. Map coordinates are map-LOCAL, so a
-	-- cross-town landing routinely reads as a SHORT hop -- fly from tile 10,5 on one map to 12,6
-	-- on another and the distance test sees three tiles and declines to arm. That is the whole
-	-- reason a cross-town fly still blinked in while a same-town fly fell correctly. Comparing two
-	-- positions from different maps is meaningless in the first place; a changed area IS the jump.
-	a.flyX, a.flyY, a.flyArea = x, y, state.area_id
-	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
-	-- FLY TRACE, off unless MESHGHOST_CRYSTAL_FLY_TRACE is set. Three live cycles have now been
-	-- spent guessing which placement path a landing takes, so this prints the whole envelope
-	-- instead: when it armed and why, what the peer is reporting, whether the ghost object exists,
-	-- and what the engine has done with its step type. Edge-triggered on the phase so a drop is a
-	-- handful of lines, not 64.
-	if _G.MESHGHOST_CRYSTAL_FLY_TRACE and (dropT or peerEntry == 0xFC) then
-		local ph = dropT and ((dropT < 32) and "hide" or "fall") or "flagged"
-		if ENGINE.flyPh ~= ph or ENGINE.flyId ~= id then
-			ENGINE.flyPh, ENGINE.flyId = ph, id
-			local gg = ghosts[id]
-			logFile(string.format("fly: f=%d %s %s t=%s entry=%s area=%s at %d,%d "
-				.. "(was %s,%s area %s) ghost=%s step=%s yoff=%s armed=%s",
-				drawFrames, id, ph, tostring(dropT), tostring(peerEntry),
-				tostring(state.area_id), x, y, tostring(a.flyX), tostring(a.flyY),
-				tostring(a.flyArea), tostring(gg ~= nil),
-				gg and tostring(u8(gg.st_base + F_STEP_TYPE)) or "-",
-				gg and tostring(u8(gg.st_base + emote.F_YOFF)) or "-",
-				tostring(a.skyfallArmed)))
-		end
-	end
-	if dropT and (dropT >= 64 or dropT < 0) then
-		a.dropAt, dropT = nil, nil
-	end
-	if dropT and dropT >= 32 then
-		-- -96 rising to 0; overrides the peer's own (zero) yoff for the painted tiers only. The
-		-- spawned ghost's write is guarded separately, because its engine owns the byte mid-fall.
-		peerYoff = -96 + math.floor(96 * math.sin(((dropT - 32) / 32) * (math.pi / 2)))
-	end
 
 	-- STEP_LAG: ARRIVE. The peer's destination tile as it reaches us, against the frame the PLAYER
 	-- committed to that same tile. Loopback only -- off it the peer is somebody else and there is no
@@ -6343,6 +6278,85 @@ local function renderRemote(id, state)
 		overflow[COMPARE.key(id)] = nil
 		overflow[COMPARE.hwKey(id)] = nil
 		return
+	end
+
+	-- A PEER THAT ARRIVES BY FLY DROPS OUT OF THE SKY. `extras.entry` is the sender's own
+	-- MAPSETUP_* byte (see getLocalState); $FC is MAPSETUP_FLY. The user's call, 2026-08-26,
+	-- choosing between this and a plain teleport-in: the engine cannot show another character
+	-- FLYING (the fly itself is a private cutscene, `documentation.md`), but it can absolutely
+	-- drop one -- STEP_TYPE_SKYFALL is the same fall the Burned Tower floor gives the player.
+	--
+	-- The drop starts when the flag is worn AND the peer's tile jumps, which is the landing
+	-- reaching us; one drop per flag-wearing, so the peer walking away afterwards cannot
+	-- retrigger it. 64 frames total, matching the engine's own StepFunction_Skyfall at the
+	-- measured 2-frames-per-engine-tick: 16 ticks hidden, then 16 ticks falling from -96 to 0 on
+	-- a quarter sine -- the very curve the engine computes (`Sine` scaled by $60). The SPAWNED
+	-- ghost runs the real thing (see teleportGhost); this block drives the PAINTED copies, so the
+	-- tiers land in step with each other.
+	-- ARMED BELOW THE AREA GATE AND AFTER THE WORLD HAS SETTLED, so t=0 is the first frame this
+	-- peer is actually renderable here -- which is the whole of the cross-town fault. Measured
+	-- 2026-08-26 with the trace: `f=3659 hide t=0 ghost=false` then `f=3691 fall t=32 ghost=true
+	-- step=14`. The envelope started at the LANDING, but on a cross-town fly the map is still
+	-- loading then, so no ghost object can exist for ~32 frames: the painted copy ran its hide and
+	-- began falling while the engine tier had not started at all, and the engine's own 64-frame
+	-- fall then ran on from there. Two tiers, two clocks, half an envelope apart -- the user:
+	-- *"the drawn ghost is just dropping down and not doing it properly, the spawned ghost is
+	-- kinda just teleporting"*. A same-town fly never showed it because nothing is reloading, so
+	-- the ghost is placeable on the very frame the drop arms and both clocks start together.
+	local peerEntry = state.extras and tonumber(state.extras.entry) or nil
+	if peerEntry == 0xFC and not a.dropDone and (playerHistory.settle or 0) == 0 then
+		-- EITHER a tile jump, OR no previous position to compare against. The second half is the
+		-- CROSS-MAP fly, and leaving it out is why that case still blinked in while a same-town
+		-- fly fell correctly (the user, 2026-08-26: *"it looks fine when landing now, but only if
+		-- its flying to the same town"*). Arriving on a different map clears this peer's whole
+		-- bookkeeping -- ghosts, painted entries, and the last-known tile this comparison needs --
+		-- so there is no `flyX` left to jump FROM and the drop could never arm. A peer wearing
+		-- MAPSETUP_FLY that we have no previous position for has, by definition, just arrived
+		-- somewhere: that IS the landing.
+		if (not a.flyX) or a.flyArea ~= state.area_id
+			or (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
+			a.dropAt, a.dropDone = drawFrames, true
+		end
+	elseif peerEntry ~= 0xFC then
+		a.dropDone = nil -- the flag was shed; the next fly is a new drop
+	end
+	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
+	-- FLY TRACE, off unless MESHGHOST_CRYSTAL_FLY_TRACE is set. Three live cycles have now been
+	-- spent guessing which placement path a landing takes, so this prints the whole envelope
+	-- instead: when it armed and why, what the peer is reporting, whether the ghost object exists,
+	-- and what the engine has done with its step type. Edge-triggered on the phase so a drop is a
+	-- handful of lines, not 64.
+	if _G.MESHGHOST_CRYSTAL_FLY_TRACE and (dropT or peerEntry == 0xFC) then
+		local ph = dropT and ((dropT < 32) and "hide" or "fall") or "flagged"
+		if ENGINE.flyPh ~= ph or ENGINE.flyId ~= id then
+			ENGINE.flyPh, ENGINE.flyId = ph, id
+			local gg = ghosts[id]
+			logFile(string.format("fly: f=%d %s %s t=%s entry=%s area=%s at %d,%d "
+				.. "(was %s,%s area %s) ghost=%s step=%s yoff=%s armed=%s",
+				drawFrames, id, ph, tostring(dropT), tostring(peerEntry),
+				tostring(state.area_id), x, y, tostring(a.flyX), tostring(a.flyY),
+				tostring(a.flyArea), tostring(gg ~= nil),
+				gg and tostring(u8(gg.st_base + F_STEP_TYPE)) or "-",
+				gg and tostring(u8(gg.st_base + emote.F_YOFF)) or "-",
+				tostring(a.skyfallArmed)))
+		end
+	end
+	if dropT and (dropT >= 64 or dropT < 0) then
+		a.dropAt, dropT = nil, nil
+	end
+	-- UPDATED LAST, BELOW THE TRACE, because a trace that prints the value it has just written
+	-- says nothing -- the first version of this line printed `was 20,26` for a peer standing at
+	-- 20,26 and hid the arming condition completely.
+	--
+	-- THE AREA IS PART OF THE COMPARISON, not decoration. Map coordinates are map-LOCAL, so a
+	-- cross-town landing routinely reads as a SHORT hop -- fly from tile 10,5 on one map to 12,6
+	-- on another and the distance test sees three tiles and declines to arm. Comparing two
+	-- positions from different maps is meaningless in the first place; a changed area IS the jump.
+	a.flyX, a.flyY, a.flyArea = x, y, state.area_id
+	if dropT and dropT >= 32 then
+		-- -96 rising to 0; overrides the peer's own (zero) yoff for the painted tiers only. The
+		-- spawned ghost's write is guarded separately, because its engine owns the byte mid-fall.
+		peerYoff = -96 + math.floor(96 * math.sin(((dropT - 32) / 32) * (math.pi / 2)))
 	end
 
 	-- A ghost that is nowhere near the player gives its slots back, because the engine's own

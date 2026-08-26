@@ -1505,3 +1505,30 @@ which is the same reason the object carries no fly animation at all (`documentat
 **Sequenced after the drop lands**, deliberately: this queue already carries three unwatched fly
 fixes, and adding a graphics path on top of an unsettled animation is how a session stops being
 able to tell which change did what.
+
+### The cross-town landing, measured rather than guessed (fourth attempt)
+
+**Three live cycles had gone into guessing which placement path a landing takes; the fourth added a
+trace and the answer was not a path at all.** Two lines carry it:
+
+```
+f=3659  hide t=0   ghost=false  step=-   armed=nil
+f=3691  fall t=32  ghost=true   step=14  armed=true
+```
+
+**The envelope starts ~32 frames before a ghost can exist.** The drop arms at the landing, but on a
+cross-town fly the map is still loading then, so no object can be spawned for about half a second:
+the painted copy ran its hide and started falling while the engine tier had not begun, and the
+engine's own 64-frame fall then ran on from t=32. Two tiers, two clocks, half an envelope apart —
+*"the drawn ghost is just dropping down and not doing it properly, the spawned ghost is kinda just
+teleporting"*. A same-town fly never showed it because nothing reloads, so the ghost is placeable on
+the frame the drop arms and both clocks start together.
+
+**Fix: arm below the area gate and only once the world has settled**, so `t=0` is the first frame
+the peer is actually renderable here. One start frame for both tiers, which is what the envelope was
+always supposed to guarantee.
+
+**And the trace printed a value it had just written** — `was 20,26` for a peer standing at 20,26,
+because the position update sat above it — which hid the arming condition completely. Moved below.
+The rule it broke is in `CLAUDE.md` and had to be rediscovered anyway; the instrument was still
+decisive on the half it got right.
