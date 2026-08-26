@@ -20,7 +20,7 @@
 --     NPCs do not wear, and
 --   * FLAG1_WONT_DELETE set -- the adapter sets it on every ghost, and
 --   * standing on the same tile, not animating, for HOLD_SECONDS -- longer than the adapter's own
---     five-second rule, past which a ghost it still tracked would already have been released to
+--     one-minute idle rule, past which a ghost it still tracked would already have been released to
 --     the drawn tier. So anything still here is not being tracked by anyone.
 --
 -- The last condition is what makes this safe to run beside a live session: the ghost the adapter is
@@ -36,7 +36,15 @@
 --   line when finished -- there is no reason to leave a writing tool loaded.
 
 local DOMAIN = "WRAM"
-local HOLD_SECONDS = 8 -- comfortably past the adapter's own 300-frame release rule
+local HOLD_SECONDS = 75 -- comfortably past the adapter's own release rule, which is
+-- IDLE_FRAMES_BEFORE_PASSABLE = 3600 frames (one minute) since 2026-08-26.
+--
+-- THIS NUMBER IS A SAFETY BOUND, NOT A PREFERENCE, because this file WRITES. It was 8 seconds
+-- against a five-second rule; the moment that rule became a minute, 8 seconds meant this sweep
+-- would delete ghosts the adapter was still legitimately tracking -- a peer standing still for
+-- ten seconds is now perfectly normal and still owned. It must always sit ABOVE the adapter's
+-- rule with room to spare, so raising one without raising the other turns a tidy-up tool into a
+-- tool that destroys live ghosts.
 
 local function flat(cpu_addr)
 	if cpu_addr < 0xD000 then

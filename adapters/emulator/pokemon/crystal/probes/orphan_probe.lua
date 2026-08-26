@@ -282,7 +282,8 @@ local function tick()
 
 			-- THE VERDICT, and it comes from the adapter's own rule rather than from a hunch about
 			-- how long is too long. A ghost the adapter is still tracking cannot stand on one tile
-			-- for long: IDLE_FRAMES_BEFORE_PASSABLE is 300 frames, and at that point the peer stops
+			-- for long: IDLE_FRAMES_BEFORE_PASSABLE is 3600 frames -- ONE MINUTE since 2026-08-26,
+			-- five seconds before that, and this threshold moved with it -- at which point the peer stops
 			-- blocking and is handed to the drawn tier, which despawns the spawned object. So one
 			-- of OUR objects still sitting in the array well past that is, by construction, one
 			-- nothing is tracking any more.
@@ -292,7 +293,7 @@ local function tick()
 			-- byte is checked too: only a character doing NOTHING for that long is an orphan.
 			local action = u8(base + F_ACTION) or 0
 			local idleAction = (action == 0 or action == 1 or action == 2)
-			local orphan = looksOurs and idleAction and stillSecs > 6
+			local orphan = looksOurs and idleAction and stillSecs > 75
 
 			if orphan then
 				marks[#marks + 1] = "ORPHAN: past the 5s the adapter would have released it"

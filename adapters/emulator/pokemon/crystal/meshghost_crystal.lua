@@ -1436,7 +1436,36 @@ local GHOST_RANGE_TILES = 8
 --   IDLE. A peer that has not CHANGED TILE for this long stops blocking. Turning on the spot does
 --   not count as activity, deliberately -- the user's words: "include just facing directions as
 --   nothing... have you actually move a tile or something to be considered active".
-local IDLE_FRAMES_BEFORE_PASSABLE = 300 -- 5 seconds
+--
+--   RAISED FROM 5 SECONDS TO ONE MINUTE, 2026-08-26, on the user's request. Five seconds turned
+--   out to describe "stood still briefly" rather than "wandered off": a peer reading a sign, in a
+--   menu, or in a battle is idle by this test within moments, and demoting them costs the engine's
+--   own animation, occlusion and collision for as long as they stay put. A minute is much closer
+--   to the thing the rule is actually for.
+--
+--   WHAT RAISING IT DOES NOT COST, and this is why it is safe: the BLOCKED rule below is
+--   independent and unchanged, so a player pressing into an idle ghost still gets past in half a
+--   second. Doorways and chokepoints never depended on this timer.
+--
+--   WHAT IT DOES COST: an idle peer holds an engine object struct for a minute instead of five
+--   seconds. Crystal has 13, and RESERVED_STRUCTS_FOR_THE_GAME keeps 3 of them for the game's own
+--   cast -- so in a crowd, more peers will be on the drawn tier at any moment. That is the
+--   intended failure direction (a peer is painted rather than absent) and `crowd-limits.md` has
+--   the measured numbers, but a busy room is where to look if the game's own NPCs start going
+--   missing.
+--
+--   IT IS NOT COVERING FOR THE HANDOVER, and the order of events matters. The stale-overlay fix
+--   earlier the same day removed the persistent third character, and the user then reported the
+--   brief down-facing copy looked gone with it -- *"it looked like the 'always facing down' thing
+--   was fixed. thats why i suggested also increasing the timer now"*. So this is a design change
+--   made on top of a seam that appears healthy, not a rate change used to hide one.
+--
+--   What it does still do is make the demote/promote pair much rarer, so it is worth knowing that
+--   this timer now stands between anyone and that seam. "Looked fixed" is one session's
+--   observation, and from here it gets twelve times less exposure: if a handover artefact is ever
+--   suspected again, lower this FIRST to get the event rate back, rather than concluding from a
+--   quiet session that the seam is fine.
+local IDLE_FRAMES_BEFORE_PASSABLE = 3600 -- one minute
 --   BLOCKED. If the player is pressing INTO a ghost and not moving, that ghost stops blocking
 --   almost immediately. This is what makes doorways and route exits work without the adapter
 --   needing to know where they are: the map's warp table lives in ROM behind a bank pointer, and
@@ -1493,8 +1522,8 @@ local JOY = { addr = 0xFFA4, right = 0x01, left = 0x02, up = 0x04, down = 0x08 }
 local frameState = { px = 0, py = 0, standing = true, wantX = 0, wantY = 0 }
 
 local function beginPolicyFrame()
-	policyFrames = policyFrames + 1 -- ONCE per frame; incrementing per peer made "five seconds"
-	                                -- mean five seconds divided by the number of peers.
+	policyFrames = policyFrames + 1 -- ONCE per frame; incrementing per peer made the idle timeout
+	                                -- mean itself divided by the number of peers.
 	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
 	frameState.px, frameState.py = px, py
 	frameState.standing = (u8(OBJECT_STRUCTS + F_WALKING) or STANDING) == STANDING
@@ -1528,11 +1557,13 @@ local function shouldBlock(id, x, y, act)
 	-- DEV ONLY: nothing blocks, ever. Asked for 2026-08-23, while judging the drawn tier's motion:
 	-- *"im still unsure if we are just running into the spawned ghosts collission"* -- and the
 	-- suspicion is well founded, because both shipped escape hatches are unreachable for a ghost
-	-- that is WALKING. The idle rule needs five seconds on one tile and the shove rule needs the
-	-- player standing still and pressing into it; a moving ghost satisfies neither, so it blocks
-	-- for as long as it keeps moving. The user's own observation, which is the tell: *"it was
-	-- perfect while the spawned ghost was standing still"* -- a standing ghost goes passable after
-	-- five seconds and stops being in the way.
+	-- that is WALKING. The idle rule needs a full minute on one tile (five seconds until
+	-- 2026-08-26) and the shove rule needs the player standing still and pressing into it; a moving
+	-- ghost satisfies neither, so it blocks for as long as it keeps moving. The user's own
+	-- observation, which is the tell: *"it was perfect while the spawned ghost was standing
+	-- still"* -- a standing ghost eventually goes passable and stops being in the way. Note the
+	-- raised timer makes THIS flag matter more, not less: the wait it removes is now twelve times
+	-- longer.
 	--
 	-- A bumped player stutters no matter how good the ghost is, so this confound has to be
 	-- removable before any judgement of motion can be trusted.

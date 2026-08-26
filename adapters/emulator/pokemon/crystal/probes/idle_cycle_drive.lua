@@ -15,8 +15,8 @@
 -- The adapter's `IDLE_FRAMES_BEFORE_PASSABLE` is 300 frames (5s): a peer that has not changed tile
 -- for that long stops blocking and is handed to the drawn tier, which despawns its engine object.
 -- Moving again promotes it back and spawns a fresh one. That demote/promote pair is the event
--- under investigation, and this script produces one every ~15 seconds without anyone holding a
--- controller.
+-- under investigation, and this script produces one per cycle without anyone holding a
+-- controller. See REST_FRAMES for how long a cycle is and why it is tied to the adapter's rule.
 --
 -- RUN IT ON THE *OTHER* MACHINE FROM THE ONE YOU ARE WATCHING. The orphan appears on the client
 -- watching a PEER do this, so this drives instance A and the instrument runs on instance B. Both
@@ -43,7 +43,17 @@ local WALK_FRAMES = 60 -- 1s of held d-pad. DELIBERATELY SHORT OF THE RANGE CULL
 -- and the log filled with despawn/respawn pairs that were the cull, not the idle rule -- the exact
 -- transition under investigation, drowned in a different one that looks identical in a log.
 -- Four tiles keeps the whole cycle inside the peer's range so the only despawn is the one meant.
-local REST_FRAMES = 480 -- 8s, comfortably past the adapter's 300-frame idle rule.
+-- MUST STAY ABOVE THE ADAPTER'S IDLE RULE, and that rule MOVED on 2026-08-26: it went from 300
+-- frames (5s) to 3600 (one minute). This was 480 frames, chosen against the old rule -- the moment
+-- the rule changed, this script stopped crossing the threshold at all and would have produced
+-- clean-looking cycles in which the demote under investigation never once happened. A driver whose
+-- premise has silently expired is worse than no driver: it reports success.
+--
+-- The cost of the coupling is real -- a full cycle is now ~71 seconds instead of ~11, so a session
+-- produces far fewer demote/promote pairs. If that is too slow to iterate against, lower
+-- IDLE_FRAMES_BEFORE_PASSABLE in the adapter FOR THAT RUN and lower this with it; do not lower
+-- this one alone, which just removes the event.
+local REST_FRAMES = 4200 -- 70s, comfortably past the adapter's 3600-frame idle rule.
 local DIRECTIONS = MESHGHOST_IDLE_CYCLE_DIRS or { "Left", "Right" }
 
 -- WHERE THE PLAYER ACTUALLY IS, so the driver can check its own input landed instead of assuming.
