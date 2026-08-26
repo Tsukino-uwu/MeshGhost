@@ -1021,10 +1021,18 @@ local function getLocalState()
 		--
 		-- `emote` is the "!" and its family -- see playerEmote() for why it is a scan and a tile
 		-- match rather than a field. nil for no emote, which is nearly always.
+		-- `entry` is HOW THIS PLAYER LAST ENTERED THE MAP -- the engine's own MAPSETUP_* byte
+		-- (see ENGINE.entryAddr at the bottom of the file), latched at the warp and attached for
+		-- ~4s afterwards, which spans the Fly cutscene's own silence. A receiver that sees a
+		-- position jump wearing $FC (MAPSETUP_FLY) knows the peer arrived from the sky and can
+		-- say so; every other value is sent as-is and currently ignored. Opaque engine
+		-- vocabulary, exactly like `act`.
 		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
 			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
 			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
-			emote = ENGINE.playerEmote() },
+			emote = ENGINE.playerEmote(),
+			entry = (ENGINE.entryAt and emu.framecount() - ENGINE.entryAt < 240)
+				and ENGINE.entry or nil },
 	}
 end
 
@@ -5201,6 +5209,12 @@ function drawOverflow()
 					local poseFacing, poseWalking, poseStride, poseHide, poseRod =
 						facingFrames.pose(o.act, o.face, o.facing, moving,
 							o.stepLatch and (o.stepLatch - 1) or 0)
+					-- The first half of a fly-arrival drop: the engine hides an object through
+					-- StepFunction_Skyfall's wait phase (action 00 -> SetFacingStanding), so the
+					-- painted copies hide too. The falling half rides in o.yoff.
+					if o.drop and o.drop < 32 then
+						poseHide = true
+					end
 					local onHardware = false
 					if source.vram and o.only ~= "drawn" and not poseHide then
 						onHardware = oam.place(sx, sy, source.vram, palette, poseFacing,
@@ -5770,6 +5784,12 @@ local function applyPeerAction(g, act)
 	if act == nil or not ACTIONS.peer[act] then
 		return
 	end
+	-- A skyfall in progress owns the action byte: its wait phase holds action 00 (hidden) and its
+	-- fall writes OBJECT_ACTION_STEP itself. The peer meanwhile reports STAND, and writing that
+	-- mid-fall would swap the falling walk-cycle for a frozen standing pose.
+	if u8(g.st_base + F_STEP_TYPE) == 0x0E then
+		return
+	end
 	if u8(g.st_base + F_ACTION) ~= act then
 		w8(g.st_base + F_ACTION, act)
 	end
@@ -5890,7 +5910,7 @@ end
 -- zero, so a healthy session stays silent.
 local snaps = { n = 0, at = 0, runaways = 0 }
 
-local function teleportGhost(g, x, y)
+local function teleportGhost(g, x, y, skyfall)
 	-- A warp's path is not walkable; the queue would make the ghost walk toward where the peer
 	-- USED to be after a teleport placed it where the peer IS.
 	g.path, g.pathX, g.pathY = nil, nil, nil
@@ -5911,6 +5931,18 @@ local function teleportGhost(g, x, y)
 	local sx, sy = liveScreenCoords(x, y)
 	w8(g.st_base + F_SPRITE_X, sx)
 	w8(g.st_base + F_SPRITE_Y, sy)
+	if skyfall then
+		-- THE ENGINE'S OWN FALL, not an imitation of one. STEP_TYPE_SKYFALL (0x0e) is what the
+		-- Burned Tower floor gives the player (`Movement_skyfall`, engine/overworld/movement.asm):
+		-- 16 ticks hidden (action 00 -> the engine draws nothing), then 16 ticks falling from
+		-- -96px to the tile on the engine's own Sine, ending in STEP_TYPE_FROM_MOVEMENT -- which
+		-- reads this ghost's STANDING movement byte and parks it, exactly like a step that
+		-- finished normally. OBJECT_STEP_INDEX (0x1c) is the anon-jumptable cursor every
+		-- StepFunction runs on; zeroed so the fall starts from its first phase rather than
+		-- wherever the previous step type left the cursor.
+		w8(g.st_base + F_STEP_TYPE, 0x0E)
+		w8(g.st_base + 0x1C, 0)
+	end
 end
 
 -- Inbound state is peer-controlled: bound every number before it reaches a memory write.
@@ -6211,6 +6243,38 @@ local function renderRemote(id, state)
 		return
 	end
 
+	-- A PEER THAT ARRIVES BY FLY DROPS OUT OF THE SKY. `extras.entry` is the sender's own
+	-- MAPSETUP_* byte (see getLocalState); $FC is MAPSETUP_FLY. The user's call, 2026-08-26,
+	-- choosing between this and a plain teleport-in: the engine cannot show another character
+	-- FLYING (the fly itself is a private cutscene, `documentation.md`), but it can absolutely
+	-- drop one -- STEP_TYPE_SKYFALL is the same fall the Burned Tower floor gives the player.
+	--
+	-- The drop starts when the flag is worn AND the peer's tile jumps, which is the landing
+	-- reaching us; one drop per flag-wearing, so the peer walking away afterwards cannot
+	-- retrigger it. 64 frames total, matching the engine's own StepFunction_Skyfall at the
+	-- measured 2-frames-per-engine-tick: 16 ticks hidden, then 16 ticks falling from -96 to 0 on
+	-- a quarter sine -- the very curve the engine computes (`Sine` scaled by $60). The SPAWNED
+	-- ghost runs the real thing (see teleportGhost); this block drives the PAINTED copies, so the
+	-- tiers land in step with each other.
+	local peerEntry = state.extras and tonumber(state.extras.entry) or nil
+	if peerEntry == 0xFC and not a.dropDone then
+		if a.flyX and (math.abs(x - a.flyX) + math.abs(y - a.flyY)) > 3 then
+			a.dropAt, a.dropDone = drawFrames, true
+		end
+	elseif peerEntry ~= 0xFC then
+		a.dropDone = nil -- the flag was shed; the next fly is a new drop
+	end
+	a.flyX, a.flyY = x, y
+	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
+	if dropT and (dropT >= 64 or dropT < 0) then
+		a.dropAt, dropT = nil, nil
+	end
+	if dropT and dropT >= 32 then
+		-- -96 rising to 0; overrides the peer's own (zero) yoff for the painted tiers only. The
+		-- spawned ghost's write is guarded separately, because its engine owns the byte mid-fall.
+		peerYoff = -96 + math.floor(96 * math.sin(((dropT - 32) / 32) * (math.pi / 2)))
+	end
+
 	-- STEP_LAG: ARRIVE. The peer's destination tile as it reaches us, against the frame the PLAYER
 	-- committed to that same tile. Loopback only -- off it the peer is somebody else and there is no
 	-- COMMIT frame to subtract, which is a limit of the measurement and not of the fault.
@@ -6281,7 +6345,7 @@ local function renderRemote(id, state)
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
 		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote,
+			yoff = peerYoff, emote = peerEmote, drop = dropT,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
@@ -6320,7 +6384,7 @@ local function renderRemote(id, state)
 			state.extras and tonumber(state.extras.sprite) or nil, peerYoff, peerEmote }
 		local dO = (dv.n > 3) and dv[((dv.n - 3) % 4) + 1] or dv[(dv.n % 4) + 1]
 		overflow[ck] = { prog = dO[3], walking = dO[4], face = dO[5], act = dO[6], gait = dO[7],
-			yoff = dO[12], emote = dO[13],
+			yoff = (dropT and dropT >= 32) and peerYoff or dO[12], emote = dO[13], drop = dropT,
 			pixX = dO[8] and (dO[8] + COMPARE.drawn * 16), pixY = dO[9],
 			compare = true, only = "drawn", x = dO[1] + COMPARE.drawn, y = dO[2],
 			sprite = FORCE_PEER_SPRITE or dO[11],
@@ -6416,7 +6480,7 @@ local function renderRemote(id, state)
 		end
 		local prev = overflow[id]
 		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote,
+			yoff = peerYoff, emote = peerEmote, drop = dropT,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6610,7 +6674,7 @@ local function renderRemote(id, state)
 		else
 			local prev = overflow[id]
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote,
+			yoff = peerYoff, emote = peerEmote, drop = dropT,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -6836,7 +6900,11 @@ local function renderRemote(id, state)
 	-- ABOVE the idle branch, not inside it, because these are not all idle animations: a ledge hop
 	-- changes tile while the arc is running. Written every update rather than on entry, since the
 	-- value changes per engine tick and returns to 0 on its own at the end of each animation.
-	if peerYoff ~= nil and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
+	-- NOT while the engine's own skyfall owns the byte: the peer reports yoff 0 the whole time it
+	-- stands on its landing tile, and writing that zero mid-fall would pin the falling ghost to
+	-- the ground for the second half of its own drop.
+	if peerYoff ~= nil and u8(g.st_base + F_STEP_TYPE) ~= 0x0E
+		and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
 		w8(g.st_base + emote.F_YOFF, peerYoff & 0xFF)
 	end
 	if cx == x and cy == y then
@@ -6944,7 +7012,10 @@ local function renderRemote(id, state)
 		end
 		stepGhost(g, stepDir, peerGait)
 	else
-		teleportGhost(g, x, y) -- genuinely far (a warp, a long silence): snap, don't fake a walk
+		-- A far snap that arrives wearing MAPSETUP_FLY is a landing: the ghost falls onto the
+		-- tile instead of blinking onto it. `dropT ~= nil` rather than the raw flag, so the
+		-- engine fall and the painted copies' drop share one start frame and one envelope.
+		teleportGhost(g, x, y, dropT ~= nil) -- genuinely far (a warp, a long silence): snap, don't fake a walk
 	end
 end
 
@@ -7256,6 +7327,15 @@ OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartr
 EMOTES_ROM = (romClass == "known") and A.EMOTES_ROM or nil
 facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
+-- HOW THE PLAYER LAST ENTERED A MAP. `hMapEntryMethod` ($ff9f -- HRAM, unbanked, read via the
+-- System Bus, NOT the WRAM domain the address table above serves) is stamped with a MAPSETUP_*
+-- value at every map load and zeroed in the same routine that hands the overworld back
+-- (`engine/overworld/events.asm`; the address from our own build's pokecrystal.sym, the values
+-- from `constants/map_setup_constants.asm`). $FC is MAPSETUP_FLY, which is what lets a peer's
+-- ghost drop out of the sky when its player arrives by Fly. Gated on ROM identity like the
+-- fishing graphics: HRAM is as rearrangeable by a patch as WRAM, and this one is unmeasured on
+-- any other build. nil means peers on that build simply appear, which is what they did before.
+ENGINE.entryAddr = (romClass == "known") and 0xFF9F or nil
 
 -- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
 -- An address is measured per ROM build, but a build nobody has seen still gets vanilla's table by
@@ -7392,6 +7472,18 @@ end
 
 local function tick()
 	bridgeFrames = bridgeFrames + 1
+
+	-- LATCHED EVERY FRAME, because the byte lives only inside the map-load window -- set at the
+	-- warp, cleared by the same routine that sets wMapStatus back to HANDLE -- and getLocalState
+	-- refuses to sample anything during that window. By the time the player is sendable again the
+	-- byte is already zero, so the send side reads this latch instead of the byte. See the
+	-- ENGINE.entryAddr note at startup for what the byte is and why it is ROM-gated.
+	if ENGINE.entryAddr then
+		local m = memory.read_u8(ENGINE.entryAddr, "System Bus") or 0
+		if m ~= 0 then
+			ENGINE.entry, ENGINE.entryAt = m, emu.framecount()
+		end
+	end
 
 	if not connected then
 		if bridgeFrames < relayDownUntil then

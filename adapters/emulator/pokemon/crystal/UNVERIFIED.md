@@ -1390,3 +1390,38 @@ one.
 2. **Fly to the same town, walk around.** The ghost returns and stays.
 3. **The START menu and ordinary text boxes still clip** — the list must not have broken the
    single-rectangle cases confirmed 2026-08-19.
+
+## 2026-08-26 — Crystal: a peer that arrives by Fly now drops out of the sky (BUILT, unwatched)
+
+**The user's call**, choosing between this and a plain teleport-in, after pushing back on "the
+ghost can't do fly" — correctly: the parity rule stands, the missing piece was only a SIGNAL. What
+shipped, none of it watched:
+
+- **The signal**: `hMapEntryMethod` ($ff9f, HRAM) is the game's own record of how the player last
+  entered a map — `$FC` is `MAPSETUP_FLY` — set at the warp and zeroed before play resumes
+  (`engine/overworld/events.asm`). The adapter latches it per frame in `tick()` (getLocalState
+  cannot see it: the byte lives entirely inside the window it refuses to sample) and wears it on
+  the wire as `extras.entry` for 240 frames, which spans the fly cutscene's own send silence.
+  ROM-gated like the fishing rod: HRAM is as rearrangeable by a patch as WRAM.
+- **The spawned tier** runs the REAL fall: `teleportGhost` gains a `skyfall` arg and writes
+  `STEP_TYPE_SKYFALL` (0x0e, the Burned Tower floor-fall) plus a zeroed `OBJECT_STEP_INDEX`
+  (0x1c, the anon-jumptable cursor). The engine then does everything: 16 ticks hidden, 16 ticks
+  falling -96→0 on its own Sine, ending in FROM_MOVEMENT which parks the ghost normally. Two
+  guards keep the adapter's own hands off mid-fall: `applyPeerAction` and the peer-yoff write both
+  skip while the ghost's step type is 0x0e.
+- **The painted tiers** mirror it: a per-peer drop envelope (64 frames, matching the engine at the
+  measured 2 frames/tick) hides the copy for the first half via the existing `poseHide` path and
+  feeds the same quarter-sine into `yoff` for the second. One start frame for all tiers: the drop
+  begins when the flag is worn AND the tile jumps, once per flag-wearing.
+
+**Deliberately absent, so they are not reported as faults:** nothing on the DEPARTURE (the flying-
+off animation is a private cutscene even in the flyer's own game — `documentation.md`); the
+painted copy falls in its standing pose while the spawned one runs the engine's falling walk-cycle;
+a cross-map arrival where the ghost is freshly SPAWNED (not teleported) does not drop — the
+teleport path is the only trigger, on purpose, because promotion also spawns and must never drop.
+
+**What to watch, loopback:** fly anywhere; as the player lands, both copies should hold hidden
+~half a second, then fall onto their tiles together and park. A copy that blinks straight in is
+the flag not arriving; one pinned to the ground mid-fall is a guard not holding; a drop at any
+moment OTHER than a fly landing (a door, a promotion) is the trigger being too loose and matters
+most.
