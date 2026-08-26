@@ -2161,3 +2161,65 @@ at all is a different fault (the ROM gate declining on a non-vanilla build), not
 
 **Scope: vanilla V1.0.** Both reads are gated on `classifyRom()` returning `known`, so on any other
 build both are simply absent and this risk does not arise.
+
+## 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
+
+**Status: not implemented, not measured, not watched.** Every other action class is confirmed
+(walk, bump, turn, spin tiles, ice, surf, bike, fishing, Fly, ledge hops, Dig/Escape Rope). This is
+the one left. Logged at the user's request so it is a queue item rather than a line in the status
+index; **nobody has asked for it to be built.**
+
+**Read this before assuming it comes free with Dig.** They are grouped together in older notes and
+in `documentation.md`'s action table, and that grouping is misleading in the one way that matters:
+**Dig never touches `OBJECT_SPRITE_Y_OFFSET` and Teleport is mostly made of it.**
+
+### What the game does, from the source (not measured)
+
+`.TeleportScript` (`engine/events/overworld.asm`) is `playsound SFX_WARP_TO`,
+`applymovement PLAYER, .TeleportFrom` (a bare `teleport_from`), `special WarpToSpawnPoint`,
+`newloadmap MAPSETUP_TELEPORT`, `playsound SFX_WARP_FROM`,
+`applymovement PLAYER, .TeleportTo` (a bare `teleport_to`).
+
+**Departure — `StepFunction_TeleportFrom`, step type `0x0c`, two visible phases of 16 ticks each:**
+
+1. **Spin in place.** `OBJECT_ACTION_SPIN`, 16 ticks, no vertical movement.
+2. **Spin and RISE.** `OBJECT_JUMP_HEIGHT` starts at `$10` and increments each tick; the engine
+   feeds it through `Sine` scaled by `$60`, subtracts `$60`, and stores the result in
+   `OBJECT_SPRITE_Y_OFFSET`. 16 ticks, action still SPIN. It also clears `IN_GRASS_F`.
+   **The character spins upward off the screen.**
+
+**Arrival — `StepFunction_TeleportTo`, step type `0x0d`, four phases of 16 ticks each:**
+
+1. **Wait.** `OBJECT_ACTION_00`, 16 ticks — nothing of the character on screen yet.
+2. **Spin and DESCEND.** `OBJECT_JUMP_HEIGHT` from 0, same `Sine`/`$60` arithmetic, action SPIN.
+3. **Final spin** at ground level, action SPIN, 16 ticks.
+4. **Finish** — zeroes `OBJECT_STEP_FRAME` and `OBJECT_SPRITE_Y_OFFSET` and returns to
+   `STEP_TYPE_FROM_MOVEMENT`.
+
+**`MAPSETUP_TELEPORT` is `$F4`, and unlike Dig this IS a distinct value.** Dig arrives wearing
+`MAPSETUP_DOOR` ($F5) and cannot be told from an ordinary door; a Teleport arrival announces itself,
+the way `MAPSETUP_FLY` ($FC) does — and the adapter already latches that byte into `extras.entry`
+for ~4s after a warp. **So the signal a receiver would need is very probably already on the wire.**
+
+### What would likely be needed, and what is genuinely unknown
+
+**Probably little or nothing new on the SPAWNED tier.** The action byte is `SPIN` throughout every
+visible phase, which peers already send and `ACTIONS.peer` already accepts, and `yoff` has been on
+the wire since 2026-08-26. The interesting question is whether the rise/descent should be *copied*
+from `yoff` or *generated* by handing the ghost step type `0x0c`/`0x0d` — the ledge hop's lesson
+says generated, and that would also get the phase timing for free
+(`pitfalls/by-lesson.md`, "Run the engine's own step function").
+
+**Genuinely unknown, and the reason this is a queue item rather than a plan:**
+
+- **Whether the player's object carries any of this at all.** **Fly did not** — through an entire
+  Fly the player holds action 1, facing `$FF` and `yoff` 0, because the cutscene hides every
+  character and animates a separate sprite. Dig *did*. Teleport uses `applymovement PLAYER`, which
+  is the Dig shape rather than the Fly shape, **but that is a prediction and Fly is exactly why it
+  has to be measured before anything is built.**
+- **Whether Teleport is even reachable in a test session** — it needs the move on a party Pokémon.
+  A savestate at the decision point is what made Fly and Dig cheap; ask for one before grinding
+  live cycles (`_template/probes.md`).
+
+**The instrument already exists**: `probes/fly_probe.lua` answers "does the player's object carry
+this" in one run, read-only, and it is what settled both Fly and Dig.

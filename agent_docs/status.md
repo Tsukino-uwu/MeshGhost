@@ -29,8 +29,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   What the confirmation does not cover is the part to read. `crystal/VERIFIED.md`.
 - **A savestate load crashed the adapter; fixed, trigger not reproduced** — load the savestate that
   originally broke it. Second door into a dereference closed the same day. `crystal/UNVERIFIED.md`.
-- **Teleport is the LAST action class, unmeasured and unwatched** — and unlike Dig it DOES raise
-  the sprite (`StepFunction_TeleportFrom`). Nobody has asked for it. `crystal/documentation.md`.
+- **Teleport is the LAST action class: not built, not measured, not watched.** Unlike Dig it is
+  mostly `yoff`, and whether the player's object carries it is the Fly question. `crystal/UNVERIFIED.md`.
 - **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
   cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
   equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
