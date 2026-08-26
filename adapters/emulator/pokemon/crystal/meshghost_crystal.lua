@@ -953,18 +953,6 @@ function ENGINE.gaitGroups(base)
 	end
 end
 
--- The gait this cartridge may be TOLD to walk at, clamped to what its own table can index. A peer
--- faster than anything here is stepped at this ROM's fastest instead, and is meanwhile kept off
--- the spawned tier entirely (see `paceable` in renderRemote) so the clamp is a floor under a
--- decision already made rather than the thing a player sees.
-function ENGINE.gait(g)
-	if not GAIT_PX[g] then
-		return 1
-	end
-	local max = (ENGINE.gaits or 3) - 1
-	return g > max and max or g
-end
-
 -- The in-game gate. Established empirically in Phase 9, and BOTH terms were needed: wMapStatus
 -- alone lets a battle through, and adding the event/script flags makes it flicker every step.
 -- IS THE OVERWORLD THE THING ON SCREEN RIGHT NOW?
@@ -1058,6 +1046,28 @@ assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 -- its own.
 local GAIT_PX = { [0] = 1, [1] = 2, [2] = 4, [3] = 8 }
 local GAIT_TICKS = { [0] = 16, [1] = 8, [2] = 4, [3] = 2 }
+
+-- The gait this cartridge may be TOLD to walk at, clamped to what its own table can index. A peer
+-- faster than anything here is stepped at this ROM's fastest instead, and is meanwhile kept off
+-- the spawned tier entirely (see `paceable` in renderRemote) so the clamp is a floor under a
+-- decision already made rather than the thing a player sees.
+--
+-- IT LIVES HERE, DIRECTLY BELOW THE TABLE IT READS, AND THAT IS THE WHOLE POINT. It was first
+-- written 100 lines above, beside ENGINE.gaitGroups, where the two obviously belong together --
+-- and `GAIT_PX` is a local declared BELOW that point, so inside the function the name resolved to
+-- a nil GLOBAL. The file parsed, loaded, ran, and threw `attempt to index a nil value (global
+-- 'GAIT_PX')` on the first frame a peer actually stepped, which the dev loader answered by
+-- unloading the whole adapter mid-session (2026-08-26). `luac -p` cannot see this and never could:
+-- it proves the file parses, not that a name resolves. This file's own pitfall, hit for the fifth
+-- time -- see `agent_docs/pitfalls.md`, "a local declared BELOW a function is a nil global inside
+-- it". Anything reading GAIT_PX or GAIT_TICKS goes below this line or on a table.
+function ENGINE.gait(g)
+	if not GAIT_PX[g] then
+		return 1
+	end
+	local max = (ENGINE.gaits or 3) - 1
+	return g > max and max or g
+end
 
 -- Which gait an object is walking at, or nil while it is standing (the byte is $FF then and says
 -- nothing). The caller decides what a standing object should be reported as.
@@ -4012,8 +4022,34 @@ function drawOverflow()
 				source, palette = { rom = gfx }, pal
 				nFromRom = nFromRom + 1
 			else
-				local own = residentSpriteTile(u8(OBJECT_STRUCTS + F_SPRITE))
-				source = own and { vram = own } or nil
+				-- LAST RESORT: THIS MACHINE'S OWN PLAYER, AND FROM THE CARTRIDGE IF IT HAS TO BE.
+				--
+				-- This used to ask only `residentSpriteTile`, which needs `W_USEDSPRITES` -- and
+				-- that address is unmeasured on the Archipelago build, so on that build the
+				-- last-resort path was itself unavailable and a peer with no other source was
+				-- simply not drawn. It went unnoticed while `o.sprite` was always set, because
+				-- the ROM branch above caught every peer first. The `gfx` gate (see peerSprite in
+				-- renderRemote) drops a peer's sprite id when its cartridge numbers sprites
+				-- differently from ours, which made this the live path for the first time --
+				-- measured 2026-08-26 as `1 peers waiting, 0 drawn, 1 no sprite tiles`, once a
+				-- second, forever, with a peer standing right there.
+				--
+				-- The local player's own id is meaningful on our own ROM by construction, so the
+				-- cartridge can always answer for it wherever the sprite table has been measured.
+				-- That is a better fallback than the old one on EVERY build, not only that one:
+				-- "wear this machine's player" was always the intent, and residency was never the
+				-- thing that decided whether we could honour it.
+				local mine = u8(OBJECT_STRUCTS + F_SPRITE)
+				local own = residentSpriteTile(mine)
+				if own then
+					source = { vram = own }
+				else
+					local g, _, p = spriteGfxInRom(mine)
+					if g then
+						source, palette = { rom = g }, p
+						nFromRom = nFromRom + 1
+					end
+				end
 			end
 		end
 		if not source then nNoTile = nNoTile + 1 end
