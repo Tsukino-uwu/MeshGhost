@@ -12,23 +12,35 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
-- **Nothing is running.** The 2026-08-26 rig was relay (loopback, `-send-hz=100`) + core
-  (crystal, quic, `-interp=0ms -min-send=10ms`) + BizHawk on V1.0, with `MESHGHOST_COMPARE_TIERS`;
-  all shut down. **`run-relay-loopback.bat` has no `cd /d "%~dp0"` and its `..\meshghost-relay.exe`
+- **Nothing is running** (re-confirmed end of 2026-08-26: relay and core stopped and verified gone,
+  loader target left holding only `orphan_sweep.lua`). The rig was relay (loopback, `-send-hz=100`)
+  + core (crystal, quic, `-interp=0ms -min-send=10ms`) + BizHawk on V1.0, with
+  `MESHGHOST_COMPARE_TIERS`. **`run-relay-loopback.bat` has no `cd /d "%~dp0"` and its `..\meshghost-relay.exe`
   resolves outside the repo** — launch with the working directory set, or the exe directly.
 - **Two Go-side fixes are UNWATCHED** (2026-08-26): the adapter no longer throws on a map change
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
   `crystal/UNVERIFIED.md`.
-- **NEXT SESSION STARTS HERE: Dig/Teleport**, the last action class — `SPIN_FLICKER` (action 5)
-  has never been produced in any capture. SPIN and ICE are done (2026-08-26). `crystal/UNVERIFIED.md`.
+- **NEXT SESSION STARTS HERE: one look at ledge hops on the compare rig** — both ghosts arcing,
+  **both** with a ground shadow, no "!" on either, then cast a rod. `crystal/UNVERIFIED.md`.
+- **Dig/Escape Rope is MEASURED and matches the decomp on every number** (two captures, 2026-08-26).
+  They are one routine; `SPIN_FLICKER` (5) now produced; there is no Dig fall. `crystal/UNVERIFIED.md`.
+- **Ledge hops are rebuilt as real engine jumps with shadows on both tiers** — the drawn tier's
+  shadow has never been seen, and the user's read is hedged. `crystal/UNVERIFIED.md`.
+- **A savestate load crashed the adapter; fixed, trigger not reproduced** — load the savestate that
+  originally broke it. Second door into a dereference closed the same day. `crystal/UNVERIFIED.md`.
+- **Teleport remains unmeasured**, and unlike Dig it DOES raise the sprite. Nobody has asked for it.
 - **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
   cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
   equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
   ended the 2026-08-26 deadlock (`_template/probes.md`).
 - **Savestate slots on that rig:** 1 the user's, **7 FISHING (rod on SELECT)**, **8 SAME-TOWN fly**,
-  **9 CROSS-TOWN fly**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**, **3 the wrong-trainer
-  route**. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its
+  **9 REUSED TWICE ON 2026-08-26 — now a LEDGE HOP (walk down one tile); it was the cross-town fly,
+  then an Escape Rope**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**, **3 the
+  wrong-trainer route**. **A log from a savestate-driving probe only means anything against the slot
+  as it was that hour** — check before trusting an old one. **And a savestate BAKES IN any ghost
+  that was on screen when it was made**, so a driven run showing one character too many is the
+  state's fault, not the adapter's; `orphan_sweep.lua` or any door clears it. `crystal/UNVERIFIED.md`. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its
   hardcoded 8 would eat the fly state. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
@@ -89,8 +101,8 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
 - **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
   user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
-- **Crystal's remaining action classes** — spin tiles and Dig/Teleport. **Fly is DONE and confirmed
-  2026-08-26**, including the Pokemon and the menu gate. `crystal/VERIFIED.md`.
+- **Crystal's remaining action class is Teleport alone.** Spin, ice, fishing and Fly are confirmed;
+  Dig/Escape Rope is measured and awaiting a look. `crystal/VERIFIED.md`, `crystal/UNVERIFIED.md`.
 - **Fly is unwatched for a REMOTE peer** — every 2026-08-26 confirmation was loopback, where the
   peer's fly is also the watcher's. Needs two machines. `crystal/VERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump

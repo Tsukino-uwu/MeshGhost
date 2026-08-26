@@ -173,3 +173,21 @@ convention will do. The value shows up later: an unlabelled document invites a f
 "verify" a player-observed stage by finding a plausible-looking field, and to treat a measured
 field as proof the experience is reproduced. **Where only `[player]` exists, the code path is an
 open question, and the file should look like one.**
+
+## Document what a state SPAWNS, not only the pose it adopts
+
+A state is frequently more than the character's own bytes. Crystal's ledge hop writes the ordinary
+walking action and the ordinary walking gait — nothing in the character says "jump" — and then
+spawns a **separate object** for the shadow. Its `!` emote is the same shape, and Emerald's surfing
+spawns the Pokémon being ridden.
+
+So when this file describes a state, describe three things, not one:
+
+1. **The pose** — which fields hold what, and for how many engine ticks.
+2. **The field that actually identifies the state**, which is often not the obvious one. For a
+   Crystal hop it is the step type; the action and gait both say "walking".
+3. **Whatever else appears on screen** — a shadow, a mount, a rod, a dust puff, a trail — and how
+   the engine positions and ends it.
+
+A description that stops at the pose reads as complete and produces a half-finished character, and
+the missing half is the part a player notices first.

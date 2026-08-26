@@ -610,3 +610,79 @@ mechanisms reach the same screen, and only one of them is what ice uses.
 **Why it matters to anything driving a character:** the fast gait alone does not identify ice,
 because the bike shares group 2. A character that is moving with action STAND is gliding; one
 moving with action STEP is walking, at whatever pace its gait says.
+
+## Dig and Escape Rope are ONE routine, and a ledge hop is a two-tile jump (2026-08-26)
+
+### Dig and Escape Rope
+
+They are not two features. `EscapeRopeFunction` and `DigFunction` differ by a single byte written
+to `wEscapeRopeOrDigType` and then fall into the same `EscapeRopeOrDig`
+(`engine/events/overworld.asm`), which queues the same `.UsedDigOrEscapeRopeScript`. The only
+differences either way are which text box is shown and, for Escape Rope, a `SpecialKabutoChamber`
+call. **One measurement covers both**, and the Escape Rope is the cheaper one to produce.
+
+The script is `playsound SFX_WARP_TO`, `applymovement PLAYER, .DigOut`, `WarpToSpawnPoint`,
+`newloadmap MAPSETUP_DOOR`, `playsound SFX_WARP_FROM`, `applymovement PLAYER, .DigReturn`. So:
+
+| phase | movement | what the player's object holds |
+|---|---|---|
+| departure | `step_dig 32`, then `hide_object` | `Movement_step_dig` writes `OBJECT_ACTION_SPIN` (4) and `STEP_TYPE_SLEEP` with duration 32 — a plain counterclockwise spin in place for 32 engine ticks, **no flicker** |
+| arrival | `show_object`, `return_dig 32` | `Movement_return_dig` writes `STEP_TYPE_RETURN_DIG` (0x12), whose handler `StepFunction_DigTo` alternates `OBJECT_ACTION` between `SPIN` (4) and `SPIN_FLICKER` (5) on bit 0 of `OBJECT_STEP_DURATION` — one tick each, for 32 ticks |
+
+**Measured on a running game 2026-08-26**, twice independently: departure 62–64 video frames of
+action 4 with the facing cycling `0C -> 04 -> 08 -> 00` one direction per 4 ticks; arrival 63
+frames of 4/5 alternating in two-frame pairs. Both are exactly 32 engine ticks.
+
+**The flicker is on the ARRIVAL only.** `SPIN_FLICKER` never appears on the way out.
+
+**There is no vertical movement anywhere in a Dig.** `OBJECT_SPRITE_Y_OFFSET` read `+0` on every
+frame of both captures, which matches the source — nothing on the Dig path touches that byte.
+**Teleport is different and does raise the sprite**: `StepFunction_TeleportFrom`'s `.DoSpinRise`
+feeds `OBJECT_JUMP_HEIGHT` through `Sine` into `OBJECT_SPRITE_Y_OFFSET` over 16 ticks. Teleport is
+otherwise unmeasured.
+
+**The arrival wears `MAPSETUP_DOOR` ($F5), not a Dig-specific value** — from the outside it is
+indistinguishable from walking through an ordinary door.
+
+### A ledge hop
+
+`.TryJump` (`engine/overworld/player_movement.asm`) matches the tile's collision high nybble
+against `HI_NYBBLE_LEDGES` and the facing against `.ledge_table`, plays `SFX_JUMP_OVER_LEDGE`, and
+issues `STEP_LEDGE` — which `.DoStep` turns into the `jump_step` movement, i.e. `JumpStep`
+(`engine/overworld/movement.asm`).
+
+**Nothing about the character's own pose says "jump".** `JumpStep` writes
+`OBJECT_ACTION = OBJECT_ACTION_STEP` (2), the ordinary walking action, and
+`OBJECT_WALKING = STEP_WALK << 2 | dir`, the ordinary walking gait. **The only field that
+distinguishes a hop from a step is `OBJECT_STEP_TYPE`** — `STEP_TYPE_PLAYER_JUMP` (9) for the
+player, `STEP_TYPE_NPC_JUMP` (8) for anything else, chosen by whether the object is
+`wCenteredObject`.
+
+**The hop is two tiles run as one continuous motion**, at ordinary walking pace per tile.
+`StepFunction_PlayerJump` (and its NPC twin) has two phases: cross the first tile, `GetNextTile`,
+cross the second.
+
+**The arc is one curve spanning both tiles.** `UpdateJumpPosition` accumulates
+`OBJECT_JUMP_HEIGHT` by the step vector's speed each tick and writes
+`OBJECT_SPRITE_Y_OFFSET` from a fixed sixteen-entry table indexed by `height >> 1`:
+
+```
+-4, -6, -8, -10, -11, -12, -12, -12, -11, -10, -9, -8, -6, -4, 0, 0
+```
+
+Across 2 tiles x 8 ticks the height runs 0..32, so the index walks that table exactly once.
+**Half the curve happens on each tile** — which is why one tile alone only reaches index 7, the
+rising half, and never comes back down.
+
+**A hop also spawns a shadow, which is a separate map object.** `JumpStep` calls `SpawnShadow`;
+the character's own pose never carries it. Its template is
+`db $00, PAL_OW_EMOTE, SPRITEMOVEDATA_SHADOW` and `MovementFunction_Shadow` then parks it at
+`OBJECT_SPRITE_Y_OFFSET` = **14** below a character facing down or up and **12** facing left or
+right, takes its lifetime from the parent's own step duration, switches to
+`STEP_TYPE_TRACKING_OBJECT` to follow the hop, and deletes itself at the end. Its graphics are
+`JumpShadowGFX` — **one** tile, drawn twice by `FacingShadow` with the right half X-flipped, making
+a 16x8 smudge.
+
+**That tile is `$fc`, which the fishing rod also uses.** `data/sprites/emotes.asm` loads both
+`JumpShadowGFX` and `FishingRodGFX` to the same vtile on demand, so VRAM `$fc` holds the jump
+shadow normally and the rod while somebody is fishing.

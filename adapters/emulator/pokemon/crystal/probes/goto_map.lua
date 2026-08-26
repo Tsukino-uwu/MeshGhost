@@ -90,6 +90,16 @@ local DESTINATIONS = {
 	-- The control (New Bark = group 24) would have caught it before any of it was written.
 	blackthorn = { group = 5, number = 10, x = 34, y = 11,
 		label = "Blackthorn City (outside the Ice Path door)" },
+	-- THE FIRST GYM TOWN, on the user's request 2026-08-26. Group 10 / map 5 from
+	-- `constants/map_constants.asm` (`newgroup VIOLET ; 10`, `map_const VIOLET_CITY ... ; 5`), and
+	-- BOTH controls above reproduce on that same reading -- NEW_BARK is annotated 24 and ROUTE_40
+	-- is 22:1 -- so the annotated indexes are being trusted here rather than a re-derived count,
+	-- which is the mistake that put Ice Path at 5:61.
+	-- 31,26 is one tile SOUTH of the Pokecenter door (`maps/VioletCity.asm` warps it at 31,25):
+	-- outside the building rather than on the warp tile, and clear of every object_event on the
+	-- map -- the nearest, the wandering Lass, starts at 28,28.
+	violet = { group = 10, number = 5, x = 31, y = 26,
+		label = "Violet City (outside the Pokecenter)" },
 }
 
 local DOMAIN = "WRAM"

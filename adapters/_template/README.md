@@ -1453,3 +1453,38 @@ Measuring (3) first is the natural instinct and it cannot distinguish any of the
 Both in [../CLAUDE.md](../CLAUDE.md). In one line each: **never move a ghost faster than the game
 moves, or in units the game does not use**; and **a tier handover is a POSITION handover** — it
 needs the two tiers to agree on where the ghost is, plus a one-frame overlap.
+
+## Send the QUESTION, not the engine's own byte — and let the engine generate the answer
+
+Two rules that arrived together (Crystal's ledge hop, 2026-08-26) and are the same idea twice.
+
+**When a state has a step function, hand the ghost that step function rather than copying the
+fields it produces.** Crystal's hop was reproduced by walking the ghost and copying the peer's
+sprite Y offset over the wire. Writing one byte — the engine's own jump step type — instead gave
+both tiles, both halves of the arc, the correct pace and the ledge actually crossed, generated on
+the receiver's clock. **A transmitted animation can arrive late, be sampled at the send rate, and
+freeze on a dropped packet. A generated one has none of those failure modes**, because they exist
+only as properties of the copy.
+
+**Then the copy must STOP**, or you have two writers on one field — see the hard rule above. And
+condition the stand-off on *both* the peer reporting the state and the ghost's own field, because
+the two are not simultaneous: the peer enters the state several frames before its ghost is issued
+the equivalent, and copying in that window is visible.
+
+**Make the wire field a QUESTION rather than the peer's raw value, whenever the two sides need
+different values.** Crystal's player hops on step type 9, which drives the camera; a ghost needs
+step type 8. Had the wire carried the raw step type, copying it across would have been the obvious
+thing to do and would have dragged the view around. Sending "is this peer hopping?" makes the
+copy-the-byte bug *unavailable* rather than merely discouraged. Reserve raw opaque bytes for the
+cases where both sides genuinely want the same value.
+
+## A flag that GROUPS things is not a flag that IDENTIFIES one of them
+
+Before using any flag as an identity test, grep the table that assigns it and ask **"what else sets
+this?"** Crystal's `EMOTE_OBJECT` reads as "this is an emote" and is set by the emote, the jump
+shadow and the screen shake alike — it means "attached decoration object". Scanning on it put a
+"!" over every hopping ghost.
+
+**Prefer a field the engine MAINTAINS to one it merely initialises.** The discriminator here was
+the action byte, rewritten every tick by each object's own movement function, so it cannot drift —
+unlike anything written once at spawn.

@@ -247,6 +247,14 @@ local ADDRESSES = {
 		-- is there.
 		FISHING_GFX_ROM = 0xB84F2,
 		FISHING_GFX_ROM_KRIS = 0xB8582,
+		-- `JumpShadowGFX`, 41:4550 -> 0x41 * 0x4000 + (0x4550 - 0x4000). ONE tile, and the
+		-- neighbour of `FishingRodGFX` at 41:4560 -- which is not a coincidence:
+		-- `data/sprites/emotes.asm` loads BOTH to the same vtile $fc on demand, so VRAM $fc holds
+		-- the jump shadow normally and the fishing rod while somebody is fishing. That is exactly
+		-- why this is read from the cartridge rather than from VRAM: a peer hopping a ledge while
+		-- THIS machine's player has a rod out would otherwise cast a fishing rod for a shadow.
+		-- VANILLA V1.0 ONLY, gated on classifyRom() below, same as the fishing sheet.
+		SHADOW_GFX_ROM = 0x104550,
 		-- Emotes, 05:444d -> 0x5 * 0x4000 + (0x444d - 0x4000). Twelve six-byte entries --
 		-- `dw graphics, db length, db bank, dw vtile` (`data/sprites/emotes.asm`) -- so this
 		-- table is how a receiver turns "emote number N" back into pixels. The "!" over a
@@ -417,6 +425,20 @@ local emote = {
 	LIFT = 16, -- how far above the character's own tile the box sits
 	rom = nil, -- the Emotes table, resolved at startup from the address block
 	gfx = {}, -- emote index -> flat ROM offset of its graphics, memoised
+
+	-- THE LEDGE HOP AND ITS SHADOW hang here too, and for the same reason: this file is at Lua's
+	-- 200-local ceiling for a main chunk, so a feature gets one table rather than six names.
+	-- They belong beside the emote rather than anywhere else because they are the SAME KIND of
+	-- thing -- the jump shadow is a separate map object flagged EMOTE_OBJECT, exactly like the
+	-- "!", which is why the emote scan used to mistake one for the other.
+	F_STEP_INDEX = 0x1C, -- OBJECT_STEP_INDEX, the anon-jumptable index (which phase runs next)
+	F_JUMP_HEIGHT = 0x1F, -- OBJECT_JUMP_HEIGHT, what UpdateJumpPosition accumulates
+	-- `FacingShadow` (data/sprites/facings.asm): two sprites, both ABSOLUTE_TILE_ID $fc, at
+	-- (y 0, x 0) and (y 0, x 8) with the second X-flipped -- a 16x8 smudge.
+	-- `MovementFunction_Shadow` puts it at OBJECT_SPRITE_Y_OFFSET = 1 * TILE_WIDTH + 6 = 14 for a
+	-- character facing DOWN or UP and 1 * TILE_WIDTH + 4 = 12 facing LEFT or RIGHT, with an X
+	-- offset of 0. Confirmed live 2026-08-26: the shadow object under a downward hop read y=+14.
+	SHADOW_DY = { [0] = 14, [1] = 14, [2] = 12, [3] = 12 },
 }
 local STANDING = 255
 
@@ -1052,9 +1074,23 @@ local function getLocalState()
 		-- position jump wearing $FC (MAPSETUP_FLY) knows the peer arrived from the sky and can
 		-- say so; every other value is sent as-is and currently ignored. Opaque engine
 		-- vocabulary, exactly like `act`.
+		-- `jump` is TRUE WHILE THIS PLAYER IS HOPPING A LEDGE, and it is the one thing about a hop
+		-- that is not already on the wire. `JumpStep` (engine/overworld/movement.asm) writes
+		-- OBJECT_ACTION_STEP and the ordinary walking gait, so `act` says "walking" and `gait` says
+		-- "walking" -- the ONLY field that distinguishes a hop from a step is OBJECT_STEP_TYPE,
+		-- which is STEP_TYPE_PLAYER_JUMP (9) for the player's own object across both tiles.
+		--
+		-- Sent as a bool rather than the raw step type on purpose. The receiver does not want the
+		-- peer's step type -- it must never write 9 onto a ghost, because that is the PLAYER's jump
+		-- and `StepFunction_PlayerJump` drives wPlayerStepFlags and the camera. What it wants is
+		-- STEP_TYPE_NPC_JUMP (8), the same animation for an object that is not the centred one.
+		-- So the wire carries the QUESTION ("is this peer hopping?") and each side answers it in
+		-- its own vocabulary, which is what keeps `act`-style opacity without inviting a
+		-- copy-the-byte bug.
 		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
 			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
 			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
+			jump = ((u8(base + F_STEP_TYPE) or 0) == 9) or nil,
 			emote = ENGINE.playerEmote(),
 			entry = (ENGINE.entryAt and emu.framecount() - ENGINE.entryAt < 240)
 				and ENGINE.entry or nil,
@@ -1674,8 +1710,28 @@ function ENGINE.playerEmote()
 	local found = false
 	for i = 1, NUM_OBJECT_STRUCTS - 1 do
 		local b = OBJECT_STRUCTS + i * OBJECT_LENGTH
+		-- EMOTE_OBJECT IS NOT "THIS IS AN EMOTE" -- it is "this is an attached decoration object",
+		-- and THREE of them set it. `data/sprites/map_objects.asm` gives SPRITEMOVEDATA_SHADOW,
+		-- _EMOTE and _SCREENSHAKE all the same flags1 byte
+		-- (`WONT_DELETE | FIXED_FACING | SLIDING | EMOTE_OBJECT`), so the flag plus "on the
+		-- player's tile" matched the JUMP SHADOW as readily as the "!". The user, watching a ledge
+		-- hop on the compare rig 2026-08-26: *"the drawn ghost is doing a '!' emote while jumping,
+		-- its not supposed to do that"* -- `SpawnShadow` puts a shadow object on the hopping
+		-- character's own tile for the length of the hop, this scan called it an emote, and the
+		-- tile match below then named whichever emote happened to be resident.
+		--
+		-- THE ACTION BYTE IS THE DISCRIMINATOR, and it is maintained rather than merely initial:
+		-- `MovementFunction_Emote` writes OBJECT_ACTION_EMOTE (8) and `MovementFunction_Shadow`
+		-- writes OBJECT_ACTION_SHADOW (7) every time each runs
+		-- (`engine/overworld/map_objects.asm`), so this is a live field and not a value that could
+		-- have been overwritten since spawn. Screenshake's object holds OBJECT_ACTION_00.
+		--
+		-- Note this is the SAME fact that made `OBJECT_ACTION_EMOTE` wrong to write onto a ghost's
+		-- body (see ACTIONS.peer): the emote is a separate object, not a pose. It was read there
+		-- and not here, which is why the send side kept a bug the receive side had already fixed.
 		if (u8(b + F_SPRITE) or 0) ~= 0
-			and ((u8(b + F_FLAGS1) or 0) & 0x80) ~= 0 -- EMOTE_OBJECT
+			and ((u8(b + F_FLAGS1) or 0) & 0x80) ~= 0 -- EMOTE_OBJECT: decoration, not necessarily "!"
+			and (u8(b + F_ACTION) or 0) == 8 -- OBJECT_ACTION_EMOTE, the half that means emote
 			and u8(b + F_MAP_X) == px and u8(b + F_MAP_Y) == py then
 			found = true
 			break
@@ -5651,9 +5707,36 @@ function drawOverflow()
 									sx + part.dx, sy - 16 + part.dy, ec)
 							end
 						end
+						-- THE SHADOW UNDER A HOPPING PEER, and it is drawn HERE -- before the yoff
+						-- is applied and before the character -- for two reasons that are both
+						-- about what a shadow IS.
+						--
+						-- BEFORE THE YOFF: the shadow stays on the GROUND while the character
+						-- rises off it. In the engine it is a separate object that never gets the
+						-- hop's sprite offset, so its screen position is the character's TILE
+						-- position -- which is exactly what `sy` still holds on this line and
+						-- stops holding on the next. Adding the arc to the shadow too would give
+						-- a shadow glued to the character's feet, which reads as no hop at all.
+						--
+						-- BEFORE THE CHARACTER: `SPRITEMOVEDATA_SHADOW`'s flags2 is LOW_PRIORITY,
+						-- so the engine draws it behind. The painted tier has no priority bits, so
+						-- draw order IS priority here.
+						--
+						-- Two sprites from ONE tile: `FacingShadow` (data/sprites/facings.asm) is
+						-- `db 0, 0, ABSOLUTE_TILE_ID, $fc` and `db 0, 8, ABSOLUTE_TILE_ID |
+						-- OAM_XFLIP, $fc` -- the same tile twice, the right half mirrored, making
+						-- a 16x8 smudge. Read from the cartridge rather than VRAM $fc: see
+						-- SHADOW_GFX_ROM for the reason (a local player fishing overwrites it).
+						if o.jump and facingFrames.shadowRom then
+							local sc = paletteColors(emote.PAL) -- PAL_OW_EMOTE, the shadow's own
+							local sdy = emote.SHADOW_DY[poseFacing] or emote.SHADOW_DY[0]
+							drawRows(decodeRomTile(facingFrames.shadowRom, 0), sx, sy + sdy, sc)
+							drawRows(decodeRomTile(facingFrames.shadowRom, 0),
+								sx + 8, sy + sdy, sc, true)
+						end
 						-- OBJECT_SPRITE_Y_OFFSET is ADDED to the character's screen position by
 						-- the engine, and screen y grows downward, so it is added here too. This
-						-- is the bite wiggle, the Fly fall and the Dig/Teleport drop, all of them,
+						-- is the bite wiggle, the Fly fall and a ledge hop's arc, all of them,
 						-- because the engine expresses all of them in this one byte.
 						if o.yoff and o.yoff ~= 0 then
 							sy = sy + o.yoff
@@ -6101,7 +6184,79 @@ local function applyPeerAction(g, act)
 	end
 end
 
-local function stepGhost(g, dir, gait)
+-- THE SHADOW UNDER A HOPPING GHOST -- a real map object, built the way the engine builds its own.
+--
+-- `adapters/CLAUDE.md`: *"if the game spawns something alongside it, the ghost needs that too"*,
+-- and it names shadows. The player's hop gets one from `SpawnShadow`, which `JumpStep` calls -- and
+-- the ghost's hop is written straight into OBJECT_STEP_TYPE, so it bypasses that call and would
+-- otherwise sail over the ledge casting nothing. **The shadow is not decoration; it is the half of
+-- a hop that tells you the character is off the ground.**
+--
+-- BUILT FROM `CopyTempObjectToObjectStruct` (engine/overworld/player_object.asm), field for field,
+-- rather than from the template it is fed -- that routine is what actually decides what a temp
+-- object holds, and the template is only three of its bytes. Every value below is cited:
+--   * SPRITE / MAP_OBJECT_INDEX = $ff. `CopyTempObjectData` loads -1 into both. Confirmed live
+--     2026-08-26: the shadow under the player's own hop read `s=255 m=FF`.
+--   * MOVEMENT_TYPE = $1b, SPRITEMOVEDATA_SHADOW. Derived from `constants/map_object_constants.asm`
+--     and CHECKED AGAINST A CONTROL: the same derivation gives STANDING_DOWN..RIGHT = $06..$09,
+--     which is exactly what `SPRITEMOVEDATA_STANDING_BY_DIR` in this file has always held.
+--   * FLAGS1 = $8e = WONT_DELETE|FIXED_FACING|SLIDING|EMOTE_OBJECT, FLAGS2 = $01 = LOW_PRIORITY,
+--     both from `data/sprites/map_objects.asm`'s SPRITEMOVEDATA_SHADOW block via
+--     `CopySpriteMovementData`. The live shadow read `f2=01`, which confirms the bit order.
+--   * PALETTE = 5, PAL_OW_EMOTE, from the same block.
+--   * STEP_TYPE = 0 (STEP_TYPE_RESET) and FACING = STANDING: the two the copy routine writes last,
+--     and the reset is what hands the object to `MovementFunction_Shadow` on the next tick.
+--
+-- AND THEN THE ENGINE DOES THE REST, which is the point of building a real object instead of
+-- painting one. `MovementFunction_Shadow` sets the action, parks the sprite at the right offset
+-- for the parent's direction, takes its LIFETIME from the parent's own step duration, switches to
+-- STEP_TYPE_TRACKING_OBJECT so it follows the hop, and deletes itself at the end. None of that is
+-- reimplemented here and none of it can drift from the game.
+--
+-- OBJECT_RANGE IS AN OBJECT-STRUCT INDEX, NOT A MAP-OBJECT ONE. `InitMovementField1dField1e` reads
+-- it and calls `GetObjectStruct`, which indexes `wObjectStructs` -- so the CONSUMER settles it.
+-- Worth stating because `CopyTempObjectData` fills that field from `hMapObjectIndex`, whose name
+-- says the opposite, and because the engine's own shadows are spawned on the PLAYER, where struct
+-- and map object are both 0 and the mistake is invisible. A ghost is struct 12 / map object 15,
+-- where it is not.
+--
+-- DECLINES QUIETLY WHEN THE MAP IS FULL. A shadow costs an object struct, exactly as it does for
+-- the game itself -- `SpawnShadow` calls `FindFirstEmptyObjectStruct` and gives up if there is
+-- none. A crowded map therefore drops the shadow before it drops a character, which is the right
+-- way round.
+emote.shadow = function(g)
+	local st = freeStruct()
+	if not st then
+		return -- no room; the hop still happens, without a shadow, exactly as the engine degrades
+	end
+	local b = OBJECT_STRUCTS + st * OBJECT_LENGTH
+	-- Zeroed first. `freeStruct` only promises the sprite byte is clear, so every other field is
+	-- whatever the last occupant left -- and this object is about to be handed to the engine.
+	for off = 0, OBJECT_LENGTH - 1 do
+		w8(b + off, 0)
+	end
+	w8(b + F_SPRITE, 0xFF)
+	w8(b + F_MAP_OBJECT_INDEX, 0xFF)
+	w8(b + 0x02, 0x00) -- OBJECT_SPRITE_TILE
+	w8(b + 0x03, 0x1B) -- OBJECT_MOVEMENT_TYPE = SPRITEMOVEDATA_SHADOW
+	w8(b + F_FLAGS1, 0x8E)
+	w8(b + 0x05, 0x01) -- OBJECT_FLAGS2 = LOW_PRIORITY
+	w8(b + F_PALETTE, emote.PAL)
+	w8(b + F_FACING, STANDING)
+	local sx, sy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
+	for _, off in ipairs({ F_MAP_X, F_LAST_MAP_X, F_INIT_X }) do
+		w8(b + off, sx)
+	end
+	for _, off in ipairs({ F_MAP_Y, F_LAST_MAP_Y, F_INIT_Y }) do
+		w8(b + off, sy)
+	end
+	w8(b + 0x20, g.st) -- OBJECT_RANGE: the struct this shadow tracks
+	-- LAST, because it is what starts the object running -- everything above has to be in place
+	-- before the engine looks at it.
+	w8(b + F_STEP_TYPE, 0) -- STEP_TYPE_RESET
+end
+
+local function stepGhost(g, dir, gait, jumping)
 	local x = (u8(g.st_base + F_MAP_X) or 0) + ((dir == 3) and 1 or (dir == 2) and -1 or 0)
 	local y = (u8(g.st_base + F_MAP_Y) or 0) + ((dir == 0) and 1 or (dir == 1) and -1 or 0)
 
@@ -6155,6 +6310,37 @@ local function stepGhost(g, dir, gait)
 	w8(g.st_base + F_ACTION, 2)
 	w8(g.st_base + F_MAP_X, x)
 	w8(g.st_base + F_MAP_Y, y)
+
+	-- A LEDGE HOP IS A REAL ENGINE JUMP, NOT A WALK WITH A COPIED ARC.
+	--
+	-- `StepFunction_NPCJump` (step type 8) is self-contained and does the WHOLE hop: `.Jump`
+	-- crosses the first tile calling `UpdateJumpPosition` every tick, calls `GetNextTile` to take
+	-- the second, `.Land` crosses that one the same way, and it hands itself back to
+	-- STEP_TYPE_FROM_MOVEMENT at the end. So two tiles, both halves of the arc, and the correct
+	-- pace -- from the game's own code, on the game's own clock.
+	--
+	-- THE ARC IS NOT COPIED, IT IS GENERATED. `UpdateJumpPosition` accumulates OBJECT_JUMP_HEIGHT
+	-- by the step vector's speed and indexes `.y_offsets` with `height >> 1`, so across 2 tiles x 8
+	-- ticks the height runs 0..32 and the index walks the full sixteen-entry table exactly once.
+	-- **That is why a hop cannot be assembled out of two one-tile jumps**: one tile only reaches
+	-- index 7, which is the rising half ending at -12 and never coming down.
+	--
+	-- STEP_TYPE_NPC_JUMP (8), NEVER THE PLAYER'S 9. `StepFunction_PlayerJump` is a different
+	-- function that drives `wPlayerStepFlags` and is the step type the CAMERA follows -- the same
+	-- trap already recorded above for step type 6 versus 2, which dragged the whole view around
+	-- when a ghost was given the player's walking type. The peer sends "is this a hop", not its own
+	-- step type, precisely so this byte cannot be copied across by accident.
+	--
+	-- OBJECT_STEP_INDEX (0x1c) MUST BE ZEROED. It is the anon-jumptable index
+	-- (`ObjectStep_AnonJumptable`), i.e. which of `.Jump`/`.Land` runs next. A ghost that has been
+	-- through any other two-phase step function still holds that function's index, and starting a
+	-- hop at `.Land` gives one tile and half an arc.
+	if jumping then
+		w8(g.st_base + emote.F_JUMP_HEIGHT, 0)
+		w8(g.st_base + emote.F_STEP_INDEX, 0)
+		w8(g.st_base + F_STEP_TYPE, 8)
+		emote.shadow(g)
+	end
 	-- THE 2px COMPENSATION IS GONE, and the re-anchor is what proved it wrong.
 	--
 	-- This used to add one step vector to the sprite's SCREEN position here, on the reasoning that
@@ -6498,6 +6684,10 @@ local function renderRemote(id, state)
 	local peerFace = state.extras and tonumber(state.extras.face) or nil
 	-- The engine's own vertical nudge, signed. A peer on an older build sends nothing, which reads
 	-- as nil and leaves the ghost exactly where it was drawn before.
+	-- IS THIS PEER HOPPING A LEDGE. See the send side for why this is a question rather than the
+	-- peer's own step type: the receiver must write STEP_TYPE_NPC_JUMP (8) and never the player's
+	-- STEP_TYPE_PLAYER_JUMP (9), which drives the camera.
+	local peerJump = state.extras and state.extras.jump and true or false
 	local peerYoff = state.extras and tonumber(state.extras.yoff) or nil
 	if peerYoff and peerYoff > 127 then peerYoff = peerYoff - 256 end
 	-- CLAMPED TO THE ENGINE'S OWN ENVELOPE, once, here, so both tiers get the same number.
@@ -6782,7 +6972,7 @@ local function renderRemote(id, state)
 		local hk = COMPARE.hwKey(id)
 		local hprev = overflow[hk]
 		overflow[hk] = OAM_TIER and { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
+			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			-- The pixel position is ABSOLUTE, so a copy placed elsewhere needs it moved by the same
 			-- whole tiles or it paints at the peer's real location instead of this copy's.
 			pixX = peerPixX and (peerPixX + COMPARE.hw * 16), pixY = peerPixY,
@@ -6818,10 +7008,10 @@ local function renderRemote(id, state)
 		dv.n = dv.n + 1
 		dv[(dv.n % 4) + 1] = { baseX, y, peerProg, peerWalking, peerFace, peerAct, peerGait,
 			peerPixX, peerPixY, state.orientation,
-			state.extras and tonumber(state.extras.sprite) or nil, peerYoff, peerEmote }
+			state.extras and tonumber(state.extras.sprite) or nil, peerYoff, peerEmote, peerJump }
 		local dO = (dv.n > 3) and dv[((dv.n - 3) % 4) + 1] or dv[(dv.n % 4) + 1]
 		overflow[ck] = { prog = dO[3], walking = dO[4], face = dO[5], act = dO[6], gait = dO[7],
-			yoff = dO[12], emote = dO[13], drop = dropT, flyMon = a.flySpecies,
+			yoff = dO[12], emote = dO[13], jump = dO[14], drop = dropT, flyMon = a.flySpecies,
 			pixX = dO[8] and (dO[8] + COMPARE.drawn * 16), pixY = dO[9],
 			compare = true, only = "drawn", x = dO[1] + COMPARE.drawn, y = dO[2],
 			sprite = FORCE_PEER_SPRITE or dO[11],
@@ -6917,7 +7107,7 @@ local function renderRemote(id, state)
 		end
 		local prev = overflow[id]
 		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
+			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 			facing = ORIENTATION_TO_DIR[state.orientation],
@@ -7118,7 +7308,7 @@ local function renderRemote(id, state)
 		else
 			local prev = overflow[id]
 			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
-			yoff = peerYoff, emote = peerEmote, drop = dropT, flyMon = a.flySpecies,
+			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
 				facing = ORIENTATION_TO_DIR[state.orientation],
@@ -7160,10 +7350,30 @@ local function renderRemote(id, state)
 		overflow[id] = nil
 	end
 	if g and not stillOurs(g) then
-		-- A map load or a battle rebuilt the array under us. Drop the entry and spawn again
-		-- below; the alternative is writing steps into whatever the game put in that slot.
+		-- A map load, a battle, OR A SAVESTATE LOAD rebuilt the array under us. Drop the entry
+		-- rather than write steps into whatever the game has put in that slot.
 		log("MeshGhost: " .. id .. "'s slot is the game's again — respawning")
 		ghosts[id], g = nil, nil
+		-- AND RETURN, BECAUSE EVERYTHING BELOW THIS POINT DEREFERENCES `g`.
+		--
+		-- This block's own comment used to say "and spawn again below". There is no spawn below --
+		-- the promotion lives in the `if not g then` block ABOVE, which has already been passed by
+		-- the time this runs. So clearing `g` and falling through walked straight into
+		-- `u8(g.st_base + F_WALKING)` with `g` nil, which throws, **and a tick error makes the dev
+		-- loader unload the adapter** -- so the visible symptom is not a wrong ghost, it is every
+		-- ghost vanishing at once and the script appearing to have died. The user, 2026-08-26:
+		-- *"think me reloading a savestate broke the script ?"* -- it did, exactly here.
+		--
+		-- Returning hands the peer to the next frame, which enters `if not g then` and either
+		-- promotes it cleanly or paints it on the drawn tier. That costs at most one frame in which
+		-- the peer is not drawn, on a frame where the game has just rebuilt its whole object array
+		-- anyway.
+		--
+		-- Related but NOT the same fix as the map-change crash closed earlier on 2026-08-26: that
+		-- one stopped the adapter throwing when a map change invalidated a slot, and this is the
+		-- second door into the same room. Two paths reaching one unguarded dereference is the
+		-- shape to look for if a third appears.
+		return
 	end
 	-- A peer's sprite is not fixed for the session: it changes with their state (on a bike, and
 	-- with the gender the sprite tables are keyed on), and what is RESIDENT changes under us on
@@ -7268,6 +7478,56 @@ local function renderRemote(id, state)
 		if glide ~= ((fl & 0x08) ~= 0) then
 			w8(g.st_base + F_FLAGS1, glide and (fl | 0x08) or (fl & ~0x08))
 		end
+	end
+
+	-- THE PEER'S VERTICAL NUDGE, ON THE SPAWNED GHOST'S OWN OBJECT.
+	--
+	-- `emote.F_YOFF` was defined when `yoff` went on the wire for fishing (2026-08-26) and then never
+	-- read: only the drawn tier applied the byte, by adding it to the sprite's screen y. So a
+	-- spawned ghost showed no bite wiggle, no Fly fall and no ledge-hop arc -- it stood perfectly
+	-- still through every one of them while the painted copy beside it moved.
+	--
+	-- One write is all it takes because the engine already reads this field when it builds OAM:
+	-- `_UpdateSprites` adds OBJECT_SPRITE_Y_OFFSET to OBJECT_SPRITE_Y (map_objects.asm), and
+	-- nothing on a ghost's step path writes it back -- `StepFunction_NPCWalk`, which is the step
+	-- type 2 a ghost walks on, calls `Stubbed_UpdateYOffset`, which is dummied out to a bare `ret`.
+	--
+	-- ABOVE THE MID-STEP RETURN, WHICH IS THE PART THAT WAS WRONG. This write was moved above the
+	-- IDLE branch when it was added, with a comment saying why -- "a ledge hop changes tile while
+	-- the arc is running" -- and that was the right reason applied to the wrong branch. The
+	-- `walking ~= STANDING` return below it is a HARD return, so from the moment a ghost started
+	-- moving the byte stopped being written entirely, which is precisely the window a hop's arc
+	-- occupies.
+	--
+	-- MEASURED, 2026-08-26 (`probes/ledge_drive.lua` + `probes/fly_probe.lua`), one hop:
+	--   player yoff  -4 -6 -8 -8 -10 -11 -11 -12 -12 -12 -11 -11 -10 -9 -8 -6 -6 -4
+	--   ghost  yoff  -4 -6 then FROZEN AT -6 for the whole rest of the hop
+	-- The ghost's action went to 2 (stepping) on the frame its arc froze. That is this return, and
+	-- nothing else -- the byte was arriving on the wire the entire time.
+	--
+	-- Safe to write mid-step for the reason two paragraphs up: no step path of a ghost's writes
+	-- this field, so there is no second writer to race.
+	-- AND STAND OFF WHILE THE ENGINE IS GENERATING THIS FIELD ITSELF.
+	--
+	-- A ghost on STEP_TYPE_NPC_JUMP (8) is running `StepFunction_NPCJump`, which calls
+	-- `UpdateJumpPosition` every tick -- and that writes OBJECT_SPRITE_Y_OFFSET. Copying the peer's
+	-- byte on top of it would make this the SECOND writer on one field, which `adapters/CLAUDE.md`
+	-- names as its own bug class and which Emerald has already paid for once (the underwater bob
+	-- driven from both the wire and our own code, seen as the ghost *"moving really fast/weird"*).
+	--
+	-- The engine's copy is also strictly better than ours: it is generated on the ghost's own clock
+	-- from its own accumulated JUMP_HEIGHT, so it cannot arrive late, cannot be sampled at the send
+	-- rate, and cannot freeze if a packet is dropped. The wire's `yoff` still drives every OTHER
+	-- vertical -- the bite wiggle, the Fly fall -- where no engine mechanism is running on our side.
+	-- `peerJump` AS WELL AS THE GHOST'S OWN STEP TYPE, because the two are not simultaneous. The
+	-- peer starts hopping a few frames before its ghost is issued the jump, and in that window the
+	-- old condition still copied the peer's arc onto a ghost that was standing still -- measured
+	-- 2026-08-26 as a `-6 -> -4` wobble on the ghost right at the take-off, where the engine's own
+	-- curve then restarted from 0. Standing off for the whole hop, from the first packet that says
+	-- one is happening, leaves the ghost at 0 until its own jump begins and generates the lot.
+	if g and peerYoff ~= nil and not peerJump and (u8(g.st_base + F_STEP_TYPE) or 0) ~= 8
+		and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
+		w8(g.st_base + emote.F_YOFF, peerYoff & 0xFF)
 	end
 
 	if walking ~= STANDING then
@@ -7416,24 +7676,9 @@ local function renderRemote(id, state)
 			end
 		end
 	end
-	-- THE PEER'S VERTICAL NUDGE, ON THE SPAWNED GHOST'S OWN OBJECT.
-	--
-	-- `emote.F_YOFF` was defined when `yoff` went on the wire for fishing (2026-08-26) and then never
-	-- read: only the drawn tier applied the byte, by adding it to the sprite's screen y. So a
-	-- spawned ghost showed no bite wiggle, no Fly fall, no Dig/Teleport drop and no ledge-hop arc
-	-- -- it stood perfectly still through every one of them while the painted copy beside it moved.
-	--
-	-- One write is all it takes because the engine already reads this field when it builds OAM:
-	-- `_UpdateSprites` adds OBJECT_SPRITE_Y_OFFSET to OBJECT_SPRITE_Y (map_objects.asm), and
-	-- nothing on a ghost's step path writes it back -- `StepFunction_NPCWalk`, which is the step
-	-- type 2 a ghost walks on, calls `Stubbed_UpdateYOffset`, which is dummied out to a bare `ret`.
-	--
-	-- ABOVE the idle branch, not inside it, because these are not all idle animations: a ledge hop
-	-- changes tile while the arc is running. Written every update rather than on entry, since the
-	-- value changes per engine tick and returns to 0 on its own at the end of each animation.
-	if peerYoff ~= nil and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
-		w8(g.st_base + emote.F_YOFF, peerYoff & 0xFF)
-	end
+	-- (The peer's vertical nudge is written ABOVE the mid-step return, near the top of this
+	-- function -- it used to be here, which meant a moving ghost never received it. See the block
+	-- there for the measurement that moved it.)
 	if cx == x and cy == y then
 		-- Not moving, but the peer may have TURNED IN PLACE — a real and common action in this
 		-- game, and one the ghost missed entirely until 2026-08-18 because renderRemote only ever
@@ -7532,7 +7777,13 @@ local function renderRemote(id, state)
 				id, DIR_NAMES.letter[g.chainDir] or "?", g.chainAt or -1,
 				DIR_NAMES.letter[dir] or "?", drawFrames))
 		end
-		stepGhost(g, dir, peerGait) -- one tile: walk it, so the game animates the step
+		-- THE HOP GOES THROUGH THE IN-PHASE PATH ONLY, never the catch-up one below. A jump
+		-- crosses TWO tiles by itself, so issuing one while the ghost is already behind would
+		-- overshoot the peer -- and catch-up is an abnormal path whose whole job is to close a
+		-- deficit by the shortest legal walk. A peer that hops while its ghost is lagging simply
+		-- walks the ledge; that is a worse-looking frame than a hop and a better one than a ghost
+		-- two tiles past where it should be.
+		stepGhost(g, dir, peerGait, peerJump) -- one tile: walk it, so the game animates the step
 	elseif math.abs(dx) + math.abs(dy) <= 3 then
 		-- A SHORT deficit is walked, not snapped. The old rule teleported for anything past one
 		-- tile, and a ghost falls two tiles behind in perfectly ordinary play -- a missed idle
@@ -7874,6 +8125,7 @@ ENGINE.curPartyMon, ENGINE.partySpecies = A.W_CURPARTYMON, A.W_PARTYSPECIES
 ENGINE.sprOn = A.W_SPRITEUPDATESON -- nil on an unmeasured build: the gate simply never fires
 facingFrames.fishChris = (romClass == "known") and A.FISHING_GFX_ROM or nil
 facingFrames.fishKris = (romClass == "known") and A.FISHING_GFX_ROM_KRIS or nil
+facingFrames.shadowRom = (romClass == "known") and A.SHADOW_GFX_ROM or nil
 -- HOW THE PLAYER LAST ENTERED A MAP. `hMapEntryMethod` ($ff9f -- HRAM, unbanked, read via the
 -- System Bus, NOT the WRAM domain the address table above serves) is stamped with a MAPSETUP_*
 -- value at every map load and zeroed in the same routine that hands the overworld back

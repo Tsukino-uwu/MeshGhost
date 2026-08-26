@@ -4210,3 +4210,148 @@ Fly landing, then `CanObjectMoveInDirection`'s swimming bit, then this). Every o
 looked certain, fit every symptom, and was wrong; the fixes that held were the ones measured first.
 **The rule already exists in `CLAUDE.md` — the failure mode is not disbelieving it, it is not
 noticing that reading has quietly replaced measuring.**
+
+## A decoration FLAG is not the decoration, and the flag was never the discriminator (Crystal, 2026-08-26)
+
+**Symptom.** A "!" emote appeared over a ghost every time it hopped a ledge. The user: *"the drawn
+ghost is doing a '!' emote while jumping, its not supposed to do that"*.
+
+**Cause.** `playerEmote()` looked for an object that had a sprite, sat on the player's tile, and had
+`EMOTE_OBJECT` (bit 7 of `OBJECT_FLAGS1`) set. **That flag does not mean "emote". It means
+"attached decoration object", and `data/sprites/map_objects.asm` gives the identical flags1 byte
+(`WONT_DELETE | FIXED_FACING | SLIDING | EMOTE_OBJECT`) to THREE movement datas** -- `_EMOTE`,
+`_SHADOW` and `_SCREENSHAKE`. A ledge hop calls `SpawnShadow`, which puts a shadow object on the
+hopping character's own tile, so the scan matched it and the VRAM tile-match step then named
+whichever emote happened to be resident.
+
+**Fix.** Also require `OBJECT_ACTION == 8`. That byte is *maintained*, not merely initial:
+`MovementFunction_Emote` writes `OBJECT_ACTION_EMOTE` (8) and `MovementFunction_Shadow` writes
+`OBJECT_ACTION_SHADOW` (7) **every time each runs**, and the screenshake object holds
+`OBJECT_ACTION_00`. One condition separates all three.
+
+**The transferable half: a flag that GROUPS things is not a flag that IDENTIFIES one of them.**
+The name said "emote" and the constant genuinely is called `EMOTE_OBJECT`, which is why nobody
+looked further. The question to ask of any identifying test is not "does this flag sound right"
+but **"what else sets it?"** -- answerable in one grep of the table that assigns it.
+
+**And prefer a MAINTAINED field to an initial one.** A value written once at spawn can be
+overwritten by anything; a value a movement function rewrites every tick cannot drift. Both were
+available here and only one is safe.
+
+**How it survived: the same fact was already written down, on the other side of the file.**
+`OBJECT_ACTION_EMOTE` had been removed from `ACTIONS.peer` the day before, with a comment
+explaining that an emote is a separate object rather than a pose. That was the RECEIVE side. The
+SEND side kept scanning on the flag. **A fact learned while fixing one direction of a data flow is
+not automatically applied to the other**, and neither half is obviously incomplete on its own.
+
+## Below the mid-step return is where peer state goes to die -- third instance (Crystal, 2026-08-26)
+
+**Symptom.** A ghost's ledge-hop arc started correctly and then froze part-way. Measured against
+one driven hop:
+
+| | arc |
+|---|---|
+| player | -4 -6 -8 -8 -10 -11 -11 -12 -12 -12 -11 -11 -10 -9 -8 -6 -6 -4 |
+| ghost | -4 -6 then **frozen at -6** for the whole rest of the hop |
+
+**Cause.** `renderRemote` has a hard `if walking ~= STANDING then ... return end`. The `yoff` write
+sat below it, so from the frame the ghost began moving the byte stopped being written -- and a hop
+is *entirely* a moving window.
+
+**The instructive part is the comment that was already on the write.** It said: *"ABOVE the idle
+branch, not inside it, because these are not all idle animations: a ledge hop changes tile while
+the arc is running."* **The reasoning was correct and complete, and it was applied to the wrong
+branch.** The author identified the exact failure case by name, and then moved the write above a
+different return than the one that would drop it.
+
+**This is the THIRD time one function's mid-step return has silently dropped peer state**, after
+`applyPeerAction` (which is why an ice glide needed `SLIDING` instead of the action byte) and the
+same function's action write during a spin. **Treat "which returns are between the wire and this
+write?" as a standing question in any per-peer update function**, not something to discover per
+field. A write's correctness is a property of its POSITION, and position is invisible when reading
+the write itself.
+
+## Run the engine's own step function; do not copy the field it generates (Crystal, 2026-08-26)
+
+**Context.** A ledge hop was being reproduced by walking the ghost and copying the peer's
+`OBJECT_SPRITE_Y_OFFSET` over the wire, one sample per packet.
+
+**Why that is the wrong shape**, even once the freeze above is fixed: the arc becomes a
+rate-limited copy of a value the receiver could generate exactly. It can arrive late, be sampled at
+the send rate, and freeze on a dropped packet -- three failure modes that exist only because the
+copy exists.
+
+**What replaced it.** `StepFunction_NPCJump` (step type 8) is self-contained: `.Jump` crosses the
+first tile calling `UpdateJumpPosition` every tick, `GetNextTile` takes the second, `.Land` crosses
+that, and it hands itself back to `STEP_TYPE_FROM_MOVEMENT`. Writing that one step type gives both
+tiles, both halves of the arc, the correct pace, and the ledge crossed -- on the ghost's own clock,
+generated rather than transmitted. **The wire then carries the QUESTION ("is this peer hopping?")
+rather than the answer.**
+
+**Two details that decide whether this works at all:**
+
+- **`UpdateJumpPosition` indexes a sixteen-entry table with `JUMP_HEIGHT >> 1`, and the height only
+  reaches 32 across TWO tiles.** So a hop cannot be assembled from two one-tile jumps -- one tile
+  reaches index 7, the rising half, and never comes down. The two-phase step function is not a
+  convenience; it is the only shape that produces the curve.
+- **`OBJECT_STEP_INDEX` (0x1c) must be zeroed**, or a ghost that has been through any other
+  two-phase step function starts the hop at `.Land`.
+
+**And send the QUESTION, not the peer's own byte.** The player hops on `STEP_TYPE_PLAYER_JUMP` (9),
+which drives `wPlayerStepFlags` and is what the camera follows; a ghost needs
+`STEP_TYPE_NPC_JUMP` (8). Had the wire carried the raw step type, copying it across would have been
+the obvious thing to do and would have dragged the view around -- the same trap already recorded for
+step type 6 versus 2. **Designing the wire field as a question makes the copy-the-byte bug
+unavailable.**
+
+**Corollary, immediately: the copy must then STOP.** With the engine writing `SPRITE_Y_OFFSET`
+itself, continuing to write the peer's copy makes two writers on one field -- the bug class Emerald
+already paid for with the underwater bob. Standing off has to be conditioned on *both* the peer
+reporting a hop and the ghost's own step type, because the two are not simultaneous: the peer
+starts hopping several frames before its ghost is issued the jump, and copying during that window
+produced a visible `-6 -> -4` wobble at take-off.
+
+## A field name that lies, protected by the engine only ever using it on the player (Crystal, 2026-08-26)
+
+**Context.** Spawning a shadow object for a hopping ghost, built from
+`CopyTempObjectToObjectStruct`.
+
+**The trap.** `OBJECT_RANGE` on a decoration object names the object it tracks. `CopyTempObjectData`
+fills that field from **`hMapObjectIndex`** -- so the name says map-object index. But the consumer,
+`InitMovementField1dField1e`, passes it to `GetObjectStruct`, which indexes **`wObjectStructs`**. It
+is an object-STRUCT index.
+
+**Why nobody would catch this by reading the writer.** Every shadow the engine spawns is on the
+PLAYER, which is map object 0 and object struct 0. **The two indexes are the same number in every
+case the game itself exercises**, so the source is consistent with either reading and the game
+cannot demonstrate the difference. A ghost is struct 12 / map object 15, where it matters.
+
+**The rule: when a field's name and its consumer disagree, the CONSUMER settles it.** A name records
+what someone once intended; the code that indexes with it records what it must be. And **be
+actively suspicious of any structure the engine only ever instantiates one way** -- its invariants
+are untested by its own use, so the source cannot tell you which of them are real.
+
+## Two doors into one unguarded dereference (Crystal, 2026-08-26)
+
+**Symptom.** Loading a savestate killed the adapter outright -- every ghost gone at once, script
+apparently dead. The user: *"think me reloading a savestate broke the script ?"*.
+
+**Cause.** A savestate load rebuilds the object array, so `stillOurs(g)` correctly decides the
+ghost's slot is the game's again and clears the record with `ghosts[id], g = nil, nil`. Twenty
+lines later, `u8(g.st_base + F_WALKING)` runs unguarded. **A tick error makes the dev loader unload
+the adapter**, which is why the symptom is not a misbehaving ghost but total silence -- and why it
+reads as a networking fault.
+
+**The comment on the clear said "and spawn again below". There is no spawn below** -- the promotion
+lives in the `if not g then` block *above*, already passed. The fix is to `return` and let the next
+frame enter that block.
+
+**The transferable half.** A crash in this shape had already been closed the same day for the
+MAP-CHANGE path. **One unguarded dereference with two callers looks fixed after the first fix**,
+because the reported symptom stops. When a nil-guard bug is found, the question is not "is this
+path fixed" but **"how many ways are there to reach this line with that variable cleared?"** -- here,
+three: no ghost yet, map change, savestate load.
+
+**And note which failure mode hides it.** On a host that unloads a script on error, a crash presents
+as *absence*, not as an error -- no wrong pixel, no bad value, nothing on screen to look at. Check
+the host's own error log before theorising about the network.

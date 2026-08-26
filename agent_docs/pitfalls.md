@@ -220,3 +220,8 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A measurement from the wrong bank motivated an entire fix (Crystal, 2026-08-26)
 - The session that cost the most, and what it was actually made of (Crystal, 2026-08-26)
 - Two renderers disagreeing named the field in one report (Crystal, 2026-08-26)
+- A decoration FLAG is not the decoration, and the flag was never the discriminator (Crystal, 2026-08-26)
+- Below the mid-step return is where peer state goes to die -- third instance (Crystal, 2026-08-26)
+- Run the engine's own step function; do not copy the field it generates (Crystal, 2026-08-26)
+- A field name that lies, protected by the engine only ever using it on the player (Crystal, 2026-08-26)
+- Two doors into one unguarded dereference (Crystal, 2026-08-26)
