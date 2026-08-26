@@ -1322,7 +1322,12 @@ local function getLocalState()
 		-- alone is a number two clients can agree on and still disagree about. Constant for the
 		-- session; sent every state because a receiver that joins late has no earlier packet to
 		-- have read it from.
-		extras = { sprite = u8(base + F_SPRITE) or 0, gfx = ENGINE.gfxSig,
+		extras = { sprite = u8(base + F_SPRITE) or 0,
+			-- The signature of THIS SPRITE's own table row, not of the whole table. See
+			-- ENGINE.spriteSig: a receiver wears the id only if its own cartridge describes that id
+			-- the same way, so a bike or a surf blob crosses between builds that agree about it
+			-- while a repointed id falls back on its own.
+			gfx = ENGINE.spriteSig(u8(base + F_SPRITE) or 0),
 			act = u8(base + F_ACTION) or 0,
 			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
 			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
@@ -7404,8 +7409,17 @@ local function renderRemote(id, state)
 	-- FORCE_PEER_SPRITE is deliberately still ahead of the gate: it is a probe asking this machine
 	-- to draw an id of its own choosing, and its id is by construction one of ours.
 	local peerSprite = FORCE_PEER_SPRITE
-		or (state.extras and ENGINE.gfxSig and tonumber(state.extras.gfx) == ENGINE.gfxSig
-			and tonumber(state.extras.sprite))
+		or (function()
+			local id = state.extras and tonumber(state.extras.sprite)
+			if not id or id == 0 then
+				return nil
+			end
+			-- DOES THIS CARTRIDGE DESCRIBE THAT ID THE SAME WAY? Not "do our whole tables agree",
+			-- which refused 97 portable sprites to protect against 5 (see ENGINE.spriteSig). A
+			-- peer's own row against ours, for that one id.
+			local mine = ENGINE.spriteSig(id)
+			return (mine and tonumber(state.extras.gfx) == mine) and id or nil
+		end)()
 		or nil
 
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
@@ -8659,6 +8673,53 @@ if OVERWORLD_SPRITES_ROM then
 	ENGINE.gfxSig = h
 	log(string.format("MeshGhost: sprite-table signature %08X -- a peer's own sprite is worn only "
 		.. "by a client whose cartridge reports the same number.", h))
+end
+
+-- PER SPRITE, NOT PER TABLE -- and this is the gate that actually ships.
+--
+-- The whole-table signature above was too blunt by an order of magnitude. Measured 2026-08-26:
+-- vanilla and the Archipelago seed differ in FIVE of 102 sprite entries (ids $62-$66). The other
+-- 97 are byte-identical, and they include every one that matters here -- Chris, Kris, both bikes,
+-- the surf blob. Refusing a peer's sprite because the tables disagree SOMEWHERE threw away 97
+-- sprites to protect against 5, and that is exactly what the user reported the same evening:
+--
+--   * on the Archipelago client a peer's ghost MIMICKED the local player -- with the id refused,
+--     the drawn tier fell back to "wear this machine's own player sprite", read live every frame,
+--     so mounting a bike locally mounted the ghost too;
+--   * on the vanilla client an Archipelago peer was never shown mounting anything at all.
+--
+-- Both are one gate being wrong. The user's standard, and it is the right one: *"the other ghost
+-- is not supposed to mimic what the player itself is doing"*, and *"the ghost is supposed to show
+-- what its doing to the vanilla player"*.
+--
+-- So the question moves from "do our cartridges agree about EVERY sprite?" to "do they agree about
+-- THIS ONE?", which is answerable exactly: hash the six bytes of that id's own row in
+-- OverworldSprites (address, size, bank, type, palette) and compare. Equal means the id indexes
+-- the same graphics on both machines and can be worn as-is; unequal means it does not, and only
+-- that id falls back.
+--
+-- IT IS ALSO WHY NO STATE VOCABULARY IS NEEDED FOR THIS. The mount is ALREADY on the wire: a
+-- player's own sprite id changes when they mount (measured the same day -- the player's
+-- OBJECT_SPRITE went 1 -> 2 on the bike, alongside wPlayerState 0 -> 1), so a peer that can wear
+-- its own id is a peer whose bike, surf blob and running pose come across for free.
+--
+-- Memoised: six ROM reads per sprite id, once. A session touches a handful of ids.
+ENGINE.spriteSigs = {}
+function ENGINE.spriteSig(id)
+	if not OVERWORLD_SPRITES_ROM or not id or id < 1 or id > 255 then
+		return nil
+	end
+	local c = ENGINE.spriteSigs[id]
+	if c then
+		return c
+	end
+	local e = OVERWORLD_SPRITES_ROM + (id - 1) * SPRITEDATA_STRIDE
+	local v = 2166136261
+	for i = 0, SPRITEDATA_STRIDE - 1 do
+		v = ((v ~ (memory.read_u8(e + i, ROM_DOMAIN) or 0)) * 16777619) & 0xFFFFFFFF
+	end
+	ENGINE.spriteSigs[id] = v
+	return v
 end
 
 if romClass == "known" then
