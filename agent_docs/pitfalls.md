@@ -214,3 +214,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A field that describes "the most recent X" cannot describe "every X on screen" (Crystal, 2026-08-26)
 - A fix validated on the neighbouring path, not the reported one (Crystal, 2026-08-26)
 - Three fixes in one day attached to a trigger that was a subset of the event (Crystal, 2026-08-26)
+- A gate that defers a decision must also freeze the evidence it reads (Crystal, 2026-08-26)

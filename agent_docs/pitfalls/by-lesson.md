@@ -4024,3 +4024,27 @@ was "a promotion must not drop", and the envelope already guaranteed that — so
 excluding a path for a property it did not have. **When a guard names a case rather than a
 property, check whether the property it cares about is already guaranteed elsewhere; if it is, the
 guard is not protection, it is a second, coarser trigger that will exclude the wrong things.**
+
+## A gate that defers a decision must also freeze the evidence it reads (Crystal, 2026-08-26)
+
+**Symptom:** a fly-arrival drop that had just been fixed stopped firing entirely — no fall on either
+tier, and no error anywhere. It read exactly like the feature was never reached.
+
+**Cause:** the fix had added a gate — do not arm the drop while the world is still rebuilding —
+which was correct. But the line that maintained the evidence for that decision, the peer's
+last-known position, went on updating through the deferred frames. By the time the gate opened, the
+"previous" position was the landing tile and the area matched it, so the jump the decision looks for
+no longer existed. The deferral had consumed its own trigger.
+
+**Fix:** freeze the last-known position for as long as a landing is pending.
+
+**The general form: deferring a decision is only safe if the state that decision reads is held
+still.** Whenever a gate is added of the shape *"not yet — wait until X"*, ask what the deferred
+code will compare against when it finally runs, and whether anything mutates it in between. The
+failure is quiet by construction: no crash, no wrong value, just a comparison that has become true
+and a branch that never runs.
+
+**And it is the reason a fix should be re-traced rather than re-watched.** This was the fifth
+attempt at one symptom; the fourth was correct and introduced this. Only the trace could
+distinguish "the drop ran and looked wrong" from "the drop never armed", and those two have
+completely different causes while looking similar on screen.

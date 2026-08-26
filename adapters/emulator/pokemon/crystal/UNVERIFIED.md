@@ -1532,3 +1532,26 @@ always supposed to guarantee.
 because the position update sat above it — which hid the arming condition completely. Moved below.
 The rule it broke is in `CLAUDE.md` and had to be rediscovered anyway; the instrument was still
 decisive on the half it got right.
+
+### The settle gate consumed the very jump it was waiting to act on (fifth attempt)
+
+**The trace after the fourth fix, complete — one line, and no hide or fall phase on either tier:**
+
+```
+f=3546  flagged t=nil  ghost=false  (was nil,nil area nil)
+```
+
+So the drop never armed at all, and what looked like the drawn ghost "working" was it simply
+arriving cleanly. **The settle gate was correct and the line below it was not.** Arming is now
+suppressed while the world rebuilds — but the last-known-position update went on running through
+those same frames, so by the time the world had settled, the "previous" position WAS the landing
+tile and the area matched it. The jump had been consumed by the window that existed to defer the
+decision.
+
+**Fix: freeze the peer's last-known position while it wears MAPSETUP_FLY and has not yet dropped**,
+so the comparison still sees where it was before the fly whenever the decision finally runs.
+
+**The transferable shape: a gate that DEFERS a decision must also freeze the evidence that
+decision reads.** Deferring is not free if the state it depends on keeps moving underneath — the
+delay window quietly converts a difference into a match, and the result is not a wrong answer but
+no answer at all, which reads exactly like the feature never being reached. `pitfalls/by-lesson.md`.

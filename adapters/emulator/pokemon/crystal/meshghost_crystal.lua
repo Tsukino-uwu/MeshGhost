@@ -6352,7 +6352,20 @@ local function renderRemote(id, state)
 	-- cross-town landing routinely reads as a SHORT hop -- fly from tile 10,5 on one map to 12,6
 	-- on another and the distance test sees three tiles and declines to arm. Comparing two
 	-- positions from different maps is meaningless in the first place; a changed area IS the jump.
-	a.flyX, a.flyY, a.flyArea = x, y, state.area_id
+	--
+	-- AND FROZEN WHILE A LANDING IS PENDING, which is the whole of the fifth attempt. Adding the
+	-- settle gate above stopped the drop arming DURING the map load, correctly -- but this line
+	-- went on running through those frames, so by the time the world had settled the "previous"
+	-- position WAS the landing tile and the area matched it. The jump had been consumed by the
+	-- very window that was suppressing the decision, and the drop then never armed at all: the
+	-- trace showed one `flagged t=nil` line and no hide or fall phase on either tier.
+	--
+	-- So while a peer wears MAPSETUP_FLY and has not yet dropped, its last-known position is held
+	-- as of BEFORE the fly. `dropDone` releases it, and a peer that never lands (a fly that is
+	-- cancelled) simply resumes updating when the flag expires.
+	if not (peerEntry == 0xFC and not a.dropDone) then
+		a.flyX, a.flyY, a.flyArea = x, y, state.area_id
+	end
 	if dropT and dropT >= 32 then
 		-- -96 rising to 0; overrides the peer's own (zero) yoff for the painted tiers only. The
 		-- spawned ghost's write is guarded separately, because its engine owns the byte mid-fall.
