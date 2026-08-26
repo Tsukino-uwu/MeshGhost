@@ -397,26 +397,71 @@ What that session left untested:
   particular question. Used once and put back; the defaults are unchanged, so nothing shipped
   should differ — but the shipped default path has not been re-watched since the globals went in.
 
-## Emerald: the ferry and rail movement — ASSUMED to work, never tested (2026-08-21)
+## Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
 
-**The user's own framing, closing the Emerald phase:** *"ferry, rails untested. assumed to work.
-unverified. dropped from status for now."* Recorded here rather than in `status.md` because they
-are not open work — nobody is going to look at them next — but the assumption must not decay into
-a memory of having checked.
+**The 2026-08-21 entry this replaces recorded the ferry and rails as assumptions, and had the boat
+wrong.** It named the S.S. Tidal. The ride the user actually meant is **Mr. Briney's**, the one
+between the first and fifth gyms — a different mechanism, and the one that has now been built for.
+The user's original framing still stands for the half nobody has touched: *"ferry, rails untested.
+assumed to work. unverified. dropped from status for now."*
 
-- **The ferry (S.S. Tidal and any other boat ride).** Nobody has ridden one with the adapter
-  loaded, on any tier. The assumption is reasonable and is *why* it was dropped rather than
-  scheduled: the feature-complete call of the same date covers every mechanism a boat would use —
-  a `graphicsId` swap, a forced movement, a map with a different frame — and each of those is
-  confirmed elsewhere. **But "the parts are confirmed" is not "the combination was seen"**, which
-  is the exact shape of assumption this project has been caught by before.
-- **Rail movement.** On the original Phase 8 scope list and never separately closed. Same status:
-  assumed covered by the feature-complete call, never watched.
-- **What would settle either**: one ride each, with compare mode on, watched by the user. Cheap —
-  `probes/goto_map.lua` reaches the dock — and worth doing whenever Emerald is next opened, but
-  deliberately NOT scheduled. Emerald is parked; Crystal has the attention.
-- **If either turns out to be wrong**, it is a defect against a feature-complete adapter and
-  belongs in `verified.md`/`pitfalls.md` as such, not as a missing feature.
+### What was built, 2026-08-26 — nothing here has been on screen
+
+Both states were unrepresentable in what the adapter sent, for the same reason: every field it
+publishes describes a character standing on a tile, and in these two the engine has taken the
+character off the board. The mechanisms are written up in `documentation.md`, "Two states where the
+game stops drawing the player as a character". Four new `extras` reach the wire — `invis`, `boat`,
+`fly`, `flyk` — and the receive side acts on them.
+
+- **The boat is a SPRITE OF ITS OWN, and the ghost inside it is hidden.** That is what the ride is:
+  the player's object hidden, a boat object on the same coordinates. The spawned tier builds the
+  boat the way it builds a shadow — from the graphic's own ROM entry, engine dummy callback,
+  positioned from Lua each frame.
+- **The boat can REFUSE, and then the ghost is hidden instead.** Its graphic sits on an NPC palette
+  slot rather than the shared Brendan/May tag, so it can only be drawn where the watcher's own map
+  has that palette loaded. This is the user's option 2 arriving automatically as the fallback for
+  option 1, rather than as a separate decision — **and which of the two actually happens on Route
+  104 and in Dewford has never been observed.** It is the first thing to look at.
+- **A flying peer rides the ENGINE'S OWN BIRD.** `FldEff_NPCFlyOut` already flies characters who
+  are not the player, and its arc routine names its passenger in its own sprite data — so the
+  adapter builds the bird from the template, points it at that routine, and names the ghost. The
+  flight is the engine's; nothing reimplements the curve.
+- **A fly is the one state allowed past the peer-graphics gate.** `MESHGHOST_GHOST_PEER_GFX` is off
+  by default, so a ghost normally wears the LOCAL player's graphic — which for a fly would mean
+  taking off in a pose the game does not have. Narrowed to the fly states only; see below.
+- **Neither self-drawn tier attempts any of it.** Painted and hardware peers get the ABSENCE — they
+  are not drawn while a peer is hidden, sailing, or carried by the bird. That is deliberate: the
+  boat and the bird are engine sprites, and a painted re-implementation of something the hardware
+  does correctly two tiles away is a second implementation, not parity. A standing tier gap.
+
+### What to watch for, in order
+
+1. **A peer riding Briney's boat.** Is there a boat, or does the ghost simply vanish for the
+   crossing? Either is a designed outcome; which one happens is the question.
+2. **Is the boat in the right place and the right colours**, and does it stop being a boat at the
+   other end. A wrong palette slot draws it in somebody else's colours rather than failing.
+3. **A peer using Fly, both ends.** The pose, the bird's swoop, the mount, the ride off screen —
+   and on arrival the drop and the pose. The bird is retired when it reports its own arc finished;
+   a bird left on screen means that never fired.
+4. **The speed of the crossing.** `bikeSpeed` reads zero through the whole ride, so the ghost's pace
+   comes from the peer's movement action via the forced-movement path added for muddy slopes
+   (2026-08-20). If the ghost falls behind and snaps, that path is not catching `walk_faster`.
+5. **Rails are still untouched.** Not built for, not measured, not watched — the user's call,
+   2026-08-26: *"i still assume rails are working but you can put them in unverified for now."*
+
+### The peer-graphics gate is probably stale, and was NOT lifted
+
+`MESHGHOST_GHOST_PEER_GFX` is off because peer graphics rendered corrupted on 2026-08-18, and
+`FLAGS.md` records the cause: the spawn path forced `subspriteTableNum = 0` while the engine manages
+that field itself. **Both spawn paths stopped forcing it on 2026-08-21** — `swapGhostGraphicInPlace`
+and `spawnGhost` each carry the fix and its reasoning — and the gate has not been re-judged since.
+So the recorded cause is fixed and the gate may now be pure cost: every peer special state, not just
+these two, is invisible to a watcher whose own player is not in the same state.
+
+That is a live question, not a reading one, and it was deliberately not answered by flipping the
+flag. What shipped instead is the one state that provably cannot be served without it. **Worth one
+run with the flag set once the boat and the fly have been judged**, not before — two changes at once
+is how a working fix gets blamed for a broken one.
 
 ## Emerald compiles again, but has not been RUN since the fix (2026-08-22)
 

@@ -754,15 +754,21 @@ end
 -- carries, and it strides across the ice while the player glides: measured in Shoal Cave,
 -- 2026-08-21 -- the player held anim 10/0 with disableAnim set for the whole slide while the
 -- ghost's own copy cycled 10/2, 10/3 under the same action id on the same tile.
+-- `invis`, `boat`, `fly` and `flyk` are the four that describe a character the engine has stopped
+-- drawing -- Briney's ride and the Fly cutscene. Everything above them assumes there is a
+-- character on the tile to describe; see flyRide's header for why that assumption fails at
+-- exactly these two moments, and what each field is read from.
 local function encodeLocalState(areaId, x, y, orientation, anim, gender, gfx, sanim, sidx, act,
-    sox, soy, spaused, pspeed, noanim)
+    sox, soy, spaused, pspeed, noanim, invis, boat, fly, flyk)
     return string.format(
-        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s}}}}',
+        '{"type":"local_state","payload":{"state":{"area_id":%s,"position":[%s,%s],"orientation":%s,"anim":%s,"extras":{"gender":%s,"gfx":%s,"sanim":%s,"sidx":%s,"act":%s,"sox":%s,"soy":%s,"spaused":%s,"pspeed":%s,"noanim":%s,"invis":%s,"boat":%s,"fly":%s,"flyk":%s}}}}',
         jsonString(areaId), tostring(x), tostring(y), jsonString(orientation), jsonString(anim),
         jsonString(gender), tostring(gfx or "null"), tostring(sanim or "null"),
         tostring(sidx or "null"), tostring(act or "null"),
         tostring(sox or "null"), tostring(soy or "null"), tostring(spaused or "null"),
-        tostring(pspeed or "null"), tostring(noanim or "null"))
+        tostring(pspeed or "null"), tostring(noanim or "null"),
+        tostring(invis or "null"), tostring(boat or "null"),
+        tostring(fly or "null"), tostring(flyk or "null"))
 end
 
 local ENCODED_NO_SEND = '{"type":"local_state","payload":{"state":null}}'
@@ -2050,6 +2056,22 @@ local function handleBridgeLine(line)
                 r.noanim = na ~= nil and na ~= 0 or nil
                 local ps = (type(st.extras) == "table" and tonumber(st.extras.pspeed)) or nil
                 r.pspeed = (ps and ps >= 0 and ps <= 4 and math.floor(ps) == ps) and ps or nil
+                -- THE ENGINE IS NOT DRAWING THIS CHARACTER. Four fields, all nil for a peer that
+                -- predates them, and nil everywhere means exactly the old behaviour -- a ghost
+                -- drawn as a character, which is right for every state but these two.
+                local iv = (type(st.extras) == "table" and tonumber(st.extras.invis)) or nil
+                r.invis = iv ~= nil and iv ~= 0 or nil
+                -- Bounded like every other peer-controlled id here: this is fed to graphicsInfo,
+                -- whose own range check is the backstop, and the receive side additionally refuses
+                -- any vehicle it does not recognise.
+                local bt = (type(st.extras) == "table" and tonumber(st.extras.boat)) or nil
+                r.boat = (bt and bt >= 0 and bt <= 255 and math.floor(bt) == bt) and bt or nil
+                local fl = (type(st.extras) == "table" and tonumber(st.extras.fly)) or nil
+                r.fly = (fl == 1 or fl == 2) and fl or nil
+                -- The bird's arc parameter. The engine steps it by 4 and wraps at 0x100, ending
+                -- the swoop at 0x80, so anything outside that is not a phase of this animation.
+                local fk = (type(st.extras) == "table" and tonumber(st.extras.flyk)) or nil
+                r.flyk = (fk and fk >= 0 and fk < 0x100 and math.floor(fk) == fk) and fk or nil
             end
         end
     elseif env.type == "despawn_remote" then
@@ -3886,6 +3908,10 @@ local ghostAlive
 -- has now bitten three times in this file (despawnAllGhosts, frameCounter, and this).
 local despawnSurfBlob
 local spawnSurfBlob
+-- Forward-declared next to the surf blob's own pair, and for the same reason: despawnGhost
+-- below has to retire a flying peer's bird and a sailing peer's boat, and it is defined long
+-- before flyRide is. A local declared BELOW a function is a nil global inside it.
+local flyRide = {}
 local SURFING_GFX
 
 -- Tile ranges we could not free at the time, because we were in a battle and the bitmap was not
@@ -3966,6 +3992,12 @@ local function despawnGhost(playerId)
     if ghostAlive(g) then
         despawnSurfBlob(g)
         despawnGhostShadow(g)
+        -- The other two sprites a ghost can own. Both outlive it if they are not retired here: a
+        -- bird keeps flying a passenger that no longer exists, and a boat keeps sailing on the
+        -- last screen position it was given. Same rule as the blob -- every door out of a state
+        -- has to remove what the state spawned.
+        flyRide.despawnBird(g)
+        flyRide.despawnVehicle(g)
         w8(objAddr(g.objId) + 0x00, 0)
         local d = sprAddr(g.sprId)
         w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
@@ -4065,6 +4097,26 @@ local PEER_GFX_ENABLED = MESHGHOST_GHOST_PEER_GFX or os.getenv("MESHGHOST_GHOST_
 local function wantedGfx(remote)
     if FORCE_GHOST_GFX then return FORCE_GHOST_GFX end
     if PEER_GFX_ENABLED then return remote and remote.gfx or nil end
+    -- A FLY IS THE ONE STATE THE GATE ABOVE CANNOT BE RIGHT ABOUT.
+    --
+    -- Everywhere else, falling back to the local player's graphic is merely incomplete: the ghost
+    -- is drawn as a walker instead of a cyclist, which is wrong but is still a character standing
+    -- where the peer is. A fly is not that. The engine puts the character into the FIELD-MOVE POSE
+    -- and then the SURFING graphic to sit on the bird (FlyOutFieldEffect_FieldMovePose and
+    -- _JumpOnBird, src/field_effect.c) -- so a ghost wearing the local player's walking graphic
+    -- does not merely look plain, it flies away in a pose that does not exist in the game.
+    --
+    -- Safe here for the reason the gate is unsafe in general: spawnGhost and
+    -- swapGhostGraphicInPlace both refuse a graphic whose palette tag differs from the player's,
+    -- and every Brendan/May state -- normal, the poses, both bikes, surfing, fishing -- shares one
+    -- tag. So this can only ever select from the peer's own character, which is exactly the family
+    -- the palette slot the ghost is borrowing already holds.
+    --
+    -- NARROW ON PURPOSE, and not a quiet lifting of the gate. The gate's recorded cause (a forced
+    -- subspriteTableNum, 2026-08-18) was fixed in both spawn paths on 2026-08-21 and the gate has
+    -- not been re-judged since -- which is a question for a live run, not something to decide by
+    -- reading. Until it is, this is one state that provably cannot be served without it.
+    if remote and remote.fly then return remote.gfx end
     return nil
 end
 
@@ -4961,6 +5013,358 @@ despawnSurfBlob = function(g)
     end
     g.blobSprId, g.blobTileStart = nil, nil
 end
+----------------------------------------------------------------------------
+-- FLY, AND RIDING A BOAT: the two states where the engine stops drawing the
+-- player as a character at all.
+--
+-- Everything else this adapter sends describes a character: which graphic it wears, which
+-- animation it is playing, which movement the engine is running on it. These two are the states
+-- where that description is not merely incomplete but WRONG -- the engine hides the player's own
+-- object and puts something else on screen in its place -- so a ghost that keeps drawing a
+-- character is drawing a person the game has taken off the board.
+--
+--   * BRINEY'S BOAT hides the player (`hideobjectat LOCALID_PLAYER`) and then applies the SAME
+--     movement script to the invisible player object and to the boat's object, so the two travel
+--     one on top of the other with only the boat drawn
+--     (data/maps/Route104/scripts.inc, Route104_EventScript_SailToDewford). The player's own
+--     graphicsId never changes, so `gfx` cannot describe it: the vehicle is a different object
+--     and has to be named separately.
+--   * FLY takes the player's sprite away from the map entirely. The bird's callback drives it in
+--     SCREEN coordinates with coordOffsetEnabled cleared (SpriteCB_FlyBirdSwoopDown,
+--     src/field_effect.c), while the map position underneath never moves -- so position, action
+--     and animation all report a character standing still on a tile through the whole departure.
+--
+-- Both are read from the engine's own statements rather than inferred: the object's `invisible`
+-- bit, the boat object's presence on the player's tile, and the fly task's own bird sprite.
+----------------------------------------------------------------------------
+-- OBJ_EVENT_GFX_MR_BRINEYS_BOAT (include/constants/event_objects.h:95). Its graphics info is
+-- 32x32 on paletteTag OBJ_EVENT_PAL_TAG_NPC_3 / PALSLOT_NPC_3
+-- (src/data/object_events/object_event_graphics_info.h) -- an ordinary NPC palette slot, which is
+-- the whole of why the receive side cannot simply hand it to a ghost. See flyRide.boatPalette.
+flyRide.BOAT_GFX = 88
+
+-- gTasks: the same table and stride tiering.applyShowMonWindow already scans for the field-move
+-- banner -- 16 entries of 0x28 at 0x03005E00, func at +0x00 (a Thumb pointer, so odd), isActive
+-- at +0x04, data[] at +0x08.
+flyRide.TASKS_ADDR, flyRide.TASK_SIZE = 0x03005e00, 0x28
+-- Task_FlyOut / Task_FlyIn, +1 for Thumb (pokeemerald.map). Their data slots are named in
+-- src/field_effect.c immediately above FldEff_UseFly: data[0] tState, data[1] tMonId and then
+-- tBirdSpriteId re-using the same slot, data[2] tTimer, data[15] tAvatarFlags.
+flyRide.TASK_FLY_OUT, flyRide.TASK_FLY_IN = 0x080b91d5, 0x080b97d5
+-- SpriteCB_FlyBirdSwoopDown, +1 for Thumb (pokeemerald.map). Recognising the bird by its CALLBACK
+-- rather than by the task's state number is deliberate: the same task id runs several callbacks
+-- across a fly, and the swoop is the only one that carries a character.
+flyRide.BIRD_SWOOP_CB = 0x080b963d
+-- MAX_SPRITES (include/sprite.h:5), which StartFlyBirdSwoopDown writes into the bird's
+-- sPlayerSpriteId (data[6]) to mean "carrying nobody". SetFlyBirdPlayerSpriteId replaces it with a
+-- real sprite id when the character is picked up -- so that one slot is the engine's own answer to
+-- "is this bird carrying somebody", and no state arithmetic of ours can get it wrong.
+flyRide.NO_RIDER = 64
+
+-- WHAT THE SENDER PUBLISHES. Results land on the table rather than in locals or a returned tuple:
+-- this chunk is at Lua's 200-local ceiling, where one more top-level name is a parse failure and
+-- the adapter does not load at all.
+--
+--   flyRide.invis -- the object's own `invisible` bit (+0x01 bit 0x20,
+--                    include/global.fieldmap.h:209). "The engine is not drawing this character."
+--   flyRide.boat  -- the graphicsId of the vehicle the player is riding, or nil.
+--   flyRide.fly   -- nil, 1 (in the fly cutscene, still on the ground) or 2 (carried by the bird).
+--   flyRide.flyk  -- the bird's arc parameter, so a receiver's bird can start in phase rather
+--                    than a network delay behind.
+flyRide.sample = function(objId, sprId)
+    local a = objAddr(objId)
+    flyRide.invis = ((r8(a + 0x01) & 0x20) ~= 0) and 1 or 0
+    flyRide.boat, flyRide.fly, flyRide.flyk = nil, nil, nil
+
+    -- THE VEHICLE IS FOUND ON THE PLAYER'S TILE, not assumed from the map. The ride is scripted
+    -- to keep the two objects on the same coordinates for its whole length, so "an active boat
+    -- standing exactly where the hidden player is" is a statement about this frame rather than a
+    -- guess about which map or which script is running. Only checked while the player is hidden,
+    -- which is what makes it cheap: walking past a moored boat never enters this loop.
+    if flyRide.invis == 1 then
+        local px, py = rs16(a + 0x10), rs16(a + 0x12)
+        for i = 0, 15 do
+            local o = objAddr(i)
+            if (r8(o + 0x00) & 0x01) ~= 0 and r8(o + 0x05) == flyRide.BOAT_GFX
+                and rs16(o + 0x10) == px and rs16(o + 0x12) == py then
+                flyRide.boat = flyRide.BOAT_GFX
+                break
+            end
+        end
+    end
+
+    for t = 0, 15 do
+        local ta = flyRide.TASKS_ADDR + t * flyRide.TASK_SIZE
+        if r8(ta + 0x04) == 1 then
+            local fn = r32(ta + 0x00)
+            if fn == flyRide.TASK_FLY_OUT or fn == flyRide.TASK_FLY_IN then
+                -- On the ground until the bird proves otherwise. Every state of both tasks that
+                -- is not the swoop is a character standing on its tile doing the field-move pose,
+                -- which the ordinary graphic/animation fields already describe correctly.
+                flyRide.fly = 1
+                local birdId = r16(ta + 0x08 + 1 * 2) -- data[1], tBirdSpriteId
+                if birdId < flyRide.NO_RIDER then
+                    local bs = sprAddr(birdId)
+                    -- inUse, and running the swoop callback: data[1] holds tMonId before the bird
+                    -- exists, so it must be validated as a sprite and not merely bounds-checked.
+                    if (r8(bs + 0x3e) & 0x01) ~= 0 and r32(bs + 0x1c) == flyRide.BIRD_SWOOP_CB then
+                        flyRide.flyk = r16(bs + 0x32) -- data[2], the arc parameter
+                        if r16(bs + 0x3a) == sprId then flyRide.fly = 2 end -- data[6], the rider
+                    end
+                end
+                break
+            end
+        end
+    end
+end
+
+-- gFieldEffectObjectTemplate_Bird (pokeemerald.map). A SpriteTemplate, the same 0x18-byte layout
+-- spawnSurfBlob reads: tileTag 0x00, paletteTag 0x02, oam 0x04, anims 0x08, images 0x0C,
+-- affineAnims 0x10, callback 0x14. Its frames are 32x32, so sixteen tiles, like the blob's.
+flyRide.BIRD_TEMPLATE = 0x0850d4a8
+flyRide.BIRD_TILES = 16
+-- CreateFlyBirdSprite's own choices (src/field_effect.c): palette 0, OAM priority 1, subpriority
+-- 1. Palette 0 is the engine HARDCODING a slot rather than resolving the template's tag -- the
+-- template's tag is TAG_NONE, so there is nothing to resolve and no honest alternative to copying
+-- what the game does.
+flyRide.BIRD_PALETTE, flyRide.BIRD_SUBPRIORITY = 0, 1
+
+-- Hide or show a ghost -- THROUGH THE OBJECT, and then the sprite.
+--
+-- The object's `invisible` (+0x01 bit 0x20, include/global.fieldmap.h:209) is the durable one and
+-- the one the peer is actually reporting: the engine's own per-frame visibility step copies it
+-- down onto the sprite, so a sprite bit set on its own is a write the engine is entitled to undo
+-- the next frame. Setting the object's is `hideobjectat` doing exactly what it does to the player.
+--
+-- The sprite's bit (0x04 of the flags at +0x3E, include/sprite.h -- the same bit despawnSurfBlob
+-- sets when it retires one) is set alongside it so the change lands on THIS frame rather than the
+-- next, which is the difference between a clean cut and one visible frame of a character standing
+-- on water.
+flyRide.setHidden = function(g, hidden)
+    local a, d = objAddr(g.objId), sprAddr(g.sprId)
+    if hidden then
+        w8(a + 0x01, r8(a + 0x01) | 0x20)
+        w8(d + 0x3e, r8(d + 0x3e) | 0x04)
+    else
+        w8(a + 0x01, r8(a + 0x01) & ~0x20)
+        w8(d + 0x3e, r8(d + 0x3e) & ~0x04)
+    end
+end
+
+-- THE BIRD IS THE ENGINE'S, AND SO IS THE FLIGHT.
+--
+-- SpriteCB_FlyBirdSwoopDown walks a cosine/sine arc and, whenever its sPlayerSpriteId (data[6])
+-- names a sprite, writes that sprite's screen position every frame -- clearing coordOffsetEnabled
+-- so it leaves the map behind (src/field_effect.c). The game already points that routine at
+-- characters who are not the player: FldEff_NPCFlyOut hands it an arbitrary sprite id and lets it
+-- carry an NPC away. A ghost is exactly that case, so nothing here reimplements the flight. It
+-- builds the sprite the template describes, points it at the engine's routine, and names the
+-- ghost as its passenger.
+--
+-- Built from the template rather than copied from a live bird, for the same reason the surf blob
+-- is: no bird exists unless somebody is already flying, and the peer's is on another machine.
+flyRide.spawnBird = function(g, k)
+    if g.birdSprId then return g.birdSprId end
+    local tmpl = flyRide.BIRD_TEMPLATE
+    local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
+    local imagesPtr, affinePtr = r32(tmpl + 0x0c), r32(tmpl + 0x10)
+    if oamPtr == 0 or imagesPtr == 0 then return nil end
+
+    local sprId = findFreeSpriteSlot()
+    if not sprId or sprId == g.sprId then return nil end
+    local tileStart = allocSpriteTiles(flyRide.BIRD_TILES)
+    if not tileStart then return nil end
+
+    local d = sprAddr(sprId)
+    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
+    for off = 0, 7 do w8(d + off, r8(oamPtr + off)) end
+    -- tileNum, palette and priority in one field: attribute 2 at +0x04 carries all three.
+    w16(d + 0x04, (tileStart & 0x03ff) | (1 << 10)
+        | ((flyRide.BIRD_PALETTE & 0x0f) << 12))
+    w32(d + 0x08, animsPtr)
+    w32(d + 0x0c, imagesPtr)
+    w32(d + 0x10, affinePtr)
+    w32(d + 0x1c, flyRide.BIRD_SWOOP_CB)
+    -- StartFlyBirdSwoopDown's own starting point: the top of the screen, horizontally centred, in
+    -- SCREEN coordinates -- which is why coordOffsetEnabled stays clear below. DISPLAY_WIDTH/2.
+    w16(d + 0x20, 120) w16(d + 0x22, 0)
+    -- centerToCornerVec, which every engine-made sprite carries and a hand-built one must be
+    -- given: -(width/2), -(height/2) for a 32x32 frame, so the sprite's position means its centre.
+    -- The surf blob was drawn a full tile down-right for want of exactly this.
+    w8(d + 0x28, (-16) & 0xff)
+    w8(d + 0x29, (-16) & 0xff)
+    w8(d + 0x43, flyRide.BIRD_SUBPRIORITY)
+    -- data[2] SEEDED FROM THE PEER'S OWN BIRD, not from zero. Both birds then step by 4 a frame on
+    -- the engine's clock, so seeding costs nothing per frame and starts them in phase rather than
+    -- one interpolation delay apart.
+    w16(d + 0x32, (k or 0) & 0xffff)          -- data[2]: the arc parameter
+    w16(d + 0x3a, g.sprId)                    -- data[6]: sPlayerSpriteId -- the passenger
+    w16(d + 0x3c, 0)                          -- data[7]: sAnimCompleted
+    w8(d + 0x3e, 0x01)                        -- inUse; NOT coordOffsetEnabled -- see above
+    w8(d + 0x3f, 0x04)                        -- animBeginning
+    g.birdSprId, g.birdTileStart = sprId, tileStart
+    return sprId
+end
+
+flyRide.despawnBird = function(g)
+    if not g.birdSprId then return end
+    local d = sprAddr(g.birdSprId)
+    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04) -- inUse = 0, invisible = 1
+    -- Freed through the queue, never here: the hardware is still drawing from these tiles for two
+    -- more frames, and a range reclaimed inside that window is stamped over by a copy that was
+    -- already scheduled. The whole reasoning is at swapGhostGraphicInPlace's deferred free.
+    if g.birdTileStart then
+        queueTileFree({ g = g, start = g.birdTileStart, count = flyRide.BIRD_TILES,
+            at = frameCounter })
+    end
+    g.birdSprId, g.birdTileStart = nil, nil
+    -- GIVE THE PASSENGER BACK TO THE MAP. The bird's callback clears coordOffsetEnabled on whoever
+    -- it is carrying and writes screen coordinates into it; leaving that clear would park the
+    -- ghost wherever the arc ended and hold it there while the world scrolled underneath.
+    local cd = sprAddr(g.sprId)
+    w8(cd + 0x3e, r8(cd + 0x3e) | 0x02)
+end
+
+-- THE VEHICLE IS A SPRITE OF ITS OWN, and the ghost inside it is simply hidden.
+--
+-- That is what the ride actually is: `hideobjectat LOCALID_PLAYER` and a boat object moving on the
+-- same coordinates (data/maps/Route104/scripts.inc). Reproducing it as a separate sprite rather
+-- than by dressing the ghost in the boat's graphic is the difference between copying the game and
+-- imitating it -- and it also avoids handing the ghost a graphic from a palette family its own
+-- machinery has no way to give back afterwards.
+--
+-- Built the way spawnGhostShadow builds its sprite: from the graphic's own ROM entry, with the
+-- engine's do-nothing callback, positioned from Lua each frame.
+--
+-- THE PALETTE IS THE ONE THING THAT CAN REFUSE. A ghost normally borrows the palette slot already
+-- loaded for the player, which works only because every Brendan/May state shares one tag. A boat
+-- is an NPC graphic on PALSLOT_NPC_3, so it needs its own slot to be loaded -- and it is loaded
+-- exactly when the watcher's own map has that boat on it. Where it is not, there is no way to draw
+-- the vehicle in its real colours, and the caller hides the ghost instead.
+flyRide.spawnVehicle = function(g, gfxId)
+    if g.vehicleSprId then return g.vehicleSprId end
+    local gi = graphicsInfo(gfxId)
+    if not gi or not gi.raw or gi.images == 0 or gi.oam == 0 then return nil end
+    -- hwPaletteSlotForTag is the hardware tier's own lookup into sSpritePaletteTags -- the
+    -- engine's record of which tag is loaded in each of the sixteen OBJ palette slots. Shared
+    -- rather than reimplemented: it is the same question, and a second copy is a second thing to
+    -- get wrong when a ROM moves.
+    local slot = hwPaletteSlotForTag(gi.paletteTag)
+    if not slot then return nil end
+    if r16(genderFrames.spriteCallbackDummy - 1) ~= 0x4770 then return nil end
+
+    local sprId = findFreeSpriteSlot()
+    if not sprId or sprId == g.sprId then return nil end
+    local bytes = r16(gi.images + 4)
+    if bytes == 0 or bytes > 2048 or bytes % 32 ~= 0 then
+        logFile(string.format("vehicle sprite: refusing a %d-byte frame (gfx=%d)", bytes, gfxId))
+        return nil
+    end
+    local nTiles = bytes // 32
+    local tileStart = allocSpriteTiles(nTiles)
+    if not tileStart then return nil end
+
+    local d = sprAddr(sprId)
+    for off = 0, SPRITE_SIZE - 1 do w8(d + off, 0) end
+    for off = 0, 7 do w8(d + off, r8(gi.oam + off)) end
+    w16(d + 0x04, (tileStart & 0x03ff) | ((slot & 0x0f) << 12))
+    w32(d + 0x08, gi.anims)
+    w32(d + 0x0c, gi.images)
+    w32(d + 0x10, gi.affineAnims)
+    w32(d + 0x1c, genderFrames.spriteCallbackDummy)
+    -- The ride sets the boat's subpriority to 0 before it starts (`setobjectsubpriority
+    -- LOCALID_ROUTE104_BOAT`), which is the script saying "draw this in front of what it passes".
+    w8(d + 0x43, 0)
+    w8(d + 0x28, (-(gi.width // 2)) & 0xff)
+    w8(d + 0x29, (-(gi.height // 2)) & 0xff)
+    w8(d + 0x3e, 0x03)        -- inUse | coordOffsetEnabled
+    w8(d + 0x3f, 0x04)
+    g.vehicleSprId, g.vehicleTileStart, g.vehicleTiles = sprId, tileStart, nTiles
+    g.vehicleGfx = gfxId
+    -- The pixels now, rather than waiting for an engine copy that will never come -- this sprite
+    -- has a do-nothing callback and no animation driver of its own.
+    local src = r32(gi.images)
+    if isRomPtr(src) then
+        local dst = 0x06010000 + tileStart * 32
+        for off = 0, bytes - 4, 4 do w32(dst + off, r32(src + off)) end
+    end
+    return sprId
+end
+
+flyRide.despawnVehicle = function(g)
+    if not g.vehicleSprId then return end
+    local d = sprAddr(g.vehicleSprId)
+    w8(d + 0x3e, (r8(d + 0x3e) & ~0x01) | 0x04)
+    if g.vehicleTileStart then
+        queueTileFree({ g = g, start = g.vehicleTileStart, count = g.vehicleTiles or 16,
+            at = frameCounter })
+    end
+    g.vehicleSprId, g.vehicleTileStart, g.vehicleTiles, g.vehicleGfx = nil, nil, nil, nil
+end
+
+-- WHAT TO DO WITH A PEER THE ENGINE HAS STOPPED DRAWING AS A CHARACTER.
+--
+-- Returns true when it has taken the ghost over for this frame, which means the caller must not
+-- place, step or animate it: a flying ghost's sprite belongs to the bird's callback, and writing a
+-- map position over the top of it would undo the arc every frame.
+--
+-- The order is the order of authority. A fly is the strongest statement -- the character is not on
+-- the map at all -- a vehicle next (on the map, drawn as something else), and a bare `invisible`
+-- last (on the map, simply not drawn).
+flyRide.apply = function(g, remote)
+    if remote.fly then
+        flyRide.despawnVehicle(g)
+        if remote.fly == 2 then
+            flyRide.setHidden(g, false)
+            if not g.birdSprId then flyRide.spawnBird(g, remote.flyk) end
+            -- The engine sets sAnimCompleted at the end of the arc and then stops moving the pair;
+            -- the game's own task is what destroys the sprite. There is no task here, so a
+            -- finished bird is retired the frame it reports done, and its passenger -- who is by
+            -- then off the top of the screen and on the way to another map -- is hidden.
+            if g.birdSprId and r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
+                flyRide.despawnBird(g)
+                flyRide.setHidden(g, true)
+            end
+            return true
+        end
+        -- fly == 1: on the ground, in the field-move pose. An ordinary character drawn the
+        -- ordinary way -- and if a bird is still attached from the swoop, this is where it is let
+        -- go, which is also the arrival case: the peer is set down and the bird leaves.
+        flyRide.despawnBird(g)
+        flyRide.setHidden(g, false)
+        return false
+    end
+    flyRide.despawnBird(g)
+
+    if remote.boat then
+        if g.vehicleGfx and g.vehicleGfx ~= remote.boat then flyRide.despawnVehicle(g) end
+        if g.vehicleSprId or flyRide.spawnVehicle(g, remote.boat) then
+            -- The boat sits exactly where the character it replaced would be. Screen position
+            -- rather than map coordinates, because that is the one both sprites already agree on
+            -- and it needs no camera arithmetic of its own.
+            local cd, vd = sprAddr(g.sprId), sprAddr(g.vehicleSprId)
+            w16(vd + 0x20, rs16(cd + 0x20))
+            w16(vd + 0x22, rs16(cd + 0x22))
+            w16(vd + 0x04, (r16(vd + 0x04) & 0xf3ff) | (r16(cd + 0x04) & 0x0c00))
+            flyRide.setHidden(g, true)
+            return false
+        end
+        -- The vehicle could not be drawn -- see spawnVehicle for the one reason that happens.
+        -- Hiding is then the honest answer: the engine is not drawing this character either, and a
+        -- walker sliding across open water is a worse lie than an absence.
+        flyRide.setHidden(g, true)
+        return true
+    end
+    flyRide.despawnVehicle(g)
+
+    if remote.invis then
+        flyRide.setHidden(g, true)
+        return true
+    end
+    flyRide.setHidden(g, false)
+    return false
+end
+
 
 -- ObjectEventSetHeldMovement (event_object_movement.c:4870): three object fields plus the sprite's
 -- action-function index. The engine plays out the whole tile -- animation, slide, coordinates.
@@ -5714,6 +6118,12 @@ local function syncGhost(playerId, remote)
         end
         return
     end
+
+    -- IS THIS PEER STILL A CHARACTER? Before anything below places, steps or animates the ghost,
+    -- because for a peer on Briney's boat or in the middle of a Fly the answer is no, and every
+    -- one of those is then a write on top of something the engine is already driving. flyRide's
+    -- header has what the two states are and why nothing else this file sends can describe them.
+    if flyRide.apply(g, remote) then return end
 
     -- MIRROR THE PEER'S SPRITE ANIMATION, for the states the engine will not drive for us.
     --
@@ -8210,7 +8620,12 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
         -- mode -- that is the whole point of compare mode. Everyone else lands here exactly when the
         -- engine had no room for them.
         local alsoSpawned = COMPARE_TIERS and playerId:match("%-ghost$") ~= nil
+        -- Same rule the painted tier takes, and a slot saved rather than a slot wasted: a peer the
+        -- engine has stopped drawing is not ranked for a hardware slot at all, so the budget goes
+        -- to peers who are actually on the map. See the painted tier's own note for why neither
+        -- self-drawn tier attempts the boat or the bird.
         if remote.areaId == localAreaId
+            and not (remote.invis or remote.boat or remote.fly == 2)
             and (alsoSpawned or not (spawnSet and spawnSet[playerId]))
         then
             local dx, dy = remote.x - playerX, remote.y - playerY
@@ -8678,6 +9093,17 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
         else
             wanted = (COMPARE_TIERS and isLoopback) or not (skipSpawned and skipSpawned[playerId])
         end
+        -- THE ENGINE HAS STOPPED DRAWING THIS CHARACTER, so neither do we. A peer hidden by a
+        -- script (Briney's ride) or lifted off the map entirely (a Fly) is not somewhere else on
+        -- screen -- there is nobody to paint, and painting anyway is a character standing on open
+        -- water or on the tile they left from.
+        --
+        -- This tier gets the ABSENCE and not the spectacle: the boat and the bird are engine
+        -- sprites the spawned tier builds, and this one has no engine behind it. That is the
+        -- standing gap between the two renderers rather than anything new (`phases/phase8.md`),
+        -- and it is recorded rather than papered over -- a painted boat would be a second
+        -- implementation of a thing the hardware already does correctly two tiles away.
+        if remote.invis or remote.boat or remote.fly == 2 then wanted = false end
         if remote.areaId == localAreaId and wanted then
             -- Tile-paced, not sample-paced: the peer's TILE is the target, and the walk between
             -- tiles is the game's own 16/8 frames rather than however far the last packet moved.
@@ -10180,6 +10606,8 @@ local function runFrame()
                 if MESHGHOST_EMERALD_PROFILE then tiering.profT = os.clock() end
                 -- On the table rather than in locals: this chunk is at Lua's 200-local ceiling.
                 genderFrames.sendGfx = localGraphicsId()
+                flyRide.sample(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05),
+                    r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04))
                 genderFrames.sendAnim, genderFrames.sendIdx = genderFrames.coherentAnim(
                     genderFrames.sendGfx,
                     r8(sprAddr(r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x04)) + 0x2a),
@@ -10223,7 +10651,12 @@ local function runFrame()
                     -- override. See encodeLocalState for why spaused alone was not enough.
                     ((r8(GOBJECTEVENTS_ADDR + avatarAddrOffset
                         + r8(GPLAYERAVATAR_ADDR + avatarAddrOffset + 0x05) * OBJECTEVENT_SIZE
-                        + 0x01) & 0x04) ~= 0) and 1 or 0))
+                        + 0x01) & 0x04) ~= 0) and 1 or 0,
+                    -- The four that say the engine has stopped drawing this character at all:
+                    -- the object's `invisible` bit, the vehicle standing on its tile, and the two
+                    -- halves of a Fly. Sampled together, one frame, one pass over the object and
+                    -- task tables -- see flyRide.sample.
+                    flyRide.invis, flyRide.boat, flyRide.fly, flyRide.flyk))
                 if tiering.profT then
                     local pr = tiering.prof or {}
                     pr.send = (pr.send or 0) + (os.clock() - tiering.profT)

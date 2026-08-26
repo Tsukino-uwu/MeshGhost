@@ -270,6 +270,37 @@ if ((Test-Path $cmake) -and (Test-Path $pseudoBuiltFrom)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "No reproduced expression in documentation.md"
+
+# Each adapter's documentation.md records HOW THE GAME WORKS, under a header rule of its own:
+# facts may be explained, expression may never be reproduced -- no source text, no disassembly,
+# no data tables copied wholesale. CLAUDE.md's licensing rule is where that comes from.
+#
+# NOTHING WAS CHECKING IT, and three violations reached master before a person read the file:
+# a sixteen-entry jump-arc table, a sprite template's assembly line, and a script's command
+# sequence, all in Crystal's, all added 2026-08-26 while writing up work that had just been
+# confirmed. Every one of them is a case where the fact and the source's own FORM look identical
+# -- writing out a table you also measured feels like recording a measurement.
+#
+# So this greps for the shape rather than the content: a fenced block inside documentation.md.
+# A fence is not automatically a violation -- probe OUTPUT we produced ourselves is a measurement
+# and is allowed, which is why this WARNS and never fails. It exists to put a human's eye back on
+# the one construct all three violations shared.
+$docFiles = @(& git ls-files '*documentation.md')
+$fenced = @()
+foreach ($f in $docFiles) {
+    if (-not (Test-Path $f)) { continue }
+    $n = @(Select-String -Path $f -Pattern '^```' -AllMatches).Count
+    if ($n -gt 0) { $fenced += "$f ($([int]($n / 2)) block(s))" }
+}
+if ($fenced.Count -eq 0) {
+    Report-Pass "no fenced blocks in any adapter's documentation.md ($($docFiles.Count) checked)"
+} else {
+    Report-Warn ("fenced block(s) in documentation.md -- confirm each is OUR measurement, " +
+        "not reproduced expression: " + ($fenced -join ", "))
+}
+
+# ---------------------------------------------------------------------------
 Section "Lua parses"
 
 # Every adapter and probe is Lua, and nothing else in this repo checks that it COMPILES.

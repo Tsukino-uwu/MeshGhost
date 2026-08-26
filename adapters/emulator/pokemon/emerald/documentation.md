@@ -718,3 +718,52 @@ templates (`MB_TALL_GRASS` and `MB_LONG_GRASS` respectively).
 roof edges, tree tops — is a metatile's top layer on a background the sprite does not outrank.
 Grass is a sprite drawn over the character. A real object event gets both for free; anything else
 has to reproduce each separately, and "it hides behind buildings" is not evidence that it hides.
+
+## Two states where the game stops drawing the player as a character
+
+Every other special state is still a character on a tile: a different `graphicsId`, sometimes a
+companion sprite, but a person standing somewhere. These two are not, and each breaks a different
+assumption.
+
+**Riding Mr. Briney's boat.** The ride hides the player's own object outright and then applies the
+*same* scripted movement to that invisible object and to a separate boat object, so the two travel
+one on top of the other with only the boat drawn (`data/maps/Route104/scripts.inc`,
+`Route104_EventScript_SailToDewford`). Three consequences worth knowing:
+
+- **The player's `graphicsId` never changes.** Nothing about the character's own appearance says
+  they are on a boat; the state lives in the object's `invisible` bit and in a second object's
+  existence on the same coordinates.
+- **The crossing uses `walk_fast` and `walk_faster` movements**, which ordinary play never
+  produces — running is a different mechanism entirely (see *A rider's speed lives in three
+  unrelated places*). `gPlayerAvatar.bikeSpeed` reads zero throughout, because nobody is pedalling,
+  so the character's real pace is legible only from its movement action.
+- **The map changes mid-ride**, by the boat crossing a map connection, with no warp and no fade.
+
+The boat's graphic is 32x32 on an ordinary NPC palette slot rather than the shared Brendan/May tag
+(`src/data/object_events/object_event_graphics_info.h`), so unlike every player state its colours
+are not already loaded wherever the player is.
+
+**Fly.** Fly takes the character off the map altogether rather than moving it. The departure runs
+as a sequence (`src/field_effect.c`, the `Task_FlyOut` state table):
+
+1. The field-move pose, and the panel showing the Pokémon — the same show-mon banner every field
+   move raises.
+2. A bird sprite leaves its ball and swoops down on a cosine/sine arc.
+3. The character takes the **surfing** graphic and the mount animation, and jumps in place onto it.
+   Its shadow is switched off and it is marked inanimate.
+4. The bird's own sprite callback then drives the character's sprite in **screen** coordinates,
+   with `coordOffsetEnabled` cleared, until the arc finishes and the screen fades.
+
+Arrival is that sequence in reverse, plus a hand-written eighteen-frame drop table for the step off
+the bird, and it ends by restoring whichever state the player was in before — including surfing,
+blob and all.
+
+Two facts matter more than the rest:
+
+- **The map position never moves.** Through the whole departure the object stands on the tile it
+  took off from. Position, movement action and animation all describe a character standing still,
+  which is why none of them can tell you a Fly is happening.
+- **The engine already flies characters who are not the player.** `FldEff_NPCFlyOut` hands the same
+  arc routine an arbitrary sprite id and lets it carry an NPC away, and the bird names its
+  passenger in its own sprite data rather than assuming the player. The routine is general; only
+  the task around it is about the player.

@@ -100,9 +100,9 @@ and each time cost a reload cycle to identify. Re-counted 2026-08-25:
 | adapter | lines | top-level locals |
 |---|---|---|
 | Crystal | 7,540 | **197 of 200** (re-measured 2026-08-26) |
-| Emerald | 10,503 | **197 of 200** (2026-08-25) |
+| Emerald | 10,936 | **198 of 200** (re-measured 2026-08-26) |
 
-**Both adapters are now three names from the wall.** Crystal's row read 188 for one day and was
+**Crystal is three names from the wall and Emerald is two.** Crystal's row read 188 for one day and was
 already stale when it was read: adding two plain constants for a feature stopped the file loading
 outright (2026-08-26, the fourth time). **A number nothing re-measures is a number that WAS true**
 — so re-measure before planning around the headroom, and expect the answer to be worse. Neither

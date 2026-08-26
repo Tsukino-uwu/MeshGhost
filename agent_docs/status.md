@@ -4,12 +4,14 @@
 
 ## Active status
 
-**Active phase: 9 — Crystal.** Emerald is PARKED, feature complete as of 2026-08-21 on the user's
-call (*"i consider the game to be fully synced up animation and effect wise now"*), handed off the
-same day: *"i will move on to crystal and not work more on emerald right now."* `verified.md`.
+**Active phase: 9 — Crystal, with Emerald reopened for two states.** Feature complete 2026-08-21,
+*"i consider the game to be fully synced up animation and effect wise now"* — but the boat and Fly
+were the two states never tested, and are now built and awaiting a look. `verified.md`.
 
-- **Emerald work is not scheduled.** A new animation/effect item for it needs a reason it is not
-  polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
+- **Emerald is REOPENED for the boat and Fly (2026-08-26, user's call).** Both are built and
+  unwatched; rails stay assumed, not built for. `emerald/UNVERIFIED.md`.
+- **Emerald has not been RUN since 2026-08-22** — the local-ceiling fix touched the surf blob's
+  constants and only ever compiled. Surf is checked on the way to the boat. `emerald/UNVERIFIED.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
 - **Nothing is running** (re-confirmed end of 2026-08-26: relay and core stopped and verified gone,
@@ -47,8 +49,8 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 
 ## Genuinely open items
 
-- **Both Lua adapters are THREE names from Lua's 200-local ceiling** (re-measured 2026-08-26;
-  Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
+- **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
+  2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **Everything is PUSHED as of 2026-08-26** (26 commits, none of them `.go`). The privacy job had
   been red since 2026-08-25 on a false positive; fixed the same day. `gh run list` at session start.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
