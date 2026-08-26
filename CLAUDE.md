@@ -151,8 +151,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   binaries. Rebuild explicitly with `-o` first. Found live 2026-08-14: a bug repro ran against
   binaries a full day stale.
 - **Never log the value you just wrote as proof it worked — this covers your own EDITS.** Read back
-  independently: a real getter, not the local you wrote; and re-read the FILE after any scripted
-  edit, because an unmatched pattern fails SILENTLY. 2026-08-21: "fixed in both" was false.
+  independently: a real getter, not the local you wrote; and **grep the RESULT** after any scripted
+  edit — an unmatched pattern fails silently. 2026-08-21: "fixed in both" was false. **One edit per
+  script, because a later `assert` aborts the whole run and discards the earlier replacements that
+  DID match** — six such edits went missing on 2026-08-26 and every one was then hunted as a game
+  bug. `luac -p` cannot see any of this: it proves the file parses, never that your change is in it.
 - **Two guessed fixes failing the same way is a signal.** Isolate by subtraction, never a third guess.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does

@@ -4132,11 +4132,24 @@ One feature — a peer's Fly landing — took most of a day and about fifteen li
 and it is worth knowing where the time went, because almost none of it went into the feature.
 
 **Six of my own edits were wrong in ways the tooling could not see.** Three scripted edits failed
-to apply and said nothing (the pattern did not match); one left a name undeclared, which in Lua is
-a silent nil GLOBAL; one read the wrong VRAM bank; one logged a value it had just written. Every
-one passed `luac -p`, because a parse check confirms an edit is valid Lua, never that it happened
-or that it means what you intended. **After a scripted edit, grep the result back and check it says
-what you wrote.** That single habit would have removed roughly half this session.
+to apply and said nothing; one left a name undeclared, which in Lua is a silent nil GLOBAL; one read
+the wrong VRAM bank; one logged a value it had just written. Every one passed `luac -p`, because a
+parse check confirms an edit is valid Lua, never that it happened or that it means what you
+intended.
+
+**And the rule against this was ALREADY in `CLAUDE.md`, dated 2026-08-21** — "re-read the FILE after
+any scripted edit, because an unmatched pattern fails SILENTLY". So this was not a documentation
+gap and no amount of further prose would have helped. What was missing was the MECHANISM, and it is
+specific: these edits were multi-part Python scripts of the shape `assert old in s; s = s.replace(...)`
+repeated several times, with one `write` at the end. **A failing `assert` anywhere aborts the whole
+script, so the replacements that DID match are discarded along with it** — and the visible symptom
+is a single `AssertionError` naming one edit, which reads as "one edit needs fixing" when it
+actually means "none of them were saved". Fixing the named one and moving on is what lost the
+others, twice.
+
+**So the rule now carries the mechanism rather than the exhortation: one edit per script, and grep
+the result back.** An `assert` proves the pattern matched at that moment; only reading the file
+proves the change is in it.
 
 **Five fixes were aimed at a trigger narrower than the event.** Area-change ⊂ map-load (twice),
 teleport ⊂ ghost-placement, a coordinate comparison only meaningful within one map, and a guard
