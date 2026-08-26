@@ -434,20 +434,55 @@ game stops drawing the player as a character". Four new `extras` reach the wire 
   boat and the bird are engine sprites, and a painted re-implementation of something the hardware
   does correctly two tiles away is a second implementation, not parity. A standing tier gap.
 
-### What to watch for, in order
+### Nine fly faults found and fixed on 2026-08-26, none of them user-confirmed yet
 
-1. **A peer riding Briney's boat.** Is there a boat, or does the ghost simply vanish for the
-   crossing? Either is a designed outcome; which one happens is the question.
-2. **Is the boat in the right place and the right colours**, and does it stop being a boat at the
-   other end. A wrong palette slot draws it in somebody else's colours rather than failing.
-3. **A peer using Fly, both ends.** The pose, the bird's swoop, the mount, the ride off screen —
-   and on arrival the drop and the pose. The bird is retired when it reports its own arc finished;
-   a bird left on screen means that never fired.
-4. **The speed of the crossing.** `bikeSpeed` reads zero through the whole ride, so the ghost's pace
-   comes from the peer's movement action via the forced-movement path added for muddy slopes
-   (2026-08-20). If the ghost falls behind and snaps, that path is not catching `walk_faster`.
-5. **Rails are still untouched.** Not built for, not measured, not watched — the user's call,
-   2026-08-26: *"i still assume rails are working but you can put them in unverified for now."*
+Driven from the user's savestates on two instances (flyer on 1, watcher on 2), so every one below
+is measured rather than reported. **The user has confirmed exactly one thing on screen** — a
+same-town departure watched from the other instance: *"the flying animation was done properly etc.
+the position after landing was right, the bird blob was done properly"*. Everything else here is
+agent-measured and belongs in this file until they say otherwise.
+
+1. **The bird was spawned and destroyed every frame** of a departure. The engine's arc callback
+   sets "done" past 0x80 and keeps incrementing; there is no task here to tear the sprite down, so
+   each teardown was followed by a fresh spawn seeded past the end. One loop, both original
+   symptoms (*"sprites are glitchy"*, *"not following the player at all"*).
+2. **The bird started at arc 80 of 128** — a bird and its passenger are two different events, and
+   waiting for the hand-off skipped the whole descent.
+3. **The `fly == 1` branch retired the bird** the same frame the spawn made it, so a bird only ever
+   survived once the peer reported being carried.
+4. **A surf blob was attached during a fly.** The mount pose borrows the surfing graphic, so every
+   attach site saw "surfing" and obliged — and a blob follows an object id in its own sprite data,
+   so it outlived the flight. **The user spotted this one; no log would have shown it.**
+5. **The ghost's first frame was never written to VRAM** on a rebuild — `graphicsInfo(wantedGfx)`
+   is nil whenever the peer's graphic is not adopted, and `loadGhostFrameNow` then returns early
+   leaving freshly claimed tiles unwritten. Pre-existing; the landing rebuild is what made it stick.
+6. **The bird's arc was anchored at screen centre.** Correct for the engine, which flies only the
+   player; for a ghost it dragged the character to the watcher's own feet first.
+7. **A carried sprite was never put back on the map** — nothing on the engine's side recomputes an
+   object event's sprite position from its coordinates, so the sprite stayed where the arc let go.
+8. **The done-latch was phase-gated** and an arrival never reaches phase 2, so the arrival bird
+   flickered on alternate frames — which is why no bird was visible on arrival.
+9. **The latch then hid the landing.** Departures end carried, landings end released; the phase a
+   flight ended on is the discriminator, not the latch.
+
+### What is still open on Fly
+
+- **Nothing above is user-confirmed except the same-town departure.** The cross-town arrival was
+  fixed after the user's last look at it and has only been judged from screenshots by the agent.
+- **The arrival drop is not mirrored deliberately-or-not.** The engine finishes an arrival with an
+  18-frame hand-written drop table on its own sprite; the ghost gets whatever `soy` carries. Never
+  compared side by side.
+- **The warp-gap hold is a 480-frame timeout.** If an arrival never comes (a peer that quits
+  mid-fly), the ghost stays hidden for eight seconds before being rebuilt. Untested.
+- **Rails remain untouched** — not built for, not measured, not watched.
+
+### What the two savestate pairs can and cannot show
+
+The user's states: flyer 5 same-town, flyer 6 different-town; watcher 3 and 4 for the two towns.
+**A same-town fly takes off and lands on the SAME TILE** (measured 27,24 both sides), so slot 5
+cannot show a landing-position fault at all. **A landing is only visible from the town the flyer
+arrives in** — two paired runs came back clean while a bug was still there because the watcher was
+in the departure town watching a peer leave.
 
 ### The peer-graphics gate is probably stale, and was NOT lifted
 

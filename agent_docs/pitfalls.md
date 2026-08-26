@@ -225,3 +225,47 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Run the engine's own step function; do not copy the field it generates (Crystal, 2026-08-26)
 - A field name that lies, protected by the engine only ever using it on the player (Crystal, 2026-08-26)
 - Two doors into one unguarded dereference (Crystal, 2026-08-26)
+
+## An engine effect that serves the player is anchored to the PLAYER, not to a character
+
+**Emerald, Fly, 2026-08-26.** `StartFlyBirdSwoopDown` parks its bird at (120,0) -- top of screen,
+horizontally centred -- and hangs the whole cosine arc off that anchor, so the low point lands at
+screen centre. Pointing that routine at a ghost flew the ghost to the WATCHER's feet and lifted it
+from there.
+
+Nothing about the routine is player-specific: it names its passenger in its own sprite data, and
+the game itself uses it for NPCs. The *anchor* is what carries the assumption, silently, because
+for the player "screen centre" and "where the character is" are the same point and never disagree.
+
+**So when borrowing an engine effect for a ghost, ask what the effect is positioned RELATIVE to.**
+If the answer is a screen constant, it is a player assumption in disguise and must be translated by
+the ghost's offset from the local player. Same class as the surf blob's `SetSpritePosToOffsetMapCoords`
+and the shadow's re-find-by-localId: the routine is reusable, its frame of reference is not.
+
+## Nothing recomputes an object event's sprite position from its coordinates
+
+**Emerald, 2026-08-26.** An effect that drives a sprite in screen coordinates (the fly bird clears
+`coordOffsetEnabled` and writes `x`/`y` directly) leaves it there when it stops. The engine writes
+an object event's sprite position from *movement* -- a step, a jump, `MoveObjectEventToMapCoords` --
+and otherwise the field simply IS whatever last wrote it. A stationary character therefore never
+gets it back.
+
+The symptom is a character whose collision, coordinates and every struct field are right while the
+picture sits somewhere else entirely, and it lasts until something makes it move. **Restoring the
+scroll bit is not enough; the position has to be recomputed too.**
+
+## A latch that survives one phase of a two-phase effect will fire in the other
+
+**Emerald, Fly, 2026-08-26**, twice in one hour and in opposite directions. A fly is two flights
+with a warp between them, and both halves run the same arc.
+
+- Gating "the arc is finished" on the carried phase meant an ARRIVAL never latched -- the engine
+  releases its character partway down and finishes with a drop table -- so the finished bird was
+  rebuilt on the next frame, forever. A repeated value on a 20Hz wire against a 60fps engine is
+  enough to re-arm any "have I already done this?" test that is not latched.
+- Making it phase-independent then made the arrival end latched too, so the hold written for the
+  DEPARTURE's warp gap hid every peer that had just landed.
+
+**The fix was neither latch nor phase but the phase a flight ENDED on.** When one mechanism serves
+two phases, the state that separates them has to be recorded while both are still distinguishable
+-- afterwards they look identical.
