@@ -5047,9 +5047,25 @@ function drawOverflow()
 					end
 				end
 			elseif math.abs(o.modelX - tX) > 24 or math.abs(o.modelY - tY) > 24 then
-				if COMPARE_TIERS then
-					facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
-				end
+				-- COUNTED UNCONDITIONALLY, and the gate that used to be here is the reason this
+				-- resync has never been measured. It only incremented under COMPARE_TIERS -- a rig
+				-- that renders a second copy of the peer and therefore cannot be switched on to
+				-- investigate how the FIRST one looks. So the one number that says whether this
+				-- branch fires was unavailable in every session that cared. One increment.
+				--
+				-- WHY IT IS THE SUSPECT FOR THE TURBO BIKE. 24px is three frames of an 8px gait and
+				-- twelve of a 2px walk, so a threshold that was effectively unreachable at walking
+				-- pace becomes routine at the Archipelago build's fourth gait -- and this branch
+				-- does not ease the model anywhere, it assigns. That is a snap by construction.
+				-- The user, 2026-08-26, with the gliding already fixed: *"still gliding/snapping a
+				-- bit when using turbo mode on the bike"*.
+				--
+				-- NOT RAISED, NOT TUNED. The threshold is not the thing to change on a hunch -- it
+				-- exists to recover a model that has genuinely lost its peer, and widening it just
+				-- makes the recovery later and larger. Measure whether it fires first.
+				facingFrames.modelSnaps = (facingFrames.modelSnaps or 0) + 1
+				facingFrames.modelSnapPx = math.max(facingFrames.modelSnapPx or 0,
+					math.max(math.abs(o.modelX - tX), math.abs(o.modelY - tY)))
 				o.modelX, o.modelY = tX, tY
 			else
 				-- TWO PIXELS ON EVERY OTHER FRAME, because that is the engine's own quantum and
@@ -6362,6 +6378,35 @@ function drawOverflow()
 			.. "stepping view drawn on %d of %d peer-frames so far, %d with no facing yet",
 			nOam, nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
 			facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0, nNoFacing))
+		-- THE RESYNC, REPORTED WITHOUT THE COMPARE RIG. It used to be visible only on the MODEL
+		-- walk line, which is gated behind the measuring rig -- so the number that says whether a
+		-- painted peer is being SNAPPED rather than walked could not be read in an ordinary
+		-- session. Only when it has fired, so a clean run stays silent.
+		-- HOW FAR BEHIND, AND WHAT IT DID ABOUT IT -- the three numbers that describe a glide.
+		--
+		-- All three already existed and all three printed only on the MODEL walk line, which is
+		-- gated behind MESHGHOST_CRYSTAL_COMPARE_STATS -- a rig heavy enough that the user reported
+		-- the game *"laggy when the scripts are running"*, and a probe that drops frames desyncs
+		-- exactly the pacing it was turned on to measure. So the shape of a glide has never been
+		-- readable in an ordinary session.
+		--
+		-- `furthest behind` is the lag in pixels: a model that is smoothly 6px behind looks fine,
+		-- one that swings between 0 and 20 is the glide. `backward refused` counts frames where the
+		-- model wanted to move AWAY from its target -- a peer's own reversal arriving late. And
+		-- `catch-up` counts frames spent repaying, which is where a snap would live if it is not
+		-- the resync. Three integers, once a second, only while a peer is on the drawn tier.
+		if nDrawn > 0 then
+			logFile(string.format("  model pacing: furthest behind %dpx (a step is 16px), "
+				.. "%d backward refused, %d catch-up frames",
+				facingFrames.modelMax or 0, facingFrames.backwards or 0,
+				facingFrames.catchupFrames or 0))
+		end
+		if (facingFrames.modelSnaps or 0) > 0 then
+			logFile(string.format("  model resyncs: %d so far, worst %dpx past the 24px threshold "
+				.. "-- each one is a painted peer being ASSIGNED its position rather than walked "
+				.. "there, which is a snap on screen",
+				facingFrames.modelSnaps, (facingFrames.modelSnapPx or 0) - 24))
+		end
 		-- EVERY prog value a drawn peer was rendered at, cumulatively. Which values arrive is the
 		-- whole question behind "the stride never runs": the frame is a function of prog, so a prog
 		-- that never leaves the middle of a step can only ever draw the standing view.
