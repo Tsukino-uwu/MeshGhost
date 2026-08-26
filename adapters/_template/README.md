@@ -1488,3 +1488,13 @@ shadow and the screen shake alike — it means "attached decoration object". Sca
 **Prefer a field the engine MAINTAINS to one it merely initialises.** The discriminator here was
 the action byte, rewritten every tick by each object's own movement function, so it cannot drift —
 unlike anything written once at spawn.
+
+## Ask the CARTRIDGE what it can do, not the build's name
+
+A patch may add a capability the base game lacks, so the wire carries a state no single-player
+session can reach: **a peer whose game can do something yours cannot.** Read the ROM for the thing
+itself — find the game's own table by its content signature and count it — never branch on the
+build's name, which cannot answer for a build nobody has measured. **Ask it of YOUR ROM on behalf of
+the PEER**, beside the write. **What the engine cannot do, a renderer above it usually can** — a
+tier-decision term, not a clamp. And **an index is not portable**: hash the table, send that with
+the index, honour it only on equality. Crystal: `crystal/UNVERIFIED.md`, 2026-08-26.

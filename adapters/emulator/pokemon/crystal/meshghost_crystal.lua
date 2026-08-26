@@ -228,6 +228,13 @@ local ADDRESSES = {
 		-- (address, size, bank, type, palette), indexed by SPRITE_* - 1. Used by the drawn tier to
 		-- read a peer's graphics straight from the cartridge.
 		OVERWORLD_SPRITES_ROM = 0x14736,
+		-- StepVectors, 01:4700 -> the same arithmetic, and our own build's pokecrystal.sym says
+		-- so. It also settles the group COUNT without a byte being read: the next symbol is
+		-- `GetStepVectorSign` at 01:4730, exactly 0x30 past the table, which is three groups of
+		-- four four-byte rows and not a byte more. A HINT, not a constant -- ENGINE.gaitGroups
+		-- re-checks the signature here and scans for it if this address is wrong, because a
+		-- build we do not recognise is handed this table by the run-anyway fallback.
+		STEP_VECTORS_ROM = 0x4700,
 		-- THE FISHING SHEET, and it is NOT FishingRodGFX. `Script_FishCastRod` does
 		-- `loademote EMOTE_ROD` and then `callasm LoadFishingGFX` -- and the second overwrites
 		-- what the first loaded. `engine/events/fishing_gfx.asm` copies four 2-tile blocks out of
@@ -340,6 +347,15 @@ local ADDRESSES = {
 		-- graphics are byte-identical between the two ROMs, including CHRIS, KRIS and RED, and the
 		-- five that differ are the tail the patch adds. See verified.md.
 		OVERWORLD_SPRITES_ROM = 0x14564,
+		-- MEASURED 2026-08-26 the same way, and it is the entry that makes this build's faster
+		-- bike work at all. Scanning for the table's own signature (see ENGINE.gaitGroups) finds
+		-- it at 0x004700 on Crystal V1.0, V1.1 and speedchoice 8.1 alike -- one hit each, all
+		-- three carrying vanilla's three groups -- and at 0x0048C9 on an Archipelago seed, where
+		-- it carries FOUR: a fourth group of 8 pixels a tick for 2 ticks, a tile in two frames.
+		-- The patch appends it into the index space vanilla's own `and $0F` already reserves, so
+		-- no engine change was needed on their side and none is needed here beyond knowing it is
+		-- there. Same hint-not-constant status as vanilla's above: re-checked at load.
+		STEP_VECTORS_ROM = 0x48C9,
 
 		-- NOT the table. These are the leading unconfirmed candidates for the entries still nil
 		-- above, used only when MESHGHOST_CRYSTAL_AP_TRY=1 asks for a deliberate experiment, and
@@ -857,6 +873,98 @@ local function classifyRom()
 		"vanilla"
 end
 
+-- ONE GAIT GROUP OF `StepVectors`, or nil if these sixteen bytes are not one.
+--
+-- The table is four `db x, y, duration, speed` rows per gait, in this file's own down/up/left/
+-- right order (`engine/overworld/map_objects.asm`), and every gait crosses the same 16px tile --
+-- so a group for stride `s` is 0,s / 0,-s / -s,0 / s,0, all four carrying the same duration, and
+-- `s * duration` is 16. That last identity is what makes the shape rare rather than merely
+-- plausible: it rejects any run of bytes that happens to look like four little vectors.
+--
+-- Reads the ROM directly rather than through u8(), which pcalls every byte -- this runs over a
+-- 16 KB window once at startup on an unrecognised build, and the domain and range are both fixed.
+-- Returns the STRIDE, because the caller needs it to check the groups are in increasing order.
+--
+-- On ENGINE rather than as two more top-level locals: this file is at Lua's 200-local ceiling for
+-- a main chunk and has been stopped from loading by one name four times (`emulator/CLAUDE.md`).
+function ENGINE.gaitAt(off)
+	local s = memory.read_u8(off + 1, ROM_DOMAIN)
+	local d = memory.read_u8(off + 2, ROM_DOMAIN)
+	if not s or not d or s == 0 or d == 0 or s * d ~= 16 then
+		return nil
+	end
+	local neg = (256 - s) & 0xFF
+	local want = { 0, s, d, s, 0, neg, d, s, neg, 0, d, s, s, 0, d, s }
+	for i = 1, 16 do
+		if memory.read_u8(off + i - 1, ROM_DOMAIN) ~= want[i] then
+			return nil
+		end
+	end
+	return s
+end
+
+-- HOW MANY GAITS THIS CARTRIDGE HAS -- asked of the ROM, never assumed from the build's name.
+--
+-- WHY THIS IS A MEASUREMENT AND NOT A CONSTANT PER BUILD. The number decides what this adapter
+-- may WRITE into a ghost's walking byte, and writing a group the cartridge does not have sends
+-- `GetStepVector` past the end of its own table to read whatever follows it as a movement vector.
+-- That is a CROSS-BUILD hazard rather than a per-build one, and it is new with the wire: a peer
+-- on a four-gait cartridge reports gait 3 to a receiver on a three-gait one, which is a state no
+-- single-player session can reach. So the receiver has to answer from its own ROM, and a build
+-- nobody has seen has to get a real answer rather than vanilla's by default.
+--
+-- Anchored on the three groups vanilla defines: a table that does not begin 1px/16, 2px/8, 4px/4
+-- is not this table, whatever else it resembles. Measured 2026-08-26 across four cartridges --
+-- Crystal V1.0, V1.1, speedchoice 8.1 and an Archipelago seed -- and the anchor found exactly one
+-- hit in each, which is what makes it a signature rather than a filter.
+--
+-- The address is taken from the build's own table when there is one and scanned for otherwise.
+-- Both measured addresses sit in bank 1, which is where `map_objects.asm` itself lives, so that
+-- is the window a build we do not recognise gets searched. Not finding it is not an error: three
+-- is what every un-patched Crystal has, and it is the answer that cannot write out of bounds.
+function ENGINE.gaitGroups(base)
+	if not base then
+		for off = 0x4000, 0x8000 - 48 do
+			-- One read filters almost every offset: the first byte of the slow group is the zero
+			-- x-component of a step DOWN. Only the survivors pay for the full check.
+			if memory.read_u8(off, ROM_DOMAIN) == 0 and ENGINE.gaitAt(off) == 1 then
+				local n = ENGINE.gaitGroups(off)
+				if n then
+					return n, off
+				end
+			end
+		end
+		return nil
+	end
+	if ENGINE.gaitAt(base) ~= 1 or ENGINE.gaitAt(base + 16) ~= 2
+		or ENGINE.gaitAt(base + 32) ~= 4 then
+		return nil
+	end
+	local n, last = 3, 4
+	while true do
+		local s = ENGINE.gaitAt(base + n * 16)
+		-- STRICTLY FASTER, or it is not a further gait. What follows the table is ordinary code,
+		-- and code that happened to satisfy the shape would otherwise be counted as a gait we may
+		-- write -- which is the exact write this whole function exists to prevent.
+		if not s or s <= last then
+			return n, base
+		end
+		n, last = n + 1, s
+	end
+end
+
+-- The gait this cartridge may be TOLD to walk at, clamped to what its own table can index. A peer
+-- faster than anything here is stepped at this ROM's fastest instead, and is meanwhile kept off
+-- the spawned tier entirely (see `paceable` in renderRemote) so the clamp is a floor under a
+-- decision already made rather than the thing a player sees.
+function ENGINE.gait(g)
+	if not GAIT_PX[g] then
+		return 1
+	end
+	local max = (ENGINE.gaits or 3) - 1
+	return g > max and max or g
+end
+
 -- The in-game gate. Established empirically in Phase 9, and BOTH terms were needed: wMapStatus
 -- alone lets a battle through, and adding the event/script flags makes it flicker every step.
 -- IS THE OVERWORLD THE THING ON SCREEN RIGHT NOW?
@@ -928,8 +1036,28 @@ assert(table.concat(DIR_NAMES.letter, "", 0, 3) == "dulr",
 -- MEASURED, not assumed (2026-08-25, on the running game while biking a lap): the player's own
 -- OBJECT_WALKING held 08 and 09 -- group 2, fast -- with OBJECT_STEP_DURATION counting 3, 2, 1.
 -- Walking holds 4-7. So the byte carries the gait and nothing else has to be inferred.
-local GAIT_PX = { [0] = 1, [1] = 2, [2] = 4 }
-local GAIT_TICKS = { [0] = 16, [1] = 8, [2] = 4 }
+--
+-- GROUP 3 IS NOT VANILLA'S, AND IT IS STILL THE ENGINE'S. `GetStepVector` masks the walking byte
+-- with $0F, which is sixteen entries' worth of index for a table vanilla fills only twelve of --
+-- so the room for a fourth gait is something vanilla left, not something a patch invents, and a
+-- patched build can fill it without touching a single line of the routine that reads it. One
+-- does: measured 2026-08-26 by scanning four cartridges for the table's own byte signature (see
+-- ENGINE.gaitGroups below), three vanilla-derived builds carry three groups and the Archipelago
+-- patch carries four, the fourth being 8 pixels a tick for 2 ticks -- a tile in two frames.
+--
+-- Listing it here costs a vanilla session nothing, because nothing on a three-group cartridge
+-- ever writes index 12-15 and so nothing ever reads this row. What it buys is that every piece of
+-- arithmetic in this file that already asks "how fast is this peer's gait" -- the progress the
+-- sender puts on the wire, the drawn tier's stride and its camera-copy budget, the duration the
+-- spawned tier writes -- gets the right answer for a peer on a build that has one, with no
+-- branch anywhere asking which build that is.
+--
+-- WHAT IT DOES NOT DECIDE is whether this cartridge may be told to walk at it. That is
+-- ENGINE.gaits(), and it is a separate question because the answer differs between the two ends
+-- of the wire: a peer reports the gait its own ROM gave it, and the receiver has to answer from
+-- its own.
+local GAIT_PX = { [0] = 1, [1] = 2, [2] = 4, [3] = 8 }
+local GAIT_TICKS = { [0] = 16, [1] = 8, [2] = 4, [3] = 2 }
 
 -- Which gait an object is walking at, or nil while it is standing (the byte is $FF then and says
 -- nothing). The caller decides what a standing object should be reported as.
@@ -1087,7 +1215,14 @@ local function getLocalState()
 		-- So the wire carries the QUESTION ("is this peer hopping?") and each side answers it in
 		-- its own vocabulary, which is what keeps `act`-style opacity without inviting a
 		-- copy-the-byte bug.
-		extras = { sprite = u8(base + F_SPRITE) or 0, act = u8(base + F_ACTION) or 0,
+		-- `gfx` is what makes `sprite` readable by anyone but ourselves: the signature of this
+		-- cartridge's own sprite table (see ENGINE.gfxSig at the bottom of the file). A sprite id
+		-- is an index, and a patch may repoint an entry without moving the table -- so the id
+		-- alone is a number two clients can agree on and still disagree about. Constant for the
+		-- session; sent every state because a receiver that joins late has no earlier packet to
+		-- have read it from.
+		extras = { sprite = u8(base + F_SPRITE) or 0, gfx = ENGINE.gfxSig,
+			act = u8(base + F_ACTION) or 0,
 			prog = stepProgress(base), face = u8(base + F_FACING) or 0,
 			gait = rememberGait(base), yoff = u8(base + 0x1A) or 0,
 			jump = ((u8(base + F_STEP_TYPE) or 0) == 9) or nil,
@@ -6274,7 +6409,15 @@ local function stepGhost(g, dir, gait, jumping)
 	-- Note what is NOT happening here: no rate was tuned. The group and its duration are the
 	-- engine's own two numbers for the gait the peer reported, and a gait this file does not know
 	-- cannot be invented -- an unknown value falls back to a normal walk.
-	local group = GAIT_PX[gait] and gait or 1
+	--
+	-- AND NOT A GAIT THIS CARTRIDGE HAS NO ROW FOR. `GetStepVector` masks with $0F and indexes
+	-- straight in, so a group past the end of THIS ROM's table is not a slow ghost or a refused
+	-- write -- it is the engine reading the bytes after the table as a movement vector. Vanilla's
+	-- table ends exactly where `GetStepVectorSign` begins. That can only happen across builds: a
+	-- peer on a cartridge with a faster gait reports it honestly and this receiver may not have
+	-- it. Such a peer is already being kept off this tier (`paceable`), so the clamp is the floor
+	-- under that decision rather than the thing anyone sees.
+	local group = ENGINE.gait(gait)
 	w8(g.st_base + F_WALKING, group * 4 + dir)
 	w8(g.st_base + F_DIRECTION, dir * 4)
 	w8(g.st_base + F_FACING, dir * 4)
@@ -7042,7 +7185,26 @@ local function renderRemote(id, state)
 	-- FORCE_PEER_SPRITE substitutes here rather than only inside applyPeerSprite, so the probe
 	-- flag reaches BOTH tiers. It claimed to substitute "every peer" and did not touch the drawn
 	-- one, which made a test of the cartridge path silently measure nothing (2026-08-19).
-	local peerSprite = FORCE_PEER_SPRITE or (state.extras and tonumber(state.extras.sprite)) or nil
+	--
+	-- AND ONLY IF THE PEER'S CARTRIDGE NUMBERS ITS SPRITES THE WAY OURS DOES. `extras.gfx` is the
+	-- signature of the sprite table the peer read that id out of; ours is ENGINE.gfxSig. Equal
+	-- means the id indexes the same character on both, and a peer on an Archipelago seed is worn
+	-- correctly by another Archipelago client. Unequal -- or absent, which is a peer whose build
+	-- has no measured table -- means we do not know what the id names here, and the answer is to
+	-- drop it rather than draw a confident wrong character: with `peerSprite` nil the ghost wears
+	-- this machine's own player sprite in both tiers, exactly as it did before any of this.
+	--
+	-- The peer still MOVES correctly -- gait is a group number and portable, which the sprite id
+	-- is not. That split is the whole cross-build story: pace crosses, appearance does not. The
+	-- user's call, 2026-08-26: show whatever this ROM has, but *"match the 'speed' if someone is
+	-- moving faster when running or on a faster bike"*.
+	--
+	-- FORCE_PEER_SPRITE is deliberately still ahead of the gate: it is a probe asking this machine
+	-- to draw an id of its own choosing, and its id is by construction one of ours.
+	local peerSprite = FORCE_PEER_SPRITE
+		or (state.extras and ENGINE.gfxSig and tonumber(state.extras.gfx) == ENGINE.gfxSig
+			and tonumber(state.extras.sprite))
+		or nil
 
 	-- A peer that should not be blocking is DRAWN rather than spawned: no tile, no collision,
 	-- and its engine slot freed for a peer who is actually moving.
@@ -7074,6 +7236,27 @@ local function renderRemote(id, state)
 		or peerSprite == localSprite
 		or residentSpriteTile(peerSprite) ~= nil
 
+	-- THE SPEED VERSION OF THE SAME QUESTION, and the third thing this tier decision now weighs.
+	-- `wearable` asks whether this cartridge can make a ghost LOOK like the peer; this asks
+	-- whether it can make one MOVE like the peer. A build that adds a gait -- Archipelago's
+	-- fourth, 8px a tick -- puts a peer on the wire moving faster than anything this ROM's
+	-- StepVectors can be told to walk at, and the spawned tier's only honest answer is the wrong
+	-- speed: the ghost falls a tile behind every step and the catch-up path snaps it forward,
+	-- which is exactly the defect stepGhost's own gait comment records from 2026-08-25.
+	--
+	-- The drawn tier has no such ceiling. It moves the peer in Lua pixels, so it can walk at 8px a
+	-- tick on a cartridge that has never heard of 8px a tick -- `GAIT_PX[3]` is arithmetic here,
+	-- not an index into the game's table. The peer therefore keeps the RIGHT SPEED and loses the
+	-- engine's own integration, which is the same trade `wearable` already makes and the same way
+	-- round: what the peer is telling us about wins. The user's call, 2026-08-26 -- show whatever
+	-- this ROM has, but *"match the 'speed' if someone is moving faster when running or on a
+	-- faster bike"*.
+	--
+	-- Note this is the ONLY term of the three that can be true on one machine and false on
+	-- another for the same peer at the same instant, which is why it is asked of ENGINE.gaits --
+	-- this cartridge's own measured count -- and never of the peer's gait alone.
+	local paceable = peerGait <= (ENGINE.gaits or 3) - 1
+
 	-- Called unconditionally, even when `wearable` has already decided the answer: it is what keeps
 	-- each peer's movement bookkeeping current, so a peer who dismounts is not immediately judged
 	-- idle on the strength of a timestamp that stopped being updated while they were on the bike.
@@ -7083,17 +7266,20 @@ local function renderRemote(id, state)
 	-- is actually on, and a run that produces no spawned steps looks identical to a run where the
 	-- lag is zero. So the refusal names itself, once a second, rather than being inferred from a
 	-- count of zero.
-	if stepLag.on and (not wearable or not blocking) and policyFrames - (stepLag.whyAt or -999) >= 60 then
+	if stepLag.on and (not wearable or not blocking or not paceable)
+		and policyFrames - (stepLag.whyAt or -999) >= 60 then
 		stepLag.whyAt = policyFrames
 		local a = activity[id]
 		logFile(string.format("MeshGhost: %s stays on the drawn tier -- wearable=%s blocking=%s "
-			.. "(peer sprite %s, local %s; idle for %s frames, passable for another %s)", id,
-			tostring(wearable), tostring(blocking), tostring(peerSprite), tostring(localSprite),
+			.. "paceable=%s (peer sprite %s, local %s; idle for %s frames, passable for "
+			.. "another %s)", id,
+			tostring(wearable), tostring(blocking), tostring(paceable),
+			tostring(peerSprite), tostring(localSprite),
 			a and tostring(policyFrames - a.movedAt) or "?",
 			a and tostring((a.passableUntil or 0) - policyFrames) or "?"))
 	end
 
-	if not wearable or not blocking then
+	if not wearable or not blocking or not paceable then
 		if ghosts[id] then
 			-- NAME THE TRANSITION. The user saw the same peer rendered twice for a few frames while
 			-- walking (2026-08-21): a peer flapping between the spawned and painted tiers passes
@@ -7102,7 +7288,9 @@ local function renderRemote(id, state)
 			-- a count cannot answer it, a transition line can. Throttled by nature: it only fires on
 			-- an actual tier change.
 			logFile(string.format("tier: %s spawned -> painted (%s)", id,
-				(not wearable) and "sprite not resident here" or "idle/shoved: not blocking"))
+				(not wearable) and "sprite not resident here"
+					or (not paceable) and "gait faster than this ROM's engine has a step for"
+					or "idle/shoved: not blocking"))
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
@@ -7566,7 +7754,11 @@ local function renderRemote(id, state)
 		local chx, chy = u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0
 		local pgx, pgy = facingFrames.pathGoal(g, x, y, chx, chy)
 		local chDir = DELTA_TO_DIR[string.format("%d,%d", pgx - chx, pgy - chy)]
-		local chGroup = GAIT_PX[peerGait] and peerGait or 1
+		-- Clamped to this cartridge's own table, exactly as stepGhost's is, and for the same
+		-- reason: the guard below compares the walking byte the engine is CURRENTLY carrying
+		-- against `chGroup * 4 + chDir`, so an unclamped group would never match what stepGhost
+		-- actually wrote and every chain would be refused -- the slow, correct-looking failure.
+		local chGroup = ENGINE.gait(peerGait)
 		-- ONLY ON EVIDENCE OF CONTINUATION (2026-08-25, same day as the chain itself). The chain
 		-- commits on the step's LAST tick from an arrival that is 2-3 frames stale, and a
 		-- mid-motion reversal lives in exactly that window: the ghost chained one tile PAST the
@@ -8136,6 +8328,31 @@ facingFrames.shadowRom = (romClass == "known") and A.SHADOW_GFX_ROM or nil
 -- any other build. nil means peers on that build simply appear, which is what they did before.
 ENGINE.entryAddr = (romClass == "known") and 0xFF9F or nil
 
+-- HOW MANY GAITS THIS CARTRIDGE HAS. Asked of the ROM at startup because it is the one capability
+-- that has to be answered for the REMOTE end: a peer on a build with a faster gait than ours
+-- reports it, and this is what decides whether the engine can be told to walk at it or whether
+-- that peer belongs on the drawn tier, which can move at any speed because it moves in Lua.
+--
+-- The address table's entry is a hint that gets re-checked, not a value that gets trusted -- an
+-- unrecognised build is handed vanilla's addresses by the run-anyway fallback, and a wrong offset
+-- here would count groups out of unrelated bytes. When the hint fails, bank 1 is searched for the
+-- table's own signature, which is what makes a build nobody has measured still get a real answer.
+ENGINE.gaits = ENGINE.gaitGroups(A.STEP_VECTORS_ROM)
+if not ENGINE.gaits then
+	local found, at = ENGINE.gaitGroups(nil)
+	ENGINE.gaits = found
+	log(found
+		and string.format("MeshGhost: the step-vector table is not at 0x%05X on this ROM; found "
+			.. "it at 0x%05X with %d gaits", A.STEP_VECTORS_ROM or 0, at, found)
+		or "MeshGhost: could not find the step-vector table on this ROM -- assuming vanilla's "
+			.. "three gaits, which is the answer that cannot write past the end of it.")
+end
+ENGINE.gaits = ENGINE.gaits or 3
+if ENGINE.gaits > 3 then
+	log(string.format("MeshGhost: this ROM carries %d gaits, %d more than vanilla -- peers moving "
+		.. "at one will be stepped at it.", ENGINE.gaits, ENGINE.gaits - 3))
+end
+
 -- CHECK THE TABLE IS WHERE WE THINK IT IS, before anything reads a graphics pointer out of it.
 -- An address is measured per ROM build, but a build nobody has seen still gets vanilla's table by
 -- way of the untested-build fallback, and a wrong ROM offset paints garbage rather than failing.
@@ -8155,6 +8372,47 @@ if OVERWORLD_SPRITES_ROM then
 			OVERWORLD_SPRITES_ROM, addr, size, bank, kind))
 		OVERWORLD_SPRITES_ROM = nil
 	end
+end
+
+-- WHETHER A SPRITE ID MEANS THE SAME CHARACTER ON TWO CARTRIDGES -- one number, computed from the
+-- sprite table itself, put on the wire beside the id and compared for equality by the receiver.
+--
+-- A sprite id is not portable and never was. `extras.sprite` is an index into OverworldSprites,
+-- and a patch is free to repoint an entry without moving the table or changing its length:
+-- measured 2026-08-26, an Archipelago seed keeps vanilla's 102 entries and repoints five of them,
+-- ids $62-$66 among them. So a peer on that build reporting sprite $65 to a vanilla receiver asks
+-- it to draw vanilla's $65, which is a different character entirely -- not garbage, which is
+-- worse, because nothing about it looks like a fault.
+--
+-- The signature is a 32-bit FNV-1a over the table's own 612 bytes, which is exactly the question
+-- worth asking: two cartridges whose sprite tables are byte-identical assign the same graphics to
+-- the same ids, whatever else differs between them. Measured across four: Crystal V1.0 and V1.1
+-- agree (so ids ARE portable between those two, and a build-name comparison would have wrongly
+-- said otherwise), while speedchoice 8.1 and the Archipelago seed each differ from vanilla and
+-- from each other. Two Archipelago seeds share one base recompile and so share this number --
+-- which is the case the user asked for: *"fine to do it for archipelago itself, so other
+-- archipelago roms can see it"*.
+--
+-- Nil when this build has no measured sprite table. A receiver then cannot match, refuses the
+-- peer's id, and falls back to this machine's own player sprite -- the behaviour a peer already
+-- got here before any of this, so the unmeasured case loses nothing.
+--
+-- Costs one number per state packet, and it is the cheapest correct answer available: the room's
+-- `game_version` cannot carry it, because a room refuses a client whose version disagrees and
+-- letting a vanilla and an Archipelago player share a room is the entire point of this work.
+if OVERWORLD_SPRITES_ROM then
+	local h = 2166136261
+	-- NUM_OVERWORLD_SPRITES, 102 -- `constants/sprite_constants.asm` counts the overworld list
+	-- and stops before the special ids above it. The Archipelago seed keeps that length too, so
+	-- this window covers both tables exactly; a build that shortened it would simply be hashing a
+	-- few bytes of whatever follows, which changes nothing about a comparison for equality.
+	for i = 0, 102 * SPRITEDATA_STRIDE - 1 do
+		h = ((h ~ (memory.read_u8(OVERWORLD_SPRITES_ROM + i, ROM_DOMAIN) or 0)) * 16777619)
+			& 0xFFFFFFFF
+	end
+	ENGINE.gfxSig = h
+	log(string.format("MeshGhost: sprite-table signature %08X -- a peer's own sprite is worn only "
+		.. "by a client whose cartridge reports the same number.", h))
 end
 
 if romClass == "known" then

@@ -108,6 +108,10 @@ were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which 
 queue carrying the detail, what to watch, and what correct looks like. An index of an index goes
 stale in two places at once; these six say which SUBSYSTEM is unsettled and send you there.
 
+- **Crystal: the Archipelago patch's running and faster bike are BUILT and unwatched (2026-08-26)** —
+  gait 4 and the sprite-table signature, both measured off four ROMs. `crystal/UNVERIFIED.md`.
+- **A mixed vanilla + Archipelago Crystal room has never existed** — both halves of that work only
+  exist for it, and it needs two cores. `crystal/UNVERIFIED.md`.
 - **Crystal, drawn tier — unwatched since 2026-08-23.** Three jitter bugs, text-box clipping, the
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step

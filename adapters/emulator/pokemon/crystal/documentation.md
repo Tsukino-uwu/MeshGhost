@@ -14,19 +14,18 @@ and may be explained; whatever you learned it from only saved you the time, and 
 your right to know it. If the only way to have it is to copy something, it stays out.
 
 This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sitting in a public repo
-forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
-worth knowing: [adapters/_template/README.md](../../../_template/README.md).
+forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge
+cases: [adapters/_template/README.md](../../../_template/README.md).
 
-> Everything here is **measured from a running game** during Phase 9 (2026-08-17 onward) on vanilla
-> V1.0, and cross-checked against the public `pret/pokecrystal` decompilation, cited by file so any
-> claim can be re-checked. **No source text, data table, or asset from that decompilation is
-> reproduced here** — only facts, per `agent_docs/licensing.md`. Facts read from the decomp carry a
-> file citation; facts watched on a running game are marked `[measured]` with a date.
+> **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0, and
+> cross-checked against the public `pret/pokecrystal` decompilation. **Facts read from the decomp
+> carry a file citation; facts watched on a running game are marked `[measured]` with a date** — so
+> every claim here can be re-checked against one or the other.
 
 **What this file is: how *the game* does things**, per mechanic, readable by someone who has never
 seen our code. **Nothing here describes an adapter workaround** — those belong in
-[BANDAGES.md](BANDAGES.md). Dated evidence: [`VERIFIED.md`](VERIFIED.md); the narrative of how it
-was found: [`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
+[BANDAGES.md](BANDAGES.md). Dated evidence: [`VERIFIED.md`](VERIFIED.md); the narrative:
+[`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
 
 ## Overworld characters: two arrays, not one
 
@@ -176,7 +175,7 @@ then slides to catch up over the following ~16 frames. So a character's tile is 
 for the whole of a step, and only the sprite position says how far along it is.
 [measured 2026-08-18] from a read-only capture of an NPC taking a real step.
 
-## How a character crosses a tile: three gaits, one distance
+## How a character crosses a tile: three gaits, one distance — or four
 
 Every step covers exactly one 16px tile. What a gait changes is how long that takes, and the whole
 thing is one byte. `GetStepVector` (`engine/overworld/map_objects.asm`) indexes `StepVectors` with
@@ -193,10 +192,16 @@ carries both the gait and the direction, and nothing has to be inferred:
 step is `(ticks - duration) x speed`** — an exact value at every gait, not an approximation. While
 a character stands, `OBJECT_WALKING` is `$FF` (`STANDING`) and says nothing about its last gait.
 [measured 2026-08-25] on a bike lap: `OBJECT_WALKING` held `08`/`09` — group 2 — with the duration
-counting 3, 2, 1, while walking holds 4-7. **`STANDING` is 255, whose low nibble is 15**, past the
-twelve real entries; an object left in that state with a live step type reads a step vector out of
-whatever follows the table and is dragged off the map. **The camera moves at the same rates**, 2px
-per tick walking and 4px on the bike — measured independently, see *The camera* below.
+counting 3, 2, 1, while walking holds 4-7. **The camera moves at the same rates** (*The camera*).
+
+**The nibble addresses SIXTEEN entries and vanilla fills TWELVE.** So `STANDING` (255, nibble 15)
+is past the real ones — an object left there with a live step type reads a step vector out of
+whatever follows the table and is dragged off the map — and **a patch can add a fourth gait without
+touching `GetStepVector`**. One does: [measured 2026-08-26] V1.0, V1.1 and speedchoice 8.1 each
+carry three groups at `0x004700`, an Archipelago seed **four** at `0x0048C9`, group 3 being
+`8px/tick` for `2` ticks — that build's faster bike (its running is not a fourth gait; it moves at
+group 2). **The count is the cartridge's, not the family's**, so it is read off the ROM at load —
+`FLAGS.md`, measurement in [UNVERIFIED.md](UNVERIFIED.md).
 
 ## Map identity
 
@@ -447,10 +452,10 @@ frames has to be read the short way round.
 by the same amounts at the same times. They are a *per-frame delta*: `_HandlePlayerStep` subtracts
 the step vector from them (opposite sign to `hSC`), and `ApplyBGMapAnchorToObjects` — reached from
 `_UpdateSprites` every frame — reads them, adds them to every object's sprite X and Y as a
-correction, and **zeroes them**. Their value is "how far the camera moved since the sprites were
-last positioned", returning to zero each frame. Integrating them as an absolute scroll position
-tracks the camera most of the time and diverges without warning: measured against `hSC` on the same
-frame, the two disagreed on about 9% of frames. Consequences before using either:
+correction, and **zeroes them**. So their value is "how far the camera moved since the sprites were
+last positioned", returning to zero each frame; integrating them as an absolute position tracks the
+camera most of the time and diverges without warning, disagreeing with `hSC` read on the same frame
+on about 9% of frames. Consequences before using either:
 
 - **The two run in opposite directions**, so a difference on one is the negation of the same
   difference on the other. **Both scroll registers also run inverted to map pixels** — walking
@@ -458,9 +463,10 @@ frame, the two disagreed on about 9% of frames. Consequences before using either
 - **The player's sprite does not move when the player walks** — the camera does. The player's
   on-screen position only changes where the camera is clamped, such as near a map edge, so a
   screen-space calculation needs the player's OAM position as well as the camera.
-- **The scroll moves 0, 2 or 4 pixels per frame and never 1**, matching the walk and bike gaits.
-- **The registers are also REBASED, not only scrolled** — a map load or warp shows up as an
-  arbitrary jump with no walking behind it, so a difference is only meaningful within one map.
+- **The scroll moves whole gait strides and never an odd pixel** — 0, 2 or 4 on vanilla, 8 as well
+  on a build with a fourth gait. **The registers are also REBASED, not only scrolled**: a map load
+  or warp is an arbitrary jump with no walking behind it, so a difference means something only
+  within one map.
 - **A camera reading is only as good as how often you take it.** Both quantities are differences;
   miss eight frames of a 2px walk and the next reading is 16px, indistinguishable from a jump.
 
@@ -504,9 +510,7 @@ increments of `OBJECT_STEP_FRAME` in the source and once every **sixteen** video
 parity: within one bout of walking the parity holds, across bouts it differs, and two ticks do
 sometimes land on consecutive frames. So the counts below are exact in ticks, approximate in frames.
 
-### The classes, one by one
-
-All from `engine/overworld/map_object_action.asm` unless another file is named.
+### The classes, one by one — all `engine/overworld/map_object_action.asm` unless named otherwise
 
 - **`BUMP` (3) — walking into a wall.** Holding a direction against something impassable does not
   leave the character standing: Crystal plays a walk-in-place shuffle built out of the two poses the
@@ -514,20 +518,19 @@ All from `engine/overworld/map_object_action.asm` unless another file is named.
   so anything keying off "is this character walking" cannot see a bump; `OBJECT_STEP_DURATION` is
   **0**, so progress-through-a-step derived from it reads as a *completed* step rather than as no
   step; and `OBJECT_ACTION` is the only field that says a bump is happening. `OBJECT_STEP_FRAME`
-  counts up one a tick with the facing's stride in **bits 3 and 4**, so the stride advances every
-  **8 ticks**, and the tile drawn alternates between the standing and stepping blocks in 16-frame
-  runs, changing three frames before the facing does — each facing showing 3 frames of one pose and
-  13 of the other. **So a bump is a two-pose shuffle at about four poses a second, not a stride
-  cycle**, heavier-looking than a walk, which changes pose twice as often. [measured 2026-08-23,
-  `probes/bump_probe.lua`] Entered by the movement engine and re-issued while the direction is held.
+  counts up one a tick with the stride in **bits 3 and 4**, so the stride advances every **8
+  ticks**, and the tile alternates between the standing and stepping blocks in 16-frame runs,
+  changing three frames before the facing does. **So a bump is a two-pose shuffle at about four
+  poses a second, not a stride cycle** — heavier-looking than a walk, which changes pose twice as
+  often. [measured 2026-08-23, `probes/bump_probe.lua`] Re-issued while the direction is held.
 - **`SPIN` (4)** — turns a character **counterclockwise**: `OBJECT_STEP_FRAME` is used as two
   two-bit fields, a timer in the low bits and a facing index in bits 4 and 5, and the direction
   advances **down → right → up → left** every **4 ticks**. The facing byte is the direction with
   stride 0, so a spinning character always shows a **standing** view. Used for **turning in place**
-  (much the most common of the family — see below), the **spin tiles**, a **whirlpool**, and the
-  departure and arrival of **Teleport** and **Dig**. The 4-tick cadence is [measured], not merely
-  read: a whirlpool spin cycles the facing `0C → 04 → 08 → 00` at **8 video frames each**
-  (`probes/whirlpool_drive.lua`, 2026-08-26), and a Dig does the same (`probes/dig_drive.lua`).
+  (much the most common — see below), the **spin tiles**, a **whirlpool**, and the departure and
+  arrival of **Teleport** and **Dig**. The 4-tick cadence is [measured]: a whirlpool spin cycles the
+  facing `0C → 04 → 08 → 00` at **8 video frames each** (`probes/whirlpool_drive.lua`, 2026-08-26),
+  and a Dig does the same (`probes/dig_drive.lua`).
 - **`SPIN_FLICKER` (5)** — spins the direction exactly as above and then sets `OBJECT_FACING` to
   `STANDING`, so **the character is not drawn on that tick**. Dig alternates it with `SPIN` on odd
   and even ticks, and that alternation *is* the flicker: present half the time while it spins.
@@ -540,25 +543,23 @@ All from `engine/overworld/map_object_action.asm` unless another file is named.
   into **VRAM bank 1** — sprite tiles `$02`, `$06` and `$0a`, the **bottom half** of the standing
   down, up and left views, plus `$fc`, the rod. So a fishing character is its own top half over
   that sheet's bottom half, wearing a rod also from it; the rod sits below the character facing
-  down, above it facing up, beside it facing sideways. **It has no fixed length** — the action is
-  set when the rod is cast and holds until the script ends it, the one class that can last many
-  seconds. **A bite wiggles the character**, alternating `OBJECT_SPRITE_Y_OFFSET` 0/1 for eight
-  ticks, and spawns the `!` emote object. [measured 2026-08-25/26, `probes/rod_check.lua`,
-  `probes/fish_drive.lua`]
+  down, above it facing up, beside it facing sideways. **It has no fixed length** — set when the
+  rod is cast, held until the script ends it, the one class that can last many seconds. **A bite
+  wiggles the character**, alternating `OBJECT_SPRITE_Y_OFFSET` 0/1 for eight ticks, and spawns the
+  `!` emote object. [measured 2026-08-25/26, `probes/rod_check.lua`, `probes/fish_drive.lua`]
 - **`SKYFALL` (16)** — a character dropped into the map from above. **This is NOT Fly** (below); it
   belongs to map scripts — the Burned Tower floor-fall, the Ruins chambers. Identical arithmetic to
   a walking step except that `OBJECT_STEP_FRAME` goes up by **two** a tick, so the stride advances
-  every **2 ticks**: the walk cycle runs at **double speed** while it falls. The fall itself is a
-  sprite Y offset starting high above the tile; the top phase is 16 ticks at the full `$60`.
+  every **2 ticks**: the walk cycle runs at **double speed** while it falls. The fall is a sprite Y
+  offset starting high above the tile; the top phase is 16 ticks at the full `$60`.
 
 ### Turning in place is a spin, and it happens constantly
 
-Tapping a direction the character is not already facing turns it without moving it, and the engine
-animates that with `OBJECT_ACTION_SPIN` — the same counterclockwise spin the spin tiles use, run
-for **4 ticks**, two at the old direction and two at the new (`engine/overworld/map_objects.asm`'s
-turning step). So a character that turns around passes visibly through an intermediate direction
-rather than snapping, and anything reconstructing a pose from position alone misses it every time
-a player looks around.
+Tapping a direction the character is not already facing turns it without moving it, animated with
+`OBJECT_ACTION_SPIN` — the same counterclockwise spin the spin tiles use, run for **4 ticks**, two
+at the old direction and two at the new (`engine/overworld/map_objects.asm`'s turning step). So a
+turn passes visibly through an intermediate direction rather than snapping, and anything
+reconstructing a pose from position alone misses it every time a player looks around.
 
 ## A newly created object is not drawn for one to two frames
 

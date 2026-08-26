@@ -2223,3 +2223,117 @@ says generated, and that would also get the phase timing for free
 
 **The instrument already exists**: `probes/fly_probe.lua` answers "does the player's object carry
 this" in one run, read-only, and it is what settled both Fly and Dig.
+
+## 2026-08-26 — Crystal: running and the faster bike on a patched build (MEASURED, unwatched)
+
+The Archipelago Crystal patch adds two movement modes vanilla does not have — running on foot,
+and a second, faster bike speed. Both are now supported, and the whole of it turned on one
+question asked of the cartridge rather than of the build's name.
+
+**A patched ROM is mine to confirm visually, not the user's** — so nothing here is "verified" yet
+for the ordinary reason (nobody has watched it), but the bar for closing it is a screen, and the
+screen can be mine.
+
+### What the ROM says — measured 2026-08-26, four cartridges
+
+`StepVectors` (`engine/overworld/map_objects.asm`) is the engine's gait table: four
+`db x, y, duration, speed` rows per gait, one row per direction, every gait crossing the same 16px
+tile. `GetStepVector` indexes it with `OBJECT_WALKING & $0F` — **sixteen entries' worth of index
+for a table vanilla fills only twelve of.** The room for a fourth gait is therefore something
+vanilla left, not something a patch invents.
+
+Located by scanning each ROM for the table's own byte signature — three groups of stride 1, 2 and
+4 with durations 16, 8 and 4, in the fixed direction order, and `stride * duration == 16` in every
+row. **Exactly one hit in each of the four cartridges**, which is what makes it a signature rather
+than a filter:
+
+| ROM | `StepVectors` at | gait groups |
+|---|---|---|
+| Crystal V1.0 | `0x004700` | 3 — 1px/16t, 2px/8t, 4px/4t |
+| Crystal V1.1 | `0x004700` | 3 — identical bytes |
+| speedchoice 8.1 | `0x004700` | 3 — identical bytes |
+| an Archipelago seed | `0x0048C9` | **4** — the fourth is **8px per tick, 2 ticks** |
+
+Vanilla's address is corroborated without reading a byte: our own build's `pokecrystal.sym` puts
+`StepVectors` at `01:4700` and the next symbol, `GetStepVectorSign`, at `01:4730` — exactly `0x30`
+later, which is three groups of four four-byte rows and not one byte more.
+
+**Running is not a fourth gait.** It moves at the existing group 2, the bike's 4px — so its SPEED
+already crossed the wire correctly before any of this work. What running changes is the player's
+appearance, which is the second half below.
+
+### What was built
+
+- `GAIT_PX`/`GAIT_TICKS` gained group 3 (8px, 2 ticks). Every piece of arithmetic in the adapter
+  that already asked "how fast is this peer's gait" — the progress the sender puts on the wire,
+  the drawn tier's stride and its camera-copy budget, the duration the spawned tier writes — now
+  gets the right answer with no branch anywhere asking which build a peer is on.
+- `ENGINE.gaitGroups()` counts the groups in this cartridge's own table at load. The address table
+  carries the two measured offsets as a HINT that is re-checked, not a value that is trusted; when
+  the hint fails, bank 1 is searched for the signature, so a build nobody has measured still gets
+  a real answer. Not finding it at all falls back to three, which is the count that cannot write
+  past the end of anything.
+- `ENGINE.gait()` clamps what may be WRITTEN into a ghost's walking byte. This is a cross-build
+  hazard that no single-player session can reach: a peer on a four-gait cartridge reports gait 3
+  to a receiver on a three-gait one, and `GetStepVector` masking with `$0F` means the write is not
+  a slow ghost or a refused write — it is the engine reading the bytes after its own table as a
+  movement vector.
+- **`paceable`, the third term in the tier decision.** `wearable` asks whether this cartridge can
+  make a ghost LOOK like the peer; `paceable` asks whether it can make one MOVE like the peer. A
+  peer faster than anything this ROM's table can be told to walk at goes to the drawn tier, which
+  has no such ceiling — it moves in Lua pixels, so `GAIT_PX[3]` is arithmetic there rather than an
+  index into the game's table. **The peer keeps the right SPEED and loses the engine's own
+  integration**, which is the same trade `wearable` already makes and the same way round.
+  The user's call, 2026-08-26: show whatever this ROM has, but *"match the 'speed' if someone is
+  moving faster when running or on a faster bike"*.
+
+### The second half: a sprite id is not portable, and never was
+
+`extras.sprite` is an index into `OverworldSprites`, and **a patch may repoint an entry without
+moving the table or changing its length.** Measured the same day, by the same method the sprite
+table's own address was found by: the Archipelago seed keeps vanilla's 102 entries
+(`NUM_OVERWORLD_SPRITES`) and repoints five of them — ids `$62`–`$66`, of which `$65` and `$66`
+become 192-byte walking sprites in bank 7 at palettes 0 and 1, one per gender, which is the shape
+a pair of run sprites has.
+
+So a peer on that build reporting sprite `$65` to a vanilla receiver asks it to draw **vanilla's**
+`$65`, a different character entirely — not garbage, which is worse, because nothing about it
+looks like a fault.
+
+`ENGINE.gfxSig` is a 32-bit FNV-1a over the sprite table's own 612 bytes, sent as `extras.gfx` and
+compared for equality. Two cartridges whose sprite tables are byte-identical assign the same
+graphics to the same ids, whatever else differs between them. Measured across the same four:
+
+| ROM | sprite table | signature |
+|---|---|---|
+| Crystal V1.0 | `0x14736` | `3847A392` |
+| Crystal V1.1 | `0x14736` | `3847A392` — **identical, so ids ARE portable between these two** |
+| speedchoice 8.1 | `0x14736` | `9619F53E` |
+| an Archipelago seed | `0x14564` | `15248800` |
+
+Note V1.0/V1.1 agreeing: **a comparison of build NAMES would have wrongly refused that pair**, and
+two Archipelago seeds share one base recompile and so share this number — which is the case the
+user asked for, *"fine to do it for archipelago itself, so other archipelago roms can see it"*.
+A mismatch drops the id, and the ghost wears this machine's own player sprite in both tiers, which
+is exactly what a peer got here before any of this.
+
+The room's `game_version` could not carry this: a room refuses a client whose version disagrees,
+and letting a vanilla and an Archipelago player share a room is the entire point of the work.
+
+### What to watch, in order
+
+1. **The turbo bike's SPEED on the drawn tier.** This is the one thing the build cannot reason its
+   way to. The drawn model's budget is anchored to the LOCAL camera's beat, and a peer at 8px a
+   tick is moving faster than any beat a walking local player generates — so on the camera-parked
+   fallback the model gets its stride every OTHER frame, which is half the peer's true pace. It is
+   bounded (the model tracks the peer's true position and snaps past 24px) so it will TRAIL rather
+   than desync, but whether it trails visibly at 8px is a screen question and nothing else.
+   **Do not tune a rate at it** — measure where the budget goes first.
+2. **That a running AP player's object actually carries a different sprite id.** Everything above
+   assumes it, from the shape of the repointed entries. One read of `OBJECT_SPRITE` while running
+   settles it, and it is a patched ROM, so the confirmation is mine.
+3. **A vanilla client and an Archipelago client in one room.** Both halves of this work only exist
+   for that session, and neither has been in one. Two machines, or two emulators with two cores.
+4. **That nothing changed on vanilla.** Nothing on a three-group cartridge ever writes index
+   12–15, so group 3 is unreachable there — but `paceable` and the `gfx` gate are both new terms
+   in paths every vanilla session runs, and a vanilla-to-vanilla loopback run is the cheap check.
