@@ -125,6 +125,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the ghost returns after a same-town Fly
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the Fly landing, with the Pokemon, and the menu gate
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: a peer gliding on ice does not run the walk cycle
+- CONFIRMED ON SCREEN 2026-08-26 — Crystal: ledge hops, on both tiers, with shadows
 
 ## Confirmed facts
 
@@ -2127,3 +2128,53 @@ therefore also reads `walk=10` — nobody has checked that a biking peer still a
 and the glide test is `act == STAND` rather than the gait, so it should be unaffected by
 construction. Ledge hops, spin tiles and the B1F slide puzzle were not exercised. And the ice
 CADENCE (how many frames a glide takes per tile against the player's) was never compared.
+
+## CONFIRMED ON SCREEN 2026-08-26 — Crystal: ledge hops, on both tiers, with shadows
+
+**The user, after a session that fixed three separate faults in one hop:** *"think ledge hops are
+done now"*, and when the agent then wrote that the drawn ghost's shadow had never been seen —
+**it had** — *"i saw the shadow on both ghosts, that is why i confirmed ledge hops being done"*.
+Recorded because the agent had reasoned from the ORDER of the messages (the earlier
+*"the spawned ghost had a shadow now, but not the drawn ghost"* predated the drawn-tier fix) rather
+than from what the user actually reported afterwards, and understated a confirmation it had been
+given. **Message order is not evidence about what the user has since looked at.**
+
+**What was confirmed:** a peer hopping a ledge is reproduced on **both** the spawned and the drawn
+tier — the arc, and a shadow on the ground under each of them.
+
+**What it took, all three fixed the same day.**
+
+1. **The "!" over a hopping ghost.** `playerEmote()` identified an emote object by `EMOTE_OBJECT`
+   (flags1 bit 7) plus "on the player's tile". That flag means *attached decoration object* and is
+   set by `SPRITEMOVEDATA_EMOTE`, `_SHADOW` and `_SCREENSHAKE` alike, so a hop's shadow matched it.
+   Discriminated by also requiring `OBJECT_ACTION == 8`, which each movement function rewrites
+   every tick.
+2. **The frozen arc.** The `yoff` write sat below `renderRemote`'s hard `walking ~= STANDING`
+   return, so it stopped the instant the ghost moved. Measured: player ran the full
+   `-4 … -12 … -4` curve while the ghost froze at `-6`.
+3. **The hop itself.** Replaced the walk-plus-transmitted-arc with `STEP_TYPE_NPC_JUMP` (8), so
+   `StepFunction_NPCJump` runs both tiles and generates the whole curve on the ghost's own clock.
+   The wire carries a `jump` boolean, never the peer's step type — the player's 9 drives the camera.
+
+**And the shadows**: a real tracked map object on the spawned tier (built from
+`CopyTempObjectToObjectStruct`, so `MovementFunction_Shadow` owns its offset, lifetime, tracking
+and deletion), and the cartridge tile painted on the drawn tier. Read from ROM (`JumpShadowGFX`,
+`41:4550`) rather than VRAM because tile `$fc` holds the fishing rod whenever anyone has one out.
+
+**Agent-side measurement backing it**, from `probes/ledge_drive.lua` + `probes/fly_probe.lua`: ghost
+arc `-4 -6 -8 -10 -11 -12 -12 -11 -10 -9 -8 -6 -4`, with **0 re-anchors, 0 teleports and 0
+runaway-walking reports** — the risk being that a two-tile engine-driven move would desync the
+adapter's tile model. It did not.
+
+**Notes — what this does NOT cover.**
+
+- **Loopback only.** No remote peer has hopped a ledge in anyone's view.
+- **The rod was not re-tested after the shadow landed.** The shadow and the fishing rod share
+  absolute tile `$fc`, so hop-then-fish in one session is the pairing that a careless version of
+  this breaks. Fishing itself was confirmed earlier the same day, before the shadow existed.
+- **A hop while the ghost is already behind its peer is WALKED, not hopped** — deliberate, because
+  a jump crosses two tiles by itself and would overshoot from the catch-up path.
+- **Vanilla V1.0.** The drawn tier's shadow is gated on `classifyRom()` returning `known`; on any
+  other build the painted ghost has no shadow.
+- The `SPIN_FLICKER` / Dig work from the same day is separate and is **not** confirmed by this —
+  see `UNVERIFIED.md`.

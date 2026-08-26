@@ -2168,63 +2168,20 @@ Three consequences, none yet confirmed on screen:
 New instrument: `probes/ledge_drive.lua` (loads a prepared savestate, holds Down, shoots every 4
 frames because a hop is over in ~32).
 
-## 2026-08-26 — Crystal: ledge hops REBUILT as real engine jumps, with shadows
+## DRAINED 2026-08-26 — Crystal: ledge hops
 
-**Supersedes the "Ledge hops: still unmeasured" entry above**, whose three predictions were all
-resolved this session: the arc did not work for free (it was frozen), the spawned ghost was NOT
-refused at the ledge (the fix removed the question), and the shadow is now present on both tiers.
+**Confirmed on screen and moved out**, the same day it was built. The user: *"i saw the shadow on
+both ghosts, that is why i confirmed ledge hops being done"*. The entry, what it took (the "!", the
+frozen arc, the walk-instead-of-jump), and — importantly — **the four things the confirmation does
+NOT cover** are in [`VERIFIED.md`](VERIFIED.md), "ledge hops, on both tiers, with shadows".
 
-**The user's read, and it is a hedge being recorded as one:** *"think ledge hops are done now"*,
-after separately confirming *"the spawned ghost had a shadow now, but not the drawn ghost"* — the
-drawn ghost's shadow was written after that message and **has not been seen by anyone**. This entry
-stays here until one clean look covers both tiers at once.
+**Read the *not covered* half before treating this as finished**: loopback only, the rod was never
+re-tested after the shadow started using its tile, a hop from the catch-up path is walked rather
+than hopped, and the drawn tier's shadow is vanilla-V1.0-only.
 
-### A hop is now the engine's own jump, not a walk with a copied arc
-
-`stepGhost` gained a `jumping` argument. When the peer reports a hop it writes
-`STEP_TYPE_NPC_JUMP` (8) with `OBJECT_JUMP_HEIGHT` and `OBJECT_STEP_INDEX` zeroed, and
-`StepFunction_NPCJump` then runs the whole thing: both tiles, both halves of the arc, its own
-pace, and the ledge crossed. The wire carries a `jump` **boolean**, deliberately not the peer's
-step type — the player hops on step type 9, which drives `wPlayerStepFlags` and the camera, and a
-copied 9 would drag the view around exactly as step type 6 once did.
-
-**Measured before the shadows went in** (`probes/ledge_drive.lua` + `probes/fly_probe.lua`): ghost
-arc `-4 -6 -8 -10 -11 -12 -12 -11 -10 -9 -8 -6 -4` — the full sixteen-entry curve — with **0
-re-anchors, 0 teleports and 0 runaway-walking reports** in the adapter's own log. That last was the
-real risk: a two-tile engine-driven move desyncing the adapter's tile model. It did not.
-
-`yoff` is no longer copied onto a ghost that is mid-jump, in either direction of the handover
-(gated on the peer's `jump` **and** the ghost's own step type). The engine writes that field itself
-during a jump and two writers on one field is its own bug class. The wire's `yoff` still drives
-every other vertical — the bite wiggle, the Fly fall — where no engine mechanism is running.
-
-### Both tiers get a shadow
-
-- **Spawned tier: a real map object**, built field-for-field from
-  `CopyTempObjectToObjectStruct` rather than from the three-byte template it is fed. The engine
-  then owns it — `MovementFunction_Shadow` sets the offset, takes the lifetime from the parent's
-  step duration, tracks the hop and self-deletes. Declines quietly when no struct is free, exactly
-  as `SpawnShadow` does. **Confirmed on screen by the user.**
-- **Drawn tier: painted**, two sprites from one cartridge tile (`JumpShadowGFX`, `41:4550`), the
-  right half X-flipped, at +14 below the character for up/down and +12 for left/right. Drawn
-  *before* the arc is applied so it stays on the ground, and *before* the character because the
-  shadow's flags2 is `LOW_PRIORITY`. **Never seen.**
-
-**Read from the cartridge, not VRAM, and that is the point**: tile `$fc` holds the jump shadow
-normally and the **fishing rod** while somebody is fishing, so a peer hopping while this machine's
-player has a rod out would otherwise cast a rod for a shadow. **The pairing to test is therefore
-hop-then-fish in one session** — a careless version of this breaks the rod.
-
-### What to look at, and what correct looks like
-
-On the compare rig: both ghosts hop the ledge with an arc, **both** have a shadow that stays on the
-ground while the character rises off it, and **no "!" on either ghost at any point**. Then cast a
-rod: it must still look right.
-
-**Known gaps, stated so they are not reported as faults.** A hop while the ghost is already behind
-its peer goes through the catch-up path and is walked, not hopped — deliberate, because a jump
-crosses two tiles by itself and would overshoot. And none of this has been seen for a REMOTE peer;
-every observation is loopback.
+**It also supersedes the earlier "Ledge hops: still unmeasured" entry above**, whose three
+predictions were all resolved: the arc did not work for free, the spawned ghost was not refused at
+the ledge, and both tiers now have a shadow.
 
 ## 2026-08-26 — Crystal: loading a savestate killed the adapter
 
