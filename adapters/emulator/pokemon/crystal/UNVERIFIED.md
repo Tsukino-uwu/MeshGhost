@@ -2258,9 +2258,10 @@ Vanilla's address is corroborated without reading a byte: our own build's `pokec
 `StepVectors` at `01:4700` and the next symbol, `GetStepVectorSign`, at `01:4730` — exactly `0x30`
 later, which is three groups of four four-byte rows and not one byte more.
 
-**Running is not a fourth gait.** It moves at the existing group 2, the bike's 4px — so its SPEED
-already crossed the wire correctly before any of this work. What running changes is the player's
-appearance, which is the second half below.
+**What RUNNING uses on that build was never measured.** The user reports the patch adds running as
+well as a second bike speed, and group 3 is the only gait vanilla does not have — but nothing here
+establishes which mode uses which gait, and no run was ever watched. Do not assume a gait for
+running; measure it the way the fourth gait was measured.
 
 ### What was built
 
@@ -2337,3 +2338,89 @@ and letting a vanilla and an Archipelago player share a room is the entire point
 4. **That nothing changed on vanilla.** Nothing on a three-group cartridge ever writes index
    12–15, so group 3 is unreachable there — but `paceable` and the `gfx` gate are both new terms
    in paths every vanilla session runs, and a vanilla-to-vanilla loopback run is the cheap check.
+
+## 2026-08-26/27 — the mixed vanilla + Archipelago session: what was measured, fixed and left open
+
+A single session with two BizHawk instances in one room — instance 1 an Archipelago seed, instance
+2 vanilla V1.0 — relay on loopback, two cores, `-interp=0ms -min-send=10ms`. The first mixed-build
+room this project has ever run. Everything below is either a measurement or a user confirmation on
+screen; where something is neither, it says so.
+
+### Addresses measured on the Archipelago build
+
+| what | where | how it was established |
+|---|---|---|
+| `StepVectors` | `0x0048C9` (vanilla `0x004700`) | ROM signature scan, `probes/ap_hram_scroll_probe.lua`'s sibling method — see below |
+| `hSCX` / `hSCY` | `$FFC7` / `$FFC8` (vanilla `$FFCF`/`$FFD0`) | `probes/ap_hram_scroll_probe.lua`, HRAM reversal |
+| key-item pocket | flat `0x1960` | write-and-look, confirmed on screen |
+| ball pocket | flat `0x1989` | identified by CONTENTS — the user's single Ultra Ball |
+| `BICYCLE` item id | `0x06` (vanilla `0x07`) | write-and-look, confirmed on screen |
+| `MOON_STONE` item id | `0x07` (vanilla `0x08`) | produced accidentally by writing vanilla's BICYCLE id |
+| `wPlayerState` candidate | `0x1A17` / `$DA17` — **REFUTED** | see "what was refuted" |
+
+**The gait table has FOUR groups on that build, three on every vanilla-derived one.** Measured by
+scanning each cartridge for the table's own byte signature — three groups of stride 1, 2 and 4 with
+durations 16, 8 and 4, in a fixed direction order, `stride * duration == 16` in every row. Exactly
+one hit in each of four ROMs (V1.0, V1.1, speedchoice 8.1, an Archipelago seed), which is what
+makes it a signature and not a filter. Group 3 is **8px per tick for 2 ticks**. Vanilla's address
+is corroborated without reading a byte: our own build's `pokecrystal.sym` puts `StepVectors` at
+`01:4700` and the next symbol `0x30` later, which is three groups exactly.
+
+**The sprite table differs in FIVE entries of 102.** Ids `$62`–`$66` are repointed on the
+Archipelago seed; the other 97 are byte-identical, including Chris, Kris, both bikes and the surf
+blob. `NUM_OVERWORLD_SPRITES` is 102 on both.
+
+**A sprite carries 24 tiles where its header reports 12**, on the bike as well as the player —
+re-confirmed off the cartridge: sprite-table entries are `0x180` apart (384 bytes) and all twelve
+of the BIKE's stepping tiles differ from its standing ones.
+
+**At the fourth gait the camera moves 4px per VIDEO FRAME, not 8.** `GAIT_PX` is pixels per engine
+TICK and the object clock runs at half the video rate. Measured as a camera-delta histogram during
+a turbo ride. The two numbers are not interchangeable and treating them as if they were is what
+made a standing peer move twice as far as the world.
+
+### Fixed and confirmed by the user on screen
+
+1. **The camera on the patched build was two dead bytes.** `$FFCF`/`$FFD0` never changed once
+   across 35 seconds of walking, while the drawn tier used them as its clock every frame. Symptom:
+   a peer standing perfectly still painted GLIDING, and stuck at the screen edge when the player
+   moved away. `UNVERIFIED.md` predicted this exact failure on 2026-08-23 and prescribed the
+   measurement; nobody had run it. `ENGINE.camCheck` now makes it self-reporting.
+2. **A persistent third, static character** — the drawn tier stops painting a peer the moment it is
+   promoted, and BizHawk's overlay persists until something replaces it. It cleared on every early
+   return but not when the loop simply had nobody left to paint.
+3. **Peers mimicking the local player**, both directions. Two causes: a table-wide sprite gate that
+   refused 97 portable sprites to guard against 5, and `wearable` reading "no residency list, so
+   spawn it anyway" — which on a build with no measured `W_USEDSPRITES` left the ghost wearing
+   whatever it was cloned from.
+4. **The bike not showing on the other client**, same root cause as 3.
+5. **Facings wrong for a sprite the local player never wears** — the facing cache is learned by
+   watching the LOCAL player, so a direction that player has not used has no entry.
+6. **A peer's bike never animating** — `entry.stand` is rewritten every idle frame while
+   `entry.step` needs the local player to WALK that way, so a parked player holds a stand-only
+   LEARNED entry and `derive` (which only fires when a facing has NO entry) never ran.
+7. **The turbo glide/snap.** The camera's plausibility test read `pcd == 2 or pcd == 4` — the walk
+   and the bike — and anything else was treated as a register rebase and absorbed. Every genuine
+   8px scroll was therefore thrown away: the world moved and the painted ghost did not. Measured
+   after the fix, in one ride: `camera deltas: 8px:874`.
+
+### What was refuted, and is worth not re-deriving
+
+- **`0x1A17` is not confirmed as `wPlayerState`.** It behaved perfectly across a bike toggle (0 on
+  foot, 1 riding) which is vanilla's encoding — but writing `4` (vanilla's `PLAYER_SURF`) into it
+  produced no visible change at all. By the probe's own stated criterion that refutes it. Two
+  states cannot tell a state byte from a bike flag; this is the second address on this build to
+  survive two samples and fail a third (`W_MAPSTATUS` was the first).
+- **The 24px model resync is NOT the turbo snap.** It fired zero times across a full turbo ride.
+- **The movement model was never the cause of any of it**: `0px behind, 0 backward refused, 0
+  catch-up frames, 0 resyncs` on both clients, across a control ride and a turbo ride.
+
+### Still open
+
+- **Running on that build has never been watched, and its gait is unmeasured.** Do not assume one.
+- **Surf is untested**, and reaching it needs a badge and a party Pokemon that knows the move —
+  neither has a measured address here. The force-state shortcut failed (above).
+- **A vanilla + Archipelago room has only ever been run on ONE map with two players.**
+- **Crystal is at Lua's 200-local ceiling.** It was hit twice this session and the file only
+  compiles because new functions were hung on existing tables. `agent_docs/ideas.md` has the
+  modules refactor.

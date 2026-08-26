@@ -165,6 +165,21 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `ap_scroll_watch.lua` | watches the scroll-offset neighbourhood directly |
 | `ap_battlemode_probe.lua` | `wBattleMode` — **settled 2026-08-19** by one trainer battle: `0x1234` read 2 for the whole fight and returned to 0; `0x015A` read 1 in both a wild and a trainer battle, which is what ruled it out |
 
+## Added 2026-08-26/27 — the mixed vanilla + Archipelago session
+
+| File | What it answers |
+| --- | --- |
+| `ap_hram_scroll_probe.lua` | `hSCX`/`hSCY` on a patched build, by sweeping all 127 bytes of HRAM for the camera's own signature. **Found `$FFC7`/`$FFC8`**, where vanilla's pair are dead bytes. Reports what the CURRENTLY-USED pair did, by name, so a run either confirms the assumption or names its replacement |
+| `ap_bag_probe.lua` | lists every pocket-shaped run in the player-data bank. An empty pocket is `00 FF`, which zeroed RAM also looks like, so only a pocket with CONTENTS can be matched against the screen |
+| `ap_bag_grant.lua` | **WRITES.** Puts a BICYCLE in the key-item pocket — the only way to reach the fourth gait. Re-checks its anchor and savestates before writing |
+| `ap_playerstate_probe.lua` | a byte that changes on a bike toggle and changes BACK. Start-state agnostic on purpose |
+| `ap_force_state.lua` | **WRITES.** Forces a player-state value to confirm the address by its EFFECT. Refuted `0x1A17` on 2026-08-27 — the write produced no visible change |
+| `wram_window.lua` | a hex dump of a WRAM window. The blunt instrument to reach for when a signature scan has just produced a confident wrong answer |
+| `idle_cycle_drive.lua` | walk, stand still past the idle rule, walk again — the demote/promote pair on a loop, with no controller. Verifies its own input landed by reading the game's tile back |
+| `shot_burst.lua` | a screenshot a second. Screenshots capture the emulated framebuffer WITHOUT the Lua overlay, so this separates an ENGINE character from a PAINTED one in one image |
+| `flags_step_lag.lua` | turns on the line naming WHICH term refused a peer the spawned tier (`wearable`/`blocking`/`paceable`) |
+| `flags_bike_pose.lua` | facing trace + sprite trace together: what the cache holds, and which graphics a peer resolved from |
+
 ## Not a probe
 
 | File | What it is |

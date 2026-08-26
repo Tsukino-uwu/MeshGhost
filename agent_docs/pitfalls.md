@@ -311,3 +311,65 @@ town had no ghost for the peer during the departure, so it had no history to rea
 a ghost the moment the area id flipped. State kept per-ghost dies with the ghost; state kept
 per-peer survives; and a fact that needs no history at all — here the engine's own `invisible` bit
 — beats both.
+
+## A FILTER APPLIED BEFORE YOU LOOK — three times in one session, 2026-08-26
+
+`probes.md` states this twice and it still cost most of a night. Each of these instruments was
+*correct*, ran cleanly, and produced a calm, complete-looking answer that was wrong:
+
+1. **`orphan_probe.lua` hardcoded vanilla's object-array addresses.** Run on the Archipelago build
+   it read unrelated bytes, found nothing, and said so. An empty log from a blind instrument is
+   indistinguishable from a clean map, and it was read as "the arrays are clean" for most of an
+   hour while the user was looking at the extra character it existed to name.
+2. **The same probe printed only characters matching our fingerprint.** Anything wearing another
+   sprite was dropped before it could be seen, so "1 character in the array" meant "1 of the ones I
+   was already looking for".
+3. **The HRAM camera sweep filtered on "moved on one axis ONLY"** and discarded the right address
+   over 28 stray samples from a walk that was not perfectly axis-pure. It reported zero X
+   candidates. The unfiltered dump found `$FFC7` immediately.
+4. **The camera-delta histogram sat inside the branch that ACCEPTED a delta** — so it reported "no
+   8px deltas at turbo" when 8px deltas being rejected was the entire fault. Moving it above the
+   test showed 874 of them in one ride.
+
+**The rule that would have caught all four: an instrument must state its own coverage.** Not just
+what it found — what it looked at, and where. `orphan_probe` now prints its build and addresses;
+the sweeps now dump everything and mark the shortlist. **And when a clean instrument sits beside a
+symptom the user can still see, doubt the instrument first** — that is already in `CLAUDE.md`, and
+it was the correct move each time.
+
+## A local declared BELOW a function, and a bare name that becomes a global — same day, both ways
+
+Two faults from one session, both invisible to `luac -p`, which proves a file parses and never that
+a name resolves:
+
+- **`ENGINE.gait()` was written 100 lines above `local GAIT_PX`**, so inside it the name was a nil
+  GLOBAL. The file parsed, loaded, ran, and threw on the first frame a peer actually stepped —
+  which the dev loader answered by unloading the whole adapter mid-session. Fifth occurrence in
+  this file.
+- **`out = out or {...}` with no `local`** made a per-call accumulator a global that survives
+  between calls. It reached the user's screen.
+
+**Put a function directly below the data it reads**, and grep any new bare assignment for a `local`.
+
+## AN ID IS NOT PORTABLE, AND NEITHER IS A CONSTANT — one table further along than an address
+
+A recompiled patch moves more than addresses. On the Archipelago Crystal build:
+
+- **item ids shift** — writing vanilla's `BICYCLE` (`07`) produced a **Moon Stone**, which is
+  vanilla's `08`;
+- **sprite ids are repointed** — 5 of 102 entries, so a peer's raw sprite id draws a different
+  character on the other cartridge;
+- **the gait table gains a row**, so a peer can report a gait the receiver's engine has no step for.
+
+**A wrong id does not fail — it hands you a different thing**, exactly as a wrong address hands you
+a plausible number. The answers are all the same shape: ask the CARTRIDGE, not the build's name.
+Locate a table by its own content signature, and send a signature *of the specific entry* beside
+any index that crosses the wire. Full case: `adapters/emulator/pokemon/crystal/UNVERIFIED.md`.
+
+## PER TICK IS NOT PER FRAME
+
+Crystal's object clock runs at half the video rate, so a gait of 8px per TICK scrolls the camera
+4px per FRAME. `GAIT_PX` is per tick. Mixing the two moved a standing peer twice as far as the
+world every camera frame. **Before comparing two rates, check they are in the same units** — and
+note this only becomes visible at the fastest gait, because at 2px and 4px the per-tick stride
+never exceeds the per-frame delta.

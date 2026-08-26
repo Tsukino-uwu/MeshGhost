@@ -199,8 +199,8 @@ is past the real ones — an object left there with a live step type reads a ste
 whatever follows the table and is dragged off the map — and **a patch can add a fourth gait without
 touching `GetStepVector`**. One does: [measured 2026-08-26] V1.0, V1.1 and speedchoice 8.1 each
 carry three groups at `0x004700`, an Archipelago seed **four** at `0x0048C9`, group 3 being
-`8px/tick` for `2` ticks — that build's faster bike (its running is not a fourth gait; it moves at
-group 2). **The count is the cartridge's, not the family's**, so it is read off the ROM at load —
+`8px/tick` for `2` ticks. **Which mode uses it was not measured** — do not assume a gait for
+running. **The count is the cartridge's, not the family's**, so it is read off the ROM at load —
 `FLAGS.md`, measurement in [UNVERIFIED.md](UNVERIFIED.md).
 
 ## Map identity

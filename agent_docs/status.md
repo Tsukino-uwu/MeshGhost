@@ -108,10 +108,18 @@ were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which 
 queue carrying the detail, what to watch, and what correct looks like. An index of an index goes
 stale in two places at once; these six say which SUBSYSTEM is unsettled and send you there.
 
-- **Crystal: the Archipelago patch's running and faster bike are BUILT and unwatched (2026-08-26)** —
-  gait 4 and the sprite-table signature, both measured off four ROMs. `crystal/UNVERIFIED.md`.
-- **A mixed vanilla + Archipelago Crystal room has never existed** — both halves of that work only
-  exist for it, and it needs two cores. `crystal/UNVERIFIED.md`.
+- **A mixed vanilla + Archipelago Crystal room RAN (2026-08-26/27): seven faults found and fixed,
+  all confirmed on screen.** Full record: `crystal/UNVERIFIED.md`, last section.
+- **The Archipelago camera was two DEAD BYTES** — `$FFCF`/`$FFD0` never change there; it is
+  `$FFC7`/`$FFC8`, measured. `crystal/FLAGS.md`.
+- **That build has a FOURTH gait (8px/tick) and repoints 5 of 102 sprite ids** — so sprite ids,
+  item ids and gaits all fail to cross builds. `crystal/UNVERIFIED.md`.
+- **Turbo bike is fixed and confirmed; RUNNING is untested and its gait UNMEASURED** — do not
+  assume one. Surf is unreached on that build. `crystal/UNVERIFIED.md`.
+- **`0x1A17` was REFUTED as that build's `wPlayerState`** — fit two states, failed the third; the
+  second address here to do that. `crystal/UNVERIFIED.md`.
+- **Three instruments filtered before printing and each gave a confident wrong answer** — the
+  session's most expensive lesson, four cases dated. `pitfalls.md`.
 - **Crystal, drawn tier — unwatched since 2026-08-23.** Three jitter bugs, text-box clipping, the
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step

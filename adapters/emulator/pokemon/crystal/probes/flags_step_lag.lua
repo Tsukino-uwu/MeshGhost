@@ -13,8 +13,8 @@
 --
 -- That line exists because a count of zero cannot be interrogated. A run showing "0 spawned as
 -- real objects" looks identical whether the peer is being held on the drawn tier deliberately, or
--- the engine has no free slot, or a term is wrong -- and this session spent a long time reading
--- that zero as if it meant one particular thing. `FLAGS.md` carries the full row.
+-- the engine has no free slot, or a term is wrong -- and on 2026-08-26 that zero was read as if it
+-- meant one particular thing for most of a session. `FLAGS.md` carries the full row.
 --
 -- IT WRITES NO GAME MEMORY and changes no decision. Read-only, file-only, once a second.
 --
