@@ -465,6 +465,33 @@ agent-measured and belongs in this file until they say otherwise.
 9. **The latch then hid the landing.** Departures end carried, landings end released; the phase a
    flight ended on is the discriminator, not the latch.
 
+### Still open on Fly, per tier, from the user's 2026-08-26 pass
+
+They confirmed a same-town fly *"looks fine from another instance"*. The rest of their list is
+untouched or only partly addressed, and it splits by tier -- which is itself the finding: three
+renderers, three different faults, one shared cause only in the blob's case.
+
+- **Drawn tier: wrong pose, and an 8px sideways nudge before the flight.** *"drawn gets pushed a
+  tiny bit to the left, then snaps back, and then does the flying animation. also looks stiff/idle
+  pose instead of 'holding up a pokeball'"*. `runsForPeerGfx` CAN decode the field-move graphic
+  from the cartridge, so this is a lookup failing and falling back to the cached walker, not a
+  missing capability -- the fallback is silent. The nudge is the same event: the pose graphic is
+  32 wide against the walker's 16, and the tier's centring term steps by 8 when the width changes.
+  Whether that step is correct (it mirrors the engine's centerToCorner) or doubled has not been
+  measured against the spawned copy standing beside it.
+- **Hardware tier: a brief glitched sprite** at a graphic change. Not diagnosed. Same shape as the
+  spawned tier's, below, and probably the same cause.
+- **Spawned tier: intermittent glitch**, which the user places as *"similar to the issue we had
+  with egg/orange sprite when doing dive"* -- so a known family: a tile range read before the
+  frame that belongs in it was written. `loadGhostFrameNow`'s early return was one instance of
+  that family and is fixed; this is another and is not.
+- **Spawned tier: arrives seated.** *"arrives with fly in a 'sitting/surfing' pose instead of
+  standing 'idle' on the ground"*. The engine releases its character partway down and finishes
+  with an 18-frame drop table while still wearing the mount graphic, so a ghost re-anchored to the
+  landing tile at the release sits on the ground in that pose for those frames. Whether the ghost
+  should descend with the drop instead (the peer sends the offset as `soy`) has not been compared
+  side by side with the player doing it.
+
 ### What is still open on Fly
 
 - **Nothing above is user-confirmed except the same-town departure.** The cross-town arrival was
