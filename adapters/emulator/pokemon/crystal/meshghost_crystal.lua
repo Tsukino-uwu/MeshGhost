@@ -6054,6 +6054,17 @@ local function renderRemote(id, state)
 	-- as nil and leaves the ghost exactly where it was drawn before.
 	local peerYoff = state.extras and tonumber(state.extras.yoff) or nil
 	if peerYoff and peerYoff > 127 then peerYoff = peerYoff - 256 end
+	-- CLAMPED TO THE ENGINE'S OWN ENVELOPE, once, here, so both tiers get the same number.
+	-- ±96 is not a taste value: `StepFunction_SkyfallTop` writes exactly $60 and the fall in
+	-- `StepFunction_Skyfall` runs `Sine` scaled by $60, so -96..+96 is the whole range this byte
+	-- ever holds in the game (a jump arc reaches -12, the bite wiggle 1). Inbound state is
+	-- peer-controlled and this value now ends in a memory write on the spawned tier as well as an
+	-- offset on the drawn one, so it is floored and bounded before either sees it -- the same
+	-- treatment `ACTIONS.peer` gives the action byte.
+	if peerYoff then
+		peerYoff = math.floor(peerYoff)
+		if peerYoff > 96 then peerYoff = 96 elseif peerYoff < -96 then peerYoff = -96 end
+	end
 	local peerEmote = state.extras and tonumber(state.extras.emote) or nil
 	-- What the peer's own object is DOING, in the engine's own terms. Floored before it can reach
 	-- a write, and checked against ACTIONS.peer there; a peer on an older build sends no `act` at
@@ -6692,6 +6703,24 @@ local function renderRemote(id, state)
 					tostring(u8(g.st_base + F_ACTION)), tostring(u8(g.st_base + F_FACING))))
 			end
 		end
+	end
+	-- THE PEER'S VERTICAL NUDGE, ON THE SPAWNED GHOST'S OWN OBJECT.
+	--
+	-- `emote.F_YOFF` was defined when `yoff` went on the wire for fishing (2026-08-26) and then never
+	-- read: only the drawn tier applied the byte, by adding it to the sprite's screen y. So a
+	-- spawned ghost showed no bite wiggle, no Fly fall, no Dig/Teleport drop and no ledge-hop arc
+	-- -- it stood perfectly still through every one of them while the painted copy beside it moved.
+	--
+	-- One write is all it takes because the engine already reads this field when it builds OAM:
+	-- `_UpdateSprites` adds OBJECT_SPRITE_Y_OFFSET to OBJECT_SPRITE_Y (map_objects.asm), and
+	-- nothing on a ghost's step path writes it back -- `StepFunction_NPCWalk`, which is the step
+	-- type 2 a ghost walks on, calls `Stubbed_UpdateYOffset`, which is dummied out to a bare `ret`.
+	--
+	-- ABOVE the idle branch, not inside it, because these are not all idle animations: a ledge hop
+	-- changes tile while the arc is running. Written every update rather than on entry, since the
+	-- value changes per engine tick and returns to 0 on its own at the end of each animation.
+	if peerYoff ~= nil and u8(g.st_base + emote.F_YOFF) ~= (peerYoff & 0xFF) then
+		w8(g.st_base + emote.F_YOFF, peerYoff & 0xFF)
 	end
 	if cx == x and cy == y then
 		-- Not moving, but the peer may have TURNED IN PLACE — a real and common action in this

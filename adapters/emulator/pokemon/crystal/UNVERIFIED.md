@@ -1179,13 +1179,18 @@ interpolation at 0, so the drawn ghost can be judged against the player frame fo
    as long as the player's rod is out. A ghost that faces down while the player fishes to the left
    is the facing byte not being read; a body with no rod is the ROM gate refusing.
 4. **Fly into a town** — during the landing the ghost should run its walk cycle at about double
-   speed. It will **not** fall from the sky; that is a known gap, not a fault.
-5. **Dig or Teleport** — the ghost should spin and flicker. Because the flicker alternates faster
-   than the send rate, expect it to look coarser than the player's, not identical.
+   speed, **and it should now drop out of the sky while it does it**. That second half is new and
+   untested: the fall is `OBJECT_SPRITE_Y_OFFSET`, the same byte fishing put on the wire, so it
+   arrives for free — `StepFunction_Skyfall` walks it from about -96 up to 0 over 16 engine ticks
+   (`engine/overworld/map_objects.asm`). Expect a coarser drop than the player's, because the byte
+   is sampled at the send rate rather than per frame.
+5. **Dig or Teleport** — the ghost should spin and flicker, and drop the same way. Because the
+   flicker alternates faster than the send rate, expect it to look coarser than the player's, not
+   identical.
 
-**Known remaining differences, stated so they are not reported as faults:** no fall for Fly,
-Teleport or Dig (the sprite Y offset is not on the wire); no emote over a peer's head at all; the
-spawned tier's spin runs on the engine's own clock rather than the peer's phase.
+**Known remaining differences, stated so they are not reported as faults:** no emote over a peer's
+head at all; the spawned tier's spin runs on the engine's own clock rather than the peer's phase.
+**The fall is no longer on this list** — see the entry above for what replaced it.
 
 ## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
 
@@ -1237,3 +1242,32 @@ classes (fishing, the Fly landing, Dig/Teleport, spin tiles), the UI clipping ca
 cases, and the hardware tier. The movement and gait work is done until a real two-machine session
 says otherwise: every number behind the confirmation is loopback, whose echo is smaller than any
 network peer's.
+
+## 2026-08-26 — Crystal: the SPAWNED tier never applied the peer's `yoff` at all
+
+**Fixed by reading, not by watching, and nothing below has been on screen.** `yoff`
+(`OBJECT_SPRITE_Y_OFFSET`) went on the wire with fishing earlier the same day and the drawn tier
+applied it — that is the bite wiggle the user confirmed. The spawned tier did not: the constant was
+declared as `emote.F_YOFF` and then **never read anywhere in the file**. So a spawned ghost stood
+perfectly still through every vertical animation the game has — the bite wiggle, the Fly landing's
+fall, the Dig/Teleport drop, and a ledge hop's arc — while the painted copy two tiles away moved.
+Nobody saw it because the 2026-08-26 fishing session painted both copies throughout
+([`VERIFIED.md`](VERIFIED.md), "What it does NOT cover").
+
+**The fix is one write per update**, above the idle branch rather than inside it, because a ledge
+hop changes tile while its arc runs. It works because the engine already reads that field for us:
+`_UpdateSprites` adds `OBJECT_SPRITE_Y_OFFSET` to `OBJECT_SPRITE_Y` when it builds OAM, and nothing
+on a ghost's own step path writes the byte back — `StepFunction_NPCWalk`, the step type 2 a ghost
+walks on, calls `Stubbed_UpdateYOffset`, which the game dummies out to a bare `ret`. All three from
+`engine/overworld/map_objects.asm`.
+
+**The value is now floored and clamped to ±96 once, at decode, so both tiers get the same number.**
+That is the engine's own envelope, not a taste value: `StepFunction_SkyfallTop` writes exactly `$60`
+and the fall scales `Sine` by `$60`, so -96..+96 is the whole range the byte ever holds (a jump arc
+reaches -12, the bite wiggle 1). It is peer-controlled state that now ends in a memory write, which
+is the same reason `ACTIONS.peer` bounds the action byte.
+
+**What to watch, on the compare rig with both tiers up:** the two ghosts should now wiggle, fall
+and hop *together*. A painted ghost that drops out of the sky while the spawned one stands flat is
+this fix not reaching the write; both flat is the byte not arriving. **No new top-level local was
+spent** — the file is still 197 of 200 (`emulator/CLAUDE.md`).
