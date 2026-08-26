@@ -1425,3 +1425,29 @@ teleport path is the only trigger, on purpose, because promotion also spawns and
 the flag not arriving; one pinned to the ground mid-fall is a guard not holding; a drop at any
 moment OTHER than a fly landing (a door, a promotion) is the trigger being too loose and matters
 most.
+
+### Follow-up the same day: the fall was armed on the one path a fly does not take
+
+**The user, on the first watch:** *"the drawn ghost does the 'landing fly' animation, but with a
+somewhat glitched sprite, the spawned ghost does not do this... it just walks towards where its
+supposed to be afterwards."* So the painted half worked and the engine half never ran.
+
+**Cause: the drop was hung on `teleportGhost`, and a fly landing hardly ever reaches it.** A
+SAME-town fly usually lands within three tiles, which is the short-deficit branch that WALKS the
+ghost there — exactly what was seen — and a cross-town fly rebuilds the world, so the ghost is
+freshly spawned rather than moved. The teleport branch is the one placement path a fly rarely
+takes. **Third time today a fix has been attached to a trigger that is a proper SUBSET of the
+event it meant to catch** (area-change vs map-load, twice, and now teleport vs placement); the
+pattern is in `pitfalls/by-lesson.md`.
+
+**Fix:** the fall is armed on the ENVELOPE, above every movement decision — while the drop is live
+the ghost belongs at its landing tile falling onto it, and the function returns until the engine's
+skyfall ends, so nothing can step, chain or catch-up a ghost in mid-air.
+
+**And the glitched sprite is a hypothesis, not a finding.** The drawn tier's "world is being
+rebuilt, do not paint" window was armed by an area change only, so a same-town fly painted straight
+through the map load — and that tier draws from resident VRAM tiles while `wUsedSprites` is being
+repopulated across those very frames. The window is now armed by the map-entry byte itself and
+re-armed for as long as it is stamped. **If the sprite is still glitched after this, the cause is
+elsewhere and the next step is a sprite trace** (`MESHGHOST_CRYSTAL_SPRITE_TRACE`), which names
+which source branch each peer took and the tile base it landed on.

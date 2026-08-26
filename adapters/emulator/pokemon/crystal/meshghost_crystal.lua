@@ -6743,6 +6743,33 @@ local function renderRemote(id, state)
 	-- finished normally would. Registered in BANDAGES.md as a compensation with an unknown cause.
 	local walking = u8(g.st_base + F_WALKING) or STANDING
 	local stepType = u8(g.st_base + F_STEP_TYPE) or 0
+
+	-- A FLY LANDING IS PLACED, NEVER TRAVELLED TO -- and hanging the fall on `teleportGhost`
+	-- alone was wrong, because a fly landing hardly ever reaches that branch. The user,
+	-- 2026-08-26: *"the spawned ghost does not do this / it just walks towards where its supposed
+	-- to be afterwards"*. Both of the real paths bypassed it: a SAME-town fly usually lands
+	-- within three tiles, which is the short-deficit case that WALKS, and a cross-town fly
+	-- rebuilds the world, so the ghost is freshly spawned rather than moved. The teleport branch
+	-- is the one case a fly rarely takes.
+	--
+	-- So the drop is armed HERE, above every movement decision, on the envelope rather than on a
+	-- path: while `dropT` is live the ghost belongs at its landing tile, falling onto it. Armed
+	-- once per drop (the envelope only exists when the peer wears MAPSETUP_FLY *and* its tile
+	-- jumped), and this function then returns until the engine's own skyfall finishes -- nothing
+	-- may step, chain or catch-up a ghost that is in mid-air.
+	if dropT then
+		if not a.skyfallArmed then
+			a.skyfallArmed = true
+			teleportGhost(g, x, y, true)
+		end
+		return
+	end
+	a.skyfallArmed = nil
+	-- The engine still owns the object until its fall ends, even past the envelope.
+	if stepType == 0x0E then
+		return
+	end
+
 	if walking == STANDING and (stepType == 2 or stepType == 7) then
 		w8(g.st_base + F_STEP_TYPE, 1) -- STEP_TYPE_FROM_MOVEMENT
 		w8(g.st_base + F_STEP_DURATION, 0)
@@ -7482,6 +7509,17 @@ local function tick()
 		local m = memory.read_u8(ENGINE.entryAddr, "System Bus") or 0
 		if m ~= 0 then
 			ENGINE.entry, ENGINE.entryAt = m, emu.framecount()
+			-- AND HOLD THE PAINTED TIER OFF WHILE THE WORLD IS BEING REBUILT. This window was
+			-- already the intent -- "do not paint over the fade-in" -- but it was armed only by an
+			-- AREA CHANGE, and a warp that lands you on the map you were already on never changes
+			-- the area. Same blind spot as the stale menu rectangle earlier today, same cause: an
+			-- area change is a proper subset of a map load, and this byte is the map load itself.
+			-- Suspected cause of *"a somewhat glitched sprite"* during a same-town fly landing:
+			-- the tier paints from resident VRAM tiles, and wUsedSprites is being repopulated
+			-- across exactly these frames, so a tile base read mid-rebuild points at art the game
+			-- has not finished loading. Re-armed every frame the byte is stamped, so the window
+			-- runs 30 frames past the end of the load rather than 30 from its start.
+			playerHistory.settle = 30
 		end
 	end
 

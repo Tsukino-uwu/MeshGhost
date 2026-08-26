@@ -213,3 +213,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A stale coordinate is indistinguishable from a live one, and the game may never clear it (Crystal, 2026-08-26)
 - A field that describes "the most recent X" cannot describe "every X on screen" (Crystal, 2026-08-26)
 - A fix validated on the neighbouring path, not the reported one (Crystal, 2026-08-26)
+- Three fixes in one day attached to a trigger that was a subset of the event (Crystal, 2026-08-26)

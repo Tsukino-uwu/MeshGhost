@@ -3983,3 +3983,32 @@ included, so the trigger set now contains the reported case by construction.
 makes convenient.** When a report distinguishes two variants ("same town" vs "another town"), that
 distinction is data about the mechanism — here it separated same-area warps from area-changing
 ones, which is precisely the line the broken fix was placed on.
+
+## Three fixes in one day attached to a trigger that was a subset of the event (Crystal, 2026-08-26)
+
+Not three unrelated slips — one habit, caught three times in a single session, each time by the
+user re-testing and the symptom surviving:
+
+1. **Stale menu rectangle cleared on AREA CHANGE**, when the reported case was flying to the town
+   you were already in. Same-map warps do not change the area.
+2. **The drawn tier's "world is rebuilding, do not paint" window, armed on AREA CHANGE** — same
+   blind spot, same event, still unfixed after (1) was moved, because only the rectangle had been
+   moved and the settle window right beside it was left on the old trigger.
+3. **A fly-arrival drop armed on `teleportGhost`**, when a fly landing usually lands within three
+   tiles (walked) or across a map load (respawned). The teleport branch is the path a fly rarely
+   takes.
+
+**The shape every time: the trigger chosen was a proper SUBSET of the event that mattered.** Area
+change ⊂ map load. Teleport ⊂ ghost placement. Each subset is the *most familiar* member of its
+set — the case already handled elsewhere, the one that comes to mind first — which is exactly why
+it gets picked and why the gap is invisible in review.
+
+**The check that would have caught all three, before any of them shipped: enumerate the event's
+members and say which one the report describes.** "A ghost gets placed by: a step, a catch-up walk,
+a teleport, or a spawn — the report says it walked, so the teleport hook is wrong" takes one
+sentence and needs no rig. `../CLAUDE.md` already demands this for entering a STATE ("enumerate the
+doors into a state before deciding one of them is the door", the Emerald surf blob, 2026-08-19).
+The same rule applies to *events*, and that generalisation is what was missing.
+
+**And when a fix like this is corrected, check its siblings in the same file immediately** — (2)
+was sitting four lines from (1) on the identical wrong trigger and cost an extra live cycle.
