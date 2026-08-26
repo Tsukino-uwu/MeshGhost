@@ -2,15 +2,17 @@
 
 <!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
 
-**Status: FEATURE COMPLETE as of 2026-08-21 — the user's call**, in their words: *"i consider the
+**Status: feature complete 2026-08-21 — the user's call**, in their words: *"i consider the
 game to be fully synced up animation and effect wise now."* Every way this game moves a character
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game
 targeted, shipped, and live-tested with real two-player sessions.
 
-**This adapter is parked.** Phase 8 stays open, but nothing here is scheduled — what is left is a
-different kind of thing: polish, custom features beyond matching the game, and two states assumed
-to work rather than known to be missing (the ferry and rail movement, recorded as assumptions in
-[UNVERIFIED.md](UNVERIFIED.md)). See
+**Reopened 2026-08-26 to finish Fly**, which was one of the two states that call had never
+actually tested. Fly is now built and partly confirmed but **not complete** — the user, that day:
+*"good nuff for now"*, and *"not properly working fully yet"*. Four compensations are named in
+[BANDAGES.md](BANDAGES.md) §4. The **boat** is the other state: built, and never once watched.
+**Rails are neither** — not built, not measured (step 38 below;
+[UNVERIFIED.md](UNVERIFIED.md), [status.md](../../../../agent_docs/status.md)). See
 [agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 - Platform: GBA, played via BizHawk.
@@ -36,9 +38,11 @@ to work rather than known to be missing (the ferry and rail movement, recorded a
   the engine's own object cap a peer gets **real GBA hardware sprite entries** in the shadow-OAM
   window the engine never touches, so the PPU draws it with background priority and the live
   palette (step 27). Past that it is **painted** with `gui.*` pixels — steps 1–9's original path,
-  which survives as the overflow tier. Both overflow rungs ship OFF; the ladder, its one
-  place-specific exception and every switch are in [FLAGS.md](FLAGS.md), and what each rung
-  compensates for is in [BANDAGES.md](BANDAGES.md).
+  which survives as the overflow tier. Both overflow rungs ship OFF; the ladder, its exceptions
+  and every switch are in [FLAGS.md](FLAGS.md), and what each rung compensates for is in
+  [BANDAGES.md](BANDAGES.md). **The hardware rung has two of those exceptions**: it stands down
+  under a screen-covering semi-transparent sheet (weather fog, underwater), and it is **vanilla
+  only** — on an Archipelago ROM it declines outright.
 - **[documentation.md](documentation.md)** describes how Emerald itself works — where player state
   lives and why one address is not enough, the tile-based movement model, the callback that says
   which state machine is running, how maps join at a seam, and how the sprite table is laid out.
@@ -53,7 +57,8 @@ to work rather than known to be missing (the ferry and rail movement, recorded a
   may and may not be used.
 - Tile-grid movement means small integer positions; the brief's original "10Hz sync looks
   fine" hypothesis was superseded once real send-rate limits shipped — the real cap is 20Hz
-  (`core.DefaultMinSendInterval`), live-confirmed across three games (see
+  (`core.DefaultMinSendInterval`), live-confirmed across the three games shipping at the time —
+  Emerald, TEVI and Pseudoregalia; **Crystal is the fourth and came later** (2026-08-18) (see
   [agent_docs/contract.md](../../../../agent_docs/contract.md)'s Limits section).
 - No ROM is or will be shipped with this repo. Bring your own legally-obtained copy.
 - The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
@@ -74,10 +79,11 @@ Measured 2026-08-19 and 2026-08-21 with real peers over the real relay. Full tab
 [agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md).
 
 - **The engine's own tier holds `16 − (the most objects this map has ever shown) − 1 reserved`
-  ghosts** — **13** in Littleroot Town, 11 on the map the tier comparison used. `gObjectEvents`
+  ghosts** — **12** in Littleroot Town, 11 on the map the tier comparison used. `gObjectEvents`
   has 16 entries and every NPC shares it. The budget is measured against the running *maximum*
   rather than the current count, because budgeting against the current one hands out slots the
-  engine wants back two steps later.
+  engine wants back two steps later. (`crowd-limits.md`'s table records **13**: it was measured
+  2026-08-19, against the current count and before the reserved slot existed.)
 - **The ceiling moves while you walk.** The same town reported 3, 2 and 1 active objects from
   different camera positions, so free slots change during play and a ghost can lose its slot when
   a nearby NPC loads.
@@ -288,9 +294,17 @@ order:
     character and every field effect it hangs off one is mirrored on all three tiers. What is left
     after this is minor polish or custom features that go beyond matching the game, not gaps —
     so a new item here needs a reason it is not one of those. **Two states were never tested and
-    are assumed to work: the ferry, and rail movement.** Assumed rather than open, and recorded as
-    an assumption in `UNVERIFIED.md` so it cannot quietly become a memory of having
-    checked. Emerald was parked here; the attention moved to Crystal.
+    were assumed to work: the boat, and Fly.** Assumed rather than open, and recorded as an
+    assumption in `UNVERIFIED.md` so it could not quietly become a memory of having checked. The
+    attention moved to Crystal — and the assumption did not survive contact (step 38).
+38. Came back for Fly, and the assumption was wrong in nine distinct ways across three renderers.
+    Fly is not an overworld event at all: the character is taken off the map, a bird sprite flies
+    the arc in SCREEN coordinates, and on a patched ROM every address it needs is shifted and
+    **none of them fail loudly**. Three bugs each hid the next, and the savestate chosen to watch
+    it decided whether the landing was visible at all. It ships **bandaged, not finished** — the
+    user's call, *"good nuff for now"* — with four compensations named in
+    [BANDAGES.md](BANDAGES.md) §4, and one confirmed case: a same-town fly watched from a second
+    instance. **The boat is still assumed**, and rails were never built at all.
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.

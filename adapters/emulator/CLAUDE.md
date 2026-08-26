@@ -99,8 +99,8 @@ and each time cost a reload cycle to identify. Re-counted 2026-08-25:
 
 | adapter | lines | top-level locals |
 |---|---|---|
-| Crystal | 7,540 | **197 of 200** (re-measured 2026-08-26) |
-| Emerald | 10,936 | **198 of 200** (re-measured 2026-08-26) |
+| Crystal | 9,534 | **197 of 200** (re-measured 2026-08-26) |
+| Emerald | 11,265 | **198 of 200** (re-measured 2026-08-26) |
 
 **Crystal is three names from the wall and Emerald is two.** Crystal's row read 188 for one day and was
 already stale when it was read: adding two plain constants for a feature stopped the file loading

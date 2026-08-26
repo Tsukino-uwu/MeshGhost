@@ -17,10 +17,12 @@ This is [CLAUDE.md](../../../../CLAUDE.md)'s standing rule — *is this fine sit
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
 worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 
-> Everything here is **measured from a running game** across Phases 1–5.5 and 8, and cross-checked
-> against the public `pret/pokeemerald` decompilation, which is cited by file so any claim can be
-> re-checked. **No source text, data table, or asset from that decompilation is reproduced here** —
-> only facts, per `agent_docs/licensing.md`.
+> Most of this is **measured from a running game** across Phases 1–5.5 and 8, and all of it is
+> cross-checked against the public `pret/pokeemerald` decompilation, which is cited by file so any
+> claim can be re-checked. **The boat and Fly sections are decomp-derived and were never watched**
+> (`UNVERIFIED.md`) — every other section carries a `[measured]` / `[player]` / `[from the decomp]`
+> label, and their absence there is the label. **No source text, data table, or asset from that
+> decompilation is reproduced here** — only facts, per `agent_docs/licensing.md`.
 
 **What this file is: how *the game* does things**, per mechanic, in our own words. **Nothing here
 describes an adapter workaround** — those belong in [BANDAGES.md](BANDAGES.md).
@@ -80,8 +82,8 @@ The overworld player graphics exist as separate sprite sets for the two player c
 **separate tables for walking and for running** — running is not the walk cycle played faster, and
 treating it as such looked visibly wrong in live testing.
 
-The adapter decodes those graphics out of the player's own ROM at runtime rather than shipping any
-image (`agent_docs/licensing.md`'s assets rule).
+Both sets live in the ROM the player already owns, which is where anything needing them reads them
+from (`agent_docs/licensing.md`'s assets rule).
 
 ## Sprites: how one frame's hardware sprite table is built
 
@@ -99,11 +101,13 @@ also stops there. Entries **at or above the limit are neither written nor cleare
 path**. The transfer, meanwhile, is unconditional and copies **all 128**.
 
 That gap is deliberate on the game's part, not an accident to be discovered: **Emerald parks its own
-sprites above the limit** — the wireless-link status indicator lives at entry 125, and several
-minigame screens allocate from 64 upward — precisely because the sprite system will not overwrite
-them there. The one thing that does touch all 128 entries every frame is the affine-matrix pass,
-and it writes only each entry's **fourth halfword** (the affine parameter), leaving the three
-attribute halfwords alone.
+sprites above the limit** — the wireless-link status indicator lives at entry 125, and the confetti
+effect writes straight into `oamBuffer[i + 64]` — precisely because the sprite system will not
+overwrite them there. **The one screen that wants those entries raises the limit instead**: the slot
+machine sets `gOamLimit` to `0x80`, which is the only write to it outside the sprite system, and
+which makes the layout pass address all 128. The one thing that touches all 128 every frame
+regardless is the affine-matrix pass, and it writes only each entry's **fourth halfword** (the
+affine parameter), leaving the three attribute halfwords alone.
 
 Measured live on a town map, 2026-08-21: `gOamLimit` was 64 for 2250 consecutive overworld frames,
 entries 64–127 held nothing and never changed, and **5 of 128 hardware entries were in use**.
@@ -115,7 +119,7 @@ feet are hidden, and how tall grass covers the legs. At ordinary ground elevatio
 layout is a **single full-size piece whose offset cancels against the sprite's own centre-to-corner
 vector**, so the split path is geometrically a no-op and the character occupies one entry.
 
-Two fields on that entry do the compositing work the engine gets for free and an overlay does not:
+Two fields on that entry do the compositing work the engine gets for free:
 **priority**, which comes from the character's elevation (ordinary ground is priority 2) and is what
 makes an NPC disappear behind a roof and under a text window; and the **palette slot**, which comes
 from the graphic's own descriptor and is read live by the hardware, so a character dims with every
@@ -141,8 +145,12 @@ map a door leads to) is held in the save block.
 
 Recorded here because it is a property of *that ROM*, and the difference is real and measured:
 Archipelago's Emerald patch is a full base-ROM recompile, so **fixed addresses move**. Confirmed
-cases include the overworld callback, the player sprite data, and the overworld object arrays. Its
-own client reads the save-block pointers, which is why those keep working.
+cases: the overworld callback, the player sprite data, the overworld object arrays, the
+**graphics-info pointer table** (2026-08-19), and **everything Fly needs** — its task function
+pointers, the bird's sprite template and the arc callback, all ROM addresses (2026-08-26). Its own
+client reads the save-block pointers, which is why those keep working. **The list keeps growing,
+so treat it as examples rather than a boundary**: none of these fail loudly when read at the
+vanilla address, they return a plausible value instead.
 
 Full citation trail, including what is and is not covered:
 [`agent_docs/risks.md`](../../../../agent_docs/risks.md).
@@ -183,8 +191,7 @@ offset. The blob is placed by `SetSpritePosToOffsetMapCoords` — `SetSpritePosT
 (8, 8) — which subtracts **both** the total camera pixel offset **and** the field camera. The two
 terms cancel while the camera is at rest, so the difference is invisible in the easy case and puts
 the blob a tile out of place in the others. **Which helper a given sprite uses is part of what that
-sprite is**, and picking by resemblance rather than by looking it up is how the blob ends up one
-tile below its rider.
+sprite is**, and the two are not interchangeable however alike they look.
 
 **Underwater is a different mechanism, not a variant of this one.** It bobs the player's own sprite
 (`StartUnderwaterSurfBlobBobbing`) rather than spawning a companion — see its own section below.
@@ -194,8 +201,10 @@ tile below its rider.
 ### Getting onto the water is a sequence, not a state change
 
 **[measured]** Surfing does not begin the moment the graphic changes. `Task_SurfFieldEffect`
-(`src/field_effect.c:2994-3074`) runs four steps in order, and each one is visible:
+(`src/field_effect.c:2994-3074`) runs **five** states in order, of which four are visible:
 
+0. **Init**, which is where the destination tile is computed — `MoveCoords` on the movement
+   direction. Nothing is drawn yet, but this is the tile the blob is later created at.
 1. **The field-move pose.** The player's graphic becomes the field-move one and it is held as a
    movement — `MOVEMENT_ACTION_START_ANIM_IN_DIRECTION`.
 2. **The Pokémon is shown.** A full-screen effect that covers the map while it plays; it is
@@ -221,8 +230,8 @@ way is not doing what the game does. The action ids are `MOVEMENT_ACTION_JUMP_SP
 
 **[measured]** Diving warps to a separate map, so an underwater character and a surface one are
 never on screen together. On arrival `PlayerAvatarTransition_Underwater`
-(`src/field_player_avatar.c:888-894`) does three things: sets the underwater graphic, sets the
-underwater avatar flag, and starts the bobbing.
+(`src/field_player_avatar.c:888-894`) does four things: sets the underwater graphic, **turns the
+object to its own `movementDirection`**, sets the underwater avatar flag, and starts the bobbing.
 
 **The bobbing is a third sprite that draws nothing.** `StartUnderwaterSurfBlobBobbing`
 (`src/field_effect_helpers.c:1150-1176`) creates an invisible dummy sprite and gives it a callback
@@ -237,7 +246,8 @@ priority 2, palette 12, covering every pixel — which is what gives the water i
 Two consequences follow from how the hardware composites it, and both are facts about the game
 rather than about any adapter:
 
-- **The engine's own characters sit at entries 0..3, above that overlay**, and sprite-vs-sprite
+- **The engine's own characters sit BELOW the overlay's entries — 0..3 in this scene**, and
+  sprite-vs-sprite
   ties are broken by entry number — so they are drawn over the fog rather than under it.
 - **A semi-transparent sprite cannot blend against another sprite.** Put any sprite beneath the
   overlay and the overlay stops blending there and draws OPAQUE — a solid grey block the size of
@@ -436,9 +446,8 @@ the same move twice, facing south and then facing east, and reading the ids that
 
 **Every one of them completes.** The engine sets `heldMovementFinished` on the player's object at
 the end of each, including `0x6B`, which is a member of the pop-wheelie family: it ran for nine
-frames and reported finished on the tenth. That matters because the same ids issued to a spawned
-ghost sat busy until a watchdog freed them, so *"the action cannot be completed"* is not the
-explanation — the action completes perfectly well for the engine's own object.
+frames and reported finished on the tenth. **None of these actions can hang** — the engine's own
+object retires every one of them on schedule.
 
 **The standing wheelie is a pose the engine re-asserts, not a single long action.** `0x64`'s
 family reports finished immediately and is issued again on the following frames, so what looks like
@@ -473,10 +482,17 @@ ROM `images` pointer they draw from, so it identifies them by what they ARE rath
   **OBJ palette 0**, positioned at the character's own sprite position plus a per-graphic drop —
   and deliberately WITHOUT the jump arc, so it stays on the ground while the character rises over
   it. It follows the character's background priority, so it passes behind a bridge with them.
-- **Landing dust appears when a jump FINISHES**, on the tile landed on, at **subpriority 135** and
-  a palette resolved from the field-effect palette tag (slot 14 in the runs measured). Lower
-  subpriority means the dust draws IN FRONT of the shadow — back to front, the order is shadow,
-  character, dust.
+- **The shadow is also SUPPRESSED outright over certain ground**, not merely repositioned.
+  `UpdateShadowFieldEffect` stops the effect when the object's current *or previous* metatile
+  behaviour is Poké-grass, surfable water or underwater, or reflective — which is why a character
+  jumping near water or in tall grass casts none at all. Checking both tiles means it goes as the
+  jump enters such a tile, not a frame later.
+- **Landing dust appears when a jump FINISHES**, on the tile landed on, with a palette resolved from
+  the field-effect palette tag (slot 14 in the runs measured). **Its subpriority is not a constant**:
+  `FldEff_Dust` creates it at 0, and `SetObjectSubpriorityByElevation` recomputes it every frame from
+  the elevation *and the sprite's screen row*. It measured **135** against the shadow's fixed 148, so
+  the dust drew in front — back to front, shadow, character, dust — but that ordering is a
+  consequence of where on screen the jump happened, not a rule that holds at every row.
 - **The dust belongs to the TILE, not the character.** It stays where it was born and finishes its
   animation there while the character hops on, which is what makes a run of hops leave a trail of
   puffs rather than one puff dragged along underneath.
@@ -531,7 +547,7 @@ carries TWO west connections, the second at offset 20 — the neighbor's frame i
 along the shared edge.
 
 **Crossing a connection rebases every loaded object, one frame after the map identity changes.**
-Measured (`probes/coordwatch.log`): the frame the save block's map group/number flip, live objects
+Measured (`probes/coordwatch.lua`): the frame the save block's map group/number flip, live objects
 still hold old-frame coordinates; the next frame every one of them reads shifted by exactly the
 seam delta (a city NPC at y=6 reads y=146 after crossing into the 140-tall route above). Nothing
 despawns — the same object slots persist with translated coordinates, which is why NPCs near a
@@ -614,8 +630,9 @@ effect is running from `gScanlineEffect` (`dmaDest` = `REG_WIN0H`, non-zero `sta
 ## Weather fog is a grid of semi-transparent SPRITES, not a background
 
 **[measured]** In Mt Pyre Exterior the fog is twelve **64×64 sprites in objMode 1**
-(semi-transparent), at priority 2, laid out on a 64-pixel grid that covers the screen — OAM entries
-3–17, with the map's characters at 0–2. Underwater the same idea appears with about twenty. It
+(semi-transparent), at priority 2, laid out on a 64-pixel grid that covers the screen. They sit
+**within the span of OAM entries 3–17 — twelve entries inside a range of fifteen, not a contiguous
+block** — with the player measured at entry 1. Underwater the same idea appears with about twenty. It
 fades in over a few seconds after the map loads rather than arriving with the first step, so a
 freshly loaded savestate shows none of it.
 
@@ -628,20 +645,33 @@ fog blends normally everywhere else.
 
 ## Ice slides you, and a slide is a movement that does not animate
 
-**[from the decomp]** Stepping onto an `MB_ICE` tile hands control to `ForcedMovement_Slide`, which
-keeps the character moving in the same direction until something blocks them. It is built from
-`PlayerWalkFast` — an ordinary fast walk, so the movement action is a plain `WALK_FAST_*` — plus
-**two bits set on the character's own object event**:
+**[from the decomp]** Stepping onto an `MB_ICE` tile hands control to **`ForcedMovement_Slip`**, not
+to `ForcedMovement_Slide`. The distinction is worth getting right, because the two set different
+things and only one of them is ice:
 
-| bit | effect |
-| --- | --- |
-| `disableAnim` | the character crosses tiles with its animation held on one frame |
-| `facingDirectionLocked` | the step cannot turn it, so it keeps the facing it slid in with |
+| | `ForcedMovement_Slip` — **ice** | `ForcedMovement_Slide` — the `MB_SLIDE_*` conveyor tiles |
+| --- | --- | --- |
+| reached from | `MetatileBehavior_IsIce_2` | `MetatileBehavior_IsSlide<dir>` |
+| direction | the object's **current** `movementDirection` | a direction passed in by the caller |
+| bits set | `disableAnim` **only** | `disableAnim` **and** `facingDirectionLocked` |
+
+Both are built from `PlayerWalkFast`, so either way the movement action is a plain `WALK_FAST_*`.
+
+**So a slider keeps its facing for a reason no bit expresses.** `ForcedMovement_Slip` moves the
+character in the direction it is *already* facing, so there is nothing for the step to turn — the
+facing lock exists for the conveyor case, where the direction is imposed from outside and would
+otherwise rotate the character. Reading ice as "the facing is locked" gets the right screen and the
+wrong mechanism, and it stops being right the moment a character is pushed a way it is not facing.
 
 **`disableAnim` is not the same statement as `animPaused`,** and ice is the place that proves it.
 `animPaused` says the sprite's animation is not running; `disableAnim` says the object may not have
-one, and a movement cannot override it. Everywhere else the two agree. The engine only ever clears
-`disableAnim` through `enableAnim` (`TryEnableObjectEventAnim`), so it is sticky.
+one, and a movement cannot override it. Everywhere else the two agree.
+
+**It is not sticky, and there are exactly two ways out of it.** `TryEnableObjectEventAnim` clears it
+through the object's own `enableAnim` request, and `npc_clear_strange_bits` clears it outright —
+along with `inanimate` and `facingDirectionLocked` — on the player. Those are the only two sites in
+the tree that write `disableAnim = FALSE`, which is what makes the pair worth naming rather than
+counting on one.
 
 **Which frame gets held is whatever the cycle had reached** — not the animation's first frame.
 Measured across three slides: `10/2`, `11/0`, `11/2`.
@@ -749,10 +779,12 @@ as a sequence (`src/field_effect.c`, the `Task_FlyOut` state table):
 1. The field-move pose, and the panel showing the Pokémon — the same show-mon banner every field
    move raises.
 2. A bird sprite leaves its ball and swoops down on a cosine/sine arc.
-3. The character takes the **surfing** graphic and the mount animation, and jumps in place onto it.
-   Its shadow is switched off and it is marked inanimate.
-4. The bird's own sprite callback then drives the character's sprite in **screen** coordinates,
-   with `coordOffsetEnabled` cleared, until the arc finishes and the screen fades.
+3. The character takes the **surfing** graphic and the mount animation, jumps in place onto it, and
+   is marked **inanimate**.
+4. A separate state switches the shadow off — **and clears `inanimate` again in the same breath**,
+   so the two are never true together. Then the bird's own sprite callback drives the character's
+   sprite in **screen** coordinates, with `coordOffsetEnabled` cleared, until the arc finishes and
+   the screen fades.
 
 Arrival is that sequence in reverse, plus a hand-written eighteen-frame drop table for the step off
 the bird, and it ends by restoring whichever state the player was in before — including surfing,

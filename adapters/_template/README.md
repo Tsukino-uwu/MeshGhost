@@ -736,7 +736,7 @@ Region variants, exact file names and hashes are a separate question and belong 
 - **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus
   probes are only findable because its README lists them; write an index the moment you have more
   than two. **Past roughly a dozen, move the index out to `probes/README.md` instead of growing a
-  README section** — Crystal has 45 probes and indexes them there, which is the better shape at
+  README section** — Crystal has 76 probes and indexes them there, which is the better shape at
   that size and is why it has no "Dev tools" section at all. Either location satisfies this; no
   index does not.
 

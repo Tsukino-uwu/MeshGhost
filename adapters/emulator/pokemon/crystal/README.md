@@ -13,13 +13,14 @@ and occludes for us), then **hardware** (written straight into the game's own sp
 PPU draws it — shipped OFF, see [FLAGS.md](FLAGS.md)), then **drawn** (painted over the emulator
 for any peer the first two have no room for).
 
-**Last live confirmation 2026-08-26**: ledge hops and Dig/Escape Rope on both tiers, after fishing,
-the Fly landing, ice glides and the party-menu gate earlier the same day. Movement itself — both
-gaits, both tiers, surf and the bike — was confirmed 2026-08-25.
+**Last live confirmation 2026-08-27**: the first **mixed-build room** — one Archipelago client and
+one vanilla client, two emulators, two cores — where seven faults were found and fixed on screen.
+Before that, 2026-08-26: ledge hops, Dig/Escape Rope, fishing, the Fly landing, ice glides and the
+party-menu gate; movement itself — both gaits, both tiers, surf and the bike — 2026-08-25.
 **What is confirmed and what is not is [VERIFIED.md](VERIFIED.md) and
-[UNVERIFIED.md](UNVERIFIED.md)**, in that order: every confirmation above is loopback on vanilla
-V1.0 at the dev rig's interpolation, the hardware tier has never been judged on screen at all, and
-no two-machine session has ever been run.
+[UNVERIFIED.md](UNVERIFIED.md)**, in that order: every confirmation before the mixed session is a
+loopback ghost on vanilla V1.0 at the dev rig's interpolation, the hardware tier has never been
+judged on screen at all, and the mixed room has only ever been run on one map with two players.
 
 - Platform: Game Boy Color, played via BizHawk.
 - Confirmed working roms: "Vanilla V1.0", "Archipelago 6.0.0-beta.11".
@@ -27,7 +28,7 @@ no two-machine session has ever been run.
   table before it is more than a fallback — today an unrecognised build runs on vanilla's table
   with a one-line "untested" log. The two are not equal work: `pokecrystal` lists V1.1 as one of
   its own build targets with its own hash, so that table can be *built and hash-verified* the way
-  V1.0's was, while speedchoice is a patch and needs each entry *measured*, as Archipelago's were.
+  V1.0's was, while speedchoice is a patch needing each entry *measured*, as Archipelago's were.
 - **One address table per ROM build, chosen at startup from the header title.** Vanilla's entries
   come from our own hash-verified `pokecrystal` build; Archipelago's were each *measured*, because
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
@@ -39,7 +40,9 @@ no two-machine session has ever been run.
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
   [`pokecrystal`](https://github.com/pret/pokecrystal), built locally and verified byte-identical
-  to the ROM being played. Addresses are looked up and cited, never discovered at runtime. See
+  to the ROM being played. Vanilla addresses are looked up and cited, never discovered at runtime —
+  but a *patched* cartridge is outside what any decomp describes, so the tables that differ (the
+  gait table, the sprite table) are read off the ROM at load and checked against a signature. See
   [agent_docs/access-models.md](../../../../agent_docs/access-models.md).
 - **One structural difference from Emerald worth knowing up front:** Game Boy RAM labels live in
   *floating* sections, so **no address appears in the decomp's source at all** — the decomp has to
@@ -47,8 +50,7 @@ no two-machine session has ever been run.
   [agent_docs/environment.md](../../../../agent_docs/environment.md).
 - **[documentation.md](documentation.md)** describes how Crystal itself works — the two object
   arrays, how a character comes to exist, the lifecycle states, and each movement class the adapter
-  mirrors. It was briefly argued that a game with a decompilation needed no such file; the user
-  overturned that 2026-08-18, and every adapter now carries one
+  mirrors. Every adapter carries one, decompilation or not
   ([adapters/_template/README.md](../../../_template/README.md)).
 - **[BANDAGES.md](BANDAGES.md)** carries this adapter's shipped compensations, and
   **[FLAGS.md](FLAGS.md)** its runtime switches.
@@ -79,8 +81,9 @@ and method: [agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md)
   real session. **Those numbers are a FLOOR** — the synthetic crowd never exercised the drawn
   tier's stepping animation, so a crowd of real walking peers costs more.
 - **In practice**: everyone is visible, and the engine's slots go to whoever is actually moving.
-  A peer that has not changed tile for five seconds stops blocking and moves to the drawn tier, and
+  A peer that has not changed tile for **a minute** stops blocking and moves to the drawn tier, and
   a peer you shove into stops blocking within half a second — so nobody can park on a doorway.
+  (Five seconds until 2026-08-26 — that described "stood still briefly". [FLAGS.md](FLAGS.md).)
   Ghosts stack on each other freely; they collide with the player, not with one another.
 
 ## How this adapter differs from Emerald's — the reason it exists
@@ -241,30 +244,38 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     both tiers already honoured it. It also deleted a phrase from the source that had never been
     true — there is no Dig fall; Teleport is the class that raises the sprite, and it remains
     unmeasured. Confirmed 2026-08-26.
+24. Put an Archipelago client and a vanilla client in one room — the first mixed-build session this
+    project has run — and seven faults came out of it, each invisible to a same-build test. The
+    patched cartridge's camera is two *different* HRAM bytes, so the drawn tier's clock read dead
+    values and a standing peer painted itself gliding; it also has a **fourth gait** vanilla lacks,
+    which the camera's plausibility test rejected as a register rebase. The rest were one shape: a
+    peer's appearance learned from the LOCAL player, which says nothing about a peer on the other
+    build. Everything a build can move is now read off that cartridge rather than assumed.
 
 ### Further work past "good enough"
 
-Open as of 2026-08-26 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
+Open as of 2026-08-27 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
 authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting on a look, and
 [phase9.md](../../../../agent_docs/phases/phase9.md) has the narrative.
 
-- **Two real machines: everything confirmed so far was a loopback ghost**, whose motion is the
-  local player's own. Several confirmations name this as the case they could not exercise — a peer
-  flying, digging or spinning while the watcher does not.
+- **The mixed room has run on ONE map with two players.** Everything before it was a loopback
+  ghost, whose motion is the local player's own — so a peer flying, digging or spinning while the
+  watcher does not is still largely unexercised.
+- **Nothing crosses builds by assumption.** Sprite ids, item ids and gaits each differ between
+  vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed;
+  **RUNNING is untested and its gait unmeasured**, and surf is unreached on that build.
 - **The shipped 250ms interpolation has not been re-judged** since the drawn tier was rebuilt.
   Every confirmation above is at the dev rig's `-interp=0ms`, which is the configuration a 1:1
   judgement needs and the one that hides a whole class of fault.
 - **The hardware (OAM) tier has never been judged on screen**, and ships off for that reason.
 - **Teleport is the last action class** — not built, not measured, not watched.
-- **A ghost does not survive a battle** — answered from the code 2026-08-19, and the stale
-  bookkeeping it used to leave behind would drive one of the game's own NPCs around. Fixed; a real
-  battle still needs watching.
-- **A peer wearing a sprite this machine's player is not** — the drawn tier reads the cartridge, so
-  it can render anything, and a peer whose sprite the map never loaded is routed there rather than
-  spawned wearing the wrong character. Built, never watched.
-- `W_USEDSPRITES` is still unmeasured on the Archipelago table, so a peer's own sprite is off
-  there — and so is `W_STATEFLAGS`, which means the hardware tier does not run on that build at
-  all. (`W_BATTLEMODE` was settled 2026-08-19 by one trainer battle: `0x1234`.)
+- **A ghost does not survive a battle** — fixed 2026-08-19 (the stale bookkeeping used to drive one
+  of the game's own NPCs around); a real battle still needs watching.
+- **A peer wearing a sprite this machine's player is not** — routed to the drawn tier, which reads
+  the cartridge and can render anything, rather than spawned wearing the wrong character.
+- `W_USEDSPRITES` and `W_STATEFLAGS` are still unmeasured on the Archipelago table, so a peer's own
+  sprite is off there and the hardware tier does not run on that build at all. `0x1A17` was
+  **refuted** as its `wPlayerState`. (`W_BATTLEMODE` was settled 2026-08-19: `0x1234`.)
 
 ## What's here
 
@@ -278,12 +289,12 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
   compensations, and the runtime switches.
 - `VERIFIED.md`, `UNVERIFIED.md` — what the user has confirmed on screen, and the queue of what is
   measured and still waiting for them to look.
-- `probes/` — every development tool, and none of it ships. Sixty-odd scripts covering the address
+- `probes/` — every development tool, and none of it ships. Seventy-six scripts covering the address
   hunt, the spawn recipe worked out one failure at a time, the Archipelago re-measurement, and the
   savestate-driven rigs that make an expensive state (a fly, a ledge, a whirlpool) repeatable.
-  **Fifteen of them WRITE and four hold the controller**; they are indexed, one line each, in
+  **Twenty of them WRITE and fifteen hold the controller**; they are indexed, one line each, in
   [probes/README.md](probes/README.md) — read that rather than the folder listing.
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying
-  text out of the Lua Console; `.gitignore` covers every `.log`, because once a run has been read
-  its conclusion belongs in `VERIFIED.md`.
+  text out of the Lua Console; `.gitignore` covers every `.log`, because a run once read belongs
+  in `VERIFIED.md`.

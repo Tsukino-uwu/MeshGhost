@@ -18,13 +18,12 @@ forever?* — applied to prose. No, or merely unclear, means out. Full guidance 
 cases: [adapters/_template/README.md](../../../_template/README.md).
 
 > **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0, and
-> cross-checked against the public `pret/pokecrystal` decompilation. **Facts read from the decomp
-> carry a file citation; facts watched on a running game are marked `[measured]` with a date** — so
-> every claim here can be re-checked against one or the other.
+> cross-checked against the public `pret/pokecrystal` decompilation. **Decomp facts carry a file
+> citation; facts watched on a running game are marked `[measured]` with a date.**
 
 **What this file is: how *the game* does things**, per mechanic, readable by someone who has never
 seen our code. **Nothing here describes an adapter workaround** — those belong in
-[BANDAGES.md](BANDAGES.md). Dated evidence: [`VERIFIED.md`](VERIFIED.md); the narrative:
+[BANDAGES.md](BANDAGES.md). Evidence: [`VERIFIED.md`](VERIFIED.md); narrative:
 [`phases/phase9.md`](../../../../agent_docs/phases/phase9.md).
 
 ## Overworld characters: two arrays, not one
@@ -52,9 +51,12 @@ Crystal has two entry points, and **both are event-driven rather than continuous
 1. **At map load** — `InitializeVisibleSprites` walks the map objects and assigns structs to those
    that qualify (`engine/overworld/player_object.asm`, called from `map_setup.asm`).
 2. **At the screen edge** — `CheckObjectEnteringVisibleRange` runs *per step*, and is how characters
-   appear as the world scrolls. It scans **exactly one row**, `wYCoord + 9` walking down and
-   `wYCoord - 1` walking up, matching map objects there whose struct id is still `-1`, and returns
-   immediately unless the player is mid-step.
+   appear as the world scrolls. It scans **exactly one line — a row walking vertically, a COLUMN
+   walking horizontally**, matching map objects there whose struct id is still `-1`, and returns
+   immediately unless the player is mid-step. The four branches take different constants, and the
+   two axes do not agree: `wYCoord - 1` up, `wYCoord + 9` down, `wXCoord - 1` left, and
+   `wXCoord + **10**` right (`engine/overworld/player_object.asm`). Reading it as "one row" misses
+   half the cases outright, and assuming the horizontal constant is 9 misses the far column.
 
 **There is no general "anything unassigned gets picked up" pass.** A character standing inside the
 visible area with no struct simply stays absent until one of the two events above reaches it. The
@@ -144,11 +146,10 @@ Three consequences worth stating plainly:
   all. It is an action plus a facing on the ordinary character — which is why a character reading
   "fishing" still wears its normal sprite.
 - **The "!" emote is not on the character at all.** `SpawnEmote`
-  (`engine/overworld/map_objects.asm`) creates a **separate map object**, flagged `EMOTE_OBJECT_F`
-  and given the `EMOTE` movement data, parked two tiles above the character it belongs to;
-  `DespawnEmote` deletes whichever object carries that flag. So a character's own `OBJECT_ACTION`
-  never becomes `EMOTE`, and that is why an emote survives the character underneath it walking,
-  turning or being frozen.
+  (`engine/overworld/map_objects.asm`) creates a **separate map object** parked two tiles above the
+  character it belongs to, so a character's own `OBJECT_ACTION` never becomes `EMOTE` — which is why
+  an emote survives the character underneath it walking, turning or being frozen. Its flag and the
+  destructive despawn it shares with shadows are below (*Which characters block the player*).
 - **The four walking frames per direction are in the facing list itself.** A direction is not a
   separate field from an animation frame: `STEP_DOWN_0` through `STEP_DOWN_3` are four entries of
   one list, so a single byte says both which way a character faces and which stride it is on.
@@ -187,6 +188,7 @@ carries both the gait and the direction, and nothing has to be inferred:
 | 0 | 0-3 | 1px/tick | 16 | slow movement scripts |
 | 1 | 4-7 | 2px/tick | 8 | **walking** |
 | 2 | 8-11 | 4px/tick | 4 | **the bike**, and an ice glide |
+| 3 | 12-15 | 8px/tick | 2 | **patched cartridges only** — no vanilla build fills it |
 
 `OBJECT_STEP_DURATION` counts down through the group's tick budget, so **pixels travelled into the
 step is `(ticks - duration) x speed`** — an exact value at every gait, not an approximation. While
@@ -194,14 +196,13 @@ a character stands, `OBJECT_WALKING` is `$FF` (`STANDING`) and says nothing abou
 [measured 2026-08-25] on a bike lap: `OBJECT_WALKING` held `08`/`09` — group 2 — with the duration
 counting 3, 2, 1, while walking holds 4-7. **The camera moves at the same rates** (*The camera*).
 
-**The nibble addresses SIXTEEN entries and vanilla fills TWELVE.** So `STANDING` (255, nibble 15)
-is past the real ones — an object left there with a live step type reads a step vector out of
-whatever follows the table and is dragged off the map — and **a patch can add a fourth gait without
-touching `GetStepVector`**. One does: [measured 2026-08-26] V1.0, V1.1 and speedchoice 8.1 each
-carry three groups at `0x004700`, an Archipelago seed **four** at `0x0048C9`, group 3 being
-`8px/tick` for `2` ticks. **Which mode uses it was not measured** — do not assume a gait for
-running. **The count is the cartridge's, not the family's**, so it is read off the ROM at load —
-`FLAGS.md`, measurement in [UNVERIFIED.md](UNVERIFIED.md).
+**The nibble addresses SIXTEEN entries and vanilla fills TWELVE** — which is why a patch can add
+group 3 without touching `GetStepVector`, and why `STANDING` (255, nibble 15) is past the real
+ones: an object left there with a live step type reads a vector out of whatever follows the table
+and is dragged off the map. [measured 2026-08-26] V1.0, V1.1 and speedchoice 8.1 all carry three
+groups at `0x004700`; an Archipelago seed carries four at `0x0048C9`. **Which mode uses the fourth
+was not measured** — do not assume it is running. **The count is the cartridge's, not the
+family's.** [UNVERIFIED.md](UNVERIFIED.md).
 
 ## Map identity
 
@@ -219,7 +220,7 @@ currently real":
 | `MAPSTATUS_START` (0) | before the world exists, and during setup |
 | `MAPSTATUS_ENTER` (1) | entering or re-entering a map |
 | `MAPSTATUS_HANDLE` (2) | the steady overworld state |
-| `MAPSTATUS_DONE` (3) | |
+| `MAPSTATUS_DONE` (3) | the terminal value; never seen during ordinary play |
 
 Measured behaviour, all confirmed live:
 
@@ -259,8 +260,8 @@ is applied through `ApplyMovement` (`engine/overworld/scripting.asm:815`), and *
 begins by calling `FreezeAllOtherObjects`.** So for the whole sequence every other character on the
 map — the game's own NPCs included — stops where it stands, **mid-step included**, and resumes when
 the movement script ends, completing its interrupted step normally. [measured 2026-08-26] An object
-caught in it held five of eight ticks of a step, 10px of 16, for about 60 frames, thawing exactly
-as the player's spin finished. The game does this to itself, so a character frozen here is correct.
+caught in it held five of eight ticks of a step — 10px of 16 — for about 60 frames, thawing exactly
+as the player's spin finished. **The game does this to itself**, so a frozen character is correct.
 
 ## Battles
 
@@ -313,15 +314,14 @@ more than they look:
   object's current coordinates *and* its `LAST_MAP_X`/`LAST_MAP_Y`. A character mid-step blocks both
   the tile it left and the tile it is entering, so a walking character is a wider obstacle than a
   standing one.
-- **`EMOTE_OBJECT` does not mean "emote", and it is destructive.** The bit means **"this object is
-  a decoration attached to another character"** — the engine sets it for the emote bubble, the
-  **jump shadow** and the screenshake object alike (`SPRITEMOVEDATA_EMOTE`/`_SHADOW`/`_SCREENSHAKE`),
-  so pass-through is a consequence of being a decoration rather than a general-purpose flag. And
-  when an emote despawns, `DespawnEmote` (`engine/overworld/map_objects.asm:2098`) zeroes *every*
-  object struct carrying that bit, wholesale, without consulting `WONT_DELETE`: an attached
-  decoration is disposable by design. What tells the three apart is `OBJECT_ACTION`, which each
-  one's movement function rewrites every tick — `EMOTE` (8) for the bubble, never for a shadow.
-  [measured 2026-08-26]
+- **`EMOTE_OBJECT` does not mean "emote", and it is destructive.** The bit means **"this object is a
+  decoration attached to another character"** — set for the emote bubble, the **jump shadow** and
+  the screenshake object alike (`SPRITEMOVEDATA_EMOTE`/`_SHADOW`/`_SCREENSHAKE`), so pass-through
+  follows from being a decoration rather than from a general-purpose flag. And when an emote
+  despawns, `DespawnEmote` (`engine/overworld/map_objects.asm:2098`) zeroes *every* struct carrying
+  that bit, wholesale, ignoring `WONT_DELETE`: a decoration is disposable by design. What tells the
+  three apart is `OBJECT_ACTION` — `EMOTE` (8) for the bubble, never for a shadow. [measured
+  2026-08-26]
 
 `NOCLIP_OBJS` (`OBJECT_FLAGS1`) is a different thing, easily confused with the above: read in
 `engine/overworld/npc_movement.asm:33`, it governs whether **that character's own movement** bumps
@@ -356,12 +356,9 @@ The full 0x28 (`constants/map_object_constants.asm:3-37`), fields not covered el
 | 0x1f | jump height | accumulates through a ledge hop; indexes the arc curve |
 | 0x20 | range | the sight range, copied up from the map object |
 
-**Reading any of this on a Game Boy requires the right memory window**: GB WRAM is banked, so an
-emulator's `WRAM` domain addresses bank 1 unconditionally while its `System Bus` follows whichever
-bank is currently selected — the HRAM byte above lives only on the latter. Established by
-`probes/domain_probe.lua`; the rest of the field layout by `probes/object_slot_probe.lua`, the
-lifecycle states by `probes/ingame_gate_probe.lua`, and the adoption mechanism by
-`probes/spawn_test*.lua`. [`probes/README.md`](probes/README.md) indexes them all.
+**Game Boy WRAM is banked**, and the HRAM byte above sits outside that space entirely — so *where*
+a value lives decides how it has to be reached, and a bank-1 address is not reachable the same way
+as an HRAM one. [`probes/README.md`](probes/README.md) names the probe behind each field here.
 
 ## How many characters the game can hold at once
 
@@ -372,12 +369,11 @@ Two separate budgets, and the smaller one wins:
   Town leaves 9 free, Elm's lab also leaves 9 — but **outdoors the structs run out first and
   indoors the map objects do**, because an indoor map declares more map objects than it has
   characters on screen at any moment.
-- **The hardware.** 40 sprite entries (`wShadowOAM`, `00:c400`–`00:c4a0`, 4 bytes each) and an
-  overworld character occupies exactly 4 of them, so **10 characters can be on screen at once**,
-  player included. Unused entries are parked at `y=160`, one row below the 144-line screen. The
-  Game Boy also drops sprites past 10 *per scanline*; ten characters spread vertically do not
-  reach it. [measured 2026-08-19] at 60fps with the hardware saturated at 40 of 40 and all ten
-  characters still drawing correctly. Method and full table: `agent_docs/crowd-limits.md`.
+- **The hardware.** 40 sprite entries (`wShadowOAM`, `00:c400`–`00:c4a0`, 4 bytes each) at exactly
+  4 per overworld character, so **10 characters can be on screen at once**, player included. Unused
+  entries park at `y=160`, one row below the 144-line screen. The Game Boy also drops sprites past
+  10 *per scanline*, which ten characters spread vertically never reach. [measured 2026-08-19] at
+  60fps, saturated at 40 of 40, all ten drawing. Full table: `agent_docs/crowd-limits.md`.
 
 ## The game's UI covers characters by itself
 
@@ -389,10 +385,14 @@ region keeps drawing normally. Confirmed on screen 2026-08-19 with the pause men
 **The game keeps a positive "may characters be drawn at all" byte.** Every full-screen UI — the
 party menu, the fly map, the PC — calls `DisableSpriteUpdates` (`home/sprite_updates.asm`) on the
 way in, clearing `wSpriteUpdatesEnabled` (`$c2ce`): measured `0` on the fly map screen, `1` on the
-overworld, and `1` throughout the Fly landing animation. `wStateFlags` (`01:d0ed`) carries the
-related `SPRITE_UPDATES_DISABLED` bit that `_UpdateSprites` tests before doing anything, and while
-it is clear the game has already emptied the sprite buffer itself. So *"is the overworld sprite
-engine running?"* is a question the game answers directly.
+overworld, and `1` throughout the Fly landing animation. So *"is the overworld sprite engine
+running?"* is a question the game answers directly.
+
+**`wStateFlags`' `SPRITE_UPDATES_DISABLED` bit reads BACKWARDS from its name, and that is a trap.**
+`_UpdateSprites` (`01:d0ed`, `engine/overworld/map_objects.asm`) does `bit SPRITE_UPDATES_DISABLED_F`
+then `ret z` — it returns when the bit is **clear**. So **set means updates RUN**, and
+`EnableSpriteUpdates` is what sets it. Anything treating the name as the polarity gets the sprite
+engine's state exactly inverted, and the buffer is emptied by the caller, not by this routine.
 
 **Where a box is on screen is a single scratch slot, not a list.** `wMenuBorder*` describes the
 **most recent box drawn**, not the union of what is visible — a full-screen party menu publishes
@@ -421,10 +421,9 @@ a stride within a sprite's own graphics, not an absolute region of tile memory. 
 characters at two different bases in one session (the player at base 0x00, an Olivine NPC at 0x30).
 
 **In the CARTRIDGE the six views are contiguous**, because ROM has no tile base to be relative to:
-VRAM `base + 0..11` are ROM tiles 0-11 and VRAM `base + 0x80..0x8B` are ROM tiles **12-23**,
-matched byte for byte on both sprites above. A sprite's graphics are therefore **24 tiles**, even
-though the sprite table's own size field reports 192 bytes — that field describes the standing
-half only.
+VRAM `base + 0..11` are ROM tiles 0-11 and VRAM `base + 0x80..0x8B` are ROM tiles **12-23**, matched
+byte for byte on both sprites above. A sprite's graphics are therefore **24 tiles**, even though the
+sprite table's size field reports 192 bytes — that field describes the standing half only.
 
 **Which view is drawn is a function of how far through its step a character is**, and the partition
 is exact with no overlap, across all four directions: the **stepping** view at 0, 2, 4 and 14
@@ -463,16 +462,21 @@ on about 9% of frames. Consequences before using either:
 - **The player's sprite does not move when the player walks** — the camera does. The player's
   on-screen position only changes where the camera is clamped, such as near a map edge, so a
   screen-space calculation needs the player's OAM position as well as the camera.
-- **The scroll moves whole gait strides and never an odd pixel** — 0, 2 or 4 on vanilla, 8 as well
-  on a build with a fourth gait. **The registers are also REBASED, not only scrolled**: a map load
-  or warp is an arbitrary jump with no walking behind it, so a difference means something only
-  within one map.
+- **The scroll moves whole gait strides and never an odd pixel** — 1, 2 or 4 on vanilla (one per
+  gait group), 8 as well on a build with a fourth. **The registers are also REBASED, not only
+  scrolled**: a map load or warp is an arbitrary jump with no walking behind it, so a difference
+  means something only within one map.
+- **A stride lands on ONE video frame, not spread across two**, because the scroll happens on the
+  engine tick and a tick is two frames. A turbo ride therefore reads `8, 0, 8, 0` and not `4, 4` —
+  and **a reading of half the stride means the sample landed mid-scroll**, which is the single
+  easiest way to be wrong here. The average over two frames is half the stride either way, so an
+  averaged measurement cannot tell the two apart; only the per-frame histogram can.
 - **A camera reading is only as good as how often you take it.** Both quantities are differences;
-  miss eight frames of a 2px walk and the next reading is 16px, indistinguishable from a jump.
+  miss eight frames of a 2px walk — four ticks — and the next reading is 8px, indistinguishable
+  from a jump.
 
 Sources: `ram/wram.asm` and `engine/overworld/map_objects.asm` for the offset pair,
-`engine/overworld/player_step.asm` for `ScrollScreen` and the step-vector arithmetic; addresses
-from a hash-verified local build of V1.0. [measured 2026-08-23] on a running V1.0.
+`player_step.asm` for `ScrollScreen`. [measured 2026-08-23] on a hash-verified V1.0.
 
 ## Every animation that does not move the character, and what each one is made of
 
@@ -519,18 +523,18 @@ sometimes land on consecutive frames. So the counts below are exact in ticks, ap
   **0**, so progress-through-a-step derived from it reads as a *completed* step rather than as no
   step; and `OBJECT_ACTION` is the only field that says a bump is happening. `OBJECT_STEP_FRAME`
   counts up one a tick with the stride in **bits 3 and 4**, so the stride advances every **8
-  ticks**, and the tile alternates between the standing and stepping blocks in 16-frame runs,
+  ticks**, the tile alternating between the standing and stepping blocks in 16-frame runs and
   changing three frames before the facing does. **So a bump is a two-pose shuffle at about four
-  poses a second, not a stride cycle** — heavier-looking than a walk, which changes pose twice as
-  often. [measured 2026-08-23, `probes/bump_probe.lua`] Re-issued while the direction is held.
+  poses a second, not a stride cycle** — heavier than a walk, which changes pose twice as often, and
+  re-issued while the direction is held. [measured 2026-08-23, `probes/bump_probe.lua`]
 - **`SPIN` (4)** — turns a character **counterclockwise**: `OBJECT_STEP_FRAME` is used as two
   two-bit fields, a timer in the low bits and a facing index in bits 4 and 5, and the direction
   advances **down → right → up → left** every **4 ticks**. The facing byte is the direction with
   stride 0, so a spinning character always shows a **standing** view. Used for **turning in place**
   (much the most common — see below), the **spin tiles**, a **whirlpool**, and the departure and
-  arrival of **Teleport** and **Dig**. The 4-tick cadence is [measured]: a whirlpool spin cycles the
-  facing `0C → 04 → 08 → 00` at **8 video frames each** (`probes/whirlpool_drive.lua`, 2026-08-26),
-  and a Dig does the same (`probes/dig_drive.lua`).
+  arrival of **Teleport** and **Dig**. The 4-tick cadence is [measured] — the facing cycling
+  `0C → 04 → 08 → 00` at **8 video frames each**, identically on a whirlpool and on a Dig
+  (`probes/whirlpool_drive.lua`, `probes/dig_drive.lua`, 2026-08-26).
 - **`SPIN_FLICKER` (5)** — spins the direction exactly as above and then sets `OBJECT_FACING` to
   `STANDING`, so **the character is not drawn on that tick**. Dig alternates it with `SPIN` on odd
   and even ticks, and that alternation *is* the flicker: present half the time while it spins.
@@ -539,15 +543,14 @@ sometimes land on consecutive frames. So the counts below are exact in ticks, ap
   standing view plus one extra sprite for the rod, whose tile id is *absolute* rather than relative
   to the character's tile base. But before the pose is drawn, the cast script loads the rod emote
   and then calls `LoadFishingGFX`, **and the second overwrites what the first loaded**:
-  `engine/events/fishing_gfx.asm` copies four two-tile blocks out of a per-gender fishing sheet
-  into **VRAM bank 1** — sprite tiles `$02`, `$06` and `$0a`, the **bottom half** of the standing
-  down, up and left views, plus `$fc`, the rod. So a fishing character is its own top half over
-  that sheet's bottom half, wearing a rod also from it; the rod sits below the character facing
-  down, above it facing up, beside it facing sideways. **It has no fixed length** — set when the
-  rod is cast, held until the script ends it, the one class that can last many seconds. **A bite
+  `engine/events/fishing_gfx.asm` copies four two-tile blocks out of a per-gender fishing sheet into
+  **VRAM bank 1** — sprite tiles `$02`, `$06` and `$0a`, the **bottom half** of the standing down, up
+  and left views, plus `$fc`, the rod. So a fishing character is its own top half over that sheet's
+  bottom half; the rod sits below it facing down, above facing up, beside it sideways. **It has no
+  fixed length** — held until the script ends it, the one class lasting many seconds. **A bite
   wiggles the character**, alternating `OBJECT_SPRITE_Y_OFFSET` 0/1 for eight ticks, and spawns the
-  `!` emote object. [measured 2026-08-25/26, `probes/rod_check.lua`, `probes/fish_drive.lua`]
-- **`SKYFALL` (16)** — a character dropped into the map from above. **This is NOT Fly** (below); it
+  `!` emote. [measured 2026-08-25/26, `probes/rod_check.lua`, `probes/fish_drive.lua`]
+- **`SKYFALL` (0x10)** — a character dropped into the map from above. **This is NOT Fly** (below); it
   belongs to map scripts — the Burned Tower floor-fall, the Ruins chambers. Identical arithmetic to
   a walking step except that `OBJECT_STEP_FRAME` goes up by **two** a tick, so the stride advances
   every **2 ticks**: the walk cycle runs at **double speed** while it falls. The fall is a sprite Y
@@ -555,21 +558,20 @@ sometimes land on consecutive frames. So the counts below are exact in ticks, ap
 
 ### Turning in place is a spin, and it happens constantly
 
-Tapping a direction the character is not already facing turns it without moving it, animated with
-`OBJECT_ACTION_SPIN` — the same counterclockwise spin the spin tiles use, run for **4 ticks**, two
-at the old direction and two at the new (`engine/overworld/map_objects.asm`'s turning step). So a
-turn passes visibly through an intermediate direction rather than snapping, and anything
-reconstructing a pose from position alone misses it every time a player looks around.
+Tapping a direction the character is not already facing turns it without moving it, using the same
+counterclockwise `SPIN` for **4 ticks** — two at the old direction, two at the new
+(`engine/overworld/map_objects.asm`'s turning step). So a turn passes visibly through an
+intermediate direction rather than snapping, and anything reconstructing a pose from position alone
+misses it every time a player looks around.
 
-## A newly created object is not drawn for one to two frames
+## A newly created object is not drawn for two to four frames
 
 Writing a complete, valid object struct does not put a character on screen that frame: the engine
-builds its sprite list from the object array once per frame, and a struct written between frames is
-not in the list the next frame draws. [measured 2026-08-23] by dumping hardware OAM every frame
-across several newly created objects — the object has **no OAM entries at all** on the frame it is
-created, and its four entries first appear **two or three frames later**, three in most samples and
-two in a minority. **The gap varies**, so a fixed number of frames chosen by reasoning is sometimes
-wrong.
+builds its sprite list from the object array once per frame, so a struct written between frames is
+not in the list the next frame draws. [measured 2026-08-23] by dumping hardware OAM every frame —
+**no entries at all** on the frame it is created, the four appearing **two or three frames later**;
+a later run saw **four**. **The gap varies and the tail is longer than it looks**, so any fixed
+number of frames chosen by reasoning is sometimes wrong.
 
 ## OAM entry order is by PRIORITY, not by slot
 
@@ -579,10 +581,9 @@ NORM, then LOW — and only *within* a class in object-struct order. So the firs
 to the highest-priority object that has a sprite, whoever that is. Observed 2026-08-23 with a
 second character nearby: another character occupied entries 0-3 while the player sat further down.
 
-**The cheapest live demonstration is the `!` emote**, which `SpawnEmote` makes a HIGH_PRIORITY
-object 16px above the character's tile: with one up, the value read as "the player's OAM y" moved
-by exactly one tile (76 → 60) on the frame the emote object appeared, with the player's own tile,
-sprite position and offsets unchanged. [measured 2026-08-26]
+**The cheapest live demonstration is the `!` emote**, a HIGH_PRIORITY object: with one up, the value
+read as "the player's OAM y" moved a whole tile (76 → 60) while the player's own tile, sprite
+position and offsets never changed. [measured 2026-08-26]
 
 **Anything that identifies a character by its OAM slot is reading whichever character happens to be
 there.** What *is* reliable is the tile ids: a character's four parts come from its own 12-tile
@@ -605,9 +606,10 @@ exists as object state at all.
 
 From `SpriteAnimFunc_FlyTo` (`engine/sprite_anims/functions.asm`) and its setup in `FlyToAnim`:
 the sprite is the **Pokémon's icon**, loaded from the mon in `wCurPartyMon` (icons are indirected
-twice — a per-species byte gives an icon index, several species sharing one). Its Y starts at 248,
-past the top of the byte range and therefore above the screen, and rises by 2 a frame to 84, the
-centre tile: **44 frames**. A second counter starts at 88, decays by 2 a frame to zero, and scales
+twice — a per-species byte gives an icon index, several species sharing one). Its Y starts at
+**252** — `depixel 31, 10, 4, 0`, so 31 tiles down wraps past the top of the byte range and is
+therefore above the screen — and rises by 2 a frame to 84, the centre tile: **44 frames**. (The
+44 only works out from 252; the arithmetic is `(84 − 252) mod 256 = 88`, halved.) A second counter starts at 88, decays by 2 a frame to zero, and scales
 a cosine that becomes the sprite's X offset.
 
 **So the landing is a decaying-cosine SPIRAL: the Pokémon swoops down from the top of the screen,
@@ -622,7 +624,7 @@ Crossing an ice tile does not walk the character. `DoPlayerMovement` forces `STE
 
 | Field | On ice | On an ordinary step |
 | --- | --- | --- |
-| `OBJECT_WALKING` | `10` — **group 2**, the FAST gait (4px/tick, 4 ticks), the same group the bike uses | group 1 (2px/tick, 8 ticks) |
+| `OBJECT_WALKING` | `0x0A` — **group 2**, the FAST gait (4px/tick, 4 ticks), the same group the bike uses | group 1 (2px/tick, 8 ticks) |
 | `OBJECT_ACTION` | **`1` (STAND)** | `2` (STEP) |
 | `OBJECT_FACING` stride | does not advance — the standing view is held | cycles 0-3 |
 | `OBJECT_STEP_TYPE` | `6` (PLAYER_WALK) | `6` |
@@ -633,10 +635,10 @@ distinguishes a glide from a fast walk — and the fast gait alone does not iden
 bike shares group 2. [measured 2026-08-26] across real ice (`probes/ice_probe.lua`).
 
 **`SLIDING` is NOT how the game does it.** `OBJECT_FLAGS1`'s `SLIDING` bit does suppress the walk
-cycle — `SetFacingStepAction` (`engine/overworld/map_object_action.asm`) tests it first and jumps
-to `SetFacingCurrent` without touching `OBJECT_STEP_FRAME` — but the **player never sets it while
-gliding**, measured clear across an entire slide. That bit belongs to movement-script commands and
-to permanently-still sprite templates. Two mechanisms reach the same screen; ice uses only one.
+cycle — `SetFacingStepAction` (`engine/overworld/map_object_action.asm`) tests it first and jumps to
+`SetFacingCurrent` without touching `OBJECT_STEP_FRAME` — but the **player never sets it while
+gliding**, measured clear across a whole slide; it belongs to movement-script commands and
+permanently-still templates. Two mechanisms reach the same screen and ice uses only one.
 
 ## Dig and Escape Rope are ONE routine, and a ledge hop is a two-tile jump
 
@@ -654,10 +656,9 @@ destination map with `MAPSETUP_DOOR`, plays the warp-in sound, and applies a ret
 | departure | `step_dig 32`, then `hide_object` | `Movement_step_dig` writes `OBJECT_ACTION_SPIN` (4) and `STEP_TYPE_SLEEP` with duration 32 — a plain counterclockwise spin in place for 32 engine ticks, **no flicker** |
 | arrival | `show_object`, `return_dig 32` | `Movement_return_dig` writes `STEP_TYPE_RETURN_DIG` (0x12), whose handler `StepFunction_DigTo` alternates `OBJECT_ACTION` between `SPIN` (4) and `SPIN_FLICKER` (5) on bit 0 of `OBJECT_STEP_DURATION` — one tick each, for 32 ticks |
 
-[measured 2026-08-26] twice independently: departure 62–64 video frames of action 4 with the facing
-cycling `0C → 04 → 08 → 00` one direction per 4 ticks; arrival 63 frames of 4/5 alternating in
-two-frame pairs. Both are exactly 32 engine ticks. **The flicker is on the ARRIVAL only** —
-`SPIN_FLICKER` never appears on the way out.
+[measured 2026-08-26] twice independently: departure 62–64 video frames of action 4 spinning at the
+ordinary `SPIN` cadence (above); arrival 63 frames of 4/5 alternating in two-frame pairs. Both are
+exactly 32 engine ticks. **The flicker is on the ARRIVAL only.**
 
 **There is no vertical movement anywhere in a Dig** — `OBJECT_SPRITE_Y_OFFSET` read `+0` on every
 frame of both captures, matching the source. **Teleport is different and does raise the sprite**:
@@ -695,6 +696,5 @@ right, takes its lifetime from the parent's own step duration, switches to
 `STEP_TYPE_TRACKING_OBJECT` to follow the hop, and deletes itself at the end. Its graphics are
 **one** tile, drawn twice with the right half X-flipped, making a 16x8 smudge.
 
-**That tile is `$fc`, which the fishing rod also uses.** `data/sprites/emotes.asm` loads the jump
-shadow and the fishing rod to the same vtile on demand, so `$fc` holds the shadow normally and the
-rod while somebody is fishing.
+**That tile is `$fc`, loaded on demand and shared with the fishing rod** (`data/sprites/emotes.asm`)
+— so `$fc` holds the shadow normally and the rod while somebody is fishing.
