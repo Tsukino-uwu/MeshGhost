@@ -5051,6 +5051,13 @@ flyRide.TASKS_ADDR, flyRide.TASK_SIZE = 0x03005e00, 0x28
 -- src/field_effect.c immediately above FldEff_UseFly: data[0] tState, data[1] tMonId and then
 -- tBirdSpriteId re-using the same slot, data[2] tTimer, data[15] tAvatarFlags.
 flyRide.TASK_FLY_OUT, flyRide.TASK_FLY_IN = 0x080b91d5, 0x080b97d5
+-- EVERY ROM ADDRESS IN THIS SECTION IS SHIFTED ON A PATCHED ROM, and none of them would fail
+-- loudly if it were not. `genderFrames.romOffset` is the offset loadGenderFrames detected -- 0 on
+-- vanilla -- and the reason it matters here is the reason it mattered for the graphics pointer
+-- table: unshifted, the comparisons below simply never match, so an Archipelago seed would get a
+-- peer who never appears to fly and a boat that never appears, with nothing in any log to say so.
+-- (The show-mon banner scan above does NOT do this, and is a known gap rather than a precedent.)
+flyRide.rom = function(a) return a + (genderFrames.romOffset or 0) end
 -- SpriteCB_FlyBirdSwoopDown, +1 for Thumb (pokeemerald.map). Recognising the bird by its CALLBACK
 -- rather than by the task's state number is deliberate: the same task id runs several callbacks
 -- across a fly, and the swoop is the only one that carries a character.
@@ -5097,7 +5104,8 @@ flyRide.sample = function(objId, sprId)
         local ta = flyRide.TASKS_ADDR + t * flyRide.TASK_SIZE
         if r8(ta + 0x04) == 1 then
             local fn = r32(ta + 0x00)
-            if fn == flyRide.TASK_FLY_OUT or fn == flyRide.TASK_FLY_IN then
+            if fn == flyRide.rom(flyRide.TASK_FLY_OUT)
+                or fn == flyRide.rom(flyRide.TASK_FLY_IN) then
                 -- On the ground until the bird proves otherwise. Every state of both tasks that
                 -- is not the swoop is a character standing on its tile doing the field-move pose,
                 -- which the ordinary graphic/animation fields already describe correctly.
@@ -5107,7 +5115,8 @@ flyRide.sample = function(objId, sprId)
                     local bs = sprAddr(birdId)
                     -- inUse, and running the swoop callback: data[1] holds tMonId before the bird
                     -- exists, so it must be validated as a sprite and not merely bounds-checked.
-                    if (r8(bs + 0x3e) & 0x01) ~= 0 and r32(bs + 0x1c) == flyRide.BIRD_SWOOP_CB then
+                    if (r8(bs + 0x3e) & 0x01) ~= 0
+                        and r32(bs + 0x1c) == flyRide.rom(flyRide.BIRD_SWOOP_CB) then
                         flyRide.flyk = r16(bs + 0x32) -- data[2], the arc parameter
                         if r16(bs + 0x3a) == sprId then flyRide.fly = 2 end -- data[6], the rider
                     end
@@ -5165,7 +5174,7 @@ end
 -- is: no bird exists unless somebody is already flying, and the peer's is on another machine.
 flyRide.spawnBird = function(g, k)
     if g.birdSprId then return g.birdSprId end
-    local tmpl = flyRide.BIRD_TEMPLATE
+    local tmpl = flyRide.rom(flyRide.BIRD_TEMPLATE)
     local oamPtr, animsPtr = r32(tmpl + 0x04), r32(tmpl + 0x08)
     local imagesPtr, affinePtr = r32(tmpl + 0x0c), r32(tmpl + 0x10)
     if oamPtr == 0 or imagesPtr == 0 then return nil end
@@ -5184,7 +5193,7 @@ flyRide.spawnBird = function(g, k)
     w32(d + 0x08, animsPtr)
     w32(d + 0x0c, imagesPtr)
     w32(d + 0x10, affinePtr)
-    w32(d + 0x1c, flyRide.BIRD_SWOOP_CB)
+    w32(d + 0x1c, flyRide.rom(flyRide.BIRD_SWOOP_CB))
     -- StartFlyBirdSwoopDown's own starting point: the top of the screen, horizontally centred, in
     -- SCREEN coordinates -- which is why coordOffsetEnabled stays clear below. DISPLAY_WIDTH/2.
     w16(d + 0x20, 120) w16(d + 0x22, 0)
