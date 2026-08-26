@@ -1649,3 +1649,31 @@ tiles, and it covers anything else that borrows sprite VRAM rather than Fly alon
 would refute it: a ghost that vanishes during a landing (the cartridge gate is ROM identity, so
 vanilla only) or one whose art is wrong in ordinary play, which would be the signature check
 mis-firing on a legitimate sprite change.
+
+### Third version: validated against the CARTRIDGE, because a learned reference can be poisoned
+
+**The content-driven check failed on the FIRST fly of a run and worked on the second and third** —
+`f=14886 -> vram sig=036A` (the cutscene's pixels, used), then `f=15437 -> rom` and `f=15992 ->
+rom`. Cause: `FlyFromAnim` runs BEFORE the warp, so the VRAM swap begins at the **departure**,
+before `hMapEntryMethod` is stamped. The "learn while not flying" gate was therefore still open when
+the cutscene's own signature arrived, and it was stored as the reference — after which the check
+compared the swap against itself and passed. Flies 2 and 3 only worked because the previous fly's
+latch was still live and suppressed learning.
+
+**A learned reference is only as good as the moment it was taken, and that moment was inside the
+event it was meant to detect.** So the reference is now the CARTRIDGE: the engine copies a sprite's
+graphics into VRAM verbatim, so the first tile at a resident base must equal the first tile of that
+sprite's ROM graphics. Nothing to time, nothing to learn, nothing to poison — and it covers every
+borrower of sprite VRAM rather than Fly alone. The ROM side is memoised per sprite id, so the cost
+is 16 VRAM reads per peer per frame.
+
+**And the first cut of it read the wrong VRAM bank.** Character graphics are in bank 1
+(`VRAM_BANK1 + tile * 16` in BizHawk's flat domain); reading bank 0 compared unrelated tiles
+against the cartridge, never matched, and quietly moved EVERY peer onto the ROM path in ordinary
+play — visible as `1 from the cartridge` with nothing happening. **The file already carries that
+warning at `decodeTileAt`**, written from the first thing the user ever said about the drawn tier
+(2026-08-19), and it still had to be rediscovered. Both the check and the trace signature read bank
+1 now.
+
+**Unwatched, and the reason the fly trace is back on:** this session logged ZERO drop-arms, so the
+landing fall may have regressed behind all of this. The next fly answers both questions at once.

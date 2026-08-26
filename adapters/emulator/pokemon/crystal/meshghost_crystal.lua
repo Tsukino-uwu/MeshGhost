@@ -3616,36 +3616,53 @@ function drawOverflow()
 		-- that already exists for a peer wearing a sprite this map never loaded. Same tiles the
 		-- game itself would use, unaffected by what the cutscene is doing to VRAM.
 		--
-		-- DETECTED FROM THE CONTENT, NOT TIMED. A 240-frame window was tried first and expired
-		-- while the tiles were still swapped -- the trace caught it exactly: `f=11374 -> rom`,
-		-- then `f=11587 -> vram sig=036A` with the cutscene graphics still in place, and the real
-		-- restore only at `f=11750`. Measured swaps ran 175-220 frames from a start this code
-		-- cannot see, so any constant here is a guess that will be wrong on some machine or some
-		-- route -- and picking timers is what several of today's fixes got wrong in a row.
+		-- VALIDATED AGAINST THE CARTRIDGE, which is the only reference that cannot be poisoned.
 		--
-		-- Instead: remember the signature this base had while the game was NOT flying, and treat
-		-- any base whose pixels have since changed as unusable. It needs no duration, it
-		-- self-corrects the moment the game restores the tiles, and it generalises past Fly to
-		-- anything else that borrows sprite VRAM.
-		local flying = ENGINE.entry == 0xFC and ENGINE.entryAt
-			and (emu.framecount() - ENGINE.entryAt) < 600
+		-- Two weaker versions failed first, both today. A 240-frame fly window expired while the
+		-- tiles were still swapped (`f=11374 -> rom`, `f=11587 -> vram sig=036A`, restore only at
+		-- `f=11750`). Replacing it with "remember the signature seen while not flying" then failed
+		-- on the FIRST fly of a run and worked on the second and third -- because `FlyFromAnim`
+		-- runs BEFORE the warp, so the swap begins at the DEPARTURE, before `hMapEntryMethod` is
+		-- stamped: the not-flying test was still true, and the cutscene's own signature was
+		-- learned as the reference. A learned reference is only as good as the moment it was
+		-- taken, and that moment was inside the event it was meant to detect.
+		--
+		-- The cartridge has no such window. The engine copies a sprite's graphics into VRAM
+		-- verbatim, so the first tile at a resident base must equal the first tile of that
+		-- sprite's ROM graphics; if it does not, those pixels belong to something else right now
+		-- and the peer is drawn from the ROM instead. No timer, no learning, nothing to poison,
+		-- and it covers every borrower of sprite VRAM rather than Fly alone. The ROM side is
+		-- memoised per sprite id -- it cannot change -- so the per-frame cost is 16 VRAM reads.
 		local tile = residentSpriteTile(o.sprite)
-		if tile then
-			local sig = 0
-			for b = 0, 15 do
-				sig = (sig + (memory.read_u8(tile * 16 + b, "VRAM") or 0)) & 0xFFFF
+		if tile and OVERWORLD_SPRITES_ROM then
+			local want = facingFrames.romSig and facingFrames.romSig[o.sprite]
+			if want == nil then
+				local g = spriteGfxInRom(o.sprite)
+				want = false
+				if g then
+					want = 0
+					for b = 0, 15 do
+						want = (want + romByte(g + b)) & 0xFFFF
+					end
+				end
+				facingFrames.romSig = facingFrames.romSig or {}
+				facingFrames.romSig[o.sprite] = want
 			end
-			ENGINE.vsig = ENGINE.vsig or {}
-			if not flying and not o.drop then
-				-- Learned only while nothing is borrowing VRAM, so the reference can never be the
-				-- cutscene's own graphics. Keyed by base AND sprite id: a base legitimately
-				-- changes hands (the bike, surfing), and that must re-learn rather than read as a
-				-- permanent mismatch.
-				ENGINE.vsig[tile .. "/" .. tostring(o.sprite)] = sig
-			end
-			local good = ENGINE.vsig[tile .. "/" .. tostring(o.sprite)]
-			if good and good ~= sig then
-				tile = nil -- these are not this sprite's pixels right now; fall through to the ROM
+			if want then
+				-- VRAM_BANK1, the same place `decodeTile` reads -- character graphics live in
+				-- bank 1 and BizHawk's VRAM domain lays both banks flat. The first version of
+				-- this check read bank 0, so it compared unrelated tiles against the cartridge,
+				-- never matched, and quietly moved EVERY peer onto the ROM path in ordinary play
+				-- ("1 from the cartridge" with nothing happening). The file already carries this
+				-- warning at `decodeTileAt` -- from the first thing the user ever said about the
+				-- drawn tier, 2026-08-19 -- and it still had to be rediscovered here.
+				local have = 0
+				for b = 0, 15 do
+					have = (have + (readVram(VRAM_BANK1 + tile * 16 + b) or 0)) & 0xFFFF
+				end
+				if have ~= want then
+					tile = nil -- not this sprite's pixels right now; fall through to the cartridge
+				end
 			end
 		end
 		if tile then
@@ -3696,7 +3713,7 @@ function drawOverflow()
 			local sig = 0
 			if source and source.vram then
 				for b = 0, 15 do
-					sig = (sig + (memory.read_u8(source.vram * 16 + b, "VRAM") or 0)) & 0xFFFF
+					sig = (sig + (readVram(VRAM_BANK1 + source.vram * 16 + b) or 0)) & 0xFFFF
 				end
 			end
 			local key = string.format("%s/%s/%s/%s/%04X", tostring(o.sprite), kind, tostring(where),
