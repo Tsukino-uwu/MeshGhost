@@ -1778,3 +1778,26 @@ unmeasured build, where behaviour is unchanged.
 **Self-tested on the user's exact reproduction**: adapter reloaded with the fly map screen up —
 nothing painted over it (screenshot), landing still runs, ghost back afterwards. The rectangle
 machinery stays for PARTIAL menus (START, text boxes), which never disable the sprite engine.
+
+## DRAINED 2026-08-26 (evening) — the whole Fly chain
+
+**Everything above about Fly left this queue in one pass**, on the user's confirmation: *"both
+same/different town fly works correctly now, and yes no ghosts showed up on the 'fly' menu when
+reloading the adapter."*
+
+Not summarised here, because that would be an index of an index. Where each went:
+
+- **The confirmation, with the four things it does NOT cover** (remote peers above all — every run
+  was loopback, where the peer's fly is also the watcher's) — [`VERIFIED.md`](VERIFIED.md).
+- **How the game does Fly** — [`documentation.md`](documentation.md): the private cutscene, and the
+  landing's decaying-cosine spiral.
+- **The retired bandage, kept with its exit** — [`BANDAGES.md`](BANDAGES.md) #3.
+- **The transferable lessons** — `../../../../agent_docs/pitfalls/by-lesson.md`: a trigger that is a
+  subset of its event (five instances in one day), a gate that defers a decision must freeze the
+  evidence it reads, an instrument blind to one of its paths, a trace keyed on an address, and a
+  measurement taken from the wrong VRAM bank.
+- **The method that changed the session's economics** — `../../../_template/probes.md`: a prepared
+  savestate at the decision point turns a user-cycle into a self-driven loop.
+
+**Still open on Fly, and deliberately:** a remote peer's landing has never been watched, and a peer
+flying tile-to-same-tile in a watcher's view gets no descent because no signal for it exists.

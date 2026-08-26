@@ -15,10 +15,15 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
 - **Nothing is running.** The 2026-08-26 rig was relay (`run-relay-loopback.bat`) + core
   (`run-core.bat crystal`, quic, interp 0) + BizHawk on V1.0, with `MESHGHOST_COMPARE_TIERS`; all
   shut down. Start it yourself and `console.clear()` at session start.
-- **NEXT SESSION STARTS HERE: the rest of Crystal's action classes.** Fishing is DONE and confirmed
-  (2026-08-26); what is left is the Fly landing, Dig/Teleport and spin tiles. `crystal/UNVERIFIED.md`.
-- **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, 8
-  `goto_map`'s undo, **9 the 9x9 square start**. The savestate-is-not-a-save trap: `environment.md`.
+- **NEXT SESSION STARTS HERE: spin tiles and Dig/Teleport**, the last two action classes. Fishing
+  and Fly are DONE and confirmed (2026-08-26). `crystal/UNVERIFIED.md`.
+- **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
+  cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
+  equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
+  ended the 2026-08-26 deadlock (`_template/probes.md`).
+- **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, **8 a
+  SAME-TOWN fly (press A)**, **9 a CROSS-TOWN fly (press A)** — 8 and 9 were `goto_map`'s undo and
+  the 9x9 square start until 2026-08-26, and were re-recorded by the user for the fly work. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
 ## Genuinely open items
@@ -78,10 +83,10 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
 - **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
   user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
-- **Crystal's remaining action classes** — spin tiles and Dig/Teleport. **The Fly landing is off
-  the list: measured 2026-08-26, the player's object carries none of it.** `crystal/UNVERIFIED.md`.
-- **Two Fly faults fixed 2026-08-26, neither watched** — the frame learner adopting another
-  character's OAM, and a stale menu rectangle hiding painted peers forever. `crystal/UNVERIFIED.md`.
+- **Crystal's remaining action classes** — spin tiles and Dig/Teleport. **Fly is DONE and confirmed
+  2026-08-26**, including the Pokemon and the menu gate. `crystal/VERIFIED.md`.
+- **Fly is unwatched for a REMOTE peer** — every 2026-08-26 confirmation was loopback, where the
+  peer's fly is also the watcher's. Needs two machines. `crystal/VERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a

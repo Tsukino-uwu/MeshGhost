@@ -123,6 +123,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: fishing, the bite wiggle and the "!"
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: no ghost painted over the party menu
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the ghost returns after a same-town Fly
+- CONFIRMED ON SCREEN 2026-08-26 — Crystal: the Fly landing, with the Pokemon, and the menu gate
 
 ## Confirmed facts
 
@@ -2066,3 +2067,33 @@ warp-teardown (or adapter load) leaves behind until the slot changes.
 through its cutscene — that part is correct by construction, see `documentation.md`), the Fly
 landing animation on a ghost (does not exist on the wire; measured), and any non-Fly warp leaving
 a stale rectangle (doors and Dig were not re-tested).
+
+## CONFIRMED ON SCREEN 2026-08-26 — Crystal: the Fly landing, with the Pokemon, and the menu gate
+
+**The user, after the savestate-driven build:** *"both same/different town fly works correctly now,
+and yes no ghosts showed up on the 'fly' menu when reloading the adapter."*
+
+**What is confirmed:**
+
+- **A peer arriving by Fly is drawn as the POKEMON that carried them**, descending on the engine's
+  own curve — `SpriteAnimFunc_FlyTo`'s decaying-cosine spiral, 44 frames, every number read off the
+  decompilation rather than tuned — and becoming the character as it lands. Both same-town and
+  cross-town.
+- **The species crosses the wire** as `extras.fly`, latched with the map-entry byte because
+  `wCurPartyMon` moves the moment a menu opens.
+- **No ghost is painted over a full-screen UI**, including the reproduction that prompted it: the
+  adapter reloaded with the fly map screen up. The gate is the game's own `wSpriteUpdatesEnabled`
+  ($c2ce), which `DisableSpriteUpdates` clears on the way into every full-screen UI — a positive
+  "may a character be shown at all" test, which is how the user framed it, rather than another
+  screen added to a deny-list.
+- **`BANDAGES.md` #3 is retired** — the fly-arrival skyfall drop, added and removed the same day.
+  No character falls any more, so the Burned Tower floor-fall has nothing to do.
+
+**What it does NOT cover.** A REMOTE peer: every confirmation here is loopback, where the peer's fly
+is also the local player's, so the map-entry byte and the sprite-engine gate were reading the
+watcher's own transitions. Two machines will exercise the case where a peer flies while the watcher
+does not, which is the case the feature is actually for. A peer flying tile-to-same-tile in a remote
+watcher's view still gets no descent — there is no signal for it and none was invented. Partial
+menus (START, text boxes) are still handled by the rectangle machinery, unchanged and not re-watched
+here. And the fly DEPARTURE shows nothing: the flier's own game plays a private cutscene, so a
+watcher sees the peer simply leave.

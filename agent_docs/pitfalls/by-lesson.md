@@ -4125,3 +4125,37 @@ directly by the facing trace as the DOWN standing view alternating `[0,1,2,3]` w
 - **An unexplained fix is not a finished fix.** The cartridge guard is kept because its invariant is
   true, but it now logs the first time it ever fires and says in that line that never appearing
   means it is dead weight — so a later session deletes it on evidence rather than on a guess.
+
+## The session that cost the most, and what it was actually made of (Crystal, 2026-08-26)
+
+One feature — a peer's Fly landing — took most of a day and about fifteen live cycles. It shipped,
+and it is worth knowing where the time went, because almost none of it went into the feature.
+
+**Six of my own edits were wrong in ways the tooling could not see.** Three scripted edits failed
+to apply and said nothing (the pattern did not match); one left a name undeclared, which in Lua is
+a silent nil GLOBAL; one read the wrong VRAM bank; one logged a value it had just written. Every
+one passed `luac -p`, because a parse check confirms an edit is valid Lua, never that it happened
+or that it means what you intended. **After a scripted edit, grep the result back and check it says
+what you wrote.** That single habit would have removed roughly half this session.
+
+**Five fixes were aimed at a trigger narrower than the event.** Area-change ⊂ map-load (twice),
+teleport ⊂ ghost-placement, a coordinate comparison only meaningful within one map, and a guard
+that excluded a case by name rather than by the property that made it wrong. Each time the chosen
+trigger was the most FAMILIAR member of its set. Enumerate the members and say which one the
+report describes — one sentence, no rig.
+
+**Three instruments were blind or lying**, and each read as a healthy system: a trace below an early
+return could only ever see one of its two paths; a trace keyed on an address could not see the
+content change under it; a signature read the wrong bank and produced real data about the wrong
+thing, which then motivated three versions of a fix for a problem that did not exist.
+
+**What actually broke the deadlock was economics, not insight.** The user offered savestates at the
+decision point, the loop became self-driving, and three faults fell in the time one live request
+used to take. **When a loop is running at one iteration per user-request, fixing the loop beats
+fixing the bug** — and the way to fix it is usually a prepared state plus a probe that presses the
+button, not a cleverer theory.
+
+**The last lesson is about the stand-in.** A vertical fall was accepted as a placeholder for a
+spiral descent, and it read as a defect rather than a placeholder — so every report about it was
+work on the wrong animation. A stand-in for something ANIMATED buys far less time than one for
+something static, and this one cost more than building the real thing would have.
