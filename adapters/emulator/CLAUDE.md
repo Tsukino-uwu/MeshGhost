@@ -95,12 +95,12 @@ prints one `LOAD FAILED` line, and the adapter is simply absent. Nothing else sa
 runs normally with no ghosts, which reads as a networking fault or a dead relay.
 
 **Measured 2026-08-21, and it is not theoretical**: Crystal hit it four times in a single session,
-and each time cost a reload cycle to identify. Re-counted 2026-08-25:
+and each time cost a reload cycle to identify. Re-counted 2026-08-27:
 
 | adapter | lines | top-level locals |
 |---|---|---|
-| Crystal | 9,534 | **197 of 200** (re-measured 2026-08-26) |
-| Emerald | 11,265 | **198 of 200** (re-measured 2026-08-26) |
+| Crystal | 9,539 | **197 of 200** (re-measured 2026-08-27, unchanged) |
+| Emerald | 11,265 | **198 of 200** (re-measured 2026-08-27, unchanged) |
 
 **Crystal is three names from the wall and Emerald is two.** Crystal's row read 188 for one day and was
 already stale when it was read: adding two plain constants for a feature stopped the file loading
@@ -118,8 +118,10 @@ to a copy and compile it, halving N until it flips:
 C:/msys64/mingw64/bin/luac.exe -p <copy-with-N-extra-locals.lua>
 ```
 
-Both figures above were confirmed that way — Emerald compiles with 3 added and fails with 4
-(2026-08-25), Crystal likewise with 3 and 4 (2026-08-26).
+Both figures above were confirmed that way, and re-confirmed on 2026-08-27: **Crystal compiles with
+3 added and fails with 4; Emerald compiles with 2 and fails with 3.** Read it off the PASSING count
+— `used = 200 - N` where N is the largest number that still compiles — because taking it off the
+failing one is off by one in the reassuring direction.
 
 **The modules fix has one trap already paid for twice, and it must be designed around.** A file
 loaded with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE path, so a shared module that

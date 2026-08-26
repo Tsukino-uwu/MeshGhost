@@ -93,7 +93,7 @@ that a peer's state genuinely differs from the local player's, which loopback co
 - **Crystal's promotion seam and drawn stop were rebuilt 2026-08-25** — three layers plus the stop
   freeze, all traced clean, user's read is hedged. `crystal/UNVERIFIED.md`.
 - **The drawn tier's beat is smoother than the engine's, and stays that way for now** — user's call;
-  the retiring mechanism is written down. `crystal/BANDAGES.md` #2.
+  the retiring mechanism is written down. `crystal/BANDAGES.md` #3 (renumbered 2026-08-27).
 - **Crystal's crowd cost is measured on Route 39, and the numbers are a FLOOR** — the rig cannot
   cycle `prog`, so no run exercised the drawn tier's stepping path. `crowd-limits.md` 2026-08-25.
 

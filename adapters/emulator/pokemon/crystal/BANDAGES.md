@@ -7,9 +7,10 @@ was to build this adapter without starting from a compensation: *"i want to actu
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*
 (2026-08-17). It carried nothing under Shipped for two days.
 
-**It carries two live**, both deliberate and both on the user's call: the drawn-overflow tier
-(2026-08-19) and that tier's camera-clocked beat (2026-08-25). A third — the fly-arrival drop —
-was added and retired on 2026-08-26, and is kept below marked as such: the route out was written
+**It carries four live**: the drawn-overflow tier (#1, 2026-08-19), the standing ghost's re-anchor
+(#2), that tier's camera-clocked beat (#3, 2026-08-25), and the step-state repair (#5, cause still
+unknown). A fifth — the fly-arrival drop (#4) — was added and retired on 2026-08-26, and is kept
+below marked as such: the route out was written
 into the entry, and it is the route that was taken. Each entry below is written the way
 the guide asks — what it compensates for, what it costs, and what would retire it. The second is
 the more instructive one: its proper mechanism is **known and written down**, which is what makes
@@ -85,7 +86,7 @@ is the first clue to what. It must not be allowed to become the reason a drift i
 
 **What retires it.** Nothing planned. It is cheap, silent when healthy, and self-reporting when not.
 
-### 2. The drawn tier's beat and paint are both the CAMERA, so its rhythm is smoother than the game's
+### 3. The drawn tier's beat and paint are both the CAMERA, so its rhythm is smoother than the game's
 
 **What it is.** The drawn model moves on the frames the background scroll register changes, and is
 painted by a camera formula (an accumulator plus a constant `K`, with a park-time nudge repaying
@@ -128,7 +129,7 @@ intended bandage to keep it as it is right now then?"* — taken with the queue 
 unwatched, including six animation classes never seen on screen at all. Left deliberately, with
 the route out written down, rather than rested at.
 
-### 3. RETIRED 2026-08-26, the same day it was added — the fly arrival is the real animation now
+### 4. RETIRED 2026-08-26, the same day it was added — the fly arrival is the real animation now
 
 **Kept below as written, because a retired entry is evidence and this register is append-only in
 spirit: it shows what the compensation was, and that the route out written into it was the route
@@ -152,7 +153,7 @@ something static.**
 
 ---
 
-### 3 (as it stood). A fly ARRIVAL uses the engine's floor-fall, which is not what a Fly landing looks like
+### 4 (as it stood). A fly ARRIVAL uses the engine's floor-fall, which is not what a Fly landing looks like
 
 **What it is.** A peer that arrives by Fly is dropped onto its tile with `STEP_TYPE_SKYFALL` (the
 Burned Tower floor-fall) on the spawned tier, mirrored on the painted tiers by a matching hide-then-
@@ -176,6 +177,28 @@ the peer's fly SPECIES on the wire, a mon-icon graphics path (icons are a differ
 walking sprites both tiers draw from), and the decaying-cosine descent in place of the fall. The
 spawned tier probably cannot wear an icon at all, so that peer would be hidden until it lands —
 which is what the engine does to the flier anyway.
+
+### 5. Repairing a step state the engine should never be in — cause unknown
+
+**What it is.** Before stepping a ghost, `renderRemote()` checks for `OBJECT_WALKING == STANDING`
+alongside a walking `OBJECT_STEP_TYPE`, and if it finds that pair puts the object through the
+engine's own end-of-movement path (`STEP_TYPE_FROM_MOVEMENT`, duration 0). Counted, and reported
+once a second when it is not zero.
+
+**Why it is a bandage.** It repairs a state instead of preventing it, which is exactly the tell the
+guide names. The pair is not one the engine produces for its own objects — every step function sets
+`WALKING` and `STEP_TYPE` together — and `stepGhost()`'s own write of `WALKING` reads back correct
+every time it runs, so the state arrives *between* our steps and nobody has found what writes it.
+
+**What it costs if left.** Nothing visible, and it prevents something severe: `StepVectors` has 12
+entries and `GetStepVector` indexes it with `WALKING`'s low nibble, so `STANDING` (255) masks to 15
+and the engine reads a step vector out of whatever follows the table, applying it every frame until
+the duration expires. The user, 2026-08-21: *"it gets dragged off screen"*. Caught by
+`probes/orphan_probe.lua`, which dumps the ten frames leading up to it.
+
+**What removing it needs.** The writer. The ten-frame trace in `orphan_probe.lua` is the instrument;
+what is missing is a capture of the frame the pair first appears with the adapter's own step
+accounting alongside it.
 
 ## Deliberate — measured decisions, not bandages
 
@@ -209,35 +232,15 @@ of them stops being measured, the entry is already here to be corrected.
   **It is currently INERT, and that is the interesting part.** Every address the startup check
   requires has now been measured (`W_BATTLEMODE`, the last holdout, on 2026-08-19 with
   `probes/ap_battlemode_probe.lua`), and `candidates` is an empty table — so the flag has nothing
-  left to substitute and turning it on changes nothing. The one address still unmeasured on the
-  Archipelago build, `W_USEDSPRITES`, is not in the required list at all: it is optional by
-  design, and its absence switches the peer's own appearance off rather than refusing to run.
+  left to substitute and turning it on changes nothing. **Two** addresses are still unmeasured on
+  the Archipelago build — `W_USEDSPRITES` and `W_STATEFLAGS` — and neither is in the required list:
+  both are optional by design, and their absence switches the peer's own appearance off (and the
+  hardware tier off entirely) rather than refusing to run. (This said "the one address" until
+  2026-08-27; `FLAGS.md` and `README.md` had both said two since the measurement.)
   **What would let it go:** deleting it, once someone is satisfied that no further Archipelago
   address will need the same treatment. Kept for now because the mechanism is the valuable part
   and rebuilding it correctly is harder than leaving it. Registered in [FLAGS.md](FLAGS.md) as a
   runtime switch.
-
-### 5. Repairing a step state the engine should never be in — cause unknown
-
-**What it is.** Before stepping a ghost, `renderRemote()` checks for `OBJECT_WALKING == STANDING`
-alongside a walking `OBJECT_STEP_TYPE`, and if it finds that pair puts the object through the
-engine's own end-of-movement path (`STEP_TYPE_FROM_MOVEMENT`, duration 0). Counted, and reported
-once a second when it is not zero.
-
-**Why it is a bandage.** It repairs a state instead of preventing it, which is exactly the tell the
-guide names. The pair is not one the engine produces for its own objects — every step function sets
-`WALKING` and `STEP_TYPE` together — and `stepGhost()`'s own write of `WALKING` reads back correct
-every time it runs, so the state arrives *between* our steps and nobody has found what writes it.
-
-**What it costs if left.** Nothing visible, and it prevents something severe: `StepVectors` has 12
-entries and `GetStepVector` indexes it with `WALKING`'s low nibble, so `STANDING` (255) masks to 15
-and the engine reads a step vector out of whatever follows the table, applying it every frame until
-the duration expires. The user, 2026-08-21: *"it gets dragged off screen"*. Caught by
-`probes/orphan_probe.lua`, which dumps the ten frames leading up to it.
-
-**What removing it needs.** The writer. The ten-frame trace in `orphan_probe.lua` is the instrument;
-what is missing is a capture of the frame the pair first appears with the adapter's own step
-accounting alongside it.
 
 ## Known temptations, recorded before they are taken
 

@@ -63,6 +63,26 @@ would retire it. That is the honest half of the same standard.
   how big it is. "It snaps a tiny bit" turned out to be two separate bugs plus one artifact of the
   game's own startup, and none of that was visible from "it looks mostly fine".
 
+## "Good enough for now" is a REGISTER entry, not a shipping decision — 2026-08-26
+
+A whole feature can land in this state: iterated across a dozen measured faults in one session,
+visibly working in the one case that got watched, and explicitly not finished. Emerald's Fly is the
+worked example — the user's own words, *"good nuff for now, but ... its not properly working fully
+yet. still doing some animations wrong and hiding ghosts wrong etc."* (`emerald/BANDAGES.md` §4).
+
+**What that answer buys is permission to stop working on it today. It buys nothing else.** So:
+
+- **It goes in this register, with each compensation named and the real mechanism beside it** — not
+  written up as a finished feature anywhere.
+- **It stays OUT of the README's build story**, which records only work that actually works. A build
+  step added for a half-finished feature is a claim the next reader has no way to doubt.
+- **Say what the confirmation actually covered**, in the narrowest terms available — one case, one
+  rig, one direction — because "the user was happy with it" will otherwise be remembered as
+  "confirmed", and those are different facts.
+- **Nothing enters `VERIFIED.md`** except the part that was genuinely seen working.
+
+Back-ported here 2026-08-27; the shape is not Emerald's and will recur on every adapter.
+
 ## The standing position on bandages — user, 2026-08-16
 
 **A bandage is a state this project is passing through, never where it stops.** The user's words,

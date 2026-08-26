@@ -1141,9 +1141,11 @@ filed under the right theme, but anything can check that it is listed.
   sufficient confirmation for a connectivity claim like this one (distinct from a
   visual/gameplay claim, which still needs the user to watch it on screen — no ghost rendering
   was verified in this particular session, only the relay/core connection layer). Also
-  confirms `internal/README.md`'s "no message type carries an IP" claim from the client
+  confirms the "no message type carries an IP" claim from the client
   side: the friend's log shows only the relay's IP (`MYWANIP`, which it must have to connect
   at all) and never the host's own IP, consistent with there being no peer-to-peer channel.
+  *(Pointer corrected 2026-08-27: this cited `internal/README.md`, which does not exist — the
+  2026-08-17 module move retired it. The claim now lives in `docs/security.md`'s privacy section.)*
   Separately noted by the user as a possible gap, not yet acted on: the relay log recorded
   only its own startup line and nothing for either client connecting, joining, or
   disconnecting — worth revisiting when relay-side logging is next touched, since richer

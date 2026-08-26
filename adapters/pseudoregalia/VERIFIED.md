@@ -276,7 +276,8 @@ filed under the right theme, but anything can check that it is listed.
 - Date: 2026-08-12
 - Observed: `adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`
   (`MeshGhostSocketProbe`, Stage 3) deployed over the Stage 1 script and run live against a
-  real `meshghost.exe` core (`dev-scripts/run-core-pseudoregalia.bat`) with
+  real `meshghost.exe` core (`dev-scripts/run-core-pseudoregalia.bat` — renamed to
+  `run-core-pseudoregalia-online.bat` since; pointer corrected 2026-08-27) with
   `dev-scripts/run-relay-loopback.bat` running behind it. User launched the game: booted fine,
   no lag, freeze, or other weirdness noticed in the menu or in-game, "worked just as usual."
   `UE4SS.log` shows the script connecting, sending a `hello` and a `local_state` frame, then
@@ -2190,7 +2191,8 @@ filed under the right theme, but anything can check that it is listed.
   not overlapping it. Screenshot supplied by the user.
 - Source: `dev-scripts/run-loopback-in-release-folder.bat`; the relay's `-loopback` flag
   (`Server.Loopback` in `internal/relay/relay.go`); the side offset is
-  `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `Mod/src/Plugin.cpp`.
+  `LOOPBACK_GHOST_OFFSET_X` in Pseudoregalia's `MeshGhostPseudo/Mod/src/Plugin.cpp` (path
+  completed 2026-08-27; ten other citations in this file already carried the full form).
 - Notes: scope is **Pseudoregalia in a release-layout folder** (relay named
   `meshghost-server.exe`, sitting beside the script) — says nothing about Emerald or TEVI, and
   TEVI's loopback ghost offset remains an open question with no such constant found in its
@@ -3557,7 +3559,8 @@ mid-area despawn path remains untested**, and needs a second real peer
 
 ### 1. The despawn path the park was written for finally ran, and destroy handled it
 
-Setup: plain relay (no `-loopback`), core via `dev-scripts/run-core-pseudoregalia.bat`, and a fake
+Setup: plain relay (no `-loopback`), core via `dev-scripts/run-core-pseudoregalia.bat` (now
+`run-core-pseudoregalia-online.bat`; pointer corrected 2026-08-27), and a fake
 peer circling the player at radius 180. The peer was stopped with `Stop-Process -Force`, which
 drops its connection and makes the relay forward a real leave — so the core emits a genuine
 `despawn_remote` with **no level transition behind it**. That is the case

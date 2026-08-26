@@ -8055,7 +8055,7 @@ local function renderRemote(id, state)
 			end
 			if overflow[id] then
 				logFile(string.format("tier: %s painted -> spawned", id))
-				-- OVERLAP THE TWO TIERS BY ONE FRAME, do not butt them together.
+				-- OVERLAP THE TWO TIERS, do not butt them together -- and release on EVIDENCE.
 				--
 				-- Dropping the drawn copy on the same frame the engine object is created leaves a
 				-- single frame in which NEITHER draws the peer: this adapter paints during its own
@@ -8064,10 +8064,15 @@ local function renderRemote(id, state)
 				-- after the tile handover was fixed -- the user: *"its not teleporting now, but it
 				-- 'flickers' real quick"*.
 				--
-				-- Keeping the entry one extra frame costs a single frame where both draw the peer,
-				-- and that is invisible for the reason the fix above exists: they now agree on the
-				-- tile, so the two are the same character in the same place. A gap is visible; an
-				-- exact overlap is not.
+				-- Keeping the entry costs frames where both draw the peer, and that is invisible for
+				-- the reason the fix above exists: they now agree on the tile, so the two are the
+				-- same character in the same place. A gap is visible; an exact overlap is not.
+				--
+				-- ONE FRAME WAS NOT ENOUGH. It was measured at FOUR in Crystal, so the blink
+				-- survived its own fix (2026-08-25). `holdHandover` therefore holds for up to 8
+				-- frames and releases when it SEES the object's entries in OAM, bounded so a peer
+				-- whose object never appears cannot pin the painted copy on screen. This comment
+				-- described the one-frame version until 2026-08-27.
 				overflow[id].handover = drawFrames
 				-- STEP_LAG: watch the next few frames of the handover from the PAINT side. The
 				-- counting probes say the drawn copy covers the frames before the engine draws the

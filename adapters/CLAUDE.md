@@ -15,7 +15,7 @@ the cap exists to prevent (`agent_docs/claude-md-cap.md`). Before adding: what c
 with two homes is a rule that drifts, which this repo can already demonstrate in two places.
 
 Moved verbatim from `adapters/_template/README.md` on 2026-08-25, where they were reachable only
-by reading 1,723 lines end to end. `_template/` keeps a headed pointer at each site.
+by reading the whole file — 1,723 lines *as it stood that day*. `_template/` keeps a headed pointer at each site.
 
 ## How this folder is arranged: create a level only when two things share it
 

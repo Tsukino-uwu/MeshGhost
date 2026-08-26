@@ -97,10 +97,18 @@ is named here only because it is the component a reader will otherwise go lookin
 
 ## The pause overlay and the main menu are different states, and only one drops the player
 
-TEVI's Characters/pause overlay leaves the player object alive: `PlayerControl.instance` (and its
-transform) stays non-null while the overlay is up. Returning to the **main menu / title** does null
-it. Confirmed live 2026-08-13 and recorded in `agent_docs/phases/phase6.md`, which is where the
-detail sits.
+TEVI's Characters/pause overlay leaves the player object alive: it stays non-null while the overlay
+is up, and returning to the **main menu / title** does null it. The *behaviour* was confirmed live
+2026-08-13 and is recorded in `agent_docs/phases/phase6.md`, which is where the detail sits.
+
+**UNCONFIRMED, flagged 2026-08-27: which member this is read through.** This passage named
+`PlayerControl.instance`, and `PlayerControl` appears nowhere in the adapter — it gates on
+`EventManager.Instance.mainCharacter` (`Plugin.cs`). TEVI's assemblies are not in this repo, so
+`PlayerControl` may well be a real game type that simply is not what we read; the user, asked, was
+unsure and noted only that the behaviour works as intended today. **Nothing was changed on that
+basis** — this is the exact file whose pause-menu reasoning produced the 2026-08-18 false
+regression, and reasoning from code about what a game means is what caused it. A probe settles it:
+`probes/README.md`.
 
 That single difference is what lets a `player == null` check tell "the player left the session"
 apart from "the player opened a menu" — without it, a pause would be indistinguishable from

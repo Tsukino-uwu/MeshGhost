@@ -180,10 +180,17 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
 5. **A game-specific environment name must come before the plain one** (`MESHGHOST_SCRIPT_DIR_<GAME>`
    before `MESHGHOST_SCRIPT_DIR`). One emulator process runs every script, so a plain name set for
    one adapter is inherited by the next adapter loaded. Found live 2026-08-18.
-6. **A probe flag-file must set every flag it owns explicitly, `false` included.** A dev loader
+6. **The register is COMPLETE, and a flag in the source with no row here is a defect.** Not a
+   tidiness point: a switch nobody can find is a switch nobody turns off, and an unregistered
+   probe flag is one that ships enabled by accident. Audit it the cheap way — list every
+   `MESHGHOST_*` name the adapter actually reads and diff that against this file's rows:
+   `grep -ohE 'MESHGHOST_[A-Z0-9_]+' <adapter source> | sort -u`. Found live 2026-08-27, in both
+   directions at once: Crystal shipped `MESHGHOST_CRYSTAL_FLY_TRACE` with no row, and Emerald
+   carried a full row for `MESHGHOST_EMERALD_NO_BOBBER` after the flag had been deleted.
+7. **A probe flag-file must set every flag it owns explicitly, `false` included.** A dev loader
    typically shares ONE interpreter environment across reloads, so "not mentioned" is not "off" —
    an unset flag keeps its value from the previous load.
-7. **A mod framework's own config file is a legitimate switch channel, often the best one.** TEVI
+8. **A mod framework's own config file is a legitimate switch channel, often the best one.** TEVI
    exposes its bridge port through BepInEx's config rather than an environment variable, on the
    argument that the player already knows that file and already edits it. Worth preferring
    wherever the host framework has one.

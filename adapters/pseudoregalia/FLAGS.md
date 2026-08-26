@@ -139,10 +139,18 @@ a measurement behind it is not "tidied" by someone who reads it as arbitrary, an
 | **Tuned by eye** | adjusted until it looked right — the shape `BANDAGES.md` cares about | yes, and it should eventually be replaced |
 
 **Where a constant lives matters too.** Most sit at namespace scope near the top of `Plugin.cpp`,
-but a few are **function-local** inside `Plugin::game_thread_tick()` — `SLIDE_CAPSULE_THRESHOLD`,
-`CROUCH_MOVE_STATE`, `SLIDE_REFIRE_INTERVAL_TICKS`, `SLIDE_REFIRE_WINDOW_TICKS`. They are cited
-elsewhere (`BANDAGES.md`) by bare name, which reads as though they were file-scope; they are not,
-and a grep at the top of the file will not find them.
+but **nine are function-local**, and they are cited elsewhere (`BANDAGES.md`, and the tables below)
+by bare name, which reads as though they were file-scope. They are not, and a grep at the top of the
+file will not find them:
+
+- inside `Plugin::game_thread_tick()` — `SLIDE_CAPSULE_THRESHOLD`, `CROUCH_MOVE_STATE`,
+  `SLIDE_REFIRE_INTERVAL_TICKS`, `SLIDE_REFIRE_WINDOW_TICKS`, `FLYING_MOVEMENT_MODE`,
+  `IN_BUBBLE_MOVE_STATE`, `BUBBLE_MOVEMENT_MODE`
+- inside `Plugin::ensure_ghost_spawned()` — `ECC_PAWN`, `ECR_BLOCK`, `ECC_WORLD_DYNAMIC`
+
+**This paragraph named four of the nine until 2026-08-27**, and gave `game_thread_tick()` as the
+home of all of them, which is exactly the failure it exists to prevent — so it now lists them, and
+a constant added function-local is added here in the same edit.
 
 ### Shipped behaviour
 
