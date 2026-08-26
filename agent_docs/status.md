@@ -17,11 +17,18 @@ has never been looked at. `verified.md`.
   rails are not built for either. `emerald/UNVERIFIED.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
-- **Nothing is running** (re-confirmed end of 2026-08-26: relay and core stopped and verified gone,
-  loader target left holding only `orphan_sweep.lua`). The rig was relay (loopback, `-send-hz=100`)
-  + core (crystal, quic, `-interp=0ms -min-send=10ms`) + BizHawk on V1.0, with
-  `MESHGHOST_COMPARE_TIERS`. **`run-relay-loopback.bat` has no `cd /d "%~dp0"` and its `..\meshghost-relay.exe`
-  resolves outside the repo** — launch with the working directory set, or the exe directly.
+- **Nothing is running** (verified gone end of 2026-08-26: both EmuHawk instances, both cores
+  and the relay stopped, both loader targets set to `none`). The Emerald rig was relay
+  (loopback, `-send-hz=100`, `-ghost-collision=disabled`) + two cores (7778 and 7779) + two
+  BizHawk instances on VANILLA Emerald: instance 1 the FLYER with the dev loader, compare tiers
+  and the OAM tier, instance 2 the WATCHER with the dev loader but SHIPPED rendering, so what it
+  shows is what a real player sees. **A dev loader on the watcher changes nothing visual** — it
+  only lets a probe be swapped without relaunching, which is what made the second half
+  measurable. `emerald/probes/fly_probe.lua` runs on both (`MESHGHOST_FLY_OBSERVE` on the
+  watcher). Emerald savestates, the user's: **flyer 5 same-town, 6 different-town; watcher 3 and
+  4 for the two towns** — pair them so the watcher is where the flyer LANDS, or a run comes back
+  clean with the bug still in it (it did, twice). **`run-relay-loopback.bat` has no
+  `cd /d "%~dp0"`** — launch with the working directory set, or the exe directly.
 - **Two Go-side fixes are UNWATCHED** (2026-08-26): the adapter no longer throws on a map change
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
