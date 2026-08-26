@@ -1983,7 +1983,23 @@ local function learnFacingFromPlayer()
 	-- group is therefore `(offset & 0x7F) // 4` -- without the mask a stepping frame's group comes
 	-- out at 32-34 and every one of them is rejected by the check below, which is the second half
 	-- of the same defect as the range guard above.
+	-- ALL FOUR PARTS, NOT JUST THE FIRST -- measured 2026-08-26. This read `frame[1]` alone, so a
+	-- frame whose first tile was the player's and whose others were not passed every check below.
+	-- The trace caught it outright: the DOWN standing view alternating between
+	-- `[0,1,2,3]` (correct) and `[0,1,9,3]` -- tile 9 is left/right artwork, group 2, sitting in
+	-- the bottom-left corner of a downward-facing character, which is a visibly garbled sprite.
+	-- One foreign part is all it takes, and validating one part cannot see it.
+	--
+	-- Why a foreign part gets in at all is already written down (`pitfalls.md`, 2026-08-26): the
+	-- player does not own OAM entries 0-3 unconditionally -- another object can occupy one of them
+	-- -- so a "frame" assembled from those four entries is not guaranteed to be one character's.
+	-- The group test is the only thing standing between that and the cache.
 	local group = (frame[1].offset & 0x7F) // 4
+	for gi = 2, 4 do
+		if ((frame[gi].offset & 0x7F) // 4) ~= group then
+			return
+		end
+	end
 	if group ~= ((facing == 0) and 0 or (facing == 1) and 1 or 2) then
 		return
 	end
@@ -2014,6 +2030,27 @@ local function learnFacingFromPlayer()
 	-- halves of a sprite's graphics: clear means a standing view, set means a stepping view. So the
 	-- art files itself and arrival order stops mattering.
 	if (frame[1].offset & 0x80) == 0 then
+		-- TRACED TOO, and it was not until 2026-08-26. This branch stores and returns ABOVE the
+		-- trace at the bottom of the function, so for its whole life the instrument could only see
+		-- STEPPING frames -- and a session hunting a garbled STANDING pose logged nothing at all
+		-- while the fault was on screen. An instrument blind to one of its two paths reads exactly
+		-- like a quiet system. Edge-triggered on the arrangement so an idle player (which rewrites
+		-- this slot every frame) does not flood the log.
+		if MESHGHOST_CRYSTAL_FACING_TRACE then
+			local k = string.format("%d:%d@%d,%d|%d@%d,%d|%d@%d,%d|%d@%d,%d", facing,
+				frame[1].offset, frame[1].dx, frame[1].dy, frame[2].offset, frame[2].dx, frame[2].dy,
+				frame[3].offset, frame[3].dx, frame[3].dy, frame[4].offset, frame[4].dx, frame[4].dy)
+			facingFrames.standLast = facingFrames.standLast or {}
+			if facingFrames.standLast[facing] ~= k then
+				facingFrames.standLast[facing] = k
+				-- emu.framecount(), NOT drawFrames -- which is declared ~700 lines BELOW this
+				-- function and is therefore a nil GLOBAL here. The trace at the bottom of this
+				-- same function carries that warning in its own comment, and this line was
+				-- written anyway; it cost one deploy with a TICK ERROR per frame.
+				logFile(string.format("facing-trace: f=%d STAND facing=%d [%s]",
+					emu.framecount(), facing, k))
+			end
+		end
 		entry.stand = frame
 		return
 	end
@@ -3567,7 +3604,20 @@ function drawOverflow()
 		-- out of the cartridge, which is how a peer wearing a sprite THIS map never loaded (the
 		-- other gender, most obviously) gets to look like themselves.
 		local source, palette = nil, u8(OBJECT_STRUCTS + F_PALETTE) or 0
-		local tile = residentSpriteTile(o.sprite)
+		-- RESIDENT TILES ARE NOT RESIDENT DURING A FLY. `FlyFunction_InitGFX` loads cutscene
+		-- graphics -- the leaves, and the flying mon's icon -- while the sequence runs, so the
+		-- VRAM under a sprite's base holds something else for its duration and goes back
+		-- afterwards. Measured 2026-08-26 by adding a 16-byte signature of the actual pixels to
+		-- the sprite trace: `sig` went 0906 -> 036A -> 0906 across every single fly, while the
+		-- BASE never moved off 0 -- which is why the trace, keyed on the address alone, had sat
+		-- silent through four of them. Right address, wrong asset, exactly as the fishing rod was.
+		--
+		-- So during a local fly the peer is drawn from the CARTRIDGE instead, which is the path
+		-- that already exists for a peer wearing a sprite this map never loaded. Same tiles the
+		-- game itself would use, unaffected by what the cutscene is doing to VRAM.
+		local flying = ENGINE.entry == 0xFC and ENGINE.entryAt
+			and (emu.framecount() - ENGINE.entryAt) < 240
+		local tile = (not flying) and residentSpriteTile(o.sprite) or nil
 		if tile then
 			source = { vram = tile }
 		else
@@ -3606,14 +3656,27 @@ function drawOverflow()
 		if facingFrames.sprTrace or _G.MESHGHOST_CRYSTAL_SPRITE_TRACE == true then
 			local kind = source and (source.vram and "vram" or "rom") or "none"
 			local where = source and (source.vram or source.rom) or -1
-			local key = string.format("%s/%s/%s/%s", tostring(o.sprite), kind, tostring(where),
-				tostring(o.facing))
+			-- A SIGNATURE OF THE PIXELS, not just the address they came from. The base can hold
+			-- perfectly steady while the CONTENT under it changes -- which is the whole fishing-rod
+			-- lesson (right address, wrong asset) and the live suspicion for the garbled fly
+			-- landing: `FlyFunction_InitGFX` loads cutscene graphics during the sequence, so VRAM
+			-- at a resident sprite's base may not be that sprite for the duration. Keying the
+			-- edge-trigger on this makes a content swap announce itself; the address alone never
+			-- could, and did not -- the trace sat silent from frame 304 through four flies.
+			local sig = 0
+			if source and source.vram then
+				for b = 0, 15 do
+					sig = (sig + (memory.read_u8(source.vram * 16 + b, "VRAM") or 0)) & 0xFFFF
+				end
+			end
+			local key = string.format("%s/%s/%s/%s/%04X", tostring(o.sprite), kind, tostring(where),
+				tostring(o.facing), sig)
 			facingFrames.sprLast = facingFrames.sprLast or {}
 			if facingFrames.sprLast[id] ~= key then
 				facingFrames.sprLast[id] = key
-				logFile(string.format("sprite-trace: f=%d %s peerSprite=%s -> %s %s "
+				logFile(string.format("sprite-trace: f=%d %s peerSprite=%s -> %s %s sig=%04X "
 					.. "(facing=%s, local sprite=%s at base=%s)", drawFrames, id,
-					tostring(o.sprite), kind, tostring(where), tostring(o.facing),
+					tostring(o.sprite), kind, tostring(where), sig, tostring(o.facing),
 					tostring(u8(OBJECT_STRUCTS + F_SPRITE)),
 					tostring(u8(OBJECT_STRUCTS + F_SPRITE_TILE))))
 			end
@@ -6321,6 +6384,32 @@ local function renderRemote(id, state)
 		a.dropDone = nil -- the flag was shed; the next fly is a new drop
 	end
 	local dropT = a.dropAt and (drawFrames - a.dropAt) or nil
+	-- BRACKET EVERY FLY WITH A FULL CACHE DUMP. The garbled sprite survives the landing and the
+	-- cache is never cleared except by an adapter reload -- which is exactly what deploying a fix
+	-- does, so the evidence has been destroyed by every attempt to look at it. Dumping on the drop
+	-- and again two seconds later puts the before and after of each fly in the log, so a session
+	-- that garbles on the third fly says which sample did it and when.
+	if _G.MESHGHOST_CRYSTAL_FACING_TRACE and dropT and (dropT == 0 or dropT == 120) then
+		for fc = 0, 3 do
+			local e = facingFrames[fc]
+			if e then
+				local parts = {}
+				if e.stand then
+					parts[#parts + 1] = "stand=" .. table.concat({ e.stand[1].offset,
+						e.stand[2].offset, e.stand[3].offset, e.stand[4].offset }, ",")
+				end
+				for st = 0, 3 do
+					if e.step[st] then
+						parts[#parts + 1] = string.format("step%d=%s", st,
+							table.concat({ e.step[st][1].offset, e.step[st][2].offset,
+								e.step[st][3].offset, e.step[st][4].offset }, ","))
+					end
+				end
+				logFile(string.format("cache-dump: f=%d t=%d facing=%d %s", drawFrames, dropT, fc,
+					(#parts > 0) and table.concat(parts, "  ") or "(empty)"))
+			end
+		end
+	end
 	-- FLY TRACE, off unless MESHGHOST_CRYSTAL_FLY_TRACE is set. Three live cycles have now been
 	-- spent guessing which placement path a landing takes, so this prints the whole envelope
 	-- instead: when it armed and why, what the peer is reporting, whether the ghost object exists,

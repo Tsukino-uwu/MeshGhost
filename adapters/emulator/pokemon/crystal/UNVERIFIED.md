@@ -1571,3 +1571,54 @@ work already queued above, plus the cosine descent in place of the fall.
 **Still unwatched and worth a look when convenient:** that a plain promotion (a ghost appearing as
 you start walking) never drops, and that a door or Dig arrival never does either — the envelope is
 gated on MAPSETUP_FLY, so neither should, and neither has been checked.
+
+## 2026-08-26 — Crystal: the garbled fly sprite was TWO faults, both measured (FIXED, unwatched)
+
+**The user, after the drop itself was working:** *"same town fly sprites still look a bit
+glitchy/broken"*, then, crucially, *"'was' garbled, it goes back to the normal sprite once landing.
+but it did have the garbled sprite on the last fly 'landing' animations"* — transient, not a
+poisoned cache, which is what the first two theories assumed. It reproduced on the third fly of a
+run with both traces on, and the two instruments named two different faults.
+
+### Fault 1 — the pixels under the ghost are not its sprite during a fly
+
+```
+sprite-trace  sig=0906 -> 036A -> 0906   (on every fly, base never moved off 0)
+```
+
+`FlyFunction_InitGFX` loads cutscene graphics — the leaves, and the flying mon's icon — for the
+duration of the sequence, so the VRAM under a resident sprite's base holds something else and goes
+back afterwards. **The base is stable throughout, which is why the sprite trace had sat silent
+through four flies**: it was edge-triggered on the address. Adding a 16-byte signature of the
+actual pixels made it announce itself immediately. Same shape as the fishing rod (`pitfalls.md`,
+"the right ADDRESS pointing at the wrong ASSET") — the second time this exact class has bitten this
+adapter, and the first fix did not generalise because it was written as a fact about the rod.
+
+**Fix:** while the local player is inside a fly window, peers are drawn from the CARTRIDGE instead
+— the path that already exists for a peer wearing a sprite this map never loaded.
+
+### Fault 2 — the group check validated one part of four
+
+```
+facing-trace  STAND facing=0 [0,1,2,3] -> [0,1,9,3] -> back, repeatedly
+```
+
+Tile **9** is left/right artwork (group 2) sitting in the bottom-left corner of a downward-facing
+character. The learner's group check read `frame[1]` only, so a frame whose first tile was the
+player's and whose others were not passed every test it has. Why a foreign part gets in is already
+recorded (2026-08-26, the fishing session): the player does not own OAM entries 0-3
+unconditionally. **Fix:** all four parts must agree on the group.
+
+### The instrument lesson, which cost the most
+
+**The facing trace could not see the STANDING path at all** — it sits below an `entry.stand = frame;
+return`, so for its whole life it only ever reported STEPPING frames. A session spent hunting a
+garbled standing pose logged **nothing**, and a silent instrument reads exactly like a quiet
+system. Both branches are traced now. `pitfalls/by-lesson.md`.
+
+### What to watch
+
+Fly several times — it took three to show. During each landing the ghost should wear its normal
+artwork, and afterwards too. A ghost that vanishes during the landing instead means the cartridge
+path is refusing (that gate is ROM identity, so it is vanilla-only); wrong-looking art that
+persists after landing is fault 2 still alive.

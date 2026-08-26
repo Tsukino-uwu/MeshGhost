@@ -4048,3 +4048,49 @@ and a branch that never runs.
 attempt at one symptom; the fourth was correct and introduced this. Only the trace could
 distinguish "the drop ran and looked wrong" from "the drop never armed", and those two have
 completely different causes while looking similar on screen.
+
+## An edge-triggered trace on an ADDRESS cannot see the CONTENT change under it (Crystal, 2026-08-26)
+
+**Symptom:** a peer's sprite garbled during a Fly landing and looked normal afterwards. The sprite
+trace — which exists precisely to answer "which graphics is this peer being drawn from" — logged
+two lines at session start and then nothing at all, through four flies.
+
+**Cause:** the trace was edge-triggered on the peer's sprite id, the source branch, and the tile
+BASE. All three were genuinely constant. What changed was the VRAM content under that base:
+`FlyFunction_InitGFX` loads cutscene graphics for the duration of a fly and restores them after.
+Adding a 16-byte signature of the actual pixels to the trace key made it fire on every fly
+immediately — `sig=0906 -> 036A -> 0906`.
+
+**Fix:** peers are drawn from the cartridge while a fly is in progress.
+
+**This is the SECOND time this class has cost this adapter a session** — the first was the fishing
+rod, written up as "the right ADDRESS pointing at the wrong ASSET". That entry did not prevent this
+one, because it was recorded as a fact about the rod rather than as a property of resident
+graphics. **The general rule: any tile base a game hands you is a lease, not a deed.** An engine
+reuses VRAM for whatever it is doing now, so a base that was a character's a moment ago may be a
+cutscene's, and nothing about the address says so.
+
+**And the instrument rule that follows: when a trace keys on an identifier, ask what could change
+without changing that identifier.** If the answer is "the thing I actually care about", the key is
+wrong and the trace's silence is worthless. A cheap checksum of the underlying data is usually the
+whole fix.
+
+## An instrument blind to one of its two paths reads exactly like a quiet system (Crystal, 2026-08-26)
+
+**Symptom:** a garbled STANDING pose, hunted with `MESHGHOST_CRYSTAL_FACING_TRACE` on. The trace
+reported nothing across a whole session while the fault was visible on screen.
+
+**Cause:** the learner stores standing frames and stepping frames on two paths, and the trace sat at
+the bottom of the function — below `if (frame[1].offset & 0x80) == 0 then entry.stand = frame;
+return end`. So it had only ever been able to report stepping frames. Every standing frame it ever
+learned, correct or corrupt, was invisible.
+
+**Fix:** trace both branches. The first run afterwards showed the corruption immediately — the DOWN
+standing view alternating `[0,1,2,3]` with `[0,1,9,3]`, a left/right tile in a downward pose — and
+also exposed the reason it got in: the group check validated `frame[1]` alone, so one foreign part
+among four passed every test.
+
+**The rule: before trusting a trace's SILENCE, check that it covers every path the value can take
+out of the function.** An early `return` above the logging is enough to make an instrument
+permanently blind to half its subject, and nothing about the empty log says so. Diff the trace's
+position against the function's exits, not against its entry.
