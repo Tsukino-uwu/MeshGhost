@@ -78,10 +78,10 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
 - **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
   user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
-- **Crystal's remaining action classes** — the Fly landing, Dig/Teleport and spin tiles. Fishing,
-  the bite wiggle and the "!" are confirmed (2026-08-26). `crystal/UNVERIFIED.md`.
-- **`extras.yoff` and peer emotes shipped with fishing and reach further than it** — that byte is
-  the Fly/Dig/Teleport fall too, and every emote now crosses the wire. Neither watched. `crystal/VERIFIED.md`.
+- **Crystal's remaining action classes** — spin tiles and Dig/Teleport. **The Fly landing is off
+  the list: measured 2026-08-26, the player's object carries none of it.** `crystal/UNVERIFIED.md`.
+- **Two Fly faults fixed 2026-08-26, neither watched** — the frame learner adopting another
+  character's OAM, and a stale menu rectangle hiding painted peers forever. `crystal/UNVERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump
   special case: read the peer's facing byte. **This is what the next live run is for.** `crystal/UNVERIFIED.md`.
 - **Crystal's drawn tier has no visual parity yet** — no reflection, wake, grass or cave clip, and a
