@@ -155,6 +155,37 @@ const DefaultMaxReceiveHz = 0
 // to actually send one.
 const DefaultHeartbeatInterval = 20 * time.Second
 
+// InitialReconnectBackoff and MaxReconnectBackoff bound the retry cadence of
+// every automatic relay reconnect: start at one second, double, stop at
+// fifteen. One home since 2026-08-27, because there were two -- an identical
+// pair of consts plus an identical doubling-and-clamp loop in
+// core.reconnectWithBackoff and in cmd/meshghost's connectRelayWithRetry --
+// while this file's own connectFailingSince comment cites the 15s figure as a
+// fact about the shipped client. Two declarations agreeing today is not the
+// same as two declarations that cannot disagree tomorrow.
+//
+// The two loops still differ in the one way that matters and should stay
+// separate: a permanent rejection makes the library log and stop, and makes
+// cmd/meshghost exit. Only the cadence is shared.
+const (
+	InitialReconnectBackoff = 1 * time.Second
+	MaxReconnectBackoff     = 15 * time.Second
+)
+
+// NextReconnectBackoff returns the next delay after cur, clamped to
+// MaxReconnectBackoff. Shared so the clamp cannot be got subtly wrong in one
+// of the two callers.
+func NextReconnectBackoff(cur time.Duration) time.Duration {
+	if cur >= MaxReconnectBackoff {
+		return MaxReconnectBackoff
+	}
+	next := cur * 2
+	if next > MaxReconnectBackoff {
+		return MaxReconnectBackoff
+	}
+	return next
+}
+
 // DefaultDialTimeout is ConnectRelay's fallback when its timeout parameter
 // is <=0 — every other timing knob in this codebase treats zero as "use
 // the default" (transport.go, relay.go); ConnectRelay didn't, found in a

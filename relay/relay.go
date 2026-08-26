@@ -2,7 +2,9 @@
 // messages between clients in a room, partitioned by game_id, and never
 // runs or touches a game. Since 2026-08-17 it also arbitrates the planes past
 // cosmetic — addressed events, a room sequencer, leases, escrow, and session
-// resumption — all of which live in online.go and all of which stay dumb:
+// resumption — one file each since 2026-08-25 (online.go keeps the sequencer
+// and event routing; leases.go, escrow.go, states.go and resume.go the rest),
+// and all of which stay dumb:
 // every key, id and payload there is opaque, and none of it runs for a room
 // that did not opt in. It never imports core
 // or bridge — the relay must stay ignorant of adapter-side
@@ -204,7 +206,7 @@ type Client struct {
 
 	// suspended marks a client whose connection dropped but whose identity
 	// the relay is still holding, waiting out protocol.DefaultResumeGrace in
-	// case it reconnects with its resume token (see online.go's
+	// case it reconnects with its resume token (see resume.go's
 	// suspendedSession). It stays in Room.members so the roster a later
 	// joiner receives is still complete, but Room.forward writes nothing to
 	// it — Conn is nil. Guarded by Room.mu, unlike the write-once fields
@@ -618,7 +620,7 @@ type Server struct {
 	// protocol.FeatureResumeV1. Guarded by mu, same as rooms — session
 	// bookkeeping is one small critical section, not worth its own lock. In
 	// memory only: this survives a network blip, not a relay restart, which
-	// is the honest boundary of an unpersisted identity (see online.go's
+	// is the honest boundary of an unpersisted identity (see resume.go's
 	// suspendedSession and agent_docs/beyond-cosmetic.md §5).
 	suspended map[string]*suspendedSession
 
@@ -976,8 +978,10 @@ func transportName(conn net.Conn) string {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	// MaxLineBytes is the relay's own, tighter limit rather than
-	// transport's generous package default — via FromConnWithLimits, not a
+	// protocol.MaxLineBytes is a tighter limit than transport's generous
+	// package default, and it is shared: the core's dialed relay connection
+	// passes the same constant, which is why it lives in protocol/ rather
+	// than here — via FromConnWithLimits, not a
 	// post-construction field set, so it's in effect before the read
 	// loop's first Scan (found as a real, if narrow, race in a review
 	// pass: transport.FromConn already starts that goroutine before

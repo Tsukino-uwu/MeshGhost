@@ -3,7 +3,7 @@ package relay
 // Split out of online.go on 2026-08-25, where leases, escrow, late-join
 // snapshots and session resumption were four independent subsystems sharing one
 // 1,115-line file. relay/world.go had already set the precedent for one
-// subsystem per file; these three simply had not followed it yet.
+// subsystem per file; these four simply had not followed it yet.
 //
 // **The locking discipline in online.go's header governs this file too, and it
 // is the only subtle thing here.** In short: r.mu guards the room's maps and

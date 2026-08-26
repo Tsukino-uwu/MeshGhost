@@ -2,7 +2,9 @@ package core
 
 // The client half of everything past the cosmetic state plane: capability
 // advertisement, clock sync against the relay, session resumption, and the
-// send/receive paths for the event, lease and escrow planes.
+// send/receive paths for the event, lease, escrow and world planes. (The world
+// plane was missing from this list until 2026-08-27; SetWorld, DropWorld and
+// sendWorld are all in this file.)
 //
 // Nothing here interprets a payload. A lease key, an escrow blob and an event
 // payload pass through this package as opaque bytes on their way between the
@@ -73,23 +75,12 @@ func (cs *clockSync) observe(sentAt, recvAt time.Time, serverMs int64) {
 	cs.offsetMs = serverMs - midpoint
 }
 
-// ClockOffsetMs returns the current estimate of (relay clock - local clock)
-// in milliseconds, and whether any sample has been taken on this connection.
-// Diagnostic: exported so a caller can log or display it, since a large
-// offset is otherwise completely invisible.
-func (c *Core) ClockOffsetMs() (offsetMs int64, measured bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.clock.offsetMs, c.clock.bestRTTMs != 0
-}
-
-// RelayRTTMs returns the best round-trip time measured on this connection, or
-// 0 if none has been. Also diagnostic — nothing branches on it.
-func (c *Core) RelayRTTMs() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.clock.bestRTTMs
-}
+// The clock's two numbers are read through Stats() -- see core/stats.go, which
+// records why: these were exported as ClockOffsetMs() and RelayRTTMs() on the
+// claim that "a caller can log or display it", and then no caller ever did.
+// Both were deleted on 2026-08-27 with zero call sites anywhere including
+// tests; Stats.ClockOffsetMs and Stats.RelayRTTMs expose the same two values to
+// the one consumer that wanted them.
 
 // nowMs is the timestamp this Core stamps on outgoing state: local wall clock,
 // shifted into the relay's clock domain when clock sync is in play.

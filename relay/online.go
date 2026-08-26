@@ -1,8 +1,11 @@
 package relay
 
-// The relay's side of everything past the cosmetic state plane: the room
-// sequencer, event routing, lease authority, escrow, and the per-room
-// bookkeeping session resumption needs. Design reasoning lives in
+// The relay's side of the room sequencer and the event plane, plus the
+// outgoing/deliver helpers its four sibling files share. Lease authority moved
+// to leases.go, escrow to escrow.go, late-join snapshots to states.go and
+// session resumption to resume.go on 2026-08-25; this header still claimed all
+// five until 2026-08-27. The name stays because five files cite it as the
+// authority on the locking discipline below. Design reasoning lives in
 // agent_docs/beyond-cosmetic.md; the ADR is in agent_docs/architecture.md.
 //
 // **Nothing in this file understands a game, and that is a property to

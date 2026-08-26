@@ -3,7 +3,10 @@ package cfg
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -294,4 +297,77 @@ func TestOverrideDuration(t *testing.T) {
 			t.Fatalf("target = %v, want 0 -- an explicitly typed flag must win", target)
 		}
 	})
+}
+
+// TestOpenLogFileRotatesOnceAtMaxLogBytes pins the rule that stops an
+// autostarted client growing its log forever: a .log at or over MaxLogBytes is
+// renamed to .log.1 (one generation, older one discarded) and a fresh .log is
+// appended to. Untested until 2026-08-27 -- and it is the reason the file APPENDS
+// at all, which is a deliberate trade recorded at length on OpenLogFile itself.
+func TestOpenLogFileRotatesOnceAtMaxLogBytes(t *testing.T) {
+	dir := t.TempDir()
+	name := filepath.Join(dir, "meshghost.log")
+
+	// Exactly MaxLogBytes: the check is `>=`, so the boundary is the case worth
+	// pinning rather than something comfortably over it.
+	if err := os.WriteFile(name, bytes.Repeat([]byte("a"), MaxLogBytes), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	w := OpenLogFile(name, "test")
+	if w == nil {
+		t.Fatal("OpenLogFile returned nil for a writable folder")
+	}
+	if _, err := w.Write([]byte("second generation\n")); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := w.(io.Closer); ok {
+		c.Close()
+	}
+
+	rotated, err := os.Stat(name + ".1")
+	if err != nil {
+		t.Fatalf("no .log.1 after rotation: %v", err)
+	}
+	if rotated.Size() != MaxLogBytes {
+		t.Errorf(".log.1 is %d bytes, want the original %d", rotated.Size(), MaxLogBytes)
+	}
+	fresh, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(fresh) != "second generation\n" {
+		t.Errorf("fresh log holds %q, want only what was written after rotation", fresh)
+	}
+}
+
+func TestOpenLogFileAppendsBelowMaxLogBytes(t *testing.T) {
+	// The other half, and the more important one: it must NOT truncate. A
+	// process that dies and gets respawned would otherwise erase the evidence of
+	// why it died, which is the one report worth having when there is no console.
+	dir := t.TempDir()
+	name := filepath.Join(dir, "meshghost.log")
+	if err := os.WriteFile(name, []byte("first run\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w := OpenLogFile(name, "test")
+	if w == nil {
+		t.Fatal("OpenLogFile returned nil for a writable folder")
+	}
+	if _, err := w.Write([]byte("second run\n")); err != nil {
+		t.Fatal(err)
+	}
+	if c, ok := w.(io.Closer); ok {
+		c.Close()
+	}
+	got, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "first run\nsecond run\n" {
+		t.Errorf("log holds %q, want both runs -- it truncated instead of appending", got)
+	}
+	if _, err := os.Stat(name + ".1"); !os.IsNotExist(err) {
+		t.Error("rotated a log that was under MaxLogBytes")
+	}
 }

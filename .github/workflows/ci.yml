@@ -2,16 +2,20 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against eleven targets across four packages (protocol,
-# transport, relay, netx/udpconn). Until this existed,
+# short fuzz campaign against thirteen targets across five packages (protocol 7,
+# bridge 2, relay 2, transport 1, netx/udpconn 1 -- count them with
+# `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
+# this line, which said eleven across four for as long as the two bridge targets
+# below have existed). Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
 #
 # This deliberately covers ONLY the Go side. Adapters are excluded on
 # purpose: CLAUDE.md's standard for an adapter is "was the expected thing
 # seen happening on screen in a running game", which no runner can do, and
-# two of the three mod DLLs can't even be built here (proprietary game DLLs
-# and a private UE4SS dependency -- see packaging/README.md). The staleness
+# NEITHER of the two mod DLLs can be built here (proprietary game DLLs and a
+# private UE4SS dependency -- see packaging/README.md; the other two adapters are
+# Lua and have no DLL at all, which is what "two of the three" got wrong). The staleness
 # gates in release.yml are what guard those.
 #
 # Only runs when the Go client/server actually changed. No tracked .go file in

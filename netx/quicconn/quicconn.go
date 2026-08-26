@@ -78,7 +78,7 @@ const (
 	readQueue = 64
 )
 
-// NewSelfSignedTLSConfig builds the listener's TLS configuration with a
+// newSelfSignedTLSConfig builds the listener's TLS configuration with a
 // freshly generated in-memory certificate. Exported so a caller can reuse
 // one config across listeners; generating per connection would be a free
 // CPU lever for an unauthenticated stranger.
@@ -86,7 +86,7 @@ const (
 // The certificate generation itself lives in netx/tlsx, shared with TLS
 // over the tcp transport so there is one self-signed-certificate story in
 // this project rather than two that can drift apart.
-func NewSelfSignedTLSConfig() (*tls.Config, error) {
+func newSelfSignedTLSConfig() (*tls.Config, error) {
 	cfg, _, err := tlsx.ServerConfig(alpn)
 	if err != nil {
 		return nil, err
@@ -334,7 +334,7 @@ type Listener struct {
 // Listen binds addr and serves QUIC with a freshly generated self-signed
 // certificate.
 func Listen(addr string) (*Listener, error) {
-	tlsConf, err := NewSelfSignedTLSConfig()
+	tlsConf, err := newSelfSignedTLSConfig()
 	if err != nil {
 		return nil, err
 	}

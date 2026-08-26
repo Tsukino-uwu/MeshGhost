@@ -11,7 +11,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -173,15 +172,12 @@ type configTargets struct {
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
-	// Absolute, always: with the client autostarted there is no console showing
-	// which folder it was launched from, and "I edited config.json and nothing
-	// changed" is nearly always a different config.json than the one being read
-	// -- a relative path in the log answers that question with another question.
-	shown := path
-	if abs, err := filepath.Abs(path); err == nil {
-		shown = abs
-	}
-	data, err := os.ReadFile(path)
+	// Absolute path, BOM strip and empty-file check all live in
+	// cfg.ReadConfigFile -- shared with cmd/meshghost-relay, which was carrying
+	// the identical sequence. What is NOT shared is the missing-file message
+	// below: with the client autostarted there is no console showing which
+	// folder it was launched from, so a player needs telling.
+	data, shown, err := cfg.ReadConfigFile(path, "meshghost")
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("meshghost: warning: could not read config file %s: %v", shown, err)
@@ -197,18 +193,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		return
 	}
 	log.Printf("meshghost: config loaded from %s", shown)
-	data = cfg.StripBOM(data, shown, "meshghost")
 	if data == nil {
-		return
-	}
-	// An empty file is "nothing configured", not a broken config. Without this,
-	// json.Unmarshal returns "unexpected end of JSON input" and the warning below
-	// tells the operator every setting is being IGNORED -- which reads like a
-	// broken install and is not true, since there was nothing in it to ignore.
-	// Reachable in the ordinary way on Windows: `-config nul` is how a dev script
-	// says "no config", and os.ReadFile("nul") succeeds with zero bytes rather
-	// than failing os.IsNotExist.
-	if len(bytes.TrimSpace(data)) == 0 {
 		return
 	}
 	var rc rootConfig
@@ -270,11 +255,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 // again here would have been a dead argument (found in a review pass;
 // this used to take one and thread it through unused).
 func connectRelayWithRetry(c *core.Core, gameID string) {
-	const (
-		initialBackoff = 1 * time.Second
-		maxBackoff     = 15 * time.Second
-	)
-	backoff := initialBackoff
+	backoff := core.InitialReconnectBackoff
 	for {
 		err := c.ConnectRelayOnAdapterHello(gameID, "", nil)
 		if err == nil {
@@ -284,12 +265,7 @@ func connectRelayWithRetry(c *core.Core, gameID string) {
 			log.Fatalf("meshghost: %v", err)
 		}
 		time.Sleep(backoff)
-		if backoff < maxBackoff {
-			backoff *= 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
-			}
-		}
+		backoff = core.NextReconnectBackoff(backoff)
 	}
 }
 

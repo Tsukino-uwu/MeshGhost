@@ -56,12 +56,12 @@ import (
 	"time"
 )
 
-// DefaultHandshakeTimeout bounds one accepted connection's sniff plus TLS
+// defaultHandshakeTimeout bounds one accepted connection's sniff plus TLS
 // handshake. It exists because a handshake is real CPU an unauthenticated
 // stranger can ask for: without a bound, N half-open connections each hold
 // a goroutine and a socket indefinitely. See agent_docs/ideas.md's note on
 // the (still absent) per-IP cap, which is a separate decision.
-const DefaultHandshakeTimeout = 10 * time.Second
+const defaultHandshakeTimeout = 10 * time.Second
 
 // tlsRecordHandshake is the first byte of a TLS record of type handshake —
 // what every ClientHello begins with. No JSON value starts with it, which
@@ -164,19 +164,19 @@ func ServerConfig(alpn string) (*tls.Config, string, error) {
 	if alpn != "" {
 		cfg.NextProtos = []string{alpn}
 	}
-	return cfg, Fingerprint(der), nil
+	return cfg, fingerprint(der), nil
 }
 
-// Fingerprint is the SHA-256 of a certificate's DER bytes, lower-case hex
+// fingerprint is the SHA-256 of a certificate's DER bytes, lower-case hex
 // with no separators. This is the string a relay operator can read out of
 // their log and a player can paste into "tls_fingerprint" — the only thing
 // in this design that authenticates a relay, and entirely opt-in.
-func Fingerprint(der []byte) string {
+func fingerprint(der []byte) string {
 	sum := sha256.Sum256(der)
 	return hex.EncodeToString(sum[:])
 }
 
-// ClientConfig builds a dialer's TLS configuration.
+// clientConfig builds a dialer's TLS configuration.
 //
 // InsecureSkipVerify is set on purpose and is not a shortcut: "connect_to"
 // is a bare IP a friend sent you, so there is no CA and no hostname a
@@ -184,7 +184,7 @@ func Fingerprint(der []byte) string {
 // all, is the pin — an exact fingerprint match, compared out of band by a
 // human. Passing an empty pin means encryption without authentication,
 // which is what the package doc spells out.
-func ClientConfig(alpn, pin string) *tls.Config {
+func clientConfig(alpn, pin string) *tls.Config {
 	cfg := &tls.Config{
 		InsecureSkipVerify: true,
 		MinVersion:         tls.VersionTLS13,
@@ -196,13 +196,13 @@ func ClientConfig(alpn, pin string) *tls.Config {
 	if pin != "" {
 		cfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			for _, raw := range rawCerts {
-				if Fingerprint(raw) == pin {
+				if fingerprint(raw) == pin {
 					return nil
 				}
 			}
 			got := "none"
 			if len(rawCerts) > 0 {
-				got = Fingerprint(rawCerts[0])
+				got = fingerprint(rawCerts[0])
 			}
 			return fmt.Errorf("tlsx: relay certificate fingerprint %s does not match the pinned %s "+
 				"— either you are talking to a different relay than you think, or the host restarted "+
@@ -234,9 +234,9 @@ func normalizeFingerprint(s string) string {
 // closed — the caller has nothing usable left.
 func Client(conn net.Conn, alpn, pin string, timeout time.Duration) (net.Conn, error) {
 	if timeout <= 0 {
-		timeout = DefaultHandshakeTimeout
+		timeout = defaultHandshakeTimeout
 	}
-	tc := tls.Client(conn, ClientConfig(alpn, pin))
+	tc := tls.Client(conn, clientConfig(alpn, pin))
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := tc.HandshakeContext(ctx); err != nil {
@@ -264,7 +264,7 @@ type ListenConfig struct {
 	TLS *tls.Config
 
 	// HandshakeTimeout bounds the sniff plus handshake per connection.
-	// Zero means DefaultHandshakeTimeout.
+	// Zero means defaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
 
 	// Logf receives one line per refused plaintext connection under
@@ -293,7 +293,7 @@ func NewListener(ln net.Listener, cfg ListenConfig) (net.Listener, error) {
 	}
 	timeout := cfg.HandshakeTimeout
 	if timeout <= 0 {
-		timeout = DefaultHandshakeTimeout
+		timeout = defaultHandshakeTimeout
 	}
 	logf := cfg.Logf
 	if logf == nil {

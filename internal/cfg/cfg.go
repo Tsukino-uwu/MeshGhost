@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -222,4 +223,46 @@ func ApplyDespiteBadValue(err error, path, prog string) bool {
 		"value text: \"%s\": %s, not \"%s\": \"%s\".)",
 		prog, path, key, typeErr.Value, wanted, key, example, key, example)
 	return true
+}
+
+// ReadConfigFile resolves path for display, reads it, strips a BOM, and says
+// whether there is any JSON worth unmarshaling.
+//
+// One home since 2026-08-27, for the sequence both mains were carrying
+// independently: filepath.Abs for the message, os.ReadFile, StripBOM, and the
+// empty-file check -- including a byte-identical eight-line comment explaining
+// why an empty file is not a broken one. That comment now lives here.
+//
+// data is nil when there is nothing to apply, which covers both a BOM-only
+// file and an empty one. shown is the absolute path to name in any message,
+// because "I edited config.json and nothing changed" is nearly always a
+// different config.json than the one being read, and a relative path in the log
+// answers that question with another question. err is os.ReadFile's, returned
+// rather than handled: the two callers differ on a MISSING file (the client
+// tells a player their settings are being ignored, the relay stays silent) and
+// that difference is deliberate.
+func ReadConfigFile(path, prog string) (data []byte, shown string, err error) {
+	shown = path
+	if abs, absErr := filepath.Abs(path); absErr == nil {
+		shown = abs
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		return nil, shown, err
+	}
+	data = StripBOM(data, shown, prog)
+	if data == nil {
+		return nil, shown, nil
+	}
+	// An empty file is "nothing configured", not a broken config. Without this,
+	// json.Unmarshal returns "unexpected end of JSON input" and the caller warns
+	// that every setting is being IGNORED -- which reads like a broken install
+	// and is not true, since there was nothing in it to ignore. Reachable in the
+	// ordinary way on Windows: `-config nul` is how a dev script says "no
+	// config", and os.ReadFile("nul") succeeds with zero bytes rather than
+	// failing os.IsNotExist.
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, shown, nil
+	}
+	return data, shown, nil
 }

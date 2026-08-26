@@ -3,7 +3,7 @@ package relay
 // Split out of online.go on 2026-08-25, where leases, escrow, late-join
 // snapshots and session resumption were four independent subsystems sharing one
 // 1,115-line file. relay/world.go had already set the precedent for one
-// subsystem per file; these three simply had not followed it yet.
+// subsystem per file; these four simply had not followed it yet.
 //
 // **The locking discipline in online.go's header governs this file too, and it
 // is the only subtle thing here.** In short: r.mu guards the room's maps and
@@ -43,7 +43,7 @@ func (r *Room) recordState(playerID string, st protocol.State) {
 // stateSnapshotLocked returns a Join carrying each other member's last known
 // state, addressed to one client. Join.State has been reserved for exactly
 // this since the contract was written and never populated until now; the
-// receiving side (core) already handled a populated one correctly.
+// receiving side already handled a populated one correctly.
 // Caller holds r.mu.
 func (r *Room) stateSnapshotLocked(to string) []outgoing {
 	// The RECIPIENT's own capability, not the room's: a seed changes only what

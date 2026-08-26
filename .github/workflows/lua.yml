@@ -1,6 +1,7 @@
 name: Lua
 
-# Every adapter and probe in this repo is Lua, and until 2026-08-25 nothing checked that any of
+# Every EMULATOR adapter and every probe in this repo is Lua -- TEVI is C# and Pseudoregalia is
+# C++, as ci.yml's own header says -- and until 2026-08-25 nothing checked that any of
 # it COMPILES. That is a worse gap than it sounds: BizHawk embeds Lua 5.4 and loads a script at
 # runtime, so a syntax error does not fail loudly. The script simply never loads, which from the
 # outside is indistinguishable from "the ghost did not appear" -- and diagnosing it costs the user

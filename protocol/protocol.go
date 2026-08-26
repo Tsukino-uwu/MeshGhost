@@ -1,9 +1,12 @@
 // Package protocol defines the wire-level message shapes shared by the relay
 // protocol and the adapter bridge, per agent_docs/contract.md.
 //
-// This package has no internal dependencies — it is the lowest layer, pure
-// data types and JSON tags. Nothing here has behavior; framing, transport,
-// and dispatch live in other packages.
+// This package has no internal dependencies — it is the lowest layer. Its
+// behaviour is limited to validating, clamping and normalizing its own field
+// values (ValidateState, ClampSendHz, ClampReceiveHz, ClampLeaseTTL,
+// NormalizeFeatures, ResolveGhostCollision and the rest); framing, transport
+// and dispatch live in other packages. This said "nothing here has behavior"
+// until 2026-08-27, by which point there were 21 functions.
 //
 // How this package fits the whole -- the life of a connection and of a state
 // message, traced across all of them -- is docs/networking.md.

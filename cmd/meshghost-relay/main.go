@@ -5,7 +5,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -107,32 +105,18 @@ type configTargets struct {
 }
 
 func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
-	// Absolute, mirroring the client (cmd/meshghost/main.go): "I edited config.json
-	// and nothing changed" is nearly always a different config.json than the one
-	// being read, and a relative path in the log answers that with another question.
-	shown := path
-	if abs, err := filepath.Abs(path); err == nil {
-		shown = abs
-	}
-	data, err := os.ReadFile(path)
+	// Absolute path, BOM strip and empty-file check all live in
+	// cfg.ReadConfigFile, shared with the client. Unlike the client, a MISSING
+	// file is silent here: a relay is run deliberately from a console, so
+	// there is no player to reassure.
+	data, shown, err := cfg.ReadConfigFile(path, "meshghost-relay")
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("meshghost-relay: warning: could not read config file %s: %v", shown, err)
 		}
 		return
 	}
-	data = cfg.StripBOM(data, shown, "meshghost-relay")
 	if data == nil {
-		return
-	}
-	// An empty file is "nothing configured", not a broken config. Without this,
-	// json.Unmarshal returns "unexpected end of JSON input" and the warning below
-	// tells the operator every setting is being IGNORED -- which reads like a
-	// broken install and is not true, since there was nothing in it to ignore.
-	// Reachable in the ordinary way on Windows: `-config nul` is how a dev script
-	// says "no config", and os.ReadFile("nul") succeeds with zero bytes rather
-	// than failing os.IsNotExist.
-	if len(bytes.TrimSpace(data)) == 0 {
 		return
 	}
 	var rc rootConfig

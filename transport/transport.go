@@ -30,15 +30,18 @@ const (
 	// buffer without bound until it found a '\n', so a peer that streamed
 	// bytes with no newline could force unbounded memory growth in both the
 	// relay and the core; any length check performed on the delivered
-	// payload (e.g. relay.MaxLineBytes) ran too late to prevent
+	// payload (e.g. protocol.MaxLineBytes) ran too late to prevent
 	// that. Found and fixed while scoping relay-safety hardening — see the
 	// room-code/version ADR in agent_docs/architecture.md.
 	//
 	// This default is generous above any legitimate message on either
 	// protocol this package carries. A tighter per-connection limit can
-	// still be set via NDJSONConn.MaxLineBytes — the relay does this with
-	// its own, smaller relay/limits.go value, so the two limits
-	// stay in one place instead of duplicated as magic numbers.
+	// still be set via NDJSONConn.MaxLineBytes — both the relay's accepted
+	// connections and the core's dialed one pass the smaller
+	// protocol.MaxLineBytes, so the limit stays in one place instead of
+	// duplicated as magic numbers. (This said "relay.MaxLineBytes" and "the
+	// relay's own value" until 2026-08-27; that identifier has never existed,
+	// and the constant is shared rather than the relay's own.)
 	DefaultMaxLineBytes = 64 * 1024
 
 	// DefaultIdleTimeout closes a connection that hasn't delivered a
@@ -285,7 +288,7 @@ func (c *NDJSONConn) fail(err error) {
 	// net.ErrClosed is not a failure to report: it can only be produced by
 	// THIS process calling Close() on the connection, never by the peer or by
 	// the network. Every place that closes deliberately -- the relay answering
-	// a query_only transport-discovery hello (relay), a rejected
+	// a query_only transport-discovery hello, a rejected
 	// hello, a hello timeout, an oversized line, a rate-limit trip -- already
 	// logs its own reason, so passing this to OnError only ever adds a second,
 	// scarier-looking line about the close it just decided on.

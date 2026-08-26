@@ -1,6 +1,6 @@
 // Package bridge defines the message shapes exchanged between an adapter
 // and its local core process — the "adapter bridge" in agent_docs/contract.md.
-// Same NDJSON framing as the relay protocol (transport), but this
+// Same NDJSON framing as the relay protocol, but this
 // is a separate, localhost-only channel: an adapter may hold a socket to
 // its own local core and nothing else. It never speaks protocol's
 // relay messages directly.
@@ -46,7 +46,7 @@ import (
 // Making them independent instead would duplicate the field lists and give
 // internal/gameblind's frozen wire-field check two places to disagree. Deleting
 // them would collapse the separation this package exists to express. They stay.
-//
+
 // MessageType identifies which of the bridge message shapes an Envelope
 // carries. Deliberately distinct from protocol.MessageType: the bridge is a
 // separate, private channel per agent_docs/contract.md's "two protocols"

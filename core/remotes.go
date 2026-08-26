@@ -20,8 +20,8 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		return
 	}
 	atomic.AddUint64(&c.stats.statesReceived, 1)
-	// Size/length/finiteness caps mirror the relay's own checks
-	// (relay) via the shared protocol.ValidateState, applied here
+	// Size/length/finiteness caps mirror the relay's own checks, via the
+	// shared protocol.ValidateState, applied here
 	// too since a hostile or compromised relay was previously trusted
 	// completely. See the ADR in agent_docs/architecture.md.
 	if !protocol.ValidateState(st) {

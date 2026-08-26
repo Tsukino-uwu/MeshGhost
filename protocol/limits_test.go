@@ -260,3 +260,42 @@ func TestBlobBoundsCountEscapedBytes(t *testing.T) {
 		t.Error("an escrow blob that only fits before escaping was accepted")
 	}
 }
+
+// TestClampSendHzAndClampReceiveHzDifferOnZero pins the ONE rule that
+// distinguishes the two functions: zero means "use the default rate" for a send
+// rate and "uncapped" for a receive cap, so ClampSendHz(0) is DefaultSendHz and
+// ClampReceiveHz(0) is 0. Neither function had a direct unit test until
+// 2026-08-27 -- the behaviour was covered end to end by a relay test, which
+// would not have caught the two being swapped at a call site, and swapping them
+// is the mistake the shared [MinSendHz, MaxSendHz] tail makes easy.
+func TestClampSendHzAndClampReceiveHzDifferOnZero(t *testing.T) {
+	for _, hz := range []int{0, -1, -1000} {
+		if got := ClampSendHz(hz); got != DefaultSendHz {
+			t.Errorf("ClampSendHz(%d) = %d, want DefaultSendHz (%d): a send rate has a sensible default", hz, got, DefaultSendHz)
+		}
+		if got := ClampReceiveHz(hz); got != 0 {
+			t.Errorf("ClampReceiveHz(%d) = %d, want 0: a receive cap has no default, only off", hz, got)
+		}
+	}
+
+	// Everything else about the two is identical, and that is the point: a
+	// positive value is clamped into range rather than refused, because neither
+	// a relay nor a client may fail over a cosmetic tuning knob.
+	for _, f := range []struct {
+		name string
+		fn   func(int) int
+	}{{"ClampSendHz", ClampSendHz}, {"ClampReceiveHz", ClampReceiveHz}} {
+		if got := f.fn(MinSendHz - 1); got != MinSendHz {
+			t.Errorf("%s(%d) = %d, want %d", f.name, MinSendHz-1, got, MinSendHz)
+		}
+		if got := f.fn(MaxSendHz + 1); got != MaxSendHz {
+			t.Errorf("%s(%d) = %d, want %d", f.name, MaxSendHz+1, got, MaxSendHz)
+		}
+		if got := f.fn(MinSendHz); got != MinSendHz {
+			t.Errorf("%s(%d) = %d, want it unchanged", f.name, MinSendHz, got)
+		}
+		if got := f.fn(MaxSendHz); got != MaxSendHz {
+			t.Errorf("%s(%d) = %d, want it unchanged", f.name, MaxSendHz, got)
+		}
+	}
+}

@@ -187,7 +187,7 @@ func (s *Server) Snapshot() Snapshot {
 	}
 	// Counted, not len(s.suspended): that map holds every LIVE identity too,
 	// since a session is registered when its token is issued rather than when
-	// it drops (see online.go's suspendedSession). Reporting the map size
+	// it drops (see resume.go's suspendedSession). Reporting the map size
 	// would say "3 suspended sessions" about a healthy three-player room,
 	// which is exactly the kind of confidently wrong number a debugging aid
 	// must never produce.
@@ -320,7 +320,6 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 // A room with nothing beyond members collapses to one line, so the common case
 // — a purely cosmetic room, which is every room today — does not bury the one
 // room that has something going on.
-
 func (s Snapshot) String() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "relay state: %d/%d client slots in use, %d room(s), %d suspended session(s)",

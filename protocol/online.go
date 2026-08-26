@@ -339,10 +339,10 @@ func HasFeature(features []string, name string) bool {
 	return false
 }
 
-// ValidateFeatures reports whether a Hello's feature list is within bounds.
+// validateFeatures reports whether a Hello's feature list is within bounds.
 // Checked at the relay before the list is used to create or match a room,
 // same stage as the hello-field length checks.
-func ValidateFeatures(features []string) bool {
+func validateFeatures(features []string) bool {
 	if len(features) > MaxFeatures {
 		return false
 	}
@@ -356,7 +356,7 @@ func ValidateFeatures(features []string) bool {
 
 // ValidateHelloFields reports whether every client-supplied field of a Hello is
 // within its bound: the five string fields against MaxHelloFieldLen, the resume
-// token against MaxResumeTokenLen, and the feature list against ValidateFeatures.
+// token against MaxResumeTokenLen, and the feature list against validateFeatures.
 //
 // It lives here, beside the constants it enforces, rather than as five inline
 // len() comparisons at the relay's one call site — which is where it was until
@@ -380,7 +380,7 @@ func ValidateHelloFields(h Hello) bool {
 	if len(h.ResumeToken) > MaxResumeTokenLen {
 		return false
 	}
-	return ValidateFeatures(h.Features)
+	return validateFeatures(h.Features)
 }
 
 // LeaseOp is what a client is asking the relay to do with a key.
@@ -636,7 +636,9 @@ const (
 	// entry per message. The relationship is asserted by a test in package
 	// udpconn, which is the only place that can see the unexported constant.
 	//
-	// ~58KB per room at the maximum, which is a CAP, not a leak: entries are
+	// ~52KiB per room at the maximum -- 64 * (MaxWorldBlobBytes 768 +
+	// MaxWorldKeyLen 64) = 53,248 bytes; this said ~58KB until 2026-08-27,
+	// which overstated what is actually retained. It is a CAP, not a leak: entries are
 	// bounded, and the only thing that discards them automatically is the room
 	// itself going away. See relay/world.go on why lifetime is deliberately not
 	// tied to the lease.
