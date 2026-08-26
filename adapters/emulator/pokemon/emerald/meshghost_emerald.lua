@@ -4643,7 +4643,14 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     -- syncGhost owns the mount blob, at the engine-held destination.
     local rAct = remotes[playerId] and remotes[playerId].act
     local midJump = rAct and rAct >= 0x3a and rAct <= 0x3d
-    if SURFING_GFX[graphicsId] and not midJump then
+    -- ...AND NOT WHILE FLYING. The mount pose borrows this graphic; see flyRide.apply's note at
+    -- `g.noBlob` for why a blob there is both wrong and long-lived. Read off the PEER here, not
+    -- off a ghost: this function is building the ghost, so there is no record to carry the flag
+    -- yet -- `g` does not exist in this scope at all, and reaching for it is a nil index that
+    -- would have thrown on the first surfing spawn. The peer's own state is the same answer and
+    -- is already in hand one line above.
+    local rFly = remotes[playerId] and remotes[playerId].fly
+    if SURFING_GFX[graphicsId] and not midJump and not rFly then
         local blob = spawnSurfBlob(ghosts[playerId], mapX, mapY)
         console.log(string.format("MeshGhost: surf blob for gfx %d -> sprite %s",
             graphicsId, tostring(blob)))
@@ -5207,7 +5214,10 @@ flyRide.spawnBird = function(g, k)
     -- the engine's clock, so seeding costs nothing per frame and starts them in phase rather than
     -- one interpolation delay apart.
     w16(d + 0x32, (k or 0) & 0xffff)          -- data[2]: the arc parameter
-    w16(d + 0x3a, g.sprId)                    -- data[6]: sPlayerSpriteId -- the passenger
+    -- data[6]: sPlayerSpriteId. Seeded EMPTY, exactly as StartFlyBirdSwoopDown seeds it -- the
+    -- passenger is written by the caller, every frame, from the peer's own hand-off. A bird that
+    -- spawns already carrying somebody has skipped the descent, which is the bug this seed had.
+    w16(d + 0x3a, flyRide.NO_RIDER)
     w16(d + 0x3c, 0)                          -- data[7]: sAnimCompleted
     w8(d + 0x3e, 0x01)                        -- inUse; NOT coordOffsetEnabled -- see above
     w8(d + 0x3f, 0x04)                        -- animBeginning
@@ -5320,30 +5330,154 @@ end
 -- The order is the order of authority. A fly is the strongest statement -- the character is not on
 -- the map at all -- a vehicle next (on the map, drawn as something else), and a bare `invisible`
 -- last (on the map, simply not drawn).
-flyRide.apply = function(g, remote)
+-- WHAT THE RECEIVER SAW AND WHAT IT DID, one line per change, under compare mode.
+--
+-- The engine side of a fly is fully covered by `probes/fly_probe.lua`, which reads the game and
+-- never this file. What that cannot see is the DECISION: which `fly`/`flyk` actually arrived over
+-- the wire and which branch it took. Both halves are needed together -- the 2026-08-26 departure
+-- bug looked identical from the engine side whether the value never arrived or arrived and was
+-- ignored. Change-keyed, so a whole fly is a dozen lines, and to the FILE, never the console.
+-- NOT GATED ON COMPARE MODE, deliberately, and this is why: the fly bugs that survived the first
+-- three fixes are all on the side that WATCHES a flying peer, and the watching client is the one
+-- running the shipped configuration with no dev flags set. A trace only the dev rig emits is a
+-- trace that cannot see them. It is change-keyed and file-only, so a whole fly is about a dozen
+-- lines and a session that never flies writes none.
+flyRide.trace = function(g, remote, where)
+    if not remote.fly and not g.flyTraceKey then return end
+    local k = string.format("%s/%s/%s/%s/%s", where, tostring(remote.fly), tostring(remote.flyk),
+        tostring(g.birdSprId), tostring(g.flyDone))
+    if g.flyTraceKey == k then return end
+    g.flyTraceKey = k
+    logFile(string.format("FLY %s fly=%s flyk=%s bird=%s done=%s gfx=%s obj=%s f=%d",
+        where, tostring(remote.fly), tostring(remote.flyk), tostring(g.birdSprId),
+        tostring(g.flyDone), tostring(g.gfx), tostring(g.objId), frameCounter))
+end
+
+flyRide.apply = function(g, remote, playerId)
+    flyRide.trace(g, remote, "enter")
+    -- THE SURFING GRAPHIC DOES NOT MEAN SURFING HERE, and this is the one place in the game where
+    -- that is true. To sit on the bird the engine puts the character in the SURFING graphic with
+    -- the mount animation (FlyOutFieldEffect_JumpOnBird) -- it is a riding pose, borrowed, and the
+    -- game itself destroys the real blob at that moment rather than making one.
+    --
+    -- Every path here that sees a surfing graphic attaches a surf blob, because everywhere else
+    -- that graphic really does mean a character on the water. So a flying peer got one: the user,
+    -- watching, *"think i saw some surf blobs during the fly animation itself ? instead of just
+    -- the bird thing"*. It also outlives the flight -- a blob follows an object id stored in its
+    -- own sprite data, so one left attached swims along under the peer afterwards, which is the
+    -- other half of *"the spawned ghost on the right got a glitchy/weird sprite afterwards"*.
+    --
+    -- Suppressed at the source rather than cleaned up after: `g.noBlob` is read by both attach
+    -- sites, and this runs before either of them in the frame.
+    g.noBlob = remote.fly ~= nil or nil
     if remote.fly then
+        despawnSurfBlob(g)
+        g.wasFlying = true
         flyRide.despawnVehicle(g)
-        if remote.fly == 2 then
-            flyRide.setHidden(g, false)
-            if not g.birdSprId then flyRide.spawnBird(g, remote.flyk) end
-            -- The engine sets sAnimCompleted at the end of the arc and then stops moving the pair;
-            -- the game's own task is what destroys the sprite. There is no task here, so a
-            -- finished bird is retired the frame it reports done, and its passenger -- who is by
-            -- then off the top of the screen and on the way to another map -- is hidden.
-            if g.birdSprId and r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
-                flyRide.despawnBird(g)
-                flyRide.setHidden(g, true)
+        -- THE BIRD ARRIVES BEFORE ITS PASSENGER, which is the whole shape of the animation.
+        --
+        -- Measured 2026-08-26 (`probes/fly_probe.lua`), second run: the ghost's bird was being
+        -- created at arc position 80 of 128 while the engine's was at 84 -- two thirds through --
+        -- so the ghost had no swoop at all. It appeared near the top of the arc already carrying
+        -- somebody and left. The user, watching it: *"fly is still looking weird
+        -- animation/sprite/location wise"*.
+        --
+        -- The cause is that a bird and its passenger are two different events. The engine's bird
+        -- starts its swoop EMPTY (`StartFlyBirdSwoopDown` zeroes the arc and sets sPlayerSpriteId
+        -- to "nobody"), flies down, and only then is the character handed to it
+        -- (`SetFlyBirdPlayerSpriteId`, from FlyOutFieldEffect_FlyOffWithBird) -- about twenty
+        -- frames later. Waiting for `fly == 2`, which is the peer reporting that HAND-OFF, meant
+        -- skipping the entire descent.
+        --
+        -- So the bird is built as soon as the peer HAS one, whether or not it is carrying yet, and
+        -- the passenger slot is written every frame from the peer's own answer. Both halves then
+        -- happen at the same arc positions they happened at on the peer's screen, which is the
+        -- only definition of 1:1 available here.
+        if not g.flyDone and remote.flyk then
+            if remote.flyk >= 0x80 then
+                -- The peer's arc is ALREADY over -- a fly noticed late, across a network delay.
+                -- Starting a bird here would draw the second half of a swoop with no first half.
+                if remote.fly == 2 then g.flyDone = true end
+            elseif not g.birdSprId then
+                flyRide.spawnBird(g, remote.flyk)
             end
+        end
+        -- WHO THE BIRD IS CARRYING, re-stated every frame from the peer rather than set once at
+        -- spawn: the hand-off is the peer's event to announce, and a bird that spawned before it
+        -- must be empty until it arrives. NO_RIDER is the engine's own sentinel for that.
+        -- ONE LIFECYCLE FOR THE BIRD, SHARED BY BOTH PHASES -- and this is where the departure was
+        -- still being lost after the two-phase spawn went in. The `fly == 1` branch below used to
+        -- retire the bird, from when fly==1 meant "no bird exists yet": so the descent spawned one
+        -- and the same frame destroyed it, over and over, and a bird only ever survived once the
+        -- peer reported fly==2. Measured 2026-08-26: `flyk` was on the wire from 8, and `bird` was
+        -- still nil at 72. The retire belongs to the bird's own "done", not to a phase.
+        if g.birdSprId then
+            w16(sprAddr(g.birdSprId) + 0x3a,
+                (remote.fly == 2) and g.sprId or flyRide.NO_RIDER)
+            if r16(sprAddr(g.birdSprId) + 0x3c) ~= 0 then
+                if remote.fly == 2 then g.flyDone = true end
+                flyRide.despawnBird(g)
+            end
+        end
+        if remote.fly == 2 then
+            -- THE ARC HAPPENS ONCE, AND "DONE" HAS TO BE LATCHED. Measured 2026-08-26
+            -- (`probes/fly_probe.lua`): without the latch this spawned and destroyed a bird on
+            -- EVERY FRAME of the departure, and the ghost blinked in and out with it.
+            --
+            -- The loop is closed and the engine's own callback is what closes it.
+            -- SpriteCB_FlyBirdSwoopDown sets sAnimCompleted when its arc parameter passes 0x80 and
+            -- then KEEPS INCREMENTING -- it never stops, because in the real game the task tears
+            -- the sprite down. There is no task here, so this retired the bird on `done`, and the
+            -- next frame found `remote.fly` still 2 and no bird, spawned a fresh one seeded with
+            -- the peer's arc value, which was already past 0x80 -- so it reported done immediately
+            -- and the whole thing went round again, once per frame.
+            --
+            -- That single loop is BOTH symptoms the user reported: the blink is *"sprites are
+            -- glitchy"*, and the passenger's coordOffsetEnabled being cleared by a new bird and
+            -- restored by the old one's teardown on alternate frames is *"the ghosts are not
+            -- following the player at all during fly"* -- the ghost's position alternating between
+            -- the bird's screen coordinates and the map's.
+            --
+            -- So: the flight is attempted once per fly. Latched done, the peer stays hidden, which
+            -- is what the player themselves is -- off the top of the screen, on the way somewhere.
+            flyRide.setHidden(g, g.flyDone == true)
             return true
         end
         -- fly == 1: on the ground, in the field-move pose. An ordinary character drawn the
         -- ordinary way -- and if a bird is still attached from the swoop, this is where it is let
         -- go, which is also the arrival case: the peer is set down and the bird leaves.
-        flyRide.despawnBird(g)
+        --
+        -- The latch clears here as well as off the fly entirely, because an arrival is a SECOND
+        -- flight: the fly-in task carries the peer down on its own fresh arc, and a latch held
+        -- over from the departure would hide the landing.
         flyRide.setHidden(g, false)
         return false
     end
     flyRide.despawnBird(g)
+    g.flyDone = nil
+
+    -- A LANDED PEER IS REBUILT, NOT REPAIRED.
+    --
+    -- A fly leaves a ghost holding six things that are all individually wrong afterwards: the
+    -- mount graphic, the mount animation with its paused bit, a sprite offset from the drop table,
+    -- a cleared coordOffsetEnabled, a map position frozen at the tile it took off from, and -- for
+    -- a same-town fly, where the area id never changes and nothing else triggers a rebuild -- no
+    -- reason for any other code path to revisit any of it. The user, after the arc was fixed:
+    -- *"none of the ghosts are lining up next to the player after flying, and some of the ghosts
+    -- get stuck in bad animation poses"*. Both are that list.
+    --
+    -- Restoring the six by hand is six chances to miss one, and the adapter already has a routine
+    -- that produces a correct ghost from nothing: the spawn path. So the end of a flight drops the
+    -- ghost and lets the next frame rebuild it at the peer's real position wearing the peer's real
+    -- graphic. One frame of absence, spent while the peer is landing behind a fade -- which is the
+    -- cheapest moment in the whole sequence to spend it.
+    if g.wasFlying then
+        g.wasFlying = nil
+        if playerId then
+            despawnGhost(playerId)
+            return true
+        end
+    end
 
     if remote.boat then
         if g.vehicleGfx and g.vehicleGfx ~= remote.boat then flyRide.despawnVehicle(g) end
@@ -5984,7 +6118,8 @@ function swapGhostGraphicInPlace(g, graphicsId, sanim, sox, soy, sidx, spaused, 
     -- Both directions, because getting OFF the water is the same swap in reverse: a blob left
     -- behind keeps following the object it names (data[2] is the ghost) and would swim along under
     -- a peer who is walking down a road.
-    if SURFING_GFX[graphicsId] then
+    -- ...AND NOT WHILE FLYING -- flyRide.apply's `g.noBlob`, set earlier this frame.
+    if SURFING_GFX[graphicsId] and not g.noBlob then
         if not g.blobSprId then
             -- AT THE WIRE TILE, NOT THE GHOST'S. On a mount the swap lands a beat before the
             -- ghost performs its jump (the swap-pending gate orders them), so the ghost's own
@@ -6132,7 +6267,7 @@ local function syncGhost(playerId, remote)
     -- because for a peer on Briney's boat or in the middle of a Fly the answer is no, and every
     -- one of those is then a write on top of something the engine is already driving. flyRide's
     -- header has what the two states are and why nothing else this file sends can describe them.
-    if flyRide.apply(g, remote) then return end
+    if flyRide.apply(g, remote, playerId) then return end
 
     -- MIRROR THE PEER'S SPRITE ANIMATION, for the states the engine will not drive for us.
     --
