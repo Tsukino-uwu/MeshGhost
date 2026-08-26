@@ -4172,3 +4172,41 @@ button, not a cleverer theory.
 spiral descent, and it read as a defect rather than a placeholder — so every report about it was
 work on the wrong animation. A stand-in for something ANIMATED buys far less time than one for
 something static, and this one cost more than building the real thing would have.
+
+## Two renderers disagreeing named the field in one report (Crystal, 2026-08-26)
+
+**Symptom.** A peer gliding on ice ran a walk cycle. The user's report contained the diagnosis
+without either of us noticing at first: *"the spawned ghost is still doing the 'walking' animation
+when gliding on the ice. the drawn ghost is not doing it (correct/intended)."*
+
+**Why that sentence is the whole answer.** The two tiers differ in exactly one way: the DRAWN tier
+derives its pose from the peer's own `face`/`act` bytes, and the SPAWNED tier hands the peer's
+position to the engine and lets the engine animate. **One renderer being right and the other wrong,
+from the same wire data, says the information is present and one consumer ignores it** — so the
+search is "which byte does the drawn tier read that the engine cannot know", not "what is wrong
+with ice". That collapsed a subsystem hunt into a field lookup. `_template/probes.md` already
+carries the general form ("two renderers of one state disagreeing is the cheapest localiser there
+is"); this is the case where it named a single byte.
+
+**Cause.** A gliding player reads `walk=10 stype=6 act=1 face=08` — moving at the fast gait with
+`OBJECT_ACTION_STAND` and a stride that never advances. An ordinary step carries action 2 (STEP).
+The engine, driving the ghost as a walker, advanced the stride itself; the peer's STAND could not
+stop it because `applyPeerAction` sits BELOW `renderRemote`'s mid-step return, so during the
+ghost's own step — precisely when the stride advances — it never runs.
+
+**Fix.** Set `SLIDING` on the GHOST while the peer reports moving-and-STANDING.
+`SetFacingStepAction` tests that bit first and skips `OBJECT_STEP_FRAME` entirely. It is a bit the
+engine READS and never writes, so there is nothing to race — unlike writing the action byte every tick,
+which is the two-writers bug this same file hit hours earlier with SPIN.
+
+**And the obvious fix was refuted before it was built.** `SLIDING` is exactly the suppression
+Emerald expresses as `extras.noanim`, so "mirror the peer's SLIDING bit" looked certain from the
+source. `probes/ice_probe.lua` measured it: **`SLIDING seen SET = false`** across a whole glide —
+the player never wears it. Building it would have shipped a wire field that is always zero and
+sent the next session into the renderer.
+
+**Third time in one day the decompilation described a mechanism this game does not use here** (the
+Fly landing, then `CanObjectMoveInDirection`'s swimming bit, then this). Every one of the three
+looked certain, fit every symptom, and was wrong; the fixes that held were the ones measured first.
+**The rule already exists in `CLAUDE.md` — the failure mode is not disbelieving it, it is not
+noticing that reading has quietly replaced measuring.**

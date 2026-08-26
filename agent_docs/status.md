@@ -12,18 +12,24 @@ same day: *"i will move on to crystal and not work more on emerald right now."* 
   polish or a custom feature; a real fault is a defect against a finished adapter. `phase8.md`.
 - **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
   is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
-- **Nothing is running.** The 2026-08-26 rig was relay (`run-relay-loopback.bat`) + core
-  (`run-core.bat crystal`, quic, interp 0) + BizHawk on V1.0, with `MESHGHOST_COMPARE_TIERS`; all
-  shut down. Start it yourself and `console.clear()` at session start.
-- **NEXT SESSION STARTS HERE: spin tiles and Dig/Teleport**, the last two action classes. Fishing
-  and Fly are DONE and confirmed (2026-08-26). `crystal/UNVERIFIED.md`.
+- **Nothing is running.** The 2026-08-26 rig was relay (loopback, `-send-hz=100`) + core
+  (crystal, quic, `-interp=0ms -min-send=10ms`) + BizHawk on V1.0, with `MESHGHOST_COMPARE_TIERS`;
+  all shut down. **`run-relay-loopback.bat` has no `cd /d "%~dp0"` and its `..\meshghost-relay.exe`
+  resolves outside the repo** — launch with the working directory set, or the exe directly.
+- **Two Go-side fixes are UNWATCHED** (2026-08-26): the adapter no longer throws on a map change
+  (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
+  in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
+  `crystal/UNVERIFIED.md`.
+- **NEXT SESSION STARTS HERE: Dig/Teleport**, the last action class — `SPIN_FLICKER` (action 5)
+  has never been produced in any capture. SPIN and ICE are done (2026-08-26). `crystal/UNVERIFIED.md`.
 - **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
   cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
   equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
   ended the 2026-08-26 deadlock (`_template/probes.md`).
-- **Savestate slots on that rig:** 1 the user's, **7 the FISHING spot (rod on SELECT)**, **8 a
-  SAME-TOWN fly (press A)**, **9 a CROSS-TOWN fly (press A)** — 8 and 9 were `goto_map`'s undo and
-  the 9x9 square start until 2026-08-26, and were re-recorded by the user for the fly work. The savestate-is-not-a-save trap: `environment.md`.
+- **Savestate slots on that rig:** 1 the user's, **7 FISHING (rod on SELECT)**, **8 SAME-TOWN fly**,
+  **9 CROSS-TOWN fly**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**, **3 the wrong-trainer
+  route**. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its
+  hardcoded 8 would eat the fly state. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
 ## Genuinely open items

@@ -124,6 +124,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: no ghost painted over the party menu
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the ghost returns after a same-town Fly
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: the Fly landing, with the Pokemon, and the menu gate
+- CONFIRMED ON SCREEN 2026-08-26 — Crystal: a peer gliding on ice does not run the walk cycle
 
 ## Confirmed facts
 
@@ -2097,3 +2098,32 @@ watcher's view still gets no descent — there is no signal for it and none was 
 menus (START, text boxes) are still handled by the rectangle machinery, unchanged and not re-watched
 here. And the fly DEPARTURE shows nothing: the flier's own game plays a private cutscene, so a
 watcher sees the peer simply leave.
+
+## CONFIRMED ON SCREEN 2026-08-26 — Crystal: a peer gliding on ice does not run the walk cycle
+
+**The user, on the compare rig in Ice Path 1F:** *"ice works now. confirmed"* — after reporting
+the fault precisely: *"the spawned ghost is still doing the 'walking' animation when gliding on
+the ice. the drawn ghost is not doing it (correct/intended)."*
+
+**What is confirmed:** a peer crossing an ice tile holds its standing pose on the SPAWNED tier for
+the length of the glide, matching the drawn tier, and returns to an ordinary walk cycle on
+stepping off. Watched with both copies on screen at once (`MESHGHOST_COMPARE_TIERS`, drawn two
+tiles left, spawned to the right), loopback, interpolation 0.
+
+**What it rests on, measured rather than derived** (`probes/ice_probe.lua`, driven left/right
+across real ice): a gliding player reads `walk=10 stype=6 act=1 face=08` — moving at the FAST
+gait (group 2, the bike's group) with `OBJECT_ACTION_STAND` and a facing stride that never
+advances. An ordinary walking step carries action 2 (STEP). **"Moving while STANDING" is the
+game's own description of a glide**, and it was already on the wire as `extras.act`.
+
+**The fix sets `SLIDING` on the GHOST**, not on anything copied from the peer:
+`SetFacingStepAction` tests `SLIDING_F` first and skips `OBJECT_STEP_FRAME` entirely, so the walk
+cycle does not run. It is a bit the engine reads and never writes, so unlike an action byte there
+is nothing to race per tick.
+
+**What it does NOT cover.** A REMOTE peer: this was loopback, where the peer's glide is also the
+watcher's own, so the watcher's engine was on ice too. The bike, which shares gait group 2 and
+therefore also reads `walk=10` — nobody has checked that a biking peer still animates correctly,
+and the glide test is `act == STAND` rather than the gait, so it should be unaffected by
+construction. Ledge hops, spin tiles and the B1F slide puzzle were not exercised. And the ice
+CADENCE (how many frames a glide takes per tile against the player's) was never compared.

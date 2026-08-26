@@ -1801,3 +1801,247 @@ Not summarised here, because that would be an index of an index. Where each went
 
 **Still open on Fly, and deliberately:** a remote peer's landing has never been watched, and a peer
 flying tile-to-same-tile in a watcher's view gets no descent because no signal for it exists.
+
+## 2026-08-26 — Crystal: the SPIN class, and two fixes of which only one is proven to matter
+
+**The spin itself looks DONE on both tiers**, on the user's own watching: the drawn ghost is
+*"spinning around properly in the whirlpool"*, and the spawned one *"does spin on the whirlpool
+when it does follow it"*. Not moved to `VERIFIED.md`: the spawned half is qualified by a
+following fault that was live at the time, so it has not been seen clean.
+
+**Slot 10 is the rig, and it is the reason this class became measurable.** The user prepared a
+savestate one tile below a whirlpool where HOLDING UP re-enters it indefinitely — a repeatable
+spin generator, the same economics as the fly savestates (`_template/probes.md`). New instrument:
+`probes/whirlpool_drive.lua`, which loads it, holds Up, and logs every occupied object slot.
+
+### What a whirlpool spin IS, measured
+
+`OBJECT_ACTION_SPIN` (4), **not** a bump and not a field-move animation — the decomp's whirlpool
+path (`TryWhirlpoolOW`) is a text box and a block swap with no character animation in it, so
+reading it alone would have answered the wrong question. Facing cycles `0C -> 04 -> 08 -> 00`
+(right, up, left, down), **8 video frames each = 4 engine ticks**, always the standing view; the
+player is then pushed back a tile still spinning and ends faced away from the whirlpool. That
+matches `documentation.md`'s decomp-derived "spin advances every 4 ticks" — now measured rather
+than derived. `SPIN_FLICKER` (5) never appeared, so Dig/Teleport stays unmeasured.
+
+### The A/B that located the fault — it was never about water
+
+Same instrument (`MESHGHOST_CRYSTAL_STEP_LAG`), same map, same rig, one variable:
+
+| run | apply spread | frames blocked mid-step |
+|---|---|---|
+| open water, no whirlpool (**control**) | `2-2`, `0-0`, `2-2` — **0 wide every report** | **0** every report |
+| into the whirlpool | `2-10` — **8 wide**, mean 4.67-7.33 | 37-133 |
+
+**Plain surfing is perfect.** The spawned tier is never refused a slot out there — `1 spawned as
+real objects` on every sample, zero `stays on the drawn tier` refusals — which killed the first
+theory (that `CanObjectMoveInDirection`'s SWIMMING bit was refusing steps onto water). The
+adapter's own contribution was measured at 0-1 frames on 2026-08-23; 8 frames of SPREAD is what
+reads as walk-hesitate-walk.
+
+### Fix 1 — the adapter DIES on a map change (proven, unwatched)
+
+`renderRemote` drops `g` to nil when `stillOurs()` reports the slot is the game's again, then
+calls `applyPeerSprite(g, ...)` on the next line, which indexed `g.st_base` with no nil check.
+It throws and **the dev loader unloads the whole adapter**. Shipped code, in `HEAD`; the loader
+log had been naming it (`attempt to index a nil value (local 'g')`, 12:21 and 12:22 that day).
+This is the user's *"ghosts stop following when going to different routes"*.
+
+Second defect in the same function: it set `g.sprite = id` immediately after writing, which is
+the value `stillOurs()` compares against — so the guard agreed by construction and could never
+catch a bad write. The cross-links are now checked BEFORE the write, and the guard names itself
+in the log the first time it ever fires, so a later session can delete it on evidence.
+
+### Fix 2 — two writers on the ghost's action byte (proven to change the engine, NOT to fix the symptom)
+
+`MovementFunction_Standing` — which `setGhostStanding` deliberately pins every idle ghost to —
+writes `OBJECT_ACTION` back to `OBJECT_ACTION_STAND` and sets `STEP_TYPE_RESTORE`, whose `.Reset`
+calls `RestoreDefaultMovement` and `GetInitialFacing` and so resets `OBJECT_DIRECTION` too. So
+`applyPeerAction` and the engine raced on one field every tick — the bug class
+`adapters/CLAUDE.md` already names. `applyPeerAction` now also pins `STEP_TYPE_STANDING` (4)
+while the ghost is idle; `StepFunction_Standing` writes only `OBJECT_WALKING`, so the peer's own
+bytes stand.
+
+**Measured before/after on the ghost during a spin: `stype=5` (RESTORE) on every frame -> `stype=4`
+on every frame, and `act=STAND` overwrites down to 4 against 66 spin frames. The facing cycle is
+unchanged, so the spin is not regressed.**
+
+**AND IT DID NOT FIX THE REPORTED SYMPTOM.** `apply spread` is still `2-10 (8 wide)` and blocked
+frames still 37/89/107 — identical to before. Kept because it removes a real race and is measured
+to do so, but recorded here as **not** the cause of the following fault. *"This mechanism is real"
+and "this mechanism explains my bug" are separate claims* (`_template/README.md`), and this one
+failed the second test.
+
+**It also names a previously-unexplained open item.** The 2026-08-23 entry above ("the periodic
+whole-TILE drift") recorded `step_type=5` on a ghost with *"this adapter only ever writes 2"* and
+listed `RestoreDefaultMovement` as a suspicion that was never established. It is established now,
+and the trigger is a peer ACTION reaching an idle ghost.
+
+### Still open, and it is the user's actual complaint
+
+The 8-frame apply spread at the whirlpool has no cause yet. What is ruled out: tier refusal, the
+SWIMMING bit, water in general, and the action-byte race. What has not been looked at: whether
+the peer's bounce (tile change every ~48 frames with a 32-frame spin inside it) simply arrives
+faster than a 16-frame ghost step plus `STEP_TRIGGER_PROG`'s 2-frame hold can absorb — which
+would make the spread structural rather than a defect, and is a measurement, not a theory.
+
+### Not established, and parked: trainers wearing the wrong sprite
+
+Reported on a route change, then reproduced on the SAME map after a savestate load, then again
+after a Fly — so not map-change-specific and not savestate-specific. `probes/slot10_census.lua`
+dumps every map object and struct and is built to be run twice (adapter loaded / not) so the two
+can be diffed. Run A (**no adapter loaded at all**) shows `mo1`-`mo5` on map 22:2 carrying
+`sprite=245`, which is `SPRITE_OLIVINE_RIVAL` — **a real constant, and one of Crystal's VARIABLE
+sprites** (`SPRITE_VARS`, resolved at runtime through the game's own table). So the map's own
+data legitimately says that, with nothing of ours running, and the question is variable-sprite
+resolution rather than corruption by us. Nobody has confirmed which.
+
+### CORRECTION, later the same day — I measured the PASSING case, and the fault is on the WIRE
+
+**Two things above are wrong and are corrected here rather than edited away.**
+
+**1. The driver was reproducing the case that works.** `whirlpool_drive.lua` held Up
+continuously, which is the user's *"twice in a row"* case — and they had already said that one
+behaves: *"the spawned ghost follows properly and spin the 2nd time"*. The failing case is
+**up, pause, up**: *"it never follows me into the whirlpool as it goes down to the tile im at
+instead during the pause"*. A whole session of numbers was taken on the passing configuration.
+The driver now drives the reported cycle (120 frames of Up, 180 idle). **`probes.md`'s rule that
+a probe must reproduce the REPORTED case, with the idle phase as part of the case rather than
+dead air between measurements, is what this cost.**
+
+**2. "8-wide apply spread" was not the fault, and neither was anything in the renderer.** With
+the failing cycle driven and a new `path f=` trace (every standing frame where the ghost owes a
+move, printing what `pathGoal` returned):
+
+- **33 player tile changes; 14 deficits ever seen by the adapter** — one every 150 frames, while
+  the player oscillates every ~50.
+- **Every one of those 14 was stepped within 3 frames**, `deficit 1`, `inphase`, correct
+  direction both ways.
+- **The path queue was empty on every single frame** (`q=0`), and `pathXY` tracked the peer's
+  current tile throughout.
+
+**There is no frame on which the ghost saw a move and refused it.** The renderer, the tier
+decision, `STEP_TRIGGER_PROG`, the path queue and the action race are all cleared. The adapter is
+handed the SAME peer tile for 150 frames at a time; the intermediate out-and-back never reaches
+`renderRemote`.
+
+**So the next measurement is the WIRE, and it should have been the first.**
+`_template/README.md` states the order outright — *what arrives? then what is derived from it?
+then what reaches the screen?* — and warns that measuring the last one first cannot distinguish
+the three. That is exactly the mistake made here. In loopback the peer IS the local player
+echoed, so the loss is between `getLocalState` sampling the player's tile (which changes at step
+START in this game) and `renderRemote` receiving it: the adapter's own send gate, the core, or
+the relay. `meshghost -stats=10s` reports received-vs-rendered counts from the client's own side
+and costs one log line.
+
+**Nothing about the whirlpool, water, surfing or the spin is implicated any more.** The spin
+class itself still looks correct on both tiers.
+
+### RESOLVED to a mechanism, same day — the whirlpool freezes every other object, ghost included
+
+**The user's final description was the measurement**: *"it basically walks a half tile up whenever
+i walk up into the whirlpool during 1 step, and then goes back down to the tile i was at
+previously if a break/pause happens."* The half tile is exact: the blocked-state instrument shows
+the ghost frozen mid-step at `walk=5 stype=2 dur=3` for ~60 frames at a stretch — five of eight
+ticks done, 10px of 16 — with the freeze window coinciding, on the probe's single clock, with the
+player's own object running the whirlpool spin (ghost frozen at f315, player `act=SPIN` f317-331,
+repeating every cycle).
+
+**The chain, named in `pret/pokecrystal`:** the whirlpool tile forces
+`PLAYERMOVEMENT_FORCE_TURN` (`engine/overworld/player_movement.asm:119`); the forced spin is
+applied through `ApplyMovement` (`engine/overworld/scripting.asm:815`), whose first call is
+**`FreezeAllOtherObjects`**. Every other object freezes wherever it stands, mid-step included —
+the game's own NPCs get identical treatment. When the movement script ends the ghost thaws,
+completes its step, and the peer is already back on the lower tile, so it walks down: the
+recovery is correct, and the trip to the whirlpool has happened entirely inside the freeze.
+
+**Consequence: the loopback rig cannot show this case on the spawned tier, by construction.** In
+loopback the peer's whirlpool IS the watcher's, so the watcher's engine is frozen for the entire
+event. The DRAWN tier is outside the engine, which is exactly why the user sees it spin properly.
+On a real two-machine session the watcher's game runs no `ApplyMovement` when the PEER spins, so
+nothing freezes and the ghost is expected to follow in and spin — the wire carries the tiles and
+`extras.act=SPIN`, both already seen working whenever the timing lined up. Same family as the
+recorded fly caveats ("in loopback the peer's fly is also the watcher's").
+
+**Ghost frozen mid-step while the WATCHER spins is 1:1 by definition** — it is what the game does
+to every character it owns during that sequence.
+
+**Not fixed because there is nothing adapter-side to fix; not closed because nothing is
+confirmed.** What settles it is a two-machine session: one player surfs into a whirlpool while
+the other watches from open water. Expected: the ghost follows onto the whirlpool tile, spins
+(engine-driven, all four facings at 8 frames each), and is pushed back — while the watcher's own
+NPCs keep walking. What would refute it: the ghost still cutting the trip short with the watcher
+unfrozen, which would mean a second cause is hiding under the one found today.
+
+**Instruments left behind, both STEP_LAG-gated and free when off:** `path f=` (what `pathGoal`
+returned on every standing frame that owed a move) and `blocked f=` (the ghost's own
+walk/stype/duration while a tile waits, one line per 15 blocked frames — the line that caught the
+frozen `dur=3`). `probes/whirlpool_drive.lua` now drives the FAILING cycle (Up 120 frames, idle
+180), not the passing hold.
+
+## 2026-08-26 — Crystal: the "wrong trainer sprite" is NOT ours, and not a fault
+
+**Settled by an A/B on the user's own repro** (`probes/trainer_check.lua`, savestate 3, walk left
+then down on Route 40 — map 22:1). Run A with the adapter NOT loaded and run B with it loaded are
+**byte-identical** across `wVariableSprites`, `wUsedSprites`, all 16 map objects and every object
+struct — the only differences are our own ghost's `mo15`/`st12` and its four OAM entries. **The
+adapter does not touch any trainer.**
+
+**What it actually is.** Route 40's swimmers are `object_event ... SPRITE_OLIVINE_RIVAL`
+(`maps/Route40.asm:351`), and that id is one of Crystal's **variable sprites** (`SPRITE_VARS` =
+`$F0`; ids at or above it are resolved at map load through `wVariableSprites`, `01:d82e`). The
+line that makes them swimmers is in **Olivine City's** script:
+`variablesprite SPRITE_OLIVINE_RIVAL, SPRITE_SWIMMER_GUY` (`maps/OlivineCity.asm:45`).
+
+Normal play reaches Olivine City before Route 40, so the substitution has always run by the time
+those trainers are seen. **This save skipped the story** (warps and the test kit), so it never
+ran, and the slot holds its default: measured `wVariableSprites[$F5] = 4` = `SPRITE_RIVAL`, where
+a played-through save would hold `SPRITE_SWIMMER_GUY` (50). The user reached the same conclusion
+independently — *"maybe its related to us skipping all the intro/tutorial stuffs"* — which is
+what this measurement confirms.
+
+**So it is neither a MeshGhost bug nor a game bug**: it is the game rendering exactly what its
+table says, on a save that never populated the table. It will resolve itself on any save that
+visits Olivine City normally.
+
+**Instrument caveat, recorded because it nearly misled the reading**: `trainer_check.lua` labelled
+the variable-sprite dump `$F5 + i` when the base is `$F0`, so its printed IDS were off by five
+while the VALUES were correct. The conclusion survived only because the value landed on the rival
+independently. Fixed in the probe; the general shape is `probes.md`'s "a probe that computes a
+match should print the raw evidence the match was made from".
+
+**Two probe faults found and fixed on the way**, both of which wasted a run: `savestate.loadslot`
+lands several frames after the call, so a "settle for 60 frames" start read the PRE-load position
+and the walk ran from the wrong tile (now waits for the position to change, then settles); and a
+600-frame timeout on a 3-tile walk is ten seconds of held Left — most of a map — which the user
+saw as *"walking way too far left"*. Timeouts are now sized to the walk asked for, and every tile
+crossed is logged so an overshoot is visible rather than inferred.
+
+## DRAINED 2026-08-26 — ICE
+
+**Confirmed on screen** (*"ice works now. confirmed"*) and moved to [`VERIFIED.md`](VERIFIED.md)
+with the four things it does NOT cover — a remote peer above all, plus the bike, which shares
+gait group 2 with a glide. The measurement that refuted the obvious fix, and the reason the
+drawn/spawned split located it in one report, are in `../../../../agent_docs/pitfalls/by-lesson.md`;
+how the GAME does an ice glide is in [`documentation.md`](documentation.md).
+
+## 2026-08-26 — Crystal: `goto_map`'s group ids were off by two, and it warped the user twice
+
+**Not a game fault and not the adapter's** -- a probe bug, recorded because it cost live cycles.
+Deriving group numbers by counting `newgroup` lines in `constants/map_constants.asm` also counts
+the `MACRO newgroup` definition and a comment that mentions it, so every id came out +2 and every
+one was silently plausible. Ice Path went in as `5:61` and Blackthorn as `7:10`; the warps worked
+perfectly, at the wrong maps -- the user landed in an unrelated dark map ("the screen is just
+grey") and then in what they recognised as the Rocket hideout.
+
+**The grey screen was then explained WRONGLY, and the wrong explanation fit every symptom.**
+`warp_check.lua` reported map loaded, `mapStatus` HANDLE, the player drawn, and
+`BG row 0 = ALL ONE TILE`; `data/maps/maps.asm` gives Ice Path `CAVE` + `PALETTE_NITE`; the save
+skipped the story so it has no Flash. "Dark cave, no Flash" accounted for all of it and was still
+false -- the real Ice Path (`3:61`) renders fully lit with `wStatusFlags = 10`, FLASH bit CLEAR.
+A `grant_flash.lua` was written for a problem that did not exist.
+
+**The controls that settle the ids, and any re-derivation must reproduce BOTH**: `NEW_BARK_TOWN`
+is group 24 (`documentation.md` says so independently) and `ROUTE_40` is `22:1` (read live from a
+running game by `trainer_check.lua`). Both are now cited in `goto_map.lua` beside the table, along
+with the corrected entries and the retracted dark-cave explanation.

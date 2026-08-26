@@ -1450,6 +1450,17 @@ if COMPARE_TIERS then
 end
 
 local function applyPeerSprite(g, id)
+	-- NO GHOST IS NOT AN ERROR, and this is the fix for an adapter that DIES on a map change.
+	-- renderRemote drops `g` to nil the instant stillOurs() reports the slot is the game's again,
+	-- and then calls straight through to here -- so this ran on nil every time a peer's ghost went
+	-- stale, threw `attempt to index a nil value (local 'g')`, and the dev loader unloaded the
+	-- WHOLE adapter. User, 2026-08-26: the ghosts stop following *"when going to different
+	-- routes"*, which is precisely when a map load rebuilds the array. The loader log had been
+	-- recording it by name all along -- one line, easy to scroll past, and it looks nothing like
+	-- a bug in whatever was being worked on at the time.
+	if g == nil then
+		return false
+	end
 	id = FORCE_PEER_SPRITE or id
 	local tile = residentSpriteTile(id)
 	if not tile then
@@ -1457,6 +1468,31 @@ local function applyPeerSprite(g, id)
 	end
 	if u8(g.st_base + F_SPRITE) == id and u8(g.st_base + F_SPRITE_TILE) == tile then
 		return true -- already wearing it; writing every frame would fight nothing but cost reads
+	end
+	-- RE-CHECK THE CROSS-LINKS HERE, because this function WRITES INTO A MAP OBJECT and sits
+	-- 1,200 lines above stillOurs(), so it cannot call it. Without this, a caller that forgets to
+	-- validate stamps a peer's sprite id onto whatever the game has put in that slot -- a real
+	-- NPC wearing a ghost's graphic until the next map load.
+	--
+	-- And the later guard CANNOT catch it: `g.sprite = id` below updates the very value
+	-- stillOurs() compares against, so after this write the check agrees by construction. A guard
+	-- whose expectation is set by the write it guards has stopped being a guard -- the same shape
+	-- as reading back the value you just wrote. It has to be caught BEFORE the write.
+	--
+	-- IT SAYS SO THE FIRST TIME IT EVER FIRES, and that line is the whole evidence for keeping it.
+	-- The reported symptom this was written against -- trainers on other routes drawn with the
+	-- wrong sprite (user, 2026-08-26) -- is NOT established as this code's doing; the crash above
+	-- is. If this line never appears in a session where that symptom does, the cause is elsewhere
+	-- and this check is dead weight a later session should delete on evidence rather than on a
+	-- guess. A bare global, not a local: the file is at 197 of Lua's 200 (`emulator/CLAUDE.md`).
+	if u8(g.mo_base + M_STRUCT_ID) ~= g.st or u8(g.st_base + F_MAP_OBJECT_INDEX) ~= g.mo then
+		if not meshghostSpriteGuardFired then
+			meshghostSpriteGuardFired = true
+			log(string.format("MeshGhost: REFUSED a sprite write onto slot mo=%d/st=%d -- its "
+				.. "cross-links say it is the game's object now, not our ghost's. If you are "
+				.. "seeing an NPC wearing the wrong sprite, this is the cause.", g.mo, g.st))
+		end
+		return false
 	end
 	w8(g.st_base + F_SPRITE, id)
 	w8(g.st_base + F_SPRITE_TILE, tile)
@@ -6033,6 +6069,36 @@ local function applyPeerAction(g, act)
 	if u8(g.st_base + F_ACTION) ~= act then
 		w8(g.st_base + F_ACTION, act)
 	end
+
+	-- AND STOP THE ENGINE OVERWRITING IT. Writing the action alone made this function one of TWO
+	-- WRITERS on the same field, which `adapters/CLAUDE.md` already names as its own bug class:
+	-- an idle ghost is pinned to SPRITEMOVEDATA_STANDING_* by setGhostStanding, and the engine's
+	-- `MovementFunction_Standing` (engine/overworld/map_objects.asm) then does exactly two things
+	-- that undo us -- it writes OBJECT_ACTION back to OBJECT_ACTION_STAND, and sets
+	-- STEP_TYPE_RESTORE, whose `.Reset` calls RestoreDefaultMovement and GetInitialFacing and so
+	-- resets OBJECT_DIRECTION too. Our write and the engine's then race every tick, which is why
+	-- a spinning peer's ghost span only when it happened to win.
+	--
+	-- MEASURED, not reasoned (2026-08-26, whirlpool_drive + the adapter's own STEP_LAG):
+	--   open water, no spin -- apply spread 0 wide, 0 frames blocked mid-step
+	--   into the whirlpool  -- apply spread 8 wide, 37-133 frames blocked
+	-- and the ghost read `walk=255 stype=5 dur=0` on every spin frame. Step type 5 is
+	-- STEP_TYPE_RESTORE, and this adapter only ever writes 2 -- the same unexplained signature
+	-- `UNVERIFIED.md` recorded on 2026-08-23 ("the ENGINE has put the object into a step type of
+	-- its own choosing"), whose suspected cause was RestoreDefaultMovement and was never pinned.
+	-- It is: the trigger is a peer action, and this is where it comes in.
+	--
+	-- STEP_TYPE_STANDING (4) is the inert one. `StepFunction_Standing` sets OBJECT_WALKING and
+	-- NOTHING else -- no action, no direction -- so the peer's own bytes stand, and every "is this
+	-- ghost idle" test elsewhere still reads STANDING exactly as before. Only applied while the
+	-- ghost is already idle: this runs below renderRemote's `walking ~= STANDING` return, so a
+	-- real step is never interrupted, and stepGhost writes step type 2 again on the next step.
+	if u8(g.st_base + F_WALKING) == STANDING then
+		local st = u8(g.st_base + F_STEP_TYPE)
+		if st == 1 or st == 5 then -- FROM_MOVEMENT, RESTORE: the two that reach MovementFunction_Standing
+			w8(g.st_base + F_STEP_TYPE, 4) -- STEP_TYPE_STANDING
+		end
+	end
 end
 
 local function stepGhost(g, dir, gait)
@@ -7165,6 +7231,45 @@ local function renderRemote(id, state)
 
 	-- Only act while the ghost is idle; interrupting a step is what makes a character teleport
 	-- while animating.
+	-- ICE: A PEER THAT MOVES WITHOUT ANIMATING, and the bit that reproduces it.
+	--
+	-- The user, 2026-08-26, watching both tiers on Ice Path: the DRAWN ghost glides correctly and
+	-- *"the spawned ghost is still doing the walking animation when gliding on the ice"*. The
+	-- drawn tier is right because it derives its pose from the peer's own `face`/`act` bytes; the
+	-- spawned tier is wrong because the ENGINE animates it, and the engine does not know the peer
+	-- is on ice.
+	--
+	-- MEASURED (`probes/ice_probe.lua`, driven across real ice): a gliding player reads
+	-- `walk=10 stype=6 act=1 face=08` -- moving at the FAST gait (group 2), with
+	-- `OBJECT_ACTION_STAND` and a facing stride that does not advance. An ordinary walking step
+	-- carries action 2 (STEP). So "moving while STANDING" is the game's own description of a
+	-- glide, and it is already on the wire as `extras.act`.
+	--
+	-- WHY NOT JUST WRITE THE ACTION. `applyPeerAction` sits BELOW the mid-step return just after
+	-- this, so while the ghost walks its own step -- exactly when the engine advances the stride
+	-- -- the peer's STAND never gets written. Writing it every tick from up here would put us in
+	-- a per-tick race with the engine's own step function, which is the two-writers bug
+	-- `adapters/CLAUDE.md` names and which this file already hit once today with SPIN.
+	--
+	-- SO USE THE ENGINE'S OWN SUPPRESSION INSTEAD. `SetFacingStepAction`
+	-- (`engine/overworld/map_object_action.asm:46`) tests `SLIDING_F` FIRST and jumps to
+	-- `SetFacingCurrent`, never touching `OBJECT_STEP_FRAME` -- the walk cycle simply does not
+	-- run. It is a bit the engine READS and never writes, so there is nothing to race. This file
+	-- already clears it at spawn (a donor template carries it and a permanently-sliding ghost
+	-- never animates at all); this maintains it per frame instead.
+	--
+	-- NOTE THE PLAYER DOES NOT WEAR THIS BIT -- `ice_probe` measured `SLIDING seen SET = false`
+	-- across a whole glide, which killed the obvious "mirror the peer's SLIDING bit" fix before
+	-- it was built. We are reproducing the EFFECT the peer's engine produced by another route,
+	-- which is `adapters/CLAUDE.md`'s "copy what the effect DOES, not the structure that does it".
+	if g and peerAct ~= nil then
+		local fl = u8(g.st_base + F_FLAGS1) or 0
+		local glide = peerWalking and peerAct == 1 -- moving, but posed STANDING: an ice slide
+		if glide ~= ((fl & 0x08) ~= 0) then
+			w8(g.st_base + F_FLAGS1, glide and (fl | 0x08) or (fl & ~0x08))
+		end
+	end
+
 	if walking ~= STANDING then
 		-- CHAIN A CONSECUTIVE STEP THE WAY THE ENGINE CHAINS ITS OWN (2026-08-25).
 		--
@@ -7238,6 +7343,18 @@ local function renderRemote(id, state)
 		-- is a frame the ghost is behind its peer.
 		if stepLag.on and stepLag.open[id] then
 			stepLag.blocked = stepLag.blocked + 1
+			-- WHAT the ghost is busy doing, not just that it is busy (2026-08-26). The whirlpool
+			-- case shows 37-133 blocked frames per report while a step is 16 -- so the ghost reads
+			-- as walking for several steps' worth of frames at a stretch, and the counter alone
+			-- cannot say what state is holding it there. Throttled to one line per 15 blocked
+			-- frames, so it costs nothing outside the exact condition under investigation.
+			if (stepLag.blocked % 15) == 1 then
+				logFile(string.format(
+					"blocked f=%d %s walk=%d stype=%d dur=%d act=%d ghost %d,%d peer %d,%d",
+					drawFrames, id, walking, stepType, u8(g.st_base + F_STEP_DURATION) or 0,
+					u8(g.st_base + F_ACTION) or 0,
+					u8(g.st_base + F_MAP_X) or 0, u8(g.st_base + F_MAP_Y) or 0, x, y))
+			end
 		end
 		return
 	end
@@ -7343,6 +7460,20 @@ local function renderRemote(id, state)
 	local gx, gy = facingFrames.pathGoal(g, x, y, cx, cy)
 	local dx, dy = gx - cx, gy - cy
 	local dir = DELTA_TO_DIR[string.format("%d,%d", dx, dy)]
+
+	-- STEP_LAG: WHAT THE PATH QUEUE DECIDED, on every frame the ghost is standing and owes a move.
+	-- Added 2026-08-26. The measured fault is that a peer oscillating between two tiles has its
+	-- INTERMEDIATE moves dropped -- 6 player arrivals on the whirlpool tile against 3 for the
+	-- ghost, every taken step correctly 5 frames behind -- and `pathGoal` is the function whose
+	-- whole job is to stop that. The existing `ghost step` line only prints when a step IS issued,
+	-- so a frame with a deficit and no step is invisible, which is exactly the frame in question.
+	-- Bounded: one line per standing frame that owes a move, i.e. only while the ghost is behind.
+	if stepLag.on and (cx ~= x or cy ~= y) then
+		logFile(string.format(
+			"path f=%d %s ghost %d,%d peer %d,%d goal %d,%d dir=%s q=%d pathXY=%s,%s",
+			drawFrames, id, cx, cy, x, y, gx, gy, tostring(dir),
+			g.path and #g.path or 0, tostring(g.pathX), tostring(g.pathY)))
+	end
 
 	-- WAIT FOR THE PEER TO BE `STEP_TRIGGER_PROG` PIXELS INTO ITS STEP, rather than for its tile
 	-- index to change. See that constant for why the tile is the wrong clock.

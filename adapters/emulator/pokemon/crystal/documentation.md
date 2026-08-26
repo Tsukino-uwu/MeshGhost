@@ -582,3 +582,31 @@ Traced to `SpriteAnimFunc_FlyTo` (`engine/sprite_anims/functions.asm`) and its s
 swinging side to side, the swing shrinking to nothing as it settles on the centre tile.** It is
 neither a vertical fall nor a character animation, which is why `STEP_TYPE_SKYFALL` — the Burned
 Tower floor-fall — cannot resemble it however it is timed.
+
+## Ice: moving at the fast gait while posed STANDING
+
+Crossing an ice tile does not walk the character. `DoPlayerMovement` forces `STEP_ICE`
+(`engine/overworld/player_movement.asm`), and what that produces on the player's object is:
+
+| Field | On ice | On an ordinary step |
+| --- | --- | --- |
+| `OBJECT_WALKING` | `10` — **group 2**, the FAST gait (4px/tick, 4 ticks), the same group the bike uses | group 1 (2px/tick, 8 ticks) |
+| `OBJECT_ACTION` | **`1` (STAND)** | `2` (STEP) |
+| `OBJECT_FACING` stride | does not advance — the standing view is held | cycles 0-3 |
+| `OBJECT_STEP_TYPE` | `6` (PLAYER_WALK) | `6` |
+
+**So a glide is "moving while STANDING", and the action byte is the only field that says so.**
+Position, step type and gait all describe a character in motion; nothing but `OBJECT_ACTION`
+distinguishes a glide from a fast walk. Measured on a running V1.0 across real ice
+(`probes/ice_probe.lua`, 2026-08-26).
+
+**`SLIDING` is NOT how the game does it.** `OBJECT_FLAGS1`'s `SLIDING` bit does suppress the walk
+cycle — `SetFacingStepAction` (`engine/overworld/map_object_action.asm`) tests it first and jumps
+to `SetFacingCurrent` without touching `OBJECT_STEP_FRAME` — but the **player never sets it while
+gliding**: measured clear across an entire slide. The bit belongs to movement-script commands
+(`Movement_set_sliding`) and to sprite templates that are permanently still. Two different
+mechanisms reach the same screen, and only one of them is what ice uses.
+
+**Why it matters to anything driving a character:** the fast gait alone does not identify ice,
+because the bike shares group 2. A character that is moving with action STAND is gliding; one
+moving with action STEP is walking, at whatever pace its gait says.

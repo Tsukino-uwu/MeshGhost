@@ -72,6 +72,10 @@ local MAX_ITEMS, MAX_BALLS, MAX_KEY_ITEMS = 20, 12, 25
 
 -- constants/item_constants.asm
 local MASTER_BALL, RARE_CANDY, MAX_REPEL, SUPER_ROD = 0x01, 0x20, 0x2B, 0x3D
+-- ESCAPE_ROPE 0x13, from constants/item_constants.asm in our own hash-verified build. An
+-- ORDINARY item, not a key item, so it lives in the paired pocket with a quantity -- getting
+-- that wrong writes an id where a count belongs and corrupts the bag (the header's own note).
+local ESCAPE_ROPE = 0x13
 -- BICYCLE is 07 and is a KEY_ITEM (`data/items/attributes.asm`, the entry commented `; BICYCLE`),
 -- so it goes in the key-item pocket -- which has no quantity byte -- and not beside the balls.
 local BICYCLE = 0x07
@@ -327,6 +331,7 @@ local function tick()
 	log("  MASTER_BALL x10:      " .. givePaired(W_NUM_BALLS, W_BALLS, MAX_BALLS, MASTER_BALL, 10))
 	log("  MAX_REPEL x10:        " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, MAX_REPEL, 10))
 	log("  RARE_CANDY x10:       " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, RARE_CANDY, 10))
+	log("  ESCAPE_ROPE x10:      " .. givePaired(W_NUM_ITEMS, W_ITEMS, MAX_ITEMS, ESCAPE_ROPE, 10))
 
 	-- READ BACK, from memory, not from what was just written -- CLAUDE.md's rule.
 	log("  AFTER items:     " .. dump(W_NUM_ITEMS, W_ITEMS, true, MAX_ITEMS))
