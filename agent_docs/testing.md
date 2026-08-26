@@ -368,9 +368,12 @@ go test -race -count=2 ./...
 - `gcc` on the bare `PATH` still resolves to the devkitPro MSYS2 copy whose headers cgo cannot
   use (`stddef.h: No such file or directory`). That part of the old note was correct, and it is
   the same shadowing trap `pitfalls.md` records for `cmake` and `cmd`.
-- Verified end to end on 2026-08-18: with the fix in `relay/online.go` reverted, `-race`
-  reported the `sess.timer` race at `online.go:844` against reads at `:876` and `:913`; with it
-  restored, the full suite is clean at `-count=2`. So it does not merely build — it detects.
+- Verified end to end on 2026-08-18: with the fix reverted, `-race` reported the `sess.timer`
+  race against two reads elsewhere in the same file; with it restored, the full suite is clean at
+  `-count=2`. So it does not merely build — it detects. **The three line numbers this used to cite
+  in `relay/online.go` were dropped on 2026-08-27**: the 2026-08-25 split moved session resumption
+  to `relay/resume.go` and left `online.go` at 191 lines, so all three pointed past the end of the
+  file. The dated fact survives a split; a line number does not.
 
 CI still runs it on `ubuntu-latest`, where it needs no toolchain setup at all, and that stays
 the authority. The Go code is platform-agnostic (`net`, `encoding/json`, no syscalls), so a race
@@ -588,12 +591,23 @@ game launch and a replayed save, so this is the cheapest minute in the loop.
 powershell -ExecutionPolicy Bypass -File dev-scripts\preflight.ps1
 ```
 
-What it checks: gofmt on tracked `.go`; the public-repo leak grep in **both** slash directions;
-CLAUDE.md's 300-line cap; the four root `.exe` files being newer than the newest non-test `.go`
-(`go build ./...` does NOT refresh them, and `dev-scripts/*.bat` launch those exact names); both
-committed mod DLLs against every source hash in their `built-from.txt`, which reproduces
-`release.yml`'s staleness gate locally; CRLF in the LF-pinned adapter sources; and any MeshGhost
-process left running from a previous session.
+What it checks — **the script's own `Section` headings are the list, and this prose is not it**
+(it named 7 of them while there were 22, and was corrected on 2026-08-27; read
+`dev-scripts/preflight.ps1` rather than trusting a count restated here). Two groups:
+
+**Local artifacts**, which only a working copy can answer: gofmt on tracked `.go`; the four root
+`.exe` files newer than the newest non-test `.go` (`go build ./...` does NOT refresh them, and
+`dev-scripts/*.bat` launch those exact names); both committed mod DLLs against every source hash in
+their `built-from.txt`, reproducing `release.yml`'s staleness gate locally; the deployed copies in
+the live game installs; CRLF in the LF-pinned adapter sources; every tracked `.lua` parsing under
+Lua 5.4; and any MeshGhost process or launcher shell left running.
+
+**The tree itself**, which is what a person is most likely to have broken by writing prose: the
+public-repo leak grep in **both** slash directions; invented durations; every file's declared
+reading budget; reproduced expression in a `documentation.md`; markdown link integrity; the
+canonical-source register for multiply-stated rules; `_template` back-port freshness; and index
+coverage for pitfalls, VERIFIED, the ADRs, the phase files, the dev-scripts README, each adapter's
+mandated file set, the bridge constants, and the GitHub Action versions.
 
 Optionally also compares the DEPLOYED copies in the live game installs against the freshly built
 ones — set `MESHGHOST_TEVI_DLL`, `MESHGHOST_TEVI_DLL_ALT` and `MESHGHOST_PSEUDO_DLL`. Env vars

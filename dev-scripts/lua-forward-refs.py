@@ -54,7 +54,7 @@ def check(path):
             # `x:name(` is a method call on some object, not our file-scope local.
             # `x:name(` is a method call and `x.name` is a field -- neither is our file-scope
             # local. Table constructors (`  name = ...` indented) are keys, not uses.
-            code = re.sub(r'[:.]\s*' + re.escape(name) + r'', '.', code)
+            code = re.sub(r'[:.]\s*' + re.escape(name) + r'\b', '.', code)
             if re.match(r'^\s+' + re.escape(name) + r'\s*=', line):
                 continue
             if not use.search(code):

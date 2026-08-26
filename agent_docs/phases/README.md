@@ -22,7 +22,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase5_5.md](phase5_5.md) | A real, gender-correct Emerald sprite in place of the magenta box. | Done |
 | [phase6.md](phase6.md) | Second game: TEVI (Unity/Mono, BepInEx). | Done |
 | [phase7.md](phase7.md) | Third game: Pseudoregalia (UE5, UE4SS). The largest record here. | Done |
-| [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Parked 2026-08-21 |
+| [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Reopened 2026-08-26 (Fly, boat) |
 | [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | **In progress** |
 
 **Adding one:** create `phaseN.md`, give it the dated-record note at the top, and add its row

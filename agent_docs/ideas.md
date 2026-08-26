@@ -431,7 +431,7 @@ regardless of which ends up default:
   at setup (packaging README states plainly which to use with Archipelago), not automatic
   detection — auto-detecting "is this an Archipelago ROM" would itself need a fixed-address
   check, exactly the kind of fragile assumption this whole investigation is about. Worth
-  reconsidering only after the manual version has shipped and been used for a while.
+  reconsidering only once the manual version has shipped and seen real use.
 
 ---
 
@@ -985,7 +985,7 @@ Both are independent of TLS and could land first.
   Hello (`relay.go:753`), so N unauthenticated connections each hold a goroutine and a socket for
   `HelloTimeout`. TLS would make each one cost real handshake CPU an unauthenticated stranger can
   trigger, so a handshake timeout is part of the plan above. A real per-IP cap needs
-  `conn.RemoteAddr()`, which `docs/security.md:162` currently asserts is never called anywhere
+  `conn.RemoteAddr()`, which `docs/security.md`'s privacy section asserts is never called anywhere
   as a privacy property — so it needs its own decision rather than being smuggled into a TLS
   change.
 
@@ -1945,7 +1945,7 @@ tiers to disagree.
 **Status: the TALK half is confirmed working; the BATTLE half is unbuilt and unscheduled.**
 Discovered by accident 2026-08-18 and user-confirmed the same day — a spawned ghost is solid and
 talkable (`verified.md`, "a spawned ghost is solid, TALKABLE, and can be knocked off its tile").
-Recorded because it is the largest new possibility this project has turned up in a while, and
+Recorded because it is the largest new possibility this project had turned up to that date, and
 because it arrived as a *bug report*, which is exactly how such things get thrown away. Note the
 inherited script pointer has since been a fault three times over — it is what let a ghost clone a
 trainer and hang the game (`pitfalls.md`); anything built here starts from that.
@@ -2776,13 +2776,14 @@ non-tile-quantised motion), which is exactly the kind of case that finds out whe
    the game exposes a stable object table the way Crystal's does.
 3. Only then ask spawn-versus-draw, which is the decision that shaped the whole Crystal adapter.
 
-## Five refactors deferred by the 2026-08-18 audit-and-refactor pass
+## Four refactors still deferred from the 2026-08-18 audit-and-refactor pass
 
 Moved out of `status.md` 2026-08-25 — it is an index of what is open, not a backlog with
 rationale. The pass itself fixed two real relay bugs, four adapter defects and ~60 stale doc
-claims; these five were identified, scoped and deliberately NOT done, because each needs a live
-game to judge or is large enough that bundling it would make one confirmation pass unable to
-isolate a regression.
+claims; five were identified, scoped and deliberately NOT done, because each needs a live game to
+judge or is large enough that bundling it would make one confirmation pass unable to isolate a
+regression. **Four are left: `internal/cfg` shipped, and this heading said "Five" until
+2026-08-27** while `status.md` had already said four.
 
 - **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Per-remote blocks
   are the next extraction; on the adapter's hot path, so it needs a live session.
@@ -2790,11 +2791,14 @@ isolate a regression.
   walk, framing). A shared `adapters/emulator/lib/` would need a matching `release.yml` staging
   change. Note the JSON codec is no longer identical across the two once the decoder guard lands.
 - **Probe boilerplate: a near-identical block across the Crystal probes**, including the ROM
-  guard. **Ten** probes carry the `PM_CRYSTAL` header check (`spawn_test`, `spawn_test2`-`7`,
-  `struct_diff_probe`, `walk_test`, `grant_test_kit`) — counted 2026-08-25, having been recorded
-  as eight and then as nine. Divergence between the ten copies is the risk, not the line count.
-- **`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**
-  (`stripBOM` is byte-identical) — an `internal/cfg` package; both mains already say "mirrored in".
+  guard. **Twelve** probes carry the `PM_CRYSTAL` header check — the ten `spawn_test`,
+  `spawn_test2`-`7`, `struct_diff_probe`, `walk_test` and `grant_test_kit`, plus `grant_items` and
+  `set_level`. Recorded as eight, then nine, then ten, then twelve: **count it, do not quote it** —
+  `grep -lc PM_CRYSTAL adapters/emulator/pokemon/crystal/probes/*.lua | wc -l`. Divergence between
+  the copies is the risk, not the line count.
+- ~~**`cmd/meshghost` and `cmd/meshghost-relay` duplicate ~120 lines of config/log plumbing**~~ —
+  **DONE.** `internal/cfg` shipped; `StripBOM`, `ApplyDespiteBadValue`, `Override` and
+  `OpenLogFile` live there and `grep -rn stripBOM --include=*.go` returns nothing.
 - **TEVI: the `bridge_ready` send gate, and the port walk.** The message is RECOGNISED as of
   2026-08-18 but not yet waited on before sending. Entry 5 in `adapters/tevi/BANDAGES.md`.
 

@@ -7,10 +7,14 @@
 Go-side entries by design. Every entry moved verbatim and in its original order to a queue beside
 the adapter it belongs to:
 
-| Game | File | Entries |
+| Game | File | Entries at the 2026-08-25 split |
 | --- | --- | --- |
 | Pokémon Crystal | [../adapters/emulator/pokemon/crystal/UNVERIFIED.md](../adapters/emulator/pokemon/crystal/UNVERIFIED.md) | 35 |
 | Pokémon Emerald | [../adapters/emulator/pokemon/emerald/UNVERIFIED.md](../adapters/emulator/pokemon/emerald/UNVERIFIED.md) | 21 |
+
+**Those two numbers are the split's inventory, not a live count**, and the column now says so
+(2026-08-27, when they read 55 and 20 and this table still said 35 and 21). A queue's size is a
+thing to measure, never a thing to quote: `grep -c '^## ' <file>`.
 
 **There is no Pseudoregalia or TEVI queue, and that is not an oversight** — nothing was ever
 written for them here. Create one when the first item exists.

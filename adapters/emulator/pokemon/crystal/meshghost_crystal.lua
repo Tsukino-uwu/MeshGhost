@@ -3516,7 +3516,7 @@ end
 local TEXTBOX = { lo = 0x1800, hi = 0x1C00, row = 12, corner = 121, edge = 122 }
 -- Whatever `wMenuBorder*` holds at ADAPTER LOAD is refused until it changes, the same way a
 -- warp-teardown's leavings are (see the not-inPlay() branch in drawOverflow): a mid-session
--- reload cannot tell a live menu's rectangle from one a Fly left behind hours ago, and trusting
+-- reload cannot tell a live menu's rectangle from one a Fly left behind earlier in the same session, and trusting
 -- it re-creates the hidden-ghost state the snapshot exists to end. If a menu genuinely is open at
 -- load, its close writes zero, the slot moves, and everything after is trusted -- self-healing in
 -- one menu cycle, in the direction that paints too much rather than hides too much.

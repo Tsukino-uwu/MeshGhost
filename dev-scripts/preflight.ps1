@@ -27,6 +27,22 @@ function Report-Fail($msg) { Write-Host "  FAIL  $msg" -ForegroundColor Red; $sc
 function Report-Warn($msg) { Write-Host "  WARN  $msg" -ForegroundColor Yellow; $script:warnings++ }
 function Section($name)    { Write-Host ""; Write-Host "== $name ==" }
 
+# Both grep gates below are three-way, and used not to be. `git grep` exits 0 for "matches found",
+# 1 for "none", and >1 for "I could not run" -- and `if ($LASTEXITCODE -eq 0 -and $hits)` sent that
+# third case straight to the PASS branch. A gate that reports clean when it could not run is the
+# "check that lists no files passes every time" failure, twice over, and it is why this lives in one
+# function rather than being written out at each call site.
+function Report-GrepGate($exitCode, $hits, $failMsg, $passMsg) {
+    if ($exitCode -eq 0 -and $hits) {
+        Report-Fail $failMsg
+        $hits | ForEach-Object { Write-Host "          $_" }
+    } elseif ($exitCode -gt 1) {
+        Report-Fail "the grep behind '$passMsg' exited $exitCode -- it did not run, so this is NOT a clean result"
+    } else {
+        Report-Pass $passMsg
+    }
+}
+
 # Tracked markdown, listed WITHOUT a git pathspec glob. `git ls-files '*.md'` cannot be trusted
 # here: PowerShell resolves `git` to the devkitPro/MSYS2 copy on this machine, whose runtime
 # glob-expands `*.md` against the top-level directory BEFORE git sees it -- so it returned the 2
@@ -87,12 +103,8 @@ if ($hooksPath -eq ".githooks") {
 # the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
 # as useless as one that never can, and gets ignored just as fast.
 $leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
-if ($LASTEXITCODE -eq 0 -and $leaks) {
-    Report-Fail "machine-identifying path in a tracked file:"
-    $leaks | ForEach-Object { Write-Host "          $_" }
-} else {
-    Report-Pass "no username or home-directory path in tracked files"
-}
+Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
+    "no username or home-directory path in tracked files"
 
 # ---------------------------------------------------------------------------
 Section "Invented durations"
@@ -127,13 +139,10 @@ Section "Invented durations"
 # future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
 # `licensing.md` and `access-models.md` are excluded for the opposite reason: both are ABOUT the
 # outside world (licences, emulator projects, hardware), so external dates are their subject matter.
-$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)' -e 'long-?standing' -e 'long time' -e 'decades' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
-if ($LASTEXITCODE -eq 0 -and $durations) {
-    Report-Fail "vague duration in a tracked file -- cite a date, or a measured figure with a number:"
-    $durations | ForEach-Object { Write-Host "          $_" }
-} else {
-    Report-Pass "no vague durations in tracked files"
-}
+$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
+Report-GrepGate $LASTEXITCODE $durations `
+    "vague duration in a tracked file -- cite a date, or a measured figure with a number:" `
+    "no vague durations in tracked files"
 
 # ---------------------------------------------------------------------------
 Section "Reading budgets"
@@ -547,7 +556,19 @@ if (-not $idxStart) {
             $indexed[$entry] = $true
         }
     }
+    # WIDENED 2026-08-27: pitfalls.md's own headings are checked too, and an ENTRY there is a FAIL
+    # rather than something to index. This check scanned only the directory, so 10 full entries that
+    # had been appended straight into pitfalls.md were governed by nothing -- none was in its own
+    # index, while the file's header claims "this file IS the index" and README.md promises preflight
+    # fails an unindexed entry. Both were true of pitfalls/ and neither of pitfalls.md.
     $missing = @()
+    $strays = @($pitLines | Select-String -Pattern '^## ' | Where-Object {
+        $_.Line -ne '## Index — every entry in this file'
+    })
+    if ($strays.Count -gt 0) {
+        Report-Fail "$($strays.Count) entry heading(s) in $pit itself -- it is the INDEX; entries go at the end of pitfalls/by-lesson.md:"
+        $strays | Select-Object -First 12 | ForEach-Object { Write-Host "          $($_.LineNumber): $($_.Line)" }
+    }
     foreach ($b in $pitBodies) {
         $lines = @(Get-Content -LiteralPath $b.FullName)
         for ($i = 0; $i -lt $lines.Count; $i++) {

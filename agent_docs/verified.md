@@ -38,6 +38,16 @@ game. See `CLAUDE.md` for the full rule; summary:
 Copy this block per fact:
 
 ```text
+### <short claim, e.g. "Emerald local player X position">
+
+- Date:
+- Observed: <what was seen on screen, and what action produced it, e.g. "printed value
+  decreased by 16 per tile when walking left in Littleroot Town">
+- Source: <exact file + symbol/line in the referenced repo, or doc page + section>
+- Notes: <build/ROM/version scope this was confirmed under, if it plausibly matters; any other
+  conditional detail — edge cases found, caveats>
+```
+
 ## Index — every entry in this file
 
 **Titles only, one line per entry, and `dev-scripts/preflight.ps1` fails if an entry is missing
@@ -104,16 +114,6 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-21 — HBlank multiplexing is closed by decision, not left open
 - RULE CHANGE — the gate on this file tightened (2026-08-21)
 - All four adapters still run end to end after the doc/refactor pass — 2026-08-25
-
-### <short claim, e.g. "Emerald local player X position">
-
-- Date:
-- Observed: <what was seen on screen, and what action produced it, e.g. "printed value
-  decreased by 16 per tile when walking left in Littleroot Town">
-- Source: <exact file + symbol/line in the referenced repo, or doc page + section>
-- Notes: <build/ROM/version scope this was confirmed under, if it plausibly matters; any other
-  conditional detail — edge cases found, caveats>
-```
 
 
 ## Split per game — 2026-08-25

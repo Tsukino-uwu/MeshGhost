@@ -236,7 +236,7 @@ never been shown to fail.** Two of the three found-live cases arrived via pasted
 this third arrived by being typed in a form the rule did not model.
 
 **Fourth case, same shape, 2026-08-25 — preflight's "Leftover scaffolding" check.** It reported
-*"no MeshGhost processes left running"* while two launcher shells from a session an hour earlier
+*"no MeshGhost processes left running"* while two launcher shells from an earlier session the same day
 were still open. Both were real: `cmd.exe /c run-core.bat pseudoregalia tcp` and
 `… run-core.bat emerald auto 2`. The check looked for `meshghost*.exe` by name, and every
 `run-*.bat` ends at a `pause` — so killing the binary leaves its shell parked forever, holding no
@@ -2344,9 +2344,11 @@ status before building an argument on a dump.
 ## Lua's 200-local ceiling: the adapter does not load, and almost nothing says so (2026-08-21)
 
 **Recorded TWICE — see also "Adding one local silently unloaded the adapter" below**, whose own
-title admits it happened again an hour later. It has since recurred a third time
-(`unverified.md`, `d551da1`), and Emerald now sits at 197 of 200 file-scope locals, so the next
-one is close. Cross-linked 2026-08-25.
+title admits it happened again the same day. It has since recurred a third time
+(`unverified.md`, `d551da1`), and both adapters sit within a few names of the ceiling, so the next
+one is close. **The exact figures live in `adapters/emulator/CLAUDE.md`'s table and nowhere else**
+(2026-08-27: this said "Emerald now sits at 197" while that table said 198 — a number with two homes
+is a number that disagrees with itself, and the register wins). Cross-linked 2026-08-25.
 
 **Symptom.** A change to the adapter has no effect whatsoever. The game runs, the core connects, no
 ghosts appear. It reads as a networking fault, a dead relay, or an edit that silently missed.
@@ -3541,7 +3543,7 @@ checks a hand-maintained list of files rather than all of them.
 so it runs no game code. **All 162 tracked files parse as of 2026-08-25.**
 
 **The general lesson, which is bigger than Lua: a check that requires a human and a running game
-is not a gate.** The syntax checker existed for months of project time and had never been pointed
+is not a gate.** The syntax checker existed from 2026-08-18 and had never been pointed
 at these two files, because pointing it at anything costs an emulator session. The same check
 moved into CI runs on every push and needs nobody. **When a tool exists but keeps not being run,
 the problem is usually its trigger, not the tool.**
@@ -3803,7 +3805,7 @@ flipping, a UI clip, the send side going quiet.
 rather than letting it kill the session, so ALL rendering stops instantly and nothing on screen
 distinguishes that from a deliberate hide. The error was a new function calling `readVram`, a local
 declared 80 lines BELOW it — a nil global at that point — and it only fired on the frame an emote
-object existed, so the adapter ran perfectly for hours before it.
+object existed, so the adapter ran perfectly through a whole session before it.
 
 **Fix:** read through `memory.read_u8` directly, and check the declaration order of every helper a
 new function uses.
@@ -3847,7 +3849,7 @@ something breaks; the split itself is the moment those references are all findab
 *A check that fails on its own documentation trains people to ignore it.* This one is the mirror of
 the "verification rule that reports clean while the thing it checks is broken" entry above: this
 one reported broken while nothing was wrong, which is cheaper only if somebody reads it. **Nobody
-did — it was red for a day**, which is exactly what `CLAUDE.md` says to look for at session start
+did — it stayed red until the next session looked**, which is exactly what `CLAUDE.md` says to check at session start
 (`gh run list -L 5`) and exactly what did not happen.
 
 ## A repo-wide fix covers the files that exist that day, and a file added later brings the problem back (2026-08-26)
@@ -3858,7 +3860,7 @@ fixed. The user, reasonably: *"didn't we fix this node.js thing before? why do w
 **It had not regressed.** On 2026-08-17 every workflow was moved off Node 20 — `checkout` v4→v7,
 `setup-go` v5→v7, `upload-artifact` v4→v7 — and that commit was correct and stayed correct. On
 2026-08-25 a NEW workflow, `lua.yml`, was added, written with `actions/checkout@v4`. Nothing
-undid the fix; a new file simply arrived carrying the old pattern, eight days later, and nothing
+undid the fix; a new file simply arrived carrying the old pattern, eight days after 2026-08-17, and nothing
 in the repo could notice.
 
 **This is the second case in one day.** The other is the entry above: splitting `pitfalls.md` moved
@@ -3962,7 +3964,7 @@ must keep the history itself, bounded by the same signal that says the stack is 
 **The capture method is worth keeping too:** the user could still reproduce it, so the fix waited
 for one debug line from the live failure rather than being reasoned out — `boxOpen=true
 coords=12,0,17,19 — painted at: p13-ghost@56,4` names the mechanism outright, and the debug line
-had been extended an hour earlier to carry the raw coords precisely so a healthy-looking single
+had been extended earlier in that same session to carry the raw coords precisely so a healthy-looking single
 rectangle could not hide behind it.
 
 ## A fix validated on the neighbouring path, not the reported one (Crystal, 2026-08-26)
@@ -4197,7 +4199,7 @@ ghost's own step — precisely when the stride advances — it never runs.
 **Fix.** Set `SLIDING` on the GHOST while the peer reports moving-and-STANDING.
 `SetFacingStepAction` tests that bit first and skips `OBJECT_STEP_FRAME` entirely. It is a bit the
 engine READS and never writes, so there is nothing to race — unlike writing the action byte every tick,
-which is the two-writers bug this same file hit hours earlier with SPIN.
+which is the two-writers bug this same file hit earlier the same day with SPIN.
 
 **And the obvious fix was refuted before it was built.** `SLIDING` is exactly the suppression
 Emerald expresses as `extras.noanim`, so "mirror the peer's SLIDING bit" looked certain from the
@@ -4355,3 +4357,151 @@ three: no ghost yet, map change, savestate load.
 **And note which failure mode hides it.** On a host that unloads a script on error, a crash presents
 as *absence*, not as an error -- no wrong pixel, no bad value, nothing on screen to look at. Check
 the host's own error log before theorising about the network.
+
+## An engine effect that serves the player is anchored to the PLAYER, not to a character
+
+**Emerald, Fly, 2026-08-26.** `StartFlyBirdSwoopDown` parks its bird at (120,0) -- top of screen,
+horizontally centred -- and hangs the whole cosine arc off that anchor, so the low point lands at
+screen centre. Pointing that routine at a ghost flew the ghost to the WATCHER's feet and lifted it
+from there.
+
+Nothing about the routine is player-specific: it names its passenger in its own sprite data, and
+the game itself uses it for NPCs. The *anchor* is what carries the assumption, silently, because
+for the player "screen centre" and "where the character is" are the same point and never disagree.
+
+**So when borrowing an engine effect for a ghost, ask what the effect is positioned RELATIVE to.**
+If the answer is a screen constant, it is a player assumption in disguise and must be translated by
+the ghost's offset from the local player. Same class as the surf blob's `SetSpritePosToOffsetMapCoords`
+and the shadow's re-find-by-localId: the routine is reusable, its frame of reference is not.
+
+## Nothing recomputes an object event's sprite position from its coordinates
+
+**Emerald, 2026-08-26.** An effect that drives a sprite in screen coordinates (the fly bird clears
+`coordOffsetEnabled` and writes `x`/`y` directly) leaves it there when it stops. The engine writes
+an object event's sprite position from *movement* -- a step, a jump, `MoveObjectEventToMapCoords` --
+and otherwise the field simply IS whatever last wrote it. A stationary character therefore never
+gets it back.
+
+The symptom is a character whose collision, coordinates and every struct field are right while the
+picture sits somewhere else entirely, and it lasts until something makes it move. **Restoring the
+scroll bit is not enough; the position has to be recomputed too.**
+
+## A latch that survives one phase of a two-phase effect will fire in the other
+
+**Emerald, Fly, 2026-08-26**, twice in one hour and in opposite directions. A fly is two flights
+with a warp between them, and both halves run the same arc.
+
+- Gating "the arc is finished" on the carried phase meant an ARRIVAL never latched -- the engine
+  releases its character partway down and finishes with a drop table -- so the finished bird was
+  rebuilt on the next frame, forever. A repeated value on a 20Hz wire against a 60fps engine is
+  enough to re-arm any "have I already done this?" test that is not latched.
+- Making it phase-independent then made the arrival end latched too, so the hold written for the
+  DEPARTURE's warp gap hid every peer that had just landed.
+
+**The fix was neither latch nor phase but the phase a flight ENDED on.** When one mechanism serves
+two phases, the state that separates them has to be recorded while both are still distinguishable
+-- afterwards they look identical.
+
+## Gating a shared graphic on the graphic ALONE, when one state borrows it
+
+**Emerald, 2026-08-26.** The engine puts the player in the SURFING graphic to sit on the fly bird,
+so for a whole flight `SURFING_GFX[remote.gfx]` was true about a character nowhere near water.
+Five separate consumers meant "is surfing" by that test — three surf blobs across three renderers,
+and two water-ripple trails — and fixing one left the other four attaching a blob and a wake to a
+character riding through the sky.
+
+**Two lessons, and the second is the one that cost the time.** A graphic is an appearance, not a
+state; when anything borrows it, the test needs the borrower's own signal too. And **when you find
+a consumer of a wrong test, grep for every other consumer before fixing the one in front of you**
+— it took a user report per renderer to find all three, one at a time.
+
+## A visual fault that only one renderer shows is a fault in THAT renderer's inputs
+
+Corollary of the free-bisection rule, and worth stating because the fly work hit it three times.
+Three tiers drew the same peer from the same wire state and each was wrong differently: the
+spawned one glitched at a graphic change, the hardware one arrived wearing a blob, the painted one
+drew the wrong pose entirely and stepped sideways. Same input, three outputs — so none of them was
+a wire or sender bug, and chasing it as one would have found nothing.
+
+**List the symptom per tier before forming any theory.** The user's per-tier report is what turned
+"flying still looks bad" into four separately-tractable bugs in one message.
+
+## An engine sequence with a WARP in the middle goes quiet, and quiet is not "finished"
+
+**Emerald, Fly, 2026-08-26.** A fly is two engine sequences with a map warp between them, and the
+wire carries nothing at all through the warp — the sender suppresses across a map change. So the
+peer's state simply stops, and everything downstream has to distinguish "this effect has ended"
+from "this effect is mid-warp and will resume".
+
+Getting that wrong is visible in both directions: treat the gap as an ending and the peer pops
+into view standing on the departure tile between the two halves; treat an ending as a gap and a
+landed peer stays hidden. **The discriminator has to be captured while both are still
+distinguishable** — here, the phase the sequence was in on its last frame.
+
+**And a second machine may never have seen the first half at all.** The watcher in the destination
+town had no ghost for the peer during the departure, so it had no history to reason from and built
+a ghost the moment the area id flipped. State kept per-ghost dies with the ghost; state kept
+per-peer survives; and a fact that needs no history at all — here the engine's own `invisible` bit
+— beats both.
+
+## A FILTER APPLIED BEFORE YOU LOOK — four times in one session, 2026-08-26
+
+`probes.md` states this twice and it still cost most of a night. Each of these instruments was
+*correct*, ran cleanly, and produced a calm, complete-looking answer that was wrong:
+
+1. **`orphan_probe.lua` hardcoded vanilla's object-array addresses.** Run on the Archipelago build
+   it read unrelated bytes, found nothing, and said so. An empty log from a blind instrument is
+   indistinguishable from a clean map, and it was read as "the arrays are clean" for most of an
+   hour while the user was looking at the extra character it existed to name.
+2. **The same probe printed only characters matching our fingerprint.** Anything wearing another
+   sprite was dropped before it could be seen, so "1 character in the array" meant "1 of the ones I
+   was already looking for".
+3. **The HRAM camera sweep filtered on "moved on one axis ONLY"** and discarded the right address
+   over 28 stray samples from a walk that was not perfectly axis-pure. It reported zero X
+   candidates. The unfiltered dump found `$FFC7` immediately.
+4. **The camera-delta histogram sat inside the branch that ACCEPTED a delta** — so it reported "no
+   8px deltas at turbo" when 8px deltas being rejected was the entire fault. Moving it above the
+   test showed 874 of them in one ride.
+
+**The rule that would have caught all four: an instrument must state its own coverage.** Not just
+what it found — what it looked at, and where. `orphan_probe` now prints its build and addresses;
+the sweeps now dump everything and mark the shortlist. **And when a clean instrument sits beside a
+symptom the user can still see, doubt the instrument first** — that is already in `CLAUDE.md`, and
+it was the correct move each time.
+
+## A local declared BELOW a function, and a bare name that becomes a global — same day, both ways
+
+Two faults from one session, both invisible to `luac -p`, which proves a file parses and never that
+a name resolves:
+
+- **`ENGINE.gait()` was written 100 lines above `local GAIT_PX`**, so inside it the name was a nil
+  GLOBAL. The file parsed, loaded, ran, and threw on the first frame a peer actually stepped —
+  which the dev loader answered by unloading the whole adapter mid-session. Fifth occurrence in
+  this file.
+- **`out = out or {...}` with no `local`** made a per-call accumulator a global that survives
+  between calls. It reached the user's screen.
+
+**Put a function directly below the data it reads**, and grep any new bare assignment for a `local`.
+
+## AN ID IS NOT PORTABLE, AND NEITHER IS A CONSTANT — one table further along than an address
+
+A recompiled patch moves more than addresses. On the Archipelago Crystal build:
+
+- **item ids shift** — writing vanilla's `BICYCLE` (`07`) produced a **Moon Stone**, which is
+  vanilla's `08`;
+- **sprite ids are repointed** — 5 of 102 entries, so a peer's raw sprite id draws a different
+  character on the other cartridge;
+- **the gait table gains a row**, so a peer can report a gait the receiver's engine has no step for.
+
+**A wrong id does not fail — it hands you a different thing**, exactly as a wrong address hands you
+a plausible number. The answers are all the same shape: ask the CARTRIDGE, not the build's name.
+Locate a table by its own content signature, and send a signature *of the specific entry* beside
+any index that crosses the wire. Full case: `adapters/emulator/pokemon/crystal/UNVERIFIED.md`.
+
+## PER TICK IS NOT PER FRAME
+
+Crystal's object clock runs at half the video rate, so a gait of 8px per TICK scrolls the camera
+4px per FRAME. `GAIT_PX` is per tick. Mixing the two moved a standing peer twice as far as the
+world every camera frame. **Before comparing two rates, check they are in the same units** — and
+note this only becomes visible at the fastest gait, because at 2px and 4px the per-tick stride
+never exceeds the per-frame delta.

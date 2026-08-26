@@ -1722,7 +1722,7 @@ of any flag: **exactly what does this switch turn off, and what still reads its 
 
 A delay made of several stages gets attributed by measuring the total, measuring one stage, and
 calling the difference "the rest". That is not a measurement of the rest — it is a name for it, and it
-inherits every error in both terms. Crystal's spawned-ghost lag carried such a split for a day
+inherits every error in both terms. Crystal's spawned-ghost lag carried such a split until it was measured properly
 (*"1.5 frames is the wire, the rest is the adapter's own pipeline"*); measured properly the wire was
 3.1 and the adapter 0.6, so both halves were wrong and the work would have gone to the wrong file.
 

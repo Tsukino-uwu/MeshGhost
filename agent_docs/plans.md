@@ -433,16 +433,18 @@ was answered 2026-08-15 — it did, via enemies, and that is what the fix above 
 **Status: LIVE, and the peer-state work inside it is CLOSED — Emerald is FEATURE COMPLETE as of
 2026-08-21, the user's call** (*"i consider the game to be fully synced up animation and effect
 wise now"*, `verified.md`). Every way this game moves a character and every field effect it hangs
-off one is mirrored on all three tiers. **The adapter is PARKED** — the user moved to Crystal the
-same day, so the phase stays open but nothing in it is scheduled. What remains is a different kind
-of work: polish, custom features beyond matching the game, and two untested-but-assumed states
-(`unverified.md`). **A new Emerald animation/effect item needs a reason it is not polish or a
+off one is mirrored on all three tiers. **REOPENED 2026-08-26 for the two states that call was made
+without** — Fly is now built, bandaged and confirmed in exactly one case, and the boat is built and
+has never been watched (`status.md`, `emerald/BANDAGES.md` §4, `emerald/UNVERIFIED.md`). This
+paragraph said "the adapter is PARKED" until 2026-08-27, twelve hours after a full Emerald session.
+What remains beyond those two is a different kind of work: polish and custom features beyond
+matching the game. **A new Emerald animation/effect item needs a reason it is not polish or a
 custom feature.**
 
 Started 2026-08-14, then quiet while Phases 6/7 had the attention, and picked
 back up with a full session on **2026-08-18** that replaced the overlay with a real spawned object
 event (its own ADR in `architecture.md`; user-confirmed piece by piece on screen, end-to-end pass
-still queued in `unverified.md`). `status.md` is the index of what is open — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
+still queued in `emerald/UNVERIFIED.md`). `status.md` is the index of what is open — see `agent_docs/phases/phase8.md` for the full record. Numbered next in sequence rather than folded back into 1–5.5 (which bundled Emerald
 with building the server/client/core themselves) — those stay as-is to avoid breaking their
 many existing citations elsewhere. A dedicated home for real Emerald-specific work that keeps
 happening after Phase 5.5's "good enough" milestone: a review/refactor sweep (real
@@ -454,9 +456,10 @@ and a real sub-tile movement-smoothing bug found once that tuning stopped a netw
 hiding it. Movement support has since landed and been user-confirmed on screen: ledges
 (2026-08-19), the Mach Bike (2026-08-20), the Acro Bike (2026-08-21) and surfing/diving
 (2026-08-21) — see `verified.md`, plus ice, fog and cave darkness the same day, which is where the
-feature-complete call above came from. **Rail movement and the ferry were never tested and are
-ASSUMED to work** — the user's call 2026-08-21, dropped from `status.md` deliberately rather than
-left open; the assumption is recorded in `unverified.md` so it cannot decay into a memory of having
+feature-complete call above came from. **The ferry is BUILT and has never been watched, and rails
+are not built at all** (2026-08-26, correcting the "never tested and ASSUMED to work" this said
+from 2026-08-21 — built-and-unwatched is a different state, and the one that matters); recorded in
+`adapters/emulator/pokemon/emerald/UNVERIFIED.md` so it cannot decay into a memory of having
 checked. Also not started: Stages 2–5 of the
 VRAM/sprite-injection investigation (`agent_docs/ideas.md`; Stage 1 — read-only probing — ran
 2026-08-14, written up in `agent_docs/environment.md`). Note that any stage of that investigation
@@ -542,9 +545,11 @@ required. i don't want things to pop in/out all the time. i want every player/gh
 all the time instead."*
 
 **Half of it is done and live.** The adapter now stops spawning at
-`HARDWARE_CHARACTER_LIMIT = 10` characters on screen — the Game Boy draws at most 10 sprites per
-scanline and an overworld character is 4 of them, so an eleventh loses pieces of itself no matter
-whose it is. Measured after the change: **no scanline overflow at all, and no NPC starved**, where
+`HARDWARE_CHARACTER_LIMIT = 10` characters on screen — OAM holds 40 sprite entries and an overworld
+character is 4 of them, so an eleventh has no entries left to be built from. (This said "the Game
+Boy draws at most 10 sprites per scanline" until 2026-08-27, which is a real and *separate* limit
+and would have given 2.5 characters, not 10. `crystal/FLAGS.md`, `phases/phase9.md` and
+`crowd-limits.md` all had the derivation right; only this copy did not.) Measured after the change: **no scanline overflow at all, and no NPC starved**, where
 minutes earlier a crowd had an NPC one tile from the player simply not drawn. Ghosts also give
 their slots back beyond 8 tiles, the way the engine's own characters do, and both pools allocate
 from the top down so the game's cast keeps the hardware's draw priority.
@@ -552,8 +557,10 @@ from the top down so the game's cast keeps the hardware's draw priority.
 **The remaining half landed the same evening**: peers past the cap are **drawn over the emulator**,
 so every peer is visible all the time — 89 on a full screen at 60fps, user-confirmed. Facing,
 walk animation, text-box and menu clipping, cartridge-sourced sprites and the collision policy all
-followed. What is NOT confirmed is anything after the screen-filling test itself; `unverified.md`
-lists the six things a person still has to judge. Design, costs and the two occlusion
+followed. What is NOT confirmed is anything after the screen-filling test itself;
+`adapters/emulator/pokemon/crystal/UNVERIFIED.md` is the queue of what a person still has to judge
+(55 entries on 2026-08-27 — this said "the six things" and pointed at `unverified.md`, which has
+been an index holding no entries since the 2026-08-25 per-game split). Design, costs and the two occlusion
 mechanisms (a text box is the fixed bottom six rows; a menu publishes `wMenuBorder*`) are in
 `ideas.md` under "Spawn to the game's cap, then DRAW above it". The pixels are the near-term
 question: a peer past the cap is usually wearing a sprite already resident in VRAM, which the

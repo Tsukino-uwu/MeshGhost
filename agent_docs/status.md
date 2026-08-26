@@ -15,8 +15,6 @@ has never been looked at. `verified.md`.
   self-drawn tiers and the cross-town case are not. `emerald/VERIFIED.md`, `UNVERIFIED.md`.
 - **The Emerald BOAT is built and has NEVER been watched.** Nothing on 2026-08-26 touched it;
   rails are not built for either. `emerald/UNVERIFIED.md`.
-- **Crystal's MOVEMENT is done and confirmed** (2026-08-25 evening, both gaits, both tiers). What
-  is left is the action classes and the UI/battle cases — visual, never watched. `verified.md`.
 - **Nothing is running** (verified gone end of 2026-08-26: both EmuHawk instances, both cores
   and the relay stopped, both loader targets set to `none`). The Emerald rig was relay
   (loopback, `-send-hz=100`, `-ghost-collision=disabled`) + two cores (7778 and 7779) + two
@@ -35,10 +33,6 @@ has never been looked at. `verified.md`.
   `crystal/UNVERIFIED.md`.
 - **NEXT SESSION STARTS HERE: hop a ledge and THEN cast a rod, in one session** — the jump shadow
   and the fishing rod share vtile `$fc` and have never been on screen together. `crystal/UNVERIFIED.md`.
-- **Dig/Escape Rope is DONE and confirmed** (2026-08-26, both tiers). One routine, so the item
-  covers the move; `SPIN_FLICKER` (5) produced at last; **there is no Dig fall.** `crystal/VERIFIED.md`.
-- **Ledge hops are DONE and confirmed** (2026-08-26): real engine jumps, shadows on both tiers.
-  What the confirmation does not cover is the part to read. `crystal/VERIFIED.md`.
 - **A savestate load crashed the adapter; fixed, trigger not reproduced** — load the savestate that
   originally broke it. Second door into a dereference closed the same day. `crystal/UNVERIFIED.md`.
 - **Teleport is the LAST action class: not built, not measured, not watched.** Unlike Dig it is
@@ -61,8 +55,8 @@ has never been looked at. `verified.md`.
 
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
   2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
-- **Everything is PUSHED as of 2026-08-26** (26 commits, none of them `.go`). The privacy job had
-  been red since 2026-08-25 on a false positive; fixed the same day. `gh run list` at session start.
+- **NOTHING SINCE 2026-08-25 IS PUSHED, AND CI HAS NEVER SEEN IT** — 51 commits ahead of
+  `origin/master` on 2026-08-27, one of them `.go` (`protocol/limits.go`). `gh run list` at session start.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua adapters'
@@ -104,12 +98,12 @@ that a peer's state genuinely differs from the local player's, which loopback co
   cycle `prog`, so no run exercised the drawn tier's stepping path. `crowd-limits.md` 2026-08-25.
 
 **Crystal's open work is grouped, not listed one fix per line** (2026-08-25). Sixteen entries here
-were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, which is a 1,186-line
-queue carrying the detail, what to watch, and what correct looks like. An index of an index goes
-stale in two places at once; these six say which SUBSYSTEM is unsettled and send you there.
+were each a two-line restatement of a heading in `crystal/UNVERIFIED.md`, a 55-entry queue carrying
+the detail, what to watch, and what correct looks like. An index of an index goes stale in two
+places at once — and this paragraph proved it on itself, having said "these six" over a list of
+fifteen and called that queue 1,186 lines when it was 2,426 (both corrected 2026-08-27). The group
+below says which SUBSYSTEM is unsettled and sends you there; it is deliberately not counted here.
 
-- **A mixed vanilla + Archipelago Crystal room RAN (2026-08-26/27): seven faults found and fixed,
-  all confirmed on screen.** Full record: `crystal/UNVERIFIED.md`, last section.
 - **The Archipelago camera was two DEAD BYTES** — `$FFCF`/`$FFD0` never change there; it is
   `$FFC7`/`$FFC8`, measured. `crystal/FLAGS.md`.
 - **That build has a FOURTH gait (8px/tick) and repoints 5 of 102 sprite ids** — so sprite ids,
@@ -124,10 +118,8 @@ stale in two places at once; these six say which SUBSYSTEM is unsettled and send
   two-panel phone call, inline `hSCX`/`hSCY`, and bike/surf/ledges/warps. `crystal/UNVERIFIED.md`.
 - **Crystal, spawned tier — six fixes built, none watched.** Promotion, whole-tile drift, step
   trigger, shoving, the trainer-clone hang, battle survival. `crystal/UNVERIFIED.md`.
-- **Crystal movement, surf and the bike are CONFIRMED (2026-08-25 evening)** — eleven fixes, the
-  user: *"moving perfect, surf working, bike working"*. What it does NOT cover: `crystal/VERIFIED.md`.
-- **Crystal's remaining action class is Teleport alone.** Spin, ice, fishing and Fly are confirmed;
-  Dig/Escape Rope is measured and awaiting a look. `crystal/VERIFIED.md`, `crystal/UNVERIFIED.md`.
+- **Crystal's remaining action class is Teleport alone** — not built, not measured, not watched.
+  Spin, ice, fishing, Fly and Dig/Escape Rope are all confirmed. `crystal/VERIFIED.md`.
 - **Fly is unwatched for a REMOTE peer** — every 2026-08-26 confirmation was loopback, where the
   peer's fly is also the watcher's. Needs two machines. `crystal/VERIFIED.md`.
 - **Crystal: in-place animations are BUILT and UNWATCHED (2026-08-25)** — one rule replaced the bump

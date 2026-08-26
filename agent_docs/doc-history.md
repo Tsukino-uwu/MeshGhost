@@ -197,8 +197,9 @@ section 4 — the segmentation rule, and why its conservation check could not ca
 - **The four multiply-stated rules** each have one home. The bandage tell count was a live bug:
   all four stubs listed seven where the canonical list has eight, and the missing one was the
   severe borrow-an-object tell.
-- **Six preflight checks**, not three: reading budgets (16 files declare their own cap in their
-  header), a canonical-source register for multiply-stated rules, `_template` back-port freshness,
+- **Six preflight checks**, not three: reading budgets (16 files declared their own cap in their
+  header that day — 36 capped and 90 exempt by 2026-08-27, and the script carries 22 checks by
+  then), a canonical-source register for multiply-stated rules, `_template` back-port freshness,
   repo-wide markdown link integrity, and `pitfalls.md` index coverage. Both doc checks passed a
   deliberately broken tree on their first run — see `pitfalls.md`, "A check that lists no files
   passes every time".
@@ -221,9 +222,10 @@ section 4 — the segmentation rule, and why its conservation check could not ca
 - **Incident narrative still sits inside several ADRs**, and in one ~170-line Archipelago bullet in
   `risks.md`. That content belongs in `pitfalls.md` with the ADR reduced to what it decides. Not
   attempted: it rewrites the substance of dated decisions rather than moving them.
-- **`status.md` is still three screens** (~50 items). Its per-game items now point at each
-  adapter's `UNVERIFIED.md`, but summarising them into per-game lines is a judgement call about
-  what the user wants to see first, and belongs to them.
+- ~~**`status.md` is still three screens** (~50 items)~~ — **drained 2026-08-25**, and this bullet
+  went on claiming otherwise until 2026-08-27 while `status.md` itself cited *this section* as the
+  authority that it had been drained. Two documents each pointing at the other is how a closed item
+  stays open in one of them; close it in both, in the same pass.
 - The `agent_docs/probe-discipline.md` extraction (six entries on instruments that lie, five on
   probe hygiene) was **not** done — the index made it unnecessary for retrieval, and it would add
   a third destination to keep straight.
