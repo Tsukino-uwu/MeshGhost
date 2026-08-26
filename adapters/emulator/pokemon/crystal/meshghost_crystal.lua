@@ -2552,10 +2552,117 @@ end
 -- On `facingFrames` rather than a new top-level name: this file is at 197 of Lua's 200 top-level
 -- locals and has failed to load silently four times from crossing it. A string key cannot collide
 -- with the numeric facings 0..3, and nothing iterates this table.
+-- DERIVE A FACING NOBODY HAS WALKED YET, from one somebody has.
+--
+-- The cache is learned by watching the LOCAL player, so a facing this player has not used since
+-- the adapter loaded has no entry at all -- and `pick` then returned nil and every caller fell
+-- back to the standing DOWN view. That is invisible most of the time, because a player faces all
+-- four ways within seconds of moving, and glaring the moment a peer wears a sprite the local
+-- player never wears: the user, 2026-08-26, on an Archipelago peer's bike seen from vanilla --
+-- *"left is left, and up/down/right = down"*. Confirmed by walking one step in each direction,
+-- after which every facing rendered correctly for the rest of the session.
+--
+-- WHAT MAY BE DERIVED AND WHAT MAY NOT. The ARRANGEMENT -- which quadrant each of the four parts
+-- occupies, and the stepping twin 0x80 higher -- is learned from the engine and is never invented
+-- here. Only the tile GROUP is substituted, and this file already states that a group is "a
+-- property of the sprite format, not something to learn": DOWN is tiles 0-3, UP is 4-7, and
+-- LEFT/RIGHT share 8-11, told apart by the hardware flip rather than by separate art.
+--
+-- So a derived frame is a measured arrangement pointed at a different group, plus the flip when
+-- crossing between left and right -- where the parts mirror, which is why `dx` is reflected across
+-- the 8-pixel frame. Nothing is drawn from nothing: with no learned entry at all this still
+-- returns nil and the caller's own fallback stands.
+-- ON `facingFrames` RATHER THAN A TOP-LEVEL LOCAL: this file sits at Lua's 200-local ceiling for
+-- a main chunk, and adding this as a plain `local function` crossed it on the first try -- which
+-- does not error at runtime, it stops the file compiling (`emulator/CLAUDE.md`). Fifth time.
+function facingFrames.derive(facing)
+	-- KEYED BY DIRECTION INDEX 0-3, NOT BY THE FACING BYTE. The cache is filled with `prev.dir` and
+	-- read with `o.facing`, both of which are `(OBJECT_DIRECTION // 4) & 3` -- down, up, left,
+	-- right. The first version of this function indexed its group table with the raw facing bytes
+	-- 0/4/8/12, so only DOWN ever matched and the other three derived nothing: the user, 2026-08-26,
+	-- on a bike that had at least got left right before -- *"always facing 'down' when on the bike
+	-- now, for all 4 directions"*. Strictly worse than the fallback it replaced, which is what a
+	-- wrong lookup key buys, and it type-checks perfectly.
+	--
+	-- Groups per `documentation.md`: down 0-3, up 4-7, left and right share 8-11 and are told apart
+	-- by the hardware flip. Dir 3 is RIGHT, the flipped one.
+	local GROUP = { [0] = 0, [1] = 4, [2] = 8, [3] = 8 }
+	local base = GROUP[facing]
+	if not base then
+		return nil
+	end
+	-- DECLARED, and this line is not optional. Written first as a bare `out = out or {...}` inside
+	-- the loop below, which makes it a GLOBAL: it would survive between calls, so the entry derived
+	-- for one direction would be handed back for the next one and never rebuilt. It compiles, it
+	-- runs, and `luac -p` has nothing to say about it -- the same class of fault as the GAIT_PX
+	-- nil-global earlier today, in the opposite direction.
+	local out
+	for _, src in ipairs({ 0, 1, 2, 3 }) do
+		local e = facingFrames[src]
+		local from = GROUP[src]
+		if e and src ~= facing and from then
+			local mirror = (src == 3) ~= (facing == 3)
+			local function remap(f)
+				if not f then
+					return nil
+				end
+				local out = {}
+				for i = 1, 4 do
+					local p = f[i]
+					if not p then
+						return nil
+					end
+					out[i] = {
+						offset = (p.offset & 0x80) | (base + ((p.offset & 0x7F) - from)),
+						xflip = mirror and (not p.xflip) or p.xflip,
+						-- The frame is two tiles wide and `dx` is measured from its own top-left,
+						-- so reflecting it is `8 - dx`. Only when crossing the flip boundary.
+						dx = mirror and (8 - p.dx) or p.dx,
+						dy = p.dy,
+					}
+				end
+				return out
+			end
+			-- FILL EVERY SLOT THIS SOURCE CAN, AND KEEP LOOKING FOR THE REST.
+			--
+			-- The first version returned the first source that yielded ANYTHING, so a facing whose
+			-- STANDING frame had been learned but whose stepping frames had not would win outright
+			-- -- and a derived entry with a stand and no steps sends `pick` straight to the idle
+			-- pose. On screen that is a bike that never pedals: the user, 2026-08-26, with the
+			-- facings by then correct -- *"its just stuck in the idle 'bike' pose when moving
+			-- around"*. The stepping views were sitting in another direction's entry all along.
+			--
+			-- Slots are therefore filled independently and the search continues until the entry is
+			-- complete or the sources run out. `mirror` and `from` differ per source, which is
+			-- exactly why this happens inside the loop rather than by picking one winner first.
+			out = out or { step = {}, derived = true }
+			out.stand = out.stand or remap(e.stand)
+			for i = 0, 3 do
+				out.step[i] = out.step[i] or remap(e.step[i])
+			end
+			if out.stand and out.step[0] and out.step[1] and out.step[2] and out.step[3] then
+				return out
+			end
+		end
+	end
+	-- Whatever was gathered, complete or not: a partial entry still beats the caller's down-facing
+	-- fallback, and `pick` degrades inside it exactly as it does for a learned one.
+	if out and (out.stand or out.step[0] or out.step[1] or out.step[2] or out.step[3]) then
+		return out
+	end
+	return nil
+end
+
 function facingFrames.pick(facing, walking, prog, stride)
 	local entry = facing and facingFrames[facing]
 	if not entry then
-		return nil -- nothing learned for this facing yet; each caller has its own fallback
+		-- NOT CACHED INTO facingFrames[facing], deliberately: a derived entry must never be
+		-- mistaken for a learned one, and the moment the local player does face this way the real
+		-- arrangement should take over without anything having to invalidate a substitute.
+		entry = facing and facingFrames.derive(facing) or nil
+	end
+	if not entry then
+		return nil -- nothing learned for any facing yet; each caller has its own fallback
 	end
 	-- No prog band here any more (2026-08-25): the caller's `walking` now encodes the engine's
 	-- own stand/step alternation, read off the peer's face byte (see facingFrames.pose). The band
@@ -4784,8 +4891,31 @@ function drawOverflow()
 						-- that number is the peer's.
 						local stride = GAIT_PX[o.gait or 1] or 2
 						if facingFrames.camMoved then
+							-- THE PEER'S STRIDE IS A FLOOR HERE, NOT A CEILING -- and it used to be
+							-- both, which is the bug.
+							--
+							-- Two different quantities were being clamped with one number. How fast
+							-- the PEER moves through the world is bounded by its own gait: that is
+							-- the 1:1 rule, and the floor below is what enforces it. How far the
+							-- WORLD moved underneath it is not motion at all -- it is the frame of
+							-- reference changing, and a peer standing perfectly still has to shift
+							-- on screen by exactly the camera's delta or it is not standing on its
+							-- tile any more.
+							--
+							-- Clamping DOWN to the peer's stride made a stationary peer compensate
+							-- only as fast as that peer could have walked. It was already wrong
+							-- whenever the local player moved faster than the peer -- a walker
+							-- watched from a bike drifted 2px of every 4 -- and the Archipelago
+							-- build's fourth gait made it impossible to miss: 8px of camera against
+							-- a 2px idle walker is 6px of slide per frame. The user, 2026-08-26:
+							-- *"the vanilla ghost is gliding/sliding around when idle, if the
+							-- archipelago player is using the fast bike mode ... its probly gliding
+							-- as it can't keep up with the faster camera speed"*. It is exactly
+							-- that, and the diagnosis was theirs.
+							--
+							-- `camDelta` is already clamped to 8 where it is sampled, so this cannot
+							-- run away on a rebase.
 							budget = facingFrames.camDelta or stride
-							if budget > stride then budget = stride end
 							if budget < stride then budget = stride end
 						elseif mgap >= 2 then
 							-- NEVER FASTER THAN THE GAME'S OWN WALK. (2026-08-23, the shipped-250ms
@@ -7448,9 +7578,25 @@ local function renderRemote(id, state)
 	-- gender and state -- which is every peer in a loopback session, and most peers in a real one
 	-- -- was demoted to the drawn tier, quietly turning the good tier off.
 	local localSprite = u8(OBJECT_STRUCTS + F_SPRITE)
-	local wearable = peerSprite == nil or not W_USEDSPRITES
+	-- NO RESIDENCY LIST IS "SEND IT TO THE DRAWN TIER", NOT "SPAWN IT ANYWAY".
+	--
+	-- This used to read `not W_USEDSPRITES` as wearable=true, on the reasoning that without the
+	-- list there is no residency question to ask, so a peer should be spawned exactly as before.
+	-- That is right for a peer wearing OUR sprite and wrong for every other one, because the
+	-- spawned tier then cannot apply the peer's sprite at all (`applyPeerSprite` needs the list)
+	-- and the ghost silently keeps whatever it was cloned from -- which is this machine's own
+	-- player. So on the Archipelago build, where the list is unmeasured, mounting a bike locally
+	-- mounted the peer's ghost too: the user, 2026-08-26, after the per-sprite gate had already
+	-- fixed the same symptom on the other client -- *"getting on the bike in archipelago, still
+	-- mimic its on its own ghost"*.
+	--
+	-- The drawn tier has no such problem: it reads the cartridge, so it can wear any id whether or
+	-- not the tiles are loaded. A peer we cannot dress correctly on the engine tier belongs there
+	-- -- the same "the look is what the peer is telling us about, so the look wins" trade the
+	-- residency branch below already makes, extended to the build that cannot answer the question.
+	local wearable = peerSprite == nil
 		or peerSprite == localSprite
-		or residentSpriteTile(peerSprite) ~= nil
+		or (W_USEDSPRITES ~= nil and residentSpriteTile(peerSprite) ~= nil)
 
 	-- THE SPEED VERSION OF THE SAME QUESTION, and the third thing this tier decision now weighs.
 	-- `wearable` asks whether this cartridge can make a ghost LOOK like the peer; this asks
