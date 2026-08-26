@@ -3766,6 +3766,19 @@ function meshghostSampleCamera()
 				facingFrames.camSign[key] = (facingFrames.camSign[key] or 0) + 1
 			end
 			local cd = math.abs(dxw) + math.abs(dyw)
+			-- EVERY CAMERA DELTA, BINNED, always on. The engine scrolls in whole gait strides and
+			-- never an odd pixel (`documentation.md`), so this histogram is the shape of the
+			-- world's own motion as this adapter sees it -- and if the adapter's view of the camera
+			-- is out of phase with the PPU, this is where it shows: a turbo ride should read almost
+			-- entirely 0 and 8, alternating, because the object clock runs at half the video rate.
+			-- Anything reading 4 during a turbo ride means the sample is landing mid-scroll, and a
+			-- half-stride error at 8px is a quarter tile every frame.
+			--
+			-- Free: one table index per frame, printed once a second, and it is the measurement the
+			-- residual glide is waiting on -- the model has already been acquitted by its own
+			-- counters (0px behind, 0 catch-up, 0 resyncs across a full turbo ride).
+			facingFrames.camHist = facingFrames.camHist or {}
+			facingFrames.camHist[cd] = (facingFrames.camHist[cd] or 0) + 1
 			if cd > 8 then cd = 8 end
 			facingFrames.camDelta = cd
 			if facingFrames.stats() then
@@ -4984,7 +4997,34 @@ function drawOverflow()
 							-- `camDelta` is already clamped to 8 where it is sampled, so this cannot
 							-- run away on a rebase.
 							budget = facingFrames.camDelta or stride
-							if budget < stride then budget = stride end
+							-- THE FLOOR APPLIES ONLY TO A PEER THAT IS ACTUALLY MOVING.
+							--
+							-- MEASURED 2026-08-26, and it refutes the assumption the whole budget
+							-- rested on: during a turbo ride the camera histogram reads
+							-- `2px:8 4px:52` -- NOT ONE 8px delta. The engine's object clock runs
+							-- at half the video rate, so a gait of 8px per TICK scrolls the world
+							-- 4px per FRAME. `GAIT_PX` is per tick and the camera is per frame, and
+							-- those are not the same number.
+							--
+							-- So flooring the budget at the peer's stride moved a STANDING peer 8px
+							-- on a frame the world moved 4: the ghost races ahead and is pulled
+							-- back, every camera frame. That is the glide, and the floor I added
+							-- earlier today to fix the opposite problem is what guarantees it at
+							-- turbo. Both clamps were wrong for the same underlying reason -- one
+							-- number was covering two different quantities.
+							--
+							-- The world moving under a peer is the camera's delta, exactly, whatever
+							-- the peer's gait. The peer's own locomotion is bounded by its stride,
+							-- and only exists while it is stepping. Hence the condition: a moving
+							-- peer still gets its stride as a floor (that is what fixed the walker
+							-- watched from a bike), a stationary one tracks the camera and nothing
+							-- else. The user's discriminator says this is the axis -- walking,
+							-- running and the ordinary bike all look right, only turbo does not,
+							-- and turbo is the only gait whose per-tick stride exceeds the camera's
+							-- per-frame delta.
+							if o.walking and budget < stride then
+								budget = stride
+							end
 						elseif mgap >= 2 then
 							-- NEVER FASTER THAN THE GAME'S OWN WALK. (2026-08-23, the shipped-250ms
 							-- case.) This is the camera-parked fallback, and the camera only parks
@@ -6400,6 +6440,19 @@ function drawOverflow()
 				.. "%d backward refused, %d catch-up frames",
 				facingFrames.modelMax or 0, facingFrames.backwards or 0,
 				facingFrames.catchupFrames or 0))
+			-- The camera's own motion, as this adapter sees it. The engine scrolls whole gait
+			-- strides and never an odd pixel, so a bin outside {0,2,4,8} is this adapter sampling
+			-- mid-scroll rather than the game doing something new.
+			if facingFrames.camHist then
+				local b = {}
+				for px = 0, 16 do
+					local n = facingFrames.camHist[px]
+					if n then
+						b[#b + 1] = string.format("%dpx:%d", px, n)
+					end
+				end
+				logFile("  camera deltas: " .. table.concat(b, " "))
+			end
 		end
 		if (facingFrames.modelSnaps or 0) > 0 then
 			logFile(string.format("  model resyncs: %d so far, worst %dpx past the 24px threshold "
