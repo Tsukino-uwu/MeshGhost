@@ -370,6 +370,29 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   cheat-manager/console reasoning -- and no mods.txt/mods.json ships either. Re-run whenever the
   RE-UE4SS submodule pin changes; requires the build tree already built once.
 
+## Since autostart works, the MOD's config decides the client's settings — not these scripts
+
+**Pseudoregalia, 2026-08-27.** The mod now starts its own core (`VERIFIED.md`), which changed
+something subtle about how a dev session behaves: if you launch only a relay bat and then start the
+game, **no `run-core-*.bat` is involved at all**. The client that connects is the one the mod
+spawned, and it reads
+
+```
+<game>/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/config.json
+```
+
+not any flag in this folder. That file's `transport`, `room`, `name` and `interp` are what the
+session actually uses.
+
+**How it shows up**: the relay logs `joined room "default" ... over udp` when you expected quic,
+because that install's config asked for udp while the dev core scripts pass no `-transport` at all
+and would have defaulted to `auto` (quic preferred). Nothing about transports changed; which client
+ran did.
+
+**So when a dev session behaves unlike the flags you think you set**, check whether you actually
+started a core. `meshghost.log` in that mod folder says which client it was, and the mod's own log
+prints `started meshghost.exe (pid N)` when it spawned one.
+
 ## CI and repo hygiene
 
 Not launchers at all, and not strays — one of them CI calls by name.

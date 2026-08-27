@@ -1566,6 +1566,27 @@ namespace MeshGhostPseudo
     // is the third. Measure the effect, then mirror it.
     constexpr bool MIRROR_PLAYER_BLINK = false;
 
+    // **Hold the ghost's through-walls OUTLINE off, every tick. Behaviour, 2026-08-27.**
+    //
+    // The outline was already disabled on a ghost's `VisualMesh` and `WeaponMesh` -- but **only
+    // once, at spawn**. The user, melee attacking: *"the ghost was showing blue outlines? think we
+    // removed/hid those things already... is it possible to remove/hide all of those blue
+    // overlay/outline things from the ghost?"* An attack highlight re-enabling custom depth is
+    // exactly what would defeat a spawn-time write.
+    //
+    // **Third time this session that a spawn-time write turned out to be the bug**, after the
+    // blob-shadow arm (never set on the ghost at all) and the collision disable (a per-component
+    // enable survives an actor-level one). A value the GAME also writes has to be held, not set.
+    //
+    // Cheap by construction: read `bRenderCustomDepth` and only call the setter when it is true, so
+    // a ghost that is behaving costs one property read per component per tick and no engine calls.
+    // The setter is still the engine's own -- writing the bool directly leaves the render state
+    // clean and the silhouette drawing, which is why `call_set_render_custom_depth` exists.
+    //
+    // Covers every mesh the census found on the pawn, not just the two the spawn path knew about:
+    // the outline pass keys off the component, so a mesh nobody thought of outlines just as well.
+    constexpr bool GHOST_HOLD_OUTLINE_OFF = true;
+
     // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
     //
     // The user, after the respawn fade shipped: *"its not doing the dying/falling into the pit
@@ -12590,6 +12611,36 @@ namespace MeshGhostPseudo
             // sword for a peer whose ghost has just been invalidated by a level transition.
             tick_remote_weapon(id, remote, current_world);
             tick_remote_projectile(id, remote, current_world);
+
+            // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
+            // game turns custom depth back on during an attack and a spawn-time write cannot
+            // survive that.
+            if constexpr (GHOST_HOLD_OUTLINE_OFF)
+            {
+                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh"), STR("Mesh"),
+                                                 STR("LockonMesh"), STR("LightMesh")})
+                {
+                    UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                    if (!mesh || !*mesh)
+                    {
+                        continue;
+                    }
+                    bool* custom_depth = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                    if (!custom_depth || !*custom_depth)
+                    {
+                        continue; // already off -- no engine call, which is what keeps this cheap
+                    }
+                    // Logged the first time per component name: "the game re-enabled it" is a fact
+                    // about this game worth having, not just a thing we quietly undo.
+                    static std::set<StringType> announced;
+                    if (announced.insert(mesh_name).second)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] ghost outline: '{}' had custom depth back ON -- holding it off.\n"),
+                                     mesh_name);
+                    }
+                    call_set_render_custom_depth(*mesh, false);
+                }
+            }
 
             // Hurt reaction on the ghost -- see MIRROR_HURT_REACTION, including why this reads the
             // player's health around the call.
