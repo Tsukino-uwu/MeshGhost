@@ -710,6 +710,18 @@ there on the user's explicit instruction, 2026-08-17.
     `MeshGhostPseudo/RE-UE4SS/docs/feature-overview/live-view.md`, vendored in this repo. That
     file notes a blank/white window means the wrong `GraphicsAPI`; this install is on `opengl`,
     so **`dx11` is the first thing to try** if it comes up empty.
+  - **BOTH TEVI installs carry the whole set** (2026-08-28) — the Steam copy and the standalone
+    dual-instance build, which turns out to be the same Unity (`2021.3.25`) on BepInEx `5.4.23.5`
+    rather than `5.4.23.3`, so identical tooling applies. **Their debugger ports deliberately
+    differ** — Steam `127.0.0.1:10000`, standalone `127.0.0.1:10001` — because a dual-instance
+    session would otherwise have both trying to bind one port. Set `MESHGHOST_TEVI_DIR2` to the
+    standalone path and use `tevi-hotreload.ps1 -Both` for anything dual-instance: deploying to
+    one install and not the other leaves the two copies on **different adapter builds**, and that
+    asymmetry is indistinguishable from a real peer-vs-local bug.
+  - **Both installs were found running a `meshghost.exe` from 2026-08-18 on 2026-08-28** —
+    predating the port-walk fix the next live test was meant to watch. `-Deploy` now
+    refreshes the core alongside the adapter and warns when the repo's own binary is older than a
+    `.go` file, because this is the second time a reading has been taken against a stale binary.
   - **UE4SS's Lua hot reload was already on and unused** — `EnableHotReloadSystem = 1`,
     `HotReloadKey = R` (Ctrl always required), in the config this repo has shipped since UE4SS
     was vendored. It reaches Lua mods only, never the C++ adapter.

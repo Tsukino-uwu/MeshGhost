@@ -35,10 +35,34 @@ param(
     # Defaults to the stock Steam location. Override for a second install (the standalone build
     # used for dual-instance testing) or set MESHGHOST_TEVI_DIR once in your environment.
     [string]$TeviDir = $(if ($env:MESHGHOST_TEVI_DIR) { $env:MESHGHOST_TEVI_DIR }
-                        else { "C:\Program Files (x86)\Steam\steamapps\common\TEVI" })
+                        else { "C:\Program Files (x86)\Steam\steamapps\common\TEVI" }),
+    # Apply to BOTH installs. The second one comes from MESHGHOST_TEVI_DIR2, which is where a
+    # machine-specific path belongs -- this is a public repo and a second install is nobody
+    # else's layout.
+    [switch]$Both
 )
 
 $ErrorActionPreference = 'Stop'
+
+# Dual-instance testing is the case this exists for. Deploying to one install and not the other
+# leaves two TEVI copies running DIFFERENT adapter builds, and the resulting asymmetry looks
+# exactly like a peer-vs-local bug -- the most expensive kind of wrong answer this repo has, since
+# every instrument then agrees with itself. -Both keeps them in step.
+if ($Both) {
+    $second = $env:MESHGHOST_TEVI_DIR2
+    if (-not $second) {
+        Write-Output "tevi-hotreload: -Both needs MESHGHOST_TEVI_DIR2 set to the second install."
+        exit 1
+    }
+    $fwd = @{}
+    foreach ($k in 'On','Off','Deploy','Status') { if ($PSBoundParameters[$k]) { $fwd[$k] = $true } }
+    foreach ($dir in @($TeviDir, $second)) {
+        Write-Output "===== $dir"
+        & $PSCommandPath @fwd -TeviDir $dir
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
+    exit 0
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $staged   = Join-Path $repoRoot 'packaging\release\games\tevi\MeshGhost\MeshGhostTevi.dll'
 
@@ -179,6 +203,29 @@ if ($Deploy) {
     $ok = (Get-FileHash $staged).Hash -eq (Get-FileHash $target).Hash
     Write-Output "tevi-hotreload: deployed to $mode at $target (hash match: $ok)"
     if (-not $ok) { exit 1 }
+
+    # The CORE goes stale independently of the adapter, and silently. Both installs were found
+    # running a meshghost.exe from 2026-08-18 on 2026-08-28, predating the very port-walk fix the
+    # next live test was meant to watch. A test against a stale core
+    # confirms nothing and looks like a confirmation, so the copy happens here rather than being
+    # something to remember.
+    $repoExe = Join-Path $repoRoot 'meshghost.exe'
+    if (Test-Path $repoExe) {
+        $exeTarget = Join-Path (Split-Path $target) 'meshghost.exe'
+        Copy-Item $repoExe $exeTarget -Force
+        $exeOk = (Get-FileHash $repoExe).Hash -eq (Get-FileHash $exeTarget).Hash
+        Write-Output "                core refreshed (hash match: $exeOk)"
+        if (-not $exeOk) { exit 1 }
+        # go build/vet/test do NOT refresh the root .exe files -- this warns rather than building,
+        # because rebuilding the Go side silently inside an adapter deploy would hide which
+        # binary a reading came from.
+        $newestGo = Get-ChildItem $repoRoot -Recurse -Filter *.go -ErrorAction SilentlyContinue |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($newestGo -and $newestGo.LastWriteTime -gt (Get-Item $repoExe).LastWriteTime) {
+            Write-Output "                WARNING: meshghost.exe is OLDER than $($newestGo.Name)."
+            Write-Output "                  go build -o meshghost.exe .\cmd\meshghost   (from the repo root)"
+        }
+    }
     if ($mode -eq 'hot-reload') {
         $armed = (Test-Path $engineCfg) -and ((Get-Content $engineCfg -Raw) -match 'EnableFileSystemWatcher\s*=\s*true')
         if ($armed) { Write-Output "  Reloading by itself in ~2s -- nothing to press." }

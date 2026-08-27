@@ -339,8 +339,13 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   ScriptEngine reloads it in a running game, and arms ScriptEngine's file watcher so `-Deploy`
   rebuilds, copies, and triggers the reload with nothing pressed by hand. `-Status` says which
   mode an install is in; **both at once means the adapter loads twice**, which is the failure the
-  toggle exists to prevent. Two things it cannot tell you — a cold-start-only bug, and anything
-  a reload orphaned in the scene — are written at the top of the script.
+  toggle exists to prevent. `-Both` applies every mode to two installs at once (the second from
+  `MESHGHOST_TEVI_DIR2`) — **use it for any dual-instance session**, because deploying to one and
+  not the other leaves the two copies running different adapter builds and the asymmetry reads
+  exactly like a peer-vs-local bug. `-Deploy` also refreshes `meshghost.exe` beside the adapter
+  and warns when the repo's own binary is older than a `.go` file, after both installs were found
+  on 2026-08-28 running a core from 2026-08-18. Two things it cannot tell you — a cold-start-only
+  bug, and anything a reload orphaned in the scene — are written at the top of the script.
 - `pseudo-hotreload.ps1` — the same idea for Pseudoregalia, but weaker by necessity: UE4SS
   hot-reloads **Lua** mods only, so this speeds up probe iteration and does nothing for the C++
   adapter, which still costs a rebuild and a relaunch. UE4SS exposes reloading only as a keybind
