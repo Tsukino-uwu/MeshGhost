@@ -262,10 +262,16 @@ namespace MeshGhostPseudo
         // on a peer's first sample so a mid-session joiner doesn't replay its last montage the
         // instant its ghost spawns (same fix as last_seen_land_count's).
         // Mirrored player effects, 2026-08-27: a comma-joined list of KEYS from Plugin.cpp's
-        // MIRRORED_EFFECTS table (currently "heal" and "chg"), naming which of the player's own
-        // attached effects are active on the peer right now. An asset path never crosses the
-        // wire -- see that table's comment for why that is the peer-data-safety design and not an
+        // MIRRORED_EFFECTS table, naming which of the player's own effects are active on the peer
+        // right now. Some rows attach to a component of the character and some are world-spawned
+        // at an observed height; the wire does not distinguish them, because the key is resolved
+        // against the local table on each machine. An asset path never crosses the wire -- see
+        // that table's comment for why that is the peer-data-safety design and not an
         // implementation detail.
+        //
+        // Deliberately NOT enumerated here: that table is the register and it grows (two rows at
+        // first, seven by the end of 2026-08-27). A list in this comment is a list that goes stale
+        // without anything noticing -- it already had, before this edit.
         //
         // STATE, not events: the peer resends the full active set every update, so a dropped
         // datagram self-corrects instead of stranding an effect on the ghost. Empty means
@@ -489,11 +495,11 @@ namespace MeshGhostPseudo
         // in Plugin.cpp for why a probe answers this better than hunting triggers.
         auto tick_vfx_catalog_probe(RC::Unreal::AActor* ghost) -> void;
 
-        // Shows/hides a ghost's empty-hand recall glow -- see RemoteGhost::recall_glow_component.
-        // Plays the peer's own attached effects on its ghost (healing, charged-projectile glow).
-        // Table and rationale: Plugin.cpp's MIRRORED_EFFECTS.
+        // Plays the peer's own effects on its ghost, keyed by the wire's `vfx` list. Table and
+        // rationale: Plugin.cpp's MIRRORED_EFFECTS -- do not restate its rows here.
         auto tick_remote_mirrored_vfx(const std::string& player_id, RemoteGhost& remote) -> void;
 
+        // Shows/hides a ghost's empty-hand recall glow -- see RemoteGhost::recall_glow_component.
         auto tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void;
 
         // Two-sample capture of the ghost-spawns-mid-throw case -- see GHOST_SPAWN_WEAPON_TRACE.
@@ -964,6 +970,19 @@ namespace MeshGhostPseudo
         std::unordered_map<std::string, RemoteGhost> remotes;
         std::unordered_set<RC::Unreal::AActor*> hijacked_actors; // prevents two remotes sharing one prop
         RC::Unreal::UWorld* last_logged_world{nullptr};
+
+        // Local halves of the hurt/death counters (MIRROR_HURT_REACTION / MIRROR_DEATH_FADE).
+        // Members rather than function-local statics since 2026-08-27, because the LoadMap PRE hook
+        // must be able to invalidate the BASELINES: `CurrentHp` is a GameInstance singleton, and a
+        // save-file swap rewrites it wholesale, so a baseline read in the previous save reads as
+        // "the player took damage" in the next one and the ghost flinches on every save change.
+        // The counters themselves are never reset -- they are monotonic on the wire, and a receiver
+        // that has seen a higher value would silently swallow real hurts until a reset count caught
+        // back up.
+        int local_hurt_count{0};
+        int local_death_count{0};
+        double local_last_seen_hp{-1.0}; // -1 = no baseline; first read only primes, never compares
+        bool local_was_dead{false};
 
         // Camera fight-back state (Phase 7.6), mirrors Lua's lastKnownGoodViewTarget/anyGhostSpawned.
         // No pending/deferred fields needed -- the RegisterPreHook design rewrites the engine's own

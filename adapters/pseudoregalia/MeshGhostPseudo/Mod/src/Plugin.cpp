@@ -7180,6 +7180,10 @@ namespace MeshGhostPseudo
         // held, which is the whole point of the redesign -- see MIRROR_PEER_PROJECTILE.
         it->second.projectile_component = nullptr;
         it->second.projectile_component_world = nullptr;
+        // Same reasoning for the mirrored-VFX components, and the same omission: these are attached
+        // to the ghost, so destroying the ghost below takes them with it, and a despawn that arrives
+        // after a transition must not find this map still naming components the level already freed.
+        it->second.vfx_components.clear();
         if (it->second.weapon_actor)
         {
             call_destroy_actor(it->second.weapon_actor);
@@ -7242,6 +7246,25 @@ namespace MeshGhostPseudo
             remote.weapon_render_primed = false;
             remote.weapon_glow_component = nullptr;
             remote.last_synced_weapon_state = -1.0;
+            // **The mirrored-VFX components, added here 2026-08-27 to fix a real crash** --
+            // EXCEPTION_ACCESS_VIOLATION reading a poisoned address, stack:
+            // game_thread_tick -> tick_remote_mirrored_vfx -> GetFunctionByNameInChain, reported on
+            // "retry last save". This map holds raw pointers to components the LEVEL owns, and it
+            // was cleared in exactly one place: the tick path's own teardown branch, which is the
+            // branch that dereferences them. So a transition freed every component while the map
+            // still named them, and the next tick that wanted one stopped called Deactivate on
+            // freed memory. Third instance of this family in this adapter after the thrown prop and
+            // the projectile actor, and the comment above already said it would be: the VFX mirror
+            // shipped without ever being added to these lines. Dropping the reference is the whole
+            // fix -- the level's teardown destroys the components, exactly as with the weapon glow.
+            remote.vfx_components.clear();
+            // Belt and braces: the projectile effect is protected by tick_remote_projectile's own
+            // world-staleness check rather than by this hook, so it does not crash today. It is
+            // cleared here anyway because "safe as long as one specific tick path runs first" is a
+            // weaker guarantee than "the pointer was dropped before teardown", and this is the one
+            // moment that is guaranteed to be before teardown.
+            remote.projectile_component = nullptr;
+            remote.projectile_component_world = nullptr;
             remote.recall_glow_component = nullptr;
             remote.recall_glow_shown = false;
             remote.recall_glow_swept = false;
@@ -7277,6 +7300,36 @@ namespace MeshGhostPseudo
             remote.ghost = nullptr;
             remote.owning_world = nullptr;
         }
+
+        // **The camera fallback pointer, cleared here 2026-08-27 to fix a hard crash on starting a
+        // NEW SAVE.** `last_non_ghost_view_target` remembers the last view target the game chose for
+        // itself, so a refused ghost-rig switch can be redirected somewhere real instead of to null.
+        // It is a raw AActor* belonging to the level that was current when it was stored, and it was
+        // never cleared -- so after ZONE_Dungeon -> TitleScreen -> ZONE_Dungeon it named an actor two
+        // teardowns dead. The new level then spawns a ghost, the game switches to the ghost's rig,
+        // the refuse branch runs, and `IsUnreachable()` dereferences freed memory: a hard crash with
+        // an EMPTY Fatal Error dialog, because it dies inside the engine rather than in our frame.
+        //
+        // **The `IsUnreachable()` guard there is not a validity check and never was** -- this file
+        // records the same finding twice already (release_ghost's comment, and the projectile
+        // redesign): it is only meaningful on an object that is still ALLOCATED. Dropping the
+        // pointer before teardown is the actual fix, exactly as for the ghost and the thrown prop.
+        //
+        // Why "retry last save" did NOT crash while a new save did: reloading the SAME level tends to
+        // hand the allocator the same addresses back, so the stale pointer survives by luck. An
+        // intervening TitleScreen is what makes the difference, which is why this hid until now.
+        //
+        // Plugin-level, so it sits outside the per-remote loop above.
+        last_non_ghost_view_target = nullptr;
+
+        // **The hurt/death BASELINES, invalidated here 2026-08-27** -- the counters stay, only the
+        // memory of "what was the health last tick" is dropped. A save-file swap goes through this
+        // hook (level -> TitleScreen -> level) and rewrites the GameInstance's `CurrentHp`; with
+        // the baseline carried across, arriving in a save with less health than the one just left
+        // counted as a hurt and the ghost flinched on every save change. -1 means "prime on next
+        // read, compare on the one after", the same as at startup.
+        local_last_seen_hp = -1.0;
+        local_was_dead = false;
 
         // Afterimage pool bookkeeping is per-level: the level's teardown destroys these actors, and
         // the next level's allocator can hand the same addresses back. Keys here are only ever
@@ -9022,6 +9075,12 @@ namespace MeshGhostPseudo
                     // this ghost existed must not have throw #6 replayed at spawn.
                     it->second.last_seen_montage_count = montage_count_in;
                     it->second.last_seen_montage_stop_count = montage_stop_count_in;
+                    // And the same again for the 2026-08-27 counters, added when the save-swap
+                    // flinch was fixed: a peer who has been hurt or has died before this ghost
+                    // existed must not flinch or die-fade the instant it spawns.
+                    it->second.last_seen_blink_count = static_cast<int>(blink_count_num);
+                    it->second.last_seen_death_count = static_cast<int>(death_count_num);
+                    it->second.last_seen_hurt_count = static_cast<int>(hurt_count_num);
                 }
             }
         }
@@ -9137,18 +9196,22 @@ namespace MeshGhostPseudo
             // Hurt counter, local half -- see MIRROR_HURT_REACTION. Any DECREASE in the shared
             // `CurrentHp` is a hurt; a pit fall is 5 of them at once and never a death, which is
             // why the death counter below could not carry this.
-            static int hurt_count = 0;
-            static double last_seen_hp = -1.0;
+            //
+            // **Plugin members, not statics, since 2026-08-27** (see their declaration): the
+            // LoadMap PRE hook invalidates `local_last_seen_hp`, because a save-file swap rewrites
+            // the GameInstance's `CurrentHp` wholesale and a baseline carried across that boundary
+            // read the new save's lower health as damage -- the user saw the ghost flinch on every
+            // save change. A -1 baseline primes without comparing, exactly as at startup.
             if constexpr (MIRROR_HURT_REACTION)
             {
                 double hp_now = 0.0;
                 if (read_shared_current_hp(pawn, hp_now))
                 {
-                    if (last_seen_hp >= 0.0 && hp_now < last_seen_hp)
+                    if (local_last_seen_hp >= 0.0 && hp_now < local_last_seen_hp)
                     {
-                        ++hurt_count;
+                        ++local_hurt_count;
                     }
-                    last_seen_hp = hp_now;
+                    local_last_seen_hp = hp_now;
                 }
             }
 
@@ -9156,8 +9219,6 @@ namespace MeshGhostPseudo
             // GameInstance singleton, established by the health investigation earlier the same day
             // (`VERIFIED.md`), and reaching zero is the one unambiguous death signal this game
             // offers. A counter rather than a flag, like every other short event on this wire.
-            static int death_count = 0;
-            static bool was_dead = false;
             if constexpr (MIRROR_DEATH_FADE)
             {
                 if (UObject** gi_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
@@ -9165,11 +9226,11 @@ namespace MeshGhostPseudo
                     if (double* hp = (*gi_ptr)->GetValuePtrByPropertyNameInChain<double>(STR("CurrentHp")))
                     {
                         const bool dead_now = (*hp <= 0.0);
-                        if (dead_now && !was_dead)
+                        if (dead_now && !local_was_dead)
                         {
-                            ++death_count;
+                            ++local_death_count;
                         }
-                        was_dead = dead_now;
+                        local_was_dead = dead_now;
                     }
                 }
             }
@@ -12117,8 +12178,8 @@ namespace MeshGhostPseudo
                 projectile_yaw,
                 projectile_roll,
                 blink_count,
-                death_count,
-                hurt_count);
+                local_death_count,
+                local_hurt_count);
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
