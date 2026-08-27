@@ -3186,6 +3186,38 @@ non-tile-quantised motion), which is exactly the kind of case that finds out whe
    the game exposes a stable object table the way Crystal's does.
 3. Only then ask spawn-versus-draw, which is the decision that shaped the whole Crystal adapter.
 
+## Interpolation delay should be PER ADAPTER, not one number for every game (2026-08-28)
+
+**The user's observation, and it is about the shape of the games rather than about tuning:** a
+tile-based game plausibly needs more interpolation delay than a free-movement one. Pokemon moves a
+character in whole-tile steps at a fixed cadence; TEVI and Pseudoregalia move it continuously in
+world units. One delay that suits both is unlikely to be the best either could have.
+
+**Today there is exactly one number.** `core.DefaultInterpolationDelay` is 250ms, set with `-interp`
+per launch. Nothing about it is game-aware, and **nothing about it may become game-aware in the
+core** -- `CLAUDE.md`'s hard rule and ADR 08-20 forbid the core or relay knowing which game it is
+carrying, so `if game == "emerald"` is not available and never will be. That constraint is the
+whole design problem here, not an obstacle to route around.
+
+**Which leaves the adapter as the only honest place for the knowledge**, since it is the one
+component that is allowed to know the game. Two shapes worth weighing, both of which keep the core
+game-blind:
+
+- The adapter DECLARES a preferred delay over the bridge, the way it already declares `features`
+  and its `game_id` in its Hello, and the core treats it as an opaque number it was handed rather
+  than one it reasoned about.
+- Or the delay stays a deployment setting and each game's `dev-scripts` launcher simply passes a
+  different `-interp`, which needs no protocol change at all and is the cheaper first step.
+
+**What is NOT known yet, and should be measured before either is built:** whether the difference is
+real and worth a mechanism. Nobody has compared a tile game and a continuous game at the same delay
+and judged them side by side, so "Pokemon needs more" is a well-motivated hypothesis and not yet a
+measurement. The cheap experiment is the second shape above -- vary `-interp` per game from the
+launcher, judge on screen, and only then decide whether it deserves to be in the protocol.
+
+**Related:** the receive-rate cap and `clock.v1` skew handling are the two other knobs that change
+how a remote looks, and neither has been judged against a tile game either. `architecture.md`.
+
 ## Two Go file splits, scoped and deliberately not done (2026-08-27)
 
 `netx/udpconn/udpconn.go` was split the same day — 964 lines into `cookies.go`, `conn.go`,
