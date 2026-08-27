@@ -82,3 +82,15 @@ still sees means widen the subsystem".
 park-it-offscreen bandage (`BANDAGES.md`). **That was reversed on 2026-08-18 — it is not a
 constraint any more.** Recorded because the shape recurs: a destroy call that fails silently
 looks exactly like one that worked, so confirm the actor is gone rather than trusting the call.
+
+## An actor that spawns with a visual already ON cannot be fixed reactively
+
+Anything running after the world tick — `on_update`, an engine-tick post callback, the next
+tick — runs after that frame's rendering is enqueued, so a visual the actor is born with gets
+one rendered frame no matter how early in your own code the reaction sits. The signature that
+you are in this trap: each reactive improvement makes the artifact briefer but never gone.
+Intercept the call that turns the visual on instead (a native-function `RegisterPreHook`
+rewriting the argument buffer — the same shape as the camera/fade/damage guards). If the data
+you attribute by is not yet written at that moment (measured: `copyActor` is set AFTER the
+custom-depth enable), refuse-then-restore in the direction whose failure is invisible.
+Afterimage outline case, 2026-08-27; `pitfalls.md`.

@@ -5516,6 +5516,10 @@ namespace MeshGhostPseudo
         {
             svtwb_function->UnregisterHook(svtwb_hook_id);
         }
+        if (srcd_function && afterimage_outline_hook_id != -1)
+        {
+            srcd_function->UnregisterHook(afterimage_outline_hook_id);
+        }
     }
 
     // Kept from the "Fatal world leaks detected" investigation: dumps every remote's ghost
@@ -7348,6 +7352,7 @@ namespace MeshGhostPseudo
         register_camera_fightback_hook();
         register_damage_guard_hooks();
         register_fade_guard_hook();
+        register_afterimage_outline_guard();
     }
 
     // Phase 7.6, third attempt. Root cause of why the first two attempts never even fired: this
@@ -7596,6 +7601,158 @@ namespace MeshGhostPseudo
             });
 
         Output::send(STR("[MeshGhostPseudo] fade guard armed on StartCameraFade.\n"));
+    }
+
+    // The zero-frame half of GHOST_AFTERIMAGE_NO_OUTLINE. The per-tick strip in game_thread_tick
+    // runs in the engine-tick POST callback -- after the frame's rendering is already enqueued --
+    // so an afterimage born outlined always got one frame on screen no matter where in the tick
+    // the strip ran (measured: moving the strip next to the burst changed nothing the user could
+    // see). The pool proves a per-spawn re-enable call exists: the player's own images outline
+    // correctly after ours are stripped, so the game turns custom depth back ON at each reuse
+    // rather than carrying it on the actor. From a Blueprint that re-enable is the native
+    // PrimitiveComponent:SetRenderCustomDepth -- hookable, unlike the Blueprint functions that
+    // crash this build -- and rewriting its bValue argument before the real call runs means the
+    // outline never turns on at all. Same argument-buffer-rewrite shape as the camera fightback
+    // and fade guards.
+    auto Plugin::register_afterimage_outline_guard() -> void
+    {
+        if constexpr (!GHOST_AFTERIMAGE_NO_OUTLINE)
+        {
+            return;
+        }
+
+        srcd_function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/Engine.PrimitiveComponent:SetRenderCustomDepth"));
+        if (!srcd_function)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: afterimage outline guard could not find 'SetRenderCustomDepth' -- a ghost's afterimages will flash their outline for one frame.\n"));
+            return;
+        }
+
+        // Reflected offset, never an assumed struct layout -- the standard everywhere this file
+        // crosses that boundary.
+        int32_t value_off = -1;
+        for (FProperty* param : TFieldRange<FProperty>(srcd_function, EFieldIterationFlags::None))
+        {
+            if (param && param->GetName() == STR("bValue"))
+            {
+                value_off = param->GetOffset_Internal();
+            }
+        }
+        if (value_off < 0)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: 'SetRenderCustomDepth' has no 'bValue' parameter on this build -- afterimage outline guard disarmed.\n"));
+            return;
+        }
+
+        afterimage_outline_hook_id = srcd_function->RegisterPreHook(
+            [this, value_off](UnrealScriptFunctionCallableContext& ctx, void*) {
+                uint8_t* params = reinterpret_cast<uint8_t*>(&ctx.GetParams<uint8_t>());
+                if (!params)
+                {
+                    return;
+                }
+                bool* value_ptr = reinterpret_cast<bool*>(params + value_off);
+                if (!*value_ptr)
+                {
+                    // Turning it OFF is never refused -- that includes our own strip calls, which
+                    // is also what makes this hook re-entry safe.
+                    return;
+                }
+
+                // Only an afterimage's components are ever considered; every other caller --
+                // the player's own outline included -- passes through untouched. A component's
+                // outer chain leads to the actor that owns it.
+                UObject* image = nullptr;
+                for (UObject* outer = ctx.Context ? ctx.Context->GetOuterPrivate() : nullptr;
+                     outer;
+                     outer = outer->GetOuterPrivate())
+                {
+                    UClass* outer_class = outer->GetClassPrivate();
+                    if (outer_class && outer_class->GetName() == STR("BP_AfterImage_C"))
+                    {
+                        image = outer;
+                        break;
+                    }
+                }
+                if (!image)
+                {
+                    return;
+                }
+
+                // Attribution at enable time, strongest first -- and MEASURED necessary, not
+                // assumed: the first ghost image of the 2026-08-27 session reached the tick pass
+                // with copyActor still NULL, so waiting until an image can prove whose it is
+                // gives the ghost its one frame back.
+                //   1) copyActor, when the Blueprint has already set it. Resolving to a non-ghost
+                //      IS an answer: the player's.
+                //   2) the sweep's standing decision for this pooled actor (a re-enable on an
+                //      image already attributed).
+                //   3) still unknown -> refuse NOW and remember the component; the sweep restores
+                //      the outline next tick if the image turns out to be the player's own. That
+                //      inverts the failure mode: worst case is one outline-LESS frame on a player
+                //      image instead of one outlined frame on a ghost's.
+                bool any_ghost = false;
+                bool ghost_owned = false;
+                bool attributed = false;
+                UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor"));
+                {
+                    std::lock_guard<std::mutex> lock(state_mutex);
+                    for (const auto& [id, remote] : remotes)
+                    {
+                        if (!remote.ghost)
+                        {
+                            continue;
+                        }
+                        any_ghost = true;
+                        if (copy_actor && *copy_actor && static_cast<UObject*>(remote.ghost) == *copy_actor)
+                        {
+                            ghost_owned = true;
+                        }
+                    }
+                }
+                if (!any_ghost)
+                {
+                    return; // no ghost alive: every outline is legitimately the player's
+                }
+                if (copy_actor && *copy_actor)
+                {
+                    attributed = true;
+                }
+                if (!attributed)
+                {
+                    // Same game thread as the sweep that owns these maps -- no lock needed.
+                    if (auto known = afterimage_owners.find(image); known != afterimage_owners.end())
+                    {
+                        attributed = true;
+                        ghost_owned = (known->second.owner_ghost != nullptr);
+                    }
+                }
+                if (attributed && !ghost_owned)
+                {
+                    return; // the player's own: untouched
+                }
+
+                *value_ptr = false; // the real call still runs -- it just disables instead
+                if (!attributed)
+                {
+                    afterimage_pending_reenable[image].insert(ctx.Context);
+                }
+
+                // Once per session: this line existing at all is the finding that the enable
+                // really does go through SetRenderCustomDepth. Its absence next session means the
+                // game reaches custom depth some other way and the hunt reopens.
+                static bool logged = false;
+                if (!logged)
+                {
+                    logged = true;
+                    Output::send(STR("[MeshGhostPseudo] afterimage outline guard: refused custom depth at the SetRenderCustomDepth call itself ({}).\n"),
+                                 attributed ? STR("attributed to a ghost") : STR("unattributable yet -- sweep will restore it if it is the player's"));
+                }
+            },
+            nullptr);
+
+        Output::send(STR("[MeshGhostPseudo] afterimage outline guard armed on SetRenderCustomDepth.\n"));
     }
 
     auto Plugin::register_damage_guard_hooks() -> void
@@ -11990,6 +12147,237 @@ namespace MeshGhostPseudo
         {
             release_all_ghosts_parked(STR("bridge disconnected"));
         }
+        // **The afterimage outline sweep** -- one pass per tick over every BP_AfterImage_C,
+        // attributed against ALL live ghosts at once. Rewritten 2026-08-27, third shape that day:
+        // per-remote stripping could store a "not this ghost's" verdict that a second ghost's own
+        // pass then trusted, and it had no way to answer the SetRenderCustomDepth pre-hook's new
+        // question, "whose image is this?", for an enable refused before copyActor was set. This
+        // sweep owns the attribution map (see AfterimageOwner in Plugin.hpp), strips ghost-owned
+        // images the hook could not catch, and RESTORES the outline on player images the hook
+        // refused while they were still unattributable.
+        //
+        // A tick late is fine for both jobs now: the zero-frame guarantee lives in the pre-hook,
+        // and this pass is the backstop plus the restorer. Affordable for the same reason as
+        // before -- one class-scoped FindAllOf plus a distance check per image, decisions cached
+        // by pointer.
+        auto sweep_afterimage_outlines = [&]() -> void
+        {
+            if constexpr (!GHOST_AFTERIMAGE_NO_OUTLINE)
+            {
+                return;
+            }
+
+            std::vector<UObject*> ghosts;
+            for (auto& [gid, gremote] : remotes)
+            {
+                if (gremote.ghost)
+                {
+                    ghosts.push_back(static_cast<UObject*>(gremote.ghost));
+                }
+            }
+            if (ghosts.empty())
+            {
+                // No ghosts: nothing to strip, and anything the hook refused should not have
+                // been (it only refuses while a ghost is alive, but one may have despawned
+                // between). Restore whatever is pending, then forget everything -- a stale
+                // owners map would misattribute the pool after the next ghost spawns.
+                for (auto& [image, components] : afterimage_pending_reenable)
+                {
+                    if (afterimage_owners.find(image) == afterimage_owners.end())
+                    {
+                        continue; // never seen alive by this sweep -- do not touch blind
+                    }
+                    for (UObject* component : components)
+                    {
+                        call_set_render_custom_depth(component, true);
+                    }
+                }
+                afterimage_pending_reenable.clear();
+                afterimage_owners.clear();
+                return;
+            }
+
+            FVector player_loc(0.0, 0.0, 0.0);
+            bool have_player = false;
+            if (pawn_obj)
+            {
+                player_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
+                have_player = true;
+            }
+
+            std::vector<UObject*> afterimages;
+            UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+            std::set<UObject*> alive_this_tick;
+            for (UObject* image : afterimages)
+            {
+                if (!image || !image->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                {
+                    continue; // the class default object, not a placed one
+                }
+                alive_this_tick.insert(image);
+                const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
+
+                auto known = afterimage_owners.find(image);
+                bool decide_now = (known == afterimage_owners.end());
+                if (!decide_now)
+                {
+                    const double mx = image_loc.X() - known->second.x;
+                    const double my = image_loc.Y() - known->second.y;
+                    const double mz = image_loc.Z() - known->second.z;
+                    // Moved => this pooled actor has been re-used by somebody, and its old owner
+                    // means nothing.
+                    decide_now = (mx * mx + my * my + mz * mz) >
+                                 (AFTERIMAGE_REUSE_MOVE_THRESHOLD * AFTERIMAGE_REUSE_MOVE_THRESHOLD);
+                }
+
+                if (decide_now)
+                {
+                    UObject* owner_ghost = nullptr;
+                    bool decided_by_identity = false;
+
+                    // **The actor says whose it is.** copyActor is the source it was copied
+                    // from -- an equality test, not a guess, and it cannot be fooled by two
+                    // characters overlapping. Resolving to a non-ghost IS an answer: the
+                    // player's.
+                    if (UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor")); copy_actor && *copy_actor)
+                    {
+                        decided_by_identity = true;
+                        for (UObject* ghost : ghosts)
+                        {
+                            if (*copy_actor == ghost)
+                            {
+                                owner_ghost = ghost;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!decided_by_identity)
+                    {
+                        // Fallback only: copyActor still unset (measured happening 2026-08-27)
+                        // or a build where it never resolves. Birth-proximity is sound at the
+                        // moment of spawn -- the image sits ON its owner. Logged, because
+                        // silently degrading to a heuristic is how the first attempt took the
+                        // player's outline with it.
+                        static bool warned_fallback = false;
+                        if (!warned_fallback)
+                        {
+                            warned_fallback = true;
+                            Output::send(STR("[MeshGhostPseudo] afterimage attributed by birth proximity ('copyActor' not yet set) -- exact only while characters do not overlap.\n"));
+                        }
+                        double best = have_player
+                                          ? ((image_loc.X() - player_loc.X()) * (image_loc.X() - player_loc.X()) +
+                                             (image_loc.Y() - player_loc.Y()) * (image_loc.Y() - player_loc.Y()) +
+                                             (image_loc.Z() - player_loc.Z()) * (image_loc.Z() - player_loc.Z()))
+                                          : -1.0;
+                        for (UObject* ghost : ghosts)
+                        {
+                            const FVector ghost_loc = static_cast<AActor*>(ghost)->K2_GetActorLocation();
+                            const double dgx = image_loc.X() - ghost_loc.X();
+                            const double dgy = image_loc.Y() - ghost_loc.Y();
+                            const double dgz = image_loc.Z() - ghost_loc.Z();
+                            const double to_ghost = dgx * dgx + dgy * dgy + dgz * dgz;
+                            if (best < 0.0 || to_ghost < best)
+                            {
+                                best = to_ghost;
+                                owner_ghost = ghost;
+                            }
+                        }
+                    }
+
+                    afterimage_owners[image] = AfterimageOwner{owner_ghost,
+                                                               image_loc.X(), image_loc.Y(), image_loc.Z()};
+                }
+
+                const AfterimageOwner& owner = afterimage_owners[image];
+                auto pending = afterimage_pending_reenable.find(image);
+                if (!owner.owner_ghost)
+                {
+                    // The player's own: their outline is theirs to keep -- and to give BACK, if
+                    // the hook refused this image's enable before it could be attributed.
+                    if (pending != afterimage_pending_reenable.end())
+                    {
+                        for (UObject* component : pending->second)
+                        {
+                            call_set_render_custom_depth(component, true);
+                        }
+                        static bool announced_restore = false;
+                        if (!announced_restore)
+                        {
+                            announced_restore = true;
+                            Output::send(STR("[MeshGhostPseudo] afterimage outline restored: an enable refused before attribution turned out to be the player's own.\n"));
+                        }
+                        afterimage_pending_reenable.erase(pending);
+                    }
+                    continue;
+                }
+                if (pending != afterimage_pending_reenable.end())
+                {
+                    afterimage_pending_reenable.erase(pending); // a ghost's: refused correctly, stays off
+                }
+
+                // See AFTERIMAGE_CENSUS. One ghost-owned afterimage, dumped once: the question is
+                // what it reads to decide it should be outlined, since reacting afterwards can
+                // never beat the frame it is spawned on.
+                if constexpr (AFTERIMAGE_CENSUS)
+                {
+                    static bool dumped_afterimage = false;
+                    if (!dumped_afterimage)
+                    {
+                        dumped_afterimage = true;
+                        dump_object_property_values(image, STR("ghost afterimage"));
+                        dump_object_reflection(image, STR("ghost afterimage"));
+                    }
+                }
+
+                // Walk the actor's components rather than naming one: an afterimage's mesh is a
+                // PoseableMeshComponent here, and naming component CLASSES is exactly what hid
+                // this from three earlier probes.
+                UClass* image_class = image->GetClassPrivate();
+                if (!image_class)
+                {
+                    continue;
+                }
+                for (FProperty* property : TFieldRange<FProperty>(image_class, EFieldIterationFlags::Default))
+                {
+                    if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                    {
+                        continue;
+                    }
+                    UObject** component = image->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
+                    if (!component || !*component)
+                    {
+                        continue;
+                    }
+                    bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                    if (!custom_depth || !*custom_depth)
+                    {
+                        continue;
+                    }
+                    static bool announced_afterimage = false;
+                    if (!announced_afterimage)
+                    {
+                        announced_afterimage = true;
+                        Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON past the enable-time guard -- holding it off.\n"),
+                                     property->GetName());
+                    }
+                    call_set_render_custom_depth(*component, false);
+                }
+            }
+
+            // Prune what this tick could not see: a pooled actor gone from the world (level
+            // teardown) must not be dereferenced from either map next tick.
+            for (auto it = afterimage_pending_reenable.begin(); it != afterimage_pending_reenable.end();)
+            {
+                it = alive_this_tick.count(it->first) ? std::next(it) : afterimage_pending_reenable.erase(it);
+            }
+            for (auto it = afterimage_owners.begin(); it != afterimage_owners.end();)
+            {
+                it = alive_this_tick.count(it->first) ? std::next(it) : afterimage_owners.erase(it);
+            }
+        };
+        sweep_afterimage_outlines();
+
 
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
         // not only on ticks where new network data arrived.
@@ -12976,168 +13364,10 @@ namespace MeshGhostPseudo
                     }
                 }
 
-                // **The afterimages this ghost left behind** -- separate actors, so neither the
-                // property walk nor the name sweep below can reach them. See
-                // GHOST_AFTERIMAGE_NO_OUTLINE, including why attribution happens at BIRTH.
-                if constexpr (GHOST_AFTERIMAGE_NO_OUTLINE)
-                {
-                    // **Every tick, not on the sweep cadence** -- corrected 2026-08-27 after the
-                    // user reported the outlines reduced but not gone. An afterimage is spawned
-                    // already outlined, so at ~30Hz each one stays visible for up to five frames
-                    // before being caught, which during a combo is exactly "less, but still some".
-                    // Partial suppression is a TIMING signature: wrong attribution would have left
-                    // the amount unchanged.
-                    //
-                    // Affordable because it is one class-scoped `FindAllOf` plus a distance check
-                    // per image, and the decision itself is cached by pointer -- not the per-frame
-                    // enumeration of everything that this adapter's worst regression was made of.
-                    {
-                        // Remembered by pointer: what we decided, and where it was when we decided.
-                        // A pooled actor that later MOVES is being re-used by somebody, so it is
-                        // re-attributed then and only then.
-                        struct AfterimageOwner
-                        {
-                            bool belongs_to_ghost;
-                            double x, y, z;
-                        };
-                        static std::map<UObject*, AfterimageOwner> afterimage_owners;
-
-                        const FVector ghost_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
-                        FVector player_loc(0.0, 0.0, 0.0);
-                        bool have_player = false;
-                        if (pawn_obj)
-                        {
-                            player_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
-                            have_player = true;
-                        }
-
-                        std::vector<UObject*> afterimages;
-                        UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
-                        for (UObject* image : afterimages)
-                        {
-                            if (!image || !image->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
-                            {
-                                continue; // the class default object, not a placed one
-                            }
-                            const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
-
-                            auto known = afterimage_owners.find(image);
-                            bool decide_now = (known == afterimage_owners.end());
-                            if (!decide_now)
-                            {
-                                const double mx = image_loc.X() - known->second.x;
-                                const double my = image_loc.Y() - known->second.y;
-                                const double mz = image_loc.Z() - known->second.z;
-                                // Moved => this pooled actor has been re-used by somebody, and its
-                                // old owner means nothing. Same threshold and reasoning the
-                                // afterimage counter already uses.
-                                decide_now = (mx * mx + my * my + mz * mz) >
-                                             (AFTERIMAGE_REUSE_MOVE_THRESHOLD * AFTERIMAGE_REUSE_MOVE_THRESHOLD);
-                            }
-
-                            if (decide_now)
-                            {
-                                bool belongs_to_ghost = false;
-                                bool decided_by_identity = false;
-
-                                // **The actor says whose it is.** `copyActor` is the source it was
-                                // copied from -- an equality test, not a guess, and it cannot be
-                                // fooled by the ghost and the player standing together.
-                                if (UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor")); copy_actor && *copy_actor)
-                                {
-                                    belongs_to_ghost = (*copy_actor == static_cast<UObject*>(remote.ghost));
-                                    decided_by_identity = true;
-                                }
-
-                                if (!decided_by_identity)
-                                {
-                                    // Fallback only: a build where `copyActor` does not resolve.
-                                    // Birth-proximity is sound at the moment of spawn -- the image
-                                    // sits ON its owner -- and is why this is attributed once
-                                    // rather than continuously. Logged, because silently
-                                    // degrading to a heuristic is how the first attempt took the
-                                    // player's outline with it.
-                                    static bool warned_fallback = false;
-                                    if (!warned_fallback)
-                                    {
-                                        warned_fallback = true;
-                                        Output::send(STR("[MeshGhostPseudo] WARNING: afterimage has no 'copyActor' on this build -- falling back to birth proximity, which cannot tell two characters apart when they overlap.\n"));
-                                    }
-                                    const double dgx = image_loc.X() - ghost_loc.X();
-                                    const double dgy = image_loc.Y() - ghost_loc.Y();
-                                    const double dgz = image_loc.Z() - ghost_loc.Z();
-                                    const double to_ghost = dgx * dgx + dgy * dgy + dgz * dgz;
-                                    double to_player = to_ghost + 1.0; // no player: treat as the ghost's
-                                    if (have_player)
-                                    {
-                                        const double dpx = image_loc.X() - player_loc.X();
-                                        const double dpy = image_loc.Y() - player_loc.Y();
-                                        const double dpz = image_loc.Z() - player_loc.Z();
-                                        to_player = dpx * dpx + dpy * dpy + dpz * dpz;
-                                    }
-                                    belongs_to_ghost = (to_ghost < to_player);
-                                }
-
-                                afterimage_owners[image] = AfterimageOwner{belongs_to_ghost,
-                                                                           image_loc.X(), image_loc.Y(), image_loc.Z()};
-                            }
-
-                            const auto& owner = afterimage_owners[image];
-                            if (!owner.belongs_to_ghost)
-                            {
-                                continue; // the player's own: their outline is theirs to keep
-                            }
-
-                            // See AFTERIMAGE_CENSUS. One ghost-owned afterimage, dumped once: the
-                            // question is what it reads to decide it should be outlined, since
-                            // reacting afterwards can never beat the frame it is spawned on.
-                            if constexpr (AFTERIMAGE_CENSUS)
-                            {
-                                static bool dumped_afterimage = false;
-                                if (!dumped_afterimage)
-                                {
-                                    dumped_afterimage = true;
-                                    dump_object_property_values(image, STR("ghost afterimage"));
-                                    dump_object_reflection(image, STR("ghost afterimage"));
-                                }
-                            }
-
-                            // Walk the actor's components rather than naming one: an afterimage's
-                            // mesh is a PoseableMeshComponent here, and naming component CLASSES is
-                            // exactly what hid this from three earlier probes.
-                            UClass* image_class = image->GetClassPrivate();
-                            if (!image_class)
-                            {
-                                continue;
-                            }
-                            for (FProperty* property : TFieldRange<FProperty>(image_class, EFieldIterationFlags::Default))
-                            {
-                                if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
-                                {
-                                    continue;
-                                }
-                                UObject** component = image->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
-                                if (!component || !*component)
-                                {
-                                    continue;
-                                }
-                                bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
-                                if (!custom_depth || !*custom_depth)
-                                {
-                                    continue;
-                                }
-                                static bool announced_afterimage = false;
-                                if (!announced_afterimage)
-                                {
-                                    announced_afterimage = true;
-                                    Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON -- holding it off (attributed at birth).\n"),
-                                                 property->GetName());
-                                }
-                                call_set_render_custom_depth(*component, false);
-                            }
-                        }
-                    }
-                }
+                // **The afterimages this ghost left behind** are separate actors and are handled
+                // by sweep_afterimage_outlines above (all ghosts at once) plus the
+                // SetRenderCustomDepth pre-hook that refuses the outline at the enable call
+                // itself -- see register_afterimage_outline_guard.
 
                 // **The other half: components attached to the ghost at RUNTIME.** Attributed by
                 // name containment, the same test VFX_WATCH uses -- a component's full name carries
@@ -14068,6 +14298,12 @@ namespace MeshGhostPseudo
                 }
                 call_spawn_num_afterimages(remote.ghost);
                 remote.last_seen_afterimage_count = remote.target_afterimage_count;
+
+                // No strip call here any more, and the negative is worth its two lines: stripping
+                // immediately after this call was tried 2026-08-27 and changed nothing the user
+                // could see, which is how the whole approach was found to be reactive-by-
+                // construction. The outline is now refused at the SetRenderCustomDepth call
+                // itself -- register_afterimage_outline_guard.
 
                 // Independent readback, per CLAUDE.md's "never log the value you just wrote as
                 // proof it worked" -- re-fetches the ghost's own afterImagesToSpawn AFTER the call

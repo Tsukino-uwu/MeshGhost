@@ -168,6 +168,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 — A ghost's ranged projectile is mirrored as an EFFECT, after an actor handle crashed the game (user-confirmed)
 - 2026-08-27 — Death, the pit, the hurt reaction and the respawn: four effects, found by measuring rather than naming (user-confirmed)
 - 2026-08-27 — Pseudoregalia declared FEATURE COMPLETE by the user, with the scope written down
+- 2026-08-27 — A ghost's afterimage outline is at ZERO frames: refused at the enable call itself, not stripped after
 
 ## Confirmed facts
 
@@ -4043,3 +4044,34 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
 - Notes: the day's work is nine confirmed entries above this one. The declaration is the user's, and
   the scope above is the agent's reading of it written down so a later session cannot quietly widen
   it.
+
+## 2026-08-27 — A ghost's afterimage outline is at ZERO frames: refused at the enable call itself, not stripped after
+
+- Date: 2026-08-27
+- Observed: the user, after attacking and sliding behind a wall next to the ghost: *"Yee its
+  working perfectly now"* — the through-walls blue outline is *"visible for the player, invisible
+  during attack/slide for the ghost"*. This closes the "one frame is the floor for this approach"
+  entry in `UNVERIFIED.md`, and it was closed by abandoning the approach, not by tuning it.
+- **The mechanism**: a `RegisterPreHook` on the native `PrimitiveComponent:SetRenderCustomDepth`
+  (the same proven-safe native-prehook shape as the camera fightback, fade guard and damage
+  guards) rewrites `bValue` to `false` before the real call runs, whenever the component belongs
+  to a `BP_AfterImage_C` attributed to a ghost. The outline never turns on, so there is no frame
+  to see. `register_afterimage_outline_guard` in `Plugin.cpp`.
+- **The ordering problem it had to survive, measured this session**: the game calls the enable
+  BEFORE `copyActor` is set on the image — the first ghost image of the session reached the tick
+  pass with `copyActor` still null. So an unattributable enable (while any ghost is alive) is
+  REFUSED on the spot and remembered; the per-tick sweep attributes it a tick later and RESTORES
+  the outline if the image turns out to be the player's own. That inverts the failure mode: worst
+  case is one outline-less frame on a player image (invisible except through a wall) instead of
+  one outlined frame on a ghost's. The full refuse→attribute→restore round trip was seen in the
+  log completing within 3ms, and the player's own double outline behind a wall was confirmed
+  intact in the same session.
+- **Why every reactive variant lost**: the strip pass runs in the engine-tick POST callback, after
+  the frame's rendering is already enqueued — so an image born outlined always got one frame on
+  screen no matter where inside the tick the strip ran. Moving the strip right next to the
+  triggered burst was tried first this session and changed nothing the user could see, which is
+  the measurement that proved the approach reactive-by-construction.
+- Notes: the backstop sweep's "had custom depth ON past the enable-time guard" line never appeared
+  across the confirming session — nothing slipped past the hook. `copyActor` read null even at
+  sweep time throughout this session, so birth proximity carried attribution; on the loopback rig
+  the ghost sits 150 units to the side, which keeps proximity exact.

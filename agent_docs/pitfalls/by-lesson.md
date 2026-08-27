@@ -4891,3 +4891,43 @@ ownership almost immediately.
   covers this: re-validate against an identity marker, never against "it was near me".
 - **The revert is the cheap part; the report is the valuable one.** "It also affected the player" is
   the sentence that turns a plausible fix into a recorded negative.
+
+## REACTING TO AN ACTOR THAT SPAWNS VISIBLE IS TOO LATE BY CONSTRUCTION — REFUSE AT THE SETTER, AND INVERT AN UNATTRIBUTABLE FAILURE (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A ghost's afterimages flashed their blue through-walls outline for exactly one frame,
+after everything reactive had already been tried: a per-tick strip of every component the images
+own, moved from a 30Hz sweep to every tick, then moved again to run immediately after the burst
+call that spawns them. The last move changed nothing the user could see — the measurement that
+finally named the class of the problem.
+
+**Cause.** The strip ran inside the engine-tick POST callback, which fires after the frame's
+rendering has been enqueued. An actor that spawns with a visual already ON therefore gets that
+visual rendered once before ANY post-tick code can react, no matter where in the tick the reaction
+runs. Reordering reactive code cannot fix this; only preventing the visual from turning on can.
+
+**Fix.** A `RegisterPreHook` on the NATIVE function the Blueprint uses to turn the visual on —
+`PrimitiveComponent:SetRenderCustomDepth` — rewriting `bValue` to false in the argument buffer
+before the real call runs, for components owned by a `BP_AfterImage_C` attributed to a ghost.
+Fourth use of the native-prehook pattern in this adapter (camera fightback, fade guard, damage
+guards), and the same hard rule applies: native functions only, a Blueprint UFunction hook crashes
+this build.
+
+**The ordering trap inside the fix, measured before it bit.** The game calls the enable BEFORE
+setting `copyActor` on the image — the log showed a ghost image reaching the tick pass with
+`copyActor` still null — so at the moment of interception the one exact attribution field may not
+exist yet. The answer was not to wait for certainty: an unattributable enable (while any ghost is
+alive) is refused on the spot and remembered, and the per-tick sweep restores the visual a tick
+later if the actor turns out to be the player's own. **Choosing which way to fail is part of the
+design**: one outline-less frame on a player image is invisible except through a wall; one outlined
+frame on a ghost's is the entire bug.
+
+**Transferable:**
+
+- **If an actor is born with the visual on, post-tick reaction has a one-frame floor. Stop
+  iterating on reaction placement and intercept the call that turns the visual on.** The signature
+  that you are in this trap: each reactive improvement shortens the artifact but never removes it.
+- **At an interception point, the data you attribute by may not be written yet.** Check what is
+  actually populated at that instant — a log line beats an assumption — and if attribution can
+  lag, refuse-then-restore in the direction whose failure is invisible.
+- **A guard's backstop should log when something gets PAST the guard**, so its silence becomes the
+  evidence. The confirming session's absence of that line is what "nothing slipped through" rests on.

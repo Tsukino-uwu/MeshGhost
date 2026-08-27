@@ -251,3 +251,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A function name is a claim about what somebody meant, not what the code does (Pseudoregalia, 2026-08-27)
 - An enumeration is only as wide as its filter — "nothing found" means nothing until you check what you looked through (Pseudoregalia, 2026-08-27)
 - Proximity is not identity, and a loopback rig makes that worse (Pseudoregalia, 2026-08-27)
+- Reacting to an actor that spawns visible is too late by construction — refuse at the setter, and invert an unattributable failure (Pseudoregalia, 2026-08-27)

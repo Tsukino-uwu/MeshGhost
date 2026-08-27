@@ -551,6 +551,16 @@ namespace MeshGhostPseudo
         // Neutralises a camera fade raised by a ghost's own spawn. See GHOST_FADE_GUARD.
         auto register_fade_guard_hook() -> void;
 
+        // Refuses the outline at its SOURCE: a pre-hook on the native
+        // PrimitiveComponent:SetRenderCustomDepth that rewrites bValue to false when the
+        // component belongs to a BP_AfterImage_C whose copyActor is one of our ghosts. The
+        // per-tick strip in game_thread_tick reacts a frame after the image exists -- too late
+        // by construction, since the frame is already enqueued -- so it survives only as the
+        // backstop for an image whose copyActor is not yet set when this hook fires. Same
+        // native-function RegisterPreHook shape as the camera and fade guards (a BLUEPRINT
+        // UFunction hook crashes this build -- see the warning above load_map_pre_callback_id).
+        auto register_afterimage_outline_guard() -> void;
+
         // Spawns / drives / destroys the prop that stands in for a peer's ranged projectile.
         auto tick_remote_projectile(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
 
@@ -985,6 +995,27 @@ namespace MeshGhostPseudo
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};
+        RC::Unreal::UFunction* srcd_function{nullptr}; // cached "SetRenderCustomDepth", found once
+        int32_t afterimage_outline_hook_id{-1};
+
+        // Afterimage attribution, shared between the SetRenderCustomDepth pre-hook and the
+        // per-tick sweep in game_thread_tick (both run on the game thread). Keyed by actor
+        // pointer because the pool re-uses actors; a pooled actor that MOVES has been re-used
+        // and is re-attributed then. owner_ghost is the ghost the image was copied from, or
+        // nullptr for the player's own.
+        struct AfterimageOwner
+        {
+            RC::Unreal::UObject* owner_ghost{nullptr};
+            double x{0.0}, y{0.0}, z{0.0};
+        };
+        std::map<RC::Unreal::UObject*, AfterimageOwner> afterimage_owners;
+
+        // Images whose custom-depth enable was refused BEFORE they could be attributed
+        // (copyActor still null at the call -- measured 2026-08-27). The sweep attributes them
+        // a tick later and re-enables the outline on any that turn out to be the player's own,
+        // so the failure mode is one outline-less frame on a player image instead of one
+        // outlined frame on a ghost's.
+        std::map<RC::Unreal::UObject*, std::set<RC::Unreal::UObject*>> afterimage_pending_reenable;
 
         // Tick a ghost last spawned on, so a camera fade raised immediately afterwards can be
         // attributed to it rather than to the player. 0 = no ghost has ever spawned.
