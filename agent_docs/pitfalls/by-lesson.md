@@ -4804,3 +4804,34 @@ damage hook that never fired, and a montage filter that cost the ghost its attac
   detour was justified on its own terms; the pattern of detours was the signal.
 - **Caution that is never re-examined is indistinguishable from an unfixed bug**, and here it kept
   a rule-violating defect alive for an evening while cosmetic work shipped around it.
+
+## A FUNCTION NAME IS A CLAIM ABOUT WHAT SOMEBODY MEANT, NOT WHAT THE CODE DOES (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A player's model flashes white/invisible briefly on death and on respawn. A census of
+the pawn found a `Blink` TimelineComponent, a `blinkTimer` and a `startBlink` function — and this
+adapter had a recorded case of a `Blink` timeline driving a material effect. `startBlink` was called
+on the ghost and shipped as the fix. It resolved, it ran, and nothing appeared.
+
+**Cause.** `startBlink`'s own reflected locals are a `RandomFloatInRange` and a timer handle: it is
+the character's **eyes** blinking on a random interval. The name matched the symptom; the function
+never did.
+
+**What actually found it**, in two cheap runs and no guesses:
+
+1. **Ask the model what changes.** A per-tick watch of the mesh's visibility flags and material
+   slots through a death: never hidden, and three slots became `MaterialInstanceDynamic`. That rules
+   out hiding and swapping in one run and says the effect is an animated material PARAMETER.
+2. **Then ask what STARTS it**, rather than reading the parameter — a census named
+   `dieFade(DieNotRez: bool)`, whose own parameter distinguishes dying from resurrecting, which is
+   the two-sided effect the user described.
+
+**Transferable:**
+
+- **This is the third time this game's names have pointed the wrong way** — `AnimGraphNode_Trail`
+  was cloth physics, `NS_Healing` needed a control run to label, and now `startBlink`. A name is
+  evidence about what a Blueprint author typed.
+- **Read the function's own reflected PARAMETERS before believing its name.** `RandomFloatInRange` +
+  `SetTimerDelegate` describes a repeating idle animation, and that was visible without running
+  anything.
+- **The user noticed the process, not the result**: *"tought we were just probing/finding how?"* A
+  fix shipped in the middle of an investigation is a guess wearing the investigation's clothes.

@@ -248,3 +248,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A closed port may never refuse — ask "can I bind it", not "did it refuse me" (Pseudoregalia, 2026-08-27)
 - A probe's sampling rate is part of its answer — "nothing happened" at 5Hz is not a result (Pseudoregalia, 2026-08-27)
 - A refusal on safety grounds is still a claim, and claims get checked (Pseudoregalia, 2026-08-27)
+- A function name is a claim about what somebody meant, not what the code does (Pseudoregalia, 2026-08-27)

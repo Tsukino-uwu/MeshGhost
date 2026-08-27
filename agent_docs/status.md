@@ -59,10 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **Pseudoregalia's charge GLOW on a ghost has never been confirmed** — the last unwatched row of
-  the VFX mirror; ask about it specifically. `pseudoregalia/UNVERIFIED.md`.
-- **The exit-to-main-menu crash recurred 2026-08-27, unattributed on purpose** — three probes were
-  compiled on, so that run is a poor witness. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia is FEATURE COMPLETE (user, 2026-08-27) and its scope is written down** — nine
+  confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
+- **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
+  timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
   2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **NEXT SESSION STARTS HERE (Go/TEVI): watch TEVI's port walk in a TWO-GAME session, TEVI second.**

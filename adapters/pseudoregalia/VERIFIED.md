@@ -164,6 +164,10 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 — The heal's world-spawned VFX were being placed at the ghost's feet; the game puts them at the top of the model (user-confirmed)
 - 2026-08-27 — A ghost's attack could damage the player, and the fix was the game's own already-hit list (user-confirmed)
 - 2026-08-27 — The mod starts its own core: a closed port that never refuses, and the port sweep that could not see it (user-confirmed)
+- 2026-08-27 — The charged-attack glow mirrors onto a ghost; what is missing is the projectile ACTOR (user-confirmed)
+- 2026-08-27 — A ghost's ranged projectile is mirrored as an EFFECT, after an actor handle crashed the game (user-confirmed)
+- 2026-08-27 — Death, the pit, the hurt reaction and the respawn: four effects, found by measuring rather than naming (user-confirmed)
+- 2026-08-27 — Pseudoregalia declared FEATURE COMPLETE by the user, with the scope written down
 
 ## Confirmed facts
 
@@ -3896,3 +3900,146 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
   seconds.
 - Notes: `"connection refused"` is a courtesy, not a guarantee. Any logic that reads *absence of a
   refusal* as *something is listening* is wrong on a machine that drops instead of rejecting.
+
+## 2026-08-27 — The charged-attack glow mirrors onto a ghost; what is missing is the projectile ACTOR (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, asked specifically about the charge glow because it had been on screen all
+  session with attention elsewhere: *"charge is doing its vfx, its just that we don't have a visible
+  projetcile shooting from the ghost yet"*.
+- **What this confirms**: the `chg` row of `MIRRORED_EFFECTS` works end to end on a ghost —
+  `NS_ProjectileCharged`, attached to `VisualMesh` at the **`handslot_R`** socket, which is why it
+  reads as being on the sword rather than centred on the character. That completes the VFX mirror's
+  confirmed set alongside the heal (same day) and the recall glow (2026-08-16).
+- **What it does NOT cover, stated so the entry cannot be read as more than it is**: the ranged
+  projectile itself is a separate world actor and has never been mirrored. A peer firing one shows
+  the charge on their ghost and then nothing leaves it.
+- **What the projectile watch established about that actor**, three sessions of it: the class is
+  `PRJ_PlayerCutter_C` (`/Game/Blueprints/Projectiles/PRJ_PlayerCutter`), exactly one instance is
+  spawned per shot, its `Owner` is `<none>` and its **`Instigator` is the firing pawn**. Every one
+  ever seen was instigated by the local pawn, never by a ghost — consistent with the ghost's attack
+  damaging through the interface rather than by spawning anything.
+- Notes: structurally this is the thrown Dream Breaker's job — spawn a prop per shot, sample the
+  real actor's transform, replay it on the receiving side — which already ships and needs no
+  simulation because the peer's own `ProjectileMovementComponent` has already resolved the flight.
+
+## 2026-08-27 — A ghost's ranged projectile is mirrored as an EFFECT, after an actor handle crashed the game (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, after the third correction: *"the projectiles work properly now"*. Before
+  that, in order: no shot visible at all; then *"i think the ghost was doing a projectile attack
+  now. but only once and then when doing it again it wouldn't do any"* plus a hard crash; then
+  *"still only did the projectile the first time/once... also no crash anymore"*.
+- **What it does**: the sender finds its own `PRJ_PlayerCutter_C` by class, attributes it by
+  **`Instigator`** (the firing pawn — `Owner` is `<none>` on every one ever logged), samples position
+  and rotation every 3 ticks, and the receiver plays the projectile's own Niagara system along that
+  path. Nothing is simulated on the receiving side: the peer's `ProjectileMovementComponent` has
+  already resolved the flight.
+- **Three separate faults, each with its own lesson, and none of them was the feature's logic:**
+
+  1. **The rig hid it.** The transform crosses the wire in absolute world space, and a loopback
+     ghost is nudged 150 units sideways while its projectile was not — so the ghost's shot spawned
+     exactly inside the player's own real one, invisible by construction. The log said
+     `spawned projectile prop` while the user saw nothing. The thrown sword already applied that
+     offset for the same reason; the projectile simply inherited a rig artefact nobody had extended
+     it to.
+  2. **Holding a game-owned actor CRASHED the game**, with a stack trace naming it:
+     `call_destroy_actor` → `ProcessEvent` → `EXCEPTION_ACCESS_VIOLATION`, from `release_ghost`. The
+     first version spawned the real `PRJ_PlayerCutter_C` as a prop, the way the thrown sword does.
+     A landed sword rests where it falls and nothing takes it away; **a projectile's lifetime
+     belongs to the game**, which destroys it on impact — so the prop pointer was asking a freed
+     actor to destroy itself. The same stale pointer produced the "fires once, then never again"
+     symptom, because a non-null pointer reads as "already spawned".
+     **A liveness check does not fix that, and the comment directly above the crashing line already
+     said so**: `IsUnreachable()` is only safe on an object that is still ALLOCATED. Adding one was
+     treating a pointer that must not be held as a pointer that needs checking.
+     The fix was to hold no game-owned actor at all and reproduce the EFFECT instead —
+     `adapters/CLAUDE.md`'s rule verbatim.
+  3. **Existence is not activity.** With the crash gone the shot still fired only once: this game
+     pools actors, so a spent projectile keeps existing with the pawn still named as its instigator,
+     and the sender reported "in flight" forever. The effect was never torn down and never
+     respawned. Detection now requires the projectile's own `ProjectileMovement` component to be
+     **active** — the identical correction the recall glow needed (`VERIFIED.md` 2026-08-16), for
+     the identical reason.
+- **The asset was read off the live projectile, and the recorded name was wrong.** The queue had
+  `NS_PlayerProjectile` from an earlier log; what the real actor actually carries is
+  **`NS_PlayerProjectileWeak`**. A hardcoded path would have resolved to nothing and looked like a
+  broken mirror.
+- Notes: the wire carries `prj`, `prj_vfx` and two vectors, replacing the class path — the same
+  extras-size discipline as the thrown weapon block. In a real session the loopback offset is zero,
+  so a peer's shot leaves their own ghost.
+
+## 2026-08-27 — Death, the pit, the hurt reaction and the respawn: four effects, found by measuring rather than naming (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, at the end of the sequence: *"it works correctly now, pit/dying/respawn
+  confirmed working"*, and earlier *"its doing the pit VFX properly now"*.
+- **What ships**, all four riding mechanisms the game already had:
+
+  | Effect | How |
+  | --- | --- |
+  | Death burst at the pit | `NS_BasicBurst`, world-spawned, mirrored row `bb` |
+  | Landing/respawn dust | `NS_DustLand`, world-spawned, row `dl` |
+  | Respawn aura around the character | `NS_RespawnSafe`, attached to the capsule, row `rsp` |
+  | The white/invisible model flash, and the red hurt blink | the pawn's own `dieFade(DieNotRez)` and `BPI_PerformDamageResponse(DamageType, attackDirection)`, called on the ghost |
+
+- **The captures that produced them.** A `VFX_WATCH` run over two pit deaths gave all three Niagara
+  systems with their attach points — `NS_RespawnSafe` on the `CapsuleComponent` at zero offset, the
+  other two world-spawned with their coordinates. No name was guessed.
+- **The model flash was not a VFX at all, and two probes said so before anything was built.**
+  `DEATH_VISIBILITY_PROBE` watched the player's mesh through a death: `hidden=false visible=true`
+  throughout — never hidden — while three material slots became `MaterialInstanceDynamic`. That is
+  an animated material PARAMETER, which no particle watcher could ever have found. Rather than walk
+  `ScalarParameterValues` (an array of structs) to read it, a second census asked what STARTS it and
+  named `dieFade(DieNotRez: bool)` — one function whose own parameter distinguishes dying from
+  resurrecting, which is exactly the two-sided effect the user described.
+- **A wrong guess came first, and it is the lesson.** Between those two probes, `startBlink` was
+  inferred from a name and shipped as a fix. It resolved, ran, and did nothing visible — because its
+  reflected locals are a `RandomFloatInRange` and a timer: it is the character's **eyes** blinking.
+  The user caught the process, not just the result: *"tought we were just probing/finding how?"*
+  Third time this game's names have pointed the wrong way, after `AnimGraphNode_Trail` (cloth
+  physics) and `NS_Healing` (needed a control run).
+- **The hurt reaction needed the user's own correction.** The death fade was first triggered on
+  `CurrentHp` reaching zero, and half of it never fired: *"probly cuz it can't take any damage? it
+  never blinks red/gets hurt etc either"*. A pit fall costs **exactly 5 HP** — damage, not death —
+  so the trigger became any DECREASE in the shared health, and the reaction became the game's own
+  damage response.
+- **That call ships with a tripwire, because health is a GameInstance singleton.** If
+  `BPI_PerformDamageResponse` deducted HP rather than painting the reaction, calling it on a ghost
+  would hurt the local player — the bug this same day was spent eliminating. So the mirror reads
+  `CurrentHp` immediately before and after the call and **disarms itself for the session** if the
+  value moves. It ran and the tripwire never fired, which is now a measured fact about that
+  function rather than a hope.
+- Notes: `NS_BasicBurst` is a generic hit burst that also fires in ordinary combat, so proximity
+  attribution can occasionally show a stray burst on a ghost — accepted knowingly, and the row to
+  pull first if it ever reads as noise.
+
+## 2026-08-27 — Pseudoregalia declared FEATURE COMPLETE by the user, with the scope written down
+
+- Date: 2026-08-27
+- Observed: the user, ending the session: *"i think we can consider pseudoregalia 'feature complete'
+  at this point as well"*.
+- **The scope is recorded deliberately**, because a bare "feature complete" with no description is
+  already a known problem in this repo — Crystal carries exactly that complaint in its own queue.
+  What that declaration covers, as of this date:
+  - **Body and motion**: spawned pawn-clone ghosts, position/rotation, the pose cluster (slide,
+    crouch, capsule), wall-ride, ledge grab, montage mirroring for the game's whole animation
+    vocabulary, outfit and weapon-equip state.
+  - **Effects**: the afterimage trail with its observed colour, the cling-gem and recall glows, the
+    thrown Dream Breaker with its landed glow, healing (aura and both waves), the charged-attack
+    glow, the ranged projectile, the death burst, landing dust, the respawn aura, and the
+    death/hurt/respawn model fade.
+  - **Correctness**: the ghost's shadow on the ground, its own HUD off the screen, the camera left
+    with the player, and a ghost that cannot damage the local player.
+  - **Plumbing**: the mod starts its own core, and the bridge port sweep asks the OS for a free port.
+- **What it does NOT cover, stated in the same breath** — all still in `UNVERIFIED.md`:
+  - the **black flash** when a ghost appears: two mechanisms ruled out by measurement (the fade
+    timelines were not playing; no camera fade is raised near a spawn) and the cause still unknown;
+  - the ghost **floating up slightly during a melee swing**, never investigated;
+  - the second-instance case of the **bridge port walk**, still unwatched;
+  - two **crash reports** on exit/pause whose cause is not established — one of them, the projectile
+    prop, was root-caused and fixed this day, but the 2026-08-17 sighting predates it;
+  - real **two-machine** confirmation of anything confirmed only in loopback.
+- Notes: the day's work is nine confirmed entries above this one. The declaration is the user's, and
+  the scope above is the agent's reading of it written down so a later session cannot quietly widen
+  it.

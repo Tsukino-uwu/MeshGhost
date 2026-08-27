@@ -81,6 +81,32 @@ the tempting fix is to watch it and restore it. That is a bandage by this projec
 restoring a value rather than preventing what changed it — and it would also be fixing the wrong
 thing entirely, since the value is already correct.
 
+## Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
+
+**User-reported:** *"'black flash' on the screen whenever a ghost appears, is this something the
+ghost is taking/applying from the player as well when they spawn in? similar to the health hud/ui
+thing?"* — the same frame that explained the camera rig, the HUD, the shadow and the damage.
+
+**Not confirmable by eye, on the user's own account** — *"i can't really confirm, as its hard to
+see/test"* — which is why both attempts were built to report on themselves rather than rely on
+watching.
+
+| Tried | Result |
+| --- | --- |
+| Stop the ghost's `Timeline_2`/`Timeline_3` (the pawn's fade timelines, named by the fade census) | **REFUTED by its own readback**: `IsPlaying` reported `not playing` on every ghost, every timeline. They were never running, so stopping them was cosmetic. |
+| Neutralise a camera fade raised within 10 ticks of a ghost spawn (`GHOST_FADE_GUARD`) | **Armed on `StartCameraFade` and NEVER FIRED.** No camera fade is raised anywhere near a ghost spawn, so the flash is not a camera fade either. |
+
+**Both negatives came from instruments rather than from the user squinting**, which is the part
+worth keeping: an unconfirmable symptom was turned into two clean measurements.
+
+**What is left to try**, in order of cheapness:
+1. `enterTransition` is a Blueprint function on the pawn and cannot be hooked on this build — but
+   what it TOUCHES can be watched. A widget added to the viewport would show up the way the ghost's
+   own HUD did.
+2. The ghost's `PlayerLight` / `PointLight` ChildActor components fire at spawn and were never
+   examined; a light popping on for a frame can read as a flash.
+3. Level streaming around the spawn, which nothing has looked at.
+
 ## Pending — the ghost FLOATS UP slightly during a melee sword attack (2026-08-27)
 
 **User-reported, live.** While the peer swings the sword, the ghost rises a little.
@@ -110,43 +136,6 @@ would have been a wrong turn.
 Worth keeping rather than deleting: the anomaly was real, the two readings needed opposite fixes,
 and **the thing that settled it was a question a person could answer without naming an asset**.
 That is cheaper than any probe and should be reached for first.
-
-## Pending — the CHARGED-PROJECTILE half of the VFX mirror (2026-08-27)
-
-The healing half is **confirmed and moved to `VERIFIED.md`** (2026-08-27): the waves are
-world-spawned at the top of the model, not at the feet, and the user watched the ghost do it
-properly. What is left here is the other row.
-
-**Built from a measured capture, not from names.** One `VFX_WATCH` + `ABILITY_FIELD_TRACE` run
-logged every effect the local player spawned, with its `AttachParent`, `AttachSocketName` and
-`RelativeLocation` on appearance:
-
-| Effect | Asset | Attached to | Socket |
-| --- | --- | --- | --- |
-| Charge glow | `/Game/VFX/Emitters/NS_ProjectileCharged` | the player's `VisualMesh` | **`handslot_R`** |
-
-The hand socket is why the user sees the charge on the sword rather than centred on the character
-— their own report, independently, before the log was read.
-
-**What is NOT confirmed:** nobody has said the ghost's charge glow looks right. It has been on
-screen during every session this evening while the attention was on the damage, so a decline is as
-likely as a confirmation. **Ask about it specifically rather than assuming it rode along with the
-heal.**
-
-**Two effects the user named are deliberately NOT mirrored** — both need attribution work the table
-avoids by only ever mirroring things attached to the player, or world-spawned things that appear
-right at the performer:
-
-- **The ranged projectile itself.** A separate world actor, `PRJ_PlayerCutter_C`, one spawned per
-  shot, carrying `NS_PlayerProjectile` on its `EnvCollider`. Structurally identical to the thrown
-  Dream Breaker, which already ships. Not built. **The projectile watch has now confirmed the class
-  name and that exactly one exists per player shot** (`GHOST_PROJECTILE_WATCH`, three sessions).
-- **The death burst.** World-spawned where you died, so proximity attribution — and in a boss fight
-  the screen is full of enemy effects. `NS_BasicBurst` appears before every death but also 14x in
-  ordinary combat; `NS_BasicBurstRedBig` once across three deaths. **Neither is established**; the
-  honest next step is the catalog probe playing both onto a ghost for the user to pick, per
-  `../../agent_docs/effect-investigation.md` §0b — which is exactly how the heal's "yellow ball"
-  was identified.
 
 ## Pending — the FRotator float/double fix is generalised, and the ghost transform path moved onto it
 
@@ -218,6 +207,34 @@ per `../../agent_docs/pitfalls/method.md`, a flag flip only counts as a revert i
 believing an A/B. Bisecting real commits is the method that cannot be fooled here.
 
 Recorded 2026-08-17 in `VERIFIED.md` as an observation, not a finding.
+
+### ROOT-CAUSED for the 2026-08-27 recurrences — a projectile prop pointer, with a stack trace
+
+The crashes during this session were **ours, and they are fixed**. The user captured the trace:
+
+```text
+UObject::ProcessEvent()
+main.dll!call_destroy_actor()          Plugin.cpp:3928
+main.dll!Plugin::release_ghost()       Plugin.cpp:6615
+main.dll!Plugin::handle_bridge_line()
+main.dll!Plugin::game_thread_tick()
+```
+
+The projectile mirror's first version spawned the game's own `PRJ_PlayerCutter_C` as a prop and held
+the pointer. A thrown sword rests where it lands and nothing takes it away; **a projectile's
+lifetime belongs to the game**, which destroys it on impact — so the release path asked a freed
+actor to destroy itself. The mirror now holds only a Niagara component it created, and the user
+confirmed *"no crash anymore"* on the same exit path that crashed twice.
+
+**A liveness check does NOT close this class of bug**, and the comment directly above the crashing
+line already said so: `IsUnreachable()` is only safe on an object that is still ALLOCATED. One was
+added anyway before the redesign — a pointer that must not be held was treated as a pointer that
+needs checking.
+
+**The 2026-08-17 sighting predates all of this and is NOT explained by it.** It remains open, and
+the probe-suspicion recorded against the earlier recurrence is withdrawn: the user ran menu
+back/forth plus a quit on a probe-free build with no crash, and the crashes that did happen are now
+attributed to the prop.
 
 ## Pending — a `Fatal Error!` on game exit, seen once, never root-caused
 

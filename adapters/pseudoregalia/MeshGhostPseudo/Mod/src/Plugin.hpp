@@ -142,6 +142,32 @@ namespace MeshGhostPseudo
         // visual-only posture.
         RC::Unreal::AActor* weapon_actor{nullptr};
         RC::Unreal::UWorld* weapon_actor_world{nullptr};
+
+        // The peer's ranged projectile, mirrored as an EFFECT rather than an actor -- see
+        // MIRROR_PEER_PROJECTILE for the crash that forced that. This component is one WE created,
+        // so its lifetime is ours; the game's own projectile actor is never held.
+        RC::Unreal::UObject* projectile_component{nullptr};
+        RC::Unreal::UWorld* projectile_component_world{nullptr};
+        // Death/respawn blink -- see MIRROR_PLAYER_BLINK. A counter so a blink shorter than the
+        // send interval still crosses the wire, the same shape as the montage and pulse counters.
+        // Death fade -- see MIRROR_DEATH_FADE. A counter for the same reason as the montage and
+        // pulse counters: a death is one instant and a level would be missed between samples.
+        // Hurt reaction -- see MIRROR_HURT_REACTION. A pit fall is damage, not death, which is
+        // why this is separate from the death counter beside it.
+        int target_hurt_count{0};
+        int last_seen_hurt_count{0};
+        int target_death_count{0};
+        int last_seen_death_count{0};
+        int target_blink_count{0};
+        int last_seen_blink_count{0};
+        bool target_projectile_active{false};
+        std::string target_projectile_vfx{};
+        double target_projectile_x{0.0}, target_projectile_y{0.0}, target_projectile_z{0.0};
+        double target_projectile_pitch{0.0}, target_projectile_yaw{0.0}, target_projectile_roll{0.0};
+        // Retry throttle for a class path that does not resolve on this machine, same shape and
+        // reason as the weapon prop's.
+        std::string last_failed_projectile_vfx{};
+        uint64_t last_projectile_spawn_attempt_tick{0};
         bool target_weapon_thrown{false};
         std::string target_weapon_class;
         double target_weapon_x{}, target_weapon_y{}, target_weapon_z{};
@@ -521,6 +547,12 @@ namespace MeshGhostPseudo
         // points. See GHOST_DAMAGE_GUARD and the definition in Plugin.cpp for why the fix lives
         // here rather than on the ghost's collision or its montages.
         auto register_damage_guard_hooks() -> void;
+
+        // Neutralises a camera fade raised by a ghost's own spawn. See GHOST_FADE_GUARD.
+        auto register_fade_guard_hook() -> void;
+
+        // Spawns / drives / destroys the prop that stands in for a peer's ranged projectile.
+        auto tick_remote_projectile(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
 
         // Bridge networking (on_update, UE4SS's own thread) and actor work (game_thread_tick,
         // the real game thread) now run concurrently -- this guards the state both sides touch.
@@ -952,6 +984,11 @@ namespace MeshGhostPseudo
         uint64_t load_map_pre_callback_id{0};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
+        int32_t fade_hook_id{-1};
+
+        // Tick a ghost last spawned on, so a camera fade raised immediately afterwards can be
+        // attributed to it rather than to the player. 0 = no ghost has ever spawned.
+        uint64_t last_ghost_spawn_tick{0};
 
         // Every damage entry point we hooked, with its hook id, so the guard can be reported once
         // at startup and torn down cleanly.

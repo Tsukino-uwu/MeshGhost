@@ -1410,6 +1410,15 @@ namespace MeshGhostPseudo
     // is why the mirror's world-spawned rows now spawn at a location rather than on the ghost. It
     // also showed the ghost DOES receive all three heal systems -- so the remaining defect is not
     // detection, delivery or spawning.
+    // **ON for the 2026-08-27 pit-fall capture.** The user: *"falling into a pit does not spawn vfx
+    // particles around the ghost"* -- so the player has a death/respawn effect that nothing
+    // mirrors, and nobody has ever captured what it IS. This is the instrument that answers that:
+    // it logs every effect the local player spawns, with asset, attach parent, socket and
+    // RelativeLocation on appearance, which is exactly the set a new MIRRORED_EFFECTS row needs.
+    // Flip back off once the assets are recorded.
+    // Off again 2026-08-27, the pit-fall capture done: it named `NS_RespawnSafe` (attached to the
+    // player's capsule, zero offset -- now a mirrored row), plus `NS_DustLand` at the landing point
+    // and `NS_BasicBurst` at the death point, both world-spawned and both deliberately not mirrored.
     constexpr bool VFX_WATCH = false;
 
     // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
@@ -1470,6 +1479,213 @@ namespace MeshGhostPseudo
     // from the engine's damage system. Flip on to enumerate damage-shaped names on a new build.
     constexpr bool DAMAGE_FIELD_CENSUS = false;
 
+    // **Every fade/screen-effect-shaped name on the pawn. Probe, 2026-08-27.**
+    //
+    // The user, watching a ghost spawn: *"'black flash' on the screen whenever a ghost appears, is
+    // this something the 'ghost' is taking/applying from the player as well when they spawn in?
+    // similar to the health hud/ui thing?"* — and that is the right frame, for the third time
+    // tonight. A ghost is a clone that runs the player's own `BeginPlay`, so it does not merely
+    // hold copies of the player's components, it **fires the player's one-off spawn effects**. The
+    // camera rig, the HUD widget and now this are all the same shape.
+    //
+    // A spawn or respawn fade is exactly that: the ghost plays a fade-in, and a camera fade goes
+    // through the **player camera manager**, which is one object for the whole game — the same
+    // singleton trap as `CurrentHp` on the GameInstance. One flash per ghost spawn is precisely
+    // what "an effect meant for one pawn, fired by a second" looks like.
+    //
+    // This enumerates fade-shaped properties (with values) and functions (with parameters) on the
+    // ghost and the local player at spawn, in one log. Read-only, one shot.
+    // Off again 2026-08-27, its question answered: it named `enterTransition`/`exitTransition` and
+    // the two fade timelines in one run, which is what the transition stop acts on.
+    constexpr bool FADE_FIELD_CENSUS = false;
+
+    // **Stop the ghost's own screen-transition timelines at spawn. Behaviour, 2026-08-27.**
+    //
+    // The user, watching a ghost appear: *"'black flash' on the screen whenever a ghost appears...
+    // similar to the health hud/ui thing?"* — and the census agrees. The pawn carries
+    // `enterTransition` / `exitTransition` functions and two fade timelines, whose track variables
+    // name themselves outright: `Timeline_2_fadeIn/fadeOut` and `Timeline_3_fadeIn/fadeOut`.
+    //
+    // **Fourth instance of one pattern, and the user has now called it twice before I did.** A
+    // ghost is a clone that runs the player's `BeginPlay`, so it does not merely hold copies of
+    // what the player owns — it FIRES the player's one-off spawn effects. The camera rig took the
+    // camera, the HUD drew a second health bar, the shadow arm was never initialised, and an entry
+    // transition paints the whole screen because a screen fade has no notion of whose pawn asked
+    // for it.
+    //
+    // A Blueprint UFunction cannot be hooked on this build (it crashes), so `enterTransition`
+    // cannot be intercepted. What CAN be done is stop the timelines that drive it, on the ghost
+    // only, the same way the ghost's own HUD widget was taken off the viewport rather than argued
+    // with. `Stop` is stock `UTimelineComponent`, not this game's own data.
+    //
+    // **Honest scope:** it stops the two timelines the census named. If the flash survives, the
+    // transition is driven by something else — `enterTransition` reaching a UI widget or the player
+    // camera manager directly — and the next step is to catch what it touches, not to stop more
+    // timelines. Every branch logs, including "did not resolve".
+    // **OFF from 2026-08-27 -- a recorded NEGATIVE, and the readback is why we know.** The user
+    // could not judge this one on screen (*"i can't really confirm, as its hard to see/test"*), so
+    // the stop was made to report `IsPlaying` immediately before acting. Every ghost, every
+    // timeline: **`was not playing`**. These two were never running when a ghost spawned, so
+    // stopping them was cosmetic and the flash comes from somewhere else.
+    //
+    // Kept gated off rather than deleted: the census named these as the pawn's fade timelines, and
+    // the next person reading that census will have exactly the same idea.
+    constexpr bool GHOST_STOP_TRANSITION_TIMELINES = false;
+
+    // **Mirror the death/respawn BLINK. Behaviour, 2026-08-27.**
+    //
+    // The user, after the pit particles shipped: *"the respawn after the pit is still not doing
+    // everything, the whole model is supposed to go invisible/white ish for a brief moment"* --
+    // adding that it happens when falling in as well, and wondering whether it is a VFX thing at
+    // all. **It is not**, which is why no Niagara capture was ever going to find it.
+    //
+    // The fade census already named the mechanism without anyone looking for it: the pawn carries
+    // a `Blink` **TimelineComponent**, a `blinkTimer`, and a `startBlink` function. A model
+    // flashing white and transparent in pulses is a material driven by a timeline, and this
+    // adapter has met exactly that once before -- the bubble effect turned out to be "a `Blink`
+    // Timeline on the pawn, NOT the afterimage system" (`VERIFIED.md` 2026-08-15). Same component,
+    // reached again from the other end.
+    //
+    // So the mirror does what this adapter does whenever the game already has the machinery: read
+    // whether the PLAYER's own Blink timeline is playing, send one bit, and call the pawn's own
+    // `startBlink` on the ghost. No material is written, no pulse is reconstructed, nothing is
+    // timed by us -- the ghost runs the game's own blink, which is the only version that can look
+    // right.
+    // **OFF from 2026-08-27 -- a recorded NEGATIVE, and a name that lied.** `startBlink` resolved
+    // and ran on the ghost (the log says so once), and the user saw nothing on either the fall or
+    // the respawn. Reading the function's own reflected locals says why: it picks a
+    // `RandomFloatInRange` and sets a timer, which is an EYE blink on a random interval -- not the
+    // invulnerability flash. The `Blink` timeline the fade census found is the character blinking,
+    // and the bubble entry in `VERIFIED.md` that made this look familiar was about a different
+    // timeline on the same pawn.
+    //
+    // **The process failure is the part worth keeping.** This was inferred from a name and shipped
+    // as a fix without measuring what the effect actually does -- the user's own words:
+    // *"tought we were just probing/finding how?"* -- which is the trap `effect-investigation.md`
+    // exists for. `AnimGraphNode_Trail` was cloth physics; `NS_Healing` needed a control run; this
+    // is the third. Measure the effect, then mirror it.
+    constexpr bool MIRROR_PLAYER_BLINK = false;
+
+    // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
+    //
+    // The user, after the respawn fade shipped: *"its not doing the dying/falling into the pit
+    // thing... probly cuz it can't take any damage? it never blinks red/gets hurt etc either"*.
+    // Correct, and the health measurement says why the death trigger could never have covered it:
+    // a pit fall costs **exactly 5 HP**, so it is damage, not death. `CurrentHp` never reaches zero
+    // and `dieFade`'s death direction never fires. The red blink is the same missing reaction.
+    //
+    // The function is one the damage investigation already found:
+    // **`BPI_PerformDamageResponse(DamageType, attackDirection)`** -- the Blueprint interface an
+    // attacker calls ON its victim. Calling a Blueprint function is fine here; only HOOKING one
+    // crashes on this build.
+    //
+    // **The tripwire, and why it exists.** Health is a GameInstance SINGLETON. If this function
+    // deducts HP rather than only painting the reaction, calling it on a ghost would hurt the local
+    // player -- precisely the bug this adapter spent 2026-08-27 eliminating. So the mirror reads
+    // `CurrentHp` immediately before and after the call, and if the value moved it **logs loudly and
+    // disarms itself for the rest of the session**. A cosmetic feature does not get to cost the
+    // player health even once more than it takes to detect it.
+    //
+    // That is deliberately stronger than a flag: a flag needs somebody to notice and rebuild, and
+    // the thing being guarded against is exactly the kind of damage a player might blame on the
+    // game.
+    constexpr bool MIRROR_HURT_REACTION = true;
+
+    // **Mirror the death / respawn FADE. Behaviour, 2026-08-27.**
+    //
+    // The user: *"the whole model is supposed to go invisible/white ish for a brief moment"*, on the
+    // fall AND on the respawn. Two probes narrowed it without a single guess: the model is never
+    // hidden and three of its material slots become `MaterialInstanceDynamic` (so it is an animated
+    // material parameter), and the death census then named the function --
+    // **`dieFade(DieNotRez: bool)`**, a fade whose own parameter distinguishes dying from
+    // resurrecting. One function, both directions, which is exactly the shape the user described.
+    //
+    // So the ghost runs the pawn's own `dieFade`, the mechanism behind the afterimage trail, the
+    // cling gem and the slide pose. Nothing here animates a material or times a pulse.
+    //
+    // **Triggered off signals we already have, not new ones.** The DEATH direction fires on the
+    // peer's health reaching zero -- `CurrentHp` on the GameInstance, the field the health
+    // investigation established -- and the REZ direction fires when the peer's `NS_RespawnSafe`
+    // effect starts, which the VFX mirror already detects. Deliberately NOT triggered off
+    // `NS_BasicBurst`: that is a generic hit burst that fires in ordinary combat, and using it
+    // would flash a ghost every time its peer traded blows.
+    //
+    // **The risk worth stating**: `dieFade` may do more than paint -- if it moves the ghost to a
+    // respawn point, the per-tick transform drive corrects it within a frame, and if it disables
+    // input that is meaningless on a pawn nobody drives. Neither can reach the local player, which
+    // is the line that matters.
+    constexpr bool MIRROR_DEATH_FADE = true;
+
+    // **What actually changes on the player's model through a death. Probe, 2026-08-27.**
+    //
+    // The user: *"the whole model is supposed to go invisible/white ish for a brief moment"*, on
+    // both the fall and the respawn. Nothing in the Niagara capture explains it, and the blink
+    // guess above was wrong, so this asks the model directly instead of guessing again which
+    // mechanism it is.
+    //
+    // Per tick, on the LOCAL player only, log on CHANGE: the two mesh components' visibility flags
+    // and their material slots. That distinguishes the three ways a model can do this --
+    //   * `bHiddenInGame`/`bVisible` toggling  -> it is being hidden, and a ghost needs the same
+    //     toggle mirrored;
+    //   * a MATERIAL swapping                  -> the game swaps to a flash material, and the
+    //     ghost needs that material;
+    //   * neither                              -> it is a material PARAMETER being animated, which
+    //     needs a dynamic-material read rather than a property one.
+    // Each of those needs a different mirror, which is exactly why this is measured first.
+    //
+    // Cheap by construction: two components, four reads, logged only when something moves. This is
+    // not the per-tick enumeration the probe rule warns about.
+    // **Every death/respawn/material-shaped name on the pawn. Probe, 2026-08-27.**
+    //
+    // DEATH_VISIBILITY_PROBE answered which MECHANISM the white flash uses: the mesh is never
+    // hidden, and three of its material slots become `MaterialInstanceDynamic` -- so a parameter is
+    // being animated on a dynamic material. Reading those parameters means walking
+    // `ScalarParameterValues`, an array of structs, which is real work for a value we may not need.
+    //
+    // The cheaper and better question is what STARTS it, because a ghost can run the pawn's own
+    // function -- the mechanism behind the afterimage trail, the cling gem and the slide pose. This
+    // enumerates the candidates in one shot rather than guessing a name, which is the mistake the
+    // `startBlink` attempt made.
+    // Off again 2026-08-27, its question answered in one run: it named `dieFade(DieNotRez)`,
+    // `flash(justWeapon?)` and `BPI_CombatDeath(dissolveDelay)`, and the first of those is what the
+    // death/respawn fade now runs on a ghost. Flip on to enumerate death-shaped names on a new build.
+    constexpr bool DEATH_FIELD_CENSUS = false;
+
+    // Off again 2026-08-27, its question answered in one run: the mesh is never hidden
+    // (`hidden=false visible=true` throughout) and three material slots become
+    // `MaterialInstanceDynamic`, so the flash is an animated material PARAMETER rather than a hide
+    // or a swap. Flip on to ask the same question about another effect.
+    constexpr bool DEATH_VISIBILITY_PROBE = false;
+
+    // **Refuse a CAMERA FADE that a ghost's spawn causes. Behaviour, 2026-08-27.**
+    //
+    // The user: *"'black flash' on the screen whenever a ghost appears, is this something the ghost
+    // is taking/applying from the player as well when they spawn in? similar to the health hud/ui
+    // thing?"* -- the same frame that has now explained the camera rig, the HUD, the shadow and the
+    // damage, and the user has reached for it before I have twice.
+    //
+    // A full-screen black flash is a camera fade, and `PlayerCameraManager::StartCameraFade` is a
+    // NATIVE function on a native class -- hookable, unlike the Blueprint `enterTransition` that
+    // probably calls it. A fade has no notion of whose pawn asked for it: one camera manager
+    // serves the whole game, the same singleton trap as `CurrentHp` and the HUD widget.
+    //
+    // **Scoped as narrowly as the evidence allows.** A fade is refused ONLY within
+    // GHOST_SPAWN_FADE_GUARD_TICKS of a ghost spawning. Every real fade the game performs -- level
+    // transitions, the player's own death and respawn -- is untouched, because none of them
+    // happens inside that window. The alternative, refusing all fades, would break the game's own
+    // transitions to fix a cosmetic flash.
+    //
+    // **It can fail honestly**: if the flash is not a camera fade, this hook never fires and the
+    // log says `armed` with no refusals, which sends the search elsewhere rather than leaving an
+    // unconfirmable "probably fixed".
+    constexpr bool GHOST_FADE_GUARD = true;
+
+    // How long after a ghost spawn a camera fade is treated as the ghost's. Sized against the
+    // measured spawn-time camera steal, which lands 2-3 ticks after the spawn every time
+    // (GHOST_SPAWN_CAMERA_GUARD_TICKS uses 10 for the same event) -- so this is the same margin,
+    // not a new guess.
+    constexpr uint64_t GHOST_SPAWN_FADE_GUARD_TICKS = 10;
+
     constexpr bool SHADOW_COMPONENT_PROBE = false;
 
     // ~5 samples/sec at this build's measured ~150Hz. The trace logs on CHANGE, so a faster cadence
@@ -1514,6 +1730,48 @@ namespace MeshGhostPseudo
     // mechanism, after the all-montages-suppressed run. The filter also produced this build's real
     // attack vocabulary, which nothing else had: `dreamLady_Attack_GF1/GF2/GF3/GL2_Montage`.
     constexpr bool GHOST_SKIP_ATTACK_MONTAGES = false;
+
+    // **Mirror a peer's ranged PROJECTILE as a prop. Behaviour, 2026-08-27.**
+    //
+    // The user, once the charge glow was confirmed: *"charge is doing its vfx, its just that we
+    // don't have a visible projetcile shooting from the ghost yet"*. So a peer charges, the glow
+    // appears on their ghost's sword, and then nothing leaves it.
+    //
+    // **This is the thrown Dream Breaker's job in a new coat**, and that already ships: sample the
+    // real actor's transform on the sender, replay it on a prop that is attached to nothing.
+    // Nothing is simulated on the receiving side -- the peer's own `ProjectileMovementComponent`
+    // has already resolved the flight and any wall bounces, which is why the sword's arc looks
+    // right rather than approximated.
+    //
+    // Everything the sender needs was measured by `GHOST_PROJECTILE_WATCH` across three sessions:
+    // the class is `PRJ_PlayerCutter_C`, exactly one instance exists per shot, its `Owner` is
+    // `<none>` and its **`Instigator` is the firing pawn** -- which is the test used to tell our
+    // own projectile from anybody else's without enumerating the world.
+    //
+    // **It first spawned the real `PRJ_PlayerCutter_C` as a prop, the way the thrown sword does,
+    // and that CRASHED THE GAME -- twice, with a stack trace the second time:**
+    // `call_destroy_actor` -> `ProcessEvent` -> access violation, from `release_ghost`. A thrown
+    // sword rests where it lands and nothing takes it away; a projectile's lifetime belongs to the
+    // GAME, which destroys it on impact. Holding that pointer meant asking a freed actor to
+    // destroy itself. It also produced the other symptom in the same run -- a shot appearing
+    // ONCE and never again, because a stale non-null pointer reads as "already spawned".
+    //
+    // **A liveness check does not fix that, and the comment above the crashing line already said
+    // so**: `IsUnreachable()` is only safe on an object that is still ALLOCATED. Adding one was
+    // treating a pointer that must not be held as a pointer that needs checking.
+    //
+    // So the mirror holds no game-owned actor at all. It reproduces the EFFECT: the Niagara system
+    // the real projectile carries, spawned at the sampled position and moved along the peer's path.
+    // The component is one WE created, with the same lifetime model as every mirrored VFX row --
+    // which have been stable since 2026-08-15. That is `adapters/CLAUDE.md`'s rule verbatim:
+    // reproduce the effect, never adopt a handle the engine can recycle.
+    constexpr bool MIRROR_PEER_PROJECTILE = true;
+
+    // The sender re-checks for its own live projectile at this cadence. `FindAllOf` on a single
+    // class is a class-scoped lookup, not a walk of every object -- the same call VFX_WATCH makes
+    // every 10 ticks -- and a shot is airborne for the better part of a second, so 3 ticks
+    // (~50 samples/sec at this build's ~150Hz) is well inside its life without being per-tick work.
+    constexpr uint64_t PROJECTILE_SAMPLE_INTERVAL_TICKS = 3;
 
     // **Mark the local player as ALREADY HIT in the ghost's own hit list. Behaviour, 2026-08-27 --
     // and this is the fix the whole investigation converges on, using the game's own mechanism.**
@@ -2323,9 +2581,46 @@ namespace MeshGhostPseudo
             return false;
         }
 
+        // Death / respawn / invulnerability shaped names. The death flash turned out to be a
+        // parameter animated on dynamic material instances (DEATH_VISIBILITY_PROBE), and reading
+        // those parameters means walking struct arrays. Finding the FUNCTION that starts it is
+        // cheaper and better: a ghost can run the pawn's own, which is how the afterimage trail,
+        // the cling gem and the slide pose all work.
+        auto is_death_shaped_name(const StringType& name) -> bool
+        {
+            for (const wchar_t* needle : {STR("eath"), STR("Die"), STR("die"), STR("espawn"),
+                                          STR("nvuln"), STR("lash"), STR("issolve"), STR("Hurt"),
+                                          STR("hurt"), STR("Material"), STR("material")})
+            {
+                if (name.find(needle) != StringType::npos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Fade / screen-effect shaped names. Deliberately wider than "fade": a spawn flash could be
+        // a camera fade, a level-transition blend, a respawn wipe or a UI overlay, and this probe
+        // exists precisely because nobody knows which.
+        auto is_fade_shaped_name(const StringType& name) -> bool
+        {
+            for (const wchar_t* needle : {STR("ade"), STR("lack"), STR("Blink"), STR("blink"),
+                                          STR("ransition"), STR("espawn"), STR("Wipe"), STR("wipe"),
+                                          STR("Screen"), STR("screen"), STR("UI_")})
+            {
+                if (name.find(needle) != StringType::npos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // Every damage-shaped property (with its value) and function (with its parameters) on one
         // actor. See DAMAGE_FIELD_CENSUS for why this exists and what the last run ruled out.
-        auto census_damage_fields(UObject* actor, const wchar_t* label) -> void
+        auto census_named_fields(UObject* actor, const wchar_t* label, bool (*matches)(const StringType&),
+                                 const wchar_t* tag) -> void
         {
             if (!actor)
             {
@@ -2344,7 +2639,7 @@ namespace MeshGhostPseudo
                     continue;
                 }
                 const StringType prop_name = property->GetName();
-                if (!is_damage_shaped_name(prop_name))
+                if (!matches(prop_name))
                 {
                     continue;
                 }
@@ -2376,8 +2671,8 @@ namespace MeshGhostPseudo
                     UObject** ptr = actor->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
                     value = (ptr && *ptr) ? STR("<non-null>") : STR("<null>");
                 }
-                Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {} property '{}' ({}) = {}\n"),
-                             label, prop_name, prop_type, value);
+                Output::send(STR("[MeshGhostPseudo] {}: {} property '{}' ({}) = {}\n"),
+                             tag, label, prop_name, prop_type, value);
             }
             for (UFunction* function : TFieldRange<UFunction>(actor_class, EFieldIterationFlags::Default))
             {
@@ -2386,24 +2681,24 @@ namespace MeshGhostPseudo
                     continue;
                 }
                 const StringType function_name = function->GetName();
-                if (!is_damage_shaped_name(function_name))
+                if (!matches(function_name))
                 {
                     continue;
                 }
                 ++found;
-                Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {} FUNCTION '{}' PropertiesSize={}\n"),
-                             label, function_name, function->GetPropertiesSize());
+                Output::send(STR("[MeshGhostPseudo] {}: {} FUNCTION '{}' PropertiesSize={}\n"),
+                             tag, label, function_name, function->GetPropertiesSize());
                 for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::Default))
                 {
                     if (param)
                     {
-                        Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {}     param '{}' ({})\n"),
-                                     label, param->GetName(), param->GetClass().GetName());
+                        Output::send(STR("[MeshGhostPseudo] {}: {}     param '{}' ({})\n"),
+                                     tag, label, param->GetName(), param->GetClass().GetName());
                     }
                 }
             }
-            Output::send(STR("[MeshGhostPseudo] DMGCENSUS: end of {} -- {} damage-shaped name(s).\n"),
-                         label, found);
+            Output::send(STR("[MeshGhostPseudo] {}: end of {} -- {} matching name(s).\n"),
+                         tag, label, found);
         }
 
         // Every component-valued property one actor holds, with the shadow-shaped ones called out
@@ -3617,6 +3912,154 @@ namespace MeshGhostPseudo
 
             library_cdo->ProcessEvent(function, params_buffer.data());
             return return_slot ? *return_slot : nullptr;
+        }
+
+        // Reads the shared `CurrentHp` off the GameInstance the pawn points at. Used by the hurt
+        // mirror's tripwire -- see MIRROR_HURT_REACTION -- and deliberately a plain read: nothing
+        // in this adapter may ever WRITE the player's health.
+        auto read_shared_current_hp(UObject* pawn_or_ghost, double& out) -> bool
+        {
+            if (!pawn_or_ghost)
+            {
+                return false;
+            }
+            UObject** gi_ptr = pawn_or_ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+            if (!gi_ptr || !*gi_ptr)
+            {
+                return false;
+            }
+            double* hp = (*gi_ptr)->GetValuePtrByPropertyNameInChain<double>(STR("CurrentHp"));
+            if (!hp)
+            {
+                return false;
+            }
+            out = *hp;
+            return true;
+        }
+
+        // Runs the pawn's own hurt reaction on a ghost. `DamageType` is the game's own byte
+        // parameter; `attackDirection` is left zeroed, which is the "no particular direction"
+        // value and keeps this to the reaction rather than a knockback we would be inventing.
+        auto call_perform_damage_response(UObject* ghost, uint8_t damage_type) -> bool
+        {
+            if (!ghost)
+            {
+                return false;
+            }
+            UFunction* function = ghost->GetFunctionByNameInChain(STR("BPI_PerformDamageResponse"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("DamageType"))
+                {
+                    params_buffer[static_cast<size_t>(param->GetOffset_Internal())] = damage_type;
+                }
+            }
+            ghost->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // Runs the pawn's own death/respawn fade on a ghost. `DieNotRez` is the game's own
+        // parameter name: true for dying, false for coming back.
+        auto call_die_fade(UObject* ghost, bool die_not_rez) -> bool
+        {
+            if (!ghost)
+            {
+                return false;
+            }
+            UFunction* function = ghost->GetFunctionByNameInChain(STR("dieFade"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool wrote = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("DieNotRez"))
+                {
+                    params_buffer[static_cast<size_t>(param->GetOffset_Internal())] = die_not_rez ? 1 : 0;
+                    wrote = true;
+                }
+            }
+            if (!wrote)
+            {
+                // The parameter is matched by name rather than assumed to be at offset 0 -- the
+                // standard this file holds for every call across this boundary.
+                Output::send(STR("[MeshGhostPseudo] WARNING: dieFade has no 'DieNotRez' parameter by name -- not called.\n"));
+                return false;
+            }
+            ghost->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // Whether a UTimelineComponent is currently running. Stock `IsPlaying`, and the same
+        // pattern the transition readback uses -- a function return value rather than a
+        // bitfield-packed bool, which this file has been misled by before.
+        auto timeline_is_playing(UObject* timeline) -> bool
+        {
+            if (!timeline)
+            {
+                return false;
+            }
+            UFunction* function = timeline->GetFunctionByNameInChain(STR("IsPlaying"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            timeline->ProcessEvent(function, params_buffer.data());
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("ReturnValue"))
+                {
+                    return params_buffer[static_cast<size_t>(param->GetOffset_Internal())] != 0;
+                }
+            }
+            return false;
+        }
+
+        // Runs the pawn's own blink on a ghost. `startBlink`'s reflected parameters are all
+        // Blueprint locals (a random float, a delegate, a timer handle), so a zeroed buffer is the
+        // whole call -- the same shape as every other game function this file invokes.
+        auto call_start_blink(UObject* ghost) -> bool
+        {
+            if (!ghost)
+            {
+                return false;
+            }
+            UFunction* function = ghost->GetFunctionByNameInChain(STR("startBlink"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 0)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            ghost->ProcessEvent(function, params_buffer.data());
+            return true;
         }
 
         // Spawns a Niagara system at a WORLD LOCATION, attached to nothing.
@@ -5314,6 +5757,31 @@ namespace MeshGhostPseudo
         {"chg", STR("/Game/VFX/Emitters/NS_ProjectileCharged.NS_ProjectileCharged"), STR("VisualMesh"), STR("handslot_R"), false, 0.0},
         {"hw", STR("/Game/VFX/Emitters/NS_HealWave.NS_HealWave"), STR("RootComponent"), nullptr, true, 100.0},
         {"hew", STR("/Game/VFX/Emitters/NS_HealEndwave.NS_HealEndwave"), STR("RootComponent"), nullptr, true, 10.0},
+        // Respawn, added 2026-08-27 from a pit-fall capture. The user: *"falling into a pit does
+        // not spawn vfx particles around the ghost"* -- and "around" is literal: this one hangs off
+        // the player's own CapsuleComponent with zero offset, measured, exactly like the heal's
+        // body aura. So it needs no new machinery, only a row.
+        //
+        // The same capture found two others that are deliberately NOT here. `NS_DustLand` is
+        // world-spawned at the landing point and fires on ordinary landings too, so it is a landing
+        // effect rather than a pit one. `NS_BasicBurst` is world-spawned at the DEATH point and the
+        // record already warns it appears 14x in ordinary combat -- proximity attribution would
+        // mirror other people's hits onto a ghost. Both are measured candidates, not oversights.
+        {"rsp", STR("/Game/VFX/Systems/NS_RespawnSafe.NS_RespawnSafe"), STR("CapsuleComponent"), nullptr, false, 0.0},
+        // The other two the pit-fall capture found, added 2026-08-27 after the user watched a ghost
+        // die and reported the respawn aura arriving alone: *"its not doing the falling into pit
+        // particles... its missing some other ones that happened there"*. Both are world-spawned,
+        // so they ride the same observed-height path the heal waves use -- the height is learned
+        // from the local player's own effect rather than written down.
+        //
+        // `NS_BasicBurst` is the one with a stated risk, and it is stated rather than discovered
+        // later: the record shows it firing 14x in ordinary combat as a generic hit burst, so
+        // proximity attribution can occasionally put somebody else's hit on a ghost. That is a
+        // false POSITIVE of a brief particle burst near a character who was in a fight, which is a
+        // much smaller wrong than a death with no burst at all -- but if it reads as noise on
+        // screen, this row is the one to pull.
+        {"dl", STR("/Game/VFX/Systems/NS_DustLand.NS_DustLand"), STR("RootComponent"), nullptr, true, 0.0},
+        {"bb", STR("/Game/VFX/Systems/NS_BasicBurst.NS_BasicBurst"), STR("RootComponent"), nullptr, true, 0.0},
     };
 
     // Heights observed on the LOCAL player's own world-spawned effects, indexed by row. Written by
@@ -5733,6 +6201,90 @@ namespace MeshGhostPseudo
     // longer/shorter" is exactly the kind of thing a reconstructed rule gets wrong and an
     // observed mirror gets right for free. It is the same reason AFTERIMAGE_TRIGGER_FROM_
     // OBSERVATION beat three successive actionState theories.
+    auto Plugin::tick_remote_projectile(const std::string& player_id, RemoteGhost& remote, UWorld* current_world) -> void
+    {
+        if constexpr (!MIRROR_PEER_PROJECTILE)
+        {
+            return;
+        }
+
+        // A world change invalidates our component along with everything else in that world. Cleared
+        // proactively in release_all_ghosts (LoadMap PRE) as well, which is the mechanism that has
+        // always kept the ghost pointer safe here -- see the crash note on MIRROR_PEER_PROJECTILE.
+        if (remote.projectile_component && current_world && remote.projectile_component_world &&
+            remote.projectile_component_world != current_world)
+        {
+            remote.projectile_component = nullptr;
+            remote.projectile_component_world = nullptr;
+        }
+
+        // The peer's shot ended. Stop and destroy the effect, exactly as the mirrored VFX rows do
+        // when a peer's effect ends -- the same lifetime model, on a component we made.
+        if (!remote.target_projectile_active)
+        {
+            if (remote.projectile_component)
+            {
+                if (UFunction* deactivate_fn = remote.projectile_component->GetFunctionByNameInChain(STR("Deactivate")))
+                {
+                    remote.projectile_component->ProcessEvent(deactivate_fn, nullptr);
+                }
+                if (UFunction* destroy_fn = remote.projectile_component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                {
+                    remote.projectile_component->ProcessEvent(destroy_fn, nullptr);
+                }
+                remote.projectile_component = nullptr;
+                remote.projectile_component_world = nullptr;
+            }
+            return;
+        }
+
+        if (!remote.projectile_component)
+        {
+            if (remote.target_projectile_vfx.empty() || !current_world)
+            {
+                return;
+            }
+            // Retry throttle, same shape and reason as the weapon prop's: an asset that does not
+            // resolve on this machine must not re-attempt and re-log every tick.
+            if (remote.target_projectile_vfx == remote.last_failed_projectile_vfx &&
+                tick_count - remote.last_projectile_spawn_attempt_tick < LOG_INTERVAL_TICKS)
+            {
+                return;
+            }
+            remote.last_projectile_spawn_attempt_tick = tick_count;
+
+            UObject* asset = UObjectGlobals::StaticFindObject<UObject*>(
+                nullptr, nullptr, to_wide_ascii(remote.target_projectile_vfx).c_str());
+            if (!asset)
+            {
+                remote.last_failed_projectile_vfx = remote.target_projectile_vfx;
+                Output::send(STR("[MeshGhostPseudo] WARNING: projectile effect '{}' not found -- remote {}'s shot not rendered (will retry).\n"),
+                             to_wide_ascii(remote.target_projectile_vfx), to_wide_ascii(player_id));
+                return;
+            }
+            remote.last_failed_projectile_vfx.clear();
+
+            const FVector at(remote.target_projectile_x, remote.target_projectile_y, remote.target_projectile_z);
+            remote.projectile_component = spawn_niagara_at_location(remote.ghost, asset, at);
+            if (!remote.projectile_component)
+            {
+                return;
+            }
+            remote.projectile_component_world = current_world;
+            Output::send(STR("[MeshGhostPseudo] spawned projectile effect for remote {}: '{}'\n"),
+                         to_wide_ascii(player_id), to_wide_ascii(remote.target_projectile_vfx));
+        }
+
+        // Driven by writing the component's world position every tick. A component spawned at a
+        // LOCATION is attached to nothing, and its `RelativeLocation` therefore holds a world
+        // coordinate -- measured directly during the heal work, where the player's own
+        // world-spawned waves logged `attach='<none>'` with real world coordinates.
+        if (FVector* where = remote.projectile_component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+        {
+            *where = FVector(remote.target_projectile_x, remote.target_projectile_y, remote.target_projectile_z);
+        }
+    }
+
     auto Plugin::tick_remote_mirrored_vfx(const std::string& player_id, RemoteGhost& remote) -> void
     {
         if constexpr (!MIRROR_PLAYER_VFX)
@@ -5833,6 +6385,18 @@ namespace MeshGhostPseudo
                     component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
                 }
                 remote.vfx_components[key] = component;
+
+                // The REZ half of the death fade -- see MIRROR_DEATH_FADE. The respawn effect is
+                // already detected here, so the fade rides the signal that exists rather than a new
+                // one. Only this row: the death burst fires in ordinary combat too.
+                if constexpr (MIRROR_DEATH_FADE)
+                {
+                    if (key == "rsp")
+                    {
+                        call_die_fade(remote.ghost, false);
+                    }
+                }
+
                 Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: started '{}' (component={})\n"),
                              to_wide_ascii(player_id), to_wide_ascii(key),
                              component ? STR("ok") : STR("NULL"));
@@ -6392,6 +6956,11 @@ namespace MeshGhostPseudo
         // safe on an object that is still allocated. The real fix is the proactive clear in
         // release_all_ghosts (which runs in the LoadMap PRE hook, before teardown) -- exactly the
         // mechanism that has always kept the ghost pointer safe here, now extended to the prop.
+        // The projectile effect is a component we created; dropping the reference is enough here,
+        // and the tick path stops and destroys it when the peer's shot ends. Nothing game-owned is
+        // held, which is the whole point of the redesign -- see MIRROR_PEER_PROJECTILE.
+        it->second.projectile_component = nullptr;
+        it->second.projectile_component_world = nullptr;
         if (it->second.weapon_actor)
         {
             call_destroy_actor(it->second.weapon_actor);
@@ -6563,6 +7132,7 @@ namespace MeshGhostPseudo
         // this function's own comment for why the first two never even fired.
         register_camera_fightback_hook();
         register_damage_guard_hooks();
+        register_fade_guard_hook();
     }
 
     // Phase 7.6, third attempt. Root cause of why the first two attempts never even fired: this
@@ -6723,6 +7293,96 @@ namespace MeshGhostPseudo
     // teardown (which has always worked correctly for its own real props) handles cleanup
     // transparently. This also removes the whole auto-possess safety-fix machinery from the prior
     // spawn-based design: a StaticMeshActor can never auto-possess, so that bug class can't recur.
+    auto Plugin::register_fade_guard_hook() -> void
+    {
+        if constexpr (!GHOST_FADE_GUARD)
+        {
+            return;
+        }
+
+        UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/Engine.PlayerCameraManager:StartCameraFade"));
+        if (!function)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: fade guard could not find 'StartCameraFade' -- a ghost's spawn may still flash the screen.\n"));
+            return;
+        }
+
+        // Offsets from each parameter's own reflected offset, never an assumed struct layout --
+        // the standard this file holds everywhere it marshals across this boundary.
+        int32_t from_alpha_off = -1;
+        int32_t to_alpha_off = -1;
+        int32_t duration_off = -1;
+        for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+        {
+            if (!param)
+            {
+                continue;
+            }
+            const StringType param_name = param->GetName();
+            if (param_name == STR("FromAlpha"))
+            {
+                from_alpha_off = param->GetOffset_Internal();
+            }
+            else if (param_name == STR("ToAlpha"))
+            {
+                to_alpha_off = param->GetOffset_Internal();
+            }
+            else if (param_name == STR("Duration"))
+            {
+                duration_off = param->GetOffset_Internal();
+            }
+        }
+
+        fade_hook_id = function->RegisterPreHook(
+            [this, from_alpha_off, to_alpha_off, duration_off](UnrealScriptFunctionCallableContext& ctx, void*) {
+                if (last_ghost_spawn_tick == 0 || tick_count - last_ghost_spawn_tick > GHOST_SPAWN_FADE_GUARD_TICKS)
+                {
+                    return; // the game's own fade -- a transition, a death, a respawn. Never touched.
+                }
+
+                uint8_t* params = reinterpret_cast<uint8_t*>(&ctx.GetParams<uint8_t>());
+                if (!params)
+                {
+                    return;
+                }
+
+                // Neutralised rather than blocked: the call still runs, with a fade that goes
+                // nowhere over no time. Refusing to call a native the engine expects to complete is
+                // a bigger intervention than making it a no-op, and this file has a standing
+                // preference for the smaller one.
+                float from_before = -1.0f;
+                float to_before = -1.0f;
+                if (from_alpha_off >= 0)
+                {
+                    from_before = *reinterpret_cast<float*>(params + from_alpha_off);
+                    *reinterpret_cast<float*>(params + from_alpha_off) = 0.0f;
+                }
+                if (to_alpha_off >= 0)
+                {
+                    to_before = *reinterpret_cast<float*>(params + to_alpha_off);
+                    *reinterpret_cast<float*>(params + to_alpha_off) = 0.0f;
+                }
+                if (duration_off >= 0)
+                {
+                    *reinterpret_cast<float*>(params + duration_off) = 0.0f;
+                }
+
+                // Logged once, with the fade it refused and how long after the spawn. That single
+                // line is what turns "the flash seems gone" into evidence -- and its ABSENCE is
+                // equally informative: no line means the flash was never a camera fade.
+                static bool logged = false;
+                if (!logged)
+                {
+                    logged = true;
+                    Output::send(STR("[MeshGhostPseudo] fade guard: neutralised a camera fade {}->{} raised {} tick(s) after a ghost spawned.\n"),
+                                 from_before, to_before, tick_count - last_ghost_spawn_tick);
+                }
+            });
+
+        Output::send(STR("[MeshGhostPseudo] fade guard armed on StartCameraFade.\n"));
+    }
+
     auto Plugin::register_damage_guard_hooks() -> void
     {
         if constexpr (!GHOST_DAMAGE_GUARD)
@@ -7293,6 +7953,61 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // **Take the ghost's screen TRANSITION off the screen** -- see
+            // GHOST_STOP_TRANSITION_TIMELINES. Runs at spawn, in the same pass as the HUD removal,
+            // because the flash happens the moment the ghost appears.
+            if constexpr (GHOST_STOP_TRANSITION_TIMELINES)
+            {
+                for (const wchar_t* timeline : {STR("Timeline_2"), STR("Timeline_3")})
+                {
+                    UObject** timeline_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(timeline);
+                    if (!timeline_ptr || !*timeline_ptr)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] ghost transition: '{}' does not resolve on this build.\n"), timeline);
+                        continue;
+                    }
+                    UFunction* stop_fn = (*timeline_ptr)->GetFunctionByNameInChain(STR("Stop"));
+                    if (!stop_fn)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: ghost '{}' has no reflected Stop -- its transition may still flash the screen.\n"), timeline);
+                        continue;
+                    }
+                    // **Was it actually going to flash? Ask before stopping it.**
+                    //
+                    // The user cannot judge this one on screen -- *"i can't really confirm, as its
+                    // hard to see/test"* -- and an unconfirmable fix that everyone assumes works is
+                    // exactly what this project refuses to record. So a measurement replaces the
+                    // eye: `IsPlaying` on the ghost's own timeline, read immediately before the stop.
+                    //
+                    //   * PLAYING     -> the ghost WAS running the entry transition, this stop had
+                    //                    something real to stop, and the flash is explained.
+                    //   * not playing -> these timelines were never the source, the stop is
+                    //                    cosmetic, and the flash comes from somewhere else -- which
+                    //                    is a finding, not a null result.
+                    StringType was_playing = STR("<no IsPlaying>");
+                    if (UFunction* is_playing_fn = (*timeline_ptr)->GetFunctionByNameInChain(STR("IsPlaying")))
+                    {
+                        const int32_t parms_size = is_playing_fn->GetPropertiesSize();
+                        if (parms_size >= 1)
+                        {
+                            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                            (*timeline_ptr)->ProcessEvent(is_playing_fn, params_buffer.data());
+                            for (FProperty* param : TFieldRange<FProperty>(is_playing_fn, EFieldIterationFlags::None))
+                            {
+                                if (param && param->GetName() == STR("ReturnValue"))
+                                {
+                                    was_playing = params_buffer[static_cast<size_t>(param->GetOffset_Internal())]
+                                                      ? STR("PLAYING") : STR("not playing");
+                                }
+                            }
+                        }
+                    }
+                    (*timeline_ptr)->ProcessEvent(stop_fn, nullptr);
+                    Output::send(STR("[MeshGhostPseudo] ghost transition: stopped '{}' (was {}).\n"),
+                                 timeline, was_playing);
+                }
+            }
+
             // **Zero the ghost's own DAMAGE NUMBERS, 2026-08-27.** Clearing the cached refs
             // below turned out to be necessary-at-best and insufficient in fact: all four were
             // confirmed cleared in the log and the ghost still hurt the player, because a UE
@@ -7485,13 +8200,32 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Stamped for the fade guard: a camera fade inside the next few ticks is the ghost's, not
+        // the player's. See GHOST_FADE_GUARD.
+        last_ghost_spawn_tick = tick_count;
+
         // Damage-field census, see DAMAGE_FIELD_CENSUS's own comment. Both actors in one log: the
         // whole point is which value DIFFERS between a ghost that hurts the player and the player
         // who does not hurt themselves.
         if constexpr (DAMAGE_FIELD_CENSUS)
         {
-            census_damage_fields(ghost, STR("spawned ghost"));
-            census_damage_fields(local_pawn, STR("local pawn at ghost-spawn"));
+            census_named_fields(ghost, STR("spawned ghost"), is_damage_shaped_name, STR("DMGCENSUS"));
+            census_named_fields(local_pawn, STR("local pawn at ghost-spawn"), is_damage_shaped_name, STR("DMGCENSUS"));
+        }
+
+        // Fade census, see FADE_FIELD_CENSUS. Both actors in one log for the same reason as the
+        // damage one: the question is what the ghost has that fires on spawn, and the player's copy
+        // is the reference for what it should look like at rest.
+        if constexpr (FADE_FIELD_CENSUS)
+        {
+            census_named_fields(ghost, STR("spawned ghost"), is_fade_shaped_name, STR("FADECENSUS"));
+            census_named_fields(local_pawn, STR("local pawn at ghost-spawn"), is_fade_shaped_name, STR("FADECENSUS"));
+        }
+
+        // Death census, see DEATH_FIELD_CENSUS.
+        if constexpr (DEATH_FIELD_CENSUS)
+        {
+            census_named_fields(ghost, STR("spawned ghost"), is_death_shaped_name, STR("DEATHCENSUS"));
         }
 
         // Shadow census, see SHADOW_COMPONENT_PROBE's own comment. Runs here, at spawn, because
@@ -7639,6 +8373,27 @@ namespace MeshGhostPseudo
             bool recall_glow = recall_glow_num != 0;
             double weapon_x = 0, weapon_y = 0, weapon_z = 0;
             bool has_weapon_pos = json_vec3_field(line, "weapon_pos", weapon_x, weapon_y, weapon_z);
+
+            // Ranged projectile -- see MIRROR_PEER_PROJECTILE. Best-effort like every other extra:
+            // a peer on an older build sends none of these and simply renders no shot.
+            double projectile_num = 0.0;
+            json_number_field(line, "prj", projectile_num);
+            const bool projectile_active_in = projectile_num != 0;
+            const std::string projectile_vfx_in = json_string_field(line, "prj_vfx");
+            double prj_x = 0.0, prj_y = 0.0, prj_z = 0.0;
+            double prj_pitch = 0.0, prj_yaw = 0.0, prj_roll = 0.0;
+            const bool has_prj_pos = json_vec3_field(line, "prj_pos", prj_x, prj_y, prj_z);
+            const bool has_prj_rot = json_vec3_field(line, "prj_rot", prj_pitch, prj_yaw, prj_roll);
+
+            // Death/respawn blink -- see MIRROR_PLAYER_BLINK. A counter, not a flag, for the same
+            // reason the montage and land/jump pulses are counters: the blink is shorter than the
+            // send interval and a level would be missed between samples.
+            double blink_count_num = 0.0;
+            json_number_field(line, "blink_count", blink_count_num);
+            double death_count_num = 0.0;
+            json_number_field(line, "death_count", death_count_num);
+            double hurt_count_num = 0.0;
+            json_number_field(line, "hurt_count", hurt_count_num);
             double weapon_pitch = 0, weapon_yaw = 0, weapon_roll = 0;
             bool has_weapon_rot = json_vec3_field(line, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll);
 
@@ -7826,6 +8581,27 @@ namespace MeshGhostPseudo
                 // X offset is applied for the same reason it's applied to the ghost body: on a
                 // same-machine loopback the peer IS you, so without it the ghost's sword renders
                 // exactly inside your own and the two can't be told apart.
+                it->second.target_blink_count = static_cast<int>(blink_count_num);
+                it->second.target_death_count = static_cast<int>(death_count_num);
+                it->second.target_hurt_count = static_cast<int>(hurt_count_num);
+                it->second.target_projectile_active = projectile_active_in && has_prj_pos && has_prj_rot;
+                if (it->second.target_projectile_active)
+                {
+                    it->second.target_projectile_vfx = projectile_vfx_in;
+                    // **Offset with the ghost, for the same reason and only in loopback.** The
+                    // transform on the wire is absolute world space, so without this the ghost's
+                    // projectile spawns exactly inside the player's own real one and is invisible
+                    // by construction -- which is precisely what the first live run showed: the
+                    // prop spawned (the log says so) and the user saw no shot leave the ghost.
+                    // Exactly the offset the ghost body and the thrown sword already get, and for
+                    // the same reason. Zero in any real session.
+                    it->second.target_projectile_x = prj_x + loopback_offset_x;
+                    it->second.target_projectile_y = prj_y;
+                    it->second.target_projectile_z = prj_z + loopback_offset_z;
+                    it->second.target_projectile_pitch = prj_pitch;
+                    it->second.target_projectile_yaw = prj_yaw;
+                    it->second.target_projectile_roll = prj_roll;
+                }
                 it->second.target_weapon_thrown = weapon_thrown;
                 if (weapon_thrown && has_weapon_pos && has_weapon_rot)
                 {
@@ -7976,6 +8752,220 @@ namespace MeshGhostPseudo
                     std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
                     size_t space_pos = full_name.find(' ');
                     outfit_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                }
+            }
+
+            // Hurt counter, local half -- see MIRROR_HURT_REACTION. Any DECREASE in the shared
+            // `CurrentHp` is a hurt; a pit fall is 5 of them at once and never a death, which is
+            // why the death counter below could not carry this.
+            static int hurt_count = 0;
+            static double last_seen_hp = -1.0;
+            if constexpr (MIRROR_HURT_REACTION)
+            {
+                double hp_now = 0.0;
+                if (read_shared_current_hp(pawn, hp_now))
+                {
+                    if (last_seen_hp >= 0.0 && hp_now < last_seen_hp)
+                    {
+                        ++hurt_count;
+                    }
+                    last_seen_hp = hp_now;
+                }
+            }
+
+            // Death counter, local half -- see MIRROR_DEATH_FADE. `CurrentHp` lives on the
+            // GameInstance singleton, established by the health investigation earlier the same day
+            // (`VERIFIED.md`), and reaching zero is the one unambiguous death signal this game
+            // offers. A counter rather than a flag, like every other short event on this wire.
+            static int death_count = 0;
+            static bool was_dead = false;
+            if constexpr (MIRROR_DEATH_FADE)
+            {
+                if (UObject** gi_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
+                {
+                    if (double* hp = (*gi_ptr)->GetValuePtrByPropertyNameInChain<double>(STR("CurrentHp")))
+                    {
+                        const bool dead_now = (*hp <= 0.0);
+                        if (dead_now && !was_dead)
+                        {
+                            ++death_count;
+                        }
+                        was_dead = dead_now;
+                    }
+                }
+            }
+
+            // See DEATH_VISIBILITY_PROBE. Local player only, logged on change.
+            if constexpr (DEATH_VISIBILITY_PROBE)
+            {
+                static std::map<StringType, StringType> prev_visibility;
+                for (const wchar_t* mesh_prop : {STR("VisualMesh"), STR("Mesh")})
+                {
+                    UObject** mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(mesh_prop);
+                    if (!mesh_ptr || !*mesh_ptr)
+                    {
+                        continue;
+                    }
+                    StringType sample;
+                    if (bool* hidden = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+                    {
+                        sample += *hidden ? STR("hidden=true ") : STR("hidden=false ");
+                    }
+                    if (bool* visible = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+                    {
+                        sample += *visible ? STR("visible=true ") : STR("visible=false ");
+                    }
+                    // The material slots, by name. A swap to a flash material shows up here as a
+                    // changed name; a parameter animation on the SAME material does not, and that
+                    // absence is itself the answer -- it would mean the next step is a dynamic
+                    // material instance read rather than another property.
+                    if (auto* materials = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("OverrideMaterials")))
+                    {
+                        sample += std::format(STR("overrides={} "), materials->Num());
+                        for (int m = 0; m < materials->Num() && m < 4; ++m)
+                        {
+                            UObject* material = (*materials)[m];
+                            sample += material ? (material->GetName() + STR(" ")) : StringType(STR("<null> "));
+                        }
+                    }
+                    auto previous = prev_visibility.find(mesh_prop);
+                    if (previous != prev_visibility.end() && previous->second == sample)
+                    {
+                        continue;
+                    }
+                    prev_visibility[mesh_prop] = sample;
+                    Output::send(STR("[MeshGhostPseudo] DEATHVIS: local '{}' {} tick={}\n"),
+                                 mesh_prop, sample, tick_count);
+                }
+            }
+
+            // Death/respawn blink, local half -- see MIRROR_PLAYER_BLINK. One bit: is the
+            // player's own Blink timeline running right now. Counter-gated on the wire like the
+            // montage and pulse fields, so a blink shorter than the send interval still arrives.
+            static bool blink_was_playing = false;
+            static int blink_count = 0;
+            if constexpr (MIRROR_PLAYER_BLINK)
+            {
+                if (UObject** blink_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("Blink")); blink_ptr && *blink_ptr)
+                {
+                    const bool playing_now = timeline_is_playing(*blink_ptr);
+                    if (playing_now && !blink_was_playing)
+                    {
+                        ++blink_count;
+                    }
+                    blink_was_playing = playing_now;
+                }
+            }
+
+            // Ranged projectile, local half -- see MIRROR_PEER_PROJECTILE. Unlike the thrown
+            // sword there is no reference on the pawn pointing at it, so the actor is found by
+            // class and attributed by **Instigator**, which the projectile watch established is the
+            // firing pawn (Owner is `<none>` on every one ever logged).
+            //
+            // Held across ticks so the wire keeps carrying the last sample between scans: the
+            // cadence governs how often we LOOK, not how often the peer is told.
+            static bool projectile_active = false;
+            static std::string projectile_vfx;
+            static double projectile_x = 0.0, projectile_y = 0.0, projectile_z = 0.0;
+            static double projectile_pitch = 0.0, projectile_yaw = 0.0, projectile_roll = 0.0;
+            if constexpr (MIRROR_PEER_PROJECTILE)
+            {
+                if (tick_count % PROJECTILE_SAMPLE_INTERVAL_TICKS == 0)
+                {
+                    projectile_active = false;
+                    std::vector<UObject*> projectiles;
+                    UObjectGlobals::FindAllOf(STR("PRJ_PlayerCutter_C"), projectiles);
+                    for (UObject* candidate : projectiles)
+                    {
+                        if (!candidate)
+                        {
+                            continue;
+                        }
+                        // The class default object appears in this list and is not a shot. It has
+                        // no RootComponent -- the same reflection-only actor test the thrown weapon
+                        // uses, rather than a raw cast on an object whose type is not guaranteed.
+                        if (!candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                        {
+                            continue;
+                        }
+                        UObject** instigator = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator"));
+                        if (!instigator || *instigator != pawn)
+                        {
+                            continue; // somebody else's shot, or one with no instigator
+                        }
+
+                        // **EXISTENCE IS NOT ACTIVITY, and this adapter has paid for that once
+                        // already.** This game pools and re-uses actors -- established here, it is
+                        // why no afterimage ever disappears -- so a spent projectile keeps
+                        // existing with this pawn still named as its instigator. Treating that as
+                        // "a shot is in flight" made the sender report `active` forever after the
+                        // first shot: the effect was never torn down and never respawned, which is
+                        // exactly the reported *"only did the projectile the first time"*.
+                        //
+                        // Same shape and same fix as the recall glow, whose detection was changed
+                        // from "the component exists" to "the component is active" for precisely
+                        // this reason (`VERIFIED.md` 2026-08-16). The movement component is the
+                        // honest test: a projectile that is not moving is not a shot.
+                        UObject** movement = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("ProjectileMovement"));
+                        if (movement && *movement)
+                        {
+                            if (!component_is_active(*movement))
+                            {
+                                continue; // pooled and idle, not in flight
+                            }
+                        }
+                        else if (bool* hidden = candidate->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden")))
+                        {
+                            // Fallback for a build where the movement component is not reflected
+                            // under that name. Deliberately second: `bHidden` is a bitfield-packed
+                            // bool and this file has been misled by reading one before, so it is
+                            // used only when the better test is unavailable.
+                            if (*hidden)
+                            {
+                                continue;
+                            }
+                        }
+                        auto* live_projectile = static_cast<AActor*>(candidate);
+                        const FVector loc = live_projectile->K2_GetActorLocation();
+                        const FRotator rot = live_projectile->K2_GetActorRotation();
+                        projectile_active = true;
+                        projectile_x = loc.X();
+                        projectile_y = loc.Y();
+                        projectile_z = loc.Z();
+                        projectile_pitch = rot.GetPitch();
+                        projectile_yaw = rot.GetYaw();
+                        projectile_roll = rot.GetRoll();
+                        // **The effect the real projectile carries, read off it rather than named
+                        // from memory.** Its own Niagara component is found by walking this actor's
+                        // component-valued properties -- the queue recorded `NS_PlayerProjectile` on
+                        // an `EnvCollider`, but recorded from a log rather than established, and a
+                        // hardcoded path is a value that can go stale.
+                        if (UClass* projectile_class_obj = candidate->GetClassPrivate())
+                        {
+                            for (FProperty* property : TFieldRange<FProperty>(projectile_class_obj, EFieldIterationFlags::Default))
+                            {
+                                if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                                {
+                                    continue;
+                                }
+                                UObject** component = candidate->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
+                                if (!component || !*component)
+                                {
+                                    continue;
+                                }
+                                UObject** asset_ptr = (*component)->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                                if (!asset_ptr || !*asset_ptr)
+                                {
+                                    continue;
+                                }
+                                std::string asset_full = to_utf8((*asset_ptr)->GetFullName());
+                                const size_t space_pos = asset_full.find(' ');
+                                projectile_vfx = (space_pos != std::string::npos) ? asset_full.substr(space_pos + 1) : asset_full;
+                                break;
+                            }
+                        }
+                        break; // exactly one per shot, measured
+                    }
                 }
             }
 
@@ -10581,7 +11571,10 @@ namespace MeshGhostPseudo
                 // MaxExtrasBytes = 1024 and an unbounded double can print 17 significant digits.
                 // Measured worst case with this block: ~689 bytes.
                 "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\",\"recall_glow\":{},"
-                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"vfx\":\"{}\"}}"
+                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"vfx\":\"{}\","
+                // Ranged projectile -- one decimal for the same size reason as the weapon
+                // block above, and the class path only crosses the wire while a shot flies.
+                "\"prj\":{},\"prj_vfx\":\"{}\",\"prj_pos\":[{:.1f},{:.1f},{:.1f}],\"prj_rot\":[{:.1f},{:.1f},{:.1f}],\"blink_count\":{},\"death_count\":{},\"hurt_count\":{}}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -10622,7 +11615,18 @@ namespace MeshGhostPseudo
                 weapon_pitch,
                 weapon_yaw,
                 weapon_roll,
-                mirrored_vfx_keys);
+                mirrored_vfx_keys,
+                projectile_active ? 1 : 0,
+                json_escape(projectile_vfx),
+                projectile_x,
+                projectile_y,
+                projectile_z,
+                projectile_pitch,
+                projectile_yaw,
+                projectile_roll,
+                blink_count,
+                death_count,
+                hurt_count);
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
@@ -11585,6 +12589,82 @@ namespace MeshGhostPseudo
             // here, after the ghost's own staleness checks have run, so it never spawns a loose
             // sword for a peer whose ghost has just been invalidated by a level transition.
             tick_remote_weapon(id, remote, current_world);
+            tick_remote_projectile(id, remote, current_world);
+
+            // Hurt reaction on the ghost -- see MIRROR_HURT_REACTION, including why this reads the
+            // player's health around the call.
+            if constexpr (MIRROR_HURT_REACTION)
+            {
+                static bool hurt_mirror_disarmed = false;
+                if (!hurt_mirror_disarmed && remote.target_hurt_count > remote.last_seen_hurt_count)
+                {
+                    remote.last_seen_hurt_count = remote.target_hurt_count;
+
+                    double hp_before = 0.0;
+                    const bool have_before = read_shared_current_hp(pawn_obj, hp_before);
+
+                    static bool logged_hurt = false;
+                    const bool called = call_perform_damage_response(remote.ghost, 0);
+                    if (!logged_hurt)
+                    {
+                        logged_hurt = true;
+                        Output::send(called
+                                         ? STR("[MeshGhostPseudo] ghost hurt: running the pawn's own 'BPI_PerformDamageResponse'.\n")
+                                         : STR("[MeshGhostPseudo] WARNING: 'BPI_PerformDamageResponse' does not resolve on the ghost -- no hurt reaction.\n"));
+                    }
+
+                    // **The tripwire.** If the call moved the shared health, this mirror is doing
+                    // the one thing the project forbids and it stops NOW -- not at the next
+                    // rebuild, not when somebody notices their run going wrong.
+                    double hp_after = 0.0;
+                    if (called && have_before && read_shared_current_hp(pawn_obj, hp_after) && hp_after != hp_before)
+                    {
+                        hurt_mirror_disarmed = true;
+                        Output::send(STR("[MeshGhostPseudo] DISARMED the hurt mirror: calling 'BPI_PerformDamageResponse' on a ghost changed the player's health {} -> {}. A ghost must never affect the player's run.\n"),
+                                     hp_before, hp_after);
+                    }
+                }
+            }
+
+            // Death fade on the ghost -- see MIRROR_DEATH_FADE. Edge-triggered off the peer's
+            // death counter; the REZ direction fires from the respawn effect in
+            // tick_remote_mirrored_vfx, where that effect is already detected.
+            if constexpr (MIRROR_DEATH_FADE)
+            {
+                if (remote.target_death_count > remote.last_seen_death_count)
+                {
+                    remote.last_seen_death_count = remote.target_death_count;
+                    static bool logged_die_fade = false;
+                    const bool called = call_die_fade(remote.ghost, true);
+                    if (!logged_die_fade)
+                    {
+                        logged_die_fade = true;
+                        Output::send(called
+                                         ? STR("[MeshGhostPseudo] ghost death fade: running the pawn's own 'dieFade'.\n")
+                                         : STR("[MeshGhostPseudo] WARNING: 'dieFade' does not resolve on the ghost -- its death fade will be missing.\n"));
+                    }
+                }
+            }
+
+            // Death/respawn blink on the ghost -- see MIRROR_PLAYER_BLINK. Edge-triggered off the
+            // peer's counter, then the GAME runs its own blink: nothing here times a pulse or
+            // touches a material.
+            if constexpr (MIRROR_PLAYER_BLINK)
+            {
+                if (remote.target_blink_count > remote.last_seen_blink_count)
+                {
+                    remote.last_seen_blink_count = remote.target_blink_count;
+                    static bool logged_blink = false;
+                    const bool called = call_start_blink(remote.ghost);
+                    if (!logged_blink)
+                    {
+                        logged_blink = true;
+                        Output::send(called
+                                         ? STR("[MeshGhostPseudo] ghost blink: running the pawn's own 'startBlink'.\n")
+                                         : STR("[MeshGhostPseudo] WARNING: 'startBlink' does not resolve on the ghost -- its death/respawn blink will be missing.\n"));
+                    }
+                }
+            }
 
             // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
             // majority of ticks.
