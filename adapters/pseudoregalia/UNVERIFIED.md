@@ -170,6 +170,67 @@ wrong-looking (no montage animation on the ghost at all) and that is the price o
 ghost is for. It is to stop the ghost's attack from reaching the player: the project's line is
 cosmetics yes, combat authority no (`../../agent_docs/brief.md`).
 
+### STATE AT END OF 2026-08-27 — mechanism IDENTIFIED, no fix shipped, everything reverted
+
+**The mechanism, and it is no longer a theory.** The ghost's attack records the player in the
+pawn's own `hitActorsArray` and calls the Blueprint interface
+**`BPI_PerformDamageResponse(DamageType, attackDirection)`** on them. The parameter is a damage
+**TYPE, not an amount** — the victim decides what a type costs — which is why zeroing the
+attacker's damage numbers was always going to do nothing.
+
+Read per tick, across one charged attack:
+
+```text
+PRJWATCH: ghost hitActorsArray count -> 0 tick=923
+PRJWATCH: ghost hitActorsArray count -> 2 tick=1547
+    hitActors[0] = 'BP_PlayerGoatMain_C ...BP_PlayerGoatMain_C_2147482216'   <- the local pawn
+    hitActors[1] = 'BP_PlayerGoatMain_C ...BP_PlayerGoatMain_C_2147482216'
+```
+
+**The trigger is the montage mirror**, on two independent runs:
+
+| Run | State | Result |
+| --- | --- | --- |
+| every montage call to the ghost suppressed | `GHOST_SELF_MONTAGE_PROBE` | no damage |
+| only the four ground-combo attack montages skipped | `GHOST_SKIP_ATTACK_MONTAGES` | **first attack did not hit** — user's words — but a later charged/projectile attack did |
+
+The second run is the more informative one, and it is also a **caution about the first**: a single
+attack in a single run was treated as proof, which it was not. The filter matched
+`dreamLady_Attack_GF1/GF2/GF3/GL2_Montage` — the ground combos — and the charged projectile uses a
+different montage that was therefore played. **So "attack montage" is a wider set than those four**,
+and the throw/projectile one has still never been seen by name.
+
+**Six candidates are now closed, each by a live run:**
+
+| Tried | Result |
+| --- | --- |
+| our `chg` VFX mirror | refuted |
+| the pawn's three damage numbers zeroed | refuted — and now explained: the interface passes a type, not an amount |
+| the ghost's hitbox component | dead — `Hit Component 1` is NULL on this build |
+| player hits their own ghost | refuted — ghost collision `false` at actor level and `0` on every component, held every tick |
+| engine damage hooks (`ApplyDamage` ×3) | **armed on 3 of 3, never fired** — this game does not use `GameplayStatics` damage |
+| the pawn's own attack gate booleans | refuted — all held every tick, confirmed applied, attack still registered |
+
+**Everything above is reverted, on the user's call**: *"i don't want it to work this way so we
+should re enable things again. i do want the ghost to do all animations."* The bandage bought
+partial protection at the cost of the attack pose, which fails the 1:1 bar, and the user would
+rather carry the bug than the missing animation. Every flag is `false` and each carries its own
+recorded negative in `Plugin.cpp`.
+
+**The next step, and it is a piece of engineering rather than another guess:** pre-mark the player
+in the ghost's `hitActorsArray`. It is the game's own already-hit mechanism, it is provably what
+stops the SECOND attack, and putting the player there before the first swing would stop that one
+too — without touching the montage, the pose, or the collision. **What it needs first is a safe way
+to grow a UE `TArray` from this DLL**: allocating with our allocator on a heap the engine may later
+realloc or free is a crash risk, and improvising it is exactly what `CLAUDE.md` forbids. Look at
+whether UE4SS exposes an array helper that uses the game's own allocator (`FScriptArray` /
+`FArrayProperty` in its SDK) before writing a byte.
+
+**A second, cheaper thing to try first:** the ghost's attack has to FIND the player. Nobody has
+looked at what that query is. If it is a sphere overlap or a trace on a named channel, the ghost's
+own `WeaponMesh` collision RESPONSE to that channel may be the lever — distinct from
+`SetActorEnableCollision`, which was already shown not to be.
+
 **Also unexplained and probably the same mechanism:** the ghost's projectile is never VISIBLE. An
 actor that damages but does not render is consistent with the ghost spawning something real that
 our side never draws.

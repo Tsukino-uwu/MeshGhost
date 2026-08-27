@@ -513,6 +513,11 @@ namespace MeshGhostPseudo
         // see its body for the full design and why this needs no second call/deferral at all.
         auto register_camera_fightback_hook() -> void;
 
+        // Neutralises damage whose CAUSER is one of our ghosts, at the engine's own damage entry
+        // points. See GHOST_DAMAGE_GUARD and the definition in Plugin.cpp for why the fix lives
+        // here rather than on the ghost's collision or its montages.
+        auto register_damage_guard_hooks() -> void;
+
         // Bridge networking (on_update, UE4SS's own thread) and actor work (game_thread_tick,
         // the real game thread) now run concurrently -- this guards the state both sides touch.
         std::mutex state_mutex;
@@ -943,5 +948,9 @@ namespace MeshGhostPseudo
         uint64_t load_map_pre_callback_id{0};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
+
+        // Every damage entry point we hooked, with its hook id, so the guard can be reported once
+        // at startup and torn down cleanly.
+        std::vector<std::pair<RC::Unreal::UFunction*, int32_t>> damage_hook_ids{};
     };
 } // namespace MeshGhostPseudo

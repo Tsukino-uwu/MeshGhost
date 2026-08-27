@@ -1128,7 +1128,13 @@ namespace MeshGhostPseudo
     // every montage call this adapter makes is therefore the exact test: damage stops, and the
     // mechanism is proven; damage continues, and montages are exonerated in one run.
     // **Deliberately makes the ghost animation wrong while on.** Flip back after the run.
-    constexpr bool GHOST_SELF_MONTAGE_PROBE = true;
+    // **Back OFF 2026-08-27, its question ANSWERED and it is the most valuable single run of the
+    // session.** With every montage call to the ghost suppressed the user's charged attack did no
+    // damage; with them on, the first one always did. That is one variable, and it proves the
+    // adapter hands the ghost its attack trigger by mirroring the peer's montages. The fix does NOT
+    // live here -- the attack pose is much of what a peer's ghost is for -- see
+    // GHOST_HOLD_COLLISION_OFF.
+    constexpr bool GHOST_SELF_MONTAGE_PROBE = false;
 
     // The other half of the montage follow-up: the mirror is general, so the montages nobody has
     // ever triggered on camera -- `Guard_Main`, `Getup`, `SummonWeapon`, `Channel` (verified.md's
@@ -1443,12 +1449,169 @@ namespace MeshGhostPseudo
     // Off again 2026-08-27, its question answered: the census named `BlobShadow` and the trace
     // measured the spring arm that positions it (`VERIFIED.md`, same day). Flip on to census a
     // component the ghost has and nobody has compared against the player's yet.
+    // **Every damage-shaped name on the pawn, with its value. Probe, 2026-08-27.**
+    //
+    // The `GHOST_DAMAGE_GUARD` run armed on 3 of 3 engine damage entry points and **never fired**,
+    // while the ghost's attack still hurt the player -- so this game does not apply damage through
+    // `GameplayStatics` at all. That rules the engine's whole damage system out in one run, and it
+    // explains the other reading that never made sense: the player's `LastHitBy` stays `<none>`
+    // through being hurt, because the normal damage path is not the one being used.
+    //
+    // So the damage is Blueprint-internal, and the question is what the attack READS. Three fields
+    // were zeroed early on (`lightAttackDamage`, `heavyAttackDamage`, `projectileFullDamage`) and
+    // the ghost still hurt the player -- but those three were picked by NAME from a dump nobody had
+    // filtered, which is a guess wearing a measurement's clothes. This enumerates every property
+    // and function on the pawn whose name looks damage-related, WITH VALUES, on the ghost and the
+    // local player in the same log, so the next zeroing is chosen from the whole set.
+    //
+    // One shot at ghost spawn. Read-only.
+    // Off again 2026-08-27, its question answered: it found `BPI_PerformDamageResponse` and the
+    // whole attack-gate property set in one run, which is what redirected this investigation away
+    // from the engine's damage system. Flip on to enumerate damage-shaped names on a new build.
+    constexpr bool DAMAGE_FIELD_CENSUS = false;
+
     constexpr bool SHADOW_COMPONENT_PROBE = false;
 
     // ~5 samples/sec at this build's measured ~150Hz. The trace logs on CHANGE, so a faster cadence
     // would cost resolution rather than log volume -- but each sample re-reads a handful of
     // properties per actor, which is why it is not every tick.
     constexpr uint64_t SHADOW_PROBE_INTERVAL_TICKS = 30;
+
+    // **Do not mirror ATTACK montages onto a ghost. Behaviour, 2026-08-27 -- and it is a BANDAGE,
+    // registered as one in BANDAGES.md.**
+    //
+    // The user's own question is what produced this: *"what did we disable earlier when i didn't
+    // take damage?"* -- the one run with no damage had every montage call to the ghost suppressed.
+    // That is the known-good state, and this is the smallest version of it: skip the montages whose
+    // names look like attacks, keep every other one.
+    //
+    // **Why a bandage and not a fix.** The proper answer is to stop the ghost's attack from
+    // reaching the player while the animation still plays, and six candidates have now failed:
+    // the VFX mirror, three damage numbers, the hitbox component, engine-level damage hooks
+    // (armed on 3 of 3, never fired -- this game does not use `GameplayStatics` damage), holding
+    // the ghost's collision off every tick, and holding the pawn's own attack gate booleans shut.
+    // The mechanism IS known -- the ghost's attack records the player in `hitActorsArray` and calls
+    // the Blueprint interface `BPI_PerformDamageResponse` on them -- and a Blueprint UFunction
+    // cannot be hooked on this build without crashing. So the honest position is: this stops the
+    // harm now, at a visible cost, and the register says so.
+    //
+    // **What it costs:** a peer's ghost does not swing. That fails the 1:1 bar and it is the reason
+    // this is not the end of the work. What it buys is that a peer's ghost cannot damage the local
+    // player's run, which `CLAUDE.md` and `brief.md` forbid outright -- a cosmetic layer that hurts
+    // the player is worse than a missing pose.
+    //
+    // **Matched by name, and every decision is logged once.** The names come from this build's own
+    // montage vocabulary rather than a guess: each distinct montage the mirror sees is logged the
+    // first time with whether it was played or skipped, so the filter can be corrected from
+    // evidence instead of belief -- and a missed attack montage announces itself as "played".
+    // **OFF from 2026-08-27, the user's call, and the bandage is withdrawn rather than kept
+    // dormant-but-on**: *"i don't want it to work this way so we should re enable things again. i
+    // do want the ghost to do all animations."* A peer's ghost that cannot swing fails the 1:1 bar,
+    // and the bug it was buying protection from remains open and recorded rather than papered over.
+    //
+    // **It did work, and that is the finding worth keeping.** With the four attack montages skipped
+    // the user reported not being hit by the first charged attack -- the second data point for the
+    // mechanism, after the all-montages-suppressed run. The filter also produced this build's real
+    // attack vocabulary, which nothing else had: `dreamLady_Attack_GF1/GF2/GF3/GL2_Montage`.
+    constexpr bool GHOST_SKIP_ATTACK_MONTAGES = false;
+
+    // **Hold the ghost's own attack GATES shut, every tick. Behaviour, 2026-08-27.**
+    //
+    // The damage-field census named the mechanism the engine hooks could not see:
+    // **`BPI_PerformDamageResponse(DamageType, attackDirection)`**, a Blueprint INTERFACE function
+    // that an attacker calls on its victim -- and it carries a damage TYPE, not an amount. That is
+    // why zeroing the ghost's three damage numbers achieved nothing: they were never read. The
+    // victim decides what a type costs. It is also why `GHOST_DAMAGE_GUARD` armed on 3 of 3 engine
+    // entry points and never fired once -- this game does not use the engine's damage system at
+    // all, and the player's `LastHitBy` staying `<none>` through being hurt says the same thing.
+    //
+    // A Blueprint UFunction cannot be hooked on this build -- that crashes, proven 2026-08-15 -- so
+    // the call cannot be intercepted. What CAN be done is to shut the gates the attack checks
+    // before it gets there, and the census listed them: `lockAttack?`, `freeAttack?`, `saveAttack?`
+    // and `bouncedAttackLockoutTimer` are the game's own booleans for "this attack may not
+    // proceed". Holding them every tick uses the game's own mechanism rather than fighting it.
+    //
+    // **The pose is unaffected, and that is the point.** The ghost's attack ANIMATION comes from
+    // the montage we mirror, which is a separate path -- so if this works, a peer's ghost still
+    // swings, still charges, and simply cannot land anything on the local player.
+    //
+    // **Honest about what it is:** a candidate. The census proves these flags EXIST; nothing yet
+    // proves the attack path reads them. If the damage survives this, the flags are not the gate
+    // and the next move is the one deliberately refused so far -- pre-marking the player in the
+    // ghost's `hitActorsArray`, which needs a safe way to grow a UE TArray from this DLL first.
+    // **OFF from 2026-08-27 -- a recorded NEGATIVE.** Held every gate the damage census found
+    // (`lockAttack?`, `bouncedAttackLockoutTimer` true; `freeAttack?`, `saveAttack?`,
+    // `storedChargeAttack`, `obtainedChargeAttack?`, `obtainedAttack?` false; multiplier zeroed),
+    // confirmed applied every tick by its own log line, and the ghost's attack still registered the
+    // player in `hitActorsArray`. So the attack path does not consult these flags. Kept gated off
+    // rather than deleted: the finding is that they are NOT the gate, and the next person to read
+    // that property list will have the same idea.
+    constexpr bool GHOST_ATTACK_LOCKOUT = false;
+
+    // **The ghost must never damage the player. Behaviour, 2026-08-27 -- and this is the fix the
+    // whole evening's elimination pointed at.**
+    //
+    // Proven mechanism, in order, each step a live run: suppressing every montage call to the ghost
+    // stopped the damage (so a mirrored montage runs the game's own attack code on the ghost);
+    // holding the ghost's collision off every tick did NOT stop it (so the attack queries OUTWARD
+    // and needs no collision of its own); and a per-tick read of the ghost's `hitActorsArray`
+    // caught it going 0 -> 2 across one charged attack, with **both entries being the local
+    // player's pawn**. That last line is the bug, stated by the game itself.
+    //
+    // **Why the fix is here and not at any of those places.** The montage mirror is what a peer's
+    // ghost is FOR -- removing it removes the attack pose. The collision is already off and is not
+    // the route. Writing into the game's `hitActorsArray` to pre-mark the player as already-hit
+    // would use the game's own mechanism, but it means growing a UE TArray from this DLL, whose
+    // allocator is not the game's -- a heap the engine may later realloc or free. That is a crash
+    // risk taken on for a cosmetic feature.
+    //
+    // So this refuses the damage at the engine's own entry points instead: a pre-hook on
+    // `GameplayStatics::ApplyDamage` and its two siblings, zeroing the damage **only when the
+    // causer or instigator is a ghost we spawned**. Every other damage in the game is untouched,
+    // including the player's own attacks and every enemy. These are native UFunctions on a native
+    // class, so this is the allowed kind of hook -- `pseudoregalia/CLAUDE.md`'s rule is about
+    // Blueprint functions, which crash.
+    //
+    // **A candidate until watched, and it can fail honestly**: if this game applies damage in
+    // Blueprint without going through GameplayStatics, these hooks never fire and the startup line
+    // says how many armed, rather than the damage quietly continuing with no explanation.
+    // **OFF from 2026-08-27 -- it armed on 3 of 3 and NEVER FIRED, which is a real finding about
+    // this game rather than a failure of the hook.** Pseudoregalia does not apply damage through
+    // `GameplayStatics`; the damage census found the real path, the Blueprint interface
+    // `BPI_PerformDamageResponse(DamageType, attackDirection)` called on the victim, carrying a
+    // damage TYPE rather than an amount -- which is also why zeroing the attacker's damage numbers
+    // achieved nothing, and why the player's `LastHitBy` stays `<none>` through being hurt.
+    //
+    // Left off rather than deleted: it is correct code for any UE game that DOES use the engine's
+    // damage path, and it costs three hooks on a hot path to keep armed for a game that never
+    // touches them.
+    constexpr bool GHOST_DAMAGE_GUARD = false;
+
+    // **Hold the ghost's collision OFF every tick, not just at spawn. Behaviour, 2026-08-27.**
+    //
+    // The A/B that proved the mechanism: with every montage call to the ghost suppressed, the
+    // user's charged attack did no damage; with them on, the first one always did. So a mirrored
+    // montage runs the game's own attack code on the ghost. What that code needs is a live hitbox,
+    // and **`SetActorEnableCollision(false)` at spawn cannot survive a per-COMPONENT enable made
+    // afterwards** -- which is exactly what an attack notify does to a weapon hitbox for the few
+    // frames of a swing. It also explains the one reading that looked contradictory: the
+    // actor-level getter reports `false` throughout, because the actor flag is not what changed.
+    //
+    // So the disable is re-asserted every tick while the ghost is not meant to be solid. This is a
+    // race by construction -- a notify could enable a component and the game could query it inside
+    // the same frame, before our next tick -- and it is therefore a CANDIDATE, not a proven fix.
+    // The paired probe logs each component's real collision mode on change, so the run says which
+    // component is being switched on and whether we are winning the race, rather than leaving
+    // "it seemed to stop" as the whole result.
+    //
+    // Gated on the ghost not being solid in the first place: with GHOST_COLLISION_ENABLED true a
+    // ghost is DELIBERATELY collidable and this must not fight that.
+    // **OFF from 2026-08-27 -- a recorded NEGATIVE, and an instructive one.** Re-asserting the
+    // disable every tick changed nothing, because the ghost's collision was never the route: its
+    // attack queries OUTWARD and the player is the one who needs collision for that query to find
+    // them. The per-component read taken during a swing agrees -- every component sat at
+    // NoCollision throughout.
+    constexpr bool GHOST_HOLD_COLLISION_OFF = false;
 
     // **Ghost blob shadow, part two: mirror the LOCAL player's own spring-arm length onto the
     // ghost's. Behaviour, 2026-08-27.**
@@ -1502,7 +1665,7 @@ namespace MeshGhostPseudo
     // `<none>` throughout -- so this game does not record damage there and the search moved to
     // whether the ghost is hittable at all. The collision readback in the same block is the next
     // thing to run; it has never been run.
-    constexpr bool GHOST_PROJECTILE_WATCH = true;
+    constexpr bool GHOST_PROJECTILE_WATCH = false;
 
     // Matched as a substring of the CLASS name, and deliberately broad. `PRJ_PlayerCutter_C` is the
     // name this project has recorded for the ranged attack, but it was recorded from a log rather
@@ -2117,6 +2280,106 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Damage-shaped names, matched as substrings in both cases -- the same idiom the shadow
+        // census uses, and deliberately wide. "hit" alone would drag in every hitch and whitelist;
+        // these five are what an attack's damage bookkeeping is actually called in practice.
+        auto is_damage_shaped_name(const StringType& name) -> bool
+        {
+            for (const wchar_t* needle : {STR("amage"), STR("Dmg"), STR("dmg"),
+                                          STR("hitActors"), STR("HitActors"),
+                                          STR("attack"), STR("Attack")})
+            {
+                if (name.find(needle) != StringType::npos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Every damage-shaped property (with its value) and function (with its parameters) on one
+        // actor. See DAMAGE_FIELD_CENSUS for why this exists and what the last run ruled out.
+        auto census_damage_fields(UObject* actor, const wchar_t* label) -> void
+        {
+            if (!actor)
+            {
+                return;
+            }
+            UClass* actor_class = actor->GetClassPrivate();
+            if (!actor_class)
+            {
+                return;
+            }
+            size_t found = 0;
+            for (FProperty* property : TFieldRange<FProperty>(actor_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                const StringType prop_name = property->GetName();
+                if (!is_damage_shaped_name(prop_name))
+                {
+                    continue;
+                }
+                ++found;
+                const StringType prop_type = property->GetClass().GetName();
+                StringType value = STR("<not a simple type>");
+                if (prop_type == STR("DoubleProperty"))
+                {
+                    double* ptr = actor->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    value = ptr ? std::format(STR("{:.3f}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("FloatProperty"))
+                {
+                    float* ptr = actor->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    value = ptr ? std::format(STR("{:.3f}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("IntProperty"))
+                {
+                    int32_t* ptr = actor->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    value = ptr ? std::format(STR("{}"), *ptr) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("BoolProperty"))
+                {
+                    bool* ptr = actor->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    value = ptr ? (*ptr ? STR("true") : STR("false")) : STR("<unreadable>");
+                }
+                else if (prop_type == STR("ObjectProperty"))
+                {
+                    UObject** ptr = actor->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    value = (ptr && *ptr) ? STR("<non-null>") : STR("<null>");
+                }
+                Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {} property '{}' ({}) = {}\n"),
+                             label, prop_name, prop_type, value);
+            }
+            for (UFunction* function : TFieldRange<UFunction>(actor_class, EFieldIterationFlags::Default))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                const StringType function_name = function->GetName();
+                if (!is_damage_shaped_name(function_name))
+                {
+                    continue;
+                }
+                ++found;
+                Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {} FUNCTION '{}' PropertiesSize={}\n"),
+                             label, function_name, function->GetPropertiesSize());
+                for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::Default))
+                {
+                    if (param)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DMGCENSUS: {}     param '{}' ({})\n"),
+                                     label, param->GetName(), param->GetClass().GetName());
+                    }
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] DMGCENSUS: end of {} -- {} damage-shaped name(s).\n"),
+                         label, found);
+        }
+
         // Every component-valued property one actor holds, with the shadow-shaped ones called out
         // and remembered for the per-interval trace. Run on the ghost AND the local pawn at the
         // same moment, into the same log, so the two are read side by side -- the comparison is the
@@ -2667,6 +2930,43 @@ namespace MeshGhostPseudo
             }
             component->ProcessEvent(function, params_buffer.data());
             return true;
+        }
+
+        // Reads a component's CURRENT collision mode back (ECollisionEnabled: 0 NoCollision,
+        // 1 QueryOnly, 2 PhysicsOnly, 3 QueryAndPhysics). Returns -1 when the getter is not
+        // reflected, which is a finding rather than a zero.
+        //
+        // Built 2026-08-27 for the one thing the actor-level readback cannot see. `GetActorEnableCollision`
+        // came back `false` on the ghost long after spawn, and the charged attack still damaged the
+        // player -- and an actor-level flag says nothing about a COMPONENT that something enabled
+        // afterwards. An attack montage's notify switching a weapon hitbox on for a few frames
+        // would read exactly like this, and the montage is now proven to be the trigger.
+        auto component_collision_enabled(UObject* component) -> int
+        {
+            if (!component)
+            {
+                return -1;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("GetCollisionEnabled"));
+            if (!function)
+            {
+                return -1;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return -1;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            component->ProcessEvent(function, params_buffer.data());
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("ReturnValue"))
+                {
+                    return static_cast<int>(params_buffer[static_cast<size_t>(param->GetOffset_Internal())]);
+                }
+            }
+            return -1;
         }
 
         auto call_set_collision_response_to_channel(UObject* target, UFunction* function, uint8_t channel, uint8_t response) -> void
@@ -6236,6 +6536,7 @@ namespace MeshGhostPseudo
         // Third attempt, using UFunction::RegisterPreHook instead of a ProcessEvent filter -- see
         // this function's own comment for why the first two never even fired.
         register_camera_fightback_hook();
+        register_damage_guard_hooks();
     }
 
     // Phase 7.6, third attempt. Root cause of why the first two attempts never even fired: this
@@ -6396,6 +6697,114 @@ namespace MeshGhostPseudo
     // teardown (which has always worked correctly for its own real props) handles cleanup
     // transparently. This also removes the whole auto-possess safety-fix machinery from the prior
     // spawn-based design: a StaticMeshActor can never auto-possess, so that bug class can't recur.
+    auto Plugin::register_damage_guard_hooks() -> void
+    {
+        if constexpr (!GHOST_DAMAGE_GUARD)
+        {
+            return;
+        }
+
+        // All three of the engine's damage entry points, because an attack may use any of them and
+        // guessing which would leave the other two open. Each is looked up by name and reported
+        // either way -- a missing one on this build is a finding, not something to pass over.
+        for (const wchar_t* path : {STR("/Script/Engine.GameplayStatics:ApplyDamage"),
+                                    STR("/Script/Engine.GameplayStatics:ApplyPointDamage"),
+                                    STR("/Script/Engine.GameplayStatics:ApplyRadialDamage")})
+        {
+            UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(nullptr, nullptr, path);
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: damage guard could not find '{}' -- a ghost's attack could still reach the player through it.\n"), path);
+                continue;
+            }
+
+            // Offsets come from each parameter's own reflected offset, never from an assumed struct
+            // layout -- the standard this file holds everywhere it marshals across this boundary,
+            // and the reason the FRotator ABI bug did not repeat.
+            int32_t damage_off = -1;
+            int32_t causer_off = -1;
+            int32_t instigator_off = -1;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType param_name = param->GetName();
+                if (param_name == STR("BaseDamage") || param_name == STR("Damage") ||
+                    param_name == STR("DamageAmount"))
+                {
+                    damage_off = param->GetOffset_Internal();
+                }
+                else if (param_name == STR("DamageCauser"))
+                {
+                    causer_off = param->GetOffset_Internal();
+                }
+                else if (param_name == STR("EventInstigator"))
+                {
+                    instigator_off = param->GetOffset_Internal();
+                }
+            }
+            if (damage_off < 0 || causer_off < 0)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: damage guard found '{}' but not its damage/causer parameters by name -- not hooked.\n"), path);
+                continue;
+            }
+
+            const int32_t hook_id = function->RegisterPreHook(
+                [this, damage_off, causer_off, instigator_off](UnrealScriptFunctionCallableContext& ctx, void*) {
+                    uint8_t* params = reinterpret_cast<uint8_t*>(&ctx.GetParams<uint8_t>());
+                    if (!params)
+                    {
+                        return;
+                    }
+                    UObject* causer = *reinterpret_cast<UObject**>(params + causer_off);
+                    UObject* instigator = (instigator_off >= 0)
+                                              ? *reinterpret_cast<UObject**>(params + instigator_off)
+                                              : nullptr;
+
+                    bool from_ghost = false;
+                    {
+                        std::lock_guard<std::mutex> lock(state_mutex);
+                        for (const auto& [id, remote] : remotes)
+                        {
+                            UObject* ghost = static_cast<UObject*>(remote.ghost);
+                            if (!ghost)
+                            {
+                                continue;
+                            }
+                            if (ghost == causer || ghost == instigator)
+                            {
+                                from_ghost = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!from_ghost)
+                    {
+                        return;
+                    }
+
+                    float& damage = *reinterpret_cast<float*>(params + damage_off);
+                    // Logged ONCE, with the value it refused. A guard that silently does nothing
+                    // and a guard that silently does everything look identical in a log, and this
+                    // one decides whether a peer can hurt the local player.
+                    static bool logged = false;
+                    if (!logged)
+                    {
+                        logged = true;
+                        Output::send(STR("[MeshGhostPseudo] damage guard: refused {:.1f} damage from a ghost -- a peer's ghost cannot hurt this player.\n"), damage);
+                    }
+                    damage = 0.0f;
+                });
+
+            damage_hook_ids.emplace_back(function, hook_id);
+        }
+
+        Output::send(STR("[MeshGhostPseudo] damage guard armed on {} of 3 engine damage entry points.\n"),
+                     damage_hook_ids.size());
+    }
+
     auto Plugin::ensure_ghost_hijacked(const std::string& player_id, UObject* local_pawn) -> void
     {
         auto existing = remotes.find(player_id);
@@ -7048,6 +7457,15 @@ namespace MeshGhostPseudo
             {
                 log_outline_flags(local_pawn, STR("local"));
             }
+        }
+
+        // Damage-field census, see DAMAGE_FIELD_CENSUS's own comment. Both actors in one log: the
+        // whole point is which value DIFFERS between a ghost that hurts the player and the player
+        // who does not hurt themselves.
+        if constexpr (DAMAGE_FIELD_CENSUS)
+        {
+            census_damage_fields(ghost, STR("spawned ghost"));
+            census_damage_fields(local_pawn, STR("local pawn at ghost-spawn"));
         }
 
         // Shadow census, see SHADOW_COMPONENT_PROBE's own comment. Runs here, at spawn, because
@@ -10304,6 +10722,117 @@ namespace MeshGhostPseudo
                 remote.owning_world = nullptr;
                 continue;
             }
+            // See GHOST_ATTACK_LOCKOUT: hold the ghost's own attack gates shut every tick. Per
+            // tick rather than at spawn because the game's attack logic is what clears them, and a
+            // value set once would be cleared by the first swing.
+            if constexpr (GHOST_ATTACK_LOCKOUT)
+            {
+                static bool logged_attack_lockout = false;
+                bool wrote_any = false;
+                for (const wchar_t* gate : {STR("lockAttack?"), STR("bouncedAttackLockoutTimer")})
+                {
+                    if (bool* flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(gate))
+                    {
+                        *flag = true;
+                        wrote_any = true;
+                    }
+                }
+                for (const wchar_t* enabler : {STR("freeAttack?"), STR("saveAttack?"),
+                                               STR("storedChargeAttack"), STR("obtainedChargeAttack?"),
+                                               STR("obtainedAttack?")})
+                {
+                    if (bool* flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(enabler))
+                    {
+                        *flag = false;
+                        wrote_any = true;
+                    }
+                }
+                // The multiplier is zeroed too, on the chance the victim's response reads it off
+                // the attacker. Cheap, and it costs nothing if it is never consulted.
+                if (double* multiplier = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("powerDamageMultiplier")))
+                {
+                    *multiplier = 0.0;
+                    wrote_any = true;
+                }
+                if (!logged_attack_lockout)
+                {
+                    logged_attack_lockout = true;
+                    // Says which case it is, including the failure -- a lockout that resolved
+                    // nothing looks exactly like one that worked, from a log that only prints on
+                    // success.
+                    Output::send(wrote_any
+                                     ? STR("[MeshGhostPseudo] ghost attack lockout: holding the pawn's own attack gates shut each tick.\n")
+                                     : STR("[MeshGhostPseudo] WARNING: ghost attack lockout resolved NONE of its gate properties -- a ghost's attack can still reach the player.\n"));
+                }
+            }
+
+            // See GHOST_HOLD_COLLISION_OFF: re-assert the disable every tick, because a spawn-time
+            // call cannot survive a per-component enable made later by an attack notify.
+            if constexpr (GHOST_HOLD_COLLISION_OFF && !GHOST_COLLISION_ENABLED)
+            {
+                static_cast<AActor*>(remote.ghost)->SetActorEnableCollision(false);
+            }
+
+            // **Sampled EVERY TICK, deliberately -- see what the 30-tick version could not see.**
+            //
+            // The first version of both reads below sat inside the projectile watch's ~5Hz gate and
+            // came back "hit list empty, every component at NoCollision" across an attack that
+            // demonstrably damaged the player. That is not evidence: a swing's hit window is a few
+            // FRAMES, so a list that fills and clears inside it is invisible at 5Hz. The probe was
+            // reporting that it wasn't looking, and reading that as "nothing happened" would have
+            // killed two live theories on no evidence at all.
+            //
+            // Cost is bounded on purpose: one property lookup plus a Num() for the list, and a
+            // reflected getter on TWO named components rather than a walk of the whole class. Both
+            // log on CHANGE, so a quiet session costs a handful of lines.
+            if constexpr (GHOST_PROJECTILE_WATCH)
+            {
+                static int prev_hit_count = -1;
+                if (auto* hit_list = remote.ghost->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("hitActorsArray")))
+                {
+                    const int now_count = static_cast<int>(hit_list->Num());
+                    if (now_count != prev_hit_count)
+                    {
+                        prev_hit_count = now_count;
+                        Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost hitActorsArray count -> {} tick={}\n"),
+                                     now_count, tick_count);
+                        for (int e = 0; e < now_count && e < 8; ++e)
+                        {
+                            UObject* entry = (*hit_list)[e];
+                            Output::send(STR("[MeshGhostPseudo] PRJWATCH:     hitActors[{}] = '{}'\n"),
+                                         e, entry ? entry->GetFullName() : StringType(STR("<null>")));
+                        }
+                    }
+                }
+                else if (prev_hit_count == -1)
+                {
+                    prev_hit_count = -2;
+                    Output::send(STR("[MeshGhostPseudo] PRJWATCH: 'hitActorsArray' does not resolve on the ghost -- that theory is dead too.\n"));
+                }
+
+                // The two that could plausibly carry a swing's hitbox. Named rather than
+                // enumerated: a per-tick walk of a 250-property class with a ProcessEvent per
+                // component is the exact shape that produced this adapter's worst regression.
+                static std::map<StringType, int> prev_fast_collision;
+                for (const wchar_t* watched : {STR("WeaponMesh"), STR("CapsuleComponent")})
+                {
+                    UObject** component = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(watched);
+                    if (!component || !*component)
+                    {
+                        continue;
+                    }
+                    const int mode = component_collision_enabled(*component);
+                    auto previous = prev_fast_collision.find(watched);
+                    if (previous != prev_fast_collision.end() && previous->second == mode)
+                    {
+                        continue;
+                    }
+                    prev_fast_collision[watched] = mode;
+                    Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost '{}' collisionEnabled -> {} tick={} (per-tick)\n"),
+                                 watched, mode, tick_count);
+                }
+            }
+
             // **Did anything hit the GHOST? 2026-08-27.**
             //
             // The decouple pass clears the ghost's `LastHitBy` at spawn and logs that it did, so
@@ -10329,6 +10858,40 @@ namespace MeshGhostPseudo
                             prev_ghost_hit_by = who;
                             Output::send(STR("[MeshGhostPseudo] PRJWATCH: GHOST's LastHitBy -> '{}' tick={}\n"),
                                          who, tick_count);
+                        }
+                    }
+
+                    // **Per-COMPONENT collision, which is the half the actor flag cannot show.**
+                    // Logged on change, so a component switched on for the frames of a swing
+                    // announces itself by name and the run says which one the attack uses.
+                    static std::map<StringType, int> prev_component_collision;
+                    if (UClass* ghost_class = remote.ghost->GetClassPrivate())
+                    {
+                        for (FProperty* property : TFieldRange<FProperty>(ghost_class, EFieldIterationFlags::Default))
+                        {
+                            if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                            {
+                                continue;
+                            }
+                            const StringType prop_name = property->GetName();
+                            UObject** value = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                            if (!value || !*value)
+                            {
+                                continue;
+                            }
+                            const int mode = component_collision_enabled(*value);
+                            if (mode < 0)
+                            {
+                                continue; // not a primitive component -- no collision to report
+                            }
+                            auto previous = prev_component_collision.find(prop_name);
+                            if (previous != prev_component_collision.end() && previous->second == mode)
+                            {
+                                continue;
+                            }
+                            prev_component_collision[prop_name] = mode;
+                            Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost component '{}' collisionEnabled -> {} tick={}\n"),
+                                         prop_name, mode, tick_count);
                         }
                     }
 
@@ -11207,13 +11770,48 @@ namespace MeshGhostPseudo
                     // "correct" entry point in principle, and would be the thing to revisit if the
                     // ghost ever gains the possession state it seems to need.
                     float play_length = -1.0f;
+                    // **Is this an attack? See GHOST_SKIP_ATTACK_MONTAGES.** Matched on the path the
+                    // peer sent, which carries the asset name -- the same substring discipline the
+                    // rest of this file uses, both cases spelled out rather than lower-casing.
+                    bool is_attack_montage = false;
+                    if constexpr (GHOST_SKIP_ATTACK_MONTAGES)
+                    {
+                        for (const char* needle : {"Attack", "attack", "Cutter", "cutter",
+                                                   "Charge", "charge", "Slash", "slash",
+                                                   "Combo", "combo"})
+                        {
+                            if (remote.target_montage.find(needle) != std::string::npos)
+                            {
+                                is_attack_montage = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Every distinct montage the mirror sees, logged the FIRST time with what was
+                    // decided about it. This is what makes the filter correctable: a montage that
+                    // should have been skipped and was played shows up by name, and so does the
+                    // reverse. Without it the only evidence would be the user taking damage again.
+                    {
+                        static std::set<std::string> announced_montages;
+                        if (announced_montages.insert(remote.target_montage).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] MONTAGE: '{}' -> {}\n"),
+                                         to_wide_ascii(remote.target_montage),
+                                         is_attack_montage ? STR("SKIPPED (attack)") : STR("played"));
+                        }
+                    }
+
                     // Suppressed wholesale while GHOST_SELF_MONTAGE_PROBE is on -- the counter above
                     // still advances so nothing backlogs, but no montage is started. See that flag.
                     if constexpr (!GHOST_SELF_MONTAGE_PROBE)
                     {
-                        if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                        if (!is_attack_montage)
                         {
-                            play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                            if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                            {
+                                play_length = call_montage_play(*g_abp_ptr, montage_obj);
+                            }
                         }
                     }
                     if constexpr (ANIM_TRACE)
