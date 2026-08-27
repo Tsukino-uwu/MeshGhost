@@ -3209,8 +3209,25 @@ game-blind:
 - Or the delay stays a deployment setting and each game's `dev-scripts` launcher simply passes a
   different `-interp`, which needs no protocol change at all and is the cheaper first step.
 
-**What is NOT known yet, and should be measured before either is built:** whether the difference is
-real and worth a mechanism. Nobody has compared a tile game and a continuous game at the same delay
+**The precedence rule, the user's, 2026-08-28 — and it is the part that makes this safe to build.**
+Unset means **the adapter's own default** for whichever game is attached; an explicit `-interp`
+means **that value, for every adapter, no exceptions**. So the flag is not a per-game override and
+never grows into a table of them: it is a global "stop deciding for me".
+
+Two things follow, and both are why this shape is worth preferring:
+
+- **The core still knows nothing about any game.** It holds either a number an adapter handed it or
+  a number the operator typed, and cannot tell which game either came from. The game-specific
+  knowledge stays entirely inside the adapter that is allowed to have it. No `if game ==` anywhere,
+  which is the constraint that kills the obvious designs.
+- **It matches the precedent this repo already set** for `MESHGHOST_BRIDGE_PORT`: *"an explicit port
+  is honoured and then not walked -- someone who names a port means that port, and silently landing
+  elsewhere would be worse than failing"* (`emerald/FLAGS.md`). Same principle, different knob:
+  an explicit value is a statement of intent and must not be quietly improved upon. A per-game
+  default that overrode a typed `-interp` would be exactly that mistake.
+
+**A measurement is still the first step, not the mechanism.** Whether the difference is
+real and worth a mechanism is unknown. Nobody has compared a tile game and a continuous game at the same delay
 and judged them side by side, so "Pokemon needs more" is a well-motivated hypothesis and not yet a
 measurement. The cheap experiment is the second shape above -- vary `-interp` per game from the
 launcher, judge on screen, and only then decide whether it deserves to be in the protocol.
