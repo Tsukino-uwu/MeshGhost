@@ -36,7 +36,40 @@ namespace MeshGhostTevi
         }
 
         private readonly string host;
-        private readonly int port;
+
+        // THE PORT WALK, 2026-08-27. A core serves exactly one adapter, so two games (or two
+        // copies of one game) on one machine each need their own -- and before this, TEVI dialled
+        // a single fixed port and the second instance silently shared or failed. basePort is the
+        // configured start; the walk covers basePort .. basePort + BridgePortCount - 1.
+        //
+        // The constants match the other three adapters deliberately, and preflight.ps1 checks
+        // that they still agree: 7778, eight ports. Shape copied from Pseudoregalia's
+        // BridgeClient, which is the version that has been tested live.
+        public const int BridgePortCount = 8;
+
+        private readonly int basePort;
+        private int walkOffset;
+
+        // A port whose core answered "busy" is a live core that simply is not ours; re-dialling it
+        // every two seconds is noise. Ten seconds, matching the other adapters' cooldown. Touched
+        // from both threads -- the read loop marks a port on reject, TryConnect reads it -- hence
+        // the concurrent map.
+        private static readonly TimeSpan BusyPortCooldown = TimeSpan.FromSeconds(10);
+        private readonly ConcurrentDictionary<int, DateTime> portCooldownUntil =
+            new ConcurrentDictionary<int, DateTime>();
+
+        // SILENCE IS NOT ACCEPTANCE. Something that accepts a TCP connection and never answers a
+        // hello is far more likely an unrelated program holding a port in our range than a core,
+        // and committing to it would strand the session with no ghosts and no explanation. 1.5s,
+        // the same bound the Lua adapters use (90 frames).
+        private static readonly TimeSpan HelloAnswerTimeout = TimeSpan.FromSeconds(1.5);
+        private DateTime helloSentAt = DateTime.MinValue;
+
+        // Set when the core answers our hello with bridge_ready; the gate SendLocalState waits on.
+        // MUST be cleared on every fresh connection, or a reconnect that misses the ready silences
+        // the adapter completely -- which is the hazard the old code's own comment named as the
+        // reason this gate had not been closed yet.
+        private volatile bool bridgeReady;
 
         private readonly ConcurrentQueue<string> incoming = new ConcurrentQueue<string>();
 
@@ -71,8 +104,16 @@ namespace MeshGhostTevi
         public BridgeClient(string host, int port)
         {
             this.host = host;
-            this.port = port;
+            this.basePort = port;
         }
+
+        // The port this instance is currently dialling or connected to. Logged, because "which
+        // core am I talking to" is the first question a two-instance session asks.
+        public int CurrentPort => basePort + walkOffset;
+
+        // True once the core has answered our hello with bridge_ready. Nothing may be sent before
+        // this: _template/PROTOCOL.md requires local_state to wait for it.
+        public bool IsReady => connected && bridgeReady;
 
         private void Log(string message)
         {
@@ -94,28 +135,62 @@ namespace MeshGhostTevi
         // PROTOCOL.md's "try to connect (non-blocking, retry next frame on failure)".
         public void TryConnect()
         {
+            DateTime now = DateTime.UtcNow;
+
             if (connected)
             {
+                // Connected but never answered: not a core, or not one that wants us. Give up on
+                // this port and let the walk move on rather than sitting here forever with no
+                // ghosts and nothing in the log saying why.
+                if (!bridgeReady && helloSentAt != DateTime.MinValue &&
+                    now - helloSentAt >= HelloAnswerTimeout)
+                {
+                    int silent = CurrentPort;
+                    Log($"MeshGhost: bridge port {silent} accepted a connection but never answered " +
+                        $"hello within {HelloAnswerTimeout.TotalSeconds:0.#}s -- treating it as not a " +
+                        "core and walking on.");
+                    portCooldownUntil[silent] = now + BusyPortCooldown;
+                    Disconnect();
+                    AdvanceWalk();
+                }
                 return;
             }
-            if (DateTime.UtcNow - lastConnectAttempt < ReconnectInterval)
+            if (now - lastConnectAttempt < ReconnectInterval)
             {
                 return;
             }
-            lastConnectAttempt = DateTime.UtcNow;
+            lastConnectAttempt = now;
+
+            // Skip ports a core has already refused us on, unless every port is cooling down --
+            // in which case dial anyway rather than going silent, since a cooldown is an
+            // optimisation and never a reason to stop trying.
+            for (int tried = 0; tried < BridgePortCount; tried++)
+            {
+                if (!portCooldownUntil.TryGetValue(CurrentPort, out DateTime until) || now >= until)
+                {
+                    break;
+                }
+                AdvanceWalk();
+            }
 
             int generation = Interlocked.Increment(ref connectionGeneration);
-            var thread = new Thread(() => ConnectAndReadLoop(generation)) { IsBackground = true };
+            int dialPort = CurrentPort;
+            var thread = new Thread(() => ConnectAndReadLoop(generation, dialPort)) { IsBackground = true };
             thread.Start();
         }
 
-        private void ConnectAndReadLoop(int generation)
+        private void AdvanceWalk()
+        {
+            walkOffset = (walkOffset + 1) % BridgePortCount;
+        }
+
+        private void ConnectAndReadLoop(int generation, int dialPort)
         {
             TcpClient c = null;
             try
             {
                 c = new TcpClient();
-                c.Connect(host, port);
+                c.Connect(host, dialPort);
                 if (generation != connectionGeneration)
                 {
                     // Superseded by a newer TryConnect while this one was still dialing --
@@ -131,7 +206,13 @@ namespace MeshGhostTevi
                 // deferred to SendHelloIfNeeded, called from Update() on the main thread, same
                 // as every other outbound message.
                 needsHello = true;
-                Log($"MeshGhost: connected to bridge at {host}:{port}.");
+                // Cleared on EVERY fresh connection. A reconnect that inherited a stale true here
+                // would send state to a core that had not accepted it; a reconnect that inherited
+                // a stale false and never got another ready would go silent forever. Both are why
+                // this gate was left open until now.
+                bridgeReady = false;
+                helloSentAt = DateTime.MinValue;
+                Log($"MeshGhost: connected to bridge at {host}:{dialPort}.");
 
                 var buffer = new StringBuilder();
                 var readBuf = new byte[4096];
@@ -230,6 +311,10 @@ namespace MeshGhostTevi
             {
                 byte[] bytes = Encoding.UTF8.GetBytes(json + "\n");
                 stream.Write(bytes, 0, bytes.Length);
+                // Starts the clock the hello-answer timeout measures. Stamped on the SEND,
+                // not on the connect: a core slow to accept is fine, one that never answers
+                // is not.
+                helloSentAt = DateTime.UtcNow;
             }
             catch (Exception e)
             {
@@ -245,6 +330,15 @@ namespace MeshGhostTevi
         public void SendLocalState(RemoteState state)
         {
             if (!connected || stream == null)
+            {
+                return;
+            }
+            // THE SEND GATE, closed 2026-08-27. _template/PROTOCOL.md requires local_state to wait
+            // for bridge_ready; TEVI recognised that message from 2026-08-18 and sent anyway, which
+            // is entry 5 in BANDAGES.md. Dropping these frames costs nothing: a core that has not
+            // accepted us has nowhere to forward them, and the next frame sends a fresher state
+            // than the one withheld -- the state plane is latest-wins by contract.
+            if (!bridgeReady)
             {
                 return;
             }
@@ -347,12 +441,13 @@ namespace MeshGhostTevi
                             // used to happen -- so every healthy session logged a warning about
                             // the one message that means everything is fine.
                             //
-                            // NOT yet used as a send gate: _template/PROTOCOL.md requires that
-                            // local_state waits for this, and TEVI still sends immediately. That
-                            // is a real gap, tracked in adapters/tevi/BANDAGES.md; closing it
-                            // needs the reconnect path to reset the flag too, or a missed ready
-                            // silences the adapter completely.
-                            Log("MeshGhost: bridge ready -- the core accepted this adapter.");
+                            // AND it is the send gate, since 2026-08-27. This comment used to say
+                            // the gate could not be closed until "the reconnect path resets the
+                            // flag too, or a missed ready silences the adapter completely" -- so
+                            // that is what ConnectAndReadLoop now does, on every fresh connection.
+                            bridgeReady = true;
+                            Log($"MeshGhost: bridge ready on port {CurrentPort} -- the core " +
+                                "accepted this adapter.");
                             break;
                         case "reject":
                         {
@@ -364,8 +459,17 @@ namespace MeshGhostTevi
                             {
                                 reason = (string)reasonToken;
                             }
-                            Log($"MeshGhost: the core rejected this adapter ({reason}) -- disconnecting.");
+                            // A refusal is information, not a dead end: this is a live core that is
+                            // not ours, so cool the port down and let TryConnect walk to the next
+                            // rather than re-dialling the same refusal every two seconds.
+                            // Captured BEFORE AdvanceWalk, or both the cooldown and the log name
+                            // the port we are moving TO rather than the one that refused us.
+                            int refusedPort = CurrentPort;
+                            portCooldownUntil[refusedPort] = DateTime.UtcNow + BusyPortCooldown;
+                            Log($"MeshGhost: the core on port {refusedPort} rejected this adapter " +
+                                $"({reason}) -- walking to the next bridge port.");
                             connected = false;
+                            AdvanceWalk();
                             break;
                         }
                         default:

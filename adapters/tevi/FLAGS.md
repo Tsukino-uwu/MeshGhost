@@ -49,6 +49,15 @@ The convention here is a `DIAG_` prefix, matching Emerald's `DIAG_STEP_CURVE` /
 | Flag | Value | What it was for |
 |---|---|---|
 | `DIAG_REDRAW_TRACE` | `false` | Per-remote redraw trace in `UpsertRemoteGhost`: position, `activeInHierarchy`, scene, local and remote area. Added to chase the 2026-08-14 zone-transition ghost-invisibility bug, which is root-caused and fixed. **It fires every 2 s per remote, forever** — turn it on only while chasing a live repro of that shape. |
+| `DIAG_MARKER_STALENESS` | `false` | How old the position each FullMap peer marker is showing actually is — the marker is update-driven, so a peer that stops sending leaves it frozen, and the AGE is the part no amount of reading the code gives you. One line per marker per second, **only while the map is open**. **Never run.** |
+| `DIAG_MENU_GATE` | `false` | What the adapter can see at each play-session transition, and therefore what really distinguishes the pause overlay from the main menu. One line per transition. Written to settle `documentation.md`'s `PlayerControl.instance` claim by measurement rather than by reasoning from code, which is what produced the 2026-08-18 false regression. **Never run.** |
+
+**A `const bool` on its own makes its block provably unreachable and the C# compiler says so
+(CS0162), so every flag here sits in a compound condition** — `DIAG_REDRAW_TRACE && <throttle>`,
+`DIAG_MARKER_STALENESS && remoteMapMarkers.Count > 0`. Not a style choice: a build that emits
+warnings trains people to ignore warnings, and this project's builds are 0-warning.
+
+**Index of what each probe answers, and how to run one:** [PROBES.md](PROBES.md).
 
 Its throttle constants are live even when the flag is off, because the same log path is shared
 with the adapter's own state logging:

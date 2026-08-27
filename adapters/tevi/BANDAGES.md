@@ -107,28 +107,42 @@ now it is neither.
 that might carry a side effect" is still a rule written far from the code that would want that
 component later.
 
-### 5. `bridge_ready` is recognised but not waited for
+### 5. CLOSED 2026-08-27 — `bridge_ready` is now the send gate, and TEVI walks the port range
 
 `BridgeClient.cs` handles `bridge_ready` and `reject` as of 2026-08-18 -- before that both fell
 into the unknown-message-type default, so every healthy session logged a warning about the one
 message meaning everything was fine, and a `reject` was talked straight past: the adapter kept
 pushing `local_state` at a core that had already refused it and closed.
 
-**What is still missing is the gate.** `_template/PROTOCOL.md` is explicit -- *"Do not start
-sending `local_state` until `bridge_ready` arrives"* -- and TEVI still sends immediately, exactly
-as it always has. Recognising the message without honouring it is a half-measure, and it is
-registered here rather than quietly left, because the code now *looks* like it does the handshake.
+**What was missing was the gate.** `_template/PROTOCOL.md` is explicit -- *"Do not start sending
+`local_state` until `bridge_ready` arrives"* -- and TEVI sent immediately from 2026-08-18 to
+2026-08-27. Recognising the message without honouring it is a half-measure, and it was registered
+here rather than quietly left, because the code *looked* like it did the handshake.
 
-**Why it was not closed in the same pass.** The gate needs the reconnect path to reset the flag
-too (`connectionGeneration` already tracks the generation, so the hook exists). Get that wrong and
-a missed or dropped `bridge_ready` silences the adapter completely -- a total, silent failure,
-traded for today's cosmetic warning. That is a bad trade to make immediately before a live
-confirmation pass, so it is deliberately deferred rather than rushed.
+**Closed 2026-08-27, by doing exactly what the paragraph below prescribed** — kept as written,
+because the reasoning for deferring it is what made the eventual fix safe.
 
-**How to close it:** set a `ready` flag on `bridge_ready`, clear it in `Disconnect()` and on every
-new connection generation, make `SendLocalState` a no-op until it is set, and confirm live that a
-normal session still shows ghosts. TEVI's port walk (Emerald and Crystal both walk; TEVI is the
-last adapter on a fixed port) is the natural companion change.
+- `bridgeReady` is set on `bridge_ready` and **cleared on every fresh connection** in
+  `ConnectAndReadLoop`, which is the precondition this entry named. `SendLocalState` returns early
+  until it is set. Dropping those frames costs nothing: a core that has not accepted us has nowhere
+  to forward them, and the next frame carries a fresher state than the one withheld — the state
+  plane is latest-wins by contract.
+- **Silence is not acceptance.** A core that accepts the TCP connection and never answers within
+  1.5s is treated as not a core: the port goes on a 10s cooldown and the walk moves on. Without
+  that, the gate's failure mode is exactly the silent one this entry warned about.
+- **The port walk landed with it**, as the entry predicted it would: 7778-7785, matching the other
+  three adapters, with a `reject` cooling that port down and advancing. TEVI is no longer the one
+  adapter on a fixed port, and `BridgePort` no longer has to be set by hand for a second instance.
+
+**NOT CONFIRMED ON SCREEN.** Built and deployed, never watched — `UNVERIFIED.md` has what to look
+at and what correct looks like, including the two-instance case the walk exists for. This entry
+stays here until that happens.
+
+**The original deferral, kept:** the gate needs the reconnect path to reset the flag too
+(`connectionGeneration` already tracks the generation, so the hook exists). Get that wrong and a
+missed or dropped `bridge_ready` silences the adapter completely — a total, silent failure, traded
+for today's cosmetic warning. That was a bad trade to make immediately before a live confirmation
+pass, so it was deliberately deferred rather than rushed.
 
 ## Borderline — noted, not urgent
 

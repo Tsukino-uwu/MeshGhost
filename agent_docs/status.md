@@ -138,15 +138,16 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
-  stops sending leaves a marker frozen where it was. Shipped bug, not hypothetical. `ideas.md`.
-- **TEVI lags the template's bridge shape** — `bridge_ready`/`reject` and autostart landed
-  2026-08-18; the PORT WALK is the remaining gap. `_template/PROTOCOL.md`.
+  stops sending leaves a marker frozen where it was. Shipped bug; a probe now exists to measure the
+  age, and has never been run. `tevi/UNVERIFIED.md`, `tevi/PROBES.md`.
+- **TEVI's bridge shape is COMPLETE and UNWATCHED (2026-08-27)** — send gate and 8-port walk built,
+  DLL rebuilt and deployed, never run in the game. `tevi/UNVERIFIED.md`.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
   not attributable to MeshGhost on the evidence. `verified.md` 2026-08-17.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
   2026-08-16 transition crash, which is fixed.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.
-  `phase6.md` (2026-08-15).
+  `tevi/UNVERIFIED.md`, `phase6.md` (2026-08-15).
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at

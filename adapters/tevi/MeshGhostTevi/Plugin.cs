@@ -54,6 +54,39 @@ namespace MeshGhostTevi
         // Pseudoregalia's ANIM_PULSE_TRACE).
         private const bool DIAG_REDRAW_TRACE = false;
 
+        // TEVI's FIRST TWO PROBES, 2026-08-27, and they are compile-time flags rather than
+        // scripts because of the host: BepInEx has no equivalent of BizHawk's Lua console, so
+        // there is nothing to attach a standalone probe to. A probe here is a block compiled out
+        // when its flag is false, exactly like DIAG_REDRAW_TRACE above. PROBES.md is the index.
+        //
+        // NEITHER HAS BEEN RUN. Both were written blind, from the code, and a probe that has never
+        // run proves nothing -- see adapters/tevi/UNVERIFIED.md.
+
+        // DIAG_MARKER_STALENESS answers ONE question: how long has the FullMap marker been showing
+        // a position no peer has confirmed? The marker is update-driven -- UpdateRemoteMapMarker
+        // runs only from UpsertRemoteGhost, which runs only when a render_remote arrives -- so a
+        // peer that stops sending leaves it frozen. That is a shipped defect, and the thing worth
+        // measuring is the AGE of what is on screen, which no amount of reading the code gives you.
+        //
+        // Fires only while the map is actually open AND at most once a second, because a per-frame
+        // log line is a per-frame stall on any host (adapters/emulator/CLAUDE.md measured 63-83ms
+        // for one line plus a flush; BepInEx's logger is cheaper but the principle is the same).
+        private const bool DIAG_MARKER_STALENESS = false;
+        private const float MarkerStalenessLogInterval = 1f;
+        private float lastMarkerStalenessLogTime;
+
+        // DIAG_MENU_GATE prints what the adapter can actually SEE at each play-session transition:
+        // whether the player object is null, whether the FullMap says it is open, and which branch
+        // was taken. It exists to settle documentation.md's claim that the pause-vs-main-menu
+        // distinction is PlayerControl.instance, when this adapter reads
+        // EventManager.Instance.mainCharacter and PlayerControl appears nowhere in it. Asked, the
+        // user was unsure and said only that the behaviour works today -- so this is the
+        // measurement, and nothing was changed on a guess. The 2026-08-18 false regression came
+        // from reasoning about this exact question from code.
+        //
+        // Edge-triggered on the transition, so it costs one line per menu open or close.
+        private const bool DIAG_MENU_GATE = false;
+
         // Diagnostic-only throttling. First attempt (position-change-triggered with a 0.5-unit
         // epsilon) still produced 7324 lines in one session: real per-frame movement deltas in
         // TEVI are themselves ~0.5-0.7 units (confirmed from that run's own log), so the epsilon
@@ -69,7 +102,6 @@ namespace MeshGhostTevi
         private float timeSinceLastLog = MaxSilenceSeconds;
         private bool hadPlayerLastFrame;
         private CoreLauncher launcher;
-        private int bridgePort;
         private Vector3 lastLoggedPos;
         private Character.Direction lastLoggedDir;
         private Character.PlayerAniState lastLoggedAnim;
@@ -78,12 +110,12 @@ namespace MeshGhostTevi
         private BridgeClient bridge;
         private const string BridgeHost = "127.0.0.1";
 
-        // Configurable (not a const) so two local TEVI instances -- e.g. testing Phase 6.6's
-        // real two-player flow with the Steam copy and a second standalone build side by side
-        // (see agent_docs/phases/phase6.md) -- can each point at their own local core process
-        // instead of racing to connect to the same one. Default matches the single-instance
-        // release behavior (dev-scripts/run-core-tevi.bat's -bridge=127.0.0.1:7778); a second
-        // instance overrides this in its own BepInEx/config/dev.meshghost.tevi.cfg.
+        // The BASE of the port walk, not the only port tried. Since 2026-08-27 the adapter walks
+        // BridgeClient.BridgePortCount ports up from here, matching the other three adapters, so
+        // two local TEVI instances each find their own core with nothing configured. It stays
+        // configurable to move the whole range; before the walk it had to be set by hand on the
+        // second instance, and forgetting to was a real failure mode (agent_docs/phases/phase6.md,
+        // and the .gitignore entry for dev-scripts/*.local.bat records the same trap in Emerald).
         private const int DefaultBridgePort = 7778;
 
         // Sent as this adapter's bridge Hello (internal/bridge.Hello) so the core can connect
@@ -133,6 +165,12 @@ namespace MeshGhostTevi
         private sealed class RemoteMapMarker
         {
             public GameObject Go;
+
+            // When a render_remote last moved this marker. Written unconditionally -- one float
+            // assignment on a path that is already touching the object -- and read only under
+            // DIAG_MARKER_STALENESS. The marker's AGE is the whole question the staleness defect
+            // turns on, and it is not recoverable after the fact from anything on screen.
+            public float LastUpdateTime;
         }
 
         private readonly Dictionary<string, RemoteMapMarker> remoteMapMarkers = new Dictionary<string, RemoteMapMarker>();
@@ -254,6 +292,36 @@ namespace MeshGhostTevi
             }
             marker.Go.SetActive(true);
             marker.Go.transform.position = tile.transform.position;
+            marker.LastUpdateTime = Time.time;
+        }
+
+        // PROBE, off unless DIAG_MARKER_STALENESS. Reports how old each visible marker's position
+        // is while the map is actually open. A marker whose age keeps climbing is the shipped
+        // update-driven defect happening in front of you; one that stays near zero is a peer still
+        // sending. Gated on the map being open and throttled to once a second, because a per-frame
+        // log line is a per-frame cost on every host this project has measured.
+        private void DiagMarkerStaleness()
+        {
+            FullMap map = FullMap.Instance;
+            if (map == null || !map.isFullMap || remoteMapMarkers.Count == 0)
+            {
+                return;
+            }
+            if (Time.time - lastMarkerStalenessLogTime < MarkerStalenessLogInterval)
+            {
+                return;
+            }
+            lastMarkerStalenessLogTime = Time.time;
+            foreach (KeyValuePair<string, RemoteMapMarker> kv in remoteMapMarkers)
+            {
+                if (kv.Value == null || kv.Value.Go == null)
+                {
+                    continue;
+                }
+                Logger.LogInfo($"MeshGhost/probe marker-staleness: peer={kv.Key} "
+                    + $"visible={kv.Value.Go.activeInHierarchy} "
+                    + $"ageSinceLastUpdate={Time.time - kv.Value.LastUpdateTime:0.00}s");
+            }
         }
 
         private void DespawnRemoteMapMarker(string playerId)
@@ -482,16 +550,19 @@ namespace MeshGhostTevi
 
         private void Awake()
         {
-            Logger.LogInfo($"{PluginName} v{PluginVersion} loaded (Phase 6 step 6.1 hello-world).");
+            // What a tester reads when they are wondering whether the mod loaded at all, so it
+            // says what this build actually is. It said "(Phase 6 step 6.1 hello-world)" until
+            // 2026-08-27, which the adapter has been well past since Phase 6.6.
+            Logger.LogInfo($"{PluginName} v{PluginVersion} loaded.");
             int bridgePort = Config.Bind(
                 "Network",
                 "BridgePort",
                 DefaultBridgePort,
-                "Local core process bridge port. Only change this if running a second TEVI " +
-                "instance on the same machine for local two-player testing -- each instance " +
-                "needs its own core process on its own port.").Value;
+                "First local core process bridge port to try. The adapter WALKS " +
+                "BridgePortCount ports upward from here, so a second TEVI instance on the same " +
+                "machine finds its own core without this being set at all -- since 2026-08-27. " +
+                "Change it only to move the whole range.").Value;
             bridge = new BridgeClient(BridgeHost, bridgePort);
-            this.bridgePort = bridgePort;
             launcher = new CoreLauncher(msg => Logger.LogInfo(msg));
         }
 
@@ -563,9 +634,18 @@ namespace MeshGhostTevi
             }
             else
             {
-                launcher.TickDisconnected(bridgePort);
+                // The port the WALK is currently on, not the configured base -- otherwise a second
+                // instance, having been refused on the base port and walked to the next, would spawn
+                // its core back onto the first instance's port and fail there instead. Changed with
+                // the walk on 2026-08-27.
+                launcher.TickDisconnected(bridge.CurrentPort);
             }
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
+
+            if (DIAG_MARKER_STALENESS && remoteMapMarkers.Count > 0)
+            {
+                DiagMarkerStaleness();
+            }
 
             if (player == null || player.t == null)
             {
@@ -573,6 +653,21 @@ namespace MeshGhostTevi
                 {
                     Logger.LogInfo("MeshGhost: left the play session (main menu / title, NOT the pause overlay) -- disconnecting bridge so this player's ghost despawns for any peer, and despawning theirs.");
                     hadPlayerLastFrame = false;
+                    if (DIAG_MENU_GATE && !hadPlayerLastFrame)
+                    {
+                        // The question: is `player == null` really the main-menu/pause
+                        // discriminator, or is something else doing the work? This prints what the
+                        // adapter can see at the moment it decides, so the answer comes from a run
+                        // rather than from reading code -- which is how the 2026-08-18 false
+                        // regression happened. Open the pause overlay and this line must NOT
+                        // appear; quit to the title and it must.
+                        FullMap gateMap = FullMap.Instance;
+                        Logger.LogInfo("MeshGhost/probe menu-gate: took the LEFT-PLAY branch. "
+                            + $"player==null={player == null} "
+                            + $"playerTransform==null={(player == null ? "n/a" : (player.t == null).ToString())} "
+                            + $"eventManager==null={EventManager.Instance == null} "
+                            + $"fullMapOpen={(gateMap == null ? "no-instance" : gateMap.isFullMap.ToString())}");
+                    }
                     timeSinceLastLog = 0f;
                     // Reconnects automatically next frame via TryConnect() once back in a real
                     // play session -- see BridgeClient.Disconnect's comment for why this exists.
@@ -633,6 +728,18 @@ namespace MeshGhostTevi
                 RoomX = roomX,
                 RoomY = roomY,
             });
+
+            if (DIAG_MENU_GATE && !hadPlayerLastFrame)
+            {
+                // The other edge: the frame the player comes BACK. Pairs with the left-play line
+                // above, so one run of open-pause / close-pause / quit-to-title produces exactly
+                // the transitions the gate claims, and the pause overlay produces none of them.
+                FullMap gateMap = FullMap.Instance;
+                Logger.LogInfo("MeshGhost/probe menu-gate: taking the ENTER-PLAY branch. "
+                    + $"eventManager==null={EventManager.Instance == null} "
+                    + $"fullMapOpen={(gateMap == null ? "no-instance" : gateMap.isFullMap.ToString())} "
+                    + $"area={area}");
+            }
 
             bool discreteChange = !hadPlayerLastFrame
                 || player.direction != lastLoggedDir

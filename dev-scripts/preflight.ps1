@@ -828,10 +828,17 @@ Section "Bridge constants agree across the four adapters"
 # A value found nowhere is reported rather than silently passing -- a renamed
 # constant would otherwise make its adapter drop out of the comparison and leave
 # the remaining ones agreeing with each other.
+#
+# TEVI JOINED THIS COMPARISON 2026-08-27, when it grew a port walk -- see the note that used to sit
+# below this check, which said it should be deleted on exactly that day. Its two constants live in
+# two different files (the base port is a BepInEx config default in Plugin.cs, the walk count is in
+# BridgeClient.cs), so an adapter may name several sources and they are concatenated.
 $bridgeSources = @{
-    'Emerald (Lua)'         = 'adapters/emulator/pokemon/emerald/meshghost_emerald.lua'
-    'Crystal (Lua)'         = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
-    'Pseudoregalia (C++)'   = 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.hpp'
+    'Emerald (Lua)'         = @('adapters/emulator/pokemon/emerald/meshghost_emerald.lua')
+    'Crystal (Lua)'         = @('adapters/emulator/pokemon/crystal/meshghost_crystal.lua')
+    'Pseudoregalia (C++)'   = @('adapters/pseudoregalia/MeshGhostPseudo/Mod/src/BridgeClient.hpp')
+    'TEVI (C#)'             = @('adapters/tevi/MeshGhostTevi/BridgeClient.cs',
+                                'adapters/tevi/MeshGhostTevi/Plugin.cs')
 }
 $bridgeProblems = @()
 $basePorts = @{}
@@ -839,24 +846,30 @@ $portCounts = @{}
 $cooldownSeconds = @{}
 
 foreach ($name in $bridgeSources.Keys) {
-    $path = $bridgeSources[$name]
-    if (-not (Test-Path -LiteralPath $path)) {
-        $bridgeProblems += "$name -- source not found at $path"
+    $missingSrc = @($bridgeSources[$name] | Where-Object { -not (Test-Path -LiteralPath $_) })
+    if ($missingSrc.Count -gt 0) {
+        $bridgeProblems += "$name -- source not found at $($missingSrc -join ', ')"
         continue
     }
-    $text = Get-Content -Raw -LiteralPath $path
+    $text = ($bridgeSources[$name] | ForEach-Object { Get-Content -Raw -LiteralPath $_ }) -join "`n"
 
+    # C# spells these BridgePortCount / DefaultBridgePort; the others use the SCREAMING form.
     if ($text -match 'BRIDGE_BASE_PORT\s*(?:=|\s)\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
-    else { $bridgeProblems += "$name -- no BRIDGE_BASE_PORT found (renamed?)" }
+    elseif ($text -match 'DefaultBridgePort\s*=\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
+    else { $bridgeProblems += "$name -- no bridge base port found (renamed?)" }
 
     if ($text -match 'BRIDGE_PORT_COUNT\s*(?:=|\s)\s*(\d+)') { $portCounts[$name] = [int]$Matches[1] }
-    else { $bridgeProblems += "$name -- no BRIDGE_PORT_COUNT found (renamed?)" }
+    elseif ($text -match 'BridgePortCount\s*=\s*(\d+)') { $portCounts[$name] = [int]$Matches[1] }
+    else { $bridgeProblems += "$name -- no bridge port-walk count found (renamed?)" }
 
     # Frames at 60fps for the emulator adapters, milliseconds for C++.
     if ($text -match 'BUSY_PORT_COOLDOWN_FRAMES\s*=\s*(\d+)') {
         $cooldownSeconds[$name] = [int]$Matches[1] / 60
     } elseif ($text -match 'BUSY_PORT_COOLDOWN\s*\{\s*(\d+)\s*\}') {
         $cooldownSeconds[$name] = [int]$Matches[1] / 1000
+    } elseif ($text -match 'BusyPortCooldown\s*=\s*TimeSpan\.FromSeconds\((\d+)\)') {
+        # C# states it in seconds outright, which is the whole reason this compares real units.
+        $cooldownSeconds[$name] = [int]$Matches[1]
     } else {
         $bridgeProblems += "$name -- no busy-port cooldown found (renamed?)"
     }
@@ -881,16 +894,14 @@ if ($p) { $bridgeProblems += $p }
 $p = Assert-Agree 'busy-port cooldown (seconds)' $cooldownSeconds 10
 if ($p) { $bridgeProblems += $p }
 
-# TEVI is deliberately absent from the port-walk comparison: it takes its bridge
-# port from BepInEx config and has no port walk at all. That is a KNOWN gap
-# (agent_docs/status.md, "TEVI lags the template's bridge shape"), not a drift --
-# so it is stated here rather than silently skipped, and this line is what should
-# be deleted when TEVI grows one.
+# All four adapters are in this comparison as of 2026-08-27. Until then TEVI was deliberately
+# absent -- fixed port from BepInEx config, no walk -- stated in the pass message rather than
+# silently skipped, with a note saying this carve-out was what to delete when TEVI grew one. It did.
 if ($bridgeProblems.Count -gt 0) {
     Report-Fail "the four bridge clients have drifted apart:"
     $bridgeProblems | ForEach-Object { Write-Host "          $_" }
 } else {
-    Report-Pass "bridge constants agree across $($basePorts.Count) adapters (port 7778, 8-port walk, 10s cooldown); TEVI has no port walk yet, by design"
+    Report-Pass "bridge constants agree across all $($basePorts.Count) adapters (port 7778, 8-port walk, 10s cooldown)"
 }
 
 # ---------------------------------------------------------------------------
