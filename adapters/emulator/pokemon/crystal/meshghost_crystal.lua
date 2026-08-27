@@ -4174,7 +4174,17 @@ function drawOverflow()
 	-- convincing and will make this the first suspect again next time.
 	local seamRecently = ENGINE.xmap.seamAt
 		and (policyFrames - ENGINE.xmap.seamAt) < 60
-	local settling = playerHistory.settle > 0 and not seamRecently
+	-- DRAINED, NOT MERELY BYPASSED. The first version of this bypass only held `settling` false,
+	-- and the counter below decrements ONLY while settling is true -- so the 30 frames froze
+	-- instead of being spent, and fired in full the moment the seam window expired. Measured
+	-- 2026-08-27: twenty-eight separate vanishes of exactly 30 frames each, all tagged `settling`,
+	-- starting exactly 60 frames after a crossing. The user: *"its still going away sometimes a
+	-- bit afterwards"* -- the window had been deferred, not removed. Zeroing is safe because the
+	-- arming site is untouched: a real warp inside the seam window still re-arms 30 fresh frames.
+	if seamRecently and playerHistory.settle > 0 then
+		playerHistory.settle = 0
+	end
+	local settling = playerHistory.settle > 0
 	if settling then
 		playerHistory.settle = playerHistory.settle - 1
 	end
