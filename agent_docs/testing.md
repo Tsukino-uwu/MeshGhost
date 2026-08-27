@@ -152,16 +152,11 @@ is the real weight of the list above: it is not four common gaps, it is a small 
 ones from which exactly one has ever bitten — Pseudoregalia's pole rotation, cleared 2026-08-16
 when two real players were finally in a room together.
 
-So the list stays, because the one case was genuine and invisible in a mirror by construction —
-but it should be read as *"the rare thing to keep in mind"*, not as a standing doubt about
-loopback results. **Loopback with the sideways offset is the normal, sufficient way to confirm an
-adapter**, and treating it as second-best misreads four adapters' worth of evidence.
-
-**Do not confuse this with the carve-out above.** The carve-out is not about whether networking
-works; it is about **adapter behaviour that depends on the peer differing from you** — a ghost
-built from local state, a peer of the other gender, real latency. Those are properties of the
-adapter's own rendering, invisible in a mirror, and they stay on the list. Everything else about
-"is it online" is settled and should not be re-litigated per game.
+So the list stays, because the one case was genuine and invisible in a mirror by construction — but
+read it as *"the rare thing to keep in mind"*, not a standing doubt. **Loopback with the sideways
+offset is the normal, sufficient way to confirm an adapter**, and treating it as second-best
+misreads four adapters' worth of evidence. Keep the carve-out's subject straight too: it is never
+about networking, only about **adapter behaviour that depends on the peer differing from you**.
 
 ## What runs where
 
@@ -431,22 +426,20 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
 
 - **`internal/e2e`'s `freePort` is a TOCTOU, and it flakes under `-race` on CI (seen 2026-08-27).**
   It binds a port, **closes it**, and hands the bare number to a child process — so anything can
-  claim that number before the relay or core binds it. The symptom is
-  `nothing listening on 127.0.0.1:NNNNN after 20s` from `waitForListener`, which reads like a hung
-  binary and is really a lost race; the run before it in the log shows the child happily listening
-  on a *different* port. **It is unfixable in the obvious way** — a port cannot be handed to a
-  separate process as an open socket here — so the options are to have the child report the port it
-  actually bound, or to retry the rig on early child exit. Neither is done yet.
-  **Do not read a green re-run as proof the code was fine**: confirm the failure is this shape
-  (port number in the message, child listening elsewhere) before calling it infrastructure, because
-  a real startup bug produces the same 20s timeout.
+  claim that number first. The symptom is `nothing listening on 127.0.0.1:NNNNN after 20s` from
+  `waitForListener`, which reads like a hung binary and is really a lost race; the run before it in
+  the log shows the child listening on a *different* port. **Unfixable in the obvious way** — a port
+  cannot be handed to a separate process as an open socket here — so the options are to have the
+  child report the port it bound, or to retry the rig on early child exit. Neither is done yet.
+  **A green re-run is not proof the code was fine**: confirm the failure is this shape (port number
+  in the message, child listening elsewhere), because a real startup bug times out identically.
 - **A goroutine that outlives its test still reads package globals.** `reconnectWithBackoff` exits
   only on success or a permanent reject, and a dead address produces neither — so it spins past the
   end of the test that started it and races the *next* test's knob-twiddling. Found by CI's race
   detector 2026-08-27 on `reconnectLogInterval`, whose own comment argued it was safe because
   "nothing else writes it". **One writer does not make an access single-threaded.** Test-only
-  configuration that a background goroutine reads needs an atomic or a mutex like any other shared
-  state; see `getReconnectLogInterval`.
+  configuration a background goroutine reads needs an atomic or a mutex; see
+  `getReconnectLogInterval`.
 - **A relay fuzz target must discard `log` output** (`log.SetOutput(io.Discard)`). The fuzzer
   finds valid hellos within seconds and then produces tens of thousands a second; the resulting
   log volume, not the relay, collapses throughput to zero for ~18s at a stretch. This was
@@ -501,10 +494,9 @@ same defect on its first run. The checkers are not broken; they have their own t
 ticker-driven rig simply produces far less contention per second than a tight burst of
 goroutines, and Go's mutex handoff tends to preserve the very order the defect needs disturbed.
 
-So: **the soak complements the unit tests and does not replace them.** Its value is duration,
-real transports, and faults a unit test cannot reach. For a concurrency defect, the tight
-in-process invariant test is still the sharper instrument, which is the same lesson this file
-already records about the relay race found in 100 local runs.
+So: **the soak complements the unit tests and does not replace them.** Its value is duration, real
+transports, and faults a unit test cannot reach; for a concurrency defect the tight in-process
+invariant test is still the sharper instrument — the same lesson as the relay race found in 100 runs.
 
 ## Running a session over a bad network
 
