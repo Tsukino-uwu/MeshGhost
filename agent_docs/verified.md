@@ -114,6 +114,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-21 — HBlank multiplexing is closed by decision, not left open
 - RULE CHANGE — the gate on this file tightened (2026-08-21)
 - All four adapters still run end to end after the doc/refactor pass — 2026-08-25
+- A relaunched game could get a DEAD session, and CI caught it once in two runs (2026-08-27)
 
 
 ## Split per game — 2026-08-25
@@ -1172,3 +1173,41 @@ watched each game and said so.
 - Scope: **one machine, loopback, one client per game.** This says every adapter still reaches the
   screen; it says nothing about two real peers, which is where the open items in `status.md` live.
 
+
+## A relaunched game could get a DEAD session, and CI caught it once in two runs (2026-08-27)
+
+- Date: 2026-08-27
+- Observed: `internal/e2e`'s `TestARelaunchedGameGetsAWorkingSessionAgain` failed under `-race` in
+  CI with *"no ghost completed the round trip within 1m0s of relaunching the adapter"*. The log
+  shows the replacement adapter attaching and being told the room's ghost-collision policy — so it
+  had a working relay session — and then `core: relay disconnected: use of closed network
+  connection` with the player leaving the room, followed by 60s of nothing.
+- Source: `core/relaysession.go`'s `ConnectRelayOnAdapterHello`, already-connected fast path;
+  `core/bridgeserve.go`'s `OnDisconnect` (`owns := c.relayOwner == nd`).
+- Notes: **Go side, confirmed with the tools, no game involved.** The fast path returned `nil`
+  without touching `c.relayOwner`, so ownership stayed with the DEPARTING bridge connection. The
+  departing connection's disconnect handler tears the relay session down whenever
+  `c.relayOwner == nd` — still true after it had been replaced — and disarms auto-retry in the same
+  breath, leaving the Core with an attached adapter, no relay connection and nothing to redial it.
+  What a player would see: restart the game quickly and the session is dead until you restart
+  again. **Pre-existing, so v0.9.7 carries it too.**
+
+  **Fix:** ownership follows the current adapter. The fast path now transfers `relayOwner` and
+  re-arms auto-retry onto the live bridge connection; re-arming is part of the fix, since a relay
+  connection already dying at transfer time is then redialled through a live socket instead of a
+  dead one.
+
+  **What isolated it, and the part worth keeping.** Four experiments with the real binaries and no
+  game: a cold core answers a hello in 14ms (so no timeout was too tight), a core told to use a
+  taken port does not walk but exits, a second adapter is refused in 13ms, and an empty port gives
+  a dial refusal rather than a reject.
+
+  **The first regression test PASSED without the fix**, which is worse than no test.
+  `reattachFakeAdapter` retries until the core accepts, and by then the departing connection's
+  teardown has already closed the relay session — so the second hello took the ordinary
+  not-connected path and never reached the branch the bug lives in. Rewritten to call
+  `ConnectRelayOnAdapterHello` directly with a second bridge connection while the first session is
+  live, which reaches that branch every time. It now fails on both assertions without the fix.
+  Racing for the real interleaving would have been the flaky test that hid the bug: the window is
+  between the departing connection releasing the admission slot and its relay `Close` landing, and
+  25 local `-race` runs of the e2e test never hit it.

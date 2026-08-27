@@ -302,6 +302,40 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 
 	if alreadyConnected {
 		if connectedGame == gameID {
+			// OWNERSHIP FOLLOWS THE CURRENT ADAPTER, and this transfer is the
+			// whole reason this branch is not a bare `return nil` any more.
+			//
+			// A relaunched game reaches here: the relay session is still up for
+			// the same game, so there is nothing to dial. But without the
+			// transfer, c.relayOwner stays the DEPARTING bridge connection --
+			// and handleBridgeConn's OnDisconnect tears the relay session down
+			// when `c.relayOwner == nd`, which is still true for a connection
+			// that has already been replaced. So the departing adapter killed
+			// the session its replacement had just been handed, AND disarmed
+			// auto-retry on the way out, leaving the Core with an attached
+			// adapter, no relay connection and nothing to redial it: a dead
+			// session until the game is restarted again.
+			//
+			// Found by CI on 2026-08-27 as a one-in-two intermittent failure of
+			// internal/e2e's TestARelaunchedGameGetsAWorkingSessionAgain ("no
+			// ghost completed the round trip within 1m0s of relaunching the
+			// adapter"). 25 local -race runs of that test never reproduced it;
+			// the window is between the departing connection releasing the
+			// admission slot and its relay Close landing, which is
+			// microseconds wide and which a real relaunch normally misses.
+			//
+			// Re-arming auto-retry is part of the fix, not tidying: if the
+			// relay connection is already dying as we transfer, the retry --
+			// now pointing at the LIVE bridge connection rather than the dead
+			// one -- is what reconnects it.
+			if bridgeConn != nil {
+				c.mu.Lock()
+				c.relayOwner = bridgeConn
+				c.autoRetryGameID = gameID
+				c.autoRetryAdapterGameVersion = adapterGameVersion
+				c.autoRetryBridgeConn = bridgeConn
+				c.mu.Unlock()
+			}
 			return nil
 		}
 		return fmt.Errorf("core: already connected to the relay as game %q, cannot also serve %q on the same process", connectedGame, gameID)

@@ -2229,3 +2229,76 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 		t.Fatalf("connectFailingSince should be cleared on a successful connect, got %v", failingSince)
 	}
 }
+
+// TestRelayOwnershipMovesToARelaunchedAdapter pins the rule a relaunched game
+// depends on: the connection allowed to tear down the relay session is the
+// CURRENT adapter, never one that has been replaced.
+//
+// The bug. ConnectRelayOnAdapterHello's already-connected fast path returned nil
+// without touching c.relayOwner, so ownership stayed with the DEPARTING bridge
+// connection. handleBridgeConn's OnDisconnect tears the relay session down when
+// c.relayOwner == nd, which was still true for a connection already replaced --
+// so the old adapter killed the session its replacement had just been handed and
+// disarmed auto-retry on the way out, leaving an attached adapter with no relay
+// and nothing to redial it. CI found it on 2026-08-27 as a one-in-two
+// intermittent failure of internal/e2e's TestARelaunchedGameGetsAWorkingSessionAgain.
+//
+// WHY THIS CALLS ConnectRelayOnAdapterHello DIRECTLY. The first version of this
+// test closed the first adapter and reattached a real one -- and PASSED without
+// the fix, which makes it worse than no test. reattachFakeAdapter retries until
+// the core accepts, and by then the departing connection's teardown has already
+// closed the relay session, so the second hello takes the ordinary
+// not-connected path and dials fresh. That exercises the safe path and never
+// reaches the branch the bug lives in. The bug needs the relay session STILL UP
+// when the replacement says hello, which at process scale is a window
+// microseconds wide -- racing for it would be the flaky test that hid the bug.
+// Calling the method with a second bridge connection while the first session is
+// live reaches that branch exactly, every time.
+func TestRelayOwnershipMovesToARelaunchedAdapter(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, bridgeAddr := startCoreLazy(t, relayAddr, "room1", "alice")
+
+	first := dialFakeAdapter(t, bridgeAddr)
+	defer first.conn.Close()
+	first.hello("emerald")
+	waitForPlayerID(t, c)
+
+	c.mu.Lock()
+	ownerAfterFirst := c.relayOwner
+	c.mu.Unlock()
+	if ownerAfterFirst == nil {
+		t.Fatal("the first adapter's hello established a relay session but claimed no ownership of it")
+	}
+
+	// A stand-in for the relaunched game's bridge connection. It needs to be a
+	// distinct transport.Transport and nothing more: the assertion is about
+	// which connection the Core considers responsible for the relay session,
+	// not about anything sent over it.
+	mine, theirs := net.Pipe()
+	defer mine.Close()
+	defer theirs.Close()
+	replacement := transport.FromConn(mine)
+	defer replacement.Close()
+
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", replacement); err != nil {
+		t.Fatalf("a replacement adapter saying hello for the same game should be a no-op, got: %v", err)
+	}
+
+	c.mu.Lock()
+	owner := c.relayOwner
+	retryConn := c.autoRetryBridgeConn
+	c.mu.Unlock()
+
+	if owner != transport.Transport(replacement) {
+		t.Error("relay ownership did not move to the replacement adapter: the departed connection " +
+			"is still entitled to tear down the session its replacement is using, which is the bug")
+	}
+	if retryConn != transport.Transport(replacement) {
+		t.Error("auto-retry still points at the departed bridge connection -- if the relay drops " +
+			"now, the redial goes through a dead socket")
+	}
+
+	// The session must still work afterwards, which is what the e2e test was
+	// asserting at process scale when it timed out.
+	waitForPlayerID(t, c)
+}

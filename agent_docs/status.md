@@ -55,8 +55,8 @@ has never been looked at. `verified.md`.
 
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
   2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
-- **NOTHING SINCE 2026-08-25 IS PUSHED, AND CI HAS NEVER SEEN IT** — 51 commits ahead of
-  `origin/master` on 2026-08-27, one of them `.go` (`protocol/limits.go`). `gh run list` at session start.
+- **A relaunched game could get a DEAD session, fixed 2026-08-27** — `relayOwner` stayed with the
+  departing adapter, so its disconnect tore down the replacement's relay session. `verified.md`.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua adapters'
