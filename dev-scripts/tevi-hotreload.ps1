@@ -204,6 +204,33 @@ if ($Deploy) {
     Write-Output "tevi-hotreload: deployed to $mode at $target (hash match: $ok)"
     if (-not $ok) { exit 1 }
 
+    # ScriptEngine reads the assembly WITH SYMBOLS (Mono.Cecil, ReadSymbols), so a DLL with no
+    # .pdb beside it throws SymbolsNotFoundException and the plugin never loads at all -- the
+    # game looks fine and simply has no adapter in it. build-tevi.bat deliberately stages only
+    # the DLL, because a .pdb has no business in packaging/release/, so the copy happens here:
+    # the symbols are part of the DEV loop, not part of what ships. Found live 2026-08-28, on
+    # the first reload ever attempted in the game.
+    $pdbSrc = Join-Path $repoRoot 'adapters\tevi\MeshGhostTevi\bin\Release\MeshGhostTevi.pdb'
+    $pdbDst = Join-Path (Split-Path $target) 'MeshGhostTevi.pdb'
+    if (Test-Path $pdbSrc) {
+        Copy-Item $pdbSrc $pdbDst -Force
+        Write-Output "                symbols deployed (hash match: $((Get-FileHash $pdbSrc).Hash -eq (Get-FileHash $pdbDst).Hash))"
+    } elseif ($mode -eq 'hot-reload') {
+        Write-Output "                WARNING: no MeshGhostTevi.pdb -- ScriptEngine will refuse to load this."
+    }
+
+    # Copy-Item PRESERVES the source's LastWriteTime, and ScriptEngine's watcher fires on
+    # LastWrite. So a rebuild that produced a byte-identical DLL copies an identical timestamp,
+    # nothing appears to change, and the reload silently does not happen -- while every line
+    # above still says "deployed". Stamping the destination makes the deploy the trigger,
+    # independent of whether the bytes moved. Found live 2026-08-28: the first reload test
+    # reported success and had reloaded nothing.
+    if ($mode -eq 'hot-reload') {
+        $now = Get-Date
+        (Get-Item $target).LastWriteTime = $now
+        if (Test-Path $pdbDst) { (Get-Item $pdbDst).LastWriteTime = $now }
+    }
+
     # The CORE goes stale independently of the adapter, and silently. Both installs were found
     # running a meshghost.exe from 2026-08-18 on 2026-08-28, predating the very port-walk fix the
     # next live test was meant to watch. A test against a stale core

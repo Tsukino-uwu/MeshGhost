@@ -19,6 +19,19 @@
     <RootNamespace>MeshGhostTevi</RootNamespace>
     <!-- BepInEx plugins are loaded straight from a DLL, not published/run as an app. -->
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!--
+      A WINDOWS pdb, not the SDK's default "portable" one. This is not a preference: ScriptEngine
+      (the hot-reload dev tool, see dev-scripts/tevi-hotreload.ps1) reads the assembly through
+      Mono.Cecil WITH SYMBOLS, and Cecil's DefaultSymbolReaderProvider cannot read a portable pdb.
+      It throws SymbolsNotFoundException and the plugin silently never loads. Measured live
+      2026-08-28: with the portable pdb sitting right beside the DLL, the exception still named
+      the DLL as having "no symbol found", which reads like a missing file and is really a
+      wrong-format one. The portable pdb was confirmed by its own magic bytes (BSJB).
+
+      Nothing about the shipped DLL changes. Only which debug format is emitted next to it, and
+      the pdb is never staged into packaging/release/.
+    -->
+    <DebugType>full</DebugType>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 

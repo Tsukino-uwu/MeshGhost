@@ -64,6 +64,7 @@ filed under the right theme, but anything can check that it is listed.
 - Client/relay start-order independence, real dry run
 - Relay-restart auto-reconnect, real dry run
 - TEVI zone-transition ghost-invisibility fix, live confirmed
+- TEVI hot-reload dev loop — the adapter reloads in a running game, and the reload leaves no orphan ghost
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -530,3 +531,39 @@ filed under the right theme, but anything can check that it is listed.
   used when it borrowed its 150.0-unit magnitude from an earlier diagnostic. Current shipped
   value is 160f, user-confirmed sufficient without a second live round.
 
+
+## TEVI hot-reload dev loop — the adapter reloads in a running game, and the reload leaves no orphan ghost
+
+- Date: 2026-08-28
+- What: TEVI's adapter can now be reloaded inside a running game instead of relaunching it.
+  ScriptEngine (BepInEx.Debug r11.1) loads `MeshGhostTevi.dll` from `BepInEx/scripts/`, and
+  `dev-scripts/tevi-hotreload.ps1 -Deploy` rebuilds, copies and triggers the reload with no key
+  pressed. Watched in a two-instance session (Steam + the standalone `14778703` build, real
+  peers on one relay, no loopback). The reload sequence, read from both BepInEx logs: a ghost
+  exists, the reload fires, `leaving play -- despawning all 1 remote ghost(s)` then
+  `despawned remote ghost for p1`, then `MeshGhost v0.2.0 loaded`, `bridge ready`, and a fresh
+  ghost. **USER-CONFIRMED ON SCREEN the same session**: *"im only seeing 1 ghost per game, no
+  3rd extra/static or weird ghosts etc anywhere"*.
+- Why it needed the despawn: a peer ghost is a cloned GameObject parented in the SCENE, so it
+  outlives the plugin instance that created it, while the fresh instance starts with an empty
+  `remoteVisuals` and clones another. `OnDestroy` now calls `DespawnAllRemoteGhosts()`; without
+  it every reload would leave one more orphan that nothing tracks or despawns.
+- Also confirmed in the same session, from the logs: **the 2026-08-27 port-walk fix behaves** --
+  exactly ONE reject, naming 7778 (`the core on port 7778 rejected this adapter (busy: ...) --
+  walking to the next bridge port`), then `bridge ready on port 7779`. The old bug's signature
+  was a reject line for every port in the range. And **`CoreLauncher`'s new search-path fallback
+  works**: `started a core (meshghost.exe, pid 11812)`.
+- Source: `adapters/tevi/MeshGhostTevi/Plugin.cs` (`OnDestroy`), `CoreLauncher.cs`
+  (`CoreSearchDirs`), `dev-scripts/tevi-hotreload.ps1`, `agent_docs/environment.md`.
+- Notes: **three defects were found and fixed getting here, all of which produced a green result
+  that had done nothing** -- see `../../agent_docs/pitfalls.md`. (1) The SDK's default PORTABLE
+  pdb is unreadable by Mono.Cecil, so ScriptEngine threw `SymbolsNotFoundException` naming the
+  DLL with the pdb sitting beside it; the csproj now emits a Windows pdb. (2) `Copy-Item`
+  PRESERVES the source timestamp, so a rebuild producing an identical DLL never fired the
+  watcher while the script still reported "deployed" -- the first reload test was a pass that
+  reloaded nothing. (3) ScriptEngine loads a plugin from BYTES, so `Assembly.Location` is the
+  empty string and the core could not be found beside it.
+- **Scope, stated because it is narrower than it looks:** this is a HOT-RELOAD confirmation. A
+  cold start with `LoadOnStart = true` has not been watched, and anything that only goes wrong
+  on a cold start is invisible to this loop by construction. dnSpy attaching to the armed Mono
+  debugger server is untested. `../UNVERIFIED.md`.

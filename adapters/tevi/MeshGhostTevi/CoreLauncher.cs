@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using BepInEx;
 
 namespace MeshGhostTevi
 {
@@ -153,18 +155,53 @@ namespace MeshGhostTevi
         {
             try
             {
-                string dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-                if (string.IsNullOrEmpty(dir))
+                foreach (string dir in CoreSearchDirs())
                 {
-                    return null;
+                    if (string.IsNullOrEmpty(dir))
+                    {
+                        continue;
+                    }
+                    string exe = Path.Combine(dir, "meshghost.exe");
+                    if (File.Exists(exe))
+                    {
+                        return exe;
+                    }
                 }
-                string exe = Path.Combine(dir, "meshghost.exe");
-                return File.Exists(exe) ? exe : null;
+                return null;
             }
             catch
             {
                 return null;
             }
+        }
+
+        // Beside this assembly first, which is the shipping case and the only one a player ever
+        // hits. The rest exist because of ONE dev-only fact, measured 2026-08-28: BepInEx's
+        // ScriptEngine (the hot-reload tool, dev-scripts/tevi-hotreload.ps1) loads a plugin from
+        // BYTES, so Assembly.Location is the EMPTY STRING and "beside this assembly" resolves to
+        // nowhere. The adapter then correctly reported that no core sat beside it and declined to
+        // start one -- which is right, and left the whole hot-reload loop unable to autostart.
+        //
+        // Deliberately NOT a scan: each entry is a specific place meshghost.exe legitimately is.
+        // Paths.* are BepInEx's own; a wrong name here is a build error, not a silent miss, since
+        // this project compiles against BepInEx.Core (agent_docs/access-models.md).
+        private static IEnumerable<string> CoreSearchDirs()
+        {
+            string here = null;
+            try { here = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
+            catch { }
+            yield return here;
+
+            // An explicit override wins over any guess, and is the escape hatch if a future
+            // loader breaks all of the below.
+            yield return Environment.GetEnvironmentVariable("MESHGHOST_CORE_DIR");
+
+            // Where tevi-hotreload.ps1 puts the core in hot-reload mode.
+            yield return Path.Combine(Paths.BepInExRootPath, "scripts");
+            // And where the shipping layout puts it, for a hot-reloaded build whose core was
+            // never copied across.
+            yield return Path.Combine(Paths.PluginPath, "MeshGhostTevi");
+            yield return Path.Combine(Paths.PluginPath, "MeshGhost");
         }
     }
 }

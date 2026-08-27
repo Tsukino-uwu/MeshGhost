@@ -36,32 +36,40 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending -- the hot-reload dev loop has never been run in the game (built 2026-08-28)
+## Pending -- the dev loop's COLD START has never been watched (2026-08-28)
 
-TEVI's edit loop no longer requires relaunching the game: the adapter moves to `BepInEx\scripts\`
-where BepInEx's own ScriptEngine reloads it live, and `dev-scripts/tevi-hotreload.ps1 -Deploy`
-rebuilds, copies and triggers the reload with nothing pressed. **Every part of this was tested
-against the file system only** -- the toggle round-trips, the build runs, the copy hash-matches.
-Nothing has been watched in a running TEVI.
+**The hot-reload half is CONFIRMED and moved to [`VERIFIED.md`](VERIFIED.md)** -- the reload works
+and leaves no orphan ghost, watched in a two-instance session. What is left here is everything
+that a hot reload cannot, by construction, exercise.
 
-`Plugin.cs`'s `OnDestroy` now calls `DespawnAllRemoteGhosts()` for the same reason. A peer ghost is
-a cloned GameObject parented in the SCENE, so it outlives the plugin instance that made it; the
-fresh instance starts with an empty `remoteVisuals` and clones another. Without the despawn every
-reload would leave one more orphan that nothing tracks.
+**Nothing has been launched cold since the setup was finished.** The session that confirmed the
+reload had started BEFORE `LoadOnStart = true` and `Hide On Startup = true` were written, so both
+were only ever picked up by a reload, never by a startup. Two things follow:
 
-**What to look at.** Launch TEVI with a loopback peer up and a ghost on screen, then run
-`tevi-hotreload.ps1 -Deploy`. **What correct looks like:** within a couple of seconds the BepInEx
-log reports the plugin loading again, and afterwards there is still exactly **one** ghost --
-**two ghosts is the OnDestroy despawn not having worked**, and it is the specific thing this entry
-exists to check. **What is unknown:** whether the reload is clean at all in this game.
+- **`LoadOnStart = true` is unproven.** Until it is, a fresh TEVI launch may come up with the
+  adapter sitting in `BepInEx\scripts\` **unloaded**, which looks exactly like the mod being
+  broken -- there is no ghost and no error. The workaround if it happens is one `-Deploy`.
+- **UnityExplorer's overlay should now be hidden until F7.** It opened by default on both
+  instances on 2026-08-28, which is what prompted the setting.
 
-**Also armed and unconfirmed: the Mono debugger server.** `doorstop_config.ini` now has
-`debug_enabled = true` (backup beside it). Whether dnSpy can actually attach at
-`127.0.0.1:10000` depends on whether this build's Mono carries the debugger agent, which nobody
-has tested -- the usual patched-Mono route does not exist for Unity 2021.3. `../../agent_docs/environment.md`.
+**What to look at.** Launch either TEVI normally, touching nothing. **What correct looks like:**
+`MeshGhost v… loaded.` in `BepInEx\LogOutput.log` without anything being deployed first, and no
+UnityExplorer overlay until F7 is pressed.
+
+**Also unproven: `CoreLauncher`'s fallback on a cold start.** It was confirmed working under a
+reload (`started a core (meshghost.exe, pid …)`), where `Assembly.Location` is empty. On a cold
+start the FIRST search path -- beside the assembly -- is the one that answers, which is the
+shipping path and a different branch.
+
+**Also armed and unconfirmed: the Mono debugger server.** `doorstop_config.ini` has
+`debug_enabled = true` on Steam (`127.0.0.1:10000`) and on the standalone build
+(`127.0.0.1:10001`), backups beside both. Whether dnSpy can actually attach depends on whether
+this build's Mono carries the debugger agent, which nobody has tested -- the usual patched-Mono
+route does not exist for Unity 2021.3. `../../agent_docs/environment.md`.
 
 **Nothing here changes what ships.** ScriptEngine and UnityExplorer are developer-machine tools,
-the doorstop flag is one line in a local install, and `packaging/release/` is untouched.
+the doorstop flag is one line in a local install, and `packaging/release/` carries only the
+rebuilt DLL. The pdb the dev loop needs is deployed by `tevi-hotreload.ps1`, never staged.
 
 ## Pending — the FullMap peer marker goes stale when a peer stops sending (shipped bug)
 
