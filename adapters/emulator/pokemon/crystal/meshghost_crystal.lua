@@ -2877,9 +2877,32 @@ function facingFrames.derive(facing)
 					if not p then
 						return nil
 					end
+					-- NOT `mirror and (not p.xflip) or p.xflip`. That is the Lua and/or ternary
+					-- trap, and it cannot express this: when `mirror` is true and `p.xflip` is
+					-- ALSO true, the middle term is `false`, so the `or` falls through and hands
+					-- back `p.xflip` -- true. The flip therefore never CLEARS, only ever sets.
+					--
+					-- What it looked like on screen: the local player walks into a route facing
+					-- right, so RIGHT is the learned entry and draws correctly, while down, left
+					-- and up are all derived FROM right and each inherits a flip that should have
+					-- been undone -- three mirrored facings out of four. The user, 2026-08-27:
+					-- *"its when looking down/left/up (after entering the same route as someone
+					-- else), facing right looks correct"*.
+					--
+					-- Pre-existing, and nothing to do with cross-map ghosts -- it reproduces on
+					-- c0c6cf2 with none of that work applied. Cross-map only made it easy to hit,
+					-- because a peer arriving from another route is very likely facing a direction
+					-- this player has not turned to yet on this map, which is exactly when a
+					-- DERIVED entry is used instead of a learned one.
+					--
+					-- `dx` on the next line reads the same way and is SAFE, which is why the two
+					-- were written alike: `8 - p.dx` is 0 when p.dx is 8, and 0 is truthy in Lua.
+					-- Only a `false` middle term triggers this, and xflip is the only boolean here.
+					local xf = p.xflip and true or false
+					if mirror then xf = not xf end
 					out[i] = {
 						offset = (p.offset & 0x80) | (base + ((p.offset & 0x7F) - from)),
-						xflip = mirror and (not p.xflip) or p.xflip,
+						xflip = xf,
 						-- The frame is two tiles wide and `dx` is measured from its own top-left,
 						-- so reflecting it is `8 - dx`. Only when crossing the flip boundary.
 						dx = mirror and (8 - p.dx) or p.dx,
