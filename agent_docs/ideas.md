@@ -2776,6 +2776,31 @@ non-tile-quantised motion), which is exactly the kind of case that finds out whe
    the game exposes a stable object table the way Crystal's does.
 3. Only then ask spawn-versus-draw, which is the decision that shaped the whole Crystal adapter.
 
+## Two Go file splits, scoped and deliberately not done (2026-08-27)
+
+`netx/udpconn/udpconn.go` was split the same day — 964 lines into `cookies.go`, `conn.go`,
+`listener.go` and `dial.go`, along the banner comments that file had already drawn around its own
+four concerns. **These two were looked at in the same pass and left alone, because neither is the
+pure move that one was.**
+
+- **`protocol/online.go`, 861 lines over six concerns** (`ValidOpaqueString`, the capability/feature
+  system, Hello/resume validation, lease, escrow, world custody). The obvious cut is `features.go` /
+  `lease.go` / `escrow.go` / `world.go`, following `limits.go` and `ghostcollision.go`. What stops it
+  being mechanical is the single const block headed *"Limits for everything in this file"*, which
+  deliberately co-locates the event, lease-key, escrow and resume-token bounds. Splitting the file
+  either scatters that block or makes its own heading false, and the honest answer is probably that
+  those constants belong in `limits.go` — which is a **design decision about where limits live**,
+  not a file move, and wants its own pass.
+- **`relay/relay.go`, 1,517 lines, with `handleConn` alone 539 of them.** The natural extraction is
+  the Hello handshake into `relay/hello.go` and the post-join dispatch switch into
+  `relay/dispatch.go`. That is splitting a **function**, not moving code between files, on the path
+  every connection takes — so it is a change whose regression would be attributable only to itself,
+  and bundling it behind six other commits is what makes that impossible.
+
+Also worth doing and not done: `cmd/meshghost`'s 286-line `main()` wants the `flags()` extraction
+that `cmd/meshghost-relay/main.go` set the precedent for on 2026-08-25 ("so the rule can be
+tested" — it turned one rule into nine test cases), and `core/core_test.go` is 2,231 lines.
+
 ## Four refactors still deferred from the 2026-08-18 audit-and-refactor pass
 
 Moved out of `status.md` 2026-08-25 — it is an index of what is open, not a backlog with
