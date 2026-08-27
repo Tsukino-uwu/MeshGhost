@@ -1034,6 +1034,9 @@ a relay behind such a proxy is reachable over WSS on 443 and nothing else. If th
 ## What "safe to play with random people" means — the three layers, and where each one has to live
 
 **Unscheduled umbrella entry. Read this before the two entries below it; they are layers 1 and 3.**
+**Layer 3 gained a concrete proposal on 2026-08-27** — *"A blank `only_game` should mean 'this
+project's games', not 'anything'"*, further down this file, which is the open-relay-default row of
+the table below.
 Written 2026-08-24 at the end of a measured security pass, so a future session starts from a
 definition instead of an open-ended audit. **Nothing here is queued** — the user's call the same
 day was to brainstorm and plan before building anything.
@@ -1056,6 +1059,11 @@ carries", which is a list, not a search. See the enumerated table in the bridge 
 > describes a third option — adapter-declared constraints the core enforces without interpreting —
 > that would change WHERE layers 1 and 2 live and could merge them. Deciding that first is cheaper
 > than building layer 2 per adapter and then discovering it belonged in one negotiated place.
+>
+> **The user endorsed that third option on 2026-08-27, for EVERY adapter, and the same entry now
+> carries a correction: enforce on RECEIVE against the LOCAL adapter's bounds, not room-negotiated
+> ones.** Layer 2 as tabled below — range checks written per adapter, by hand, per game — is the
+> thing that changes shape if this is built, so read it before starting layer 2 rather than after.
 
 **Layer 1 cannot do layer 2's job, and that is the architecture working, not a shortfall.** The
 core may never be game-aware (`CLAUDE.md`, ADR 08-20), so it can bound SHAPE but never MEANING.
@@ -1413,6 +1421,60 @@ authority, which would have to be actually BUILT to collect, while every con lan
 properties that are the point of the project. The middle path gets most of the security benefit
 for a fraction of the cost, and it does not require deciding today.
 
+### ENDORSED BY THE USER, 2026-08-27 — and for EVERY adapter, not as an option
+
+*"i think this should be a thing for all adapters, to ensure they are 'safe' to play with random
+people. and no one being able to send bad/malicious data to anyone else"*, and, immediately after:
+*"while still keeping the server/client dumb & not knowing how games work ofc, if possible"*.
+
+**So this stops being one of three options to weigh and becomes the intended direction.** Two things
+follow that the entry above did not say:
+
+**1. It belongs in the ADAPTER CONTRACT, not just the protocol.** "A thing for all adapters" means
+declaring constraints becomes part of what an adapter IS — `adapters/_template/PROTOCOL.md`, the
+mandated file set, and `/new-adapter`'s sequence — the same way the bridge shape and the port walk
+already are. An adapter that declares nothing is then a visible gap rather than the default, which
+is the difference between a property the project has and one it hopes for.
+
+**2. "If possible" — yes, and this is the one part of the design that makes it possible.**
+Constraints travel as DATA (a numeric range, a depth cap, a key count) and are enforced by
+comparison. The Go side never learns that `sprite` is a sprite. That is the same permitted use as
+`game_id`: carried, compared, logged, never the thing a behaviour is chosen by. No `internal/gameblind`
+check has to be weakened, and `TestWireFieldsAreFrozen` gets a deliberate edit for the new field,
+which is exactly where that test intends the burden of proof to sit.
+
+### The correction the user's goal forces: enforce on RECEIVE, against the LOCAL adapter's bounds
+
+**The room-negotiated, sticky-on-first-join design above does NOT achieve *"no one being able to
+send bad/malicious data to anyone else"*, and this is worth being blunt about.** Its own risk list
+concedes the first joiner defines the room's limits — so joining a stranger's room means that
+stranger's declared bounds govern what may reach your game. A hostile host declares wide bounds and
+the protection is gone precisely when it was wanted.
+
+**The fix inverts where enforcement happens, and it is simpler than the negotiated version.** Your
+core validates incoming peer state against **your own adapter's** declared constraints — the
+adapter that is about to render it — not against anything the room agreed. Then:
+
+- **A hostile host cannot widen your bounds**, because your bounds were never up for negotiation.
+- **No stickiness, no first-joiner rule, no trust in any remote party.** The mechanism stops being a
+  negotiation and becomes a local receive filter, which is strictly less protocol to get wrong.
+- **It composes with mismatched adapter versions.** An older peer sending a field your adapter now
+  bounds differently is rejected by your rules, not theirs.
+- **It is where the trust boundary actually is.** The relay re-encodes every forwarded message from
+  a validated struct (see the umbrella entry), so the last hop before a game process is the core —
+  and that is the only place a check protects *you* rather than protecting everyone equally from
+  nobody in particular.
+
+**What the negotiated version is still for** — and why this is a refinement rather than a
+replacement: agreeing bounds room-wide is how you stop a peer being rendered inconsistently across
+different players, which is a different goal from not being attacked. If both are wanted they can
+coexist, but **only the receive-side one delivers the sentence the user actually wrote**, so it is
+the one to build first.
+
+**Unchanged from above:** schema creep is still the failure mode. Numeric ranges plus the depth and
+key caps, and nothing that could grow into a mini-language — a schema rich enough to express a
+mechanic is game knowledge with extra steps.
+
 ## The bridge is unauthenticated and loopback only by DEFAULT, not by enforcement
 
 **Unscheduled. Not on the depth ladder — Go side, confirmable with the tools rather than by
@@ -1470,6 +1532,82 @@ redistributed at all, **the entire client-to-client surface is the set of fields
 legitimately carries.** Of those, only `extras`, `area_id`, `anim` and `orientation` have contents
 the core is contractually forbidden from interpreting — which is precisely what the `extras`
 entry above is about.
+
+## A blank `only_game` should mean "this project's games", not "anything" — layer 3's open-relay default
+
+**The user's ask, 2026-08-27:** *"blank/default should only accept adapters from this project by
+default. not 'anything'"* — *"to avoid random games utilizing servers / actually make it possible to
+enforce and clamp values that adapters/games send etc"*.
+
+**This is not a new idea so much as a concrete proposal for a gap already named:** layer 3 of the
+"safe to play with random people" umbrella above lists *"open-relay default"* alongside the bridge
+bind and the per-IP cap. Today `OnlyGame == ""` means *host any game* and the relay logs
+`hosting any game (no "only_game" set)` (`relay/relay.go:1201-1203`,
+`cmd/meshghost-relay/main.go:554`). Anyone who can reach the port and speak the protocol gets a
+room, whatever `game_id` they claim.
+
+### The half that is straightforward, and the trap in implementing it
+
+Generalise `only_game` (one label, equality) to an allowed SET (many labels, equality) — the same
+operation, and `game_id` comparison by equality is explicitly the permitted use.
+
+**The trap: the list may not live in Go.** `internal/gameblind`'s `TestGoSideNeverBranchesOnAGame`
+fails on *a game name appearing in a library package's code at all*, or in `cmd/` outside help text.
+So a hardcoded `[]string{"emerald", "crystal", ...}` in `relay/` is not a philosophical problem, it
+is **a red test** — and rightly, since the whole point is that the Go side never enumerates games.
+
+**So the list is CONFIGURATION, not code.** `packaging/release/config.json` already ships the
+defaults a host runs with; an `allowed_games` array there gives "the default accepts only this
+project's games" with no game name anywhere in the Go side. The relay compares an incoming
+`game_id` against a configured set it never looks inside. A host who wants the old posture sets it
+empty (or to `"any"`) deliberately, which is the right way round: the permissive option becomes a
+choice someone made rather than the thing that happens when nobody chose.
+
+### The half that needs care: what "enforce and clamp values" can and cannot mean
+
+**Per-game clamps in the relay are forbidden, and knowing the game-set does not unlock them.** The
+rule in the user's own words (2026-08-20, quoted in `internal/gameblind`): *"its fine to have the
+`game_id` etc, know what game it is. but specifically for 'game knowledge' on what the games do/how
+they work"* — a label *"may be carried, compared to another label, and logged. It may never be the
+thing a behaviour is chosen by."* `if game == "crystal" { maxSprite = 40 }` is exactly the shape
+that is out.
+
+**What an allowlist genuinely does buy, and it is worth having:**
+
+- **Tightening the GENERIC caps, for everyone, because the population is known.** Several existing
+  bounds are deliberately generous rather than measured — `protocol.MaxPositionComponent` is 1e7 and
+  its own comment calls it *"headroom, not a realistic in-game bound"*. With the set of adapters
+  known and measurable, those can be narrowed globally without a single per-game branch.
+- **It makes layer 2 reachable at all.** Range checks on peer-derived numbers must live in the
+  adapter (only it may know what a value means) — and an adapter can only be trusted to do that if
+  the adapters on the room are ones that do it. That is the real link between the two halves of the
+  ask, and it is a deployment property, not a relay feature.
+
+**Read "Should the Go side stay game-blind?" below before building either.** Its middle path —
+adapter-declared constraints the core enforces without interpreting — is the one mechanism that
+gives real per-value enforcement while keeping the Go side blind, and it would change where this
+belongs.
+
+### The cost, which is the part to decide first
+
+**This repo actively invites third-party adapters.** `docs/integrating.md` is a guide for putting
+MeshGhost in *your own* game in any language, and the README's design claim is that *"a new game is
+an adapter and nothing else"*. A default-deny allowlist refuses every one of those by default —
+including a legitimate adapter someone wrote for a game we have never heard of, which is a use the
+project explicitly wants. That is a real tension, not a detail to discover during implementation.
+
+**And note the overlap with what already exists:** `room_code` is the actual secret for keeping
+strangers off a relay, and it is already the documented answer (README: *"`room` is a label, not a
+password. `room_code` is the optional actual secret"*). An allowlist stops the wrong GAME; a room
+code stops the wrong PERSON. The user's stated worry is *"random games utilizing servers"*, which is
+the first — so the two are complementary, and the honest framing is that this closes a different
+hole rather than a better version of the same one.
+
+**Open questions for whoever picks this up:** does an unknown `game_id` get a `reject` naming the
+reason (consistent with how `only_game` refuses today, and kinder to a third-party author) or a
+silent hangup? Does the shipped list live in `config.json` alone, or does `packaging/` generate it
+from the adapter folders so it cannot drift from what actually ships? And is the default for a
+**self-hosted** relay the same as for whatever a future public/community relay would want?
 
 ## Code signing the Windows binaries (SignPath OSS)
 
