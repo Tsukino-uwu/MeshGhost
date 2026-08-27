@@ -429,6 +429,24 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
 
 ## Traps
 
+- **`internal/e2e`'s `freePort` is a TOCTOU, and it flakes under `-race` on CI (seen 2026-08-27).**
+  It binds a port, **closes it**, and hands the bare number to a child process — so anything can
+  claim that number before the relay or core binds it. The symptom is
+  `nothing listening on 127.0.0.1:NNNNN after 20s` from `waitForListener`, which reads like a hung
+  binary and is really a lost race; the run before it in the log shows the child happily listening
+  on a *different* port. **It is unfixable in the obvious way** — a port cannot be handed to a
+  separate process as an open socket here — so the options are to have the child report the port it
+  actually bound, or to retry the rig on early child exit. Neither is done yet.
+  **Do not read a green re-run as proof the code was fine**: confirm the failure is this shape
+  (port number in the message, child listening elsewhere) before calling it infrastructure, because
+  a real startup bug produces the same 20s timeout.
+- **A goroutine that outlives its test still reads package globals.** `reconnectWithBackoff` exits
+  only on success or a permanent reject, and a dead address produces neither — so it spins past the
+  end of the test that started it and races the *next* test's knob-twiddling. Found by CI's race
+  detector 2026-08-27 on `reconnectLogInterval`, whose own comment argued it was safe because
+  "nothing else writes it". **One writer does not make an access single-threaded.** Test-only
+  configuration that a background goroutine reads needs an atomic or a mutex like any other shared
+  state; see `getReconnectLogInterval`.
 - **A relay fuzz target must discard `log` output** (`log.SetOutput(io.Discard)`). The fuzzer
   finds valid hellos within seconds and then produces tens of thousands a second; the resulting
   log volume, not the relay, collapses throughput to zero for ~18s at a stretch. This was

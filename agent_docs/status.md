@@ -63,6 +63,8 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
+- **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
+  child gets a bare port number that can be taken first; unfixed. `testing.md`, Traps.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
   2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **NEXT SESSION STARTS HERE (Go/TEVI): watch TEVI's port walk in a TWO-GAME session, TEVI second.**
