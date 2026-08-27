@@ -182,6 +182,10 @@ namespace MeshGhostTevi
             public PixelCharacter Pc;
             public string LastAnim;
 
+            // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
+            // trailing at once must not share a cadence.
+            public float TrailTimer;
+
             // The real, measured offset between the source player's t.position and its own
             // spranim_prefer.pixel.transform.position at clone time -- read directly rather than
             // guessed, the same real-offset-not-a-constant fix Emerald needed a hardcoded
@@ -552,6 +556,12 @@ namespace MeshGhostTevi
                 visual.LastAnim = state.Anim;
             }
 
+            // Unlike the animation above, this is NOT gated on having changed. SetTrail arms a
+            // countdown, so re-arming while the peer is still trailing is the point; skipping it
+            // on "same as last frame" would let the trail lapse in the middle of a slide.
+            // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
+            ApplyTrail(visual, state.TrailMode ?? 0, cloneTemplate);
+
             UpdateRemoteMapMarker(playerId, state);
         }
 
@@ -591,6 +601,125 @@ namespace MeshGhostTevi
                 remoteVisuals.Remove(playerId);
             }
             DespawnRemoteMapMarker(playerId);
+        }
+
+        // THE AFTERIMAGE TRAIL. TEVI spawns a trailing afterimage for several moves -- the blue one
+        // on a quickdrop is the one the user named (2026-08-28) -- and a peer ghost showed none.
+        //
+        // MIRROR THE DECISION, NOT THE MOVE. `SpriteAnimation` recomputes a small mode every frame
+        // from three values and spawns its own pooled GhostEffect from that. So this reads the same
+        // three values rather than enumerating moves: enumerating would need a new case for every
+        // move that ever uses the system, and would silently miss the ones nobody thought to test.
+        // This is `effect-investigation.md`'s central lesson -- mirroring the rule the game already
+        // owns beats reconstructing it, and Pseudoregalia's slide trail cost several sessions
+        // learning that.
+        //
+        // WHY THE GHOST GETS NOTHING BY DEFAULT: the game's own two move branches are gated on
+        // `isPlayer()`, and a clone is not the player. Its third branch, a plain `trail > 0f`
+        // countdown, is NOT gated -- which is the documented way in, and why `SetTrail` on a clone
+        // works at all.
+        //
+        // Everything past the decision stays the game's: pooling, spawn rate, decay, which sprite,
+        // the flip, the scale and the position all come from TEVI's own component. We set a mode
+        // and a colour and nothing else.
+
+        // Read off the LOCAL player, from the same public values TEVI's own SpriteAnimation reads.
+        // Returns 0/1/2 -- opaque to the core, meaningful only between two TEVI clients.
+        private static int ReadTrailMode(CharacterBase player)
+        {
+            if (player == null)
+            {
+                return 0;
+            }
+            // Order matters and is the GAME's order, not ours: it evaluates the speed-bonus branch
+            // first and the dodge branch second, so dodge wins when both are true. Reproducing the
+            // order rather than picking one keeps a simultaneous case looking like the game's.
+            int mode = 0;
+            if (player.cphy_perfer != null
+                && (player.cphy_perfer.moveSpeedBonusSlide > 0f || player.cphy_perfer.moveSpeedBonusQuickDrop > 0f))
+            {
+                mode = 1;
+            }
+            if (player.playerc_perfer != null && player.playerc_perfer.HaveDodge() >= 1)
+            {
+                mode = 2;
+            }
+            // The generic timed trail: anything in the game may call SetTrail directly, and that
+            // path is invisible to the two checks above. Reading it too is what makes this cover
+            // trails we have not seen rather than only the ones we went looking for.
+            if (mode == 0 && player.spranim_prefer != null && player.spranim_prefer.GetTrail() > 0f)
+            {
+                mode = 1;
+            }
+            return mode;
+        }
+
+        // WHY THIS SPAWNS THE EFFECT ITSELF instead of calling the game's `SetTrail`. `SetTrail`
+        // lives on `SpriteAnimation`, and **a ghost has no SpriteAnimation**: the clone is
+        // `spranim_prefer.pixel.gameObject`, the pixel CHILD, so the component that would drive a
+        // trail sits on a parent we never cloned (documentation.md: the drawn position hangs off
+        // that child, which is why we clone it and not the whole character).
+        //
+        // So we drive the same loop the component would: on the same cadence, spawn the same
+        // pooled `GhostEffect`, hand it the ghost's own current sprite, and let it decay itself.
+        // Everything that makes an afterimage LOOK right stays the game's -- the pool, the effect
+        // object, the fade, the sprite. What we reproduce is only the *cadence*, and that number
+        // is the game's own `trailRate`, cited rather than tuned.
+        //
+        // The `CharacterBase` argument is the LOCAL player deliberately. `SetSprite` dereferences
+        // it only inside `if (cb.isPlayer())`, where it copies the effect-sprite transform; we
+        // pass no effect sprite, so that branch sets a transform on a renderer with nothing in it.
+        // Passing null instead would throw there.
+        private const float TrailSpawnRate = 0.07f;      // SpriteAnimation.trailRate
+        private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
+        private const int TrailSortingOrder = 99;        // SpriteAnimation.trailOrder
+
+        private void ApplyTrail(RemoteGhostVisual visual, int mode, CharacterBase localPlayer)
+        {
+            if (mode <= 0)
+            {
+                // Let the cadence lapse rather than zeroing it: the next trail starts a fresh
+                // interval anyway, and a half-elapsed timer is not state worth clearing.
+                visual.TrailTimer = 0f;
+                return;
+            }
+            if (visual.Pc == null || visual.Pc.basesprite == null || localPlayer == null)
+            {
+                return;
+            }
+            // A ghost with nothing drawn must not leave a trail of nothing -- the game guards the
+            // same way before spawning (`pixel.basesprite.enabled`), and without this a ghost that
+            // is hidden for a zone load would still emit afterimages.
+            if (!visual.Pc.basesprite.enabled || visual.Pc.basesprite.sprite == null)
+            {
+                return;
+            }
+
+            visual.TrailTimer += Time.deltaTime;
+            if (visual.TrailTimer < TrailSpawnRate)
+            {
+                return;
+            }
+            // Subtract rather than zero, so a long frame does not silently drop a spawn and
+            // shorten the trail relative to the player's.
+            visual.TrailTimer -= TrailSpawnRate;
+
+            // Mode 2's colour is the literal from the game's own dodge branch; mode 1 is
+            // SpriteAnimation's default `trailcolor`, which is the blue seen on a quickdrop.
+            Color c = mode == 2
+                ? (Color)new Color32(255, 225, 0, 170)
+                : (Color)new Color32(0, 223, 255, 128);
+
+            GhostEffect effect = GemaPoolManager.Instance.CreateGhostEffect();
+            if (effect == null)
+            {
+                return;
+            }
+            effect.SetSprite(localPlayer, visual.Pc.basesprite.flipX, visual.Pc.basesprite.sprite,
+                null, c, c, TrailSortingOrder, TrailSortingOrder - 1);
+            effect.SetDecaySpeed(TrailDecaySpeed);
+            effect.transform.localScale = visual.Pc.transform.localScale;
+            effect.transform.position = visual.Pc.transform.position;
         }
 
         // PROBE, off unless DIAG_SPAWN_DIFF. See the flag's own comment for the question and the
@@ -910,6 +1039,7 @@ namespace MeshGhostTevi
                 Anim = clipName,
                 RoomX = roomX,
                 RoomY = roomY,
+                TrailMode = ReadTrailMode(player),
             });
 
             if (DIAG_SPAWN_DIFF)

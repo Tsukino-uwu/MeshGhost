@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
@@ -33,6 +34,20 @@ namespace MeshGhostTevi
             // yet), distinct from a real 0,0 room.
             public int? RoomX;
             public int? RoomY;
+
+            // WHICH afterimage trail this character is currently spawning, as TEVI's own
+            // SpriteAnimation decides it: 0 none, 1 the trailcolor trail (slide and quickdrop),
+            // 2 the dodge trail. Carried in `extras` for the same reason RoomX/RoomY are -- it is
+            // game-specific and the core must never interpret it (contract.md: opaque outside the
+            // adapter that produced it).
+            //
+            // A MODE, not a colour and not a move name. The game keys its own trail off a byte
+            // computed each frame from three public values, and mirroring that DECISION is what
+            // makes every move using the system work at once instead of one move at a time --
+            // see Plugin.ReadTrailMode. Null means "not present on this message", i.e. a peer
+            // that predates this field, which must render as no trail rather than as mode 0
+            // asserted.
+            public int? TrailMode;
         }
 
         private readonly string host;
@@ -425,9 +440,30 @@ namespace MeshGhostTevi
                 return;
             }
 
-            object extras = (state != null && state.RoomX.HasValue && state.RoomY.HasValue)
-                ? new { room_x = state.RoomX.Value, room_y = state.RoomY.Value }
-                : null;
+            // Built as a dictionary rather than another anonymous type: room coords and the trail
+            // mode are independently present or absent, and the two-anonymous-types-in-a-ternary
+            // shape this replaced would have needed one type per combination.
+            Dictionary<string, object> extrasMap = null;
+            if (state != null)
+            {
+                if (state.RoomX.HasValue && state.RoomY.HasValue)
+                {
+                    extrasMap = new Dictionary<string, object>
+                    {
+                        { "room_x", state.RoomX.Value },
+                        { "room_y", state.RoomY.Value },
+                    };
+                }
+                // Only sent while a trail is actually running. Omitting it while idle keeps the
+                // common frame the same size it was, and means "absent" and "no trail" agree
+                // rather than being two states a reader has to reconcile.
+                if (state.TrailMode.HasValue && state.TrailMode.Value > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["trail"] = state.TrailMode.Value;
+                }
+            }
+            object extras = extrasMap;
             object payloadState = state == null
                 ? null
                 : (object)new
@@ -502,6 +538,7 @@ namespace MeshGhostTevi
                                 Anim = (string)st["anim"],
                                 RoomX = (int?)extras?["room_x"],
                                 RoomY = (int?)extras?["room_y"],
+                                TrailMode = (int?)extras?["trail"],
                             };
                             onRenderRemote(playerId, remote);
                             break;

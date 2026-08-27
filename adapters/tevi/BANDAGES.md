@@ -107,6 +107,39 @@ now it is neither.
 that might carry a side effect" is still a rule written far from the code that would want that
 component later.
 
+### 6. The afterimage trail's CADENCE is ours, because a ghost has no `SpriteAnimation`
+
+`MeshGhostTevi/Plugin.cs`, `ApplyTrail()`. TEVI drives its afterimage trail from `SpriteAnimation`,
+which each frame computes a small mode and spawns a pooled `GhostEffect` at its own `trailRate`.
+**The proper call exists and is public** -- `SetTrail(t, rate, decay, haveEffect, order, pause)` --
+and it is deliberately not gated on `isPlayer()`, so it would work on a ghost.
+
+**We cannot reach it.** A peer ghost is a clone of `spranim_prefer.pixel.gameObject`, the pixel
+CHILD, so `SpriteAnimation` sits on a parent that was never cloned. There is no component to call
+`SetTrail` on.
+
+**What we do instead:** run the same loop ourselves -- accumulate `Time.deltaTime`, and every
+`0.07s` spawn `GemaPoolManager.Instance.CreateGhostEffect()`, hand it the ghost's current sprite and
+flip, and set decay and sorting order. **The effect object, its pool, its fade and its sprite are
+all still the game's.** Only the *timing loop* is reproduced, and its three constants
+(`trailRate 0.07`, `trailDecay 1.5`, `trailOrder 99`) are read from `SpriteAnimation`'s own
+defaults rather than tuned by eye.
+
+**Why this is registered rather than called finished.** It is a partial reimplementation of a rule
+the game already owns, which is exactly what `../CLAUDE.md` says to prefer not to do -- and the
+failure mode is quiet: if a future TEVI build changes `trailRate`, the player's trail changes
+density and a ghost's does not, which reads as a desync rather than as a stale constant. It also
+means anything the real component does that we have not noticed (a pause condition, a scale rule)
+is simply absent on a ghost.
+
+**The real fix, in preference order.** (1) Give the clone a genuine `SpriteAnimation` and call
+`SetTrail`, if one can be attached without the gameplay logic it expects. (2) Clone one level
+higher so the component comes with it -- which changes what a ghost IS and would need the position
+handling revisited, since `documentation.md` records that the drawn position hangs off the pixel
+child. Neither was attempted; the cadence version was confirmed working on screen first
+(`VERIFIED.md`, 2026-08-28) and the cost of the shortcut is written here so it is a decision rather
+than a default.
+
 ### 5. CLOSED 2026-08-27 — the send gate, the port walk, and the walk's own root-caused defect
 
 `BridgeClient.cs` handles `bridge_ready` and `reject` as of 2026-08-18 -- before that both fell

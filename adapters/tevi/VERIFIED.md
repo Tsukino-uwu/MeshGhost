@@ -65,6 +65,7 @@ filed under the right theme, but anything can check that it is listed.
 - Relay-restart auto-reconnect, real dry run
 - TEVI zone-transition ghost-invisibility fix, live confirmed
 - TEVI hot-reload dev loop — the adapter reloads in a running game, and the reload leaves no orphan ghost
+- TEVI afterimage trails sync to a peer ghost — by mirroring the game's own decision, not its moves
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -567,3 +568,43 @@ filed under the right theme, but anything can check that it is listed.
   cold start with `LoadOnStart = true` has not been watched, and anything that only goes wrong
   on a cold start is invisible to this loop by construction. dnSpy attaching to the armed Mono
   debugger server is untested. `../UNVERIFIED.md`.
+
+
+## TEVI afterimage trails sync to a peer ghost — by mirroring the game's own decision, not its moves
+
+- Date: 2026-08-28
+- What: TEVI spawns a trailing afterimage for several moves and a peer ghost showed none. It does
+  now. **USER-CONFIRMED ON SCREEN:** *"yee it works, trails are shown on ghosts"*, after a
+  quickdrop (airborne down + Z), which is the move the user named as showing a *"blue after
+  image"*.
+- How, and this is the part worth reusing: TEVI's `SpriteAnimation` recomputes a small mode every
+  frame from three PUBLIC values -- `cphy_perfer.moveSpeedBonusSlide`,
+  `cphy_perfer.moveSpeedBonusQuickDrop`, `playerc_perfer.HaveDodge()` -- and spawns its own pooled
+  `GhostEffect` from that. The adapter reads those same three values on the local player and sends
+  the resulting mode. **Mirroring the DECISION rather than enumerating moves is what makes every
+  move using the system work at once**, including ones nobody has tested, and it is
+  `effect-investigation.md`'s central lesson applied rather than re-learned.
+- The mode travels in the wire protocol's existing free-form `extras` dict, the same mechanism
+  `room_x`/`room_y` already use. **No protocol change, and nothing game-specific reached the
+  core** -- it forwards a number it cannot interpret (`contract.md`).
+- **The trap that was avoided, and it would have looked like a bug in the right place.** The
+  obvious read is `SpriteAnimation.GetTrail()`, which is public and named for exactly this. It
+  returns 0 during a quickdrop: the slide/quickdrop branch never writes that field, it recomputes
+  the mode live each frame. `GetTrail()` is read only as a THIRD condition, for the generic timed
+  trail any other game code may set.
+- **Why a ghost got nothing before:** the game's two move branches are gated on `isPlayer()`, and a
+  clone is not the player.
+- **This also confirms the hot-reload loop end to end** (user, same session): a real BEHAVIOUR
+  change -- a feature that did not exist -- reached a running game with no relaunch. The earlier
+  2026-08-28 entry only established that a reload was clean and left no orphan ghost; this
+  establishes that the loop actually delivers work.
+- Source: `MeshGhostTevi/Plugin.cs` (`ReadTrailMode`, `ApplyTrail`), `BridgeClient.cs`
+  (`RemoteState.TrailMode`). Names and the mode's own logic read from this machine's
+  `Assembly-CSharp.dll` with `ilspycmd` -- facts with a citation, no code copied
+  (`agent_docs/licensing.md`).
+- Notes: **the cadence is a registered compensation, not the game's** -- a ghost has no
+  `SpriteAnimation` (the clone is the pixel child), so the public `SetTrail` is unreachable and the
+  spawn loop is reproduced with the component's own constants. `BANDAGES.md` entry 6 carries the
+  cost and the two real fixes. **Scope: the quickdrop case is what was watched.** Slide (same mode)
+  and dodge (mode 2, the yellow one) follow from the same code path and were NOT separately
+  confirmed on screen.
