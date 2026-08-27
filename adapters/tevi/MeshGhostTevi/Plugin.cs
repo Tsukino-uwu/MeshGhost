@@ -87,6 +87,51 @@ namespace MeshGhostTevi
         // Edge-triggered on the transition, so it costs one line per menu open or close.
         private const bool DIAG_MENU_GATE = false;
 
+        // DIAG_SPAWN_DIFF answers "what does this move actually SPAWN?" -- the question behind the
+        // charged-attack gap, where a peer ghost plays the animation and no effect appears. It is
+        // the WORLD DIFF instrument from agent_docs/effect-investigation.md: snapshot what exists
+        // near a character, do the move on purpose, snapshot again, and read what appeared. Run it
+        // on BOTH instances at once and the two lists are the answer directly -- what appears near
+        // the local player on one, what appears near that same peer's ghost on the other, and the
+        // difference between them is the missing effect.
+        //
+        // IDENTITY, NOT COUNTS, deliberately (effect-investigation.md rule 4). Effects are usually
+        // pooled, and pooling defeats counting at both ends: re-use makes a new effect look old, and
+        // retirement makes an old one look new. Instance IDs cannot be fooled either way, and they
+        // separate "spawned two" from "counted one twice" -- which need opposite fixes.
+        //
+        // UNFILTERED BY NAME, also deliberately. A name filter is a guess about the answer, and a
+        // wrong guess still returns a complete-looking list. Everything inside the radius is logged;
+        // filtering happens afterwards, when reading.
+        //
+        // THE COST IS THE RISK HERE, so this probe measures itself: a scene enumeration is O(all
+        // objects), and a probe too expensive to run does not report being too expensive -- it
+        // reports nothing, which reads exactly like "the game spawned nothing". SpawnDiffCoverage
+        // prints scan time and object counts so a silent result can be told apart from an absent
+        // one. If the scan time is bad, raise SpawnDiffSampleInterval; do not trust a quiet log.
+        private const bool DIAG_SPAWN_DIFF = false;
+        // 20Hz. Fast enough that a one-frame effect is unlikely to appear and vanish between two
+        // samples, slow enough that the enumeration is not per-frame.
+        private const float SpawnDiffSampleInterval = 0.05f;
+        // World units. The loopback ghost offset is 160f (VERIFIED.md), so 400 comfortably contains
+        // a character and its effects while excluding most of the room.
+        private const float SpawnDiffRadius = 400f;
+        // Per-question budgets, never one shared pool: a shared budget is spent by whatever happens
+        // most often, which is never the rare thing being hunted (effect-investigation.md rule 7).
+        private const int SpawnDiffAppearBudget = 500;
+        private const int SpawnDiffDisappearBudget = 250;
+        private const float SpawnDiffCoverageInterval = 5f;
+        private float lastSpawnDiffSampleTime;
+        private float lastSpawnDiffCoverageTime;
+        private int spawnDiffAppearLines;
+        private int spawnDiffDisappearLines;
+        private int spawnDiffScans;
+        private int spawnDiffLastInRadius;
+        private int spawnDiffLastTotal;
+        private double spawnDiffScanMsTotal;
+        private double spawnDiffScanMsWorst;
+        private readonly Dictionary<int, string> spawnDiffSeen = new Dictionary<int, string>();
+
         // Diagnostic-only throttling. First attempt (position-change-triggered with a 0.5-unit
         // epsilon) still produced 7324 lines in one session: real per-frame movement deltas in
         // TEVI are themselves ~0.5-0.7 units (confirmed from that run's own log), so the epsilon
@@ -548,6 +593,135 @@ namespace MeshGhostTevi
             DespawnRemoteMapMarker(playerId);
         }
 
+        // PROBE, off unless DIAG_SPAWN_DIFF. See the flag's own comment for the question and the
+        // method. Reports APPEARED/DISAPPEARED GameObjects near a character, by instance id.
+        private void DiagSpawnDiff(CharacterBase player)
+        {
+            if (Time.time - lastSpawnDiffSampleTime < SpawnDiffSampleInterval)
+            {
+                return;
+            }
+            lastSpawnDiffSampleTime = Time.time;
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            // Anchors: the local player, and every peer ghost. Both are logged in one pass so a
+            // single instance's log carries "what appeared near me" and "what appeared near the
+            // ghost" side by side -- which is the comparison, and doing it in one pass means the
+            // two lists come from the same frames rather than from two runs that have to be
+            // trusted to match.
+            Vector3 playerPos = player.t.position;
+            var anchors = new List<KeyValuePair<string, Vector3>> {
+                new KeyValuePair<string, Vector3>("player", playerPos)
+            };
+            foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+            {
+                if (kv.Value.Go != null)
+                {
+                    anchors.Add(new KeyValuePair<string, Vector3>("ghost:" + kv.Key, kv.Value.Go.transform.position));
+                }
+            }
+
+            Transform[] all = FindObjectsOfType<Transform>();
+            var current = new Dictionary<int, string>();
+            foreach (Transform t in all)
+            {
+                if (t == null)
+                {
+                    continue;
+                }
+                Vector3 p = t.position;
+                string nearest = null;
+                float best = float.MaxValue;
+                foreach (KeyValuePair<string, Vector3> a in anchors)
+                {
+                    float d = (p - a.Value).sqrMagnitude;
+                    if (d < best) { best = d; nearest = a.Key; }
+                }
+                if (nearest == null || best > SpawnDiffRadius * SpawnDiffRadius)
+                {
+                    continue;
+                }
+                // NOT filtered by name. A name filter is a guess about the answer, and a wrong
+                // guess still returns a complete-looking list (effect-investigation.md).
+                current[t.gameObject.GetInstanceID()] =
+                    $"{t.name} parent={(t.parent == null ? "-" : t.parent.name)} "
+                    + $"near={nearest} d={Mathf.Sqrt(best):0} active={t.gameObject.activeInHierarchy} "
+                    + $"comps=[{DescribeComponents(t.gameObject)}]";
+            }
+            watch.Stop();
+
+            spawnDiffScans++;
+            spawnDiffLastTotal = all.Length;
+            spawnDiffLastInRadius = current.Count;
+            spawnDiffScanMsTotal += watch.Elapsed.TotalMilliseconds;
+            if (watch.Elapsed.TotalMilliseconds > spawnDiffScanMsWorst)
+            {
+                spawnDiffScanMsWorst = watch.Elapsed.TotalMilliseconds;
+            }
+
+            // The first sample has nothing to diff against and would otherwise report the entire
+            // room as "appeared", spending the whole budget before anything happened.
+            if (spawnDiffScans > 1)
+            {
+                foreach (KeyValuePair<int, string> kv in current)
+                {
+                    if (!spawnDiffSeen.ContainsKey(kv.Key) && spawnDiffAppearLines < SpawnDiffAppearBudget)
+                    {
+                        spawnDiffAppearLines++;
+                        Logger.LogInfo($"MeshGhost/probe spawn-diff: + id={kv.Key} {kv.Value}");
+                    }
+                }
+                foreach (KeyValuePair<int, string> kv in spawnDiffSeen)
+                {
+                    if (!current.ContainsKey(kv.Key) && spawnDiffDisappearLines < SpawnDiffDisappearBudget)
+                    {
+                        spawnDiffDisappearLines++;
+                        Logger.LogInfo($"MeshGhost/probe spawn-diff: - id={kv.Key} {kv.Value}");
+                    }
+                }
+            }
+
+            spawnDiffSeen.Clear();
+            foreach (KeyValuePair<int, string> kv in current)
+            {
+                spawnDiffSeen[kv.Key] = kv.Value;
+            }
+
+            // An instrument reports its own coverage, not just its findings: a quiet log has to be
+            // distinguishable from a scan that was too slow to catch anything or a budget that ran
+            // out. If the worst scan time is bad, RAISE SpawnDiffSampleInterval -- do not read the
+            // quiet log as "the game spawned nothing".
+            if (Time.time - lastSpawnDiffCoverageTime >= SpawnDiffCoverageInterval)
+            {
+                lastSpawnDiffCoverageTime = Time.time;
+                Logger.LogInfo($"MeshGhost/probe spawn-diff coverage: scans={spawnDiffScans} "
+                    + $"transformsInScene={spawnDiffLastTotal} inRadius={spawnDiffLastInRadius} "
+                    + $"anchors={anchors.Count} avgMs={(spawnDiffScans == 0 ? 0 : spawnDiffScanMsTotal / spawnDiffScans):0.00} "
+                    + $"worstMs={spawnDiffScanMsWorst:0.00} "
+                    + $"appearBudget={spawnDiffAppearLines}/{SpawnDiffAppearBudget} "
+                    + $"disappearBudget={spawnDiffDisappearLines}/{SpawnDiffDisappearBudget}");
+            }
+        }
+
+        // Component TYPE names only -- never their values. This is a "what is this thing" probe,
+        // and a value dump here would be both enormous and a different question.
+        private static string DescribeComponents(GameObject go)
+        {
+            Component[] comps = go.GetComponents<Component>();
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < comps.Length; i++)
+            {
+                if (i > 0)
+                {
+                    sb.Append(' ');
+                }
+                // A missing script leaves a null entry, and saying so is more useful than a gap.
+                sb.Append(comps[i] == null ? "<null>" : comps[i].GetType().Name);
+            }
+            return sb.ToString();
+        }
+
         private void Awake()
         {
             // What a tester reads when they are wondering whether the mod loaded at all, so it
@@ -737,6 +911,11 @@ namespace MeshGhostTevi
                 RoomX = roomX,
                 RoomY = roomY,
             });
+
+            if (DIAG_SPAWN_DIFF)
+            {
+                DiagSpawnDiff(player);
+            }
 
             if (DIAG_MENU_GATE && !hadPlayerLastFrame)
             {

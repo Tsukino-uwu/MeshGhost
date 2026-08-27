@@ -68,6 +68,26 @@ namespace MeshGhostTevi
         private readonly ConcurrentDictionary<int, DateTime> portCooldownUntil =
             new ConcurrentDictionary<int, DateTime>();
 
+        // A port that REFUSES the connection outright -- nothing listening -- also has to release
+        // the walk, and until 2026-08-28 nothing did. The walk advanced on a core that answered
+        // "busy", and on one that accepted then went silent, but a refusal only logged and left the
+        // cursor where it was. That is a DEADLOCK in combination with CoreLauncher, which returns
+        // early while the child it spawned is still running: an adapter could own a live core on
+        // one port, have its cursor parked on a different, empty one, and neither side could move.
+        // The launcher thought its job was done; the walk had nothing to move it. Found live that
+        // day, and invisible before it because the adapter's own core had always won the base port,
+        // so the cursor never sat anywhere empty.
+        //
+        // Counted rather than immediate, and that is the whole design of it. A refusal is the
+        // NORMAL first thing that happens on a cold start -- the adapter dials before its core has
+        // bound -- so advancing on the first one would walk the cursor off the base port every
+        // launch and the whole range would creep upward run after run. At ReconnectInterval (2s)
+        // this waits ~8s, comfortably past CoreLauncher's 5s spawn cooldown plus a bind, so a core
+        // that is merely still starting keeps its port and only a genuinely dead one loses it.
+        private const int RefusalsBeforeWalking = 4;
+        private readonly ConcurrentDictionary<int, int> portRefusals =
+            new ConcurrentDictionary<int, int>();
+
         // SILENCE IS NOT ACCEPTANCE. Something that accepts a TCP connection and never answers a
         // hello is far more likely an unrelated program holding a port in our range than a core,
         // and committing to it would strand the session with no ghosts and no explanation. 1.5s,
@@ -171,6 +191,21 @@ namespace MeshGhostTevi
             }
             lastConnectAttempt = now;
 
+            // A port that has refused us this many times running has nothing on it. Release the
+            // cursor BEFORE the cooldown scan below, so the freed port is a candidate for that
+            // scan rather than being reconsidered next tick.
+            if (portRefusals.TryGetValue(CurrentPort, out int refusals) && refusals >= RefusalsBeforeWalking)
+            {
+                int dead = CurrentPort;
+                portRefusals[dead] = 0;
+                AdvanceWalkPast(dead);
+                // Named, because the refusal message itself cannot name it -- see the catch in
+                // ConnectAndReadLoop. A walk with no port in the log is what made the 2026-08-27
+                // churn so hard to attribute.
+                Log($"MeshGhost: nothing has answered on bridge port {dead} in {refusals} attempts " +
+                    $"-- walking on to {CurrentPort}.");
+            }
+
             // Skip ports a core has already refused us on, unless every port is cooling down --
             // in which case dial anyway rather than going silent, since a cooldown is an
             // optimisation and never a reason to stop trying.
@@ -216,6 +251,7 @@ namespace MeshGhostTevi
         private void ConnectAndReadLoop(int generation, int dialPort)
         {
             TcpClient c = null;
+            bool establishedThisDial = false;
             try
             {
                 c = new TcpClient();
@@ -230,6 +266,10 @@ namespace MeshGhostTevi
                 client = c;
                 stream = c.GetStream();
                 connected = true;
+                establishedThisDial = true;
+                // Something answered here, so this port is not dead. Reset rather than decrement:
+                // the counter means "consecutive failures", and one success ends the run.
+                portRefusals[dialPort] = 0;
                 // Not written here: NetworkStream isn't safe for concurrent writes from this
                 // background thread and the main thread's SendLocalState, so the actual send is
                 // deferred to SendHelloIfNeeded, called from Update() on the main thread, same
@@ -264,7 +304,19 @@ namespace MeshGhostTevi
             }
             catch (Exception e)
             {
-                Log($"MeshGhost: bridge connection ended: {e.Message}");
+                // The port belongs in this line. Without it the log said only "actively refused"
+                // over and over, which cannot distinguish "the cursor is stuck on one dead port"
+                // from "the walk is sweeping a range that is genuinely empty" -- and those want
+                // opposite responses. That ambiguity is what made the 2026-08-28 deadlock read as
+                // a networking problem for several minutes.
+                Log($"MeshGhost: bridge connection ended on port {dialPort}: {e.Message}");
+                // Only a dial that never got a live connection counts as a refusal. A connection
+                // that established and later dropped says nothing about whether the port is dead,
+                // and counting it would eventually walk the cursor off a perfectly good core.
+                if (!establishedThisDial)
+                {
+                    portRefusals.AddOrUpdate(dialPort, 1, (_, prev) => prev + 1);
+                }
             }
             finally
             {

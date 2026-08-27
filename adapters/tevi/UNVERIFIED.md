@@ -36,6 +36,42 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
+
+**The defect was observed, not theorised.** Both instances sat logging
+`bridge connection ended: ... actively refused` for minutes while their own cores were alive and
+listening on 7780 and 7781. Two mechanisms met:
+
+- `ConnectAndReadLoop`'s catch **logged a connection refusal and did nothing else** -- no cooldown,
+  no cursor advance. The walk advanced on a core that answered `busy`, and on one that accepted
+  then went silent, but never past a port with **nothing listening**.
+- `CoreLauncher.TickDisconnected` returns early while `ChildStillRunning()`, so having already
+  spawned a core it would not spawn another.
+
+So an adapter could **own a live core it could not reach**: the launcher thought its job was done,
+and nothing could move the cursor off an empty port. It stayed invisible because the adapter's own
+core had always won the base port, so the cursor never sat anywhere empty. It became reachable
+because a core was killed while the adapter's child lived elsewhere.
+
+**The fix**: a port that refuses `RefusalsBeforeWalking` (4) times running releases the cursor.
+Counted rather than immediate on purpose -- a refusal is the *normal* first thing on a cold start,
+when the adapter dials before its own core has bound, so advancing on the first would walk the
+cursor off the base port every launch and creep the whole range upward.
+
+**What IS confirmed (agent, from logs, Go/adapter-plumbing side):** normal recovery is
+unregressed -- killing a core produced one refusal, a respawn on the *same* port, and
+`bridge ready` again, with the cursor correctly not moving. And the failure line now **names the
+port** (`bridge connection ended on port 7778`), which it never did; without it the log could not
+distinguish "stuck on one dead port" from "sweeping an empty range", and those want opposite
+responses.
+
+**What is NOT confirmed: that the fix resolves the deadlock.** Re-staging it needs the adapter's
+child alive on a port *other* than the cursor, which could not be produced on demand. The recovery
+path is reasoned from the code, and the log line it would emit
+(`nothing has answered on bridge port N in M attempts -- walking on`) **has never been seen**.
+**What to look at:** if a session ever shows repeated refusals again, that line appearing within
+~8s is the fix working; its absence means this is still open.
+
 ## Pending -- the dev loop's COLD START has never been watched (2026-08-28)
 
 **The hot-reload half is CONFIRMED and moved to [`VERIFIED.md`](VERIFIED.md)** -- the reload works

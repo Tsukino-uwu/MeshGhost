@@ -36,6 +36,7 @@ the measurement that made it a rule.
 | Redraw trace | `DIAG_REDRAW_TRACE` | Whether a peer ghost's position, `activeInHierarchy` and scene drift *after* creation — written for the 2026-08-14 zone-transition invisibility bug, which is root-caused and fixed. | One line per remote every 2s, **forever** while on. | Yes, 2026-08-14 |
 | Marker staleness | `DIAG_MARKER_STALENESS` | How old the position each FullMap peer marker is showing actually is. | One line per marker per second, **only while the map is open**. | **No** |
 | Menu gate | `DIAG_MENU_GATE` | What the adapter can see at each play-session transition, and therefore what really distinguishes the pause overlay from the main menu. | One line per transition. | **No** |
+| Spawn diff | `DIAG_SPAWN_DIFF` | What a move actually **spawns** — every GameObject that appears or disappears near the player *and* near each peer ghost, by instance id. Written for the charged-attack gap, where the ghost animates and no effect appears. | A scene-wide `FindObjectsOfType<Transform>()` at 20Hz, plus one line per appearance. **Reports its own scan time**; raise `SpawnDiffSampleInterval` if that is bad. | **No** |
 
 **Two of the three have never been run.** That is their honest state and it is written here rather
 than left to be assumed: a probe that has never run proves nothing, and neither does its own output

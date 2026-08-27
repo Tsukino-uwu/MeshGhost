@@ -239,10 +239,26 @@ if ($Deploy) {
     $repoExe = Join-Path $repoRoot 'meshghost.exe'
     if (Test-Path $repoExe) {
         $exeTarget = Join-Path (Split-Path $target) 'meshghost.exe'
-        Copy-Item $repoExe $exeTarget -Force
-        $exeOk = (Get-FileHash $repoExe).Hash -eq (Get-FileHash $exeTarget).Hash
-        Write-Output "                core refreshed (hash match: $exeOk)"
-        if (-not $exeOk) { exit 1 }
+        # Already identical is the common case, and copying over a RUNNING core throws -- the exe
+        # is locked while a core is up, which is most of the time during a live session. Compare
+        # first, and treat a locked file as information rather than as a failure: an adapter
+        # reload does not need the core replaced, and aborting the deploy over it would stop the
+        # thing that actually was going to reload. Found live 2026-08-28, when this aborted a
+        # deploy mid-session.
+        $exeOk = (Test-Path $exeTarget) -and ((Get-FileHash $repoExe).Hash -eq (Get-FileHash $exeTarget).Hash)
+        if ($exeOk) {
+            Write-Output "                core already current"
+        } else {
+            try {
+                Copy-Item $repoExe $exeTarget -Force -ErrorAction Stop
+                $exeOk = (Get-FileHash $repoExe).Hash -eq (Get-FileHash $exeTarget).Hash
+                Write-Output "                core refreshed (hash match: $exeOk)"
+                if (-not $exeOk) { exit 1 }
+            } catch {
+                Write-Output "                WARNING: core is STALE and could not be replaced (a core is running from it)."
+                Write-Output "                  Stop the running core(s) and re-run -Deploy if the core changed."
+            }
+        }
         # go build/vet/test do NOT refresh the root .exe files -- this warns rather than building,
         # because rebuilding the Go side silently inside an adapter deploy would hide which
         # binary a reading came from.

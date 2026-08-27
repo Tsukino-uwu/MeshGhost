@@ -47,6 +47,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - An instrument that logs only its success path proves nothing (2026-08-27)
 - An aggregate over a mixed series invents a defect that is not there (2026-08-25)
 - A deploy that reports success can deploy nothing — three ways, one loop (2026-08-28)
+- Owning a live core you cannot reach — a walk that never advances past an empty port (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

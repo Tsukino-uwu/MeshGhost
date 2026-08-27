@@ -512,6 +512,43 @@ result into a measurement of the previous build.
 **Cross-reference:** `adapters/tevi/VERIFIED.md`, "TEVI hot-reload dev loop"; the loop itself is
 `dev-scripts/tevi-hotreload.ps1`, whose header carries the two limits that remain.
 
+
+## Owning a live core you cannot reach — a walk that never advances past an empty port (2026-08-28)
+
+**Symptom.** Two TEVI instances logged `bridge connection ended: ... actively refused` on repeat
+for minutes, with no ghosts, while `netstat` showed each instance's OWN core alive and listening
+on a bridge port in range. Every component looked healthy in isolation.
+
+**Cause: two correct early-returns meeting.** The adapter's port walk advanced when a core
+answered `busy`, and when one accepted then went silent -- but a connection **refusal** only
+logged. Nothing moved the cursor off a port with nothing listening. Meanwhile the core launcher
+returns early while the child it spawned is still running, so having already spawned a core it
+would not spawn another. Result: an adapter **owning a live core it could not reach**. The
+launcher thought its job was done; the walk had nothing to move it. Neither half is wrong alone.
+
+**Why it stayed hidden.** The adapter's own core had always won the base port, so the cursor never
+sat anywhere empty. The bug needed a core to die while the adapter's child lived on a *different*
+port -- which only happened once a hot-reload loop made killing and respawning cores routine.
+**A new dev loop is a new set of orderings**, and it will find interleavings the old one could not
+reach. That is a reason to expect bugs when the loop changes, not a reason to distrust the loop.
+
+**The fix, and why it is counted rather than immediate.** A port that refuses N times running
+releases the cursor. It cannot advance on the FIRST refusal, because a refusal is the normal first
+thing that happens on a cold start -- the adapter dials before its own core has bound. Advancing
+immediately would walk the cursor off the base port on every launch and creep the whole range
+upward run after run. The threshold has to exceed the spawn-plus-bind window, so it is derived
+from the launcher's own cooldown rather than picked.
+
+**The instrumentation lesson, which is the transferable one.** The failure line did not name the
+port. `bridge connection ended: actively refused`, repeated, cannot distinguish *"the cursor is
+stuck on one dead port"* from *"the walk is sweeping a range that is genuinely empty"* -- and those
+want opposite responses. It read as a networking fault for several minutes. **A message about a
+resource must name the resource**; a retry log without the target is a log that cannot be
+diagnosed from.
+
+**Cross-reference:** `adapters/tevi/BridgeClient.cs` (`RefusalsBeforeWalking`, `portRefusals`),
+`adapters/tevi/UNVERIFIED.md` -- the fix's own recovery path is reasoned, not reproduced.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
