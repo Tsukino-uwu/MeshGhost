@@ -8,8 +8,11 @@
 > `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
 > while the phase ran.
 
-**Status: 7.0-7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two real players on
-two machines, with the Linux tester. Started 2026-08-12. Per
+**Status: 7.0-7.8 done, and the adapter was declared FEATURE COMPLETE by the user on 2026-08-27**
+(scope written down in `adapters/pseudoregalia/VERIFIED.md`). 7.7 (real two-player test) confirmed
+2026-08-16 — two real players on two machines, with the Linux tester. Started 2026-08-12. **This
+file's task list ends at 7.8; work after 2026-08-17 has no phase number** — see the pointer at the
+bottom for where it lives. Per
 `agent_docs/README.md`'s convention: a phase
 earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
 the task-by-task record.
@@ -1895,10 +1898,19 @@ form: `adapters/pseudoregalia/README.md` steps 36-41.
 
 ## Pseudoregalia work after this file's last entry (pointer, added 2026-08-17)
 
-This file's narrative stops at the blue trail. Later Pseudoregalia work is real but recorded
-elsewhere, so a reader reaching the end doesn't take that as "nothing since": autostart (the mod
-starts the client itself, Windows and Proton), the ghost's camera rig identified by `OwningActor`,
-ghosts no longer rendering through walls, the bridge port walk, and the slide pose moving from the
-+43 render-Z bandage to the game's own crouch path (2026-08-17). Evidence: `agent_docs/verified.md`;
-build-log form: `adapters/pseudoregalia/README.md` steps 42-44; what is still open:
-`agent_docs/status.md`.
+This file's narrative stops at the blue trail, and its task list stops at 7.8. Later Pseudoregalia
+work is real but recorded elsewhere, so a reader reaching the end doesn't take that as "nothing
+since". **Nothing after this file has a phase sub-number** — there is no 7.9.
+
+- **To 2026-08-17**: autostart (the mod starts the client itself, Windows and Proton), the ghost's
+  camera rig identified by `OwningActor`, ghosts no longer rendering through walls, the bridge port
+  walk, and the slide pose moving from the +43 render-Z bandage to the game's own crouch path.
+  Build-log form: `adapters/pseudoregalia/README.md` steps 42-44.
+- **2026-08-27**: nine confirmed entries ending in the user declaring the adapter **feature
+  complete** — the duplicate HUD, the blob shadow, heal placement, the ghost-damages-player fix,
+  autostart's closed-port bug, the charge glow, the ranged projectile, death/pit/hurt/respawn, and
+  the afterimage outline. README steps 45-53.
+
+Evidence for both: **`adapters/pseudoregalia/VERIFIED.md`** — the adapter ledgers were split out of
+`agent_docs/verified.md` on 2026-08-25, and that file now keeps only the Go side and cross-game
+entries. What is still open: `adapters/pseudoregalia/UNVERIFIED.md`, then `agent_docs/status.md`.

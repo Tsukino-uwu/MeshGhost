@@ -17,11 +17,11 @@ This is [CLAUDE.md](../../CLAUDE.md)'s standing rule — *is this fine sitting i
 forever?* — applied to prose. No, or merely unclear, means out. Full guidance and the two edge cases
 worth knowing: [adapters/_template/README.md](../_template/README.md).
 
-> Everything here is **measured from a running game** during Phases 2, 5 and 7 (2026-08-11 onward),
-> using engine reflection against a running instance to learn real type and member *names*. This
-> game has **no public source**, and no decompiled or disassembled material was used in producing
-> it. **No asset content or verbatim dump is reproduced here** — only facts, per
-> `agent_docs/licensing.md` (assessed 2026-08-17).
+> Everything here is **measured from a running game** during Phases 2, 5 and 7 and the work that
+> followed them (2026-08-11 through 2026-08-27), using engine reflection against a running instance
+> to learn real type and member *names*. This game has **no public source**, and no decompiled or
+> disassembled material was used in producing it. **No asset content or verbatim dump is reproduced
+> here** — only facts, per `agent_docs/licensing.md` (assessed 2026-08-17, re-checked 2026-08-27).
 
 **What this file is: how *the game* does things.** Slide, crouch, wall ride, the trail — what each
 move actually does to the character, which fields carry it, and which components it moves. Written
@@ -42,6 +42,8 @@ listings; the code is one click away and stays the source of truth.
 | `PLAYER_FIELDS.md` | Which fields exist, which we sync, how to promote one |
 | `BANDAGES.md` | Where we compensate instead of reproducing the mechanism |
 | `VERIFIED.md` | Dated evidence behind every claim here |
+| `UNVERIFIED.md` | What is believed to work but nobody has watched yet |
+| `FLAGS.md` | Which compile-time switch turns each of these on |
 
 ## Standing rule: everything in here must be fine on a public repo, forever
 
@@ -131,17 +133,28 @@ The capsule halves; its centre falls by exactly what it lost, so the bottom stay
 hang-distance shrinks by the same 43, so the mesh stays put too. **She never moves down — she gets
 shorter around a fixed point on the floor.**
 
-**Duration is fixed: 87 ticks**, ~0.58s at this build's ~150Hz, consistent across four timed runs.
+**Duration is fixed at 87 ticks**, consistent across four timed runs, and separately **~600ms**,
+consistent across 26 timed repeats (mean 624ms — see the held-slide section below). Those are the
+same fact measured two ways and they agree: this build's frame rate is not fixed, ranging roughly
+**150-180Hz**, at which 87 ticks spans 483-580ms. **Count the slide in ticks, not milliseconds** —
+the tick count is what holds still.
+
 A Blueprint `Timeline` float track runs `1.0 → ~0.17` through a slide and is completely untouched
 by a crouch, so it is slide-specific — most likely the speed curve. Unidentified beyond that.
 
-**Detecting it:** `CapsuleHalfHeight < 50 && moveState != 2`. The shrink is a physical fact of the
-move; the enums alone are not safe (see Crouch).
+**The shrink is the invariant, the enums are not.** `CapsuleHalfHeight` dropping below ~50 is a
+physical fact of the move that nothing else in the game produces except a crouch, whereas the state
+enums demonstrably overlap between moves (see Crouch, and the trail's four rebuilt triggers in
+`VERIFIED.md`). Anything that needs to know a slide is happening should ask the capsule and
+disambiguate on `moveState`, not the other way round.
 
-**It is not Unreal's crouch.** `bCanEverCrouch` reads **false** on her movement component, which
+**It is not Unreal's crouch.** `bCanEverCrouch` reads **false** on the movement component, which
 disables the engine feature outright — `bWantsToCrouch` is ignored, no resize happens, no
 `OnStartCrouch` fires. Every value above is the game's own code doing it by hand, and the `+1` in
 the mesh law is the fingerprint: engine crouch would seat the mesh exactly at the capsule bottom.
+*Confidence: high for the class, and the citation is worth stating precisely — the reading was taken
+on a second instance of the same pawn class rather than on the one the player is driving. It is a
+class default, so it holds for both, but no direct reading on the player's own instance exists.*
 
 ### Sliding: a held slide is a chain of repeats, not one long one
 
@@ -193,8 +206,8 @@ forward momentum; a crouch is that pose standing still.
 
 **The game does not set the mesh offset once per transition — it *maintains* it, continuously, from
 the character's own crouch state.** That is the single most useful fact about this mechanic, and it
-is measured rather than inferred: an external write to the mesh is undone within about one tick
-while the character is standing, and the same write *sticks* while it is crouched. The offset is a
+is measured rather than inferred: the offset is restored within about one tick whenever it disagrees
+with a standing character, and left alone whenever it agrees with a crouched one. The offset is a
 value the game keeps, not one it leaves lying around.
 
 Three pieces, and they are only separable in principle:
@@ -212,9 +225,11 @@ Three pieces, and they are only separable in principle:
 
 **None of this goes through Unreal's built-in crouch.** `bCanEverCrouch` is false, so `Crouch()`,
 `OnStartCrouch` and the engine's own capsule resize never run — the game reimplements all of it.
-That is why engine-level levers (`CapsuleHalfHeight`, `bWantsToCrouch`, `BaseTranslationOffset`) do
-nothing here even when they write successfully: they are outputs or dead inputs, and the state above
-is the live one.
+The consequence is that the engine's own crouch levers (`CapsuleHalfHeight`, `bWantsToCrouch`,
+`BaseTranslationOffset`) are outputs or dead inputs here rather than controls: `bIsCrouched` plus
+the timeline above is the live state. *Confidence: high for `bCanEverCrouch` and the reimplementation;
+the levers were each measured inert on a pawn nobody was possessing, which is where the maintenance
+loop above does not run either — so "inert" is established for that case and inferred for the other.*
 
 *How MeshGhost reproduces this on a ghost is deliberately not described here — see `BANDAGES.md`
 and `VERIFIED.md`. This file is what the game does.*
@@ -248,11 +263,22 @@ measure `(1.000, 0.888, 0.260)`, ultra images `(0.000, 0.787, 1.000)`.
 > **Fields** `afterImagesToSpawn` (int) · `afterimageColor` (`FLinearColor`)
 > **Function** `spawnNumAfterimages` — `Plugin.cpp`, `call_spawn_num_afterimages`
 
-Unusually direct, as game mechanisms go. `afterImagesToSpawn` is counted **down** by the game's own
-timer loop as it spawns, so any *increase* is the game starting a fresh burst and its value is the
-true burst size. `spawnNumAfterimages` performs the burst, spawning `BP_AfterImage_C` actors — the
-trail is **not** a particle system: the build's VFX catalog holds 58 Niagara systems and none of
-them is an afterimage.
+`spawnNumAfterimages` performs a burst, spawning `BP_AfterImage_C` actors — the trail is **not** a
+particle system: the build's VFX catalog holds 58 Niagara systems and none of them is an afterimage.
+Each actor carries a `PoseableMeshComponent` (a frozen snapshot of the character's pose), its own
+`Color`, and `copyActor`, a reference back to whoever it was copied from.
+
+**`afterImagesToSpawn` is counted *down* by the game's own timer loop as it spawns** — but it is
+**not** a reliable census of the trail, and that is the single most expensive thing to learn about
+this mechanic. Some afterimages come from a path that never touches the field at all: it stayed at
+zero across 12k ticks of ordinary sliding, and the ultra hop is one of the paths that bypasses it.
+*Confidence: high, and negative — measured across a whole session of real slides.*
+
+**The actors are pooled, not destroyed.** A spent afterimage is reclaimed and moved about one fade
+lifetime later, and the identical actor pointer comes back: measured 60-72 ticks apart, eight times
+across eight ultras. **None ever disappears**, so counting live `BP_AfterImage_C` actors counts the
+pool, not the trail — a fresh one is told apart by being born where the character currently is.
+*Confidence: high — pointer identity across eight runs.*
 
 `afterimageColor` is the base, customisable trail colour — measured yellow at
 `(1.000, 0.888, 0.260)`. It is the same field the third-party attire-ui-overhaul dash-colour picker
@@ -286,6 +312,178 @@ Leaving a pole moves to `moveState 1` / `MovementMode 3`. A brief
 
 ---
 
+## Health, and the HUD that shows it
+
+> **Fields** `CurrentHp` on the **GameInstance**, not on the pawn · `UI_HudRef` on the pawn
+> **We read it at** `Plugin.cpp`, the shared-health reader behind the death and hurt counters
+
+**No current health lives on the character.** A full reflection dump of the pawn returns only
+*config* — `healAmountPerDing`, `HPpiecesNeededForHeart`, `hitsToFill`, `healUpgrades`,
+`healMoveSpeed` — and the damage constants `lightAttackDamage` (15), `heavyAttackDamage` (50) and
+`projectileFullDamage` (45). None of them is state.
+
+The live value is `CurrentHp`, a double on the object the pawn holds as `As MV Game Instance Ref`.
+**A UE GameInstance is one object for the whole running game**, so there is exactly one health value
+in existence no matter how many characters are on screen.
+
+| | Value |
+| --- | --- |
+| Full | **80** |
+| A pit fall | costs exactly **5** — damage, not death |
+| Heal to full | writes 80 in one step |
+| Death / respawn | 0, then 80 |
+
+*Confidence: high — measured across one user-driven run covering damage, healing, death and
+respawn, and cross-checked against a control run. Found 2026-08-27.*
+
+**Loading a save does not rewrite `CurrentHp` — the value carries across save swaps.** Within one
+app session, switching save files (main menu → another save, a fresh one included) leaves the
+health at whatever the previous save last had, because the GameInstance outlives the swap and
+nothing in the load path resets the field. *Confidence: high — observed on screen 2026-08-27, and
+measured as the game's own behaviour by a control run with no ghost and no MeshGhost connection
+active; first noticed because a MeshGhost mirror briefly reacted to the carried-over value, which
+is how anyone would meet it.* A pit fall, death or heal after the swap moves it normally.
+
+**The HUD is built per pawn, and stores no health of its own.** The character's own `BeginPlay`
+constructs its health bar, adds it to the viewport, and keeps it as `UI_HudRef`. Across a whole run
+the only property that changes on that widget is `AnimationTickManager`, so it reads `CurrentHp`
+live every frame rather than caching it. Two consequences worth knowing before debugging anything
+health-shaped here:
+
+- **A second character of this class puts a second health bar on the screen**, initialised full, on
+  top of the first. A bar showing the wrong number therefore means the widget being *looked at* is
+  not the widget being *updated* — the value itself is fine.
+- **A widget's lifetime belongs to its parent, not to whoever holds a reference.** Clearing
+  `UI_HudRef` leaves the bar on screen with nobody pointing at it.
+
+*Confidence: high — user-confirmed on screen 2026-08-27.*
+
+## Taking damage, hits, and death
+
+> **Functions** `BPI_PerformDamageResponse(DamageType, attackDirection)` · `dieFade(DieNotRez)`
+> **Fields** `hitActorsArray` on the attacking pawn · `LastHitBy`
+> **We read it at** `Plugin.cpp`, the hurt and death mirrors
+
+**This game does not use Unreal's damage path at all.** `ApplyDamage` and its two siblings were
+hooked and **armed on 3 of 3, and never fired once** across attacks that demonstrably did damage;
+the victim's `LastHitBy` stays `<none>` through being hurt. Damage travels by Blueprint interface
+instead. *Confidence: high, and it is a negative worth trusting — three engine entry points, none
+of them ever reached.*
+
+**How a hit actually lands**, measured end to end:
+
+1. an attack montage's notifies run the attack code on the attacking pawn;
+2. that code queries **outward** for victims — the attacker's own collision is not involved;
+3. each victim found is appended to the **attacker's own `hitActorsArray`**;
+4. the attacker then calls `BPI_PerformDamageResponse(DamageType, attackDirection)` on the victim,
+   carrying a damage **TYPE, not an amount** — the victim decides what it costs;
+5. the victim's cost is applied to the single shared `CurrentHp` above.
+
+**`hitActorsArray` is not cleared between swings.** It is the game's own already-hit list, and a
+target already in it is not hit again — which is why a given attacker only ever lands its *first*
+blow on a given target. *Confidence: high — the array was read every tick through a charged attack
+with the victim's own object name visible in it, 2026-08-27.*
+
+`BPI_PerformDamageResponse` **paints the reaction rather than deducting the health**: `CurrentHp`
+was read immediately before and after the call across a session and never moved. *Confidence: high,
+measured; it is a negative, so it is worth re-measuring on another build.*
+
+**Death is an animated material parameter, not a particle effect.** Through a death the model is
+**never hidden** (`hidden=false visible=true` throughout) while three of its material slots become
+`MaterialInstanceDynamic`. The function that runs it is `dieFade`, whose single `DieNotRez` bool
+distinguishes dying from resurrecting. *Confidence: high — two probes, one showing the mesh is never
+hidden and one naming the function; user-confirmed on screen 2026-08-27.*
+
+Effects around a death, all measured from a pit-fall capture:
+
+| Effect | How the game places it |
+| --- | --- |
+| `NS_BasicBurst` | world-spawned at the death point — **a generic hit burst that also fires in ordinary combat**, so it is not a death marker |
+| `NS_DustLand` | world-spawned at the landing point, and fires on ordinary landings too |
+| `NS_RespawnSafe` | attached to the `CapsuleComponent` at zero offset — the aura around the character |
+
+`startBlink` is **not** any of this: its reflected locals are a `RandomFloatInRange` and a timer, and
+it is the character's **eyes**. The third time a name in this game has pointed the wrong way, after
+`AnimGraphNode_Trail` (stock bone-physics dangle, not the trail) and `NS_Healing`.
+
+## Healing
+
+> **Effects** `NS_Healing` (attached) · `NS_HealWave`, `NS_HealEndwave` (world-spawned)
+
+The body aura attaches to the `CapsuleComponent`. **The two wave effects attach to nothing** — they
+are owned by `WorldSettings` with no attach parent, carrying plain world coordinates, which is why
+they stay where they were raised instead of following the character. Measured against the
+character's own actor origin in the same second:
+
+| Effect | Offset from the character's origin |
+| --- | --- |
+| `NS_HealWave` | ≈ (−8.5, +49, **+100**) — the top of the model |
+| `NS_HealEndwave` | ≈ (0, 0, **+10**) |
+
+For scale, the feet are at −66, so the two are a whole character apart. The horizontal component is
+in the performer's facing frame; a single sample cannot recover which way they were pointing.
+*Confidence: high for the attachment and the heights, user-confirmed on screen 2026-08-27; the
+horizontal offset is one sample.*
+
+## The charged attack and the ranged shot
+
+> **Effect** `NS_ProjectileCharged`, on `VisualMesh` at the **`handslot_R`** socket
+> **Actor** `PRJ_PlayerCutter_C` (`/Game/Blueprints/Projectiles/PRJ_PlayerCutter`), carrying
+> `NS_PlayerProjectileWeak`
+
+The charge glow hangs off a **bone socket in the character's hand**, which is why it reads as being
+on the sword rather than centred on the body.
+
+The shot itself is a separate world actor: **exactly one instance per shot**, its `Owner` is
+`<none>` on every one ever logged, and its **`Instigator` is the firing pawn** — the instigator is
+the only thing that says who fired it. Flight and wall bounces are resolved by the actor's own
+`ProjectileMovementComponent`.
+
+**Two traps, both measured:**
+
+- **Its lifetime belongs to the game** — it is destroyed on impact. Anything holding a pointer to
+  one is holding a pointer that will be freed underneath it.
+- **The actors are pooled, so existence is not activity.** A spent projectile keeps existing with
+  the firing pawn still named as its instigator. A live shot is one whose `ProjectileMovement`
+  component is **active** — the same correction the recall glow needed, for the same reason.
+
+*Confidence: high — three watch sessions plus a user-confirmed run, 2026-08-27.*
+
+## The through-walls outline
+
+> **Fields** `bRenderCustomDepth`, `CustomDepthStencilValue`, `bRenderInMainPass` on `VisualMesh`
+> and `WeaponMesh` · **Function** the native `PrimitiveComponent:SetRenderCustomDepth`
+
+The blue silhouette the character shows through geometry is stock Unreal **custom depth**, not an
+effect: both meshes carry `bRenderCustomDepth=true` with `CustomDepthStencilValue=0` and
+`bRenderInMainPass=true`, and a post-process pass draws the outline wherever those pixels sit behind
+scene depth.
+
+Two things about it are non-obvious and cost real time to discover:
+
+- **`bRenderCustomDepth` is render-thread state.** Assigning the raw bool from the game thread can
+  leave an already-created render state still drawing; `SetRenderCustomDepth` is the setter that
+  propagates.
+- **Afterimages carry the outline too, and the game turns it on before it says whose they are.**
+  Custom depth is enabled on a `BP_AfterImage_C` **before** its `copyActor` is set — measured: the
+  first image of a session reached the following tick with `copyActor` still null. Anything that
+  needs to know which character an afterimage belongs to at the moment the outline goes on cannot
+  learn it from that field.
+
+*Confidence: high — both components read back the same flags, the silhouette is visible through
+geometry, and the ordering was measured live 2026-08-27.*
+
+## Animation montages
+
+The character's animation assets are prefixed `dreamLady_`; the pawn class itself is
+`BP_PlayerGoatMain_C`. The ground attack combo on this build is
+`dreamLady_Attack_GF1`/`GF2`/`GF3`/`GL2_Montage`, and the named ones elsewhere in this document's
+territory are `dreamLady_WeaponThrow_Montage` and `dreamLady_LedgeGrab_Montage`. A full dump found
+33 montages. The charged projectile throw uses a montage that has **still never been logged by
+name** — see Known unknowns.
+
+---
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:
@@ -301,6 +499,16 @@ Recorded so nobody re-runs a search that already came up empty:
   does with the negative portion is unexamined.
 - **`slideOverheadCheck`.** The pawn exposes it; that a slide under a low ceiling must keep her
   down is inference, not observation.
+- **`BPI_CombatDeath(dissolveDelay)` and `flash(justWeapon?)`.** Both were named by a function
+  census on the pawn while looking for the death fade, and neither has ever been called or watched.
+  They exist and their signatures are real; what they do is unexamined. `dieFade` is the one that
+  was measured, and it is what the death visual actually runs through.
+- **The charged projectile throw's montage.** The four ground-combo attack montages are known by
+  name (see Animation montages); the charged throw plays a different asset that has never appeared
+  in a log. Anything filtering montages by name will silently miss it — which is how it was noticed.
+- **What decides `NS_BasicBurst`'s meaning.** It fires at a death *and* roughly a dozen times in
+  ordinary combat as a generic hit burst, so the burst alone does not distinguish the two. Whatever
+  the game keys the difference on has not been looked for.
 
 ## Adding to this file
 

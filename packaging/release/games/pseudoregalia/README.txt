@@ -1,10 +1,16 @@
 MeshGhost -- Pseudoregalia setup
 =================================
 
-STATUS: EXPERIMENTAL. Ghost spawning, positioning, facing, and movement animations have
-all been confirmed working live, and as of 2026-08-16 so has a real session with two
-players on two separate machines. Still experimental because that is one session on one
-pair of machines, not broad testing. If something doesn't work, that's useful
+STATUS: FEATURE COMPLETE, but still EXPERIMENTAL. As of 2026-08-27 a ghost does
+essentially everything the character it copies does -- position, facing and the full
+animation set, the slide and crouch pose, wall riding, the afterimage trail in whatever
+colour the move actually produced, outfits, the Dream Breaker (equipped, thrown, and its
+landed glow), the healing and charge effects, the ranged shot, and dying and respawning.
+A real session with two players on two separate machines was confirmed 2026-08-16.
+
+Still experimental because that is a handful of sessions on one or two pairs of machines,
+not broad testing, and because a few known rough edges remain -- most visibly a brief
+black flash the moment somebody's ghost appears. If something doesn't work, that's useful
 information -- there's nowhere to report it yet, but don't assume it's your setup.
 
 What you need, once:
@@ -76,7 +82,7 @@ Setup, every time you play:
    The mod loads automatically via UE4SS either way, and tells MeshGhost which game it is
    on its own.
 2. Walk around. Once a friend joins the same server in the same room, you should see their
-   goat as a ghost -- correct position, facing, and movement animations.
+   goat as a ghost -- correct position, facing, animations, outfit and effects.
 
 Want to see it working rather than take it on faith? Read meshghost.log, which appears in
 the same mod folder. On WINDOWS you can also add "show_console": true to that config.json

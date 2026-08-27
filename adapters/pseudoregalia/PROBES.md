@@ -41,6 +41,13 @@ things on the bridge at once.
   fights the game's camera rig back to the player. Superseded by the C++ mod, kept because it is
   the last version where the whole adapter is readable in one file.
 
+**Its camera fight-back is the one thing in here not to copy.** That file's header still describes
+a `SetViewTargetWithBlend` hook forcing the view target back whenever a ghost spawn makes the game
+re-target. The approach was deleted 2026-08-16 for blocking every legitimate camera change forever
+after; what ships instead refuses only a switch to a rig whose `OwningActor` is a ghost, because
+the ghost bringing its own camera rig was the actual cause. See `BANDAGES.md` and `VERIFIED.md`.
+The file is history, and history includes the parts that were wrong.
+
 ## `probe_socket/` — can UE4SS's Lua reach a socket at all?
 
 Three deliberately staged scripts, each only run after the previous one came back safe. UE4SS

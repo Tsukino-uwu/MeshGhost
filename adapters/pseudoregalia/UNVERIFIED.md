@@ -36,50 +36,23 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## FOUND, then CORRECTED — health is `CurrentHp` on the GameInstance, and the ghost does NOT corrupt it
+## DRAINED 2026-08-27 — the health bar, and the ghost that could damage the player
 
-**The field, measured.** `CurrentHp` (Double) on the object the pawn holds as
-`As MV Game Instance Ref`. Max 80, exactly 5 per pit fall, heal restores to 80, death 0, respawn
-80. Found by diffing GameInstance snapshots across a run the user drove deliberately — attack for
-heal stock, pit repeatedly, heal to full, pit until death. It is not on the pawn: every
-health-shaped pawn property is config (`healAmountPerDing`, `HPpiecesNeededForHeart`, `hitsToFill`).
+Both halves of what used to sit here were closed and user-confirmed the same day, so the entry is
+gone rather than left to rot. Where each piece went:
 
-**The control experiment settled the rest, and it was the user's own design** (*"should we do a non
-ghost probe on losing/gaining health/current health? and then one with a ghost next to us?"*):
+- **The health bar stuck full** was the ghost's OWN HUD widget drawn over the player's, removed
+  with stock `RemoveFromParent`. `VERIFIED.md`, 2026-08-27. The shared-singleton theory really was
+  refuted, exactly as this entry argued — the value was never wrong, only the widget being looked
+  at. The control-experiment pair that proved it was the user's own design and is recorded there.
+- **The ghost damaging the player** was the game's own `hitActorsArray`, and the six candidates
+  this entry had ruled out are each kept as a recorded negative in `FLAGS.md`. `VERIFIED.md`,
+  2026-08-27.
+- **`CurrentHp`'s own measurements** (max 80, 5 per pit fall, where it lives, why the HUD caches
+  nothing) live in `PLAYER_FIELDS.md` and `documentation.md`, which is where a field belongs.
 
-| | `CurrentHp` value | health bar on screen |
-| --- | --- | --- |
-| **No ghost** | correct | **correct** — user-confirmed |
-| **With a ghost** | **correct** | **stuck visually full** |
-
-**So the shared-singleton theory is REFUTED.** `CurrentHp` moves correctly with a ghost present —
-damage, heal, death and respawn all land on the right values. The ghost is not writing the player's
-health. **The bug is the HUD display alone**, and everything built on the other reading is wrong:
-
-- Clearing `As MV Game Instance Ref` / `UI_HudRef` / `BP_HpHitable` / `LastHitBy` on the ghost
-  (`GHOST_DECOUPLE_SHARED_STATE`) — all four confirmed cleared in the log, no effect. **Separately
-  useful as a fact: clearing a cached pointer decouples nothing**, since any actor reaches the
-  singleton via `GetGameInstance()`.
-- Zeroing the ghost's damage fields — `lightAttackDamage` 15→0, `heavyAttackDamage` 50→0,
-  `projectileFullDamage` 45→0 all confirmed applied, and `obtainedProjectile?` was **already
-  false** — and the ghost still hits the player with its first charge attack. So the damage comes
-  from neither the pawn's damage numbers nor its projectile unlock flag.
-
-**Both fixes are still in place and both are unproven.** Neither made anything worse; neither did
-what it was built to do. They should be reverted rather than left as decoration unless a later
-finding justifies them.
-
-**Where to look next for the HUD**, and it is NOT another property hunt: the HUD stores nothing
-health-related (only `AnimationTickManager` moved across a whole run), so it reads `CurrentHp` live.
-A live reader showing a stale value means the widget on screen is not the one being updated, or its
-update stopped running. The ghost spawn briefly **possesses** the ghost and then re-possesses the
-player — a controller's pawn changing is exactly the kind of thing a HUD binds to. **Test whether
-the bar breaks at the moment the first ghost spawns**, which is cheap and needs no new instrument.
-
-**And the standing trap, recorded before anyone reaches for it:** now that `CurrentHp` is known,
-the tempting fix is to watch it and restore it. That is a bandage by this project's definition —
-restoring a value rather than preventing what changed it — and it would also be fixing the wrong
-thing entirely, since the value is already correct.
+Left here as a one-time marker because the entry was cited from `status.md` while it was open;
+delete it freely once nothing points at it.
 
 ## Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
 

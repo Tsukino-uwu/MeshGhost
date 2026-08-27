@@ -41,17 +41,35 @@ a slide, which drives the ghost through the game's own crouch path), `afterimage
 afterimage actor's own `Color` (the trail, ultra-hop blue included), the mirrored
 `CapsuleHalfHeight`, and the `land_count`/`jump_count`/`afterimage_count` pulse counters.
 
-**No known state gaps today** (`agent_docs/status.md` is the authoritative open list). The
-empty-hand recall glow and the ultra hop's blue trail — the two gaps this file used
-to name — are both done, as are the cling-gem effect and the thrown sword's own glow. This file's
-second half is the field-discovery work originally aimed at the (now-fixed) outfit/weapon gaps.
+### Added since, up to the 2026-08-27 feature-complete declaration
+
+| Wire key(s) | Reads | Notes |
+|---|---|---|
+| `montage`, `montage_count`, `montage_stop_count` | the peer's currently-playing AnimMontage, by asset path | The whole animation vocabulary rides one field rather than a per-move list. The pawn's own play function silently no-ops on a ghost; the engine's own one underneath it works. Counters are monotonic for the same reason `land_count` is — a montage starting and ending between two sends would otherwise vanish. README steps 29-31. |
+| `vfx` | which of the player's own Niagara effects are live right now | A comma-joined list of **compile-time KEYS** from `Plugin.cpp`'s `MIRRORED_EFFECTS` — an asset path never crosses the wire. STATE, not events: the full active set is resent every update, so a dropped datagram self-corrects. Confirmed rows: `heal`, `chg`, `hw`, `hew`, `rsp`, `dl`, `bb`. |
+| `prj`, `prj_vfx`, `prj_pos`, `prj_rot` | the peer's ranged projectile (`PRJ_PlayerCutter_C`) | Mirrored as the projectile's own **effect** along the sampled path, never as the game's actor — holding one crashed the game, because a projectile's lifetime belongs to the game. Attributed by `Instigator`, and requires its `ProjectileMovement` to be **active**, since this game pools actors. |
+| `death_count`, `hurt_count`, `blink_count` | edges on the shared `CurrentHp` | Pulse counters, not a health value — no health ever crosses the wire. A decrease drives the pawn's own `BPI_PerformDamageResponse` on the ghost; reaching zero drives `dieFade(DieNotRez)`. See the Health section below for why the counter shape is mandatory here. |
+| `recall_glow`, `bubble_charged` | booleans on the pawn | Mirror whether the real effect is *present* rather than re-deriving the rule that produces it. |
+
+Mirrored locally rather than over the wire: the ghost's `SpringArm.TargetArmLength`, sampled from
+the **local** player every tick (5000 against the ghost's class-default 100 — that arm length is how
+far the blob shadow may fall before its trace finds floor), and the removal of the ghost's own HUD
+widget and shared-state references. Both are properties of this game's pawn class, identical on
+every machine, so sending them would be sending a constant.
+
+**No known state gaps today, and the user declared the adapter FEATURE COMPLETE on 2026-08-27** —
+that declaration's exact scope, and what it explicitly does *not* cover, is written down in
+[`VERIFIED.md`](VERIFIED.md); [`UNVERIFIED.md`](UNVERIFIED.md) is the live open list. The empty-hand
+recall glow and the ultra hop's blue trail — the two gaps this file used to name — are both done, as
+are the cling-gem effect and the thrown sword's own glow. This file's second half is the
+field-discovery work originally aimed at the (now-fixed) outfit/weapon gaps.
 
 Worth noting for the recall glow specifically: it was blocked on a *precondition* — the `IsValid`
 guards in `manageRecallIdleFX` most plausibly want a real thrown-weapon actor, which the ghost had
 none of. The thrown-Dream-Breaker work below provided exactly that, and the retry landed: the mod
 now copies the real effect rather than re-deriving the rule (`RECALL_GLOW_ENABLED`, README step 35).
 
-## Ability → internal field map (schema only, not yet synced or behavior-confirmed)
+## Ability → internal field map (a 2026-08-15 schema dump — several rows have shipped since)
 
 Found via a real reflection dump (`Plugin.cpp`'s `dump_object_reflection`, gated behind
 `OBJECT_REFLECTION_DUMP`) against a live play session, 2026-08-15 — full citation and caveats in
@@ -61,6 +79,13 @@ the sync path, and several entries below only reached their current mapping afte
 initial name-based guess against actual gameplay knowledge — a plausible-sounding name was wrong
 more than once (see `VERIFIED.md` for the specific corrections). Treat every row as "confirmed to
 exist," not "confirmed to do what the name suggests."
+
+**The "not yet synced" framing this section was written under expired on 2026-08-27.** Left as a
+schema map because that is still what it is good for, but three of its rows have shipped since and
+should not be read as open work: the **Cling Gem** `wallRide*` cluster (the ghost runs the pawn's
+own wall-run, README step 25), and the **Strikebreak / Soul Cutter** row's `chargingVFX` and
+`obtainedProjectile?`/`projectileFullDamage` end — the charge glow and the ranged shot are both
+mirrored and both user-confirmed (`VERIFIED.md`, 2026-08-27). Every other row here is untouched.
 
 | Ability (in-game name) | Internal fields |
 |---|---|
@@ -98,9 +123,10 @@ to come from watching it live, not from the field's type:
    triggered by *calling a function* (spawn/activate), not by a value changing, so this needs
    finding and calling the real trigger function, not just copying a property.
 
-The next concrete step (not yet done): a live-*value* trace for the highest-priority subset —
-mirroring how `moveState` is already traced — to sort real fields into these three buckets with
-evidence instead of a guess.
+**That next step was taken** (README step 19): a live-*value* trace, mirroring how `moveState` is
+already traced, sorted the genuinely live fields from the persistent "obtained" flags and the static
+tuning constants. The three buckets above are the durable part of this section — they are the
+question to ask of any new field, and every feature added since has landed in one of them.
 
 ## Dream Breaker (weapon) visibility: FIXED, 2026-08-15 — worked example of why this was genuinely hard
 

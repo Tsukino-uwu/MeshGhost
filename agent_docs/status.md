@@ -157,18 +157,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   age, and has never been run. `tevi/UNVERIFIED.md`, `tevi/PROBES.md`.
 - **TEVI's send gate is CONFIRMED; its port walk is ROOT-CAUSED, FIXED and UNWATCHED** (2026-08-27).
   The reject named the walk cursor, not the connection's port. `tevi/BANDAGES.md` #5.
-- **Pseudoregalia: THE GHOST CAN DAMAGE THE PLAYER (first charged attack only) — the one open item
-  here that is not cosmetic.** Three candidates tried 2026-08-27; `hitActorsArray` is next. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia: health bar fixed and CONFIRMED — the ghost had its own HUD** drawn over the
-  player's. Health is `CurrentHp` on the GameInstance. `pseudoregalia/VERIFIED.md`, `PLAYER_FIELDS.md`.
-- **Pseudoregalia: healing + charge VFX mirror ships, unwatched in part** — white aura and one heal
-  wave confirmed by eye; second wave's placement, projectile visual and death VFX open. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia: the mod's core AUTOSTART did not fire** — bridge retried forever with nothing
-  listening; a real player would hit this. Not root-caused. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
-  not attributable to MeshGhost on the evidence. `verified.md` 2026-08-17.
-- **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the
-  2026-08-16 transition crash, which is fixed.
+- **Pseudoregalia's two unattributed crashes** — a hard crash after the pause menu opened twice, and
+  a `Fatal Error!` on exit that recurred 2026-08-27. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI: charged-attack VFX missing on the ghost** — animations play, effects don't.
   `tevi/UNVERIFIED.md`, `phase6.md` (2026-08-15).
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not

@@ -2,7 +2,7 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 85 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 86 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -55,7 +55,8 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 |---|---|
 | `SPAWN_BASED_GHOSTS` | Ghosts are spawned actors, called from the real game thread. `false` reverts to the older hijack-a-StaticMeshActor design, kept in case the world-leak crash ever reproduces. |
 | `GHOST_DESTROY_ON_DESPAWN` | A despawning ghost is destroyed (`K2_DestroyActor`) instead of being flung to `DESPAWN_PARK_Z`. Turned on 2026-08-17 once the premise for parking went stale: the "destroy silently no-ops" finding was a property of the *hijacked* actor, not of the build, and since Phase 7.6 the ghost is one we spawned. Falls back to parking when the call is not reflected, so the worst case is today's behaviour plus a log line. **The one thing it cannot rule out by itself is the historical "Fatal world leaks detected" crash** — see `BANDAGES.md`'s entry 0, whose whole argument rests on this flag being `true`. Note `DESPAWN_PARK_Z`'s own comment still says "NEVER destroy the actor": that comment is stale, and the value here is what wins. |
-| `GHOST_COLLISION_ENABLED` | **Listed here but `false` — the one row in this table that does not ship as `true`, kept together with the flags it gates.** **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus two `if constexpr` blocks (the `bCanBeDamaged` hurtbox disable and the Pawn-channel `Block` response) that compile out entirely, so this is a real revert. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
+| `GHOST_COLLISION_ENABLED` | **Listed here but `false` — the one row in this table that does not ship as `true`, kept together with the flags it gates.** **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus the `if constexpr` block re-typing the ghost's capsule and setting the Pawn-channel `Block` response, all of which compiles out entirely, so this is a real revert. **The `bCanBeDamaged` hurtbox disable used to be gated by this same flag and is now its own, `GHOST_HURTBOX_DISABLED` below** — they were one, which is how turning collision off silently changed damageability too. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
+| `GHOST_HURTBOX_DISABLED` | **The second row here that ships `false`, and it had no row at all until 2026-08-27.** Marks a ghost un-damageable on spawn (`bCanBeDamaged = false`). It used to be gated by `GHOST_COLLISION_ENABLED` above, which is exactly the problem: turning collision off silently turned damageability off too, and one flag hiding a second behaviour is how a "revert" stops being a revert. Split out and left `false` on the user's call, as a suspect in the "player takes no damage" symptom rather than a harmless safety net — see the write's own comment at the spawn site. **Missing from this register is itself the finding**: a flag with no row is a flag nobody audits. |
 | `WALLRUN_TRIGGER_TEST` | Ghosts trigger the game's wall-run. The feared self-propulsion (a ghost fighting its own network-authoritative position) did not materialise across three live rounds; the flag survives as the clean off-switch if a real remote peer ever shows it. |
 | `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` | The blue trail fires on the game's **own** observed afterimage spawns, not on any reconstructed rule. Three `actionState` theories and the capsule-shrink fact were all disproven live before this. |
 | `AFTERIMAGE_OBSERVE_COLOR` | Reads the trail colour from the real effect rather than guessing it. |
@@ -77,15 +78,24 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 
 ## Probes — off, and they must stay off
 
-46 flags, all `false` (the other 13 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
-`VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
-`DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
+45 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
+`_CENSUS`, `_HUNT`, plus `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`,
+`AFTERIMAGE_DISCOVERY`, `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
-**The arithmetic, so a future audit can check it in one pass:** 85 `constexpr bool` in
-`Plugin.cpp` — 84 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
-than set (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every
-shipped build without being written so. Of the 84: **25 written `true`** (Behaviour, above) and
-**59 written `false`** — 46 probes plus the 13 Dormant entries below.
+**The arithmetic, so a future audit can check it in one pass** — recounted 2026-08-27, after the
+outline work: **86** `constexpr bool` in `Plugin.cpp`, being 85 written plus
+`MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather than set
+(`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped build
+without being written so. Of the 85:
+
+- **26 written `true`** — Behaviour, above.
+- **59 written `false`**, splitting by name into **45 probe-shaped** and **14 not**.
+- Of those 14, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
+  `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and the
+  remaining **12 are the Dormant recorded negatives** below.
+- **The Dormant table has 16 rows, not 12**, and that is deliberate rather than a miscount: four
+  probe-shaped flags are also recorded there because their *findings* are what matters, not their
+  off-ness. A flag can be counted once and written up twice.
 
 **Recounted from the code 2026-08-27, and the count had drifted.** The previous figure of 58 was
 several flags stale before this session added any, so these numbers were measured with
@@ -136,6 +146,16 @@ Never leave a probe that *spawns* an effect enabled while judging that effect.
 **One `_TRACE` flag is deliberately on**: `STATE_SEND_TRACE`, listed under Behaviour above with
 its reasoning. It is a throttled log line, not a probe, and an audit that flips it to `false` on
 name alone breaks the ability to aim a synthetic-peer rig.
+
+**Known register/reality disagreement, found 2026-08-27: the `CAMERA_TRACE`-labelled log line is
+NOT gated by the `CAMERA_TRACE` flag.** The per-switch line inside the `SetViewTargetWithBlend`
+hook prints unconditionally — the flag reads `false` and the line appeared in a live session
+anyway, which is how this was noticed. Cost is one formatted line per camera switch (rare: spawns,
+cutscenes), and that same ungated line is what pinned the 2026-08-27 camera-pointer crash to its
+exact statement when the crash dialog carried no stack — so it has earned something. Still a
+defect by this file's own rule: gate it under the flag on the next FUNCTIONAL rebuild. Not fixed
+on the spot because the fix would have re-shipped an unwatched binary minutes after the user
+confirmed the current one, purely to remove a log line.
 
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS` is derived, not set: it is true whenever either montage
 probe is on, and exists so a probe run does not fight the adapter's own montage stops.

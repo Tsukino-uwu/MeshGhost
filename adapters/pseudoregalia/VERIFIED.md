@@ -9,10 +9,10 @@ frequently touched file in the repo.
 
 **The gate is unchanged, and it is the strict one.** Nothing adapter- or game-side on the
 BASE/VANILLA game goes in here until **the user has confirmed it on screen** — no probe log,
-console read or screenshot of yours substitutes, and neither does a clean test run. Measurements that are not yet confirmed live in
-[`../../agent_docs/unverified.md`](../../agent_docs/unverified.md) — the index to
-the per-game queues; this adapter has none of its own, which `_template/README.md` allows and
-`preflight.ps1` expects. A patched ROM (Archipelago and similar) is the agent's to confirm
+console read or screenshot of yours substitutes, and neither does a clean test run. Measurements
+that are not yet confirmed live in this adapter's own [`UNVERIFIED.md`](UNVERIFIED.md) (created
+2026-08-27 — this paragraph used to say the adapter had no queue of its own, and `preflight.ps1`
+now requires one per adapter). A patched ROM (Archipelago and similar) is the agent's to confirm
 visually; say so in the entry. The full rule is in [../../CLAUDE.md](../../CLAUDE.md).
 
 **Append-only.** Do not rewrite or delete an entry's original observation. Adding later
@@ -169,6 +169,9 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 — Death, the pit, the hurt reaction and the respawn: four effects, found by measuring rather than naming (user-confirmed)
 - 2026-08-27 — Pseudoregalia declared FEATURE COMPLETE by the user, with the scope written down
 - 2026-08-27 — A ghost's afterimage outline is at ZERO frames: refused at the enable call itself, not stripped after
+- 2026-08-27 (late session) — A hard crash on "retry last save": the VFX mirror's component map outlived its level (user-confirmed)
+- 2026-08-27 (late session) — A hard crash on starting a NEW SAVE: the camera fallback pointer, never cleared, dereferenced two levels later (user-confirmed)
+- 2026-08-27 (late session) — The ghost flinched on every save-file swap; and the carried-over health is the GAME's, proven by the user's control run (user-confirmed)
 
 ## Confirmed facts
 
@@ -4075,3 +4078,86 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
   across the confirming session — nothing slipped past the hook. `copyActor` read null even at
   sweep time throughout this session, so birth proximity carried attribution; on the loopback rig
   the ghost sits 150 units to the side, which keeps proximity exact.
+
+## 2026-08-27 (late session) — A hard crash on "retry last save": the VFX mirror's component map outlived its level (user-confirmed)
+
+- Date: 2026-08-27, the same evening as the feature-complete declaration.
+- Observed: the user, testing a comments-only rebuild: a `Fatal Error!` with a full stack trace on
+  "retry last save" — `game_thread_tick` → `tick_remote_mirrored_vfx` → `GetFunctionByNameInChain`,
+  `EXCEPTION_ACCESS_VIOLATION` reading a poisoned address. After the fix: *"the 'return to last
+  save' thing and 'going back to the main menu' worked fine"*.
+- **The cause**: `RemoteGhost::vfx_components` holds raw pointers to Niagara components the LEVEL
+  owns, and its only clear was the tick path's own teardown branch — the branch that dereferences
+  them. A transition freed every component while the map still named them; the next tick that
+  wanted one stopped called `Deactivate` on freed memory.
+- **The fix is the file's own established mechanism**: drop the references in the LoadMap PRE hook
+  (`release_all_ghosts`), the one moment guaranteed to be before the level's teardown — exactly how
+  the ghost pointer has always been kept safe, and how the thrown prop was fixed on 2026-08-16.
+  That hook's comment said it in advance: *"Anything actor-shaped added to RemoteGhost in future
+  belongs in these lines too."* The 2026-08-27 VFX mirror shipped without being added. Third
+  instance of the family. `release_ghost` (peer despawn) got the same clear, and
+  `projectile_component` was added to the hook as well — it survives today only via its tick path's
+  world-staleness check, a weaker guarantee than dropping the pointer before teardown.
+- Notes: the crash was NOT introduced by that day's earlier work — the map was born uncleared when
+  the mirror shipped. It surfaced now because "retry last save" with active mirrored VFX had never
+  been done. An audit of every pointer member on `RemoteGhost` followed; all are now covered.
+
+## 2026-08-27 (late session) — A hard crash on starting a NEW SAVE: the camera fallback pointer, never cleared, dereferenced two levels later (user-confirmed)
+
+- Date: 2026-08-27, immediately after the entry above.
+- Observed: the user: an EMPTY `Fatal Error!` dialog — no stack — *"whenever i stared a 'new game'"*,
+  reproduced as: main menu → delete an old save → new game on that slot, crashing the moment the
+  new save loaded. Their own theory on report: *"so its probly camera/cutscene related ?"* — which
+  is what it was. After the fix: *"no crashing anymore"*.
+- **The log pinned the line without a stack.** `owned_by_ghost=YES` printed, then NEITHER of the
+  two prints that follow it in the refuse branch appeared — the game thread died between them, at
+  `last_non_ghost_view_target->IsUnreachable()`. The ~20s of healthy bridge lines after it were
+  UE4SS's own thread still ticking under the error dialog.
+- **The cause**: `last_non_ghost_view_target` remembers the last view target the game chose for
+  itself so a refused ghost-rig switch can be redirected somewhere real. It is a raw pointer to a
+  LEVEL-owned camera and was never cleared — after ZONE_Dungeon → TitleScreen → ZONE_Dungeon it
+  named an actor two teardowns dead. The new level spawned a ghost, the game switched to the
+  ghost's rig, the refuse branch ran, and the "validity check" dereferenced freed memory.
+- **Why "retry last save" never crashed here while a new save did** — the user's observation, and
+  the diagnostic key: reloading the SAME level tends to hand the allocator the same addresses back,
+  so the stale pointer survives by luck; the intervening TitleScreen is what makes the old camera
+  genuinely gone. A stale-pointer bug that same-level reloads cannot reproduce.
+- **`IsUnreachable()` is not a validity check — third finding of the same fact in this file**
+  (release_ghost's crash, the projectile prop, now this): it is only meaningful on an object that
+  is still ALLOCATED. The fix is the same clear in the LoadMap PRE hook. Fourth member of the
+  never-cleared-handle family.
+- Notes: the earlier audit had FOUND this pointer and deferred it as "latent, nothing attributed" to
+  avoid touching the camera minutes before a live test. It was the very next crash. When an audit
+  turns up an instance of a bug family that has already crashed twice, the audit is the evidence —
+  fix it then.
+
+## 2026-08-27 (late session) — The ghost flinched on every save-file swap; and the carried-over health is the GAME's, proven by the user's control run (user-confirmed)
+
+- Date: 2026-08-27, closing the same session.
+- Observed: the user, after the two crash fixes: *"the ghost is getting 'hit/hurt' whenever i swap
+  between save files now"*. After the fix: *"this worked"* — and the real hurt reaction was
+  deliberately re-confirmed with a pit fall afterwards: *"yes, this still works fine"*, so the fix
+  did not cost the feature.
+- **The cause**: the hurt mirror fires on any DECREASE in the shared `CurrentHp`, and the sender's
+  baseline (`last_seen_hp`) was a function-local static that survived save swaps. A save-file swap
+  rewrites the GameInstance singleton wholesale, so arriving in a save with less health than the
+  one just left counted as damage and the ghost flinched. Not a hit — a stale baseline straddling a
+  boundary it should never straddle. Not caused by that night's fixes either: swapping saves with a
+  ghost present had simply never been done before the mirror existed.
+- **The fix**: the hurt/death baselines became plugin members and are invalidated in the same
+  LoadMap PRE hook (−1 = prime on next read, compare on the one after). The COUNTERS deliberately
+  keep running — they are monotonic on the wire, and a reset would make a receiver that has seen a
+  higher value silently swallow real hurts until the count caught back up.
+- **A second instance found by the fix's own audit**: the receiver baselines `last_seen_land/jump/
+  montage` on a peer's FIRST sample so a mid-session joiner does not replay old events at spawn —
+  and the day's new hurt/death/blink counters had never been added to that list. A peer hurt before
+  their ghost existed would have flinched it at spawn. Added.
+- **The health value carrying across saves is the BASE GAME's behaviour, and the user's control run
+  is what proved it**: with the relay stopped so no ghost could spawn and nothing of MeshGhost
+  active in the world, swapping saves still left `CurrentHp` at the previous save's value —
+  *"still happened. so its not from our mod i guess ?"* Correct: the mod never writes that field
+  (every access re-audited: all reads; the mirror's tripwire never restores). Recorded as a game
+  fact in `documentation.md`'s health section. The mirror reacting to it was how anyone would first
+  meet this; the mirror was wrong to react, and only that was fixed.
+- Notes: same control-experiment shape as the health-bar investigation earlier the same day — one
+  run without the suspect, one with — and it exonerated the mod in a single swap.

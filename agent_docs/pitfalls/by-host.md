@@ -882,6 +882,38 @@ characterised, will keep turning into that system's other problems.
   The single-object version of this code had been correct since the ghost was first spawned
   (2026-08-13); adding a companion object later silently broke it.
 
+**2026-08-27, two more instances the same evening — the entry above is now a FAMILY, and this is
+what it predicts.** The 2026-08-27 feature sweep (VFX mirror, camera fallback, hurt/death counters)
+shipped three new pieces of level-outliving state, and none joined the LoadMap PRE clear; two
+crashed the game the first evening they were exercised across a transition, and the third flinched
+the ghost on every save swap:
+
+- **`vfx_components`** (a map of raw pointers to level-owned Niagara components): its only clear
+  was the tick path's own teardown branch — the branch that *dereferences* the pointers. "Retry
+  last save" freed the components; the next stop request called `Deactivate` on freed memory. Full
+  stack in the crash dialog; fixed with the same PRE-hook clear.
+- **`last_non_ghost_view_target`** (the camera fallback): plugin-level rather than per-remote,
+  which is exactly why the per-remote audit habit missed it — sweep PLUGIN members too, not just
+  the tracking struct. Its dereference sat behind `IsUnreachable()`, the check this entry already
+  calls out as not-a-guard; **third time that finding has been paid for**. The crash dialog was
+  EMPTY (died inside engine camera code), and the line was pinned by which log prints appeared
+  around it — instrument output brackets a crash even with no stack.
+- **The diagnostic key for the camera one**: "retry last save" never crashed while "new game" did,
+  every time. Reloading the SAME level tends to hand the allocator the same addresses back, so a
+  stale pointer survives by luck; an intervening OTHER level (TitleScreen) is what makes the old
+  object genuinely gone. **A stale-pointer bug that same-level reloads cannot reproduce is still
+  live** — test transitions through a different level before calling one absent.
+- **Baselines are handles too.** The hurt counter's `last_seen_hp` static survived save swaps, and
+  a save swap rewrites the GameInstance's health wholesale — so the new save's lower value read as
+  damage and the ghost flinched. Same family, value flavour: any "previous value of engine state"
+  kept across the PRE hook is stale for the same reason a pointer is. Invalidate baselines there;
+  never reset the monotonic counters themselves, or receivers swallow real events until the count
+  catches back up.
+- **When an audit finds a family member, fix it then.** The camera pointer was FOUND by the
+  post-crash audit and deferred as "latent, nothing attributed to it" to avoid touching the camera
+  before a live test — and it was the very next crash. Two prior crashes from one family make the
+  audit itself the evidence; deferring the found instance just chooses which session pays for it.
+
 ### Cross-adapter issues that were fixed in the core, not the adapter
 
 Found while building an adapter, but the fix belonged in `core` — listed here so the

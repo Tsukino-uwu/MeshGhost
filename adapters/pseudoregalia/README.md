@@ -2,11 +2,31 @@
 
 <!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
-**Status: Phase 7, 7.0–7.8 done. 7.7 (real two-player test) confirmed 2026-08-16** — two players
-on two machines. First release package cut 2026-08-13, still marked experimental/pre-release
-because that is one session on one pair of machines, not broad testing. See
+**Status: FEATURE COMPLETE, declared by the user 2026-08-27** — *"i think we can consider
+pseudoregalia 'feature complete' at this point as well"*. **That declaration has a written scope**,
+recorded the same day in [VERIFIED.md](VERIFIED.md) along with what it explicitly does *not* cover,
+so a later session cannot quietly widen it. [UNVERIFIED.md](UNVERIFIED.md) is the live queue of what
+is built but unwatched.
+
+Still marked **experimental/pre-release** in the shipped package, which is a different claim: the
+features are there, the breadth of testing is not. Phase 7 (7.0–7.8) is done and 7.7, a real
+two-player test on two machines, was confirmed 2026-08-16; first release package cut 2026-08-13.
+Work after 2026-08-17 has no phase sub-number — `phase7.md`'s task list ends at 7.8, and this
+adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is recorded. See
 [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) and
 `packaging/release/games/pseudoregalia/README.txt`.
+
+**This adapter's files**, since there are now seven and nothing introduced them:
+
+| File | Answers |
+| --- | --- |
+| [documentation.md](documentation.md) | How does *the game* do X? |
+| [PLAYER_FIELDS.md](PLAYER_FIELDS.md) | Which fields exist, which we sync, how to promote one |
+| [FLAGS.md](FLAGS.md) | What every compile-time switch does, and which are recorded negatives |
+| [BANDAGES.md](BANDAGES.md) | Where we compensate instead of reproducing the mechanism |
+| [PROBES.md](PROBES.md) | The six dev-only Lua probes, what each was for |
+| [VERIFIED.md](VERIFIED.md) | Dated, user-confirmed evidence — append-only |
+| [UNVERIFIED.md](UNVERIFIED.md) | Believed working, nobody has watched it yet |
 
 - Unreal Engine 5, small movement-focused 3D platformer. Worst starting point (no source, no
   BepInEx) but best genre fit for ghost co-op, per the brief.
@@ -21,10 +41,14 @@ because that is one session on one pair of machines, not broad testing. See
   [agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md).
 - Tooling: **confirmed 2026-08-12** — UE 5.1 (`++UE5+Release-5.1-CL-23901901`, read from
   `pseudoregalia-Win64-Shipping.exe`); UE4SS **v3.0.1 Beta, Git SHA `733e5969`**, installed
-  under the newer `Binaries\Win64\ue4ss\` layout. See
+  under the newer `Binaries\Win64\ue4ss\` layout. **That UE4SS line is known stale, not merely
+  at risk of being**: a 2026-08-13 `AP_Randomizer` reinstall silently rewrote the *shared*
+  `UE4SS.dll`/`dwmapi.dll`/`UE4SS-settings.ini` to a different build, and the log banner the
+  version above was read from predates that swap — so it does not identify what is installed
+  now. Re-read `ue4ss\UE4SS.log`'s banner fresh before trusting it for real work. Full record,
+  including the mid-Phase-7 update from an older v2.5.2:
   [agent_docs/environment.md](../../agent_docs/environment.md)'s Unity/TEVI, UE5/Pseudoregalia
-  section for the full record, including a note that the install was updated mid-Phase-7 from
-  an older v2.5.2 — re-check before assuming this is still current.
+  section.
 - **Adapter language plan, decided 2026-08-12:** Lua for discovery (no build step, fast
   iteration, used only to find and confirm the real player-state fields), C++ for the
   shipping adapter (UE4SS Lua has no socket support — zero `luasocket` references in
@@ -36,8 +60,8 @@ because that is one session on one pair of machines, not broad testing. See
   vendored LuaSocket), and worked under light testing — the real reason C++ became mandatory
   was a receive-side memory corruption bug in that combo that only surfaced under sustained
   real traffic, not "Lua can't do sockets" as first assumed. See build-log step 6 below and
-  `agent_docs/pitfalls.md`'s "Host-embedded scripting runtimes" section for the full
-  diagnostic trail.
+  `agent_docs/pitfalls/by-host.md`'s "Host-embedded scripting runtimes" section for the full
+  diagnostic trail (`pitfalls.md` itself is now an index over that folder).
 - The Archipelago randomizer for this game
   ([pseudoregalia-archipelago](https://github.com/pseudoregalia-modding/pseudoregalia-archipelago))
   was checked into [agent_docs/licensing.md](../../agent_docs/licensing.md) 2026-08-12: **no
@@ -45,9 +69,6 @@ because that is one session on one pair of machines, not broad testing. See
   its general mod structure) — no source copied, per the standing "facts, never code" rule.
 - No source is or will be copied from any randomizer or modding project without checking
   its license first — see [agent_docs/licensing.md](../../agent_docs/licensing.md).
-- [PLAYER_FIELDS.md](PLAYER_FIELDS.md) — reference doc: which player fields MeshGhost actually
-  syncs today, plus a map from every in-game ability to the internal field names behind it,
-  found via a real reflection dump.
 
 ## Custom features
 
@@ -64,14 +85,18 @@ changes about them syncs for free between two peers who both have that mod.
 
 Third game, and by far the hardest: roughly 15-20 hours to reach "good enough" — a ghost that
 follows, animates, and faces the right way (the end of step 18 below). Everything after that is
-polish; Phase 7.7 (a real two-player test) was confirmed 2026-08-16. Started in Lua, then had to
-be substantially remade in C++ partway through once Lua proved unable to reliably send everything
-the adapter needed.
+polish, and it runs a long way: a real two-player test was confirmed 2026-08-16, and the adapter
+was called feature complete on 2026-08-27 (step 53). Started in Lua, then had to be substantially
+remade in C++ partway through once Lua proved unable to reliably send everything the adapter
+needed.
 
-All of this is one phase, [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) —
+Most of this is one phase, [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) —
 the sub-numbers below (7.1, 7.4,
 etc.) are that file's own task headings, called out here for anyone jumping straight to the
-detailed log instead of reading the whole thing top to bottom. It reads as a much smoother
+detailed log instead of reading the whole thing top to bottom. **They stop at step 44**: that
+file's task list ends at 7.8, and steps 45 onward belong to no phase number at all. Their
+evidence is in this folder's own [VERIFIED.md](VERIFIED.md), one dated entry per step. It reads
+as a much smoother
 line than it actually was — the file itself has dozens of individual live-test cycles behind
 several of these steps (the camera fight alone took over twenty), condensed here into what
 actually mattered.
@@ -86,8 +111,10 @@ Roughly in order:
    Lua-for-discovery / C++-for-shipping instead. (7.2)
 3. Made that model follow the player as a ghost. (7.4)
 4. Fought the game's camera, which kept snapping back onto the ghost instead of staying on
-   the player. (7.4 — the fix that finally worked: hooking the game's own camera-retarget call
-   and forcing it back, not toggling a property on the ghost's camera.)
+   the player. Hooked the game's own camera-retarget call and forced it back. (7.4)
+   **That fight-back was deleted 2026-08-16 and is not what ships** — it blocked every
+   legitimate camera change for the rest of the session, and the real cause turned out to be
+   the ghost bringing its own camera rig. See step 10 and `BANDAGES.md`.
 5. Tried making a statue already present in the stage follow the player, as an alternative
    to spawning a new actor — this is also what proved runtime-`SpawnActor`'d actors weren't
    rendering at all on this build, while hijacking an existing level object did. (7.4)
@@ -106,7 +133,11 @@ Roughly in order:
 10. Fought the camera a second time, now in C++ — the previous hook approach silently never
     fired, because this game calls the camera-retarget function natively, bypassing the normal
     event dispatch entirely. Found by reading UE4SS's own hook implementation directly and
-    switching to the lower-level hook it offers for native functions. (7.6)
+    switching to the lower-level hook it offers for native functions. (7.6) **The native hook
+    is what ships; forcing the camera back through it is not.** On 2026-08-16 the ghost was
+    found to bring its **own camera rig**, and that rig is what the game was switching to — so
+    the hook now refuses exactly one thing, a switch to a rig whose `OwningActor` is a ghost,
+    and lets every other camera change through. `VERIFIED.md`, `BANDAGES.md`.
 11. Retested spawning on the correct game thread (step 9's fix) and found step 8's "must
     hijack, can't spawn" verdict was an artifact of running off-thread, not a fact about this
     build — spawn-based ghosts (a real player-model clone, not a hijacked prop) work fine once
@@ -118,8 +149,10 @@ Roughly in order:
     pawn's movement-state fields onto the ghost's own AnimBP instance. (7.6)
 14. Tried enabling ghost collision, found it genuinely dangerous, reverted — it didn't make
     the ghost solid, but let the real player accidentally kill it in melee, which killed the
-    real player's own character too. (7.6) **Reversed 2026-08-15 — collision is now ON as a
-    deliberate feature and the run-ending half of this danger is fixed; see step 27.**
+    real player's own character too. (7.6) **On, then off again: collision was turned back ON
+    2026-08-15 as a deliberate feature (step 27), and OFF again 2026-08-27 at the user's
+    request. Ghosts are not solid today** — `FLAGS.md`'s `GHOST_COLLISION_ENABLED` is the
+    register, and it gates the work, not just the decision.
 15. Figured out how to drive the ghost's facing direction — found via a forced test rotation
     (to tell "the write is dead" apart from "the write lands wrong") that it was landing as
     ≈0; traced to a marshaling bug in the vendored UE4SS SDK that only affects `FRotator` on UE
@@ -156,8 +189,11 @@ Roughly in order:
 26. Synced the trail colour, modded colours included. The ultra hop's blue trail turned out to be
     a separate mechanism and is parked — it isn't derivable from any polled state. (7.6)
 27. Fixed enemies damaging a ghost hurting and killing the *real* player, by moving the ghost's
-    capsule off the collision channel enemy targeting queries. Ghost collision is now kept ON as a
-    deliberate feature; whether it's actually fun is still an open keep-or-axe call. (7.6)
+    capsule off the collision channel enemy targeting queries. (7.6) **Dead code today**: the
+    keep-or-axe call went the other way on 2026-08-27 and collision is off, so this whole fix
+    compiles out with it. It stays because it is the answer if collision ever comes back — and
+    because the cling-gem VFX (step 25) was only ever confirmed with collision ON, which makes
+    it the thing most likely to have quietly regressed. `UNVERIFIED.md`.
 28. Two negatives worth not re-walking: hooking Blueprint functions crashes this build (native
     ones are fine), and the empty-hand recall glow needs a real thrown-weapon actor to exist
     before it will do anything — you can only trigger the game's own systems when their
@@ -251,6 +287,68 @@ Roughly in order:
     peer's edges. The ghost now poses itself the way the game poses the player, its position is
     honest again, and the compensation is deleted. (7.8)
 
+45. Fixed the player's health bar sitting permanently full whenever a ghost was around. It was
+    never the health — a ghost is a clone of the player's own character, so it runs the same
+    startup and builds **its own health bar**, full, on top of the real one. Removing the ghost's
+    copy fixed it. Two earlier fixes failed the same way and taught the same thing: a reference is
+    not the thing, and a widget belongs to its parent rather than to whoever points at it.
+
+46. Fixed the ghost's shadow sticking to its feet in mid-air instead of falling to the ground.
+    The shadow hangs off a spring arm whose length is how far it may drop before it finds floor —
+    5000 on the player, and 100 on the ghost because nothing had ever set it. Mirroring the real
+    player's own value fixed it. Calling the game's own shadow function was tried first and did
+    nothing; the readback is what caught that, rather than the user.
+
+47. Fixed a ghost's healing effect appearing in the wrong place, after two wrong placements. The
+    game does not attach the heal's waves to the character at all — it drops them at a world
+    position, at the top of the model. The third attempt read that height off the real player's
+    own effect as it fired instead of choosing a number that looked right.
+
+48. Stopped a ghost's attacks damaging the local player — **the only non-cosmetic bug this adapter
+    ever had**, and the one thing the project forbids outright. Mirroring a peer's attack animation
+    runs the game's real attack code on the ghost, which finds the player and hurts them. The fix
+    is the game's own already-hit list: the player is marked as already hit before the ghost's
+    first swing, which is why only the *first* attack ever landed in the first place. Six other
+    candidates were each closed by a live run and left in the code as recorded negatives.
+
+49. Made the mod's autostart actually fire (step 42's feature, which a developer with a client
+    already running would never have seen fail). It was looking for a free port by connecting and
+    waiting to be refused — and on this machine a closed port is never refused, the connection is
+    simply dropped. It now asks the OS instead: a free port is one it can bind.
+
+50. Mirrored a peer's ranged shot, after holding the game's own projectile actor crashed the game.
+    A thrown sword rests where it lands and is ours to keep; a projectile belongs to the game,
+    which destroys it on impact. The ghost now replays the shot's *effect* along the peer's sampled
+    path and holds nothing. It still fired only once until a second discovery: this game pools
+    those actors, so a spent one keeps existing and "it exists" never meant "it is in flight".
+
+51. Gave a ghost death, the pit, the hurt flinch and the respawn — four effects, all found by
+    measuring rather than by guessing names. The death flash turned out not to be a particle effect
+    at all but an animated material, which no particle watcher could have found; a promising-looking
+    `startBlink` shipped as a fix first and did nothing, because it is the character's eyes.
+
+52. Stopped a ghost's afterimages drawing through walls, at zero frames rather than one. Every
+    reactive version made the flicker briefer and never gone, because an afterimage is born with
+    the outline already on and the frame is drawn before any of our code runs. The fix refuses the
+    outline at the moment the game switches it on. It has to decide before the game says whose the
+    image is, so an unattributable one is refused and given the outline back a tick later if it
+    turns out to be the player's — wrong in the direction nobody can see.
+
+53. **The user called the adapter feature complete** (2026-08-27): *"i think we can consider
+    pseudoregalia 'feature complete' at this point as well"*. The scope was written down the same
+    day rather than left implied — body and motion, the whole effect set, the correctness fixes
+    above, and the plumbing that starts the client — **together with what it does not cover**: the
+    black flash when a ghost appears, two uncaught crash reports, the port walk's second-instance
+    case, and anything confirmed only in loopback. [VERIFIED.md](VERIFIED.md) has both halves.
+
+54. Fixed three bugs the same evening, all one family: state that outlives a level and is never
+    dropped before the level's teardown. The VFX mirror's component map crashed "retry last save";
+    the camera fallback pointer crashed starting a new game; and the hurt mirror's health baseline
+    made the ghost flinch on every save-file swap. All three fixes are the same move — clear it in
+    the LoadMap PRE hook, where the ghost pointer has always been kept safe. A fourth finding fell
+    out for free: health carrying over between save files is the base game's own behaviour, proven
+    by the user's no-ghost control run.
+
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
@@ -262,49 +360,52 @@ Roughly in order:
 > that loses the point on purpose.
 
 See [agent_docs/phases/phase7.md](../../agent_docs/phases/phase7.md) for the detailed, dated
-log, and [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) for the transferable lessons
-pulled out of this saga (auto-possession on spawn, camera/view-target
-ownership, runtime-spawned actors not rendering, the `on_update()`-isn't-the-game-thread bug,
-the LuaSocket corruption bug behind the Lua-to-C++ rewrite, and the UE5 `FRotator` marshaling
-bug behind the facing-direction fix).
+log up to 2026-08-17 and [VERIFIED.md](VERIFIED.md) for everything after it, and
+[agent_docs/pitfalls/](../../agent_docs/pitfalls/) for the transferable lessons pulled out of this
+saga (auto-possession on spawn, camera/view-target ownership, runtime-spawned actors not
+rendering, the `on_update()`-isn't-the-game-thread bug, the LuaSocket corruption bug behind the
+Lua-to-C++ rewrite, and the UE5 `FRotator` marshaling bug behind the facing-direction fix).
 
-### Further work past "good enough"
+### What is still open
 
-The ghost passed "good enough" around step 18; steps 19–44 are all polish past that line. Still
-open as of 2026-08-17 — [agent_docs/status.md](../../agent_docs/status.md) is the authoritative
-list:
+The ghost passed "good enough" around step 18, and everything after it is polish; the user called
+the adapter feature complete on 2026-08-27. That is not the same as finished, and the difference is
+kept in two places rather than here, because a list in a README goes stale without anything
+noticing — this one did, for ten days, and it is the reason this section is now three lines of
+pointer instead of five bullets:
 
-- A sword thrown near a save crystal. Provably synced; loopback puts the ghost beside the
-  geometry, so a second player is needed to judge it. (Pole rotation, same suspicion, came back
-  fine on the two-machine session.)
-- Ghost vanishes while a peer is on a climbing pole, then returns stuck in a climb pose.
-- Duplicate ghost spawn on every level load — two ghosts per peer, leaving an orphaned pawn.
-- Suspected: the mod may not clear ghosts when the bridge drops.
-- A `Fatal Error!` on game exit, seen once, never root-caused.
+- **[UNVERIFIED.md](UNVERIFIED.md)** — this adapter's own queue, and the first place to look. What
+  is built, believed working, and not yet watched by anybody.
+- **[agent_docs/status.md](../../agent_docs/status.md)** — the cross-cutting items that are not
+  only this adapter's, and the ones waiting on a second machine.
+
+The shape of what remains, so this section says something: one visual defect nobody has explained
+(a black flash the moment a ghost appears, with two mechanisms ruled out by measurement), two crash
+reports whose cause was never established, several things confirmed only in loopback that a real
+second player would judge differently, and a handful of built-but-unwatched changes. Nothing
+outstanding is a ghost failing to do something the player can do.
 
 ## Dev tools
 
-Six scripts across three folders, none of which ships — the release contains the compiled
-`MeshGhostPseudo` DLL and nothing from here. They are kept because they are the record of how each
-capability was established, and because two of them answer questions that would otherwise be
-re-asked from scratch. Every one is a UE4SS **Lua** mod, which is what makes them cheap to run
-against a live game without a rebuild; the shipped adapter is C++.
+Six dev-only Lua probes across three folders, **indexed in [PROBES.md](PROBES.md)** — that file is
+their one home; this section says only why they exist and what to be careful of. None of them ships:
+the release contains the compiled `MeshGhostPseudo` DLL plus a bundled UE4SS runtime to load it, and
+nothing from these folders. They are kept because they are the record of how each capability was
+established, and because two of them answer questions that would otherwise be re-asked from scratch.
+Being Lua is what makes them cheap to run against a live game without a rebuild; the shipped adapter
+is C++.
 
-**UE4SS loads `Scripts/main.lua` and only that**, so a probe with stages swaps files rather than
-taking a flag — copy the stage over `main.lua` to run it, and put the original back afterwards.
+Two things worth knowing before running any of them:
 
-| Script | What it is for |
-| --- | --- |
-| `probe/Scripts/main.lua` | **Read-only.** The first thing that ran: confirms live on screen where the local player pawn, its position, its rotation and the level name actually live, before any of it was ported into C++. Writes nothing, touches no network. |
-| `probe_socket/Scripts/main.lua` | **Stage 1, safe.** Asks only whether `package.loadlib` exists and is callable under UE4SS's embedded Lua. It exists because UE4SS's own API docs list no networking at all and RE-UE4SS has zero LuaSocket references — which proves nothing about `loadlib` itself, and the whole adapter's shape depended on the answer. |
-| `probe_socket/Scripts/stage2_loadlib.lua` | **Stage 2, riskier.** Actually loads the vendored LuaSocket core and *creates* — deliberately does not connect — a TCP socket object. Run only after stage 1 passes. |
-| `probe_socket/Scripts/stage3_roundtrip.lua` | **Stage 3.** A real bind/connect/send/receive round trip against the bridge protocol, the one thing stage 2 left untested. The staging is the point: each stage is the smallest step that could fail, which is why a crash in one of them named its own cause. |
-| `probe_ghost/Scripts/diagnose.lua` | **A diagnostic, explicitly not a fix.** Written after three straight fix-and-retest cycles failed to stop the player being dragged around by a spawned ghost — the moment `CLAUDE.md`'s "two guessed fixes failing the same way is a signal" applied. It gathers evidence for the `AutoPossessPlayer` theory instead of guessing a fourth time, and that is what found the cause. |
-| `probe_ghost/Scripts/main.lua` | **Superseded — a complete 849-line Lua adapter, kept for history.** This was the real Phase 7.5 adapter: local state every tick, the bridge protocol, spawned ghosts, the camera hook. It was replaced by the C++ mod after a LuaSocket corruption bug made the Lua host untenable (`pitfalls.md`), and the C++ `BridgeClient` and spawn path were ported *from* it — `MIN_PLAUSIBLE_DISTANCE` still cites it by name. Read it to see where a piece of `Plugin.cpp` came from; do not run it as the adapter. |
+- **UE4SS loads `Scripts/main.lua` and only that**, so a probe with stages swaps files rather than
+  taking a flag — copy the stage over `main.lua` to run it, and put the original back afterwards.
+  It is also why each probe has to be its own mod directory, and therefore why the index lives at
+  `PROBES.md` rather than in a `probes/` folder.
+- **`probe_ghost/Scripts/main.lua` is a complete working Lua adapter, not a diagnostic.** Running it
+  alongside the real C++ mod puts two things on the bridge at once. It is Phase 7.5's real adapter,
+  kept because it is the last version where the whole thing is readable in one file, and because the
+  C++ `BridgeClient` and spawn path were ported *from* it — `MIN_PLAUSIBLE_DISTANCE` still cites it
+  by name. Read it to see where a piece of `Plugin.cpp` came from; do not run it as the adapter.
 
-**Its camera fight-back is the one thing in here not to copy.** `probe_ghost/Scripts/main.lua`'s
-header still describes a `SetViewTargetWithBlend` hook that forces the view target back whenever a
-ghost spawn makes the game re-target. That approach was deleted 2026-08-16 for blocking every
-legitimate camera change forever after, and replaced by refusing only a switch to a rig whose
-`OwningActor` is a ghost — see [BANDAGES.md](BANDAGES.md) and `VERIFIED.md`. The file is
-history, and history includes the parts that were wrong.
+That file's camera fight-back is the one thing in the probes not to copy, and
+[PROBES.md](PROBES.md) says why.
