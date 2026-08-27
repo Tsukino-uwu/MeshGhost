@@ -4035,7 +4035,7 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
 - **What it does NOT cover, stated in the same breath** — all still in `UNVERIFIED.md`:
   - the **black flash** when a ghost appears: two mechanisms ruled out by measurement (the fade
     timelines were not playing; no camera fade is raised near a spawn) and the cause still unknown;
-  - the ghost **floating up slightly during a melee swing**, never investigated;
+  - the ghost **floating up slightly during a melee swing** — seen once and never reproduced across ~a dozen later runs the same day, so a single sighting rather than a live defect;
   - the second-instance case of the **bridge port walk**, still unwatched;
   - two **crash reports** on exit/pause whose cause is not established — one of them, the projectile
     prop, was root-caused and fixed this day, but the 2026-08-17 sighting predates it;

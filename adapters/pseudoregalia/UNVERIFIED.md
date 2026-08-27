@@ -107,9 +107,25 @@ worth keeping: an unconfirmable symptom was turned into two clean measurements.
    examined; a light popping on for a frame can read as a flash.
 3. Level streaming around the spawn, which nothing has looked at.
 
-## Pending — the ghost FLOATS UP slightly during a melee sword attack (2026-08-27)
+## Pending — the ghost FLOATS UP slightly during a melee sword attack — SEEN ONCE, never since (2026-08-27)
 
 **User-reported, live.** While the peer swings the sword, the ghost rises a little.
+
+**NOT REPRODUCED, and the user said so unprompted at the end of the same session:** *"i didn't
+see/notice this later on, was just right when i mentioned it. never in any of the other tests or the
+thing we tested now last."* Between that first sighting and the end of the day the ghost was watched
+across roughly a dozen further runs — the damage A/Bs, the projectile work, the pit-fall captures —
+with melee swings throughout, and it was never seen again.
+
+**So the honest status is a single unreproduced sighting, not a live defect**, and it is left open
+rather than deleted for two reasons. A one-off that nobody can reproduce is exactly what an
+intermittent bug looks like early. And several things changed underneath it that same day —
+`GHOST_BLOB_SHADOW_ARM_MIRROR` writes the ghost's spring arm every tick, `GHOST_PREHIT_PLAYER`
+touches its hit list, and the collision experiments came and went — so it may well have been fixed
+incidentally by one of them, which would be worth knowing.
+
+**If it recurs, do NOT start from theory**: get the ghost's mesh Z and capsule half logged through a
+melee montage first, the same measurement that settled the slide.
 
 Not investigated. The specific thing to look at first: this adapter already has a fully worked
 precedent for a ghost's Z going wrong during an animation — the slide, where the answer turned out
