@@ -750,3 +750,24 @@ record the number here**, ideally on the same setup the 653 KB/s figure in
 Expect it to vary sharply by game — a title with small, frequently-crossed zones should score high,
 one with a single always-loaded overworld near zero. Per `plans.md`'s "Efficiency is a standing
 goal", the number sizes the win; it is not a threshold the win has to clear to be worth taking.
+
+- **`extras` is bounded by total serialized bytes and nothing else** (audited 2026-08-27).
+  `protocol.MaxExtrasBytes` caps the whole map at 1024 bytes; there is no per-field type, range,
+  finiteness, key-count or nesting bound anywhere in the Go side, and Pseudoregalia's own source
+  says so (*"extras values reach here unchecked"*). **Every adapter is therefore individually
+  responsible for clamping every field it reads, correctly, forever** — and an adapter that forgets
+  has no backstop. Pseudoregalia does it in 15 places (`clamp_to_uint8`, which exists because
+  `static_cast<uint8_t>(double)` is UB for NaN); the two gaps the same audit found are simply where
+  it has not been done. This is the standing argument for adapter-declared constraints enforced on
+  RECEIVE by the core: `agent_docs/ideas.md`, "The ACE audit" and "Should the Go side stay
+  game-blind?". **Not a hypothetical risk and not scheduled** — it is the current design, recorded
+  so it is a decision rather than an oversight.
+
+- **A peer can name a thing, in two places** (audited 2026-08-27). Pseudoregalia hands a
+  peer-supplied string to an engine-wide `StaticFindObject` lookup (`Plugin.cpp:9383`) — type-checked
+  against `AnimMontage` before use, so no type confusion, but the peer may play any montage in the
+  loaded game and the miss-warning reveals whether an arbitrary object name exists. TEVI hands a
+  peer string to Unity's `anim.Play` (`Plugin.cs:506`) with no validation beyond
+  `protocol.MaxAnimLen`. **Neither is ACE**; both are cosmetic misbehaviour plus, for TEVI, a
+  per-frame log flood from a peer alternating two bogus names. Fix for both is an allowlist of the
+  names the adapter actually mirrors, which is a small fixed set. `ideas.md`, "The ACE audit".

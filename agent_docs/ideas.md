@@ -1208,6 +1208,87 @@ rejects control characters, not just oversized ones. MeshGhost has no equivalent
 peer-controlled is displayed yet. **Nameplates would change that**, which is why the requirement is
 now written into the nameplates entry above rather than left to be rediscovered.
 
+## The ACE audit: where peer-controlled data actually reaches a dangerous sink (2026-08-27)
+
+**The goal, in the user's words:** *"I just want it to be safe with random people, no ACE or
+malicious data being sent back/forth between anyone if someone decides to be a bad actor"*, and
+*"we should make sure to clamp/enforce what can be sent to the server, and into other games so that
+nothing is ever malicious/bad"*.
+
+**This entry is the evidence layers 1 and 2 above were missing.** Those describe where checks should
+live; nobody had traced where hostile data can actually GO. Audited 2026-08-27 by following every
+peer-controlled field to its sink. **The headline: no arbitrary code execution was found, and the
+two real gaps are both "a peer can NAME a thing".**
+
+### Already defended — do not re-audit these
+
+| Surface | Why it holds |
+|---|---|
+| **Lua code execution** | No `load`/`loadstring`/`dofile` anywhere in either shipped adapter. The only `io.popen` in each is the literal string `"cd"` (`crystal:537`, `emerald:480`) — no peer data reaches a shell. |
+| **Lua memory writes** | Lua table indexing is memory-safe (an out-of-range index yields `nil`, not a read), and BizHawk bounds its own memory domains. A hostile value corrupts the **emulated** game at worst — annoying, not host ACE. |
+| **Crystal's peer sprite id** | Validated against the cartridge before use: `ENGINE.spriteSig(id)` must match and the peer's own `gfx` must agree, then `residentSpriteTile(id)` must resolve, or the ghost is dropped rather than drawn wrong. The id is written as a VALUE at a locally-computed offset, never as part of an address. |
+| **Position** | The core rejects non-finite outright and bounds magnitude (`protocol.IsValidPosition`, `MaxPositionComponent`) — enforced at both ends, so no adapter has to. |
+| **Byte passthrough** | The relay never forwards bytes; it re-encodes every message from the parsed, validated struct. What reaches a peer is a struct the relay itself wrote. |
+| **Parsers** | 13 fuzz targets across 5 packages in CI (`protocol` 7, `bridge` 2, `relay` 2, `transport` 1, `netx/udpconn` 1). |
+| **Pseudoregalia's narrowing UB** | `clamp_to_uint8` (15 call sites) exists because `static_cast<uint8_t>(double)` is **undefined behaviour** — not merely wrapping — for NaN or out-of-range input, and `move_state`/`action_state`/`anim_jump_type`/`movement_mode` all arrive from a peer's `extras`. Found and fixed in an earlier review pass. |
+| **Peer counts** | `land_count`, `jump_count`, `afterimage_count`, `montage_count` are edge-triggered comparisons (`target > last_seen`), never loop bounds or indices. A hostile huge count fires an action **once**. Verified: no `for` loop is bounded by a peer value. |
+
+### Gap 1 — a peer can name any UObject in the running game (Pseudoregalia)
+
+`Plugin.cpp:9383` passes a peer-supplied string to an engine-wide lookup by name:
+
+```cpp
+UObject* montage_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
+```
+
+**Not ACE, and the reason matters:** the very next lines type-check the result and refuse anything
+whose class is not `AnimMontage`, so there is no type confusion into `call_montage_play`. Someone
+already reasoned about this.
+
+**What is still wrong with it:** the check is "is it an AnimMontage", not "is it one of the montages
+this adapter expects". So a peer can play **any** montage in the loaded game on their own ghost, and
+the warning line on a miss tells them whether an arbitrary object name exists — a small
+object-enumeration oracle driven entirely by remote input. **The fix is an allowlist of the montage
+names the adapter actually mirrors**, which is a fixed, tiny set.
+
+### Gap 2 — a peer names a Unity animation state, unbounded (TEVI)
+
+`Plugin.cs:506` — `visual.Pc.anim.Play(state.Anim)` — hands a peer string straight to Unity's
+animator. Bounded only by `protocol.MaxAnimLen` (256) and UTF-8 validity.
+
+**Not ACE** (managed, memory-safe; an unknown state is a no-op or a warning). But it is unvalidated
+against anything, so a peer can put their ghost into any state the controller defines, and a peer
+alternating two bogus names defeats the `!= visual.LastAnim` guard and produces a Unity warning
+**every frame** — log flood rather than a crash. Same fix: an allowlist, or at minimum a length and
+character bound plus the existing dedupe.
+
+### Gap 3 — the systemic one, and the reason this keeps being per-adapter work
+
+**`extras` is bounded only by TOTAL SERIALIZED BYTES** (`protocol.MaxExtrasBytes`, 1024) — not by
+per-field type, range, finiteness, key count or nesting depth. Pseudoregalia's own comment says so
+outright: *"extras values reach here unchecked"*. So **every adapter must clamp every field
+itself, correctly, forever** — and the two gaps above are simply the places that has not been done
+yet. That is the argument for the receive-side, adapter-declared constraints in the game-blind entry
+below: it turns "every adapter remembers" into "the core enforces what the adapter declared".
+
+### What this means for the goal as stated
+
+**"No ACE" appears to hold today**, on this evidence, and mostly by deliberate work rather than
+luck. **"Nothing malicious/bad ever"** does not hold and cannot be reached by clamping alone: a peer
+can still make their own ghost do cosmetically wrong things (any montage, any anim state), and the
+honest framing is that the blast radius is *your view of their ghost*, never your game's control
+flow. Ranking the remaining work by what it actually buys:
+
+1. **Allowlist the two named sinks** (gaps 1 and 2) — small, local, closes the only two unbounded
+   peer-controlled name lookups in the tree.
+2. **Per-field `extras` bounds, declared by the adapter and enforced on RECEIVE by the core** (gap
+   3) — the structural fix, and the one that stops this recurring per adapter.
+3. **A per-IP pre-auth cap** — already tracked; DoS, not ACE, and unrelated to peer data.
+
+**Not worth doing:** hunting for ACE in the Lua adapters. The sandbox and BizHawk's domain bounds
+mean the worst case is a corrupted emulated save state, and the audit above found no path even to
+that from a validated field.
+
 ## Structural validation of `extras` AND `orientation` — bounding SHAPE without ever reading MEANING
 
 **Unscheduled. Not on the depth ladder — Go side, so it is confirmable with the tools rather than

@@ -161,7 +161,11 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   checks, deployment fixes. `ideas.md`, "What safe to play with random people means" (2026-08-24).
 - **Encrypted everywhere except udp, authenticated nowhere** — tcp gained TLS 2026-08-19, so both
   default transports encrypt; nothing proves a relay is who it says. `docs/security.md`.
-- **Relay-safety follow-ups**: TEVI's `game_version` isn't real; adapters' parsing never audited;
+- **TWO unbounded peer-controlled name lookups, found by audit 2026-08-27** — Pseudoregalia plays
+  any montage a peer names (type-checked, so not ACE); TEVI's `anim.Play(state.Anim)` is unbounded.
+  Allowlist both. No ACE found anywhere. `ideas.md`, "The ACE audit".
+- **Relay-safety follow-ups**: TEVI's `game_version` isn't real; adapter parsing audited 2026-08-27
+  for ACE sinks (`ideas.md`);
   no per-IP cap, which TLS handshakes make more interesting. `docs/security.md`.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
   flags). Open: no sustained-load or two-machine test yet, no per-IP cap. `verified.md`, `risks.md`.
