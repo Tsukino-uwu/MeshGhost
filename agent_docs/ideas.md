@@ -2812,9 +2812,36 @@ regression. **Four are left: `internal/cfg` shipped, and this heading said "Five
 
 - **`Plugin.cpp`'s `game_thread_tick()` is ~4,000 lines in a 10,347-line file.** Per-remote blocks
   are the next extraction; on the adapter's hot path, so it needs a live session.
-- **The two BizHawk Lua adapters duplicate ~400-500 lines each** (JSON codec, socket loader, port
-  walk, framing). A shared `adapters/emulator/lib/` would need a matching `release.yml` staging
-  change. Note the JSON codec is no longer identical across the two once the decoder guard lands.
+- **The two BizHawk Lua adapters do NOT duplicate ~400-500 lines each any more — they have
+  DIVERGED, which is a different and harder problem.** Measured 2026-08-27, comments and whitespace
+  excluded, on the three blocks this entry named:
+
+  | Block | Crystal | Emerald | Code similarity |
+  |---|---|---|---|
+  | `scriptDir` | 24 code lines | 21 | **49%** |
+  | `loadSocketCore` | 23 code lines | 20 | **33%** |
+  | JSON codec | 97 lines, 3 functions | 294 lines, 7 functions | different algorithm |
+
+  The JSON codecs are not two copies of one thing: Emerald's decoder is recursive-descent
+  (`decodeString`/`decodeNumber`/`decodeObject`/`decodeArray`, nine call sites) and Crystal's is
+  not. `scriptDir` differs in its match pattern and its environment-variable names; `loadSocketCore`
+  differs in structure. **So a shared `adapters/emulator/lib/` is not a code MOVE.** It means
+  choosing one implementation per helper and changing the other game's behaviour to match — on the
+  socket-loading and script-directory path, whose failure mode is *the adapter is silently absent*,
+  on both shipped games at once.
+
+  **That is still worth doing**, and the reason is not tidiness: it is the only real answer to the
+  200-local ceiling (Crystal 197, Emerald 198 — `emulator/CLAUDE.md`), where grouping constants onto
+  tables is explicitly a bandage. But it is a session of its own, with a live confirmation per game,
+  and it needs `release.yml`'s staging changed to match.
+
+  **Two traps already paid for, to design around before writing a line.** A shared module loaded
+  with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE path, so a module that resolves its
+  own directory gets `"."` — which passes the absolute-path guard's sibling branch and then fails
+  where it matters, because `package.loadlib` resolves a relative DLL path against BizHawk's process
+  directory. **The host adapter resolves `SCRIPT_DIR` and passes it in.** And the env-var names are
+  game-specific on purpose: BizHawk runs every script in one process, so a shared name leaks one
+  adapter's folder into the next one loaded.
 - **Probe boilerplate: a near-identical block across the Crystal probes**, including the ROM
   guard. **Twelve** probes carry the `PM_CRYSTAL` header check — the ten `spawn_test`,
   `spawn_test2`-`7`, `struct_diff_probe`, `walk_test` and `grant_test_kit`, plus `grant_items` and
