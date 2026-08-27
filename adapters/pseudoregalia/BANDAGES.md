@@ -209,3 +209,27 @@ Recorded so a future audit does not churn them.
   ghost trails when the game is *seen* to spawn afterimages, and the reconstructed triggers those
   two belong to are switched off to avoid double-counting a burst. Left in place as a real revert
   path — the flag gates the enumeration, not just the decision it feeds. `VERIFIED.md`.
+
+## Withdrawn before it shipped — skipping a ghost's attack montages (2026-08-27)
+
+**What it was.** `GHOST_SKIP_ATTACK_MONTAGES`: do not mirror montages whose names look like attacks,
+so the ghost's attack code never runs and cannot damage the player.
+
+**Why it was built.** A peer's ghost damaging the local player violates the project's hard line
+outright, and six candidate fixes had failed in a row. Protecting the player at a visible cost
+looked better than carrying the defect.
+
+**Why it is not here as a live bandage.** Two reasons, and the second is the one that matters:
+
+1. **The user refused the trade** — *"i don't want it to work this way so we should re enable things
+   again. i do want the ghost to do all animations."* A ghost that cannot swing fails the 1:1 bar.
+2. **The proper fix existed and had been wrongly ruled out.** `GHOST_PREHIT_PLAYER` marks the player
+   in the ghost's own already-hit list — the game's own mechanism, no animation sacrificed — and it
+   had been refused twice on an untested claim that writing a UE `TArray` from this DLL was a heap
+   hazard. It is not: RE-UE4SS's `FMemory` wraps the game's own `GMalloc`.
+
+**The lesson for the register**: this bandage was well-motivated, correctly scoped, honestly
+labelled — and still the wrong answer, because the mechanism had not been exhausted. **A bandage is
+only justified once the proper mechanism is known to be unreachable, and "I decided it was unsafe"
+is not the same as knowing.** `agent_docs/pitfalls/by-lesson.md`, "a refusal on safety grounds is
+still a claim".

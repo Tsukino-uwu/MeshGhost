@@ -59,11 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **NEXT SESSION STARTS HERE (Pseudoregalia): run the ghost collision READBACK.** Built 2026-08-27,
-  never run; it decides whether the charge damage is the player hitting their own ghost. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's heal "yellow ball" is one of the three mirrored systems and still invisible** —
-  narrow the catalog probe to ONE name to identify it. `pseudoregalia/UNVERIFIED.md`.
-
+- **Pseudoregalia's charge GLOW on a ghost has never been confirmed** — the last unwatched row of
+  the VFX mirror; ask about it specifically. `pseudoregalia/UNVERIFIED.md`.
+- **The exit-to-main-menu crash recurred 2026-08-27, unattributed on purpose** — three probes were
+  compiled on, so that run is a poor witness. `pseudoregalia/UNVERIFIED.md`.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
   2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **NEXT SESSION STARTS HERE (Go/TEVI): watch TEVI's port walk in a TWO-GAME session, TEVI second.**

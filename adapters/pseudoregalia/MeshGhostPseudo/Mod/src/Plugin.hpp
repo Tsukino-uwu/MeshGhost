@@ -45,6 +45,10 @@ namespace MeshGhostPseudo
     // intact as a one-constant revert if the leak reproduces.
     struct RemoteGhost
     {
+        // Logged-once latch for the already-hit marking (GHOST_PREHIT_PLAYER). Per ghost, not per
+        // session: a respawned ghost needs its own entry and its own line saying so.
+        bool prehit_logged{false};
+
         RC::Unreal::AActor* ghost{nullptr};
         RC::Unreal::UWorld* owning_world{nullptr}; // which UWorld `ghost` belongs to (spawned into, or hijacked from)
         double target_x{}, target_y{}, target_z{};

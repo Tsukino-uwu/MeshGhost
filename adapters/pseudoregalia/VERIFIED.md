@@ -162,6 +162,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 — The player's health bar was the GHOST'S OWN HUD, drawn over it (user-confirmed)
 - 2026-08-27 — The ghost's shadow was glued to its model because one spring arm was 100 long instead of 5000 (user-confirmed)
 - 2026-08-27 — The heal's world-spawned VFX were being placed at the ghost's feet; the game puts them at the top of the model (user-confirmed)
+- 2026-08-27 — A ghost's attack could damage the player, and the fix was the game's own already-hit list (user-confirmed)
+- 2026-08-27 — The mod starts its own core: a closed port that never refuses, and the port sweep that could not see it (user-confirmed)
 
 ## Confirmed facts
 
@@ -3791,3 +3793,106 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
   asset.
 - Notes: the mirror sends a compile-time KEY over the wire, never an asset path, and that is
   unchanged — the height is resolved locally on each machine from local observation.
+
+## 2026-08-27 — A ghost's attack could damage the player, and the fix was the game's own already-hit list (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, after the fix: *"no damage taken, even after multiple attacks"*. Before it,
+  across a long session: *"first attack still hit/hurt"*, repeatedly, with the ghost's attack
+  animation playing normally each time.
+- **Why this one mattered more than a cosmetic defect.** A peer's ghost changing the local player's
+  health is the thing `CLAUDE.md` and `brief.md` forbid outright — cosmetics yes, game-state
+  authority no. Everything else open in this adapter was a picture being wrong.
+- **The mechanism, measured end to end:**
+  1. the adapter mirrors a peer's montages onto the ghost — shipped behaviour, and what makes the
+     attack pose work at all;
+  2. an attack montage's notifies run the game's own attack code **on the ghost**;
+  3. that code queries outward, finds the local player, and records them in the pawn's own
+     `hitActorsArray`;
+  4. it then calls the Blueprint interface **`BPI_PerformDamageResponse(DamageType, attackDirection)`**
+     on the player — carrying a damage **TYPE, not an amount**, so the victim decides the cost;
+  5. health is `CurrentHp` on the GameInstance **singleton**, so only the player's bar moves.
+- **The list, caught in the act.** Read every tick across one charged attack:
+
+  ```text
+  PRJWATCH: ghost hitActorsArray count -> 0 tick=923
+  PRJWATCH: ghost hitActorsArray count -> 2 tick=1547
+      hitActors[0] = 'BP_PlayerGoatMain_C ...BP_PlayerGoatMain_C_2147482216'   <- the local pawn
+      hitActors[1] = 'BP_PlayerGoatMain_C ...BP_PlayerGoatMain_C_2147482216'
+  ```
+
+- **The fix**: mark the local player as already-hit in the **ghost's own** `hitActorsArray`, checked
+  every tick, before its first swing (`GHOST_PREHIT_PLAYER`). Nothing on the player is written; the
+  montage, the pose and the VFX are untouched. **The game itself proved the lever worked before we
+  used it** — only the FIRST attack ever landed, because after it the player was already in that
+  list. The fix extends the game's own behaviour by one attack rather than introducing a rule.
+- **Six candidates were closed first, each by a live run**, and each is left gated off in
+  `Plugin.cpp` with its own recorded negative: the `chg` VFX mirror; the pawn's three damage numbers
+  (never read — the interface passes a type); the hitbox component (`Hit Component 1` is NULL on
+  this build); the player hitting their own ghost (collision reads `false` at actor level and `0` on
+  every component, re-asserted every tick); engine damage hooks (`ApplyDamage` and its two siblings
+  **armed on 3 of 3 and never fired** — this game does not use the engine's damage path, which also
+  explains the player's `LastHitBy` staying `<none>` through being hurt); and the pawn's own attack
+  gate booleans (`lockAttack?` and six others, all held, all ignored by the attack path).
+- **The instrument lied twice before it told the truth, in the same way both times.** The hit-list
+  read and the per-component collision read first sat inside a ~5Hz gate and came back "empty,
+  nothing enabled" across an attack that demonstrably did damage. A swing's hit window is a few
+  FRAMES: the probe was reporting that it was not looking. Moving those two cheap reads to per-tick
+  produced the answer in one run. **"The measurement came back clean" is worth nothing until the
+  sampling rate is checked against the event's duration.**
+- **A single run was treated as proof, and it cost two builds.** Suppressing every montage stopped
+  the damage on one attack in one run, which was read as the mechanism being proven. The later
+  narrow test — skipping only the four ground-combo attack montages — left the first attack harmless
+  but not the charged projectile, whose montage the filter never matched. The mechanism was right;
+  the confidence was not earned. Repeat a negative result before building on it.
+- **What made the fix possible was checking an assumption instead of trusting it.** Writing into a
+  UE `TArray` from this DLL was refused twice as a heap hazard — our allocator is not the game's.
+  RE-UE4SS's `TArray::Add` goes through `AddUninitialized` → its allocator → `FMemory`, and this
+  SDK's `FMemory` wraps the **game's own `GMalloc`**, resolved at runtime (`Unreal/FMemory.hpp`).
+  The hazard was in the assumption. **A refusal on safety grounds is still a claim, and claims get
+  checked.**
+- Notes: the user withdrew an interim bandage that skipped attack montages (*"i do want the ghost to
+  do all animations"*), so no animation is sacrificed by the shipped fix. Scope: the ghost's attack
+  vocabulary on this build is `dreamLady_Attack_GF1/GF2/GF3/GL2_Montage` plus the charged projectile
+  throw, which uses a different asset that has still never been logged by name.
+
+## 2026-08-27 — The mod starts its own core: a closed port that never refuses, and the port sweep that could not see it (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user launched the game with only a relay running and nothing started by hand:
+  *"saw a ghost directly now"*. The mod's own log carries `started meshghost.exe (pid N)` followed
+  ~1.6s later by `bridge connected on port 7778`, and it did so on every subsequent launch of the
+  session.
+- **Why it matters more than it looks.** Autostart is how a *player* is meant to use this — the mod
+  starts the client for them and the release README says so. A developer with a core already running
+  would never see it fail.
+- **The failure**: `connect_attempts` climbed forever while `CoreLauncher` logged **nothing at all**.
+- **The first fix was real and insufficient.** `BridgeClient::try_port` waited on `select` with only
+  a write set and `nullptr` for the exception set, and **Windows signals a FAILED non-blocking
+  connect in `exceptfds`**, marking a socket writable only on success. Genuine bug, fixed — and the
+  autostart still did not fire.
+- **What ended it was measuring the OS directly**, standalone, outside the game:
+
+  | Target | Result |
+  | --- | --- |
+  | a port with a listener | writable in ~4ms |
+  | a closed loopback port | **neither writable nor errored after 500ms** |
+
+  **A closed loopback port on this machine is never refused** — the SYN is dropped rather than
+  rejected, which is what a firewall in "block" mode does. No `select` timeout could ever have fixed
+  that, because nothing was coming. The original 2ms window was not too short.
+- **The fix**: stop asking the network and ask the OS — **a free port is one we can `bind`**, with
+  `SO_EXCLUSIVEADDRUSE` so a socket sharing the address cannot make it look free. Instant,
+  deterministic, unaffected by firewalls, and it is the same question the core itself asks when it
+  binds its listener, so a port already holding a core is excluded for free. Verified outside the
+  game before rebuilding: with a core on 7778 that port reports `bindable=False (AddressAlreadyInUse)`
+  while 7779/7780 report `bindable=True`.
+- **A silent branch turned a socket bug into a mystery.** The gate that decided "nowhere to spawn"
+  logged nothing, so a bug in a socket helper read as "the launcher never runs". It now prints,
+  throttled, next to the bridge-stats line.
+- **Method**: two fixes reasoned out from the code, both wrong the same way, then the subsystem was
+  taken out of the program and tested standalone. That is `CLAUDE.md`'s "two guessed fixes failing
+  the same way is a signal — isolate by subtraction, never a third guess", and the subtraction took
+  seconds.
+- Notes: `"connection refused"` is a courtesy, not a guarantee. Any logic that reads *absence of a
+  refusal* as *something is listening* is wrong on a machine that drops instead of rejecting.

@@ -4755,3 +4755,52 @@ start will ask when it binds its own listener — so a port already held is excl
 - **A silent branch turns a code bug into a mystery.** The gate that decided "no port to start on"
   logged nothing, so a bug in a socket helper read as "the launcher is not running at all". Every
   branch on a path that can fail silently gets a line, throttled if need be.
+
+## A PROBE'S SAMPLING RATE IS PART OF ITS ANSWER — "nothing happened" at 5Hz is not a result (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A ghost's attack demonstrably damaged the player. Two probes watching for it — the
+pawn's already-hit list, and every component's collision mode — both reported *nothing changed*
+across the attack.
+
+**Cause.** Both reads sat inside a ~5Hz gate. A swing's hit window is a few **frames**. The list
+filled and cleared, and any hitbox enable came and went, entirely between two samples. The probes
+were reporting that they were not looking, and the log said that in a form indistinguishable from
+"the theory is dead".
+
+**Fix.** Move the two cheap reads to per-tick (one property lookup plus a `Num()`; a reflected
+getter on two *named* components rather than a walk of the class). The answer arrived in one run:
+the list went `0 -> 2` with both entries being the local player.
+
+**Transferable:**
+
+- **Before believing a negative, compare the sampling interval to the duration of the thing being
+  sampled.** If the event is shorter than the gap, the probe cannot see it and its silence means
+  nothing. This is the mirror image of "a diagnostic can break the thing it measures".
+- **Cost control is a filter choice, not a cadence choice.** The per-tick version stayed cheap by
+  narrowing WHAT it read — two named components instead of every property on a 250-property class.
+  Slowing a probe down to afford a wide scan is how you build an instrument that cannot answer.
+- **This adapter has now been misled by an under-sampled probe and by an over-costly one.** The two
+  failure modes pull in opposite directions and both end in a confident wrong answer.
+
+## A REFUSAL ON SAFETY GROUNDS IS STILL A CLAIM, AND CLAIMS GET CHECKED (Pseudoregalia, 2026-08-27)
+
+**Symptom.** The fix for "a peer's ghost can damage the player" was identified early: mark the
+player in the ghost's own already-hit list, which is the game's own mechanism and provably what
+stops every attack after the first. It was refused **twice**, on the grounds that growing a UE
+`TArray` from a mod DLL means allocating with an allocator that is not the game's, on a heap the
+engine may later realloc or free.
+
+**That reasoning was sound and the premise was false.** RE-UE4SS's `TArray::Add` goes through
+`AddUninitialized` → its allocator → `FMemory`, and this SDK's `FMemory` wraps the **game's own
+`GMalloc`**, resolved at runtime (`Unreal/FMemory.hpp`). The allocation is the engine's own. Two
+grep-sized checks settled it, after two rounds of building weaker alternatives — an engine-level
+damage hook that never fired, and a montage filter that cost the ghost its attack animation.
+
+**Transferable:**
+
+- **"That would be unsafe" is a factual claim about the tools, and it decays exactly like an
+  address does.** Check it against the SDK you actually have before letting it steer the design.
+- **The tell is building progressively weaker alternatives around an untested objection.** Each
+  detour was justified on its own terms; the pattern of detours was the signal.
+- **Caution that is never re-examined is indistinguishable from an unfixed bug**, and here it kept
+  a rule-violating defect alive for an evening while cosmetic work shipped around it.

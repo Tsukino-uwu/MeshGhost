@@ -2,7 +2,7 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 66 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 72 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -28,7 +28,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 19 that are `true`
+## Behaviour — the 20 that are `true`
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -62,6 +62,7 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER` | Additive: fires only where the existing trigger found nothing. Not the old `AFTERIMAGE_TRIGGER_OBSERVED`, which replaced the trigger wholesale and scanned unconditionally. |
 | `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` | Birth-proximity check, so a recycled pooled actor is not counted as a new afterimage. |
 | `RECALL_GLOW_ENABLED` | Mirrors whether the real glow is present rather than reimplementing "empty-handed AND near a save crystal". Whatever rule the game actually applies is mirrored for free and cannot drift. |
+| `GHOST_PREHIT_PLAYER` | **The ghost-damages-player fix, confirmed on screen 2026-08-27.** Marks the local player as already-hit in the **ghost's own** `hitActorsArray`, checked every tick, before its first swing. The game's own mechanism: only the FIRST attack ever landed because after it the player was already in that list, so this extends the game's behaviour by one attack. Nothing on the player is written, and the montage, pose and VFX are untouched. Six other candidates are Dormant below, each a recorded negative. `VERIFIED.md` has the measurement and the method. |
 | `GHOST_BLOB_SHADOW_ARM_MIRROR` | **The blob-shadow fix, confirmed on screen 2026-08-27.** Mirrors the LOCAL player's `SpringArm.TargetArmLength` onto the ghost's every tick. The ghost's was 100 (the class default) against the player's 5000, and with `bDoCollisionTest=true` that length is how far the shadow may fall before it finds floor — so the ghost's shadow was pinned ~100 units under the model, in the air included. Sampled live rather than written as a constant, the same shape as the capsule mirror. `VERIFIED.md` has the measurement. |
 | `GHOST_BLOB_SHADOW_DRIVE` | Calls the pawn's own `manageBlobShadow` on the ghost every tick. **Kept, but it is NOT the fix** — measured 2026-08-27: it runs (the log says so once) and the ghost's arm still read 100, so the function is not what sets that value, or it takes an early branch on an unpossessed pawn. On `true` because it is the game's own function on the game's own component and it runs BEFORE the mirror, so the mirror's write wins the ordering; if it is ever found to do harm, this is the clean off-switch. |
 | `GHOST_DECOUPLE_SHARED_STATE` | Cuts a ghost off from the state it shares with the player: removes the ghost's OWN HUD widget from the viewport (the duplicate health bar, `VERIFIED.md` 2026-08-27), zeroes its damage numbers, and clears `As MV Game Instance Ref` / `UI_HudRef` / `BP_HpHitable` / `LastHitBy`. **Was missing from this register until the 2026-08-27 audit**, along with `MIRROR_PLAYER_VFX`. |
@@ -70,15 +71,15 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 
 ## Probes — off, and they must stay off
 
-40 flags, all `false` (the other 6 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
+40 flags, all `false` (the other 11 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
 `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
-**The arithmetic, so a future audit can check it in one pass:** 66 `constexpr bool` in
-`Plugin.cpp` — 65 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
+**The arithmetic, so a future audit can check it in one pass:** 72 `constexpr bool` in
+`Plugin.cpp` — 71 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
 than set (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every
-shipped build without being written so. Of the 65: **19 written `true`** (Behaviour, above) and
-**46 written `false`** — 40 probes plus the 6 Dormant entries below.
+shipped build without being written so. Of the 71: **20 written `true`** (Behaviour, above) and
+**51 written `false`** — 40 probes plus the 11 Dormant entries below.
 
 **Recounted from the code 2026-08-27, and the count had drifted.** The previous figure of 58 was
 several flags stale before this session added any, so these numbers were measured with
@@ -134,6 +135,11 @@ probe is on, and exists so a probe run does not fight the adapter's own montage 
 | `AFTERIMAGE_COLOR_TEST_OVERRIDE` | Forces a colour, for proving the colour path independent of detection. |
 | `AFTERIMAGE_TRIGGER_OBSERVED` | The first observed-spawn trail trigger, retired 2026-08-16. `false` is a **real** revert now that the enumeration it carried is gated too — the earlier A/B was worthless because only the counter increment inside the scan was gated while the scan itself still ran. Replaced by `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` plus `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER`, which are additive rather than wholesale. |
 | `AFTERIMAGE_COUNT_REUSE` | Counting pooled re-use as a spawn — a **recorded negative**. Added on the theory that the ghost's thinner trail came from missed spawns; a world census measured the opposite (the ghost produced roughly twice as many afterimages as the player while still looking thinner), so this only added spurious ones. Kept because the underlying finding — these actors are pooled and re-used, which is why none ever disappear — is real and is the mechanism a future effect would want. |
+| `GHOST_DAMAGE_GUARD` | Zeroes damage at `GameplayStatics::ApplyDamage` and its two siblings when the causer is a ghost. **Armed on 3 of 3 and never fired**: this game does not use the engine's damage path at all — a recorded fact about Pseudoregalia, not a broken hook. Kept because it is correct for any UE game that does. |
+| `GHOST_ATTACK_LOCKOUT` | Holds the pawn's own attack gates (`lockAttack?`, `bouncedAttackLockoutTimer` true; `freeAttack?`, `saveAttack?`, `storedChargeAttack`, `obtainedChargeAttack?`, `obtainedAttack?` false). **Recorded negative** — confirmed applied every tick, and the attack still registered the player. The attack path does not consult them. |
+| `GHOST_HOLD_COLLISION_OFF` | Re-asserts `SetActorEnableCollision(false)` every tick. **Recorded negative, and an instructive one**: the ghost's collision was never the route, because its attack queries OUTWARD. A per-component read during a swing showed every component at NoCollision throughout. |
+| `GHOST_SKIP_ATTACK_MONTAGES` | Skips attack montages on a ghost. **A bandage that worked and was withdrawn on the user's call** — *"i do want the ghost to do all animations"*. It produced this build's attack vocabulary (`dreamLady_Attack_GF1/GF2/GF3/GL2_Montage`) and the second data point for the montage mechanism. Superseded by `GHOST_PREHIT_PLAYER`, which costs no animation. |
+| `GHOST_SELF_MONTAGE_PROBE` | Suppresses every montage call to a ghost. Listed under Probes historically; noted here because its 2026-08-27 run is what proved the montage mirror triggers the ghost's attack code. |
 | `WEAPON_SYNC_INVERT` | Kept so a swapped weapon-sync polarity costs a flag, not a build. |
 
 Two other flags follow that same "a swap costs a flag, not a build" idea — the crouch input tries
@@ -227,6 +233,7 @@ listed so that turning a probe on does not also mean re-deriving how often it sh
 | `WEAPON_ACTOR_MOVE_EPSILON`, `WEAPON_ACTOR_SWEEP_DELAY_TICKS` | `1.0`, `30` | `WEAPON_ACTOR_TRACE` |
 | `WEAPON_PROP_TRACE_INTERVAL_TICKS` | `15` | `WEAPON_PROP_TRACE` |
 | `VFX_WATCH_INTERVAL_TICKS` | `10` | `VFX_WATCH` |
+| `PROJECTILE_WATCH_INTERVAL_TICKS` | `30` | `GHOST_PROJECTILE_WATCH`. **~5Hz was too slow twice** — the hit-list and per-component collision reads both came back "nothing happened" across an attack that did damage, because a swing's hit window is a few FRAMES. Those two reads were moved to per-tick; this cadence still governs the projectile sweep, where an actor lives long enough to be sampled. |
 | `SHADOW_PROBE_INTERVAL_TICKS` | `30` | `SHADOW_COMPONENT_PROBE`. ~5 samples/sec at ~150Hz. The trace logs on CHANGE, so this buys resolution rather than log volume — but each sample re-reads a few properties per actor, which is why it is not every tick. |
 | `VFX_PROBE_INTERVAL_TICKS`, `VFX_PROBE_PATH_FILTER`, `VFX_PROBE_NAME_FILTERS` | `450`, `"/Game/"`, `{"Weapon","Aura"}` | `VFX_CATALOG_PROBE`. The name filter is **deliberately widenable, never a hardcoded set of asset names** — clear the array to go back to all 58. A human-watched catalog needs a shortlist; that is `_template/README.md`'s rule. |
 | `GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS` | `150` | `GHOST_SPAWN_WEAPON_TRACE` |

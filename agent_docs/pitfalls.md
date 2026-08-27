@@ -246,3 +246,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A regression report is a hypothesis, not a verdict — bisect before accepting blame (2026-08-27)
 - Measure the parent, not the child — a constant relative position is a result, not a dead end (Pseudoregalia, 2026-08-27)
 - A closed port may never refuse — ask "can I bind it", not "did it refuse me" (Pseudoregalia, 2026-08-27)
+- A probe's sampling rate is part of its answer — "nothing happened" at 5Hz is not a result (Pseudoregalia, 2026-08-27)
+- A refusal on safety grounds is still a claim, and claims get checked (Pseudoregalia, 2026-08-27)

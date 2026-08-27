@@ -1515,6 +1515,32 @@ namespace MeshGhostPseudo
     // attack vocabulary, which nothing else had: `dreamLady_Attack_GF1/GF2/GF3/GL2_Montage`.
     constexpr bool GHOST_SKIP_ATTACK_MONTAGES = false;
 
+    // **Mark the local player as ALREADY HIT in the ghost's own hit list. Behaviour, 2026-08-27 --
+    // and this is the fix the whole investigation converges on, using the game's own mechanism.**
+    //
+    // What is established, each by a live run: the ghost's attack records the player in the pawn's
+    // `hitActorsArray` and calls the Blueprint interface `BPI_PerformDamageResponse` on them; the
+    // interface carries a damage TYPE, not an amount, so the attacker's damage numbers are never
+    // read; this game does not use the engine's damage path at all (a guard on `ApplyDamage` and
+    // its two siblings armed on 3 of 3 and never fired); the ghost's collision is irrelevant
+    // because its attack queries outward; and the pawn's attack-gate booleans are not consulted.
+    //
+    // **The list itself is the lever, and the game already proves it works.** Only the FIRST attack
+    // ever lands: after it, the player sits in that list and every later swing passes them over.
+    // Putting the player there before the first swing extends the game's own behaviour by one
+    // attack -- no new rule, no fought mechanism, and the montage, the pose and the VFX are all
+    // untouched.
+    //
+    // **Why this was refused twice before and is safe now.** Growing a UE `TArray` from this DLL
+    // looked like a heap hazard: our allocator is not the game's, and the engine may later realloc
+    // or free that memory. Checked rather than assumed -- RE-UE4SS's `TArray::Add` goes through
+    // `AddUninitialized` -> its allocator -> `FMemory`, and this SDK's `FMemory` wraps the GAME's
+    // own `GMalloc`, resolved at runtime (`Unreal/FMemory.hpp`). So the allocation is the engine's
+    // own, and the hazard was in the assumption rather than in the operation.
+    //
+    // Only the GHOST's list is written. Nothing on the player is touched.
+    constexpr bool GHOST_PREHIT_PLAYER = true;
+
     // **Hold the ghost's own attack GATES shut, every tick. Behaviour, 2026-08-27.**
     //
     // The damage-field census named the mechanism the engine hooks could not see:
@@ -10722,6 +10748,47 @@ namespace MeshGhostPseudo
                 remote.owning_world = nullptr;
                 continue;
             }
+            // See GHOST_PREHIT_PLAYER. Checked every tick rather than written once at spawn: the
+            // list is the game's to manage, and if its own logic ever clears it, the next tick puts
+            // the player back before the following swing.
+            if constexpr (GHOST_PREHIT_PLAYER)
+            {
+                if (pawn_obj)
+                {
+                    if (auto* hit_list = remote.ghost->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("hitActorsArray")))
+                    {
+                        bool already_listed = false;
+                        for (int e = 0; e < hit_list->Num(); ++e)
+                        {
+                            if ((*hit_list)[e] == pawn_obj)
+                            {
+                                already_listed = true;
+                                break;
+                            }
+                        }
+                        if (!already_listed)
+                        {
+                            hit_list->Add(pawn_obj);
+                            // Logged once per ghost rather than once per session: a ghost that
+                            // respawns needs its own entry, and "did this one get marked?" is the
+                            // question worth answering per ghost.
+                            if (!remote.prehit_logged)
+                            {
+                                remote.prehit_logged = true;
+                                Output::send(STR("[MeshGhostPseudo] ghost {}: local player marked as already-hit in the ghost's own hit list (now {} entries).\n"),
+                                             to_wide_ascii(id), hit_list->Num());
+                            }
+                        }
+                    }
+                    else if (!remote.prehit_logged)
+                    {
+                        remote.prehit_logged = true;
+                        Output::send(STR("[MeshGhostPseudo] WARNING: ghost {}: 'hitActorsArray' does not resolve -- the ghost's attack can still damage the player.\n"),
+                                     to_wide_ascii(id));
+                    }
+                }
+            }
+
             // See GHOST_ATTACK_LOCKOUT: hold the ghost's own attack gates shut every tick. Per
             // tick rather than at spawn because the game's attack logic is what clears them, and a
             // value set once would be cleared by the first swing.
