@@ -50,6 +50,16 @@ namespace MeshGhostTevi
         private readonly int basePort;
         private int walkOffset;
 
+        // The port the LIVE CONNECTION is on, as opposed to CurrentPort, which is where the walk
+        // CURSOR sits. They are not the same thing and conflating them was a real bug (fixed
+        // 2026-08-27, measured): DrainInto runs on the main thread and handles a `reject` some
+        // frames after it arrived, by which time the cursor may have moved on -- so the reject was
+        // attributed to the wrong port. That meant the genuinely busy port was never cooled down
+        // and innocent free ports were, and the walk churned until a spawn landed somewhere free
+        // by luck. Set when a connection is published, read wherever a received message has to
+        // name the port it came from.
+        private volatile int connectedPort;
+
         // A port whose core answered "busy" is a live core that simply is not ours; re-dialling it
         // every two seconds is noise. Ten seconds, matching the other adapters' cooldown. Touched
         // from both threads -- the read loop marks a port on reject, TryConnect reads it -- hence
@@ -145,13 +155,13 @@ namespace MeshGhostTevi
                 if (!bridgeReady && helloSentAt != DateTime.MinValue &&
                     now - helloSentAt >= HelloAnswerTimeout)
                 {
-                    int silent = CurrentPort;
+                    int silent = connectedPort;
                     Log($"MeshGhost: bridge port {silent} accepted a connection but never answered " +
                         $"hello within {HelloAnswerTimeout.TotalSeconds:0.#}s -- treating it as not a " +
                         "core and walking on.");
                     portCooldownUntil[silent] = now + BusyPortCooldown;
                     Disconnect();
-                    AdvanceWalk();
+                    AdvanceWalkPast(silent);
                 }
                 return;
             }
@@ -179,9 +189,28 @@ namespace MeshGhostTevi
             thread.Start();
         }
 
+        // One step from the cursor. Correct for scanning PAST cooled-down ports, where the cursor
+        // is exactly what is being advanced and no specific port is implicated.
         private void AdvanceWalk()
         {
             walkOffset = (walkOffset + 1) % BridgePortCount;
+        }
+
+        // Move the cursor to just past a SPECIFIC port -- the one that refused us or went silent --
+        // rather than one step from wherever the cursor happens to sit. Those differ for the same
+        // reason connectedPort exists: a refusal is handled frames after it arrived. Advancing from
+        // the cursor made the walk's next target arbitrary, which is half of why it churned.
+        private void AdvanceWalkPast(int port)
+        {
+            int offset = port - basePort;
+            if (offset < 0 || offset >= BridgePortCount)
+            {
+                // A port outside our own range should be impossible; treat it as "no information"
+                // and take one step rather than computing a nonsense cursor.
+                walkOffset = (walkOffset + 1) % BridgePortCount;
+                return;
+            }
+            walkOffset = (offset + 1) % BridgePortCount;
         }
 
         private void ConnectAndReadLoop(int generation, int dialPort)
@@ -212,6 +241,7 @@ namespace MeshGhostTevi
                 // this gate was left open until now.
                 bridgeReady = false;
                 helloSentAt = DateTime.MinValue;
+                connectedPort = dialPort;
                 Log($"MeshGhost: connected to bridge at {host}:{dialPort}.");
 
                 var buffer = new StringBuilder();
@@ -446,7 +476,7 @@ namespace MeshGhostTevi
                             // flag too, or a missed ready silences the adapter completely" -- so
                             // that is what ConnectAndReadLoop now does, on every fresh connection.
                             bridgeReady = true;
-                            Log($"MeshGhost: bridge ready on port {CurrentPort} -- the core " +
+                            Log($"MeshGhost: bridge ready on port {connectedPort} -- the core " +
                                 "accepted this adapter.");
                             break;
                         case "reject":
@@ -462,14 +492,16 @@ namespace MeshGhostTevi
                             // A refusal is information, not a dead end: this is a live core that is
                             // not ours, so cool the port down and let TryConnect walk to the next
                             // rather than re-dialling the same refusal every two seconds.
-                            // Captured BEFORE AdvanceWalk, or both the cooldown and the log name
-                            // the port we are moving TO rather than the one that refused us.
-                            int refusedPort = CurrentPort;
+                            // The port the CONNECTION is on, not the walk cursor: this runs on the
+                            // main thread, frames after the reject arrived, and the cursor may have
+                            // moved. Using the cursor cooled down innocent ports and left the busy
+                            // one hot, which is what made the walk churn.
+                            int refusedPort = connectedPort;
                             portCooldownUntil[refusedPort] = DateTime.UtcNow + BusyPortCooldown;
                             Log($"MeshGhost: the core on port {refusedPort} rejected this adapter " +
                                 $"({reason}) -- walking to the next bridge port.");
                             connected = false;
-                            AdvanceWalk();
+                            AdvanceWalkPast(refusedPort);
                             break;
                         }
                         default:

@@ -107,7 +107,7 @@ now it is neither.
 that might carry a side effect" is still a rule written far from the code that would want that
 component later.
 
-### 5. The send gate is CLOSED; the port walk it landed with has a DEFECT (both 2026-08-27)
+### 5. CLOSED 2026-08-27 — the send gate, the port walk, and the walk's own root-caused defect
 
 `BridgeClient.cs` handles `bridge_ready` and `reject` as of 2026-08-18 -- before that both fell
 into the unknown-message-type default, so every healthy session logged a warning about the one
@@ -145,21 +145,44 @@ of that same session shows the walk converging badly:
   `busy: this core already has a game attached`**, including ports whose core it had spawned itself.
 - It settled on 7784 after roughly **35 seconds**.
 
-It works, and it converges by luck rather than by design. **Two candidate causes, both mine, and
-neither yet isolated** — so this is written down rather than fixed on a guess:
+**ROOT-CAUSED THE SAME DAY, and both of the first two guesses were wrong.** Isolated with the real
+binaries and no game at all — four experiments against a live relay and real cores:
 
-1. **The 1.5s hello-answer timeout may abandon a freshly spawned core mid-handshake.** A cold core
-   has to bind, dial the relay and finish its own handshake before it can answer; if the adapter
-   gives up first it cools that port down and walks away.
-2. **Autostart spawns on `bridge.CurrentPort` — the port the walk is about to DIAL, not one known to
-   be free.** So every retry scatters another core across the range. Crystal's adapter does the
-   opposite and says so: the autostart port is *"taken from the sweep rather than assuming
-   BRIDGE_BASE_PORT"*. That one is wrong on inspection, independently of the log.
+| Experiment | Result |
+|---|---|
+| Cold core on a free port: hello → `bridge_ready` | **14ms.** Nowhere near the 1.5s timeout. |
+| Core told to use a port already held | **Does not walk — fails to bind and exits.** |
+| Second adapter on a core that has one | `reject` `busy: this core already has a game attached`, **13ms**, then closed |
+| Dial a port with nothing on it | **Dial REFUSED** — no `reject` message at all |
 
-**What is ruled out:** the core does release its admission slot when its adapter disconnects
-(`core/bridgeserve.go:61-66`, "a Core whose adapter has gone is available again"), so a stale
-attachment is not simply never freed. **What to do next:** isolate by subtraction rather than
-guessing a third time — one variable at a time, two games, reading the port each core binds.
+Experiment two is the one that broke the case open: because a core does **not** walk, ports
+7779-7785 had no listener during that session and **cannot have sent a `busy` reject**. Every reject
+came from 7778 — Crystal's core — and was *misreported eight times as a different port*.
+
+**The actual bug:** the `reject` handler ran on the main thread in `DrainInto`, frames after the
+message arrived, and named `CurrentPort` — the walk's **cursor** — instead of the port the
+**connection** was on. So it cooled down whatever port the cursor had drifted to. The genuinely busy
+port never got cooled and the walk kept returning to it, while innocent free ports were skipped. It
+converged only when a spawn happened to land somewhere free and un-cooled.
+
+**Introduced by me, in this same pass**, replacing `dialPort` with `CurrentPort` to fix a compile
+error — the two are not the same thing, and swapping one for the other silently changed the meaning
+from "the port this connection is on" to "the port the walk happens to be on now".
+
+**The fix:** a `connectedPort` field, set when a connection is published and read wherever a
+received message has to name its own port; and `AdvanceWalkPast(port)`, which moves the cursor past
+*the port that refused* rather than one step from wherever it sat. Expected convergence is now one
+retry interval (~2s): 7778 rejects → cool 7778, step to 7779 → refused → spawn there → ready in
+~14ms.
+
+**Also ruled out:** the core releases its admission slot when its adapter disconnects
+(`core/bridgeserve.go`), so this was never a stale attachment that failed to free. And autostart
+spawning on `CurrentPort` turns out to be **correct** once attribution is fixed, because the walk
+only sits on a port whose dial was refused — and a refusal is proof nothing is listening.
+
+**STILL UNWATCHED.** The root cause is measured and the fix follows from it, but the fix itself has
+not been seen working. `UNVERIFIED.md` says exactly what to look for, and it is now a cheap check
+rather than a vague one: the reject must name **7778 and only 7778**.
 
 **The original deferral, kept:** the gate needs the reconnect path to reset the flag too
 (`connectionGeneration` already tracks the generation, so the hook exists). Get that wrong and a

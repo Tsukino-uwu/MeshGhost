@@ -74,15 +74,22 @@ loopback relay. The user, on TEVI: *"TEVI seems to work"*, *"can see the loopbac
 stuffs"*. So the send gate does not withhold state that matters and a ghost renders — that half is
 confirmed, and the hedge is quoted rather than smoothed over.
 
-**The walk is a different answer.** Crystal's core held 7778; TEVI spawned four cores, walked
-7778→7785 and round again with **every port replying `busy: this core already has a game
-attached`**, and settled on 7784 after ~35 seconds. It works by luck, not by design. Two candidate
-causes, neither isolated, one wrong on inspection regardless (autostart spawns on the port the walk
-is about to dial rather than one known free) — full evidence and what is ruled out:
+**The walk was a different answer, and it is now root-caused and fixed — unwatched.** That session
+had TEVI walking 7778→7785 and round again, every port apparently replying `busy`, settling on 7784
+after ~35 seconds. Isolated the same day with the real binaries and no game: a core does **not** walk
+when its port is taken (it fails to bind and exits), so ports 7779-7785 had no listener and could
+not have rejected anything. Every reject came from 7778 and was misreported, because the handler
+named the walk's **cursor** instead of the port the **connection** was on. Full measurements:
 [BANDAGES.md](BANDAGES.md) entry 5.
 
-**What a next session should do:** two games, one variable at a time, reading the port each core
-actually binds. Not a third guess.
+**What to look at, and it is a cheap check now.** Two games again, TEVI second. In TEVI's BepInEx log:
+
+- **Exactly one reject, naming 7778 and nothing else.** The old bug's signature was a reject line
+  for every port in the range; if that comes back, attribution is still wrong.
+- **`bridge ready on port 7779`** — the first free port, not 7784.
+- **Convergence in about one retry interval (~2s)**, not 35 seconds, and **one** "started a core"
+  line rather than four.
+- A ghost still renders, i.e. the send gate did not regress.
 
 **Still unwatched from this entry:** everything below about the two-instance case with two TEVI
 copies, and whether a single-game launch (nothing else holding 7778) converges immediately — the
