@@ -61,11 +61,13 @@ reload (`started a core (meshghost.exe, pid …)`), where `Assembly.Location` is
 start the FIRST search path -- beside the assembly -- is the one that answers, which is the
 shipping path and a different branch.
 
-**Also armed and unconfirmed: the Mono debugger server.** `doorstop_config.ini` has
-`debug_enabled = true` on Steam (`127.0.0.1:10000`) and on the standalone build
-(`127.0.0.1:10001`), backups beside both. Whether dnSpy can actually attach depends on whether
-this build's Mono carries the debugger agent, which nobody has tested -- the usual patched-Mono
-route does not exist for Unity 2021.3. `../../agent_docs/environment.md`.
+**The Mono debugger question is answered, and then deliberately switched back off.** Both agents
+were confirmed listening on 2026-08-28 (`127.0.0.1:10000` owned by the Steam pid, `:10001` by the
+standalone's), so **this build's Mono does carry the debugger agent** and the doorstop route works
+without the patched Mono that does not exist for Unity 2021.3. `debug_enabled` is now `false`
+again on both: the agent is unauthenticated, nothing was using it, and a GUI debugger is a tool
+the user drives rather than the agent. **Still never confirmed: whether dnSpy completes an
+attach** -- only that the port answers. `../../agent_docs/environment.md`.
 
 **Nothing here changes what ships.** ScriptEngine and UnityExplorer are developer-machine tools,
 the doorstop flag is one line in a local install, and `packaging/release/` carries only the

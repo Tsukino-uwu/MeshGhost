@@ -694,14 +694,20 @@ there on the user's explicit instruction, 2026-08-17.
     is what is installed, and the asset is `UnityExplorer.BepInEx5.Mono.zip` — BepInEx **5**,
     **Mono**, matching this install. An IL2CPP game would need a different asset entirely.
   - **dnSpyEx** `v6.6.0` (GPL-3.0) at `C:\dev\tools\dnSpy`, outside every game folder.
-  - **TEVI's Mono debugger server is ARMED, not confirmed** — `doorstop_config.ini` now has
-    `debug_enabled = true` with `debug_address = 127.0.0.1:10000`; the original is beside it as
-    `doorstop_config.ini.meshghost-backup`. **This route was chosen because the usual one is
-    unavailable**: dnSpy's Unity debugging normally wants a patched Mono from
+  - **TEVI's Mono debugger route WORKS and is deliberately switched OFF.** `doorstop_config.ini`'s
+    `debug_enabled` was set true on both installs, and **the agent was confirmed listening**
+    (2026-08-28): `127.0.0.1:10000` owned by the Steam TEVI pid, `127.0.0.1:10001` by the
+    standalone's, both accepting a TCP connection. So **this build's Mono does carry the debugger
+    agent** — that was the open question and it is answered. **This route was chosen because the
+    usual one is unavailable**: dnSpy's Unity debugging normally wants a patched Mono from
     `dnSpyEx/dnSpy-Unity-mono`, whose newest build is **Unity 2020.3.33f1** while TEVI is
     **2021.3.25f1** (checked 2026-08-28 across all 318 entries — there is no 2021 build). The
-    doorstop flag needs no game binary replaced. **Whether this build's Mono actually carries the
-    debugger agent is UNTESTED** — if dnSpy cannot connect, that is the reason, not a wrong port.
+    doorstop flag needs no game binary replaced. **Set back to `false` the same day**: the agent
+    is unauthenticated, so any local process could attach and execute code inside the game, and
+    nothing was using it — an agent can only drive a GUI debugger by proxy, so the tool is the
+    user's, not the agent's. Turn it on for a session that intends to attach, not as a default.
+    Originals are beside both as `doorstop_config.ini.meshghost-backup`. **Never confirmed:
+    whether dnSpy completes an attach** — only that the port answers.
   - **Pseudoregalia's UE4SS Live Viewer is enabled locally** — `GuiConsoleEnabled` and
     `GuiConsoleVisible` set to 1 in the install's `UE4SS-settings.ini` (original backed up as
     `.meshghost-backup`). **The SHIPPED config in `packaging/release/` stays 0** and must:
