@@ -161,6 +161,7 @@ filed under the right theme, but anything can check that it is listed.
 - CORRECTION: the recall-glow and throw-crash entries above each appear TWICE (2026-08-25)
 - 2026-08-27 — The player's health bar was the GHOST'S OWN HUD, drawn over it (user-confirmed)
 - 2026-08-27 — The ghost's shadow was glued to its model because one spring arm was 100 long instead of 5000 (user-confirmed)
+- 2026-08-27 — The heal's world-spawned VFX were being placed at the ghost's feet; the game puts them at the top of the model (user-confirmed)
 
 ## Confirmed facts
 
@@ -3745,3 +3746,48 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
 - Notes: `bDoCollisionTest` was already `true` on both sides, so the ghost's collision setting was
   never implicated — an A/B against `GHOST_COLLISION_ENABLED` had been queued as the first move and
   would have cost a live cycle to clear nothing. The census made it unnecessary.
+
+## 2026-08-27 — The heal's world-spawned VFX were being placed at the ghost's feet; the game puts them at the top of the model (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, after the third placement: *"it did the VFX healing thing properly now"*.
+  Before it, three declines across the session: *"the ghost is still not doing the 'yellow ball'
+  vfx when healing"*, *"healing is still missing the last VFX"*, and finally the one that named it
+  — *"healing still don't show the 'yellow ball' at the top of the model when doing the
+  animation"*.
+- **The cause**: `NS_HealWave` and `NS_HealEndwave` are not attached to the player at all. A
+  `VFX_WATCH` capture showed the real ones **owned by `WorldSettings`, `attach='<none>'`**, carrying
+  a world coordinate — while the mirror spawned every row attached to a component of the ghost.
+- **The number, recovered from the capture rather than guessed.** The effects' world positions
+  against the player's own actor position in the same second:
+
+  | Effect | World position | Offset from the player |
+  | --- | --- | --- |
+  | `NS_HealEndwave` | (4578.96, 4417.69, -422.85) | ≈ (0, 0, **+10**) |
+  | `NS_HealWave` | (4570.51, 4466.97, -332.85) | ≈ (-8.5, +49, **+100**) |
+
+  +100 above the actor origin is the top of the model — the user's own words for where the ball
+  belongs. The feet are -66, so the second placement was about 165 units low: a whole character.
+- **The fix**: world-spawned rows spawn unattached, at a height **observed live from the local
+  player's own effect** — the mirror's proximity test already computed that offset every time one
+  fired and was discarding it. The table's measured values (+100 / +10) remain only as the fallback
+  for a peer who performs the action before the local player ever has. Horizontal offset is
+  deliberately zero: the real one is in the performer's facing frame, and one sample cannot recover
+  which way they were pointing, so it centres on the character rather than sitting confidently to
+  one side.
+- **Three placements, and the discipline that mattered was refusing to nudge the fourth by eye.**
+  Attached to the capsule (mid-body) → declined. World-placed at the feet → declined. Two wrong
+  placements in a row is `pitfalls/method.md`'s "two guessed fixes failing the same way is a
+  signal", so the third came from the capture's own numbers plus a live observation, not from an
+  offset chosen to look right.
+- **What the failed attempts cost, and what they were worth**: each one logged `component=ok` on
+  the ghost, which is why the log never disagreed with the bug. `component=ok` is the same species
+  of non-evidence as "it ran without errors" — it says a component exists, never that anybody can
+  see it.
+- **The identification came from a person, not an instrument.** The catalog probe cycling three
+  `Heal` systems onto the ghost got the user to *"its those 3 effects... think the 'ball' thing is
+  the one in the middle"*, and their later "at the top of the model" is what actually closed it.
+  `effect-investigation.md`'s rule holds: ask the question a person can answer without naming an
+  asset.
+- Notes: the mirror sends a compile-time KEY over the wire, never an asset path, and that is
+  unchanged — the height is resolved locally on each machine from local observation.

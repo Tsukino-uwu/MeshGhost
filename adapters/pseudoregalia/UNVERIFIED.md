@@ -36,7 +36,7 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending — the charged attack DAMAGES THE PLAYER, and it now looks like the player hitting their OWN ghost (2026-08-27)
+## Pending — the ghost's charged attack DAMAGES THE PLAYER, and the ghost is not hittable (2026-08-27)
 
 **STATE AT END OF 2026-08-27. Still open. Three candidates tried, none fixed it, and only two of
 them actually produced evidence — read the third carefully before repeating it.**
@@ -88,7 +88,7 @@ or it goes active again. Then a re-used actor fired by the ghost announces itsel
 done, this measurement **does not** clear the ghost — and saying it does would be exactly the
 "a clean instrument means widen the subsystem" mistake `CLAUDE.md` warns about.
 
-### THE TITLE OF THIS ENTRY IS PROBABLY WRONG — it looks like the player hitting their own ghost
+### A reading that looked right, and the measurement that killed it
 
 **The user's own reading, 2026-08-27, and it fits the evidence better than anything above:**
 *"when im getting hurt, its only the player that blink red/take damage, not the ghost. so i guess
@@ -136,6 +136,39 @@ own.
 **The old theory, kept because it is not disproven:** the pawn's `hitActorsArray` on a ghost that
 fires its own attack. It now has no evidence for it — no ghost-instigated projectile has ever been
 seen — and it should not be worked on before the collision readback is run.
+
+### THE COLLISION READBACK RAN, and it puts the damage back on the ghost (2026-08-27)
+
+```text
+PRJWATCH: ghost GetActorEnableCollision -> false tick=1440 (we set it to false at spawn)
+PRJWATCH: GHOST's LastHitBy -> '<none>'
+```
+
+**The ghost's collision really is off, long after spawn** — so nothing can hit the ghost, and
+"the player shoots their own ghost" is REFUTED. The user's reading was reasonable and so was the
+agreement with it; the readback is what settled it, and it took one run because the instrument was
+built before the theory was believed.
+
+**What collision-off does NOT stop is the ghost attacking.** Disabling an actor's collision stops
+things hitting IT; it does nothing about that actor's own code querying the world for targets and
+damaging them. So the mechanism now reads:
+
+1. the adapter mirrors the peer's montages onto the ghost — established, shipped behaviour
+2. an attack montage carries the notifies that run the game's own attack code
+3. that code finds the player (who does have collision) and damages them
+4. the player's health is the GameInstance singleton, so only their bar moves
+5. `hitActorsArray` is an already-hit list that nothing clears on the ghost, so **only the first
+   attack ever lands** — the detail no other theory explained
+
+**The one-variable test is armed and deployed:** `GHOST_SELF_MONTAGE_PROBE`, which suppresses
+**every** montage call this adapter makes on a ghost. Damage stops → the montage mirror is the
+trigger and the fix is to stop the ghost's attack path rather than its collision. Damage continues
+→ montages are exonerated and the trigger is elsewhere in the mirror. The run is deliberately
+wrong-looking (no montage animation on the ghost at all) and that is the price of one variable.
+
+**If it is the montages, the fix is NOT to stop mirroring them** — the attack pose is what a peer's
+ghost is for. It is to stop the ghost's attack from reaching the player: the project's line is
+cosmetics yes, combat authority no (`../../agent_docs/brief.md`).
 
 **Also unexplained and probably the same mechanism:** the ghost's projectile is never VISIBLE. An
 actor that damages but does not render is consistent with the ghost spawning something real that
@@ -357,122 +390,42 @@ Worth keeping rather than deleting: the anomaly was real, the two readings neede
 and **the thing that settled it was a question a person could answer without naming an asset**.
 That is cheaper than any probe and should be reached for first.
 
-## Pending — healing and charged-projectile VFX now mirror onto a ghost (2026-08-27)
+## Pending — the CHARGED-PROJECTILE half of the VFX mirror (2026-08-27)
 
-**Built from a measured capture, not from names.** One `VFX_WATCH` + `ABILITY_FIELD_TRACE` run on
-2026-08-27 logged every effect the local player spawned, with its `AttachParent`,
-`AttachSocketName` and `RelativeLocation` on appearance. Both instruments are back off.
+The healing half is **confirmed and moved to `VERIFIED.md`** (2026-08-27): the waves are
+world-spawned at the top of the model, not at the feet, and the user watched the ghost do it
+properly. What is left here is the other row.
 
-What that run established, and every one of these is a measurement:
+**Built from a measured capture, not from names.** One `VFX_WATCH` + `ABILITY_FIELD_TRACE` run
+logged every effect the local player spawned, with its `AttachParent`, `AttachSocketName` and
+`RelativeLocation` on appearance:
 
 | Effect | Asset | Attached to | Socket |
 | --- | --- | --- | --- |
-| Healing | `/Game/VFX/Systems/NS_Healing` | the player's `CapsuleComponent` | none, zero offset |
 | Charge glow | `/Game/VFX/Emitters/NS_ProjectileCharged` | the player's `VisualMesh` | **`handslot_R`** |
 
 The hand socket is why the user sees the charge on the sword rather than centred on the character
 — their own report, independently, before the log was read.
 
-**How it works, and why it is shaped this way.** `MIRRORED_EFFECTS` in `Plugin.cpp` is a
-compile-time table; the wire carries a short **key** (`heal`, `chg`) and never an asset path. That
-is deliberate and it closes rather than repeats the peer-data item in `../../agent_docs/ideas.md`
-("Pseudoregalia plays any montage a peer names"): a peer selects a row of our table and cannot
-reach `StaticFindObject` with a string of its own. The wire carries **state, not events** — the
-full active set every update — so a dropped datagram self-corrects instead of stranding an effect
-on a ghost forever, which is the recall-glow bug this adapter has already paid for once.
-Detection is by `component_is_active`, not by existence, for the same reason.
+**What is NOT confirmed:** nobody has said the ghost's charge glow looks right. It has been on
+screen during every session this evening while the attention was on the damage, so a decline is as
+likely as a confirmation. **Ask about it specifically rather than assuming it rode along with the
+heal.**
 
-**No durations anywhere in the path.** The user's note that a heal "can last longer/shorter" is
-exactly what a reconstructed rule gets wrong; mirroring the observed effect gets it right for free.
+**Two effects the user named are deliberately NOT mirrored** — both need attribution work the table
+avoids by only ever mirroring things attached to the player, or world-spawned things that appear
+right at the performer:
 
-**What to look at.** Loopback, the ghost offset to the side. Heal, and charge the sword attack.
-**What correct looks like:** the ghost shows the heal aura for as long as you hold the heal, and
-the charge glow appears **in the ghost's right hand** and goes away when you release. A long heal
-and a short heal should both match. **What failure looks like:** the effect never appears (check
-the log for `MIRRORVFX ghost ...: started` — if that line is there, spawning worked and the
-problem is placement, which is a completely different fix from the effect never firing); or it
-appears and never stops, which means the falling edge is not being seen.
-
-**The log says which half is wrong, so read it before theorising.** `MIRRORVFX local:` prints the
-active-key set on every change, `MIRRORVFX ghost:` prints each start and stop. Local lines with no
-ghost lines means the detection works and the apply does not; neither means detection is failing.
-
-**Two effects the user named are deliberately NOT in this** — both need attribution work this
-table avoids by only ever mirroring things attached to the player:
-
-- **The ranged projectile itself.** It is a separate world actor, `PRJ_PlayerCutter_C`, one spawned
-  per shot, carrying `NS_PlayerProjectile` on its `EnvCollider`. Structurally identical to the
-  thrown Dream Breaker, which already ships — spawn a prop per shot, sample its transform, replay
-  it. Not built.
-- **The death burst.** The user confirmed it appears **where you died**, so it is world-spawned and
-  owned by the level, not by the player — which means proximity attribution, and in a boss fight
-  the screen is full of enemy effects. Candidates from the run are `NS_BasicBurst` (appears before
-  every death, but also 14× during ordinary combat, so it is a generic hit burst) and
-  `NS_BasicBurstRedBig` (once, across three deaths). **Neither is established**; the honest next
-  step is the catalog probe playing both onto a ghost for the user to pick, per
-  `../../agent_docs/effect-investigation.md` §0b.
-
-### DECLINED on screen, 2026-08-27 — the heal's "yellow ball" does not appear on the ghost
-
-**User, watching a real heal:** *"the ghost is still not doing the 'yellow ball' vfx when
-healing."* This is a decline of the healing half of the mirror, and it is worth more than a
-confirmation would have been, because the log from the same session says every stage worked:
-
-```text
-MIRRORVFX local: '' -> heal -> heal,hw,hew -> hw,hew -> ''   (a real heal, tick 24705)
-MIRRORVFX ghost p1-ghost: started 'hw' (component=ok)
-MIRRORVFX ghost p1-ghost: started 'hew' (component=ok)
-```
-
-Detection fired, the wire carried it, and both wave systems spawned with `component=ok` on the
-ghost. **The effect still is not on screen** — so `component=ok` is exactly the same species of
-non-evidence as "it ran without errors", and this is the second time this adapter has been told
-that by a person rather than by an instrument.
-
-**The first suspect is WHERE, not whether.** `hw`/`hew` are `world_spawned` rows: the player's real
-ones are attached to nothing and carry a world coordinate, while the ghost's copies are spawned
-attached to `RootComponent` — the capsule's centre, mid-body, which is not the ground a wave rises
-from. That is the recall glow's bug in a new place (it shipped attached to the ghost's root purely
-because nothing said otherwise, and the user reported it sitting visibly wrong).
-
-**What settles it, and it is the measurement that already fixed the glow:** one `VFX_WATCH` run
-over a real heal, reading the PLAYER's own wave pair against the GHOST's — asset, `AttachParent`,
-`AttachSocketName` and `RelativeLocation` on appearance. Do not adjust an offset by eye first;
-`../../agent_docs/effect-investigation.md` is the playbook and this is the case it was written for.
-
-**Note the white aura is a separate question and is already answered** — see the RESOLVED entry
-above: `NS_Healing` IS the heal's own body effect, confirmed by the user watching it.
-
-### That run happened, the placement was corrected, and it is STILL missing (2026-08-27)
-
-`VFX_WATCH` over a real heal established the arrangement: the player's own `NS_HealWave` and
-`NS_HealEndwave` are owned by **`WorldSettings` and attached to nothing** — placed in the world,
-not carried on the body — while `NS_Healing` sits on the player's own capsule. The mirror was
-spawning every row ATTACHED, so the ghost's wave copies rode the capsule's centre, mid-body.
-
-**Corrected, and still not visible.** World-spawned rows now spawn unattached at the ghost's feet
-(the foot offset read from the ghost's own `VisualMesh`, not hardcoded), the call's signature was
-dumped and every parameter matched by name, and both waves reported `component=ok`. The user,
-watching: *"healing is still missing the last VFX"*.
-
-**Two different spawn arrangements producing the same nothing is the signal to stop adjusting
-placement** (`../../agent_docs/pitfalls/method.md`). So the question changed from *where did it go*
-to *which system is the yellow ball at all*, and the catalog probe answered as far as a three-way
-cycle can: *"its those 3 effects, but im unsure what order they are in, only 2 of them are
-shown/visible during the healing itself. think the 'ball' thing is the one in the middle between
-them"*.
-
-**So the ball IS one of the three already mirrored**, and probably `NS_HealWave` — but "probably"
-is carrying real weight there, because a 2.5s cycle of three systems with nothing on screen naming
-them is not an identification. **Next run narrows `VFX_PROBE_NAME_FILTERS` to ONE name** so a single
-system loops on the ghost and the answer is yes or no about one thing. That build was made and then
-reverted with the other probes at session end; re-narrowing it is a one-line change.
-
-**One fact from the same capture that should stop a wrong turn:** the ghost demonstrably RECEIVES
-all three heal systems. Detection, wire, spawn and placement are not the defect. Whatever is wrong
-is downstream of the component existing on the ghost — a Niagara user parameter the game sets after
-spawning is the most plausible candidate, and it is a thing this project has never had to reproduce
-before.
+- **The ranged projectile itself.** A separate world actor, `PRJ_PlayerCutter_C`, one spawned per
+  shot, carrying `NS_PlayerProjectile` on its `EnvCollider`. Structurally identical to the thrown
+  Dream Breaker, which already ships. Not built. **The projectile watch has now confirmed the class
+  name and that exactly one exists per player shot** (`GHOST_PROJECTILE_WATCH`, three sessions).
+- **The death burst.** World-spawned where you died, so proximity attribution — and in a boss fight
+  the screen is full of enemy effects. `NS_BasicBurst` appears before every death but also 14x in
+  ordinary combat; `NS_BasicBurstRedBig` once across three deaths. **Neither is established**; the
+  honest next step is the catalog probe playing both onto a ghost for the user to pick, per
+  `../../agent_docs/effect-investigation.md` §0b — which is exactly how the heal's "yellow ball"
+  was identified.
 
 ## Pending — the FRotator float/double fix is generalised, and the ghost transform path moved onto it
 

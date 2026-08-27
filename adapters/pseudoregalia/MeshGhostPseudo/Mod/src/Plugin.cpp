@@ -1120,7 +1120,15 @@ namespace MeshGhostPseudo
     // for the conclusion and verified.md for the evidence.** Kept rather than deleted: it is the
     // only tool that can tell "the ghost did this" from "we did this", and the pole bug may yet need
     // exactly that answer again.
-    constexpr bool GHOST_SELF_MONTAGE_PROBE = false;
+    // **ON for the 2026-08-27 charge-damage A/B, and it is the one variable.** The ghost's
+    // collision reads back FALSE long after spawn, so nothing can hit the ghost and the "player
+    // shoots their own ghost" reading is out. What collision-off does NOT stop is the ghost's own
+    // attack code querying for targets and damaging the player -- and the adapter hands it the
+    // trigger, because a mirrored montage carries the notifies that run the attack. Suppressing
+    // every montage call this adapter makes is therefore the exact test: damage stops, and the
+    // mechanism is proven; damage continues, and montages are exonerated in one run.
+    // **Deliberately makes the ghost animation wrong while on.** Flip back after the run.
+    constexpr bool GHOST_SELF_MONTAGE_PROBE = true;
 
     // The other half of the montage follow-up: the mirror is general, so the montages nobody has
     // ever triggered on camera -- `Guard_Main`, `Getup`, `SummonWeapon`, `Channel` (verified.md's
@@ -1494,7 +1502,7 @@ namespace MeshGhostPseudo
     // `<none>` throughout -- so this game does not record damage there and the search moved to
     // whether the ghost is hittable at all. The collision readback in the same block is the next
     // thing to run; it has never been run.
-    constexpr bool GHOST_PROJECTILE_WATCH = false;
+    constexpr bool GHOST_PROJECTILE_WATCH = true;
 
     // Matched as a substring of the CLASS name, and deliberately broad. `PRJ_PlayerCutter_C` is the
     // name this project has recorded for the ranged attack, but it was recorded from a log rather
@@ -4950,6 +4958,17 @@ namespace MeshGhostPseudo
         // character. It is NOT accepted for the death burst, whose candidate asset (NS_BasicBurst)
         // also fires on ordinary combat hits all over the screen -- see UNVERIFIED.md.
         bool world_spawned;
+        // For a world_spawned row: how far ABOVE the actor's origin the game puts it, in world
+        // units. Measured from the 2026-08-27 capture, where the player's own copies logged their
+        // world coordinates while the shadow trace independently logged the player's actor
+        // position in the same second: `NS_HealWave` at +100 (the top of the model, which is where
+        // the user reports seeing the "yellow ball"), `NS_HealEndwave` at +10.
+        //
+        // This is a FALLBACK, not the source of truth -- the mirror observes the real height from
+        // the local player's own effect every time one goes off and uses that instead. The value
+        // here is what a ghost gets before the local player has ever performed the action, which
+        // for a peer who heals first would otherwise be nothing at all.
+        double world_offset_z;
     };
 
     // Measured 2026-08-27. NS_Healing hangs off the capsule with no socket and no offset;
@@ -4960,16 +4979,23 @@ namespace MeshGhostPseudo
     // capture run had already logged as world-spawned (attach='<none>', owned by WorldSettings)
     // and which the player-ownership test therefore could never have found.
     constexpr MirroredEffect MIRRORED_EFFECTS[] = {
-        {"heal", STR("/Game/VFX/Systems/NS_Healing.NS_Healing"), STR("CapsuleComponent"), nullptr, false},
+        {"heal", STR("/Game/VFX/Systems/NS_Healing.NS_Healing"), STR("CapsuleComponent"), nullptr, false, 0.0},
         // 'chg' was pulled for one run as a one-variable test of the ghost-damages-player bug and
         // is **RESTORED 2026-08-27, EXONERATED**: with it gone the ghost still damaged the player,
         // so a Niagara spawn was never the cause and the ghost's own logic is. Recorded because a
         // cleared suspect is worth as much as a found one -- it stops the next session re-testing
         // it. See UNVERIFIED.md.
-        {"chg", STR("/Game/VFX/Emitters/NS_ProjectileCharged.NS_ProjectileCharged"), STR("VisualMesh"), STR("handslot_R"), false},
-        {"hw", STR("/Game/VFX/Emitters/NS_HealWave.NS_HealWave"), STR("RootComponent"), nullptr, true},
-        {"hew", STR("/Game/VFX/Emitters/NS_HealEndwave.NS_HealEndwave"), STR("RootComponent"), nullptr, true},
+        {"chg", STR("/Game/VFX/Emitters/NS_ProjectileCharged.NS_ProjectileCharged"), STR("VisualMesh"), STR("handslot_R"), false, 0.0},
+        {"hw", STR("/Game/VFX/Emitters/NS_HealWave.NS_HealWave"), STR("RootComponent"), nullptr, true, 100.0},
+        {"hew", STR("/Game/VFX/Emitters/NS_HealEndwave.NS_HealEndwave"), STR("RootComponent"), nullptr, true, 10.0},
     };
+
+    // Heights observed on the LOCAL player's own world-spawned effects, indexed by row. Written by
+    // the detection pass, read when spawning the same effect on a ghost -- so the ghost copies what
+    // the game actually did rather than what this table guessed. Not per-peer: it is a property of
+    // the effect in this game, not of who performed it.
+    double observed_world_offset_z[sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0])]{};
+    bool have_observed_world_offset[sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0])]{};
 
     // How close a world-spawned effect must be to the local player to be treated as the player's
     // own. Derived, not tuned: the capture run logged both waves at 130-260 units from the
@@ -5442,28 +5468,28 @@ namespace MeshGhostPseudo
                 UObject* component = nullptr;
                 if (effect.world_spawned)
                 {
-                    // **Spawned in the WORLD, at the ghost's feet -- corrected 2026-08-27.** The
-                    // capture says the player's own copies of these rows are owned by
-                    // `WorldSettings` and attached to nothing; ours were riding the ghost's capsule
-                    // centre because every row spawned the same way. A wave authored to rise from
-                    // the ground, played from mid-body, is a plausible reading of the user's
-                    // *"healing is still missing the last VFX"* while the log reports it started.
+                    // **Spawned in the WORLD, at the height the game actually uses.** The capture
+                    // says the player's own copies are owned by `WorldSettings` and attached to
+                    // nothing, so ours are placed rather than attached -- and WHERE turned out to
+                    // be the whole defect. This first spawned them on the ghost's capsule (mid
+                    // body), then at its feet on the reasoning that a wave rises from the ground.
+                    // Both were declined on screen. The user's third report named it: *"the
+                    // 'yellow ball' at the top of the model"* -- and the capture had said so all
+                    // along, putting `NS_HealWave` **+100 above the actor origin** and
+                    // `NS_HealEndwave` at +10, while the feet are -66. Two wrong placements in a
+                    // row is what stopped this being adjusted a third time by eye.
                     //
-                    // Feet is derived from the ghost's OWN mesh offset, not from a constant: the
-                    // census reads `VisualMesh` at a relative Z of -66 on both pawns, and the
-                    // shadow trace independently puts the floor exactly -66.1 below the actor when
-                    // standing. So this asks the actor where its feet are rather than asserting it.
-                    FVector feet = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
-                    double foot_offset = -GHOST_STANDING_CAPSULE_HALF;
-                    if (UObject** mesh_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); mesh_ptr && *mesh_ptr)
-                    {
-                        if (FVector* mesh_rel = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
-                        {
-                            foot_offset = mesh_rel->Z();
-                        }
-                    }
-                    feet = FVector(feet.X(), feet.Y(), feet.Z() + foot_offset);
-                    component = spawn_niagara_at_location(remote.ghost, asset, feet);
+                    // So the height is taken from the LOCAL player's own effect, observed live by
+                    // the detection pass, with the measured capture value as the fallback for a
+                    // peer who performs the action before the local player ever has. Horizontal
+                    // offset is deliberately zero: the real one is in the performer's facing
+                    // frame, and this places the effect centred on the character instead of
+                    // confidently to one side of it.
+                    const FVector ghost_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
+                    const double offset_z = have_observed_world_offset[i] ? observed_world_offset_z[i]
+                                                                          : effect.world_offset_z;
+                    const FVector at(ghost_loc.X(), ghost_loc.Y(), ghost_loc.Z() + offset_z);
+                    component = spawn_niagara_at_location(remote.ghost, asset, at);
                 }
                 else
                 {
@@ -10047,6 +10073,24 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
+
+                            // **Remember HOW HIGH the game put it, 2026-08-27.** This proximity
+                            // test already had the answer in `dz` and was throwing it away, while
+                            // the ghost's copy was being spawned at its feet on the reasoning that
+                            // a wave rises from the ground. The user, watching a real heal:
+                            // *"the 'yellow ball' at the top of the model"* -- and the capture
+                            // agrees, putting `NS_HealWave` a full **+100** above the player's
+                            // actor origin and `NS_HealEndwave` at +10. The feet were about 165
+                            // units wrong, which is a whole character.
+                            //
+                            // So the height is OBSERVED from the local player's own effect rather
+                            // than written down: whatever the game does, the ghost copies. Only Z
+                            // is kept -- the horizontal part of that offset is in the player's
+                            // facing frame, and one sample cannot say which way they were pointing,
+                            // so guessing it would put the effect confidently in the wrong place
+                            // instead of centred on the character.
+                            observed_world_offset_z[which] = dz;
+                            have_observed_world_offset[which] = true;
                         }
                         active[which] = true;
                     }
