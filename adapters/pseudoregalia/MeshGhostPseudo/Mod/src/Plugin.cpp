@@ -1655,21 +1655,55 @@ namespace MeshGhostPseudo
     // nearer this ghost than the local player is this ghost's. The local player's own afterimages
     // keep their outline -- the asymmetry is deliberate and is the whole point, since a peer's
     // position behind geometry is information the local player should not get for free.
-    // **OFF from 2026-08-27 -- REVERTED on the user's report, and it failed on both counts:** it
-    // stripped the outline from the LOCAL PLAYER's afterimages too, and the ghost's blue was still
-    // there. *"this also regressed/affect the player itself. i don't want anything like that."*
+    // **What does an afterimage read when it decides to outline itself? Probe, 2026-08-27.**
     //
-    // **Proximity attribution cannot work here, and that is the lesson.** On a loopback rig the
-    // ghost stands 150 units from the player and mirrors their motion ~100ms behind, so an
-    // afterimage left by the PLAYER is frequently nearer the GHOST than the player is by the time
-    // it is sampled. The world-spawned VFX rows get away with proximity because they fire AT the
-    // performer and last an instant; an afterimage is left behind in space and outlives the moment.
+    // Stripping custom depth from a ghost's afterimages works, and per-tick it removes almost all of
+    // it -- the user: *"the ghosts one is almost fully gone now, just briefly see it when attacking
+    // behind a wall"*. What is left is ONE FRAME, and it is structural rather than a bug: the actor
+    // is spawned already outlined and we react on the next tick.
     //
-    // `adapters/CLAUDE.md` already says this outright: re-validate an engine handle against an
-    // IDENTITY marker, never against proximity. The next attempt needs the afterimage's own record
-    // of what it was copied from -- census `BP_AfterImage_C` for a field naming its source pawn --
-    // rather than a distance test that cannot tell two characters apart when they stand together.
-    constexpr bool GHOST_AFTERIMAGE_NO_OUTLINE = false;
+    // Pre-stripping the pool cannot close it either. Afterimages are pooled and re-used, and the
+    // player's own still outline correctly after ours have been stripped -- which proves the game
+    // re-enables custom depth on each spawn rather than carrying it on the actor.
+    //
+    // So the only way to reach zero frames is to stop it deciding to outline in the first place,
+    // which means knowing what it reads. This dumps a ghost-owned afterimage's full property and
+    // function surface, once, the first time one is seen. Read-only.
+    // Off again 2026-08-27, its question answered: the afterimage carries `copyActor` (the actor
+    // it was copied from), `cachedMesh` and a `PoseableMesh`. The first of those turned attribution
+    // from a distance test into an equality test.
+    constexpr bool AFTERIMAGE_CENSUS = false;
+
+    // **A ghost's AFTERIMAGES are never outlined, attributed by `copyActor`. Behaviour, 2026-08-27.**
+    //
+    // An afterimage is a separate actor carrying its own outline, so stripping custom depth from the
+    // ghost never reached them -- the user found this by counting TWO outlines behind a wall, their
+    // own character plus their own afterimages.
+    //
+    // **The first attempt attributed by steady-state proximity and was REVERTED**: it stripped the
+    // local player's outline too and did not fix the ghost. *"this also regressed/affect the player
+    // itself. i don't want anything like that."* On a loopback rig the ghost stands 150 units away
+    // and trails ~100ms, so an afterimage the PLAYER left is often nearer the GHOST by the time it
+    // is sampled -- an image is left BEHIND in space and outlives the moment that made it.
+    //
+    // **The afterimage names its own source, so no heuristic is needed at all.** A census of
+    // `BP_AfterImage_C` found **`copyActor`** on it -- a reference to the actor it was copied from --
+    // alongside `cachedMesh` and its `PoseableMesh`. Attribution is therefore an equality test
+    // against this ghost, exact and immune to two characters standing together.
+    //
+    // Birth-proximity was the previous version and worked, but it was still a distance test with a
+    // re-use rule bolted on. `adapters/CLAUDE.md` says to re-validate an engine handle against an
+    // IDENTITY marker rather than against proximity, and this is that marker -- found by dumping
+    // the actor instead of reasoning about it, which is what the earlier proximity attempt skipped.
+    //
+    // Proximity survives ONLY as the fallback for a build where `copyActor` does not resolve, and it
+    // says so in the code below rather than silently degrading.
+    //
+    // The local player's own afterimages keep their outline. That asymmetry is the entire point: a
+    // peer's position behind geometry is information, and this is NOT loopback-specific -- a remote
+    // peer's ghost runs the same montages, spawns the same afterimages, and would light up through
+    // a wall in exactly the same way.
+    constexpr bool GHOST_AFTERIMAGE_NO_OUTLINE = true;
 
     // **A ghost is NEVER outlined -- anything it owns, every tick. Behaviour, 2026-08-27.**
     //
@@ -12944,11 +12978,30 @@ namespace MeshGhostPseudo
 
                 // **The afterimages this ghost left behind** -- separate actors, so neither the
                 // property walk nor the name sweep below can reach them. See
-                // GHOST_AFTERIMAGE_NO_OUTLINE.
+                // GHOST_AFTERIMAGE_NO_OUTLINE, including why attribution happens at BIRTH.
                 if constexpr (GHOST_AFTERIMAGE_NO_OUTLINE)
                 {
-                    if (tick_count % OUTLINE_SWEEP_INTERVAL_TICKS == 0)
+                    // **Every tick, not on the sweep cadence** -- corrected 2026-08-27 after the
+                    // user reported the outlines reduced but not gone. An afterimage is spawned
+                    // already outlined, so at ~30Hz each one stays visible for up to five frames
+                    // before being caught, which during a combo is exactly "less, but still some".
+                    // Partial suppression is a TIMING signature: wrong attribution would have left
+                    // the amount unchanged.
+                    //
+                    // Affordable because it is one class-scoped `FindAllOf` plus a distance check
+                    // per image, and the decision itself is cached by pointer -- not the per-frame
+                    // enumeration of everything that this adapter's worst regression was made of.
                     {
+                        // Remembered by pointer: what we decided, and where it was when we decided.
+                        // A pooled actor that later MOVES is being re-used by somebody, so it is
+                        // re-attributed then and only then.
+                        struct AfterimageOwner
+                        {
+                            bool belongs_to_ghost;
+                            double x, y, z;
+                        };
+                        static std::map<UObject*, AfterimageOwner> afterimage_owners;
+
                         const FVector ghost_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
                         FVector player_loc(0.0, 0.0, 0.0);
                         bool have_player = false;
@@ -12967,24 +13020,91 @@ namespace MeshGhostPseudo
                                 continue; // the class default object, not a placed one
                             }
                             const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
-                            const double dgx = image_loc.X() - ghost_loc.X();
-                            const double dgy = image_loc.Y() - ghost_loc.Y();
-                            const double dgz = image_loc.Z() - ghost_loc.Z();
-                            const double to_ghost = dgx * dgx + dgy * dgy + dgz * dgz;
-                            if (have_player)
+
+                            auto known = afterimage_owners.find(image);
+                            bool decide_now = (known == afterimage_owners.end());
+                            if (!decide_now)
                             {
-                                const double dpx = image_loc.X() - player_loc.X();
-                                const double dpy = image_loc.Y() - player_loc.Y();
-                                const double dpz = image_loc.Z() - player_loc.Z();
-                                if ((dpx * dpx + dpy * dpy + dpz * dpz) <= to_ghost)
+                                const double mx = image_loc.X() - known->second.x;
+                                const double my = image_loc.Y() - known->second.y;
+                                const double mz = image_loc.Z() - known->second.z;
+                                // Moved => this pooled actor has been re-used by somebody, and its
+                                // old owner means nothing. Same threshold and reasoning the
+                                // afterimage counter already uses.
+                                decide_now = (mx * mx + my * my + mz * mz) >
+                                             (AFTERIMAGE_REUSE_MOVE_THRESHOLD * AFTERIMAGE_REUSE_MOVE_THRESHOLD);
+                            }
+
+                            if (decide_now)
+                            {
+                                bool belongs_to_ghost = false;
+                                bool decided_by_identity = false;
+
+                                // **The actor says whose it is.** `copyActor` is the source it was
+                                // copied from -- an equality test, not a guess, and it cannot be
+                                // fooled by the ghost and the player standing together.
+                                if (UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor")); copy_actor && *copy_actor)
                                 {
-                                    continue; // nearer the player: theirs, and theirs keeps its outline
+                                    belongs_to_ghost = (*copy_actor == static_cast<UObject*>(remote.ghost));
+                                    decided_by_identity = true;
+                                }
+
+                                if (!decided_by_identity)
+                                {
+                                    // Fallback only: a build where `copyActor` does not resolve.
+                                    // Birth-proximity is sound at the moment of spawn -- the image
+                                    // sits ON its owner -- and is why this is attributed once
+                                    // rather than continuously. Logged, because silently
+                                    // degrading to a heuristic is how the first attempt took the
+                                    // player's outline with it.
+                                    static bool warned_fallback = false;
+                                    if (!warned_fallback)
+                                    {
+                                        warned_fallback = true;
+                                        Output::send(STR("[MeshGhostPseudo] WARNING: afterimage has no 'copyActor' on this build -- falling back to birth proximity, which cannot tell two characters apart when they overlap.\n"));
+                                    }
+                                    const double dgx = image_loc.X() - ghost_loc.X();
+                                    const double dgy = image_loc.Y() - ghost_loc.Y();
+                                    const double dgz = image_loc.Z() - ghost_loc.Z();
+                                    const double to_ghost = dgx * dgx + dgy * dgy + dgz * dgz;
+                                    double to_player = to_ghost + 1.0; // no player: treat as the ghost's
+                                    if (have_player)
+                                    {
+                                        const double dpx = image_loc.X() - player_loc.X();
+                                        const double dpy = image_loc.Y() - player_loc.Y();
+                                        const double dpz = image_loc.Z() - player_loc.Z();
+                                        to_player = dpx * dpx + dpy * dpy + dpz * dpz;
+                                    }
+                                    belongs_to_ghost = (to_ghost < to_player);
+                                }
+
+                                afterimage_owners[image] = AfterimageOwner{belongs_to_ghost,
+                                                                           image_loc.X(), image_loc.Y(), image_loc.Z()};
+                            }
+
+                            const auto& owner = afterimage_owners[image];
+                            if (!owner.belongs_to_ghost)
+                            {
+                                continue; // the player's own: their outline is theirs to keep
+                            }
+
+                            // See AFTERIMAGE_CENSUS. One ghost-owned afterimage, dumped once: the
+                            // question is what it reads to decide it should be outlined, since
+                            // reacting afterwards can never beat the frame it is spawned on.
+                            if constexpr (AFTERIMAGE_CENSUS)
+                            {
+                                static bool dumped_afterimage = false;
+                                if (!dumped_afterimage)
+                                {
+                                    dumped_afterimage = true;
+                                    dump_object_property_values(image, STR("ghost afterimage"));
+                                    dump_object_reflection(image, STR("ghost afterimage"));
                                 }
                             }
 
                             // Walk the actor's components rather than naming one: an afterimage's
-                            // mesh is a PoseableMeshComponent here, and naming classes is exactly
-                            // what made this invisible to three earlier probes.
+                            // mesh is a PoseableMeshComponent here, and naming component CLASSES is
+                            // exactly what hid this from three earlier probes.
                             UClass* image_class = image->GetClassPrivate();
                             if (!image_class)
                             {
@@ -13010,7 +13130,7 @@ namespace MeshGhostPseudo
                                 if (!announced_afterimage)
                                 {
                                     announced_afterimage = true;
-                                    Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON -- holding it off.\n"),
+                                    Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON -- holding it off (attributed at birth).\n"),
                                                  property->GetName());
                                 }
                                 call_set_render_custom_depth(*component, false);
