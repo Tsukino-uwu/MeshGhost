@@ -470,6 +470,48 @@ worked. The gate suppressed a duplicate step issue on the following frame, so it
 effect and a plausible story -- and changed nothing about the symptom, because there was no
 symptom. Before/after on the RAW evidence is what separated them.
 
+
+## A deploy that reports success can deploy nothing — three ways, one loop (2026-08-28)
+
+**Symptom.** TEVI's new hot-reload loop reported `deployed ... (hash match: True)` and the game
+did not change. Three separate causes, found in one session (2026-08-28) while standing the loop
+up, and **every one of them printed a success line**. That is the transferable part: the loop's
+own output was never evidence that a reload happened.
+
+**Cause 1 — a wrong-format symbol file reads as a missing one.** BepInEx's ScriptEngine loads a
+plugin through Mono.Cecil WITH SYMBOLS. The .NET SDK emits a *portable* pdb by default, and
+Cecil's `DefaultSymbolReaderProvider` cannot read one — it throws
+`SymbolsNotFoundException: No symbol found for file: <the DLL>`. The message names the DLL, so it
+reads as "you forgot the pdb" while the pdb is sitting right beside it. **Settled by looking at
+the file's magic bytes**, not by trusting the build setting: portable starts `BSJB`, a Windows pdb
+starts `Microsoft C/C++ MSF`. Fix: `<DebugType>full</DebugType>`.
+
+**Cause 2 — `Copy-Item` preserves the source timestamp.** A file watcher fires on LastWrite.
+A rebuild that produced a byte-identical DLL therefore copied an identical timestamp, changed
+nothing observable, and fired no reload — while the script still said "deployed". **The first
+reload test was a pass that reloaded nothing**, and it would have gone on passing. Fix: stamp the
+destination's `LastWriteTime` after copying, so the deploy is the trigger regardless of whether
+the bytes moved. **Generalises past PowerShell**: any copy that preserves metadata breaks any
+watcher keyed on that metadata.
+
+**Cause 3 — `Assembly.Location` is empty when an assembly is loaded from bytes.** ScriptEngine
+uses `Assembly.Load(byte[])`, so anything resolving a path relative to "where am I" resolves to
+nowhere. TEVI's `CoreLauncher` correctly reported that no `meshghost.exe` sat beside it and
+declined to start one — correct behaviour, invisible consequence: the loop could not autostart.
+Fix: an explicit short search list, assembly directory first (the shipping path), then an
+environment override, then the loader's own `Paths.*`. **Not a scan** — each entry is a place the
+file legitimately is.
+
+**The lesson, which is the same one three times.** A dev loop is an instrument, and
+`CLAUDE.md`'s rule that *a diagnostic can break the thing it measures* applies to it before it
+applies to anything it measures. **Prove the loop moves the thing** — here, by counting
+ScriptEngine's own `Loading plugins from` lines in the log and the adapter's own despawn lines,
+not by reading the deploy script's output. A loop that silently stops reloading turns every later
+result into a measurement of the previous build.
+
+**Cross-reference:** `adapters/tevi/VERIFIED.md`, "TEVI hot-reload dev loop"; the loop itself is
+`dev-scripts/tevi-hotreload.ps1`, whose header carries the two limits that remain.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
