@@ -161,6 +161,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   checks, deployment fixes. `ideas.md`, "What safe to play with random people means" (2026-08-24).
 - **Encrypted everywhere except udp, authenticated nowhere** — tcp gained TLS 2026-08-19, so both
   default transports encrypt; nothing proves a relay is who it says. `docs/security.md`.
+- **PEER-DATA SAFETY is a stated project commitment, logged not designed (2026-08-27)** — seven
+  requirements for every adapter, enforcement sketched only; the user: *"not being sloppy with"*. `ideas.md`.
 - **TWO unbounded peer-controlled name lookups, found by audit 2026-08-27** — Pseudoregalia plays
   any montage a peer names (type-checked, so not ACE); TEVI's `anim.Play(state.Anim)` is unbounded.
   Allowlist both. No ACE found anywhere. `ideas.md`, "The ACE audit".

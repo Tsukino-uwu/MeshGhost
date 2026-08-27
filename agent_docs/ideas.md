@@ -1208,6 +1208,100 @@ rejects control characters, not just oversized ones. MeshGhost has no equivalent
 peer-controlled is displayed yet. **Nameplates would change that**, which is why the requirement is
 now written into the nameplates entry above rather than left to be rediscovered.
 
+## PEER-DATA SAFETY REQUIREMENTS for every adapter — the user wants these enforced, not advised
+
+**The user, 2026-08-27:** *"I want things like this to be strictly enforced/required for all
+adapters. so that meshghost is actually safe to use, and feels safe to use"*, having drawn the line
+*"i never want someone else to do anything malicious/harmful towards someone elses computer"* while
+accepting that a peer making their own ghost look wrong is fine.
+
+**Read the ACE audit below first** — it is the evidence. This entry is what turning that audit into
+a standing requirement would take.
+
+**STATUS: LOGGED, NOT DESIGNED, AND NOT A NICE-TO-HAVE.** The user's instruction, same day: *"just
+log to ideas for now, how to handle it is an issue for another time. but it is something i feel
+strongely about actually doing for this project and not being sloppy with"*. So **the WHAT below is
+the user's stated intent for the project and the HOW is deliberately open** — the enforcement column
+is one sketch, not a decision, and a future session should feel free to replace the mechanism while
+keeping the requirement. Two things follow from how strongly it was put:
+
+- **It does not expire by being unscheduled.** `ideas.md` holds unscheduled work, and the ordinary
+  reading of an entry here is "act on it when picked". This one carries an explicit commitment, so
+  it is not a candidate to quietly drop.
+- **"Not being sloppy with" rules out the tempting version** — writing the requirements into
+  `_template/` as prose, calling the adapter contract updated, and moving on. That is precisely the
+  failure `internal/gameblind` was created to end, and this session found three more instances of it
+  in one pass. A requirement without a check is not a smaller version of this idea; it is the thing
+  this idea exists to avoid.
+
+### Why this cannot be prose, stated once so it is not re-litigated
+
+`internal/gameblind`'s own header already settled this argument for the game-blindness rule: *"Prose
+is a statement of intent, not enforcement: nothing failed when it was crossed. These tests fail."*
+Every requirement below therefore names **what breaks when it is violated** — and one that cannot
+name that is a wish, not a requirement, and is marked as such.
+
+**This session is itself the evidence.** Three doc gates were found reporting PASS while checking
+nothing, a shipped flag had no register row, a register row described a deleted flag, and the first
+regression test written for the relay-ownership race passed without the fix. Every one of those was
+a rule that existed in prose. The ones that held were the ones with a check behind them.
+
+### The requirements, and what would enforce each
+
+| # | Requirement | Enforceable by | Confidence |
+|---|---|---|---|
+| **R1** | **No peer-controlled value reaches a code-execution primitive.** `load`/`loadstring`/`dofile`/`os.execute`/`io.popen`, `Activator`/`Type.GetType`, `dlopen`/`LoadLibrary`. | A grep gate: those primitives may appear only with a **literal** argument, or not at all. Same shape as the existing canonical-source and invented-durations gates. | **High** — mechanical, and the current tree already passes it (only `io.popen("cd")`). |
+| **R2** | **No peer-controlled value reaches a file path.** No filename, directory or path component derived from `player_id`, `area_id`, `anim`, or any `extras` key. | A grep gate over file-opening calls (`io.open`, `File.*`, `ofstream`, `client.screenshot`) flagging any argument expression that mentions a known peer field name. | **High** — the peer field set is small and fixed by the contract, so the pattern list is closed. |
+| **R3** | **Every peer field an adapter reads is REGISTERED with its bound**, and the register is complete. | A mandated per-adapter register plus a completeness check — **exactly the pattern that already works for `FLAGS.md`**, where 2026-08-27 found a shipped flag with no row AND a row for a deleted flag, in both directions. Diff "fields the source reads" against "fields the register declares". | **High** — proven pattern, and the one that makes R4-R7 auditable instead of vibes. |
+| **R4** | **No peer value bounds a loop or sizes an allocation.** Counts are edge triggers (`target > last_seen`), never `for i < peerCount`. | Partly greppable; fully checkable against R3's register, which marks which fields are counts. | **Medium** — the grep catches the obvious form; the register catches the rest. |
+| **R5** | **No peer string is used as a lookup NAME without an allowlist.** Not "is the result the right type" — that is the current state and it is weaker. | R3's register declares each string field's permitted value set; a grep flags known lookup calls (`StaticFindObject`, `anim.Play`, reflection by name) taking a peer field. | **Medium** — closes both gaps the audit found. |
+| **R6** | **Every per-peer map is keyed by the relay-assigned `player_id`**, never a peer-chosen string. | Grep for indexing by `anim`/`area_id`; `player_id`'s key space is bounded by `MaxClients`. | **High** — currently true, and cheap to keep true. |
+| **R7** | **Peer numerics are clamped before narrowing.** `static_cast<uint8_t>(double)` is UB for NaN — not merely wrapping. | Hard to grep in C++ generally. R3's register plus a review rule; Pseudoregalia's `clamp_to_uint8` is the reference implementation. | **Low as a gate**, high as a documented requirement. Say so rather than pretend. |
+
+### Where these requirements have to live
+
+**In the adapter contract, not a doc nobody opens.** The mandated file set, the bridge shape and the
+`FLAGS.md` register are already per-adapter obligations that `preflight.ps1` checks; this is the
+same kind of thing. Concretely: R3's register becomes a mandated file (or a section of an existing
+one), `adapters/_template/` carries the stub and the rules, `/new-adapter` sequences it, and
+`preflight.ps1` fails an adapter missing it — the same machinery, no new mechanism.
+
+**The honest limit: this can only bind adapters in THIS repo.** A third-party adapter — which
+`docs/integrating.md` actively invites — cannot be made to run our greps. For those, the only thing
+that helps is enforcement on the RECEIVE side by the core, against constraints the adapter declared:
+see "Should the Go side stay game-blind?" and its 2026-08-27 correction. **That is the difference
+between "our adapters are careful" and "MeshGhost is safe", and it is why the receive-side design is
+the strategic item rather than the greps.**
+
+### "Feels safe" is a separate requirement, and it needs different work
+
+The user asked for both: *"actually safe to use, and feels safe to use"*. The second does not follow
+from the first, and it is not marketing — it is being able to **show** the property.
+
+- **State what is STRUCTURAL versus what is AUDITED, and never blur them.** Three layers, in
+  descending strength: the victim never parses attacker bytes (structural — the relay re-marshals
+  from a validated struct); both ends validate, including against a hostile relay (structural);
+  per-sink handling in the receiving adapter (**audited, per field set, re-earned on every new
+  field**). A reader told only "we validate everything" has been given less than they need.
+- **Never claim more than the layer supports.** "No ACE was found by tracing every peer field to its
+  sink on 2026-08-27" is true and checkable. "ACE is impossible" is not, and one confident
+  overstatement costs more trust than the whole audit buys.
+- **Publish the threat model, including what is deliberately out of scope** — a peer making their
+  own ghost look wrong, and the fact that a relay HOST necessarily sees player IPs while other
+  players never do. `docs/security.md` already gets the IP half right; the peer-data half belongs
+  beside it.
+- **The checks are the artifact.** A user can read a grep gate in `preflight.ps1` and a CI workflow
+  and verify the claim themselves. That is what makes a safety claim inspectable rather than
+  asserted, and it is the same reason `internal/gameblind` is tests rather than a paragraph.
+
+### If only one thing gets built
+
+**R3, the per-adapter peer-field register with a completeness check.** It is the cheapest, it reuses
+a pattern that already caught real drift in both directions this same day, and it converts R4, R5
+and R7 from "someone reviewed it once" into something a machine re-checks on every push. R1 and R2
+are worth adding at the same time because they are pure greps against a closed pattern list and the
+tree already passes both.
+
 ## The ACE audit: where peer-controlled data actually reaches a dangerous sink (2026-08-27)
 
 **The goal, in the user's words:** *"I just want it to be safe with random people, no ACE or
