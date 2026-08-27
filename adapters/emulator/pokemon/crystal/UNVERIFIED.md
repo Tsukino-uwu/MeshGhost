@@ -2426,3 +2426,27 @@ made a standing peer move twice as far as the world.
 - **Crystal is at Lua's 200-local ceiling.** It was hit twice this session and the file only
   compiles because new functions were hung on existing tables. `agent_docs/ideas.md` has the
   modules refactor.
+
+## Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
+
+The user added that line to `README.md`'s build story by hand, as build-story step 25, and
+**deliberately left it without a description**. So the date and the words are theirs; the scope is
+not recorded anywhere.
+
+**Why this is a question and not a tidy-up.** The open list immediately below that step still says
+Teleport is not built, not measured and not watched, and that RUNNING is untested with its gait
+unmeasured on the Archipelago build. Those either sit inside the call or outside it, and the two
+readings mean different things:
+
+- **Inside** — "the feature set is done" — then Teleport and RUNNING are gaps against a finished
+  adapter, and both should be closed out or reclassified.
+- **Outside** — "everything except the last action class and the Archipelago gait" — then the step
+  needs that stated, or a later reader takes it as covering both.
+
+**What NOT to do:** write a description on the user's behalf. A first version of step 25 did exactly
+that on 2026-08-27 — it attributed a causal story to them ("once the mixed-build session closed the
+last class of fault a same-build test could not see") that they never said — and it was trimmed the
+same day. This is the file whose whole job is not converting a belief into a record.
+
+**What settles it:** one sentence from the user about which of Teleport and RUNNING the call
+includes. Then step 25 gets their wording and this entry is deleted.

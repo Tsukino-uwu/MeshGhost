@@ -251,10 +251,11 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     which the camera's plausibility test rejected as a register rebase. The rest were one shape: a
     peer's appearance learned from the LOCAL player, which says nothing about a peer on the other
     build. Everything a build can move is now read off that cartridge rather than assumed.
-25. **Called feature complete on 2026-08-27** — the user's judgement, once the mixed-build session
-    above closed the last class of fault a same-build test could not see. It is a statement about the
-    feature SET, not about what has been watched: everything still open is in the list directly
-    below, and each item there is either unmeasured on the Archipelago build or built and unwatched.
+25. **FEATURE COMPLETE, 2026-08-27.** The user's own line, added by hand and deliberately left
+    without a description — **the scope of it has not been stated, and nothing here should invent
+    one.** Read it against the open list directly below, which still has Teleport unbuilt and
+    RUNNING's gait unmeasured on the Archipelago build; whether those sit inside or outside this
+    call is the user's to say. `UNVERIFIED.md` carries the question.
 
 ### Further work past "good enough"
 
