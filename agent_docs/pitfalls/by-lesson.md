@@ -4683,3 +4683,75 @@ revert fools a bisect" trap this file already warns about, reached from the othe
 - **When a regression is reported, reproduce it on the last-known-good build FIRST.** One command,
   and it either halves the search space or eliminates it. Do this *before* reading code for
   suspects — a convincing suspect is exactly what makes it feel unnecessary.
+
+## MEASURE THE PARENT, NOT THE CHILD — a constant relative position is a result, not a dead end (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A ghost's blob shadow stayed glued under its model, in the air as well as on the
+ground, while the real player's fell correctly onto the floor.
+
+**The first measurement said nothing, and that was the finding.** A trace of the shadow
+component's `RelativeLocation` printed one line per side and never changed again — on the player
+too, where the shadow is correct. The instinct is to read that as a broken probe. It is not: a
+value that never moves on a working example is telling you **that value is not what positions the
+thing**. The component hung off a `SpringArm`, and a spring arm moves its child through its own
+socket transform rather than by writing the child's relative location.
+
+**Cause.** The arm's `TargetArmLength` was **100 on the ghost and 5000 on the player**. With a
+collision test enabled, that length is how far the shadow may fall before the trace finds floor, so
+100 pinned it just under the model. 100 was the class default — nothing had ever set it on the
+ghost. Standing on floor both sides read the same offset, which is why it looked correct until the
+ghost left the ground.
+
+**Fix.** Mirror the live player's arm length onto the ghost's every tick, sampled rather than
+hardcoded.
+
+**Transferable, and it is three things:**
+
+- **When a child's own transform is constant, go up the attachment chain.** Log the parent's world
+  position and its own parameters. The census that found the component reported its `AttachParent`
+  for free; following that was the whole investigation.
+- **A null result on a WORKING reference is evidence about the mechanism, not a failed run.** The
+  player's shadow works and its relative position never moves — that sentence alone rules out an
+  entire class of fix.
+- **"Let the game do the work" is right often enough to try first and not often enough to trust.**
+  The pawn had exactly one shadow-shaped function and calling it on the ghost was the obvious move;
+  it ran every tick and changed nothing, because it takes an early branch on a pawn nobody controls.
+  **What caught that was reading the value back with an independent instrument**, before the user
+  had to look at it. Log what you are trying to change, not that you tried.
+
+## A CLOSED PORT MAY NEVER REFUSE — ask "can I bind it", not "did it refuse me" (Pseudoregalia, 2026-08-27)
+
+**Symptom.** The mod's autostart never started a core. `connect_attempts` climbed forever and the
+launcher logged absolutely nothing, on a machine with nothing listening on any port in its range.
+
+**Two fixes were reasoned out from the code and both were wrong.** The first was a real bug —
+Windows reports a failed non-blocking connect in `exceptfds`, and the code passed `nullptr` for the
+exception set, so a refusal could never be seen. Fixing it changed nothing. The second would have
+been a longer `select` timeout.
+
+**What ended it was ten seconds of measuring the OS directly**, outside the game, with the same
+sequence against each port:
+
+| Target | Result |
+| --- | --- |
+| a port with a listener | writable in ~4ms |
+| a closed loopback port | **neither writable nor errored after 500ms** |
+
+The SYN is dropped rather than rejected — what a firewall in "block" mode does. **No timeout could
+have fixed that, because nothing was ever coming.**
+
+**Fix.** Stop asking the network and ask the OS: a free port is one you can `bind` (with
+`SO_EXCLUSIVEADDRUSE`, so a socket sharing the address cannot make it look free). Instant,
+deterministic, unaffected by firewalls, and it is the same question the process you are about to
+start will ask when it binds its own listener — so a port already held is excluded for free.
+
+**Transferable:**
+
+- **"Connection refused" is a courtesy, not a guarantee.** Any logic that treats *absence of a
+  refusal* as *something is listening* is wrong on a machine that drops instead of rejecting, and
+  that machine is not exotic.
+- **Two guessed fixes failing the same way means take the subsystem out of the program and test it
+  standalone.** The measurement above needed no game, no mod and no rebuild.
+- **A silent branch turns a code bug into a mystery.** The gate that decided "no port to start on"
+  logged nothing, so a bug in a socket helper read as "the launcher is not running at all". Every
+  branch on a path that can fail silently gets a line, throttled if need be.

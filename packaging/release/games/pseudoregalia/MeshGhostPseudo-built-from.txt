@@ -1,11 +1,11 @@
 # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
 # on purpose so it never lands in a user's game folder.
-commit: 6bccb3cc4c650e6a22df159ac4362c25f7c96ff3
-Plugin.cpp: a821b73f0bf314f655fef3000f3b5238302bddd4bdbdef4c53149f7e2e2f896e
+commit: 7b565709aa821c27ccfdd275285ac67a7b6975d2
+Plugin.cpp: 2152400cac14cc95b69129c346b169ecda8f660619b519ecab6b25906bb213ad
 Plugin.hpp: f86d8687fa7f57cfed2b67a653ea96e1b393c35df1ef14ae94efb709b2b3b968
-BridgeClient.cpp: 415992b68e26201358108e245befdaf58234da0079761b00581fdd0ab4eef4e7
-BridgeClient.hpp: 77f5aed33e1cda9a430cb0d1a54e6a4fa8eb67d65693580b0fbdb1500c187dd9
+BridgeClient.cpp: f40bca2feec4958742d8d8315531fea8278fac1db28c3bd02504435089a56a57
+BridgeClient.hpp: 71f6b35d7de5c7e59e6a35434e802f370129b66477b36f603b61ac437a910b04
 dllmain.cpp: 2a4cb8328001507fb5d3d7d5a50c03439731867700654b39c5aba6b36a85637c
 CoreLauncher.cpp: ec790c7fb7211004fdb0b130e2cda42f291f1a79892a3d09b31ed0ea7ea1d120
 CoreLauncher.hpp: 49bf7ed21a106f57f2a007e30b4233d29b4b1770b67b0b55976fa78964a65635

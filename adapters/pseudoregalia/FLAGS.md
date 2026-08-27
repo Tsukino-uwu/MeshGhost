@@ -2,7 +2,7 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 58 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 66 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -28,7 +28,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 16 that are `true`
+## Behaviour — the 19 that are `true`
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -55,26 +55,55 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 |---|---|
 | `SPAWN_BASED_GHOSTS` | Ghosts are spawned actors, called from the real game thread. `false` reverts to the older hijack-a-StaticMeshActor design, kept in case the world-leak crash ever reproduces. |
 | `GHOST_DESTROY_ON_DESPAWN` | A despawning ghost is destroyed (`K2_DestroyActor`) instead of being flung to `DESPAWN_PARK_Z`. Turned on 2026-08-17 once the premise for parking went stale: the "destroy silently no-ops" finding was a property of the *hijacked* actor, not of the build, and since Phase 7.6 the ghost is one we spawned. Falls back to parking when the call is not reflected, so the worst case is today's behaviour plus a log line. **The one thing it cannot rule out by itself is the historical "Fatal world leaks detected" crash** — see `BANDAGES.md`'s entry 0, whose whole argument rests on this flag being `true`. Note `DESPAWN_PARK_Z`'s own comment still says "NEVER destroy the actor": that comment is stale, and the value here is what wins. |
-| `GHOST_COLLISION_ENABLED` | **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus two `if constexpr` blocks (the `bCanBeDamaged` hurtbox disable and the Pawn-channel `Block` response) that compile out entirely, so this is a real revert. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
+| `GHOST_COLLISION_ENABLED` | **Listed here but `false` — the one row in this table that does not ship as `true`, kept together with the flags it gates.** **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus two `if constexpr` blocks (the `bCanBeDamaged` hurtbox disable and the Pawn-channel `Block` response) that compile out entirely, so this is a real revert. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
 | `WALLRUN_TRIGGER_TEST` | Ghosts trigger the game's wall-run. The feared self-propulsion (a ghost fighting its own network-authoritative position) did not materialise across three live rounds; the flag survives as the clean off-switch if a real remote peer ever shows it. |
 | `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` | The blue trail fires on the game's **own** observed afterimage spawns, not on any reconstructed rule. Three `actionState` theories and the capsule-shrink fact were all disproven live before this. |
 | `AFTERIMAGE_OBSERVE_COLOR` | Reads the trail colour from the real effect rather than guessing it. |
 | `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER` | Additive: fires only where the existing trigger found nothing. Not the old `AFTERIMAGE_TRIGGER_OBSERVED`, which replaced the trigger wholesale and scanned unconditionally. |
 | `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` | Birth-proximity check, so a recycled pooled actor is not counted as a new afterimage. |
 | `RECALL_GLOW_ENABLED` | Mirrors whether the real glow is present rather than reimplementing "empty-handed AND near a save crystal". Whatever rule the game actually applies is mirrored for free and cannot drift. |
+| `GHOST_BLOB_SHADOW_ARM_MIRROR` | **The blob-shadow fix, confirmed on screen 2026-08-27.** Mirrors the LOCAL player's `SpringArm.TargetArmLength` onto the ghost's every tick. The ghost's was 100 (the class default) against the player's 5000, and with `bDoCollisionTest=true` that length is how far the shadow may fall before it finds floor — so the ghost's shadow was pinned ~100 units under the model, in the air included. Sampled live rather than written as a constant, the same shape as the capsule mirror. `VERIFIED.md` has the measurement. |
+| `GHOST_BLOB_SHADOW_DRIVE` | Calls the pawn's own `manageBlobShadow` on the ghost every tick. **Kept, but it is NOT the fix** — measured 2026-08-27: it runs (the log says so once) and the ghost's arm still read 100, so the function is not what sets that value, or it takes an early branch on an unpossessed pawn. On `true` because it is the game's own function on the game's own component and it runs BEFORE the mirror, so the mirror's write wins the ordering; if it is ever found to do harm, this is the clean off-switch. |
+| `GHOST_DECOUPLE_SHARED_STATE` | Cuts a ghost off from the state it shares with the player: removes the ghost's OWN HUD widget from the viewport (the duplicate health bar, `VERIFIED.md` 2026-08-27), zeroes its damage numbers, and clears `As MV Game Instance Ref` / `UI_HudRef` / `BP_HpHitable` / `LastHitBy`. **Was missing from this register until the 2026-08-27 audit**, along with `MIRROR_PLAYER_VFX`. |
+| `MIRROR_PLAYER_VFX` | Mirrors the player's live Niagara effects onto a ghost by KEY, from the compile-time `MIRRORED_EFFECTS` table — the wire never carries an asset path. |
 | `STATE_SEND_TRACE` | **The one `_TRACE` flag deliberately `true` — do not "fix" it to `false`.** Logs the `area_id` and world position actually sent, every ~300 ticks (~5s). It is here because aiming any synthetic-peer rig needs both values from a live session (`cmd/meshghost-fakeadapter`'s `-center` and `-area-id`, which must match exactly or nothing renders), and on 2026-08-17 neither was readable anywhere — `dev-scripts/run-ghostload-pseudoregalia.bat`'s own header tells you to read them "from the mod's log" and that line did not exist. Cost is one throttled formatted line, no enumeration and no per-object work, so it is the same shape as the always-on bridge counter line rather than the per-tick enumeration the probe rule below is about. |
 
 ## Probes — off, and they must stay off
 
-35 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
+40 flags, all `false` (the other 6 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
 `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
-**The arithmetic, so a future audit can check it in one pass:** 58 `constexpr bool` in
-`Plugin.cpp`. 16 are written `true` (Behaviour, above) and 41 written `false` — these 35 probes
-plus the 6 Dormant entries below. The 58th is `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is
-**derived** rather than set (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore
-false in every shipped build without being written so. Recounted 2026-08-18.
+**The arithmetic, so a future audit can check it in one pass:** 66 `constexpr bool` in
+`Plugin.cpp` — 65 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
+than set (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every
+shipped build without being written so. Of the 65: **19 written `true`** (Behaviour, above) and
+**46 written `false`** — 40 probes plus the 6 Dormant entries below.
+
+**Recounted from the code 2026-08-27, and the count had drifted.** The previous figure of 58 was
+several flags stale before this session added any, so these numbers were measured with
+`grep -oP '^\s*constexpr bool \K\w+(?= = (true|false);)'` rather than adjusted arithmetically —
+that command is the audit, and it takes a second. **The audit also caught a probe shipping as
+`true`** (`HEALTH_PROBE`, now off; see its comment), which is exactly what this register is for:
+a name ending `_PROBE` sitting in the `true` list is a defect, not a special case.
+
+**`GHOST_PROJECTILE_WATCH` (added 2026-08-27)** sweeps once for the projectile class this build
+actually has, then polls it and logs every instance with its Owner and **Instigator**, plus both
+pawns' `LastHitBy` and a readback of the ghost's real collision state. Built for the "a ghost's
+charged attack damages the player" item; three sessions of it put every projectile in the local
+player's hands and neither `LastHitBy` was ever written, so its collision readback — never yet run
+— is the next thing to look at. Cadence: `PROJECTILE_WATCH_INTERVAL_TICKS`.
+
+**`SHADOW_COMPONENT_PROBE` (added 2026-08-27) is the shadow investigation's instrument, and its
+question is answered** (`VERIFIED.md`, same day) — kept because it generalises: it is the census
+that answers "which component of the player's does the ghost also have, and what is different
+about the ghost's copy", which has now been the shape of three separate bugs. Read-only: a one-shot census of every component-valued property the ghost and the
+local pawn each hold, taken at ghost spawn into one log, plus a world sweep for decal/billboard
+components, plus a per-interval `RelativeLocation` trace of whatever shadow-shaped names the census
+found. It exists because the ghost's shadow sits on the model instead of on the ground
+(`UNVERIFIED.md`), and because the frame that solved the camera rig and the HUD says the question
+is *which component of the player's does the ghost also have*, not which value to overwrite.
+Cadence: `SHADOW_PROBE_INTERVAL_TICKS`.
 
 **`AFTERIMAGE_DISCOVERY` is the one probe with a standing "must stay off" of its own**: it fires an
 afterimage on the ghost every ~3s by itself, which looks exactly like a trail bug. It is the rule
@@ -198,6 +227,7 @@ listed so that turning a probe on does not also mean re-deriving how often it sh
 | `WEAPON_ACTOR_MOVE_EPSILON`, `WEAPON_ACTOR_SWEEP_DELAY_TICKS` | `1.0`, `30` | `WEAPON_ACTOR_TRACE` |
 | `WEAPON_PROP_TRACE_INTERVAL_TICKS` | `15` | `WEAPON_PROP_TRACE` |
 | `VFX_WATCH_INTERVAL_TICKS` | `10` | `VFX_WATCH` |
+| `SHADOW_PROBE_INTERVAL_TICKS` | `30` | `SHADOW_COMPONENT_PROBE`. ~5 samples/sec at ~150Hz. The trace logs on CHANGE, so this buys resolution rather than log volume — but each sample re-reads a few properties per actor, which is why it is not every tick. |
 | `VFX_PROBE_INTERVAL_TICKS`, `VFX_PROBE_PATH_FILTER`, `VFX_PROBE_NAME_FILTERS` | `450`, `"/Game/"`, `{"Weapon","Aura"}` | `VFX_CATALOG_PROBE`. The name filter is **deliberately widenable, never a hardcoded set of asset names** — clear the array to go back to all 58. A human-watched catalog needs a shortlist; that is `_template/README.md`'s rule. |
 | `GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS` | `150` | `GHOST_SPAWN_WEAPON_TRACE` |
 | `AFTERIMAGE_DISCOVERY_INTERVAL_TICKS`, `AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS` | `450`, `30` | `AFTERIMAGE_DISCOVERY`. **The sample delay was 3, and 3 was wrong** — at that delay the probe reported "0 new objects" and concluded afterimages were pooled, the exact opposite of the truth. A probe's own cadence can invert its conclusion. |

@@ -139,6 +139,11 @@ namespace MeshGhostPseudo
         // listening, which is what makes the port a candidate for starting a core on.
         auto try_port(uint16_t candidate, bool& refused) -> bool;
 
+        // Can a listener be bound here right now? This is the authoritative "is this port free"
+        // test, because a connect to a closed port does not reliably answer on Windows -- see the
+        // call site in tick_connect for the measurement that forced this.
+        auto port_is_bindable(uint16_t candidate) const -> bool;
+
         std::string host;
         uint16_t current_port{0};
         uintptr_t sock; // SOCKET, stored as uintptr_t so this header doesn't need <winsock2.h>

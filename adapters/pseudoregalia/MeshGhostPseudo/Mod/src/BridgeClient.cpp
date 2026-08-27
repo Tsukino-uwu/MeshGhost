@@ -151,17 +151,66 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] bridge connected on port {}.\n"), candidate);
                 return;
             }
-            if (refused && !have_spawnable_port)
+            if (!have_spawnable_port && (refused || port_is_bindable(candidate)))
             {
                 // Nothing listening here at all. Remember the FIRST such port: starting a core on
                 // the lowest free one keeps a machine's ports predictable instead of drifting
                 // upward over a session. A port that answered and said "busy" is deliberately not
                 // a candidate -- that is someone else's core, and contract.md says an adapter only
                 // ever stops a core it started itself.
+                //
+                // **`refused` alone was the bug that broke autostart, and the fix is the second
+                // test, not a longer timeout (measured 2026-08-27).** A refusal is what a closed
+                // port is SUPPOSED to answer, and on this machine it never does: a connect to a
+                // closed loopback port sits in SYN_SENT and is still neither writable nor in the
+                // exception set after **500ms** — the SYN is being dropped, not rejected, which is
+                // what a firewall in "block" mode does. A connect to a port that IS listening
+                // completes in ~4ms, so the sweep was correctly finding cores and could never
+                // find a free port. Waiting longer cannot fix that; nothing was ever coming.
+                //
+                // So the question is asked of the OS directly instead of inferred from the
+                // network: **a free port is one we can BIND.** That is instant, deterministic, and
+                // immune to whatever a firewall does to traffic — and it is the same question the
+                // core itself will ask a moment later when it binds its listener. A port with a
+                // core on it fails to bind, so this excludes our own and other games' cores for
+                // free, exactly as the refusal test was meant to.
+                //
+                // `refused` is kept as the first test because when it does arrive it is
+                // unambiguous and costs nothing; bindability is the answer when it does not.
                 spawnable = candidate;
                 have_spawnable_port = true;
             }
         }
+    }
+
+    auto BridgeClient::port_is_bindable(uint16_t candidate) const -> bool
+    {
+        // "Is this port free?" asked of the OS rather than of the network. See the call site for
+        // why the connect-refusal answer cannot be relied on.
+        SOCKET probe = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (probe == INVALID_SOCKET)
+        {
+            return false;
+        }
+
+        // SO_EXCLUSIVEADDRUSE, not SO_REUSEADDR: without it Windows will happily let this bind
+        // succeed alongside another socket that asked to share the address, and the answer would
+        // be "free" for a port that is anything but. This asks the strict question.
+        BOOL exclusive = TRUE;
+        setsockopt(probe, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(candidate);
+        inet_pton(AF_INET, host.c_str(), &addr.sin_addr);
+
+        const bool bindable = bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
+        // Closed immediately: this is a question, not a reservation. The core will bind it for
+        // real a moment later, and if something else wins that race the core exits and the
+        // launcher's per-port cooldown moves the sweep on -- which is the case that path already
+        // exists for (two games starting at once).
+        closesocket(probe);
+        return bindable;
     }
 
     auto BridgeClient::try_port(uint16_t candidate, bool& refused) -> bool
@@ -210,21 +259,43 @@ namespace MeshGhostPseudo
         // succeeded within microseconds could be reported "not yet writable" and the socket
         // aborted right as it was about to work. 2ms is still a bounded, negligible stall and
         // comfortably covers a same-machine loopback handshake.
+        //
+        // **The except set is not optional on Winsock, and leaving it out was a real bug (found
+        // and fixed 2026-08-27).** Windows signals a FAILED non-blocking connect in `exceptfds`,
+        // and marks the socket writable only on SUCCESS -- so with `nullptr` passed for the
+        // exception set, a refused port never became writable, `select` simply timed out, and
+        // `refused` stayed false. That flowed straight through: no refusal meant
+        // `have_spawnable_port` was never set, `spawnable_port()` returned false, and
+        // `CoreLauncher::tick_disconnected` was therefore NEVER CALLED -- which is exactly the
+        // reported autostart failure, right down to its most distinctive feature, that the
+        // launcher logged absolutely nothing while `connect_attempts` climbed forever.
+        //
+        // The nastiness of it is that the code was not wrong about anything it said: it connected
+        // correctly, it retried correctly, and it detected an *immediate* refusal (the
+        // `err != WSAEWOULDBLOCK` branch above) correctly. Only the in-progress path was blind,
+        // and on loopback that is the path a closed port always takes.
         fd_set write_set{};
         FD_ZERO(&write_set);
         FD_SET(new_sock, &write_set);
+        fd_set except_set{};
+        FD_ZERO(&except_set);
+        FD_SET(new_sock, &except_set);
         timeval timeout{0, 2000};
-        int select_result = select(0, nullptr, &write_set, nullptr, &timeout);
-        if (select_result > 0 && FD_ISSET(new_sock, &write_set))
+        int select_result = select(0, nullptr, &write_set, &except_set, &timeout);
+        if (select_result > 0)
         {
             int so_error = 0;
             int so_error_len = sizeof(so_error);
             getsockopt(new_sock, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &so_error_len);
-            if (so_error == 0)
+            if (FD_ISSET(new_sock, &write_set) && so_error == 0)
             {
                 sock = static_cast<uintptr_t>(new_sock);
                 return true;
             }
+            // Writable-but-errored and in-the-except-set are the same answer here: the connect
+            // finished and did not succeed. SO_ERROR is what says which failure it was, and
+            // "connection refused" is the one that means nothing is listening -- i.e. a port a
+            // core could be started on.
             refused = (so_error == WSAECONNREFUSED);
         }
 

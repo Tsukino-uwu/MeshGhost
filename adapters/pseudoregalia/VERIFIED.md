@@ -160,6 +160,7 @@ filed under the right theme, but anything can check that it is listed.
 - CORRECTION: ghosts do NOT spawn with collision disabled — the camera fix was the rig, not collision (2026-08-18)
 - CORRECTION: the recall-glow and throw-crash entries above each appear TWICE (2026-08-25)
 - 2026-08-27 — The player's health bar was the GHOST'S OWN HUD, drawn over it (user-confirmed)
+- 2026-08-27 — The ghost's shadow was glued to its model because one spring arm was 100 long instead of 5000 (user-confirmed)
 
 ## Confirmed facts
 
@@ -3699,3 +3700,48 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
   search to the display.
 - Supporting measurement (agent-side, not a user confirmation): health is `CurrentHp` on the object
   the pawn holds as `As MV Game Instance Ref` -- max 80, 5 per pit fall. See `PLAYER_FIELDS.md`.
+
+## 2026-08-27 — The ghost's shadow was glued to its model because one spring arm was 100 long instead of 5000 (user-confirmed)
+
+- Date: 2026-08-27
+- Observed: the user, after the fix: *"Shadow is fixed now, its following the ghost properly on the
+  ground"*. Before it, reported twice: *"the shadow is still following right below the ghost's
+  model, no matter if they are in the air or not it sticks to them instead of being 'below the
+  ghost on the ground'"*.
+- **The cause, and it is one number.** The pawn carries a `BlobShadow` StaticMeshComponent attached
+  to a `SpringArm`, with `bDoCollisionTest=true` — so the ARM'S LENGTH is how far the shadow may
+  fall before its trace finds floor. `TargetArmLength` is **5000 on the player** and was **100 on
+  the ghost**, which is the class default: nothing ever set it there. 100 pins the shadow about
+  that far under the model and no further, which is exactly the symptom, in the air included.
+- **The measurement that showed it**, both sides in one log at the same tick:
+
+  | | armLength | offset from actor, standing | offset mid-jump |
+  | --- | --- | --- | --- |
+  | Player | 5000.0 | -66.2 | **-808.2** — it reaches the floor |
+  | Ghost | 100.0 | -66.2 | **-104.0** — pinned |
+
+  The standing row is why it looked correct until the ghost left the ground: with floor right
+  there, both arms find it.
+- **The fix**: mirror the LOCAL player's own `SpringArm.TargetArmLength` onto the ghost's, every
+  tick, sampled live rather than written as a constant (`GHOST_BLOB_SHADOW_ARM_MIRROR`). Same shape
+  as the shipped capsule mirror: copy what the game is doing to the real player and let the engine
+  do the rest, so a build that uses a different length is followed rather than broken.
+- **A wrong fix came first, and the readback caught it before the user had to.** The census found
+  exactly one shadow-shaped function on the pawn, `manageBlobShadow`, present on the ghost too, and
+  the obvious move was to call it — "let the game do the work", which is right often enough here
+  that it was worth trying first. It ran every tick (the log says so) and the ghost's arm still read
+  100. The function is not what sets that value, or it takes an early branch on a pawn nobody
+  controls. **The independent readback is what settled it**: the probe reports the arm length it
+  reads, not the value we wrote.
+- **How it was found, which is the part worth keeping.** The frame the user carried in from the
+  previous session — *ask what component of yours the ghost also has, not what value to overwrite* —
+  produced the census: every component-valued property on the ghost AND the player, in one log, at
+  ghost spawn. `BlobShadow` was in the first run's output with its class, parent and flags. The
+  first trace then measured the wrong thing (`RelativeLocation`, constant on both sides, because a
+  spring arm moves its child through its own transform) — and **that null result was the useful
+  one**: it said the position is not written, so the thing that moves it must be measured instead.
+  World positions plus the parent's arm length were in the next run, and the answer was in the first
+  jump.
+- Notes: `bDoCollisionTest` was already `true` on both sides, so the ghost's collision setting was
+  never implicated — an A/B against `GHOST_COLLISION_ENABLED` had been queued as the first move and
+  would have cost a live cycle to clear nothing. The census made it unnecessary.

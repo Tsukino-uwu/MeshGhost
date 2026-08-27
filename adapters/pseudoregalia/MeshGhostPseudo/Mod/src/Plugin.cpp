@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <cwctype>
 #include <format>
@@ -657,7 +658,18 @@ namespace MeshGhostPseudo
     //
     // **A quiet log is a real answer**, exactly as it was for the bubble: it would mean health is
     // not a simple-typed property on these objects either, and the search moves on.
-    constexpr bool HEALTH_PROBE = true;
+    // **OFF from 2026-08-27, and it should have gone off the moment it answered.** It did its
+    // job: both runs happened, `CurrentHp` on the GameInstance is the field (max 80, exactly 5 per
+    // pit fall), and the pair proved the ghost does NOT corrupt it -- which is what sent the search
+    // to the HUD and found the ghost's own duplicate health bar (`VERIFIED.md`).
+    //
+    // It was still `true` when the flag register was audited against the code later the same day,
+    // which is how it was caught. That is the failure this register exists to catch and the reason
+    // for the standing rule: **a probe comes off the moment it stops answering a question**, and
+    // this one is not a cheap line -- it snapshots every property on the GameInstance AND the HUD
+    // widget five times a second, on the game thread, with a string built per property. That is
+    // precisely the shape that produced this adapter's worst regression (`FLAGS.md`).
+    constexpr bool HEALTH_PROBE = false;
 
     // ~0.2s at this build's measured ~150-180Hz. Health changes are discrete events, not a ramp,
     // so this cannot alias past one, and the diff keeps the volume down by itself.
@@ -1379,12 +1391,121 @@ namespace MeshGhostPseudo
     // already logs asset path, [ON PLAYER], AttachParent, AttachSocketName and RelativeLocation on
     // appearance, which is precisely the set needed to reproduce an effect on a ghost. Flip back
     // off once the assets are recorded.
+    // Ran again 2026-08-27 for the heal placement, then off. What it established: the player's own
+    // `NS_HealWave`/`NS_HealEndwave` are owned by **WorldSettings and attached to nothing**, which
+    // is why the mirror's world-spawned rows now spawn at a location rather than on the ghost. It
+    // also showed the ghost DOES receive all three heal systems -- so the remaining defect is not
+    // detection, delivery or spawning.
     constexpr bool VFX_WATCH = false;
 
     // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
     // the throw itself is a ~1s montage and effects around it can be brief, and since this logs
     // only the DIFFERENCE between samples, a faster cadence costs resolution, not log volume.
     constexpr uint64_t VFX_WATCH_INTERVAL_TICKS = 10;
+
+    // **The ghost's SHADOW, 2026-08-27.** The user reports the ghost's shadow sitting ON the model
+    // rather than falling on the ground beneath it. This is the census that establishes what that
+    // shadow IS, before anything is theorised about why it is in the wrong place.
+    //
+    // It is built around the frame that has now solved two of these in a row -- the camera rig
+    // (2026-08-16) and the ghost's own HUD (2026-08-27): a ghost is a clone of the player's pawn,
+    // so **it brings its own copy of every component the player owns**, and each copy is live. The
+    // question is therefore not "what value do we overwrite" but "which component of the player's
+    // does the ghost also have, and what is different about the ghost's copy". A blob shadow -- a
+    // decal or a small plane placed under the character, usually by a downward trace -- is exactly
+    // the shape of component that would sit at the model's own origin if whatever positions it
+    // never runs on the ghost.
+    //
+    // Read-only. Enumerates and logs; it spawns nothing, calls nothing and writes nothing.
+    //
+    // Two halves, deliberately:
+    //   1. A ONE-SHOT CENSUS at ghost spawn, over the ghost AND the local pawn in the same log:
+    //      every component-valued property either holds, with its class, RelativeLocation and
+    //      visibility flags. That is what turns "BlobShadow, probably" into a name this build
+    //      actually has -- or into the finding that it does not have one, which is equally useful.
+    //   2. A PER-INTERVAL trace of only the shadow-shaped names the census found, logged on
+    //      change, player against ghost. If the player's moves as they walk over uneven ground and
+    //      the ghost's never leaves its spawn value, that is the bug stated outright rather than
+    //      inferred.
+    //
+    // The census also sweeps the WORLD for decal components, not just the class's own properties.
+    // VFX_WATCH's first run is the precedent: its original filter only kept components parented to
+    // the pawn and therefore missed most of what the player spawns. A shadow attached at runtime,
+    // with no property on the pawn pointing at it, would be invisible to a properties-only pass.
+    // Off again 2026-08-27, its question answered: the census named `BlobShadow` and the trace
+    // measured the spring arm that positions it (`VERIFIED.md`, same day). Flip on to census a
+    // component the ghost has and nobody has compared against the player's yet.
+    constexpr bool SHADOW_COMPONENT_PROBE = false;
+
+    // ~5 samples/sec at this build's measured ~150Hz. The trace logs on CHANGE, so a faster cadence
+    // would cost resolution rather than log volume -- but each sample re-reads a handful of
+    // properties per actor, which is why it is not every tick.
+    constexpr uint64_t SHADOW_PROBE_INTERVAL_TICKS = 30;
+
+    // **Ghost blob shadow, part two: mirror the LOCAL player's own spring-arm length onto the
+    // ghost's. Behaviour, 2026-08-27.**
+    //
+    // Added after `GHOST_BLOB_SHADOW_DRIVE` was measured and found not to be the lever: the call
+    // goes out every tick (the log says so, once) and the readback still reads `armLength=100.0` on
+    // the ghost against `5000.0` on the player. So `manageBlobShadow` is not what sets that value,
+    // or it takes an early branch on a pawn nobody is controlling. Either way the ghost's arm is
+    // never lengthened, and the shadow stays pinned under the model.
+    //
+    // **This mirrors a value the GAME produced on the live player, sampled every tick — it does not
+    // write a constant.** That is the same shape as `GHOST_CAPSULE_MIRROR`, which is shipped
+    // behaviour: read what the real player's component is doing, put the ghost's in the same state,
+    // and let the engine do the rest. Nothing here decides what the number should be, so a build
+    // where the game uses a different length is followed for free rather than broken.
+    //
+    // The arm still does its own collision test on the ghost (`bDoCollisionTest=true` on both
+    // sides, measured) — the trace was never the missing part, only how far it was allowed to
+    // reach.
+    constexpr bool GHOST_BLOB_SHADOW_ARM_MIRROR = true;
+
+    // **Ghost blob shadow: run the pawn's own `manageBlobShadow` on the ghost. Behaviour, 2026-08-27.**
+    // See `call_manage_blob_shadow` for the measurement (the ghost's shadow spring arm is 100 long
+    // where the player's is 5000) and for why this calls the game's function instead of writing
+    // that number. Gates the WORK, so switching it off is a real revert.
+    constexpr bool GHOST_BLOB_SHADOW_DRIVE = true;
+
+    // **Does the ghost spawn a REAL projectile? 2026-08-27.**
+    //
+    // The three candidates tried for "a ghost's charged attack damages the player" are now two
+    // refuted and one dead: our `chg` VFX mirror was removed and the ghost still hit (refuted); the
+    // pawn's three damage numbers were zeroed and confirmed applied and the ghost still hit
+    // (refuted); and the hitbox disable came back this session with `'Hit Component 1' resolves but
+    // is NULL on the ghost` and `'CollisionComponent' does not resolve on this build` -- so there
+    // was never a hitbox component to disable and that line of attack is finished, not inconclusive.
+    //
+    // What is left is the theory the queue already calls strongest and nobody has measured: the
+    // ghost, being a real clone of the player's pawn, reaches the charge-attack path itself and
+    // fires a genuine projectile actor. The user's separate report that the ghost's projectile is
+    // never VISIBLE fits that exactly -- an actor that exists and damages is not the same as one
+    // that renders.
+    //
+    // So this enumerates projectile actors in the world and logs each ONE TIME on appearance, with
+    // its Owner and Instigator. Those two fields are the whole measurement: a projectile owned by
+    // the ghost says the ghost fired it and ends the guessing, and a projectile owned only ever by
+    // the player says the damage comes from somewhere else entirely and the search moves.
+    //
+    // Read-only. Logs on appearance, not per sample, so a projectile in flight costs one line.
+    // Off again 2026-08-27 with its question half-answered: every projectile in three sessions was
+    // instigated by the LOCAL pawn and never by a ghost, and both `LastHitBy` copies stayed
+    // `<none>` throughout -- so this game does not record damage there and the search moved to
+    // whether the ghost is hittable at all. The collision readback in the same block is the next
+    // thing to run; it has never been run.
+    constexpr bool GHOST_PROJECTILE_WATCH = false;
+
+    // Matched as a substring of the CLASS name, and deliberately broad. `PRJ_PlayerCutter_C` is the
+    // name this project has recorded for the ranged attack, but it was recorded from a log rather
+    // than established, and a filter that only matches what we already believe cannot correct us --
+    // the same reason the shadow census matches three name shapes rather than `BlobShadow` alone.
+    constexpr const wchar_t* PROJECTILE_CLASS_NEEDLE = STR("PRJ");
+
+    // ~5 samples/sec at ~150Hz. A projectile's whole flight is well under a second, so this has to
+    // be fast enough not to miss one entirely -- and since it logs on appearance rather than per
+    // sample, the cadence costs coverage, not volume.
+    constexpr uint64_t PROJECTILE_WATCH_INTERVAL_TICKS = 30;
 
     // The VFX equivalent of the montage catalog probe (README build-log step 31), and it exists for
     // the same reason that one did: the effects nobody has reproduced are mostly effects nobody
@@ -1408,6 +1529,11 @@ namespace MeshGhostPseudo
     // (tick_remote_recall_glow). Flip on, optionally widening VFX_PROBE_NAME_FILTERS, to identify
     // the next effect the same way. It spawns effects onto a ghost, so VFX_WATCH's results are only
     // clean while this is off; run the two in sequence.
+    // Off again 2026-08-27. It did its job once more: cycling the three Heal systems onto a ghost
+    // got the user to *"its those 3 effects... think the 'ball' thing is the one in the middle"*,
+    // which is the identification a trigger-hunt could not have produced. Narrow
+    // VFX_PROBE_NAME_FILTERS to ONE name before the next run -- three on a 2.5s cycle is not
+    // separable by eye, which is the only thing that went wrong with this pass.
     constexpr bool VFX_CATALOG_PROBE = false;
 
     // ~3s per effect at this build's measured ~150Hz -- long enough to see a looping idle effect
@@ -1432,6 +1558,18 @@ namespace MeshGhostPseudo
     // Deliberately kept as a widenable list rather than a hardcoded set of asset names: the whole
     // point of enumerating the catalog live was to find effects nobody had named, and pinning it
     // to names we already picked would throw that away. Clear the array to go back to all 58.
+    // **Narrowed to Heal for the 2026-08-27 run.** The healing mirror has now been declined on
+    // screen twice while the log shows both wave systems spawning cleanly -- attached first, then
+    // world-placed at the ghost's feet, `component=ok` both times. Two spawn arrangements producing
+    // the same nothing says the assets are probably not what the user is describing, so the
+    // question stops being "where did it go" and becomes "which system IS the yellow ball", which
+    // is exactly what this probe answers: play each candidate onto the ghost in turn, naming it in
+    // the log, and let a person say which one they recognise.
+    // **2026-08-27: narrowed to {"Heal"}, then to {"HealWave"}, then restored.** The three-system
+    // cycle got the user to *"its those 3 effects... think the 'ball' thing is the one in the
+    // middle"* -- a real identification, and as far as a 2.5s cycle of three can take it, because
+    // nothing on screen says which is playing. **Next time narrow to ONE name first**: one system
+    // looping on a ghost turns the question into yes or no about one thing.
     constexpr const char* VFX_PROBE_NAME_FILTERS[] = {"Weapon", "Aura"};
 
     // Smoothing for a remote's thrown sword -- see RemoteGhost::render_weapon_x for why any is
@@ -1832,6 +1970,297 @@ namespace MeshGhostPseudo
                 }
             }
             Output::send(STR("[MeshGhostPseudo] DIAG: end of {} reflection dump.\n"), label);
+        }
+
+        // Shadow census support, 2026-08-27 -- see SHADOW_COMPONENT_PROBE's own comment for why
+        // this exists and what it is looking for.
+        //
+        // Substring matching, both cases spelled out rather than lower-casing, matching the idiom
+        // already used for the function-name filter above. Deliberately WIDER than the one name
+        // the session expects to find: the point of a census is to be corrected by it, and a filter
+        // that only matches what you already believe cannot do that. 'Decal' is included because a
+        // blob shadow is a decal as often as it is a mesh, and this game's own naming has already
+        // lied twice (`AnimGraphNode_Trail` was cloth physics; Cling Gem has no "glide" anywhere).
+        auto is_shadow_shaped_name(const StringType& name) -> bool
+        {
+            return name.find(STR("hadow")) != StringType::npos ||
+                   name.find(STR("Blob")) != StringType::npos ||
+                   name.find(STR("blob")) != StringType::npos ||
+                   name.find(STR("Decal")) != StringType::npos ||
+                   name.find(STR("decal")) != StringType::npos;
+        }
+
+        // The shadow-shaped property names the census actually found on THIS build, in census
+        // order. Filled once per census and read by the per-interval trace, so the trace looks up a
+        // handful of known names instead of re-walking a 250-property class five times a second --
+        // the per-tick enumeration shape that produced this adapter's worst regression
+        // (FLAGS.md, "a diagnostic can break the thing it measures").
+        auto shadow_candidate_names() -> std::vector<StringType>&
+        {
+            static std::vector<StringType> names;
+            return names;
+        }
+
+        // A component's WORLD location, via the stock `K2_GetComponentLocation` UFunction.
+        //
+        // Needed 2026-08-27 by the second shadow pass, and the first pass is why: `BlobShadow`'s
+        // `RelativeLocation` is CONSTANT on both the player and the ghost -- it printed once each
+        // and never again across a whole session. It is attached to a `SpringArm`, and a spring arm
+        // moves its child by its own socket transform, not by writing the child's relative
+        // location. So the relative value can never answer where the shadow IS; only the world one
+        // can, and the difference between it and the actor's own location is the actual question
+        // ("is this at the feet, or inside the chest?").
+        //
+        // `K2_GetComponentLocation` is stock `USceneComponent`, not this game's own data. Calling a
+        // Blueprint-exposed native function is fine -- `pseudoregalia/CLAUDE.md`'s rule is about
+        // HOOKING a Blueprint UFunction, which is a different mechanism entirely.
+        auto component_world_location(UObject* component, FVector& out) -> bool
+        {
+            if (!component)
+            {
+                return false;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("K2_GetComponentLocation"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(FVector)))
+            {
+                // Refuse rather than read past the buffer -- the same guard the setter calls above
+                // use, and the reason they use it is that a reflected size is a claim about this
+                // build, not a guarantee.
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            component->ProcessEvent(function, params_buffer.data());
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                const int32_t offset = property->GetOffset_Internal();
+                if (offset < 0 || offset + static_cast<int32_t>(sizeof(FVector)) > parms_size)
+                {
+                    return false;
+                }
+                std::memcpy(&out, params_buffer.data() + offset, sizeof(FVector));
+                return true;
+            }
+            return false;
+        }
+
+        // One component's line in the census. Split out because it is wanted for both the class's
+        // own properties and for anything found by the world sweep, and the two must print the same
+        // fields or they cannot be compared to each other.
+        auto log_component_census_line(UObject* component, const wchar_t* label,
+                                       const StringType& how_found) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            UClass* component_class = component->GetClassPrivate();
+            const StringType class_name = component_class ? StringType(component_class->GetName())
+                                                          : StringType(STR("<no class>"));
+            double rel_x = 0.0, rel_y = 0.0, rel_z = 0.0;
+            bool have_rel = false;
+            if (FVector* rel = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+            {
+                rel_x = rel->X();
+                rel_y = rel->Y();
+                rel_z = rel->Z();
+                have_rel = true;
+            }
+            StringType visible = STR("<unreadable>");
+            if (bool* vis = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+            {
+                visible = *vis ? STR("true") : STR("false");
+            }
+            StringType hidden = STR("<unreadable>");
+            if (bool* hid = component->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+            {
+                hidden = *hid ? STR("true") : STR("false");
+            }
+            StringType attach = STR("<none>");
+            if (UObject** parent = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent && *parent)
+            {
+                attach = (*parent)->GetName();
+            }
+            StringType socket = STR("<none>");
+            if (FName* socket_ptr = component->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+            {
+                socket = socket_ptr->ToString();
+            }
+            if (have_rel)
+            {
+                Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} {} class={} rel=({:.2f}, {:.2f}, {:.2f}) visible={} hiddenInGame={} attach='{}' socket='{}'\n"),
+                             label, how_found, class_name, rel_x, rel_y, rel_z, visible, hidden, attach, socket);
+            }
+            else
+            {
+                // A component with no reflected RelativeLocation is not a scene component at all
+                // (an ActorComponent has no transform) -- worth saying outright rather than
+                // printing zeros that read as a position.
+                Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} {} class={} rel=<no transform> visible={} hiddenInGame={} attach='{}' socket='{}'\n"),
+                             label, how_found, class_name, visible, hidden, attach, socket);
+            }
+        }
+
+        // Every component-valued property one actor holds, with the shadow-shaped ones called out
+        // and remembered for the per-interval trace. Run on the ghost AND the local pawn at the
+        // same moment, into the same log, so the two are read side by side -- the comparison is the
+        // measurement, and a census of the ghost alone would say nothing about what is different.
+        auto census_actor_components(UObject* actor, const wchar_t* label) -> void
+        {
+            if (!actor)
+            {
+                Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} is null, nothing to census.\n"), label);
+                return;
+            }
+            UClass* actor_class = actor->GetClassPrivate();
+            if (!actor_class)
+            {
+                Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} has no class, nothing to census.\n"), label);
+                return;
+            }
+            Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} = '{}' of class {}\n"),
+                         label, actor->GetFullName(), actor_class->GetFullName());
+            size_t component_count = 0;
+            for (FProperty* property : TFieldRange<FProperty>(actor_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                if (property->GetClass().GetName() != STR("ObjectProperty"))
+                {
+                    continue;
+                }
+                const StringType prop_name = property->GetName();
+                const bool shadow_shaped = is_shadow_shaped_name(prop_name);
+                UObject** value = actor->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                if (!value || !*value)
+                {
+                    // **A shadow-shaped name that is NULL here is a result, not a blank.** Set on
+                    // the player and null on the ghost would be the whole answer in one line, and
+                    // the first version of the hitbox decouple proved what silence costs: that run
+                    // could not distinguish "disabled it, not the cause" from "never found it".
+                    if (shadow_shaped)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} property '{}' is NULL.\n"),
+                                     label, prop_name);
+                    }
+                    continue;
+                }
+                UClass* value_class = (*value)->GetClassPrivate();
+                const StringType value_class_name = value_class ? StringType(value_class->GetName())
+                                                                : StringType(STR("<no class>"));
+                const bool is_component = value_class_name.find(STR("Component")) != StringType::npos;
+                if (!is_component && !shadow_shaped)
+                {
+                    continue;
+                }
+                ++component_count;
+                log_component_census_line(*value, label,
+                                          std::format(STR("property '{}'{}"), prop_name,
+                                                      shadow_shaped ? STR("  <-- SHADOW-SHAPED NAME") : STR("")));
+                if (!shadow_shaped)
+                {
+                    continue;
+                }
+                std::vector<StringType>& candidates = shadow_candidate_names();
+                if (std::find(candidates.begin(), candidates.end(), prop_name) == candidates.end())
+                {
+                    candidates.push_back(prop_name);
+                }
+            }
+            // **The FUNCTIONS too, added 2026-08-27 after the first run.** The census found
+            // `BlobShadow` immediately -- a StaticMeshComponent hanging off a `SpringArm` -- and
+            // then the trace showed its RelativeLocation never moves on EITHER side, which means
+            // something else positions it. If that something is a function on this pawn, calling it
+            // on the ghost is the whole fix, and it is the shape this adapter has used to make the
+            // afterimage trail, the cling gem and the slide pose work: let the game do the work.
+            //
+            // A properties-only census could never have found that, which is the general lesson --
+            // the same one `dump_object_reflection` learned when a VFX toggle turned out to be a
+            // function rather than a field.
+            size_t function_count = 0;
+            for (UFunction* function : TFieldRange<UFunction>(actor_class, EFieldIterationFlags::Default))
+            {
+                if (!function)
+                {
+                    continue;
+                }
+                const StringType function_name = function->GetName();
+                if (!is_shadow_shaped_name(function_name))
+                {
+                    continue;
+                }
+                ++function_count;
+                Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} FUNCTION '{}' PropertiesSize={}\n"),
+                             label, function_name, function->GetPropertiesSize());
+                for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::Default))
+                {
+                    if (!param)
+                    {
+                        continue;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {}     param '{}' ({})\n"),
+                                 label, param->GetName(), param->GetClass().GetName());
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: end of {} -- {} component properties, {} shadow-shaped function(s).\n"),
+                         label, component_count, function_count);
+        }
+
+        // The other half of the census: components the class does not point at.
+        //
+        // VFX_WATCH's first run is the precedent this exists for -- its original filter kept only
+        // components parented to the pawn and caught almost nothing, because an effect attached or
+        // spawned at runtime is not a property of anybody. A shadow decal created in BeginPlay
+        // would be invisible to the properties-only pass above and perfectly visible here.
+        //
+        // Attribution is by name containment, the same test VFX_WATCH uses: a component's full name
+        // carries its outer chain, so the local pawn's and the ghost's instance names sort them.
+        auto census_world_shadow_components(UObject* local_pawn, UObject* ghost) -> void
+        {
+            std::vector<UObject*> found;
+            UObjectGlobals::FindAllOf(STR("DecalComponent"), found);
+            {
+                // Appended into its own vector first for the reason VFX_WATCH spells out: whether
+                // FindAllOf clears its out-parameter is not something to assume, and getting it
+                // wrong would silently drop every result from the first call.
+                std::vector<UObject*> billboards;
+                UObjectGlobals::FindAllOf(STR("MaterialBillboardComponent"), billboards);
+                found.insert(found.end(), billboards.begin(), billboards.end());
+            }
+            const StringType pawn_name = local_pawn ? StringType(local_pawn->GetName()) : StringType();
+            const StringType ghost_name = ghost ? StringType(ghost->GetName()) : StringType();
+            size_t reported = 0;
+            for (UObject* component : found)
+            {
+                if (!component)
+                {
+                    continue;
+                }
+                const StringType full_name = component->GetFullName();
+                const wchar_t* whose = STR("world sweep [unowned]");
+                if (!pawn_name.empty() && full_name.find(pawn_name) != StringType::npos)
+                {
+                    whose = STR("world sweep [ON PLAYER]");
+                }
+                else if (!ghost_name.empty() && full_name.find(ghost_name) != StringType::npos)
+                {
+                    whose = STR("world sweep [ON GHOST]");
+                }
+                ++reported;
+                log_component_census_line(component, whose, full_name);
+            }
+            Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: world sweep found {} decal/billboard components.\n"),
+                         reported);
         }
 
         // Value dumper, new 2026-08-15 for the Dream Breaker spawn-snapshot investigation.
@@ -2856,6 +3285,118 @@ namespace MeshGhostPseudo
             return return_slot ? *return_slot : nullptr;
         }
 
+        // Spawns a Niagara system at a WORLD LOCATION, attached to nothing.
+        //
+        // **Built 2026-08-27 because the mirror was reproducing world-spawned effects in the wrong
+        // frame.** The capture says the player's heal waves are owned by `WorldSettings` and hang
+        // off nothing -- they are placed in the world, at the player, and left there. Our mirror
+        // spawned every row ATTACHED, so the ghost's copies rode the capsule's centre, mid-body,
+        // instead of sitting on the ground where a rising wave is authored to start. The user's
+        // report is that the heal is *"still missing the last VFX"* on a ghost, while the log shows
+        // both wave systems spawning with `component=ok` -- which is what "it spawned, in the wrong
+        // frame" looks like from the log.
+        //
+        // The table already knows which rows are which (`world_spawned`), so this is reproducing
+        // the game's own arrangement rather than adding an offset -- the same correction the recall
+        // glow needed when it shipped attached to the root because nothing had said otherwise.
+        auto spawn_niagara_at_location(UObject* world_context, UObject* system_asset, const FVector& location) -> UObject*
+        {
+            if (!system_asset || !world_context)
+            {
+                return nullptr;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Niagara.NiagaraFunctionLibrary:SpawnSystemAtLocation"));
+            static UObject* library_cdo = UObjectGlobals::StaticFindObject<UObject*>(
+                nullptr, nullptr, STR("/Script/Niagara.Default__NiagaraFunctionLibrary"));
+            if (!function || !library_cdo)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SpawnSystemAtLocation={} NiagaraFunctionLibrary CDO={} -- world-spawned effects cannot be mirrored.\n"),
+                                 function ? STR("found") : STR("MISSING"),
+                                 library_cdo ? STR("found") : STR("MISSING"));
+                }
+                return nullptr;
+            }
+
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return nullptr;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool has_system = false;
+            bool has_location = false;
+            UObject** return_slot = nullptr;
+
+            static bool logged_params = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType param_name = param->GetName();
+                if (!logged_params)
+                {
+                    // The signature is dumped once, for the same reason the attached spawner dumps
+                    // its own: a parameter that is not there by the name we expect must be visible
+                    // in the log, not inferred from an effect that silently never appears.
+                    Output::send(STR("[MeshGhostPseudo] DIAG: SpawnSystemAtLocation param '{}' ({}) offset={} size={}\n"),
+                                 param_name, param->GetClass().GetName(),
+                                 param->GetOffset_Internal(), param->GetSize());
+                }
+                uint8_t* slot = params_buffer.data() + param->GetOffset_Internal();
+                if (param_name == STR("SystemTemplate"))
+                {
+                    *std::bit_cast<UObject**>(slot) = system_asset;
+                    has_system = true;
+                }
+                else if (param_name == STR("WorldContextObject"))
+                {
+                    *std::bit_cast<UObject**>(slot) = world_context;
+                }
+                else if (param_name == STR("Location"))
+                {
+                    *std::bit_cast<FVector*>(slot) = location;
+                    has_location = true;
+                }
+                else if (param_name == STR("Scale"))
+                {
+                    // A zeroed scale would spawn the system at size zero -- invisible, and
+                    // indistinguishable from the bug this is fixing.
+                    *std::bit_cast<FVector*>(slot) = FVector(1.0, 1.0, 1.0);
+                }
+                else if (param_name == STR("bAutoActivate"))
+                {
+                    *slot = 1;
+                }
+                else if (param_name == STR("bAutoDestroy"))
+                {
+                    // Unattached, so nothing else owns its lifetime: the mirror stops it explicitly
+                    // when the peer's effect ends, exactly as it does for the attached rows.
+                    *slot = 0;
+                }
+                else if (param_name == STR("ReturnValue"))
+                {
+                    return_slot = std::bit_cast<UObject**>(slot);
+                }
+            }
+            logged_params = true;
+
+            if (!has_system || !has_location)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SpawnSystemAtLocation is missing SystemTemplate/Location by name -- refusing to call it. See the DIAG param list above for this build's real signature.\n"));
+                return nullptr;
+            }
+
+            library_cdo->ProcessEvent(function, params_buffer.data());
+            return return_slot ? *return_slot : nullptr;
+        }
+
         // Whether a component is currently ACTIVE, as opposed to merely existing.
         //
         // Built for the "ghost keeps the recall glow forever after walking away from the save
@@ -3109,6 +3650,56 @@ namespace MeshGhostPseudo
         // confirmed to produce a visible afterimage when called -- that's what AFTERIMAGE_CALL_TEST
         // below is for. Modeled directly on call_change_equipped_weapon above, same
         // GetFunctionByNameInChain/params_buffer/ProcessEvent shape.
+        // **The ghost's blob shadow, 2026-08-27 — driven by the game's own function, not by a
+        // value we write.**
+        //
+        // What the measurement said, and it is one number: the `SpringArm` that carries
+        // `BlobShadow` has `TargetArmLength=5000` on the PLAYER and `TargetArmLength=100` on the
+        // GHOST. With `bDoCollisionTest=true`, the arm's length is how far down the blob is allowed
+        // to fall before the trace finds floor — so 5000 reaches the ground from anywhere, and 100
+        // pins the shadow to a fixed 100 units under the model. That is exactly the reported bug,
+        // in the air included, and the log shows it plainly: mid-jump the player's blob sat
+        // `-808.2` below the actor while the ghost's was stuck at `-104.0`. Standing on floor both
+        // read `-66.2`, which is why it looks right until you leave the ground.
+        //
+        // 100 is the class default, so nothing set it on the ghost — and the census found exactly
+        // one shadow-shaped function on this pawn, `manageBlobShadow`, present on the ghost too.
+        // The player's Blueprint runs it; the ghost's never does.
+        //
+        // So this calls the pawn's own function rather than writing 5000 into the arm. That is the
+        // project's rule and the shape that already made the afterimage trail, the cling gem and
+        // the slide pose work: a ghost is a clone that owns every component the player owns, and
+        // what it is missing is not a value but the thing that RUNS. Writing the number would also
+        // be a guess about what else this function does — enabling the shadow, sizing it, turning
+        // it off in places it should not draw — and a guess that happens to look right is exactly
+        // what `BANDAGES.md` exists to catch.
+        //
+        // Calling (not hooking) a Blueprint UFunction is fine; `pseudoregalia/CLAUDE.md`'s rule is
+        // about `RegisterPre/PostHook` swapping a Blueprint function's executor, which crashes.
+        auto call_manage_blob_shadow(UObject* ghost) -> bool
+        {
+            if (!ghost)
+            {
+                return false;
+            }
+            UFunction* function = ghost->GetFunctionByNameInChain(STR("manageBlobShadow"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 0)
+            {
+                return false;
+            }
+            // Zeroed buffer sized by the function's own reflected size — the same shape every
+            // other call in this file uses. Measured at 768 on this build, which is locals rather
+            // than parameters (a Blueprint function's frame), so there is nothing to fill in.
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            ghost->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
         auto call_spawn_after_image(UObject* pawn, float duration) -> void
         {
             if (!pawn)
@@ -4848,18 +5439,47 @@ namespace MeshGhostPseudo
                     }
                     continue;
                 }
-                UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(effect.attach_prop);
-                if (!attach_ptr || !*attach_ptr)
+                UObject* component = nullptr;
+                if (effect.world_spawned)
                 {
-                    static std::set<std::string> warned_attach;
-                    if (warned_attach.insert(key).second)
+                    // **Spawned in the WORLD, at the ghost's feet -- corrected 2026-08-27.** The
+                    // capture says the player's own copies of these rows are owned by
+                    // `WorldSettings` and attached to nothing; ours were riding the ghost's capsule
+                    // centre because every row spawned the same way. A wave authored to rise from
+                    // the ground, played from mid-body, is a plausible reading of the user's
+                    // *"healing is still missing the last VFX"* while the log reports it started.
+                    //
+                    // Feet is derived from the ghost's OWN mesh offset, not from a constant: the
+                    // census reads `VisualMesh` at a relative Z of -66 on both pawns, and the
+                    // shadow trace independently puts the floor exactly -66.1 below the actor when
+                    // standing. So this asks the actor where its feet are rather than asserting it.
+                    FVector feet = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
+                    double foot_offset = -GHOST_STANDING_CAPSULE_HALF;
+                    if (UObject** mesh_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); mesh_ptr && *mesh_ptr)
                     {
-                        Output::send(STR("[MeshGhostPseudo] WARNING: mirrored effect '{}' has no attach component on the ghost -- not played.\n"),
-                                     to_wide_ascii(key));
+                        if (FVector* mesh_rel = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        {
+                            foot_offset = mesh_rel->Z();
+                        }
                     }
-                    continue;
+                    feet = FVector(feet.X(), feet.Y(), feet.Z() + foot_offset);
+                    component = spawn_niagara_at_location(remote.ghost, asset, feet);
                 }
-                UObject* component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
+                else
+                {
+                    UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(effect.attach_prop);
+                    if (!attach_ptr || !*attach_ptr)
+                    {
+                        static std::set<std::string> warned_attach;
+                        if (warned_attach.insert(key).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] WARNING: mirrored effect '{}' has no attach component on the ghost -- not played.\n"),
+                                         to_wide_ascii(key));
+                        }
+                        continue;
+                    }
+                    component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
+                }
                 remote.vfx_components[key] = component;
                 Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: started '{}' (component={})\n"),
                              to_wide_ascii(player_id), to_wide_ascii(key),
@@ -6404,6 +7024,20 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Shadow census, see SHADOW_COMPONENT_PROBE's own comment. Runs here, at spawn, because
+        // this is the one moment both actors are certainly in hand and the ghost has already been
+        // fully set up (mesh, rotation, possession, collision) -- a census taken before that would
+        // describe an actor the player never sees. A spawn is rare, so a one-shot dump here costs
+        // nothing per tick, unlike the enumeration this file has been burned by before.
+        if constexpr (SHADOW_COMPONENT_PROBE)
+        {
+            census_actor_components(ghost, STR("spawned ghost"));
+            census_actor_components(local_pawn, STR("local pawn at ghost-spawn"));
+            census_world_shadow_components(local_pawn, ghost);
+            Output::send(STR("[MeshGhostPseudo] SHADOWCENSUS: {} shadow-shaped name(s) will now be traced each {} ticks.\n"),
+                         shadow_candidate_names().size(), SHADOW_PROBE_INTERVAL_TICKS);
+        }
+
         // Dream Breaker spawn-snapshot investigation, see DUMP_GHOST_SPAWN_VALUES's own comment.
         // Dumps the ghost right after every field above has already been set up (mesh/rotation/
         // possession/collision), plus the local player's own pawn at this same moment as a
@@ -7114,6 +7748,125 @@ namespace MeshGhostPseudo
                                  glow_now ? STR("ON") : STR("OFF"), tick_count);
                 }
                 local_recall_glow = glow_now;
+            }
+
+            // **Projectile watch -- see GHOST_PROJECTILE_WATCH's own comment for why this is the
+            // measurement that is left.** Two halves, and the first exists because the class name
+            // this project has for the ranged attack came out of a log rather than being
+            // established: a ONE-TIME sweep of every live object for the name shape, so the probe
+            // reports what this build actually calls its projectiles instead of quietly finding
+            // nothing because it was told the wrong name. Then a per-interval lookup of each class
+            // the sweep found, logging every instance ONCE, with Owner and Instigator.
+            if constexpr (GHOST_PROJECTILE_WATCH)
+            {
+                static bool projectile_classes_discovered = false;
+                static std::vector<StringType> projectile_classes;
+                // **Keyed by actor, VALUED by instigator -- corrected 2026-08-27 after the first
+                // run.** A plain "have I seen this actor" set was the wrong memory for this game:
+                // it pools and re-uses actors (that is established here -- it is why no afterimage
+                // ever disappears), so a pooled projectile re-fired by the ghost would have logged
+                // once, under whoever fired it first, and stayed silent forever after. Remembering
+                // WHO fired it means every change of hands announces itself, which is the only
+                // version of this measurement that can actually implicate the ghost.
+                static std::map<UObject*, StringType> projectile_instigators;
+
+                if (!projectile_classes_discovered)
+                {
+                    projectile_classes_discovered = true;
+                    // One full pass over the object array, once per session. Expensive, and it is
+                    // affordable exactly because it happens once -- the shape CLAUDE.md warns about
+                    // is enumeration PER TICK.
+                    UObjectGlobals::ForEachUObject([&](UObject* object, int32_t, int32_t) {
+                        if (!object)
+                        {
+                            return LoopAction::Continue;
+                        }
+                        const StringType object_name = object->GetName();
+                        if (object_name.find(PROJECTILE_CLASS_NEEDLE) == StringType::npos)
+                        {
+                            return LoopAction::Continue;
+                        }
+                        UClass* object_class = object->GetClassPrivate();
+                        const StringType class_name = object_class ? StringType(object_class->GetName())
+                                                                   : StringType(STR("<no class>"));
+                        Output::send(STR("[MeshGhostPseudo] PRJWATCH: sweep found '{}' (class {})\n"),
+                                     object->GetFullName(), class_name);
+                        // An object whose OWN name carries the needle and whose class does not is
+                        // the class object itself -- that is the name to look instances up by.
+                        const StringType& candidate = (class_name.find(PROJECTILE_CLASS_NEEDLE) != StringType::npos)
+                                                          ? class_name : object_name;
+                        if (std::find(projectile_classes.begin(), projectile_classes.end(), candidate) == projectile_classes.end())
+                        {
+                            projectile_classes.push_back(candidate);
+                        }
+                        return LoopAction::Continue;
+                    });
+                    Output::send(STR("[MeshGhostPseudo] PRJWATCH: sweep done -- {} candidate class name(s) will be polled each {} ticks.\n"),
+                                 projectile_classes.size(), PROJECTILE_WATCH_INTERVAL_TICKS);
+                }
+                else if (tick_count % PROJECTILE_WATCH_INTERVAL_TICKS == 0)
+                {
+                    // **Who hit the player? Asked of the player, 2026-08-27.**
+                    //
+                    // The projectile half of this probe has now run twice and said the same thing
+                    // both times: every `PRJ_PlayerCutter_C` in the world was instigated by the
+                    // LOCAL pawn, never by a ghost -- and this is a loopback rig, so a ghost that
+                    // fired one would produce a second projectile about 100ms after the player's.
+                    // There isn't one. That points away from "the ghost fires a projectile" and
+                    // towards something in the charge path that damages without spawning an actor.
+                    //
+                    // `LastHitBy` is the pawn's own record of what hit it -- an ObjectProperty this
+                    // build's reflection dump already confirmed, and one the decouple pass clears
+                    // on the GHOST. Reading it on the PLAYER, on change, names the culprit outright
+                    // instead of narrowing the field one candidate per live run.
+                    static StringType prev_last_hit_by;
+                    if (UObject** hit_by = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("LastHitBy")))
+                    {
+                        const StringType who = *hit_by ? (*hit_by)->GetFullName() : StringType(STR("<none>"));
+                        if (who != prev_last_hit_by)
+                        {
+                            prev_last_hit_by = who;
+                            Output::send(STR("[MeshGhostPseudo] PRJWATCH: player's LastHitBy -> '{}' tick={}\n"),
+                                         who, tick_count);
+                        }
+                    }
+
+                    for (const StringType& class_name : projectile_classes)
+                    {
+                        std::vector<UObject*> instances;
+                        UObjectGlobals::FindAllOf(class_name.c_str(), instances);
+                        for (UObject* instance : instances)
+                        {
+                            if (!instance)
+                            {
+                                continue;
+                            }
+                            // Owner and Instigator ARE the measurement. A projectile fired by the
+                            // ghost ends the guessing; one only ever fired by the player says the
+                            // damage comes from somewhere else and the search moves.
+                            StringType owner = STR("<none>");
+                            if (UObject** owner_ptr = instance->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner")); owner_ptr && *owner_ptr)
+                            {
+                                owner = (*owner_ptr)->GetFullName();
+                            }
+                            StringType instigator = STR("<none>");
+                            if (UObject** inst_ptr = instance->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator")); inst_ptr && *inst_ptr)
+                            {
+                                instigator = (*inst_ptr)->GetFullName();
+                            }
+                            auto previous = projectile_instigators.find(instance);
+                            if (previous != projectile_instigators.end() && previous->second == instigator)
+                            {
+                                continue;
+                            }
+                            const bool first_sighting = (previous == projectile_instigators.end());
+                            projectile_instigators[instance] = instigator;
+                            Output::send(STR("[MeshGhostPseudo] PRJWATCH: {} tick={} '{}' owner='{}' instigator='{}'\n"),
+                                         first_sighting ? STR("+ APPEARED") : STR("~ CHANGED HANDS"),
+                                         tick_count, instance->GetFullName(), owner, instigator);
+                        }
+                    }
+                }
             }
 
             // See VFX_WATCH for why this searches by observation rather than by name.
@@ -9507,6 +10260,250 @@ namespace MeshGhostPseudo
                 remote.owning_world = nullptr;
                 continue;
             }
+            // **Did anything hit the GHOST? 2026-08-27.**
+            //
+            // The decouple pass clears the ghost's `LastHitBy` at spawn and logs that it did, so
+            // any non-null value here means something hit the ghost AFTER that -- and it names
+            // what. This is the direct test of the reading the evidence now favours: that the
+            // player's own charged projectile (the only one that ever exists in the log) hits the
+            // ghost standing beside them, and the damage comes back through the already-confirmed
+            // "damage to a ghost hurts the real player" coupling (`VERIFIED.md` 2026-08-17).
+            //
+            // It is the other half of the player-side `LastHitBy` watch, which came back `<none>`
+            // for a whole session in which the user WAS hurt -- so whatever this damage path is,
+            // it does not write the player's copy. Asking the ghost is the remaining half.
+            if constexpr (GHOST_PROJECTILE_WATCH)
+            {
+                if (tick_count % PROJECTILE_WATCH_INTERVAL_TICKS == 0)
+                {
+                    static StringType prev_ghost_hit_by;
+                    if (UObject** ghost_hit = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("LastHitBy")))
+                    {
+                        const StringType who = *ghost_hit ? (*ghost_hit)->GetFullName() : StringType(STR("<none>"));
+                        if (who != prev_ghost_hit_by)
+                        {
+                            prev_ghost_hit_by = who;
+                            Output::send(STR("[MeshGhostPseudo] PRJWATCH: GHOST's LastHitBy -> '{}' tick={}\n"),
+                                         who, tick_count);
+                        }
+                    }
+
+                    // **Is the ghost actually un-hittable? Read it back, 2026-08-27.**
+                    //
+                    // `SetActorEnableCollision(GHOST_COLLISION_ENABLED)` runs at spawn with that
+                    // flag `false`, so on paper nothing can touch the ghost — and yet the user is
+                    // taking damage that the evidence says comes from their own projectile meeting
+                    // the ghost. Exactly one of those two things is wrong, and the way to find out
+                    // is not to reason about it: **ask the actor**, with the engine's own getter,
+                    // long after spawn. Writing a value and trusting it is the mistake this file
+                    // has a standing rule against, and a pawn clone that runs the player's own
+                    // BeginPlay is precisely the thing that could turn its collision back on.
+                    static int prev_collision_state = -1;
+                    if (UFunction* get_collision = remote.ghost->GetFunctionByNameInChain(STR("GetActorEnableCollision")))
+                    {
+                        const int32_t parms_size = get_collision->GetPropertiesSize();
+                        if (parms_size >= 1)
+                        {
+                            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                            remote.ghost->ProcessEvent(get_collision, params_buffer.data());
+                            int now_state = -1;
+                            for (FProperty* param : TFieldRange<FProperty>(get_collision, EFieldIterationFlags::None))
+                            {
+                                if (param && param->GetName() == STR("ReturnValue"))
+                                {
+                                    now_state = params_buffer[static_cast<size_t>(param->GetOffset_Internal())] ? 1 : 0;
+                                }
+                            }
+                            if (now_state != prev_collision_state)
+                            {
+                                prev_collision_state = now_state;
+                                Output::send(STR("[MeshGhostPseudo] PRJWATCH: ghost GetActorEnableCollision -> {} tick={} (we set it to {} at spawn)\n"),
+                                             now_state == 1 ? STR("TRUE -- the ghost CAN be hit") : (now_state == 0 ? STR("false") : STR("<no ReturnValue>")),
+                                             tick_count,
+                                             GHOST_COLLISION_ENABLED ? STR("true") : STR("false"));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // **Drive the ghost's blob shadow with the game's own function.** Every tick, because
+            // that is how often the player's own Blueprint runs it and the arm has to keep up with
+            // a ghost that is moving; the call is one reflected lookup and a ProcessEvent on an
+            // actor we already have in hand.
+            //
+            // Logged ONCE per session either way, including the "did not resolve" case: a call
+            // that silently does nothing looks exactly like a call that worked, and this adapter
+            // has paid for that confusion more than once. The independent readback is
+            // SHADOWTRACE's own `armLength=` field, not anything this code reports about itself.
+            if constexpr (GHOST_BLOB_SHADOW_DRIVE)
+            {
+                static bool logged_blob_shadow_drive = false;
+                const bool called = call_manage_blob_shadow(remote.ghost);
+                if (!logged_blob_shadow_drive)
+                {
+                    logged_blob_shadow_drive = true;
+                    if (called)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] ghost blob shadow: calling the pawn's own 'manageBlobShadow' each tick.\n"));
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: 'manageBlobShadow' does not resolve on the ghost -- its shadow will stay stuck to the model.\n"));
+                    }
+                }
+            }
+
+            // **Mirror the player's spring-arm length onto the ghost's** -- see
+            // GHOST_BLOB_SHADOW_ARM_MIRROR for why this exists alongside the function call above.
+            // Sampled from the live player every tick rather than written as a constant, so this
+            // follows whatever the game does instead of asserting a number.
+            if constexpr (GHOST_BLOB_SHADOW_ARM_MIRROR)
+            {
+                static bool logged_arm_mirror = false;
+                float* player_arm = nullptr;
+                if (UObject** player_spring = pawn_obj ? pawn_obj->GetValuePtrByPropertyNameInChain<UObject*>(STR("SpringArm")) : nullptr;
+                    player_spring && *player_spring)
+                {
+                    player_arm = (*player_spring)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength"));
+                }
+                if (UObject** ghost_spring = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("SpringArm"));
+                    player_arm && ghost_spring && *ghost_spring)
+                {
+                    if (float* ghost_arm = (*ghost_spring)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength")))
+                    {
+                        if (!logged_arm_mirror)
+                        {
+                            logged_arm_mirror = true;
+                            // The BEFORE values, logged once. Deliberately not a report of what
+                            // was written -- that would be logging our own local back at us, which
+                            // this file has a standing rule against. SHADOWTRACE's independent
+                            // readback is what says whether it stuck.
+                            Output::send(STR("[MeshGhostPseudo] ghost blob shadow: mirroring the player's spring arm (player={:.1f}, ghost was {:.1f}).\n"),
+                                         *player_arm, *ghost_arm);
+                        }
+                        *ghost_arm = *player_arm;
+                    }
+                }
+                else if (!logged_arm_mirror)
+                {
+                    logged_arm_mirror = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: could not resolve 'SpringArm'/'TargetArmLength' on both pawns -- the ghost's shadow will stay pinned to the model.\n"));
+                }
+            }
+
+            // **Shadow trace, the second half of SHADOW_COMPONENT_PROBE.** The census at spawn says
+            // which components exist; this says whether the ghost's copy ever MOVES. Both sides are
+            // sampled in the same pass and logged on change, so the log reads as a comparison
+            // rather than as two traces somebody has to line up by tick number.
+            //
+            // What the answer looks like: a blob shadow that follows the ground has a
+            // RelativeLocation whose Z changes constantly as its owner walks over anything but a
+            // flat floor. If the player's moves and the ghost's is frozen at whatever it held at
+            // spawn, the shadow is not being positioned on the ghost at all -- and the fix is
+            // whatever RUNS that positioning, not an offset written into the component.
+            if constexpr (SHADOW_COMPONENT_PROBE)
+            {
+                if (tick_count % SHADOW_PROBE_INTERVAL_TICKS == 0)
+                {
+                    // Log-on-change, keyed by side + peer + property. Same shape as ANIM_TRACE and
+                    // the VFX watcher: a value that is not moving should cost one line for the
+                    // whole session, and "it printed once and never again" is itself the finding.
+                    static std::map<StringType, StringType> prev_shadow_samples;
+                    for (const StringType& candidate : shadow_candidate_names())
+                    {
+                        for (int side = 0; side < 2; ++side)
+                        {
+                            UObject* owner = (side == 0) ? pawn_obj : static_cast<UObject*>(remote.ghost);
+                            if (!owner)
+                            {
+                                continue;
+                            }
+                            StringType sample = STR("<property does not resolve>");
+                            UObject** component = owner->GetValuePtrByPropertyNameInChain<UObject*>(candidate.c_str());
+                            if (component && !*component)
+                            {
+                                sample = STR("<null>");
+                            }
+                            else if (component)
+                            {
+                                // **WORLD, not relative -- corrected 2026-08-27 after the first
+                                // run.** `BlobShadow`'s RelativeLocation printed once on each side
+                                // and never changed again, on the player as well as the ghost, so
+                                // it cannot be the thing that puts a shadow on the ground. It hangs
+                                // off a `SpringArm`, and a spring arm moves its child through its
+                                // own socket transform rather than by writing the child's relative
+                                // location -- so the world position is the only one that can
+                                // answer the question, and the OFFSET FROM THE ACTOR is the answer
+                                // itself: at the feet is a real ground shadow, at the chest is the
+                                // reported bug.
+                                FVector world{};
+                                if (component_world_location(*component, world))
+                                {
+                                    const FVector actor_loc = static_cast<AActor*>(owner)->K2_GetActorLocation();
+                                    sample = std::format(STR("world=({:.1f}, {:.1f}, {:.1f}) offsetFromActor=({:.1f}, {:.1f}, {:.1f})"),
+                                                         world.X(), world.Y(), world.Z(),
+                                                         world.X() - actor_loc.X(),
+                                                         world.Y() - actor_loc.Y(),
+                                                         world.Z() - actor_loc.Z());
+                                }
+                                else
+                                {
+                                    sample = STR("<no world location>");
+                                }
+                                // The render flags, because a blob shadow is very often an
+                                // INVISIBLE mesh that still casts -- and the census found this one
+                                // `hiddenInGame=true` on the player too, where the shadow is
+                                // correct. That combination only makes sense if the shadow is what
+                                // this mesh is for, so whether it casts is load-bearing.
+                                for (const wchar_t* render_flag : {STR("CastShadow"), STR("bCastHiddenShadow"),
+                                                                   STR("bHiddenInGame"), STR("bVisible")})
+                                {
+                                    if (bool* flag = (*component)->GetValuePtrByPropertyNameInChain<bool>(render_flag))
+                                    {
+                                        sample += std::format(STR(" {}={}"), render_flag,
+                                                              *flag ? STR("true") : STR("false"));
+                                    }
+                                }
+                                // And its PARENT, which is the thing that actually positions it.
+                                // Logged generically rather than by hardcoding 'SpringArm': the
+                                // census reports the attach parent, so following it costs nothing
+                                // and does not assume this build's arrangement is the only one.
+                                if (UObject** parent = (*component)->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent && *parent)
+                                {
+                                    FVector parent_world{};
+                                    if (component_world_location(*parent, parent_world))
+                                    {
+                                        sample += std::format(STR(" parent='{}' parentWorld=({:.1f}, {:.1f}, {:.1f})"),
+                                                              (*parent)->GetName(),
+                                                              parent_world.X(), parent_world.Y(), parent_world.Z());
+                                    }
+                                    if (float* arm = (*parent)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength")))
+                                    {
+                                        sample += std::format(STR(" armLength={:.1f}"), *arm);
+                                    }
+                                    if (bool* trace = (*parent)->GetValuePtrByPropertyNameInChain<bool>(STR("bDoCollisionTest")))
+                                    {
+                                        sample += *trace ? STR(" doCollisionTest=true") : STR(" doCollisionTest=false");
+                                    }
+                                }
+                            }
+                            const StringType side_label = (side == 0) ? StringType(STR("player"))
+                                                                      : StringType(STR("ghost ")) + to_wide_ascii(id);
+                            const StringType key = side_label + STR("/") + candidate;
+                            auto previous = prev_shadow_samples.find(key);
+                            if (previous != prev_shadow_samples.end() && previous->second == sample)
+                            {
+                                continue;
+                            }
+                            prev_shadow_samples[key] = sample;
+                            Output::send(STR("[MeshGhostPseudo] SHADOWTRACE: {} '{}' {} tick={}\n"),
+                                         side_label, candidate, sample, tick_count);
+                        }
+                    }
+                }
+            }
+
             // **The diff-of-diffs.** SLIDE_PROPERTY_DIFF captured what changes on the real PLAYER
             // through a slide. This captures what changes on a GHOST while its peer slides, against
             // the same kind of fresh standing baseline. Neither list is interesting alone; the
@@ -11042,6 +12039,21 @@ namespace MeshGhostPseudo
                 if (bridge->spawnable_port(spawn_on))
                 {
                     core_launcher->tick_disconnected(spawn_on);
+                }
+                else if (tick_count % LOG_INTERVAL_TICKS == 0)
+                {
+                    // **This gate used to be the one silent branch on the whole autostart path,
+                    // and that silence cost a session.** Every failure inside CoreLauncher prints
+                    // something, so when the bridge never connected and the launcher said nothing
+                    // at all, the log looked like the launcher was not reached -- which was true,
+                    // and there was no line anywhere saying so. The cause turned out to be a
+                    // Winsock select() bug in try_port (see BridgeClient.cpp), but the reason it
+                    // took a session to find is this branch, not that bug.
+                    //
+                    // Throttled to the bridge-stats cadence and deliberately printed next to that
+                    // line, so "attempts climbing" and "no port to spawn on" are read together.
+                    Output::send(STR("[MeshGhostPseudo] bridge not connected and the sweep found NO free port to start a core on -- "
+                                     "every port in the range either answered or never refused. Autostart is idle, not broken-silently.\n"));
                 }
             }
         }

@@ -36,7 +36,7 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending — THE GHOST CAN DAMAGE THE PLAYER with the charge/projectile attack (2026-08-27)
+## Pending — the charged attack DAMAGES THE PLAYER, and it now looks like the player hitting their OWN ghost (2026-08-27)
 
 **STATE AT END OF 2026-08-27. Still open. Three candidates tried, none fixed it, and only two of
 them actually produced evidence — read the third carefully before repeating it.**
@@ -45,13 +45,97 @@ them actually produced evidence — read the third carefully before repeating it
 | --- | --- |
 | Our `chg` VFX mirror removed (one-variable test) | **REFUTED as the cause** — ghost still hit the player. Row restored. |
 | Ghost's damage numbers zeroed (`lightAttackDamage` 15→0, `heavyAttackDamage` 50→0, `projectileFullDamage` 45→0) plus `obtainedProjectile?` already `false` | **REFUTED** — all confirmed applied in the log, ghost still hit the player. So the damage reads none of these. |
-| Ghost's hitbox collision disabled (`Hit Component 1`, `CollisionComponent`) | **INCONCLUSIVE, NOT refuted.** The block logged *nothing*: neither property resolved non-null, and the first version of the code only printed on success. Nothing can be concluded from that run. **Logging fixed the same day** so every branch prints; re-run it and the log will actually say which case it is. |
+| Ghost's hitbox collision disabled (`Hit Component 1`, `CollisionComponent`) | **DEAD, 2026-08-27 — there was never anything to disable.** The fixed logging ran and said it outright: `'Hit Component 1' resolves but is NULL on the ghost -- nothing to disable` and `'CollisionComponent' does not resolve on this build`. Not inconclusive any more; this line of attack is finished. |
 
-**The strongest untested theory, and it explains the detail nothing else does.** Only the FIRST
-charged attack lands; later ones never do. The pawn carries **`hitActorsArray`** — an already-hit
-list. A ghost whose copy is never cleared would hit the player once and then treat them as
-permanently already-hit, forever. That fits the symptom exactly, and it would mean the bug is a
-single hit rather than a repeating one. **Start here next session.**
+**The user confirmed the shape of it again, 2026-08-27:** *"I don't see a visual projectile coming
+from the ghost (unlike the thrown sword that we have fixed before), but it does hurt me on the
+first attack."* So all three tried candidates are now closed, and what remains is the theory the
+next paragraph has always named: something real exists, it damages, and our side never draws it.
+
+**An instrument for it is now built and deployed — `GHOST_PROJECTILE_WATCH`, ON for the next run.**
+It sweeps every live object ONCE for the projectile name shape (so the probe reports what this
+build actually calls them rather than finding nothing because it was handed the wrong name), then
+polls each class it found and logs every instance one time with its **Owner** and **Instigator**.
+Those two fields are the measurement: a projectile owned by the ghost ends the guessing, and one
+only ever owned by the player says the damage comes from somewhere else and the search moves.
+
+**RUN, 2026-08-27 — and the answer moves the search.** The sweep found the class immediately
+(`BlueprintGeneratedClass /Game/Blueprints/Projectiles/PRJ_PlayerCutter.PRJ_PlayerCutter_C`), and
+across the whole session **exactly one projectile instance ever appeared**:
+
+```text
+PRJWATCH: + APPEARED tick=17251 'PRJ_PlayerCutter_C ...PRJ_PlayerCutter_C_2147473717'
+    owner='<none>' instigator='BP_PlayerGoatMain_C ...BP_PlayerGoatMain_C_2147482216'
+```
+
+`..._2147482216` is the **local pawn** (the census names both instances in the same log; the ghost
+was `..._2147477779`). So the only projectile in the world was the player's own, and the user was
+hit by the ghost's charged attack in that same session.
+
+**Two readings, and they are not equally likely — do not pick one yet.**
+
+1. **The ghost never spawns a projectile, and the damage is something else entirely** — a melee
+   hitbox during the charge montage, most plausibly, which would also explain why nothing is ever
+   visible.
+2. **The probe cannot see a second one.** This game pools and re-uses actors — that is established
+   here, it is why no afterimage ever disappears — and this probe remembers every instance it has
+   seen forever, so a **pooled projectile re-fired by the ghost would log once and never again**.
+   The single sighting is at tick 17251, and the user's charges came later.
+
+**Reading 2 is a defect in the instrument and is fixable before the next run:** track each
+projectile's *instigator* rather than its identity, and log whenever an actor's instigator changes
+or it goes active again. Then a re-used actor fired by the ghost announces itself. Until that is
+done, this measurement **does not** clear the ghost — and saying it does would be exactly the
+"a clean instrument means widen the subsystem" mistake `CLAUDE.md` warns about.
+
+### THE TITLE OF THIS ENTRY IS PROBABLY WRONG — it looks like the player hitting their own ghost
+
+**The user's own reading, 2026-08-27, and it fits the evidence better than anything above:**
+*"when im getting hurt, its only the player that blink red/take damage, not the ghost. so i guess
+it might be us hitting ourself by attacking the ghost? ... im pretty sure it is a 'player
+accidently hurting the ghost, causing damage to us self' issue."*
+
+**Why that explains what nothing else did.** Health is `CurrentHp` on the **GameInstance**, which is
+a singleton — measured this same day, and the reason clearing the ghost's reference to it changed
+nothing (any actor reaches it through `GetGameInstance()`). **There is only one health value in the
+running game.** So damage landing on the ghost decrements the number the player's bar reads, and
+only the player flashes red because the ghost has no bar of its own any more. This adapter already
+has the coupling confirmed on screen: *"ENEMY damage to a ghost hurts and can KILL the real
+player"* (`VERIFIED.md`, 2026-08-17). This is that bug, with the player as the source.
+
+It also absorbs the "only the FIRST attack lands" detail, and better: `hitActorsArray` is an
+already-hit list, so once the ghost has been hit it stays permanently already-hit — no clearing of
+a ghost-side copy required.
+
+**What the three instrumented sessions actually established** (all with `GHOST_PROJECTILE_WATCH`):
+
+| Measurement | Result |
+| --- | --- |
+| Every `PRJ_PlayerCutter_C` in the world | instigated by the **local pawn**, never by a ghost — and this is a loopback rig, so a ghost firing one would produce a second projectile ~100ms later. There was never a second. |
+| The **player's** `LastHitBy` | `<none>` for a whole session in which the user was repeatedly hurt |
+| The **ghost's** `LastHitBy` (cleared at spawn, so any value means something hit it) | `<none>` |
+
+So **this game does not record either hit in `LastHitBy`** — that field is a dead end for this
+question, and the two runs spent on it are the answer to "is it worth trying". Neither result
+implicates or clears the ghost.
+
+**The measurement that is built but has NEVER been run**, and it is the next thing: a readback of
+the ghost's actual collision state, `GetActorEnableCollision()`, long after spawn. `SetActorEnableCollision(false)`
+runs at every ghost spawn with `GHOST_COLLISION_ENABLED` false, so on paper nothing can touch the
+ghost at all — and yet the user is being hurt by what looks like their own projectile meeting it.
+**Exactly one of those two things is false.** A pawn clone runs the player's own `BeginPlay`, which
+is precisely the kind of thing that could turn its collision back on afterwards, and this file has a
+standing rule against trusting a value because we wrote it.
+
+**If collision does read back true, the fix is not a new flag** — it is finding what re-enables it,
+and the two existing switches (`GHOST_HURTBOX_DISABLED`, the Pawn-channel response) are both gated
+behind `GHOST_COLLISION_ENABLED` and so compile out entirely today. Note `bCanBeDamaged=false` is a
+**recorded negative** for the melee case (`VERIFIED.md`, 2026-08-15), so it is not the answer on its
+own.
+
+**The old theory, kept because it is not disproven:** the pawn's `hitActorsArray` on a ghost that
+fires its own attack. It now has no evidence for it — no ghost-instigated projectile has ever been
+seen — and it should not be worked on before the collision readback is run.
 
 **Also unexplained and probably the same mechanism:** the ghost's projectile is never VISIBLE. An
 actor that damages but does not render is consistent with the ghost spawning something real that
@@ -61,7 +145,6 @@ our side never draws.
 2026-08-16): a ghost is a clone of the player's pawn, so **it brings its own copy of everything the
 player owns** and each copy is live. Camera rig and HUD were both exactly this. Ask what component
 of the player's the ghost also has, rather than what value to overwrite.
-
 
 **User-reported live. This is the most serious open item in this adapter**, because it is not a
 cosmetic defect: a ghost affecting the player's game state is the thing `CLAUDE.md` and
@@ -140,24 +223,6 @@ the tempting fix is to watch it and restore it. That is a bandage by this projec
 restoring a value rather than preventing what changed it — and it would also be fixing the wrong
 thing entirely, since the value is already correct.
 
-## Pending — the ghost's SHADOW is glued to the model instead of falling on the ground (2026-08-27)
-
-**User-reported, live, and not previously recorded anywhere.** The ghost's shadow sits on the model
-rather than being cast onto the ground beneath it, wherever the ghost actually is.
-
-Not investigated yet. Worth stating what is already known that bears on it, so the next session
-does not start from zero: the ghost is a spawned clone of the player's own pawn class, and
-`GHOST_COLLISION_ENABLED` was turned **off** the same day this was reported — so the first thing to
-establish is whether this is new. A shadow that needs a ground trace, or a mesh whose bounds are
-computed from a component that is no longer colliding, would both plausibly change with that flag.
-**Check it against a build with collision back on before theorising**, because that is a one-flag
-A/B that either implicates the change or clears it, and `../../agent_docs/pitfalls/method.md` is
-explicit that guessing twice at one symptom is the thing not to do.
-
-Also relevant: the ghost is drawn with custom depth (the through-walls outline work, `VERIFIED.md`
-2026-08-16), which is exactly the kind of render-path change that can affect how a mesh is treated
-by the shadow pass.
-
 ## Pending — the ghost FLOATS UP slightly during a melee sword attack (2026-08-27)
 
 **User-reported, live.** While the peer swings the sword, the ghost rises a little.
@@ -199,6 +264,82 @@ been watched live" item above, and may be the same defect seen from the other si
 looks like:** a core spawns within a few seconds and `bridge connected on port 7778` follows.
 **What failure looks like:** what happened here — attempts climbing with total silence from the
 launcher.
+
+### REPRODUCED exactly, 2026-08-27, on a deliberately clean start
+
+The shadow-census run was launched with **no core running and no MeshGhost process holding any port
+in 7778-7785** (only a relay on 7777, which the launcher has nothing to do with). The mod came up
+fine — hooks installed, `STATESEND` flowing, `TRACE local` every tick — and the bridge counter
+climbed `8, 16, 24, 32, 40, 80, 120` with **not one CoreLauncher line of any kind**, exactly as
+before. Starting a core by hand connected it instantly (`bridge connected on port 7778`) and the
+session ran clean from there.
+
+So this is not intermittent and not environmental: it is a repeatable defect on the path from
+`try_port` through `spawnable_port` to `tick_disconnected`.
+
+### ROOT-CAUSED and FIXED in code the same day — a Winsock `select()` rule. NOT yet watched
+
+`BridgeClient::try_port` opened a non-blocking socket, got `WSAEWOULDBLOCK` from `connect` (which is
+what a loopback connect to a closed port always does), and then waited on `select` with **only a
+write set and `nullptr` for the exception set**.
+
+**Windows signals a FAILED non-blocking connect in `exceptfds`, and marks the socket writable only
+on SUCCESS.** So a refused port never became writable, `select` timed out with 0, and `refused`
+stayed `false`. From there it is a straight line: no refusal → `have_spawnable_port` never set →
+`spawnable_port()` returns false → **`CoreLauncher::tick_disconnected` is never called at all**.
+That is why the launcher printed nothing: it was never reached. The counter climbed because the
+sweep itself was working perfectly.
+
+Two things were wrong and only one of them was that bug:
+
+1. **The bug**: `select` now takes an exception set, and a socket that finished without succeeding
+   has its `SO_ERROR` read to decide whether it was a refusal. Immediate refusals (the
+   `err != WSAEWOULDBLOCK` branch) were always detected correctly — only the in-progress path was
+   blind, which is the path loopback always takes.
+2. **The silence**: the `else` of `spawnable_port()` in `Plugin.cpp` was the one branch on the whole
+   autostart path that logged nothing, which is why a code-level bug read as "the launcher is not
+   running". It now prints, throttled to the bridge-stats cadence and next to that line.
+
+### That fix was NOT enough — and measuring instead of guessing again found the real cause
+
+The `select` fix shipped, the game was relaunched, and **autostart still did not fire**. What had
+changed is that the new log line said which gate was failing, every two seconds: *"the sweep found
+NO free port to start a core on"*. So `refused` was still never true.
+
+**Rather than a third guess at the socket code, the behaviour was measured directly** — outside the
+game, in isolation, connecting to each port in the range with the same non-blocking sequence:
+
+| Port | Result |
+| --- | --- |
+| 7778, with a core listening | **writable in ~4ms** — a successful connect |
+| 7779-7785, nothing listening | **neither writable nor errored after 500ms** |
+| 65000, nothing listening | same |
+
+**A closed loopback port on this machine is never refused at all.** The SYN is dropped, not
+rejected — the behaviour of a firewall in "block" mode rather than "reject" — so the connection
+just sits in `SYN_SENT`. No `select` timeout could have fixed that, because nothing was ever
+coming. The original 2ms window was not too short; it was waiting for an answer that does not exist.
+
+**So the question stopped being asked of the network and started being asked of the OS: a free port
+is one we can BIND.** `port_is_bindable` opens a socket with `SO_EXCLUSIVEADDRUSE`, binds, and
+closes — instant, deterministic, and immune to whatever a firewall does to traffic. It is also the
+same question the core itself asks a moment later when it binds its listener, so a port with a core
+on it fails and is excluded for free, exactly as the refusal test was meant to do. `refused` is kept
+as the first test, because when it does arrive it is unambiguous and costs nothing.
+
+**Verified outside the game before rebuilding:** with a core on 7778, that port reports
+`bindable=False (AddressAlreadyInUse)` and 7779/7780 report `bindable=True`.
+
+**And it fired on the next launch, 2026-08-27: `started meshghost.exe (pid 30368)`, with nothing
+started by hand.** Not moved to `VERIFIED.md` yet — a player-visible claim ("the mod starts the
+client for you") needs the user to see a ghost appear without anyone starting anything, which is
+what that same run is for.
+
+**The method is the part worth keeping.** Two socket-level fixes were reasoned out from the code and
+neither was the cause; the thing that ended it was ten seconds of measuring what the OS actually
+does with a connect to a closed port. That is `CLAUDE.md`'s "two guessed fixes failing the same way
+is a signal — isolate by subtraction, never a third guess", and the subtraction here was to take the
+socket code out of the game entirely and ask the question standalone.
 
 ## RESOLVED — "heal" IS healing; the table row is correctly labelled (2026-08-27)
 
@@ -270,6 +411,68 @@ table avoids by only ever mirroring things attached to the player:
   `NS_BasicBurstRedBig` (once, across three deaths). **Neither is established**; the honest next
   step is the catalog probe playing both onto a ghost for the user to pick, per
   `../../agent_docs/effect-investigation.md` §0b.
+
+### DECLINED on screen, 2026-08-27 — the heal's "yellow ball" does not appear on the ghost
+
+**User, watching a real heal:** *"the ghost is still not doing the 'yellow ball' vfx when
+healing."* This is a decline of the healing half of the mirror, and it is worth more than a
+confirmation would have been, because the log from the same session says every stage worked:
+
+```text
+MIRRORVFX local: '' -> heal -> heal,hw,hew -> hw,hew -> ''   (a real heal, tick 24705)
+MIRRORVFX ghost p1-ghost: started 'hw' (component=ok)
+MIRRORVFX ghost p1-ghost: started 'hew' (component=ok)
+```
+
+Detection fired, the wire carried it, and both wave systems spawned with `component=ok` on the
+ghost. **The effect still is not on screen** — so `component=ok` is exactly the same species of
+non-evidence as "it ran without errors", and this is the second time this adapter has been told
+that by a person rather than by an instrument.
+
+**The first suspect is WHERE, not whether.** `hw`/`hew` are `world_spawned` rows: the player's real
+ones are attached to nothing and carry a world coordinate, while the ghost's copies are spawned
+attached to `RootComponent` — the capsule's centre, mid-body, which is not the ground a wave rises
+from. That is the recall glow's bug in a new place (it shipped attached to the ghost's root purely
+because nothing said otherwise, and the user reported it sitting visibly wrong).
+
+**What settles it, and it is the measurement that already fixed the glow:** one `VFX_WATCH` run
+over a real heal, reading the PLAYER's own wave pair against the GHOST's — asset, `AttachParent`,
+`AttachSocketName` and `RelativeLocation` on appearance. Do not adjust an offset by eye first;
+`../../agent_docs/effect-investigation.md` is the playbook and this is the case it was written for.
+
+**Note the white aura is a separate question and is already answered** — see the RESOLVED entry
+above: `NS_Healing` IS the heal's own body effect, confirmed by the user watching it.
+
+### That run happened, the placement was corrected, and it is STILL missing (2026-08-27)
+
+`VFX_WATCH` over a real heal established the arrangement: the player's own `NS_HealWave` and
+`NS_HealEndwave` are owned by **`WorldSettings` and attached to nothing** — placed in the world,
+not carried on the body — while `NS_Healing` sits on the player's own capsule. The mirror was
+spawning every row ATTACHED, so the ghost's wave copies rode the capsule's centre, mid-body.
+
+**Corrected, and still not visible.** World-spawned rows now spawn unattached at the ghost's feet
+(the foot offset read from the ghost's own `VisualMesh`, not hardcoded), the call's signature was
+dumped and every parameter matched by name, and both waves reported `component=ok`. The user,
+watching: *"healing is still missing the last VFX"*.
+
+**Two different spawn arrangements producing the same nothing is the signal to stop adjusting
+placement** (`../../agent_docs/pitfalls/method.md`). So the question changed from *where did it go*
+to *which system is the yellow ball at all*, and the catalog probe answered as far as a three-way
+cycle can: *"its those 3 effects, but im unsure what order they are in, only 2 of them are
+shown/visible during the healing itself. think the 'ball' thing is the one in the middle between
+them"*.
+
+**So the ball IS one of the three already mirrored**, and probably `NS_HealWave` — but "probably"
+is carrying real weight there, because a 2.5s cycle of three systems with nothing on screen naming
+them is not an identification. **Next run narrows `VFX_PROBE_NAME_FILTERS` to ONE name** so a single
+system loops on the ghost and the answer is yes or no about one thing. That build was made and then
+reverted with the other probes at session end; re-narrowing it is a one-line change.
+
+**One fact from the same capture that should stop a wrong turn:** the ghost demonstrably RECEIVES
+all three heal systems. Detection, wire, spawn and placement are not the defect. Whatever is wrong
+is downstream of the component existing on the ghost — a Niagara user parameter the game sets after
+spawning is the most plausible candidate, and it is a thing this project has never had to reproduce
+before.
 
 ## Pending — the FRotator float/double fix is generalised, and the ghost transform path moved onto it
 
@@ -356,6 +559,27 @@ exit; no repro, no cause, no attribution.
 game closes with no dialog. **If it recurs**, the UE4SS log from that run is the first thing to
 read, before any theory — a mod framework's own error log is the cheapest evidence available and
 this project has twice gone looking for a rendering bug that was a load failure.
+
+### RECURRED 2026-08-27 — on exiting to the MAIN MENU, not on quitting
+
+User: *"The UE-pseudoregalia Game has crashed and will close / Fatal error!"* — *"got this when i
+exited out to the main menu"*. That is a level transition, which makes it adjacent to the
+2026-08-16 transition crash (fixed and confirmed) rather than a straight repeat of the exit case
+above; "exit" now covers two different actions and the entry should not be allowed to blur them.
+
+**The log was read first, and it says almost nothing** (archived from that session). The last
+adapter line is a ghost-spawn census at 18:59:08, then the ordinary bridge-stats line every ~0.7s
+until it simply stops at 18:59:34. No warning, no unresolved name, no release path, no `LoadMap PRE`
+line for the transition.
+
+**Attribution is genuinely open, and this run is a bad witness.** Three probes were compiled ON
+(`SHADOW_COMPONENT_PROBE`, `GHOST_PROJECTILE_WATCH`, `VFX_CATALOG_PROBE`), and the catalog probe
+spawns Niagara components onto a ghost — a component whose owner is destroyed at a transition is
+exactly the kind of thing that turns a teardown into a crash. But the same class of crash was seen
+on 2026-08-17 with none of that on, so **the honest reading is "unattributed, and the next
+occurrence must be on a probe-free build to be worth anything"**. Do not record a cause from this
+one — `CLAUDE.md`'s rule about numbers gathered while a heavy probe was live applies to crashes as
+much as to measurements.
 
 ## Pending — every probe under the three UE4SS mod directories predates this queue
 

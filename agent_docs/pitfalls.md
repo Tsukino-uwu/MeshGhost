@@ -244,3 +244,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A bypass that freezes a countdown instead of spending it (Crystal, 2026-08-27)
 - THE LUA and/or TERNARY CANNOT CARRY A BOOLEAN (Crystal, 2026-08-27)
 - A regression report is a hypothesis, not a verdict — bisect before accepting blame (2026-08-27)
+- Measure the parent, not the child — a constant relative position is a result, not a dead end (Pseudoregalia, 2026-08-27)
+- A closed port may never refuse — ask "can I bind it", not "did it refuse me" (Pseudoregalia, 2026-08-27)
