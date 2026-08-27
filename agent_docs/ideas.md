@@ -1324,12 +1324,49 @@ play with randoms"* splits in two, and only one half is a code problem:
   see a real IP ... unavoidable for any relay architecture — but right now it doesn't even use that
   information"* — so this is a restatement for the threat model, not a doc gap.
 
-**One more layer worth naming here, because it bears directly on "harm to someone else's
-computer":** an adapter never touches the network at all (`contract.md`'s hard rule). It speaks only
-to its own local core over localhost. So even a **fully compromised adapter** — the component that
-actually writes into game memory — has no route to another player's machine; it would have to
-compromise the core, a separate process, first. The thing with the dangerous privileges is the thing
-with no network access, and that is deliberate rather than incidental.
+### CORRECTION: "the adapter has no network access" does NOT close the peer-to-peer data path
+
+**The user asked the right question, 2026-08-27:** *"so it couldn't technically send something to the
+client, that send it to the server, and then another client gets it, and that causes their game to
+run/do things outside of the game?"*
+
+**That path is real, and it is THE attack path.** A hostile party — a modified adapter, a modified
+core, or most realistically a hand-written client that just speaks the protocol — crafts state that
+travels adapter → core → relay → victim's core → victim's adapter → **writes into the victim's game
+memory.** Every hop is the legitimate one.
+
+**An earlier version of this entry cited "an adapter never touches the network" as protection here.
+That was wrong, and it is worth recording why**, because the underlying claim is true and load-
+bearing for something else. `docs/security.md` makes it in the PRIVACY section and states it
+narrowly: a compromised adapter cannot *learn anything about* another player's machine. That is
+about information flowing OUT. Generalising it to "no route to another player's machine" imports it
+into a threat model it was never making an argument about — the attacker here does not need the
+adapter to have network access, because the core will carry the payload for it.
+
+**What actually defends this path, in order of how structural each one is:**
+
+1. **The victim never parses attacker-controlled BYTES — and this one is genuinely structural.** The
+   relay does not pass bytes through; `Room.forward` re-marshals from the parsed, validated struct
+   (`relay/relay.go:336`, `json.Marshal(msg)`). So a hostile peer cannot put malformed JSON, deep
+   nesting or a parser exploit in front of the victim's decoder: the victim only ever parses bytes
+   the RELAY serialized. That eliminates the whole parser-exploit class between peers rather than
+   auditing it away, and it is why the 13 fuzz targets are about robustness rather than the last
+   line of defence.
+2. **Both ends validate, including against a hostile relay.** `core/remotes.go` runs
+   `protocol.ValidateState` on everything arriving FROM the relay — length, size and finiteness
+   caps — explicitly *"since a hostile or compromised relay was previously trusted completely"*. So
+   point 1 degrading (a malicious HOST, who does control the bytes) does not leave the victim
+   undefended.
+3. **Per-sink handling in the victim's own adapter.** This is the layer that decides whether an
+   in-schema value can do harm, and it is the one with no structural backstop — see gaps 1-3 above.
+   Today it holds: no sink reaches code execution, memory corruption or the filesystem. That is an
+   AUDIT RESULT, not an invariant.
+
+**So the honest answer to the question is: it cannot happen today, and the reason is not the
+topology — it is that points 1 and 2 reduce the attacker to in-schema field values, and point 3 was
+traced field by field and found clean.** The part that should make anyone uncomfortable is that
+point 3 is re-earned on every new field, which is exactly the argument for adapter-declared
+constraints enforced on receive.
 
 ### What this means for the goal as stated
 
