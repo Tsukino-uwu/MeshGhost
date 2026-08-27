@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
@@ -654,11 +655,30 @@ type relayRetry struct {
 }
 
 // reconnectLogInterval is how often a still-failing reconnect repeats its
-// (identical) complaint. A var rather than a const only so a test can shrink
-// it — nothing else writes it. One minute is chosen to be cheap enough to
-// leave running indefinitely and frequent enough that a human reading the log
-// during a session sees the problem within a minute of looking.
-var reconnectLogInterval = 60 * time.Second
+// (identical) complaint. One minute is chosen to be cheap enough to leave
+// running indefinitely and frequent enough that a human reading the log during
+// a session sees the problem within a minute of looking.
+//
+// Atomic, not a plain var, and the reason is a real data race the race detector
+// caught in CI on 2026-08-27. Only a test ever writes it — but a reconnect loop
+// is a goroutine that outlives the test that started it (it exits on success or
+// a permanent reject, neither of which a dead address ever produces), so an
+// earlier test's still-spinning loop reads this while a later test writes it.
+// The value being test-only does NOT make the access single-threaded, which is
+// exactly the assumption the old comment encoded.
+var reconnectLogIntervalNanos atomic.Int64
+
+func init() { reconnectLogIntervalNanos.Store(int64(60 * time.Second)) }
+
+func getReconnectLogInterval() time.Duration {
+	return time.Duration(reconnectLogIntervalNanos.Load())
+}
+
+// setReconnectLogInterval is test-only; it returns the previous value so a test
+// can restore it in a Cleanup.
+func setReconnectLogInterval(d time.Duration) time.Duration {
+	return time.Duration(reconnectLogIntervalNanos.Swap(int64(d)))
+}
 
 // discoverTransportTimeout bounds the whole "what do you serve?" exchange.
 // Short on purpose: this sits in front of every connection attempt when

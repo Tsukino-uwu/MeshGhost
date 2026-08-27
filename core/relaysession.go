@@ -381,7 +381,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		// see reconnectLogInterval for why silence is the worse option.
 		stillFailing := !permanent && !changed &&
 			!c.lastConnectErrLoggedAt.IsZero() &&
-			now.Sub(c.lastConnectErrLoggedAt) >= reconnectLogInterval
+			now.Sub(c.lastConnectErrLoggedAt) >= getReconnectLogInterval()
 		if changed || stillFailing {
 			c.lastConnectErrLoggedAt = now
 		}

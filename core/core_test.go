@@ -2159,9 +2159,8 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	addr := ln.Addr().String()
 	ln.Close()
 
-	prevInterval := reconnectLogInterval
-	reconnectLogInterval = 20 * time.Millisecond
-	t.Cleanup(func() { reconnectLogInterval = prevInterval })
+	prevInterval := setReconnectLogInterval(20 * time.Millisecond)
+	t.Cleanup(func() { setReconnectLogInterval(prevInterval) })
 
 	var logged bytes.Buffer
 	prevOut := log.Writer()
@@ -2195,7 +2194,7 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 		t.Fatalf("a retry inside the interval must not log:\n%s", logged.String())
 	}
 
-	time.Sleep(2 * reconnectLogInterval)
+	time.Sleep(2 * getReconnectLogInterval())
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected the retry to fail too, got nil")
 	}
