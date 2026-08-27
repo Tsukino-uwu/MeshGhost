@@ -1271,6 +1271,66 @@ itself, correctly, forever** — and the two gaps above are simply the places th
 yet. That is the argument for the receive-side, adapter-declared constraints in the game-blind entry
 below: it turns "every adapter remembers" into "the core enforces what the adapter declared".
 
+### The line the user actually drew, 2026-08-27 — and the audit against IT
+
+*"A peer can still make their own ghost do cosmetically wrong things"* — *"this is fine, but i never
+want someone else to do anything malicious/harmful towards someone elses computer"*.
+
+**That is a narrower and far more tractable requirement than "nothing bad ever", and it is the one
+to design against.** Cosmetic misbehaviour confined to the sender's own ghost is explicitly out of
+scope. What matters is whether peer-controlled data can reach anything on the RECIPIENT's machine.
+Audited against exactly that, and every one of these was traced rather than assumed:
+
+| Vector on the recipient's machine | Finding |
+|---|---|
+| **Code execution** | **No path found.** No `load`/`loadstring`/`dofile` in either Lua adapter; the only `io.popen` is the literal `"cd"`. |
+| **Native memory corruption** | The one real hazard — `static_cast<uint8_t>(NaN)` is UB — is clamped in 15 places. The one peer-named engine lookup is type-checked against `AnimMontage` before use. |
+| **File write / path traversal** | **No peer data reaches any file path.** Adapter log names are built from pid + date + bridge port (`crystal:572`, `emerald:564`); Emerald's cache path is the literal `logs/xmap_cache.txt`. There is no attacker-influenced filename anywhere. |
+| **Unbounded memory growth** | Every per-peer map is keyed by the RELAY-ASSIGNED `player_id`, bounded by `MaxClients` (8) — not by a peer-chosen string. The one map keyed by `AreaID` (`relay/introspect.go:241`) is built per-snapshot from live membership and discarded, so its size is member count, not key space. |
+| **Loop-bound abuse** | No `for` loop anywhere is bounded by a peer value; the counts are edge-triggered comparisons. |
+| **Disk growth** | **The one thing that crosses the line.** TEVI's `anim.Play(state.Anim)` (`Plugin.cs:506`) is unvalidated, and a peer alternating two bogus names defeats the `LastAnim` dedupe to produce a Unity warning **every frame** — disk and CPU on the recipient, driven entirely by remote input. Cheap to fix and it should be. |
+| **Relay/core process integrity** | Bounded by the per-field caps in `protocol/limits.go` and covered by 13 fuzz targets. |
+
+**So on the stated line, the answer today appears to be: nothing a peer sends can harm your
+computer, with one exception that is disk-growth rather than compromise.** That is a much stronger
+claim than "no ACE" and it is the one worth defending.
+
+**The structural caveat, which is the whole reason gap 3 matters.** The absence of a path is a
+property of the CURRENT field set, not a guarantee about the next one. `extras` is bounded only by
+total serialized bytes, so a field added later reaches every adapter unvalidated and nothing in the
+Go side would catch a new sink. **Every row above would have to be re-audited by hand on each new
+field.** Adapter-declared constraints enforced on RECEIVE turn that from a recurring audit into an
+invariant.
+
+### The star topology, and what it does NOT cover
+
+**The user, same day:** *"the star topology makes sure people don't have to share their ip with
+random people, but i also want it to be 'safe' to play with randoms"*.
+
+**The IP-privacy half is real and enforced, not just intended.** Every client talks only to the
+relay; the relay re-encodes rather than forwarding bytes, no message type carries an IP, and
+`conn.RemoteAddr()` has no call site anywhere in `relay`, `core` or `cmd/` (`docs/security.md`'s
+privacy section states it and a grep confirms it). **Players cannot learn each other's addresses.**
+
+**What it does not cover, and this is not a gap so much as the shape of a star:** the relay operator
+sees every player's address, necessarily — they are the one accepting the connections. So *"safe to
+play with randoms"* splits in two, and only one half is a code problem:
+
+- **Safe from other PLAYERS** — delivered by the topology, plus the data audit above.
+- **Safe from the HOST** — a trust decision, not a property. Joining a stranger's relay means giving
+  that stranger your IP, and no amount of clamping changes it. The honest mitigations are social
+  (host your own, or join someone you know) or infrastructural (a community relay run by someone
+  trusted). **`docs/security.md` already says this** — *"the relay is still the one party that COULD
+  see a real IP ... unavoidable for any relay architecture — but right now it doesn't even use that
+  information"* — so this is a restatement for the threat model, not a doc gap.
+
+**One more layer worth naming here, because it bears directly on "harm to someone else's
+computer":** an adapter never touches the network at all (`contract.md`'s hard rule). It speaks only
+to its own local core over localhost. So even a **fully compromised adapter** — the component that
+actually writes into game memory — has no route to another player's machine; it would have to
+compromise the core, a separate process, first. The thing with the dangerous privileges is the thing
+with no network access, and that is deliberate rather than incidental.
+
 ### What this means for the goal as stated
 
 **"No ACE" appears to hold today**, on this evidence, and mostly by deliberate work rather than
