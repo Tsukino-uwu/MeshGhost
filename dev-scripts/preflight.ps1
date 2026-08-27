@@ -695,7 +695,7 @@ Section "Adapter file set"
 #
 # An adapter is any directory holding a documentation.md (the one file every adapter must have
 # from the moment its folder exists), excluding _template itself.
-$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'VERIFIED.md')
+$mandated = @('README.md', 'documentation.md', 'BANDAGES.md', 'FLAGS.md', 'VERIFIED.md', 'UNVERIFIED.md')
 $adapterDirs = @(& git ls-files | Where-Object { $_ -like '*/documentation.md' } |
                  ForEach-Object { Split-Path $_ -Parent } |
                  ForEach-Object { $_ -replace '\\', '/' } |
@@ -710,8 +710,11 @@ if ($adapterDirs.Count -eq 0) {
         }
     }
 
-    # UNVERIFIED.md is deliberately NOT mandated: it is a queue, and an adapter with nothing
-    # pending should not carry an empty one. Pseudoregalia and TEVI have none for that reason.
+    # UNVERIFIED.md IS mandated, since 2026-08-27 and on the user's call. It used to be exempt
+    # "because a queue with nothing pending should not exist", and TEVI and Pseudoregalia had none
+    # for that reason -- while status.md carried unwatched items for both. The exemption was
+    # protecting exactly the two adapters that needed the file, and the premise behind it was
+    # never true. A queue is created with the adapter now.
     #
     # Probe indexes ARE checked, because an unindexed probe folder hides writing tools -- see
     # _template/probes-README.md. A probe directory is one whose name starts with "probe"; it

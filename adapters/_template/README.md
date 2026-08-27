@@ -146,7 +146,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
-| `UNVERIFIED.md` | Once the first thing is built but unwatched — this game's queue waiting on the user. Split per game 2026-08-25 | [UNVERIFIED.md](UNVERIFIED.md) |
+| `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
 | `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no

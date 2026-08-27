@@ -6,8 +6,11 @@
 link depths, delete everything above the horizontal rule below.** The copy is a queue and declares
 `<!-- line-cap: none -->`; this template is a guide and is capped like one.
 
-**When to create it:** once the first thing is built but unwatched — not before. An adapter with
-nothing pending does not need an empty queue, which is why Pseudoregalia and TEVI have none.
+**When to create it:** with the adapter. **Every adapter carries this file** — the user's call,
+2026-08-27, and `preflight.ps1` fails an adapter without one. This said "not before ... an adapter
+with nothing pending does not need an empty queue, which is why Pseudoregalia and TEVI have none",
+and the premise was simply false: `agent_docs/status.md` was carrying unwatched items for both games
+the whole time. The exemption was protecting the two adapters that most needed a queue.
 
 **Link depths differ by where the adapter sits** — four levels down for an emulator game
 (`adapters/emulator/pokemon/<game>/`), two for everything else. Copy the depth from a shipped

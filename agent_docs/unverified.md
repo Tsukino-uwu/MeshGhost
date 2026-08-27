@@ -16,8 +16,19 @@ the adapter it belongs to:
 (2026-08-27, when they read 55 and 20 and this table still said 35 and 21). A queue's size is a
 thing to measure, never a thing to quote: `grep -c '^## ' <file>`.
 
-**There is no Pseudoregalia or TEVI queue, and that is not an oversight** — nothing was ever
-written for them here. Create one when the first item exists.
+**All four adapters carry a queue as of 2026-08-27**, and `preflight.ps1` fails an adapter without
+one — the user's call. TEVI's and Pseudoregalia's were created that day and seeded from the items
+[status.md](status.md) was already carrying for both:
+
+| Game | File |
+| --- | --- |
+| TEVI | [../adapters/tevi/UNVERIFIED.md](../adapters/tevi/UNVERIFIED.md) |
+| Pseudoregalia | [../adapters/pseudoregalia/UNVERIFIED.md](../adapters/pseudoregalia/UNVERIFIED.md) |
+
+This file said "there is no Pseudoregalia or TEVI queue, and that is not an oversight — create one
+when the first item exists", which three other files repeated. **The first item existed in both
+cases and was sitting in `status.md` instead**, so the exemption was quietly holding
+the unwatched work of the two adapters furthest from a confirmation pass.
 
 **What this is, and the rule it serves.** [verified.md](verified.md) is the append-only record of
 what is *confirmed*; a queue is its waiting room — things the agent believes work, has self-tested

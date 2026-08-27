@@ -25,7 +25,9 @@ considered done/fixed until i actually confirm it as such."*
 
 **Split out of `../../../../agent_docs/unverified.md` on 2026-08-25**, verbatim and in original order. That file
 was 1,670 lines and, unlike `verified.md`, was already 100% per-game — Crystal and Emerald only,
-no Pseudoregalia or TEVI entries by design. Sibling queues: `../emerald/UNVERIFIED.md`.
+no Pseudoregalia or TEVI entries by design — both of those gained their own queue on 2026-08-27.
+Sibling queues: `../emerald/UNVERIFIED.md`, `../../../tevi/UNVERIFIED.md`,
+`../../../pseudoregalia/UNVERIFIED.md`.
 
 **This queue drains.** Every entry marked CLOSED or CONFIRMED was moved to `VERIFIED.md` on
 2026-08-25 and deleted here — the file had been carrying confirmed items indefinitely, each
