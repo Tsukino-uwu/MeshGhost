@@ -4540,3 +4540,112 @@ resolve a DIRECTORY.** The two present identically when the path being resolved 
 find the file. Before hunting a missing dependency, check what the code thinks its own directory is
 — and note that every earlier successful run in the loader log had an absolute path, which is the
 cheapest possible tell and was sitting three lines above the failure.
+
+## A PER-SECOND REPORT PRINTING PER-FRAME COUNTERS CANNOT SEE A GAP (Crystal, 2026-08-27)
+
+**Symptom:** a peer visibly blinks out for a fraction of a second, and every diagnostic says the
+tier is healthy — `1 peers waiting, 1 drawn`, `0 off screen`, `0 no sprite tiles`, `0 hidden by
+UI`. Several fixes were aimed at gates that turned out to be innocent, each "verified" by those
+same counters and each rejected by the user on sight.
+
+**Cause:** the tier report fires once a second and prints locals that are recomputed **every
+frame**. A 20-frame gap is 0.3% of the samples, so essentially every report lands on a healthy
+frame and prints zeros. The instrument was not wrong about the frame it sampled; it was answering
+a different question from the one being asked, and its answer looked like a clean bill of health.
+
+**Fix:** stash the per-frame counters into the per-frame trace, so each traced frame carries its
+own `want= drawn= oam= noTile= off= hid=`. The gap named itself immediately — `off=1` on every
+frame of it — after three wrong theories built on the aggregate.
+
+**The general rule: a per-frame fault needs a per-frame denominator.** A counter sampled at a
+different rate from the fault is not weak evidence, it is evidence for a different claim. This is
+the same family as "it measured correct is not evidence", one level up: the measurement was
+correct *and* irrelevant.
+
+**And tag a shared bail-out with WHY.** Six early returns shared one `stopDrawing()` and recorded
+nothing about which fired. Adding a reason string per call site turned "the tier is not drawing"
+into `settling:577 textbox:191` in a single run. **A counter that cannot say why is worth roughly
+one guess.**
+
+## MEMBERSHIP IS NOT VISIBILITY (Crystal, 2026-08-27)
+
+**Symptom:** a per-frame trace of both rendering tiers reported the peer present on every single
+frame across 413 traced frames — `spawned{} painted{p12}` throughout, zero frames with neither
+tier — while the user watched the ghost disappear.
+
+**Cause:** the trace measured which tables the peer was **in**, not whether anything reached the
+screen. A peer sits in `overflow` (the drawn tier's set) for the whole time the draw loop is
+declining to paint it. The adapter's own stats line already distinguished these — `N peers
+waiting, M drawn` — and the trace collapsed the distinction the stats line existed to preserve.
+
+**Fix:** trace `drawn`, not membership. The instant the trace carried the draw counters the gap
+was visible.
+
+**Rule: when a clean instrument and a visible symptom disagree, ask what the instrument is a proxy
+FOR.** `probes.md` already says "measure what is DRAWN, not the fields that feed it" — a
+membership table is one of those fields, and it took a whole round of wrong fixes to notice that
+the new instrument had walked into the trap the old advice names.
+
+## A BYPASS THAT FREEZES A COUNTDOWN INSTEAD OF SPENDING IT (Crystal, 2026-08-27)
+
+**Symptom:** a hold-off window was bypassed for a class of event, the bypass measurably worked,
+and the exact same 30-frame vanish reappeared — *later*. Twenty-eight of them in one run, each
+exactly 30 frames long, each beginning exactly 60 frames after a map crossing (the bypass window
+was 60).
+
+**Cause:** the bypass held the *flag* false:
+
+```lua
+local settling = playerHistory.settle > 0 and not seamRecently
+```
+
+and the counter is decremented **only while `settling` is true**, a few lines above. So the 30
+frames were not spent during the bypass, they were **frozen** — and fired in full the moment the
+bypass window expired. The window had been deferred, not removed.
+
+**Fix:** drain it rather than mask it (`playerHistory.settle = 0` inside the window). Safe because
+the arming site is untouched: a genuine event inside the window still arms a fresh countdown.
+
+**Rule: suppressing a symptom-producing flag does not suppress the state machine behind it.**
+Before bypassing any countdown, find what decrements it and check the bypass does not also
+disable that. The tell is a fault that moves in time rather than disappearing — **"it comes back
+exactly N frames later" is a deferral, not a failure of the fix.**
+
+## THE LUA and/or TERNARY CANNOT CARRY A BOOLEAN (Crystal, 2026-08-27)
+
+**Symptom:** three of a character's four facings drew mirrored; the fourth was correct. Which
+facing was correct varied by session, and always matched the direction the LOCAL player had walked
+in with.
+
+**Cause:** `xflip = mirror and (not p.xflip) or p.xflip`. When `mirror` is true and `p.xflip` is
+also true the middle term is `false`, the `or` falls through, and it yields `p.xflip` — true. **The
+flip only ever sets and never clears.** The learned facing was correct; every facing *derived* from
+it inherited a mirror that should have been undone.
+
+**Fix:** an explicit local and an `if`. Three lines, no cleverness.
+
+**Rule: `a and b or c` is only a ternary when `b` can never be `false` or `nil`.** For a boolean
+`b` it is silently wrong in exactly one of four cases, which is why it survives casual testing and
+review. The `dx` line directly beneath it reads identically and is *safe* — `8 - dx` is `0` when
+`dx` is `8`, and `0` is truthy in Lua — so the two sat side by side, one correct and one not, for
+as long as the file has existed. **Note the safe one in a comment, or someone will "fix" it.**
+
+## A REGRESSION REPORT IS A HYPOTHESIS, NOT A VERDICT — BISECT BEFORE ACCEPTING BLAME (2026-08-27)
+
+**Symptom:** after a large uncommitted change, the user reported a new visual fault. Four rounds
+were spent theorising about which of the new changes caused it, and a genuinely good fix was
+reverted on the strength of a comment that *predicted* exactly that symptom.
+
+**Cause:** the fault was **pre-existing** and unrelated. Reverting the whole file to `HEAD`
+reproduced it with none of the new work applied.
+
+**What made it expensive:** seven changes stacked in the working tree with nothing committed, so
+there was no last-known-good to bisect against and every revert was by hand — the exact "partial
+revert fools a bisect" trap this file already warns about, reached from the other direction.
+
+**Rules, both cheap:**
+- **Commit each change once it is tested.** The value is not the history, it is having a
+  `git checkout -- <file>` that is guaranteed total.
+- **When a regression is reported, reproduce it on the last-known-good build FIRST.** One command,
+  and it either halves the search space or eliminates it. Do this *before* reading code for
+  suspects — a convincing suspect is exactly what makes it feel unnecessary.

@@ -698,3 +698,35 @@ right, takes its lifetime from the parent's own step duration, switches to
 
 **That tile is `$fc`, loaded on demand and shared with the fishing rod** (`data/sprites/emotes.asm`)
 — so `$fc` holds the shadow normally and the rod while somebody is fishing.
+
+## Maps join two ways, and the game itself draws the line
+
+Crystal joins maps by **connection** or by **warp**, and the difference is the whole basis for
+deciding which other characters you can see.
+
+A **connection** is a seam: two outdoor maps sharing an edge, walked across without a fade, with
+the world continuous on both sides. The engine decodes the current map's connections into WRAM on
+every map load — a direction bitmask at `wMapConnections` followed by four 12-byte structs in the
+order north, south, west, east. Direction bits are EAST `0x01`, WEST `0x02`, SOUTH `0x04`,
+NORTH `0x08`. **Only the directions the bitmask claims are live**: an unflagged struct still holds
+whatever the previous map left there.
+
+A **warp** is a door, a cave mouth, a Fly. The screen fades, the world is rebuilt, and the two
+sides share no coordinate space at all. **An interior is only ever reached by a warp**, and an
+interior map carries `mask=00` — no connections whatsoever.
+
+So "a character on a connected map is visible, anyone else is not" is the game's own rule, and it
+needs no special case for buildings.
+
+**A map's dimensions are in BLOCKS of 2x2 tiles** (`wMapWidth`, `wMapHeight`), while characters
+live in tiles — every dimension doubles before it meets a coordinate. **An object's coordinates
+carry a +4 border offset** relative to the map's own tile grid, so a character standing one tile
+off the west edge reads `3` in object space, not `-1`.
+
+Crossing a seam is a genuine map load: the object array is rebuilt and the map-load byte is
+stamped, exactly as for a warp. What differs is that nothing fades and the player keeps walking —
+so anything the game holds back "until the world settles" is measured against a screen that never
+went away.
+
+Measured 2026-08-27 across ~90 driven crossings on two seams; addresses and the coordinate
+arithmetic in `VERIFIED.md`.

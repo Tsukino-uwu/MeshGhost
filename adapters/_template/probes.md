@@ -1852,3 +1852,88 @@ believing a clean run — two came back clean from the wrong town. And read the 
 adapter: dump every active task's function POINTER rather than testing for the expected one, so a
 wrong constant reads as "something is running and it is not ours" rather than as silence.
 
+
+## Trace a TRANSITION, not a state — and drive it dozens of times
+
+A fault that lives in a transition (a map change, a tier handover, a state load) is invisible to
+both of the usual instruments. A per-second summary samples the healthy steady state either side
+of it; a one-shot dump catches one instance and cannot tell a systematic gap from a one-off.
+
+The shape that works, all three parts together (Crystal cross-map, 2026-08-27):
+
+1. **A bounded per-frame trace, armed BY the transition.** Log every frame for ~40 frames after
+   the event and nothing at all otherwise. It costs nothing while walking, cannot run away, and
+   every line is directly comparable to its neighbours.
+2. **Per-frame counters inside it** — see `pitfalls.md`, "a per-second report printing per-frame
+   counters cannot see a gap". The trace must carry its own denominators; borrowing them from a
+   summary that fires on a different clock is how three wrong theories got built.
+3. **A driver that repeats the transition**, so the sample is dozens of crossings rather than one.
+   Crystal's `probes/seam_shuttle.lua` walks back and forth across one seam forever. Repetition is
+   what turns "I think it blinked" into a distribution, and the distribution is the finding: half
+   the crossings showing a 16-23 frame gap and half showing one frame is a completely different
+   problem from every crossing showing eight.
+
+**Then read the DISTRIBUTION, not the worst case.** Collapsing the trace to "consecutive undrawn
+frames per transition" is what showed the fault was one-directional, which named the cause in one
+step after several rounds of guessing at it.
+
+**A driver that walks must not be able to leave the thing being measured.** The first version
+walked a square beside a route seam and strolled across it, turning a cross-map peer into an
+ordinary same-map one — silently, since both look identical in a log that does not print the map.
+The replacement paces perpendicular to the seam and prints the player's own map every second so
+the run can prove it stayed where it claims.
+
+## Tag a shared bail-out, or you have counted nothing
+
+When one `stopDrawing()` / `return` / `skip` is reached from several places, the count of how
+often it fired is nearly worthless — it names a symptom, not a cause. Pass a reason string from
+each call site and total them per reason:
+
+```lua
+local function stopDrawing(why)
+    if why then
+        stats.stopWhy[why] = (stats.stopWhy[why] or 0) + 1
+        stats.stopLast, stats.stopLastAt = why, frameCounter   -- for the per-frame trace
+    end
+    ...
+```
+
+Six sites, one run, and `settling:577 textbox:191` replaced a fortnight of plausible theories.
+Keep both forms: the **totals** say which cause dominates, and the **last reason this frame** lets
+a per-frame trace attribute one specific blank frame.
+
+**Name the tag after what the BRANCH is, not what you assume reaches it.** One site here was
+tagged `textbox` because a text box was the obvious way in; it was actually the `not inPlay()`
+branch, which a map load also reaches. The mislabel sent a whole round of work at the wrong
+subsystem — and the fix built on it was reverted. An instrument that lies about a category is
+worse than one that reports none.
+
+## Verify a derived formula by running it BACKWARDS against the game's own behaviour
+
+Having derived arithmetic from measurements, the temptation is to check it against the same
+measurements it came from, which proves nothing. Instead find a case where the GAME performs the
+transform itself, and require the formula to reproduce the game's answer.
+
+For Crystal's cross-map translation, the player walking across a seam IS the transform: they are
+one tile outside our map on the frame before, and standing at a known tile on the neighbour on the
+frame after — the same physical place expressed in two frames. So the probe translated the landing
+coordinates back and compared with where the player actually left from, on every crossing:
+
+```
+CANDIDATE CHECK (north): translating the landing tile 11,35 back gives 41,15;
+the player actually left from 41,255 -- DISAGREES, the formula is wrong
+```
+
+That line caught a mirrored assumption (the north/south form was a guess copied from the measured
+east/west pair) that would otherwise have shipped. **State the hypothesis IN the probe and let it
+mark its own homework**, including on every later reading — a formula that fits the two cases it
+was built from is not evidence, and a probe that only reports findings cannot tell you it is
+working from a guess.
+
+Two traps this same check walked into first, both worth stealing:
+- **Compare in the units the game stores.** It reported the correct formula as wrong twice because
+  it compared a signed result against an unsigned byte (`-1` vs `255`).
+- **Exclude the cases that cannot test it.** Savestate loads changed the map and were scored as
+  crossings, dragging the pass rate down with comparisons that were never valid. A real crossing
+  has the player exactly one tile outside the map bounds; anything else is skipped and SAID to be
+  skipped.

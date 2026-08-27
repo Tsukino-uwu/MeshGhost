@@ -127,6 +127,8 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: a peer gliding on ice does not run the walk cycle
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: ledge hops, on both tiers, with shadows
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: Dig / Escape Rope, both tiers
+- CONFIRMED ON SCREEN 2026-08-27 — Crystal: ghosts are visible across a route seam
+- CONFIRMED ON SCREEN 2026-08-27 — Crystal: three of four facings were drawing mirrored
 
 ## Confirmed facts
 
@@ -2228,3 +2230,80 @@ specific reason Dig/Teleport stayed unmeasured. The spawned ghost received it: 3
 - **The drawn tier's flicker phase lags the player's by 3–4 frames** on a 2-frame alternation, which
   is the wire at `-interp=0ms`. Judged fine on screen; it is not a claim that the two are in phase.
 - **The hardware (OAM) tier ships off and was not exercised.**
+
+---
+
+## CONFIRMED ON SCREEN 2026-08-27 — Crystal: ghosts are visible across a route seam
+
+The user's ask that opened the session: *"going between routes/having the ghosts visible in other
+routes. similar to how we did it in emerald"*, with off-screen culling so distant peers cost
+nothing. Confirmed by the user across a long two-instance session on the Olivine City `22/1` ↔
+Route 40 `1/14` seam, driven from savestates 7 and 8 with a third (slot 5) for the north/south
+pair. Final call: *"it works"* and *"it seems to work/look visually perfect now"*.
+
+**What is confirmed:**
+
+- **A peer standing on a CONNECTED neighbouring map renders in our frame**, in all four
+  directions, at the correct tile.
+- **Crossing a seam is seamless** — no flicker, no despawn/respawn, in either role (the player
+  crossing, and the player being crossed towards).
+- **A peer in a building is hidden**, with no house special case: interiors carry `mask=00`.
+- **Walking far apart culls the peer cleanly** and it does not stick at the screen edge.
+- **All four facings draw correctly**, including for a peer arriving from another route.
+
+**The map-connection block, measured then confirmed by the rendering result.**
+
+`wMapConnections` at `$D1A8` (flat `0x11A8`); four 12-byte structs behind it — north `$D1A9`,
+south `$D1B5`, west `$D1C1`, east `$D1CD`. Map geometry immediately in front: `wMapBorderBlock`
+`$D19D`, `wMapHeight` `$D19E`, `wMapWidth` `$D19F`, **both dimensions in BLOCKS of 2x2 tiles**.
+Layout from `pokecrystal`'s `macros/ram.asm` (`map_connection_struct`), addresses from our own
+hash-verified build's `pokecrystal.sym`. Direction bits EAST `0x01`, WEST `0x02`, SOUTH `0x04`,
+NORTH `0x08` (`constants/map_data_constants.asm`, `shift_const` order).
+
+**The bitmask is authoritative; the unflagged structs hold the PREVIOUS map's values** — measured
+on `1/14`, where south read `255/14` and east `255/12` while the mask said north+west.
+
+**The block and the map bytes change on the SAME frame** (lead 0 across 26 crossings), so the two
+can be read as one sample.
+
+Translation of a peer on a connected neighbour into our own tile frame. Each connection has an
+ALONG-axis and a CROSS-axis field, and which is which flips with the axis; the along-axis field is
+the coordinate you LAND on in the neighbour, so the negative directions recover the neighbour's
+extent from it as `off + 1` and the positive directions need our own dimensions:
+
+| neighbour | along-axis | cross-axis |
+|---|---|---|
+| west | `myX = nX - (xoff + 1)` | `myY = nY - signed8(yoff)` |
+| east | `myX = nX + ourWidthTiles` | `myY = nY - signed8(yoff)` |
+| north | `myY = nY - (yoff + 1)` | `myX = nX - signed8(xoff)` |
+| south | `myY = nY + ourHeightTiles` | `myX = nX - signed8(xoff)` |
+
+`ConnectedMapWidth` is deliberately unused: it is always the neighbour's WIDTH, so on the vertical
+axis it answers the wrong question — the first north form was built on it and landed a peer 16
+tiles out.
+
+**Coordinates on the wire are OBJECT space, which is map space + 4** (the map border), so our own
+tiles run `4 .. 3 + extent` and a peer one tile across the west seam is at object `3`, map `-1`.
+
+Commits: `f09e3b7`, `43b44b8`, `d62020f`. Method and the failures on the way:
+[UNVERIFIED.md](UNVERIFIED.md)'s 2026-08-27 entry and `agent_docs/pitfalls/by-lesson.md`.
+
+## CONFIRMED ON SCREEN 2026-08-27 — Crystal: three of four facings were drawing mirrored
+
+**Pre-existing, and nothing to do with cross-map work** — it reproduces on `c0c6cf2` with none of
+that applied. Confirmed fixed by the user: *"okay that is fixed"*.
+
+`facingFrames.derive` remaps a learned facing onto an unlearned one, and wrote the flip as
+`xflip = mirror and (not p.xflip) or p.xflip` — the Lua `and`/`or` ternary, which cannot carry a
+boolean. With `mirror` true and `p.xflip` true the middle term is `false`, the `or` falls through,
+and it returns `true`: **the flip only ever sets, never clears.**
+
+On screen: the local player walks into a route facing right, so RIGHT is the *learned* entry and
+draws correctly, while down, left and up are all *derived from* it and each keeps a mirror that
+should have been undone. Cross-map made it easy to hit — a peer arriving from another route is
+very likely facing a direction this player has not turned to on this map yet, which is exactly
+when a derived entry is used. Before cross-map that peer was hidden outright.
+
+**Found by the user isolating it**: *"its when looking down/left/up... facing right looks
+correct"*. One facing correct and three wrong is the fingerprint of a learned-vs-derived split,
+not of a tile-loading fault, and it named the mechanism in one step. Commit `80316b2`.

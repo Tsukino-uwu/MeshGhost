@@ -183,6 +183,15 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 | `flags_step_lag.lua` | turns on the line naming WHICH term refused a peer the spawned tier (`wearable`/`blocking`/`paceable`) |
 | `flags_bike_pose.lua` | facing trace + sprite trace together: what the cache holds, and which graphics a peer resolved from |
 
+## Cross-map ghosts, and the seam (2026-08-27)
+
+| File | What it is |
+| --- | --- |
+| `connections_probe.lua` | **Passive.** Reads `wMapConnections` and all four connection structs every frame and prints a SEAM REPORT on every map change: which of the departing map's structs named the arriving map, the player's coordinates on both sides, and a CANDIDATE CHECK that runs the translation arithmetic BACKWARDS against the crossing to mark its own homework. It is what caught a mirrored north/south assumption before it shipped. Also logs `wBGMapOffsetX/Y` and `hSCX/hSCY` for screen-mapping questions, and reports which directions it has NOT seen. |
+| `seam_drive.lua` | **Input-driving.** Loads savestates 7, 8 and 5 in turn and walks one tile across each seam, so all four directions are exercised without asking anyone to hold a controller. Aborts if a wild battle starts (slot 5 is on the water) and proves it returned to a known state rather than asserting it. |
+| `seam_shuttle.lua` | **Input-driving.** Walks back and forth across one east/west seam forever — the user's own repro. Deliberately paces PERPENDICULAR to the seam and prints the player's map each second: an earlier square-walking driver strolled across the seam and silently turned a cross-map peer into an ordinary one. Repetition is what turns "I think it blinked" into a distribution. |
+| `xtrace_on.lua` | Sets `MESHGHOST_CRYSTAL_XTRACE` before the adapter loads, arming the adapter's own bounded per-frame tier trace (40 frames after each map change, with per-frame draw counters and the reason any frame went unpainted). The dev loader shares one Lua environment, which is why a global set here reaches the adapter. |
+
 ## Not a probe
 
 | File | What it is |

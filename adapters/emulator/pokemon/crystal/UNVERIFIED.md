@@ -2450,3 +2450,188 @@ same day. This is the file whose whole job is not converting a belief into a rec
 
 **What settles it:** one sentence from the user about which of Teleport and RUNNING the call
 includes. Then step 25 gets their wording and this entry is deleted.
+
+---
+
+## 2026-08-27 — Crystal: the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
+
+**What this is for.** Crystal has never had cross-map ghosts. A peer whose `area_id` is not
+byte-equal to ours is hidden in both tiers ([`meshghost_crystal.lua`](meshghost_crystal.lua), the
+`state.area_id ~= areaId()` gate), and the adapter's `hello` does not set `render_all_areas`, so
+the core is still filtering by area for Crystal as well. Walking between two connected routes
+therefore makes every peer vanish at the seam. This is the measurement that feature needs.
+Emerald's equivalent is `xmapTranslate`; ADR 0036 is the core-side half.
+
+**Nothing here has been seen on screen — no ghost has been translated yet.** These are probe
+readings on vanilla V1.0 taken with `probes/connections_probe.lua` (passive) and
+`probes/seam_drive.lua` (input-driving), and they stay here until a peer is actually watched
+crossing a seam.
+
+### Where the block is
+
+`wMapConnections` at `$D1A8` (flat `0x11A8`), then four 12-byte structs: north `$D1A9`, south
+`$D1B5`, west `$D1C1`, east `$D1CD`. Layout from `pokecrystal`'s `macros/ram.asm`
+(`map_connection_struct`), addresses from our own hash-verified build's `pokecrystal.sym`.
+Map geometry sits directly in front of it and is needed too: `wMapBorderBlock` `$D19D`,
+`wMapHeight` `$D19E`, `wMapWidth` `$D19F` — **both dimensions are in BLOCKS, and a block is 2x2
+tiles**, so every dimension doubles before it meets an object coordinate.
+
+**Confirmed as really being the connection block, not just the labelled address:** across 22
+user-walked crossings plus 4 driven ones, a struct on the departing map named the arriving map
+every time. That is a prediction test, which a label alone cannot pass.
+
+### The bitmask is authoritative and the unflagged structs are STALE
+
+`wMapConnections` bits are EAST `0x01`, WEST `0x02`, SOUTH `0x04`, NORTH `0x08`
+(`constants/map_data_constants.asm`, `shift_const` order). **A direction the mask does not claim
+still holds the PREVIOUS map's values** — measured on `1/14`, where south read `255/14` and east
+read `255/12` while the mask said north+west. Reading a struct without checking its bit first is
+how a wrong offset gets adopted from data that belongs to a map you already left.
+
+### The arithmetic, translating a peer on a connected neighbour into our own tile frame
+
+Each connection has an ALONG-axis field and a CROSS-axis field, and which is which flips with the
+axis. The cross-axis field is a signed shift along the seam. The along-axis field is the
+coordinate you LAND on in the neighbour — `0` coming from east or south, `(extent - 1)` coming
+from west or north — so the negative directions get the neighbour's extent from it as `off + 1`,
+and the positive directions need our own from `wMapWidth`/`wMapHeight`.
+
+| neighbour | along-axis | cross-axis |
+|---|---|---|
+| west | `myX = nX - (xoff + 1)` | `myY = nY - signed8(yoff)` |
+| east | `myX = nX + ourWidthTiles` | `myY = nY - signed8(yoff)` |
+| north | `myY = nY - (yoff + 1)` | `myX = nX - signed8(xoff)` |
+| south | `myY = nY + ourHeightTiles` | `myX = nX - signed8(xoff)` |
+
+**`ConnectedMapWidth` is deliberately unused.** It is always the neighbour's WIDTH, so on the
+vertical axis it answers the wrong question: the first north form was built on it and computed a
+landing 16 tiles out. See "how it was found" below — that error is the whole reason the probe
+carries a self-check.
+
+**Evidence.** The probe runs the formula BACKWARDS on every crossing: the player standing one tile
+outside our bounds is the same physical place as where they landed, so translating the landing
+coordinates must reproduce where they left from. Final run: **4 crossings agreed, 0 disagreed**,
+one in each direction, on the Olivine City `22/1` ↔ Route 40 `1/14` seam (east/west, slots 7 and
+8) and the `22/1` ↔ `22/2` seam (north/south, slot 5).
+
+### Two facts the adapter can rely on, and one it must not
+
+- **The connection block and the map bytes change on the SAME frame**, lead 0, across all 26
+  crossings. The two can be read as one atomic sample.
+- **A house needs no special case.** Interior maps read `mask=00` — no connections at all — so
+  "translate connected maps, hide everyone else" hides house interiors for free. Four of the six
+  warps measured came from `mask=00` maps.
+- **Coordinates are UNSIGNED BYTES.** One tile off the west or north edge reads `255`, not `-1`.
+  A translated peer's coordinate is genuinely negative and must not be written into a `u8` field
+  without deciding what that means first.
+
+### How it was found, because the instrument caught what I did not
+
+The north/south formula was written as a MIRROR of the measured east/west pair, and the probe
+was made to state that in the log rather than let it pass as measured. It was wrong, and the
+self-check said so in the same line it printed the numbers — `translating the landing tile 11,35
+back gives 41,15; the player actually left from 41,255 -- DISAGREES`. The lesson is not about
+connections: **a probe that states its hypothesis and tests itself against every later reading
+catches a mirrored assumption that a probe reporting only findings would have shipped.**
+
+The check also produced two false alarms first, and both were the instrument's fault rather than
+the formula's — it compared a signed result against an unsigned byte (`-1` vs `255`), and it
+scored savestate loads as crossings. Both are fixed; the skip condition is that a real crossing
+has the player exactly one tile outside our own bounds.
+
+### What is NOT measured
+
+- **Nothing has been rendered.** No peer has been translated and no ghost has been seen across a
+  seam. Everything above is arithmetic against the player's own crossings.
+- **Only two seams**, both between outdoor maps. A partial connection (one whose strip covers less
+  than the full edge) has not been exercised, and `ConnectionStripLength` feeds nothing yet.
+- **The Archipelago build.** Every address here is vanilla V1.0. AP moved the coordinate block +7
+  and the object array +6 by measurement, with no third relationship ever holding, so the
+  connection block on AP is unmeasured. `MESHGHOST_CRYSTAL_CONN_ADDR` overrides it for testing.
+- **Off-screen culling is a separate question and is untouched.** The probe logs
+  `wBGMapOffsetX/Y` and `hSCX`/`hSCY` alongside every position for it, but no visible-rectangle
+  derivation has been done.
+
+---
+
+## 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
+
+The confirmed half of this session is in [VERIFIED.md](VERIFIED.md). This is the remainder: what
+nobody has looked at, and the fixes that were built, measured, and turned out to be wrong. The
+negatives are the more valuable half — every one of them is defensible from the code alone, which
+is exactly why they will be re-derived by whoever reads that code next.
+
+### Not watched, and not claimed
+
+- **The WARP branch of the seam/warp split.** Every driven crossing in every verification run was
+  a seam; no warp was exercised through the new code path. A warp still gets the full teardown and
+  the fade guard, and that is untested since the change. Walking into a building and out is the
+  one-line check — the adapter logs `map change A -> B: WARP (full teardown)` on every map change,
+  so which branch ran is never a guess.
+- **The Archipelago build.** Every address here is vanilla V1.0. AP moved the coordinate block +7
+  and the object array +6 by measurement, with no third relationship ever holding, so the
+  connection block on AP is **unmeasured and the feature is switched off there** —
+  `ENGINE.xmap.armed()` is false when the addresses are nil. `MESHGHOST_CRYSTAL_CONN_ADDR`
+  overrides the block for testing a candidate. Do not fill those entries in from vanilla's deltas.
+- **Partial connections.** Both seams exercised join along their full shared edge.
+  `ConnectionStripLength` feeds nothing yet, and a connection whose strip covers less than the
+  edge has never been crossed.
+- **Cost.** No frame-rate control run was taken with cross-map peers present. The per-frame
+  connection refresh is ~17 byte reads and the translation is a handful of arithmetic per peer per
+  message, so nothing is expected — but expected is not measured, and the standard here is the
+  console's own rate.
+
+### NEGATIVE — a spawn-quiet window after a crossing did nothing (built, measured, reverted)
+
+**Theory:** a peer promoted to a real engine object on the crossing frame lands in an object array
+the engine is still rebuilding, so it is reclaimed and respawned — the visible pop.
+
+**Refuted by:** delaying the spawn 20 frames, then 45. **1 respawn in every case, including zero
+delay.** Identical at all three settings is not a weak result, it is a clean refutation, and the
+delay was removed rather than left carrying a cost it had not earned.
+
+### NEGATIVE — bypassing the `not inPlay()` gate, twice, for two different wrong reasons
+
+**First attempt** was blamed for a glitchy sprite and reverted. That attribution was **wrong**:
+the glitch was `facingFrames.derive` keeping a mirror (`80316b2`), and it reproduces on `c0c6cf2`
+with none of this work applied. The gate's own arming comment predicts a glitched sprite almost
+word for word, which is what made it so convincing — see the bisect lesson in
+`pitfalls/by-lesson.md`, because that comment will make it the first suspect again.
+
+**Second attempt** genuinely failed, and usefully: it removed the six `not-in-play` frames from
+the trace and the **same six frames came back tagged `off screen`**. The position pipeline needs a
+standing anchor to convert a tile to a screen position, and a player crossing a seam is mid-step by
+definition, so the fallback read the window origin and scroll registers mid-rebuild.
+
+**What made the third attempt work:** it is PAIRED with a corrected walking-player anchor. The
+bypass is only safe while a valid position reference exists through those frames. **If that anchor
+is ever removed, the bypass must go back to an unconditional stop.**
+
+### NEGATIVE — bypassing `settling` deferred it instead of removing it
+
+Holding the flag false did not spend the countdown, because the counter is decremented only while
+the flag is true. Twenty-eight vanishes of exactly 30 frames each, every one starting exactly 60
+frames after a crossing (the bypass window was 60). **A fault that moves in time rather than
+disappearing is a deferral, not a failed fix.** Draining the counter inside the window is the
+version that works.
+
+### The instrument, which is the part worth keeping
+
+Three rounds of fixes were aimed at innocent gates and "verified" by counters that could not see
+the fault. What finally worked, in order — the general form is now in
+[`_template/probes.md`](../../../_template/probes.md):
+
+1. A **bounded per-frame trace** armed by the map change (`MESHGHOST_CRYSTAL_XTRACE`), not a
+   per-second summary.
+2. **Reason tags** on the six call sites that share `stopDrawing()`, which turned "not drawing"
+   into `settling:577 textbox:191` in one run.
+3. **Per-frame counters inside the trace.** The per-second report prints per-frame locals, so it
+   landed on healthy frames and reported `0 off screen` throughout a 20-frame gap. With
+   `[want=1 drawn=0 off=1]` on each traced frame the cause was unmissable.
+4. A **driver that repeats the transition** (`dev-scripts/seam_shuttle.lua`) so the reading is a
+   distribution over ~30-60 crossings. That distribution — half the crossings with a 16-23 frame
+   gap, half with one frame — is what identified the fault as one-directional.
+
+**Final measurement, 29 crossings / 3,080 traced frames: two isolated single-frame blips, no run
+longer than one frame.** An earlier run showing a clean result was discarded because the user had a
+"repel ran out" text box open during it; it was re-taken from the savestate.

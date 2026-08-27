@@ -31,6 +31,9 @@ has never been looked at. `verified.md`.
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
   `crystal/UNVERIFIED.md`.
+- **Cross-map ghosts SHIP and are confirmed on screen (2026-08-27)** — a peer across a route seam
+  renders; houses hide for free. Open: the WARP branch is unwatched, and the block is UNMEASURED on
+  the Archipelago build so the feature is off there. `crystal/UNVERIFIED.md`.
 - **NEXT SESSION STARTS HERE: hop a ledge and THEN cast a rod, in one session** — the jump shadow
   and the fishing rod share vtile `$fc` and have never been on screen together. `crystal/UNVERIFIED.md`.
 - **A savestate load crashed the adapter; fixed, trigger not reproduced** — load the savestate that
@@ -41,10 +44,13 @@ has never been looked at. `verified.md`.
   cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
   equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
   ended the 2026-08-26 deadlock (`_template/probes.md`).
-- **Savestate slots on that rig:** 1 the user's, **7 FISHING (rod on SELECT)**, **8 SAME-TOWN fly**,
-  **9 REUSED TWICE ON 2026-08-26 — now a LEDGE HOP (walk down one tile); it was the cross-town fly,
-  then an Escape Rope**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**, **3 the
-  wrong-trainer route**. **A log from a savestate-driving probe only means anything against the slot
+- **Savestate slots on that rig, REWRITTEN AGAIN 2026-08-27 — slots 5, 7 and 8 are now the SEAM
+  states and no longer what the 08-26 list says:** 1 the user's, **5 one tile north of the Route 40
+  / Route 41 seam (on the water, Surf up — encounters possible)**, **7 Route 40 one tile west of
+  the Olivine seam (walk LEFT to cross)**, **8 Olivine one tile east of it (walk RIGHT to cross)**,
+  **9 a LEDGE HOP (walk down one tile)**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**,
+  **3 the wrong-trainer route**. The fishing and fly states that 7 and 8 used to hold are GONE —
+  ask for them again rather than driving the old probes at these. **A log from a savestate-driving probe only means anything against the slot
   as it was that hour** — check before trusting an old one. **And a savestate BAKES IN any ghost
   that was on screen when it was made**, so a driven run showing one character too many is the
   state's fault, not the adapter's; `orphan_sweep.lua` or any door clears it. `crystal/UNVERIFIED.md`. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its

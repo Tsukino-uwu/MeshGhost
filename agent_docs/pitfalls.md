@@ -236,3 +236,8 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - AN ID IS NOT PORTABLE, AND NEITHER IS A CONSTANT — one table further along than an address
 - PER TICK IS NOT PER FRAME
 - A RELATIVE path in the dev loader's control file fails as a "LuaSocket is missing" error
+- A per-second report printing per-frame counters cannot see a gap (Crystal, 2026-08-27)
+- Membership is not visibility (Crystal, 2026-08-27)
+- A bypass that freezes a countdown instead of spending it (Crystal, 2026-08-27)
+- THE LUA and/or TERNARY CANNOT CARRY A BOOLEAN (Crystal, 2026-08-27)
+- A regression report is a hypothesis, not a verdict — bisect before accepting blame (2026-08-27)

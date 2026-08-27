@@ -411,6 +411,13 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
   `SLOT` and point the loader at it. Slot 1 is the user's own, 2-10 are agent checkpoints. Use it
   to make a repeated or risky test cheap instead of re-walking to the state by hand. A savestate
   is not an in-game save.
+- `load_slot.lua` — loads one savestate slot, once, then goes quiet. Slot from
+  `MESHGHOST_LOAD_SLOT`, or from the same-named global set by a script loaded ahead of it (the dev
+  loader shares one Lua environment, and the environment variable is fixed at emulator launch, so
+  the global is the only way to change slot without relaunching). Written to put a two-instance rig
+  into a known position without asking anyone to press a key. **Load it BEFORE the adapter, not
+  beside it** — `crystal/UNVERIFIED.md` records a savestate load killing the adapter, and a rig has
+  no need to find out whether that is still true.
 - `bizhawk-hitch-meter.lua` — **standing rig for any "it feels choppy" question**, game-agnostic
   and read-only. Reports frames over 20ms, frames over 33ms, and the worst gap, because **frame
   RATE is an average and an average cannot see a hitch**: ten frames lost inside one second still
