@@ -279,15 +279,22 @@ Setup, once:
                that is how every client makes first contact.
                Adding "udp" is the one case that needs more: udp takes the
                same UDP port quic wants, so you must also set
-               "listen_quic" (e.g. "0.0.0.0:7780") and forward that too.
+               "listen_udp" (it defaults to 7780) and forward that too --
+               quic keeps the shared port, because it is served by default
+               and plain udp is not.
                The server refuses to start and tells you if you forget.
                Pros/cons of each are in "Transports -- tcp vs udp vs quic"
                near the bottom, along with which ports you need to forward
                for each.
      "listen_quic" -- leave it as "" (the default). quic then shares
                "listen_on"'s port number, so hosting stays one number to
-               forward. Only set it if you serve plain "udp" as well,
-               since those two collide.
+               forward. It keeps that number even when plain "udp" is
+               served too: udp is the one that moves aside.
+     "listen_udp" -- leave it as "" (the default) unless you serve plain
+               "udp". With quic served as well it moves itself to 7780,
+               because the two cannot share a udp port and quic is the
+               one everybody gets by default. Set it to place udp
+               yourself, and forward whatever you choose.
      "room_code" -- OPTIONAL. Leave as "" to keep the old behavior: anyone
                who has your address can join. Set it to a word or phrase
                to require everyone to also enter that same code in their
@@ -765,8 +772,10 @@ matters, since players find whatever you turn on by themselves.
       on at both ends.
     + Shares the same port NUMBER as tcp, so hosting stays one number --
       but it rides on UDP, so forward that number on BOTH tcp and udp.
-    - Only if you serve plain udp as well does quic need a port of its own
-      ("listen_quic" on the host's side), because the two collide.
+    - Only if you serve plain udp as well do the two collide -- and quic
+      KEEPS the shared number. Plain udp is the one that moves, to
+      "listen_udp" (default 7780), because quic is served by default and
+      plain udp is opt-in.
     - Harder to troubleshoot.
 
 "But isn't udp the fast one?"  Not quite, and this is the most common
@@ -805,8 +814,9 @@ transport you actually offer, and the protocol matters --
                                   number and two rules, not two numbers)
   udp  -> forward UDP  on 7777   (it takes that UDP port itself, which is
                                   why serving udp AND quic makes you set
-                                  "listen_quic" to somewhere else, e.g.
-                                  7780, and forward UDP there as well)
+                                  plain udp to "listen_udp", which
+                                  defaults to 7780 -- forward UDP there
+                                  as well. quic keeps the shared port)
 The server prints exactly what to forward when it starts, so you don't have
 to work it out from this table -- look for the "to accept players from
 outside this machine, forward:" line.

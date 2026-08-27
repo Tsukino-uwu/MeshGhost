@@ -62,12 +62,17 @@ type fileConfig struct {
 	// never learns which is which. See the transport ADR in
 	// agent_docs/architecture.md.
 	Transport *string `json:"transport"`
-	// QuicAddr is where quic listens. Absent or empty is quicSharesAddrPort:
+	// QuicAddr is where quic listens. Absent or empty is sharesAddrPort:
 	// quic reuses listen_on's port number, so hosting means forwarding one
-	// number. It must be set to a different port only when the plain "udp"
-	// transport is served too, since quic is itself carried over udp and the
-	// two would collide; the relay refuses to start rather than guess.
+	// number. quic KEEPS that number even when the plain "udp" transport is
+	// served alongside it -- udp is the one that moves, since quic is a default
+	// transport and udp is opt-in. See UDPAddr and FallbackUDPAddr.
 	QuicAddr *string `json:"listen_quic"`
+	// UDPAddr is where the plain "udp" transport listens. Absent or empty is
+	// sharesAddrPort, which means listen_on's port -- except when quic is
+	// served too, where udp moves to FallbackUDPAddr so quic can keep the
+	// shared number. Set it explicitly to place udp yourself.
+	UDPAddr *string `json:"listen_udp"`
 	// TLS turns on encryption for the tcp transport: "off", "auto" (the
 	// built-in default; serves TLS and plaintext on the same port) or
 	// "required" (refuse plaintext). quic is always encrypted regardless
@@ -101,6 +106,7 @@ type configTargets struct {
 	resumeGrace    *int
 	transport      *string
 	quicAddr       *string
+	udpAddr        *string
 	tlsMode        *string
 }
 
@@ -140,24 +146,32 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "resume-grace", t.resumeGrace, sc.ResumeGraceSeconds)
 	cfg.Override(explicit, "transport", t.transport, sc.Transport)
 	cfg.Override(explicit, "listen-quic", t.quicAddr, sc.QuicAddr)
+	cfg.Override(explicit, "listen-udp", t.udpAddr, sc.UDPAddr)
 	cfg.Override(explicit, "tls", t.tlsMode, sc.TLS)
 }
 
-// FallbackQuicAddr is where quic goes when it cannot share -addr's port,
-// which happens only when the plain udp transport is also being served and
-// has taken that udp port first.
+// FallbackUDPAddr is where the plain udp transport goes when it cannot share
+// -addr's udp port, which happens when quic is also being served -- quic runs
+// over udp too, and the two would collide on one number.
 //
-// 7778 and 7779 are both skipped because packaging/release/README.txt
-// already hands those out as local bridge ports (7778 normally, 7779 for a
-// second copy on the same machine). Neither would actually collide -- the
-// bridge is TCP and this is UDP, which are separate port spaces -- but a
-// reader comparing two config files should not have to know that to tell
-// whether something is a typo.
-const FallbackQuicAddr = "127.0.0.1:7780"
+// **udp is the one that moves, and that is the whole point.** quic is a DEFAULT
+// transport (-transport is "tcp,quic"), so a host who never thought about
+// transports is serving it; plain udp is opt-in, unencryptable, and last in
+// netx.AutoPreference. Making the default transport surrender the shared port to
+// an opt-in one had it backwards -- it broke "forward 7777" for the common case
+// to accommodate the rare one. Corrected 2026-08-27 after the user pointed out
+// that tcp and quic are supposed to share while udp takes the odd port.
+//
+// 7778 and 7779 are both skipped because packaging/release/README.txt already
+// hands those out as local bridge ports (7778 normally, 7779 for a second copy
+// on the same machine). Neither would actually collide -- the bridge is TCP and
+// this is UDP, which are separate port spaces -- but a reader comparing two
+// config files should not have to know that to tell whether something is a typo.
+const FallbackUDPAddr = "127.0.0.1:7780"
 
-// quicSharesAddrPort is the -listen-quic default: empty means "use -addr's
-// port". quic is carried over udp and tcp/udp are separate port spaces, so
-// tcp:7777 and quic:7777/udp coexist happily.
+// sharesAddrPort is the default for both -listen-quic and -listen-udp: empty
+// means "use -addr's port". quic is carried over udp and tcp/udp are separate
+// port spaces, so tcp:7777 and quic:7777/udp coexist happily.
 //
 // This is a NAT decision rather than a tidiness one. Serving quic by default
 // (see the transport ADR in agent_docs/architecture.md) would otherwise have
@@ -165,12 +179,11 @@ const FallbackQuicAddr = "127.0.0.1:7780"
 // port-forwarding step is where a host actually gives up. Sharing the number
 // makes it "forward 7777, TCP and UDP" -- one rule in most router UIs.
 //
-// The plain udp transport is the one thing that cannot coexist here, since
-// it takes -addr's udp port itself. It is opt-in, unencryptable and
-// deliberately last in netx.AutoPreference, so it is the right one to carry
-// the awkwardness: asking for udp and quic together requires naming a port
-// for quic, and the startup error says so.
-const quicSharesAddrPort = ""
+// The plain udp transport is the one thing that cannot coexist here, since it
+// wants that same udp port. It is opt-in, unencryptable and deliberately last in
+// netx.AutoPreference, so it is the one that carries the awkwardness: when both
+// are served, UDP moves to FallbackUDPAddr and quic keeps the shared number.
+const sharesAddrPort = ""
 
 // servesKind reports whether k is in the resolved transport list.
 func servesKind(kinds []netx.Kind, k netx.Kind) bool {
@@ -187,13 +200,12 @@ func servesKind(kinds []netx.Kind, k netx.Kind) bool {
 //
 // Sharing -addr's port is the default because it keeps hosting to ONE forwarded
 // port number, which is the difference between a friend being able to host and
-// not. The only thing that can take that udp port away is the plain udp
-// transport, since quic is itself carried over udp and the two would collide.
+// not. quic keeps that number even when plain udp is also served: udp is the one
+// that moves (see resolveUDPAddr and FallbackUDPAddr).
 //
-// That collision is REFUSED rather than silently relocated. A relay that quietly
-// moved quic somewhere else would advertise a port the host never forwarded, and
-// the failure surfaces much later as "quic clients cannot connect" with nothing
-// pointing back here.
+// The one case still REFUSED is an operator explicitly placing udp on the shared
+// port while quic is also served -- a collision they created by naming it, where
+// silently relocating quic would advertise a port they never forwarded.
 //
 // Extracted from main() on 2026-08-25 so the rule can be tested. It was five
 // nested conditions and a log.Fatalf inside a 300-line main, which meant the only
@@ -207,22 +219,43 @@ func resolveQuicAddr(kinds []netx.Kind, addr, quicAddr string) (string, error) {
 		// text already says it is ignored unless quic is served.
 		return quicAddr, nil
 	}
-	if quicAddr != quicSharesAddrPort {
+	if quicAddr != sharesAddrPort {
 		// Explicitly placed by the operator. Believed without further checking:
 		// naming a port is the act of taking responsibility for forwarding it.
 		return quicAddr, nil
 	}
-	if servesKind(kinds, netx.UDP) {
-		return "", fmt.Errorf("serving both udp and quic needs a port for quic: udp has "+
-			"already taken %s's udp port, and quic runs over udp too. Pass -listen-quic "+
-			"(e.g. %s), or drop udp from -transport -- it cannot be encrypted and nothing "+
-			"picks it automatically.", addr, FallbackQuicAddr)
+	return addr, nil
+}
+
+// resolveUDPAddr decides where the plain udp transport listens.
+//
+// It is the mirror of resolveQuicAddr and carries the actual conflict rule: quic
+// keeps -addr's port because it is a default transport, and udp -- opt-in,
+// unencryptable, last in netx.AutoPreference -- moves aside when both are served.
+//
+// Relocating udp silently is safe in a way relocating quic never was: nothing
+// picks udp automatically, so the only way to be on it is to have asked for it by
+// name, and the startup log prints the port it landed on. A host who did not ask
+// for udp is unaffected, and one who did is reading the log they asked for.
+func resolveUDPAddr(kinds []netx.Kind, addr, udpAddr string) (string, error) {
+	if !servesKind(kinds, netx.UDP) {
+		// Not serving udp: -listen-udp is irrelevant and passed through untouched,
+		// the same way -listen-quic is when quic is off.
+		return udpAddr, nil
+	}
+	if udpAddr != sharesAddrPort {
+		// Explicitly placed by the operator. Believed without further checking:
+		// naming a port is the act of taking responsibility for forwarding it.
+		return udpAddr, nil
+	}
+	if servesKind(kinds, netx.QUIC) {
+		return FallbackUDPAddr, nil
 	}
 	return addr, nil
 }
 
 func main() {
-	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp and udp; quic uses -listen-quic)")
+	addr := flag.String("addr", "127.0.0.1:7777", "address to listen on (tcp, and quic unless -listen-quic says otherwise; plain udp moves to -listen-udp's port when quic is also served)")
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
 		"state back to it under a synthetic <id>-ghost player_id, so a single client exercises "+
 		"a real core->relay->core round trip. Never enable this outside dev/testing.")
@@ -279,13 +312,17 @@ func main() {
 			"default. The default serves tcp and quic so a default client (-transport auto) "+
 			"gets an encrypted session without anyone configuring anything -- but note quic "+
 			"needs -listen-quic's port forwarded too, not just -addr's")
-	quicAddr := flag.String("listen-quic", quicSharesAddrPort,
+	udpAddr := flag.String("listen-udp", sharesAddrPort,
+		"where the plain udp transport listens. Empty (the default) means -addr's port -- except "+
+			"when quic is served too, where udp moves to "+FallbackUDPAddr+" so quic can keep the "+
+			"shared number. quic is a default transport and plain udp is opt-in, so udp is the one "+
+			"that takes the odd port. Ignored unless udp is in -transport")
+	quicAddr := flag.String("listen-quic", sharesAddrPort,
 		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
-			"coexist and a host forwards ONE port number for both. Only the plain udp transport "+
-			"cannot share it, since udp takes -addr's udp port itself; serving udp and quic "+
-			"together therefore needs a port named here (e.g. "+FallbackQuicAddr+"). Ignored "+
-			"unless quic is in -transport")
+			"coexist and a host forwards ONE port number for both. quic KEEPS that port even "+
+			"when the plain udp transport is served alongside it: udp is the opt-in one, so udp "+
+			"moves to -listen-udp's port instead. Ignored unless quic is in -transport")
 	tlsMode := flag.String("tls", tlsx.Auto.String(),
 		"encrypt the tcp transport: auto (the default), off, or required. \"auto\" serves TLS "+
 			"and plaintext on the SAME port -- a TLS ClientHello and an NDJSON line are told "+
@@ -328,6 +365,7 @@ func main() {
 		resumeGrace:    resumeGrace,
 		transport:      transportNames,
 		quicAddr:       quicAddr,
+		udpAddr:        udpAddr,
 		tlsMode:        tlsMode,
 	})
 
@@ -358,6 +396,12 @@ func main() {
 	// relay that quietly moved quic somewhere else would advertise a port the
 	// host never forwarded, and the failure would surface much later as
 	// "quic clients can't connect" with nothing pointing here.
+	resolvedUDP, err := resolveUDPAddr(kinds, *addr, *udpAddr)
+	if err != nil {
+		log.Fatalf("meshghost-relay: %v", err)
+	}
+	*udpAddr = resolvedUDP
+
 	resolvedQuic, err := resolveQuicAddr(kinds, *addr, *quicAddr)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)
@@ -393,6 +437,9 @@ func main() {
 		bind := *addr
 		if k == netx.QUIC {
 			bind = *quicAddr
+		}
+		if k == netx.UDP {
+			bind = *udpAddr
 		}
 		ln, err := netx.ListenWithTLS(k, bind, tlsOpts)
 		if err != nil {

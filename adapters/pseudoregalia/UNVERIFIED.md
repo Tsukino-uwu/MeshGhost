@@ -120,9 +120,14 @@ born on. Two things make that a floor rather than a bug:
    `Color` struct and a `Grow?` flag, none obviously an outline switch. A deeper read of the
    PoseableMesh's own state at spawn is the next measurement if anyone wants zero frames.
 
-**Not loopback-specific, and worth stating plainly**: the ghost is a real pawn clone either way, so a
-remote peer's ghost spawns the same afterimages and would flash the same single frame through a wall.
-The user asked this directly and the answer is no, it is not a rig artefact.
+**It is not attack-specific either.** The user checked: *"it does it briefly while attacking, but
+also when sliding, so think its just any/all ghost after images."* That is consistent with the
+mechanism — every afterimage is spawned outlined, whatever produced it — and it rules out any
+remaining theory that ties this to attack montages in particular.
+
+**Not loopback-specific either, and worth stating plainly**: the ghost is a real pawn clone either
+way, so a remote peer's ghost spawns the same afterimages and would flash the same single frame
+through a wall. The user asked this directly and the answer is no, it is not a rig artefact.
 
 ## Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
 

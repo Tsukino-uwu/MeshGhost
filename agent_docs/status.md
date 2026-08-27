@@ -61,8 +61,11 @@ has never been looked at. `verified.md`.
 
 - **Pseudoregalia is FEATURE COMPLETE (user, 2026-08-27) and its scope is written down** — nine
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
-- **A ghost's afterimage outline is down to ONE FRAME and that is this approach's floor** — fixed by
-  `copyActor` attribution; the rest is the spawn frame. `pseudoregalia/UNVERIFIED.md`.
+- **A ghost's afterimage outline is down to ONE FRAME — NEXT CHAT PICKS THIS UP.** Two options, both
+  named in `pseudoregalia/UNVERIFIED.md`: stop mirroring afterimages during attack montages (removes
+  it, costs a real effect, the USER's call), or measure what the afterimage Blueprint reads before it
+  enables custom depth (the census found `copyActor`, `cachedMesh`, `PoseableMesh`, two Timelines,
+  `Color`, `Grow?` — no obvious switch, so it needs a deeper read of the PoseableMesh at spawn).
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured

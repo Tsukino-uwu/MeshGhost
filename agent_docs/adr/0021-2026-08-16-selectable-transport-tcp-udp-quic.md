@@ -88,3 +88,26 @@
   Clients still cannot discover which transports a relay offers — they must be told out of band.
   Making `Welcome` advertise them, so a client can upgrade itself, is the natural follow-up and is
   filed in `ideas.md`.
+
+## Correction, 2026-08-27 — plain udp takes the odd port, not quic
+
+**What was wrong.** Serving plain udp alongside quic was REFUSED at startup, with the operator told
+to name a port for quic. That put the awkwardness on the wrong transport: quic is what `-transport`
+serves by DEFAULT, so a host who never thought about transports is on it, while plain udp is opt-in,
+unencryptable and last in `netx.AutoPreference`. Making the default one surrender the shared port
+broke "forward 7777" for the common case to accommodate the rare one — and the code comment already
+argued that udp "is the right one to carry the awkwardness" while the mechanism did the opposite.
+
+**What it is now.** A `-listen-udp` flag exists (config key `listen_udp`), defaulting to "share
+-addr's port". When quic is served too, **udp** moves to `FallbackUDPAddr` (127.0.0.1:7780) and quic
+keeps the shared number. Relocating udp silently is safe in a way relocating quic never was: nothing
+picks udp automatically, so being on it means having asked for it by name, and the startup log
+prints where it landed. An operator who places either explicitly is believed.
+
+**Found by the user**, who remembered the intended design and checked it against the running relay's
+log: *"pretty sure tcp/quic share same port, and udp should have the odd port"*. The code disagreed
+with its own comment, and there was no `-listen-udp` flag at all to express the intent.
+
+**Covered by tests** in `cmd/meshghost-relay/main_test.go`: quic keeps the shared port with udp
+served, udp moves to the fallback, either can be placed explicitly, and the shipped default
+(tcp,quic) never relocates anything.

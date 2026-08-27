@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
@@ -119,7 +118,7 @@ func TestTransportKeysAreReadFromConfig(t *testing.T) {
 // neither key, and such a relay must keep serving tcp exactly as it did.
 func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	path := writeConfig(t, nil, `{"server":{"listen_on":"0.0.0.0:7777"}}`)
-	transport, quicAddr := "tcp", quicSharesAddrPort
+	transport, quicAddr := "tcp", sharesAddrPort
 	var addr, onlyGame, roomCode string
 	var maxClients, sendHz int
 	applyFileConfig(path, map[string]bool{}, configTargets{
@@ -130,7 +129,7 @@ func TestTransportAbsentFromConfigLeavesTheFlagDefaults(t *testing.T) {
 	if transport != "tcp" {
 		t.Errorf("transport = %q, want it left at the flag default %q", transport, "tcp")
 	}
-	if quicAddr != quicSharesAddrPort {
+	if quicAddr != sharesAddrPort {
 		t.Errorf("listen_quic = %q, want it left at the flag default (empty = share -addr's port)", quicAddr)
 	}
 }
@@ -229,7 +228,7 @@ func TestResolveQuicAddr(t *testing.T) {
 
 	t.Run("quic shares addr's port by default", func(t *testing.T) {
 		// The whole point: hosting means forwarding ONE port number.
-		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.QUIC}, addr, quicSharesAddrPort)
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.QUIC}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -238,14 +237,18 @@ func TestResolveQuicAddr(t *testing.T) {
 		}
 	})
 
-	t.Run("udp and quic together is refused, not relocated", func(t *testing.T) {
-		_, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, quicSharesAddrPort)
-		if err == nil {
-			t.Fatal("want an error: udp has taken the udp port and quic runs over udp too")
+	t.Run("quic KEEPS the shared port when udp is served too", func(t *testing.T) {
+		// Corrected 2026-08-27. This used to refuse and demand a port for quic,
+		// which had it backwards: quic is a DEFAULT transport and plain udp is
+		// opt-in, so making the default one surrender the shared number broke
+		// "forward 7777" for the common case to accommodate the rare one. udp
+		// moves instead -- see TestResolveUDPAddr.
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, sharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		// The message has to name the way out, since the operator has two.
-		if !strings.Contains(err.Error(), "-listen-quic") || !strings.Contains(err.Error(), FallbackQuicAddr) {
-			t.Fatalf("error does not name the fix: %v", err)
+		if got != addr {
+			t.Fatalf("got %q, want %q -- quic keeps -addr's port and udp is the one that moves", got, addr)
 		}
 	})
 
@@ -262,11 +265,11 @@ func TestResolveQuicAddr(t *testing.T) {
 	})
 
 	t.Run("udp without quic is fine and shares nothing", func(t *testing.T) {
-		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP}, addr, quicSharesAddrPort)
+		got, err := resolveQuicAddr([]netx.Kind{netx.TCP, netx.UDP}, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != quicSharesAddrPort {
+		if got != sharesAddrPort {
 			t.Fatalf("got %q, want it untouched -- quic is not being served", got)
 		}
 	})
@@ -281,6 +284,70 @@ func TestResolveQuicAddr(t *testing.T) {
 		}
 	})
 
+	t.Run("udp is the one that moves, not quic", func(t *testing.T) {
+		// The rule this whole change exists for.
+		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, sharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != FallbackUDPAddr {
+			t.Fatalf("got %q, want %q -- udp takes the odd port when quic is served", got, FallbackUDPAddr)
+		}
+	})
+
+	t.Run("udp without quic keeps addr's port", func(t *testing.T) {
+		// Nothing to collide with, so there is no reason to make a host forward
+		// a second number.
+		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.UDP}, addr, sharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != addr {
+			t.Fatalf("got %q, want %q", got, addr)
+		}
+	})
+
+	t.Run("an explicit listen-udp is believed", func(t *testing.T) {
+		const explicit = "0.0.0.0:7999"
+		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.UDP, netx.QUIC}, addr, explicit)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != explicit {
+			t.Fatalf("got %q, want %q -- naming a port is taking responsibility for forwarding it", got, explicit)
+		}
+	})
+
+	t.Run("listen-udp is passed through untouched when udp is not served", func(t *testing.T) {
+		got, err := resolveUDPAddr([]netx.Kind{netx.TCP, netx.QUIC}, addr, "0.0.0.0:9999")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "0.0.0.0:9999" {
+			t.Fatalf("got %q, want it passed through unvalidated", got)
+		}
+	})
+
+	t.Run("the shipped default serves tcp,quic and never places udp", func(t *testing.T) {
+		// Out of the box there is no udp at all, so nothing should be relocated
+		// and hosting stays one forwarded number.
+		kinds, err := netx.ParseKinds("tcp,quic")
+		if err != nil {
+			t.Fatalf("ParseKinds: %v", err)
+		}
+		quic, err := resolveQuicAddr(kinds, addr, sharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		udp, err := resolveUDPAddr(kinds, addr, sharesAddrPort)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if quic != addr || udp != sharesAddrPort {
+			t.Fatalf("quic=%q udp=%q -- want quic on %q and udp untouched", quic, udp, addr)
+		}
+	})
+
 	t.Run("the shipped default (tcp,quic) lands on a shared port", func(t *testing.T) {
 		// Guards the out-of-the-box case specifically: the relay ships serving
 		// tcp,quic, so this is the path almost every real host takes.
@@ -288,7 +355,7 @@ func TestResolveQuicAddr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ParseKinds: %v", err)
 		}
-		got, err := resolveQuicAddr(kinds, addr, quicSharesAddrPort)
+		got, err := resolveQuicAddr(kinds, addr, sharesAddrPort)
 		if err != nil {
 			t.Fatalf("the shipped default must not refuse to start: %v", err)
 		}

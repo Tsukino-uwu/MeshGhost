@@ -15,6 +15,7 @@
   "server": {
     "listen_on": "0.0.0.0:7777",
     "listen_quic": "",
+    "listen_udp": "",
     "transport": "tcp,quic",
     "tls": "auto",
     "room_code": "",

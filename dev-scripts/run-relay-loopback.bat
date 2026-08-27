@@ -8,11 +8,11 @@ REM -transport=tcp,udp,quic: serves all three at once so the per-protocol
 REM run-core-*-tcp/udp/quic.bat scripts each work without restarting this
 REM relay. Harmless when unused -- a client picks exactly one, and clients on
 REM different transports share a room normally.
-REM -listen-quic is passed EXPLICITLY here and must be: quic normally shares
-REM -addr's port (one port number for a host to forward), but the plain udp
-REM transport takes that udp port itself, so serving udp and quic together
-REM needs quic told where to go. Without this the relay refuses to start and
-REM says so. This is the uncommon case -- a default relay serves tcp+quic on
-REM one port. See the transport ADR in agent_docs/architecture.md.
-..\meshghost-relay.exe -loopback -send-hz=100 -transport=tcp,udp,quic -listen-quic=127.0.0.1:7780
+REM -listen-quic is NO LONGER passed here, and that is the point of the 2026-08-27
+REM change: quic keeps -addr's port and the plain udp transport is the one that
+REM moves aside (to -listen-udp's default, 127.0.0.1:7780). quic is a DEFAULT
+REM transport and udp is opt-in, so making the default one surrender the shared
+REM number had it backwards. This script serves all three, so udp relocates
+REM automatically and the relay prints where each landed.
+..\meshghost-relay.exe -loopback -send-hz=100 -transport=tcp,udp,quic
 pause
