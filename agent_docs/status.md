@@ -140,8 +140,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
 - **TEVI's FullMap marker goes stale** — it only refreshes on a `render_remote`, so a peer who
   stops sending leaves a marker frozen where it was. Shipped bug; a probe now exists to measure the
   age, and has never been run. `tevi/UNVERIFIED.md`, `tevi/PROBES.md`.
-- **TEVI's bridge shape is COMPLETE and UNWATCHED (2026-08-27)** — send gate and 8-port walk built,
-  DLL rebuilt and deployed, never run in the game. `tevi/UNVERIFIED.md`.
+- **TEVI's send gate is CONFIRMED; its port walk has a DEFECT** (2026-08-27, two-game session).
+  Walked all 8 ports twice getting "busy" from every one, settled after ~35s. `tevi/BANDAGES.md` #5.
 - **Pseudoregalia: a hard crash mid-session after the pause menu opened twice** — not root-caused,
   not attributable to MeshGhost on the evidence. `verified.md` 2026-08-17.
 - **Pseudoregalia: a `Fatal Error!` on game exit**, seen once, never root-caused. Not the

@@ -235,3 +235,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A local declared BELOW a function, and a bare name that becomes a global — same day, both ways
 - AN ID IS NOT PORTABLE, AND NEITHER IS A CONSTANT — one table further along than an address
 - PER TICK IS NOT PER FRAME
+- A RELATIVE path in the dev loader's control file fails as a "LuaSocket is missing" error

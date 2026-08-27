@@ -107,7 +107,7 @@ now it is neither.
 that might carry a side effect" is still a rule written far from the code that would want that
 component later.
 
-### 5. CLOSED 2026-08-27 — `bridge_ready` is now the send gate, and TEVI walks the port range
+### 5. The send gate is CLOSED; the port walk it landed with has a DEFECT (both 2026-08-27)
 
 `BridgeClient.cs` handles `bridge_ready` and `reject` as of 2026-08-18 -- before that both fell
 into the unknown-message-type default, so every healthy session logged a warning about the one
@@ -134,9 +134,32 @@ because the reasoning for deferring it is what made the eventual fix safe.
   three adapters, with a `reject` cooling that port down and advancing. TEVI is no longer the one
   adapter on a fixed port, and `BridgePort` no longer has to be set by hand for a second instance.
 
-**NOT CONFIRMED ON SCREEN.** Built and deployed, never watched — `UNVERIFIED.md` has what to look
-at and what correct looks like, including the two-instance case the walk exists for. This entry
-stays here until that happens.
+**The send gate is confirmed working; the WALK is not.** Watched 2026-08-27 in a two-game session
+(TEVI beside Crystal on one relay). The user: *"TEVI seems to work"*, *"can see the loopback ghost
+and stuffs"* — so the gate does not withhold state that matters, and a ghost renders. But the log
+of that same session shows the walk converging badly:
+
+- Crystal's core held 7778. TEVI spawned **four** cores; because a core has its own port walk, each
+  took a different free port in the range.
+- TEVI's adapter then walked **7778 → 7785 and round again**, and **every single port answered
+  `busy: this core already has a game attached`**, including ports whose core it had spawned itself.
+- It settled on 7784 after roughly **35 seconds**.
+
+It works, and it converges by luck rather than by design. **Two candidate causes, both mine, and
+neither yet isolated** — so this is written down rather than fixed on a guess:
+
+1. **The 1.5s hello-answer timeout may abandon a freshly spawned core mid-handshake.** A cold core
+   has to bind, dial the relay and finish its own handshake before it can answer; if the adapter
+   gives up first it cools that port down and walks away.
+2. **Autostart spawns on `bridge.CurrentPort` — the port the walk is about to DIAL, not one known to
+   be free.** So every retry scatters another core across the range. Crystal's adapter does the
+   opposite and says so: the autostart port is *"taken from the sweep rather than assuming
+   BRIDGE_BASE_PORT"*. That one is wrong on inspection, independently of the log.
+
+**What is ruled out:** the core does release its admission slot when its adapter disconnects
+(`core/bridgeserve.go:61-66`, "a Core whose adapter has gone is available again"), so a stale
+attachment is not simply never freed. **What to do next:** isolate by subtraction rather than
+guessing a third time — one variable at a time, two games, reading the port each core binds.
 
 **The original deferral, kept:** the gate needs the reconnect path to reset the flag too
 (`connectionGeneration` already tracks the generation, so the hook exists). Get that wrong and a

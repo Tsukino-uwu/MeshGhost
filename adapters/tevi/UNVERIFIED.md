@@ -67,7 +67,28 @@ correct looks like:** whatever the local player's own charged attack shows, show
 Written up in `../../agent_docs/phases/phase6.md`. Not started as work; the investigation method is
 `../../agent_docs/effect-investigation.md`, which is what to read first.
 
-## Pending — the bridge_ready send gate and the 8-port walk (built 2026-08-27, NOT watched)
+## PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+
+**Watched the same day it was built**, in a two-game session: TEVI beside vanilla Crystal on one
+loopback relay. The user, on TEVI: *"TEVI seems to work"*, *"can see the loopback ghost and
+stuffs"*. So the send gate does not withhold state that matters and a ghost renders — that half is
+confirmed, and the hedge is quoted rather than smoothed over.
+
+**The walk is a different answer.** Crystal's core held 7778; TEVI spawned four cores, walked
+7778→7785 and round again with **every port replying `busy: this core already has a game
+attached`**, and settled on 7784 after ~35 seconds. It works by luck, not by design. Two candidate
+causes, neither isolated, one wrong on inspection regardless (autostart spawns on the port the walk
+is about to dial rather than one known free) — full evidence and what is ruled out:
+[BANDAGES.md](BANDAGES.md) entry 5.
+
+**What a next session should do:** two games, one variable at a time, reading the port each core
+actually binds. Not a third guess.
+
+**Still unwatched from this entry:** everything below about the two-instance case with two TEVI
+copies, and whether a single-game launch (nothing else holding 7778) converges immediately — the
+session above never tested that, because Crystal was up first by design.
+
+## Original entry — the bridge_ready send gate and the 8-port walk (built 2026-08-27)
 
 Built in this session and **never run in the game**. Both bring TEVI up to the bridge shape
 `../_template/PROTOCOL.md` defines and the other three adapters already implement.

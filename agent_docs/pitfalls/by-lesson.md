@@ -4505,3 +4505,38 @@ Crystal's object clock runs at half the video rate, so a gait of 8px per TICK sc
 world every camera frame. **Before comparing two rates, check they are in the same units** — and
 note this only becomes visible at the fastest gait, because at 2px and 4px the per-tick stride
 never exceeds the per-frame delta.
+
+## A RELATIVE path in the dev loader's control file fails as a "LuaSocket is missing" error
+
+**Crystal, 2026-08-27, and it cost a launch cycle on a session whose only job was a two-minute
+regression check.** The control file was written with a relative path:
+
+```
+../adapters/emulator/pokemon/crystal/meshghost_crystal.lua
+```
+
+The loader loaded it, and the adapter died with:
+
+```
+RUN FAILED: .../meshghost_crystal.lua:651: MeshGhost: could not load the vendored LuaSocket
+binary from any of the paths above.
+```
+
+**Nothing in that message is about a path being relative**, and the first instinct is to go looking
+for the `lib/x64/` folder — which is exactly where it is, and which is not the problem.
+
+**Cause.** `dofile` on a relative path makes `debug.getinfo(1,"S").source` relative, so `scriptDir()`
+resolves to something like `"."`. That satisfies the absolute-path guard's sibling branch, skips the
+pwd fallback, and only fails later at `package.loadlib`, because Windows resolves a relative DLL
+path against the PROCESS directory (BizHawk's) and never the working directory. `emulator/CLAUDE.md`
+documents this trap for a shared MODULE; this is the same trap reached through the loader's control
+file, where the loader's own header already says *"absolute preferred"*.
+
+**Fix.** Absolute paths in the control file, always. One line, and the adapter loaded on the next
+poll with no other change.
+
+**The lesson, which is the reusable part: a failure that names a MISSING FILE may be a failure to
+resolve a DIRECTORY.** The two present identically when the path being resolved is the one used to
+find the file. Before hunting a missing dependency, check what the code thinks its own directory is
+— and note that every earlier successful run in the loader log had an absolute path, which is the
+cheapest possible tell and was sitting three lines above the failure.
