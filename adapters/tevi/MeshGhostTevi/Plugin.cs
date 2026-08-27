@@ -570,8 +570,17 @@ namespace MeshGhostTevi
         // quitting the game leaves the local core process's bridge connection open until it
         // eventually times out on its own, delaying this player's despawn for any peer still
         // connected.
+        //
+        // DespawnAllRemoteGhosts() is here for RELOADING, not for quitting: on a real quit the
+        // scene is torn down anyway, but ScriptEngine (BepInEx.Debug) reloads this plugin in a
+        // live game by destroying the old instance and constructing a new one. A peer ghost is a
+        // cloned GameObject parented in the scene, not a child of this component, so it outlives
+        // the instance that made it -- and the fresh instance, whose remoteVisuals is empty,
+        // clones a second one on the next render_remote. Every reload would leave one more
+        // orphan on screen that nothing tracks or despawns. Cheap on quit, load-bearing on F6.
         private void OnDestroy()
         {
+            DespawnAllRemoteGhosts();
             bridge?.Disconnect();
             launcher?.Stop();
         }

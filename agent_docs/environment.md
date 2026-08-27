@@ -676,6 +676,43 @@ there on the user's explicit instruction, 2026-08-17.
   read decompiled source directly via the CLI rather than relaying findings through the user —
   same role `pokeemerald.map`/`.sym` play for Emerald. MIT-licensed, see
   `agent_docs/licensing.md`; not a MeshGhost dependency, a local dev tool only.
+- **The live-development toolchain, set up 2026-08-28.** Until this date TEVI and Pseudoregalia
+  were tested by relaunching the game for every change, while the two BizHawk adapters had had a
+  dev loader since Phase 8. These close most of that gap. **None of them is a MeshGhost
+  dependency and none ships** — each lives in the developer's own install, the posture already
+  recorded for BizHawk, BepInEx and ILSpy. Licences: `licensing.md`.
+  - **ScriptEngine** (BepInEx.Debug `r11.1`, LGPL-3.0) in TEVI's `BepInEx\plugins\`. Reloads
+    plugin DLLs from `BepInEx\scripts\` in a running game. Driven by
+    `dev-scripts/tevi-hotreload.ps1`, which also arms the file watcher so no key is pressed.
+    **Config keys were read out of the shipped DLL with `ilspycmd`, not from a wiki**: sections
+    `[General]` and `[AutoReload]`, keys `LoadOnStart`, `ReloadKey` (default F6), `QuietMode`,
+    `IncludeSubdirectories`, `EnableFileSystemWatcher` (default false), `AutoReloadDelay`
+    (default 3), `DumpAssemblies`. A repackaged build documented elsewhere puts the same keys
+    under different sections — re-check the DLL after a version bump rather than trusting either.
+  - **UnityExplorer** `v4.13.6` (`yukieiji` fork, GPL-3.0) in TEVI's `BepInEx\plugins\`. Runtime
+    scene-tree and object browser. **Upstream `sinai-dev/UnityExplorer` is archived**; the fork
+    is what is installed, and the asset is `UnityExplorer.BepInEx5.Mono.zip` — BepInEx **5**,
+    **Mono**, matching this install. An IL2CPP game would need a different asset entirely.
+  - **dnSpyEx** `v6.6.0` (GPL-3.0) at `C:\dev\tools\dnSpy`, outside every game folder.
+  - **TEVI's Mono debugger server is ARMED, not confirmed** — `doorstop_config.ini` now has
+    `debug_enabled = true` with `debug_address = 127.0.0.1:10000`; the original is beside it as
+    `doorstop_config.ini.meshghost-backup`. **This route was chosen because the usual one is
+    unavailable**: dnSpy's Unity debugging normally wants a patched Mono from
+    `dnSpyEx/dnSpy-Unity-mono`, whose newest build is **Unity 2020.3.33f1** while TEVI is
+    **2021.3.25f1** (checked 2026-08-28 across all 318 entries — there is no 2021 build). The
+    doorstop flag needs no game binary replaced. **Whether this build's Mono actually carries the
+    debugger agent is UNTESTED** — if dnSpy cannot connect, that is the reason, not a wrong port.
+  - **Pseudoregalia's UE4SS Live Viewer is enabled locally** — `GuiConsoleEnabled` and
+    `GuiConsoleVisible` set to 1 in the install's `UE4SS-settings.ini` (original backed up as
+    `.meshghost-backup`). **The SHIPPED config in `packaging/release/` stays 0** and must:
+    players do not get a debug GUI. Search and edit any object's properties live, watch a value
+    across frames, and call functions without writing code —
+    `MeshGhostPseudo/RE-UE4SS/docs/feature-overview/live-view.md`, vendored in this repo. That
+    file notes a blank/white window means the wrong `GraphicsAPI`; this install is on `opengl`,
+    so **`dx11` is the first thing to try** if it comes up empty.
+  - **UE4SS's Lua hot reload was already on and unused** — `EnableHotReloadSystem = 1`,
+    `HotReloadKey = R` (Ctrl always required), in the config this repo has shipped since UE4SS
+    was vendored. It reaches Lua mods only, never the C++ adapter.
 - Pseudoregalia install: `C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`
   (confirmed 2026-08-12 via a Steam-library directory scan).
 - **Launching `dev-scripts\*.bat` headlessly (agent-run scaffolding).** The scripts are written

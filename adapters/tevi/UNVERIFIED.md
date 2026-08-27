@@ -36,6 +36,33 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## Pending -- the hot-reload dev loop has never been run in the game (built 2026-08-28)
+
+TEVI's edit loop no longer requires relaunching the game: the adapter moves to `BepInEx\scripts\`
+where BepInEx's own ScriptEngine reloads it live, and `dev-scripts/tevi-hotreload.ps1 -Deploy`
+rebuilds, copies and triggers the reload with nothing pressed. **Every part of this was tested
+against the file system only** -- the toggle round-trips, the build runs, the copy hash-matches.
+Nothing has been watched in a running TEVI.
+
+`Plugin.cs`'s `OnDestroy` now calls `DespawnAllRemoteGhosts()` for the same reason. A peer ghost is
+a cloned GameObject parented in the SCENE, so it outlives the plugin instance that made it; the
+fresh instance starts with an empty `remoteVisuals` and clones another. Without the despawn every
+reload would leave one more orphan that nothing tracks.
+
+**What to look at.** Launch TEVI with a loopback peer up and a ghost on screen, then run
+`tevi-hotreload.ps1 -Deploy`. **What correct looks like:** within a couple of seconds the BepInEx
+log reports the plugin loading again, and afterwards there is still exactly **one** ghost --
+**two ghosts is the OnDestroy despawn not having worked**, and it is the specific thing this entry
+exists to check. **What is unknown:** whether the reload is clean at all in this game.
+
+**Also armed and unconfirmed: the Mono debugger server.** `doorstop_config.ini` now has
+`debug_enabled = true` (backup beside it). Whether dnSpy can actually attach at
+`127.0.0.1:10000` depends on whether this build's Mono carries the debugger agent, which nobody
+has tested -- the usual patched-Mono route does not exist for Unity 2021.3. `../../agent_docs/environment.md`.
+
+**Nothing here changes what ships.** ScriptEngine and UnityExplorer are developer-machine tools,
+the doorstop flag is one line in a local install, and `packaging/release/` is untouched.
+
 ## Pending — the FullMap peer marker goes stale when a peer stops sending (shipped bug)
 
 **This one is a known DEFECT waiting to be looked at, not a fix waiting to be confirmed** — it is

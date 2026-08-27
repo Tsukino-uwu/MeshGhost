@@ -334,6 +334,19 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   result whenever `adapters/tevi/MeshGhostTevi/{Plugin.cs,BridgeClient.cs,*.csproj}` change —
   see [packaging/README.md](../packaging/README.md)'s TEVI section for why this one output is
   committed at all.
+- `tevi-hotreload.ps1` — takes the relaunch out of TEVI's edit loop. Moves the adapter between
+  `BepInEx\plugins\` (the shipping layout) and `BepInEx\scripts\`, where BepInEx's own
+  ScriptEngine reloads it in a running game, and arms ScriptEngine's file watcher so `-Deploy`
+  rebuilds, copies, and triggers the reload with nothing pressed by hand. `-Status` says which
+  mode an install is in; **both at once means the adapter loads twice**, which is the failure the
+  toggle exists to prevent. Two things it cannot tell you — a cold-start-only bug, and anything
+  a reload orphaned in the scene — are written at the top of the script.
+- `pseudo-hotreload.ps1` — the same idea for Pseudoregalia, but weaker by necessity: UE4SS
+  hot-reloads **Lua** mods only, so this speeds up probe iteration and does nothing for the C++
+  adapter, which still costs a rebuild and a relaunch. UE4SS exposes reloading only as a keybind
+  (Ctrl+R), so the script drives that key at the game window; `-Watch` does it on every `.lua`
+  change. Confirm a reload in `UE4SS.log`, never from the script's own line — a reload that hit
+  a Lua error reports there and leaves the OLD script running, which looks like no change at all.
 - `run-core-crystal-shipped.bat` — the **complement** of `run-core.bat crystal`: no flags beyond game and bridge, so
   interpolation is `core.DefaultInterpolationDelay` (250ms) and the send rate is the default.
   Here the 250ms is the subject of the test rather than a nuisance in it. Launch it explicitly
