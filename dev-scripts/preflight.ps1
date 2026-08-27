@@ -113,11 +113,20 @@ Section "Public-repo leak check"
 # is what stops one entering HISTORY, where it cannot be taken back. Hooks are not carried by
 # `git clone`, so a fresh clone has this switched off and nothing says so -- which is exactly the
 # state in which the 2026-08-23 leak was committed.
-$hooksPath = (& git config core.hooksPath) 2>$null
-if ($hooksPath -eq ".githooks") {
-    Report-Pass "core.hooksPath is .githooks -- the pre-commit leak check is armed"
+# A WORKING-COPY question, not a tree one, so -TreeOnly skips it: hooks are per-clone git config,
+# a CI runner has none and never commits, and failing there would say nothing about the code. The
+# leak GREP below is the tree half and runs everywhere. Split 2026-08-27, on the first run of
+# .github/workflows/docs.yml -- which failed on exactly this and nothing else, which is the gate
+# doing its job on the person who wrote it.
+if ($TreeOnly) {
+    Report-Skip "hook arming is per-clone git config -- nothing a runner can answer"
 } else {
-    Report-Fail "core.hooksPath is not set to .githooks, so commits are NOT being checked for machine-specific paths -- run: git config core.hooksPath .githooks"
+    $hooksPath = (& git config core.hooksPath) 2>$null
+    if ($hooksPath -eq ".githooks") {
+        Report-Pass "core.hooksPath is .githooks -- the pre-commit leak check is armed"
+    } else {
+        Report-Fail "core.hooksPath is not set to .githooks, so commits are NOT being checked for machine-specific paths -- run: git config core.hooksPath .githooks"
+    }
 }
 
 
