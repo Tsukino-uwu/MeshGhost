@@ -253,3 +253,32 @@ Three things worth carrying to the next field on this actor:
    and `bActorIsBeingDestroyed` both read `true` on a live, working actor —
    UE packs them into a bitfield and the byte-wide read returns true for any non-zero byte. The
    Blueprint-defined bools (`isEmbedded?`, `hasLight?`) are separate properties and read correctly.
+
+## Health: it is NOT on the pawn — `CurrentHp` on the GameInstance (measured 2026-08-27)
+
+Recorded because two separate investigations have now lost time assuming otherwise, and because it
+explains a whole family of "the ghost and the player share health" symptoms.
+
+**Nothing on the player pawn holds current health.** A full reflection dump lists only *config*:
+`healAmountPerDing`, `HPpiecesNeededForHeart`, `hitsToFill`, `healUpgrades`, `possible amount to
+heal`, `healMoveSpeed`, plus the damage numbers `lightAttackDamage` (15), `heavyAttackDamage` (50)
+and `projectileFullDamage` (45). None of them is state.
+
+| Field | Lives on | Notes |
+| --- | --- | --- |
+| `CurrentHp` | the object the pawn holds as `As MV Game Instance Ref` | Double. **80 = full**, and a pit fall costs exactly **5**. Healing to full writes 80 in one step; death writes 0; respawn writes 80. Measured across a user-driven run covering damage, heal, death and respawn. |
+
+**Two consequences worth carrying to any future work here:**
+
+1. **A UE GameInstance is a singleton** — one object for the whole running game. There is no
+   per-ghost health to zero, and *"set the ghost's health to 0"* would set the player's to 0. That
+   is the likeliest mechanism behind the historical "kept respawning with 0 health" bug.
+2. **The HUD stores no health of its own.** Across a whole run only `AnimationTickManager` changed
+   on the HUD widget, so it reads `CurrentHp` live each frame. A health bar showing the wrong value
+   therefore means the widget on screen is not the one being updated — which is exactly what it
+   turned out to be (`VERIFIED.md`, 2026-08-27).
+
+Found with the value-snapshot diff (`snapshot_object_values` + `log_value_snapshot_diff`) pointed at
+the GameInstance, run once with no ghost and once with one — the user's own experiment design. Same
+technique that found the outfit field and the bubble's `Blink` track: diff two states rather than
+read one.

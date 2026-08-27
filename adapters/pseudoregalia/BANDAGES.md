@@ -136,10 +136,24 @@ land in an 8-byte slot and the engine reads back a denormal near zero.
 version-branching helper, and its own comment says the scope plainly: *"this only covers
 `K2_SetActorLocationAndRotation`, the one rotation-writing function this file actually calls."*
 
-**Every other `FRotator`-taking SDK call is still broken**, so any future rotation write is a
-latent bug until this is generalised. It is listed here because it behaves like the worst kind of
-bandage — silent, plausible-looking, and waiting for the next call site — even though the existing
-fix is correct for the one place it covers.
+**GENERALISED 2026-08-27, and this entry is close to retirable.** `write_struct_triple` plus its
+two named wrappers `write_vector_param` / `write_rotator_param` (`Plugin.cpp`, immediately above
+`call_set_actor_location_and_rotation`) now carry the version branch, the inner-field resolution
+and a refuse-rather-than-half-write return, so there is a correct thing for the next author to
+reach for instead of a bare SDK call.
+
+**The one existing call site was migrated onto the helpers in the same pass, deliberately.**
+Leaving them unexercised would have reproduced exactly the failure mode this entry predicted — a
+plausible-looking path nobody runs until a new feature reaches for it, at which point a defect in
+the shared helper presents as a bug in the new feature. Migrating puts them on the most-run
+reflected call in the adapter, where a ghost standing in the wrong place or facing the wrong way
+is immediate, unmissable, every-session evidence.
+
+**Why it is not deleted yet: it compiles, and nothing has watched it.** Behaviour-preserving by
+construction is not the standard this project holds adapter changes to — `UNVERIFIED.md` carries
+it until a ghost is seen positioned and facing correctly. The original scope note is also still
+literally true of the *SDK*: RE-UE4SS's own `FRotator` marshalling is untouched, and a call made
+without these helpers is still broken. This is a safe route past the bug, not a repair of it.
 
 **Live trap:** the slide's lead 3 (write the mesh component's own `RelativeLocation`) is exactly
 such a call. Route any new transform write through a helper modelled on

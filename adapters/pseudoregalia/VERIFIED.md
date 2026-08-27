@@ -159,6 +159,7 @@ filed under the right theme, but anything can check that it is listed.
 - CORRECTION: the Pseudoregalia bridge-loss despawn path does exist, and always did (2026-08-18)
 - CORRECTION: ghosts do NOT spawn with collision disabled — the camera fix was the rig, not collision (2026-08-18)
 - CORRECTION: the recall-glow and throw-crash entries above each appear TWICE (2026-08-25)
+- 2026-08-27 — The player's health bar was the GHOST'S OWN HUD, drawn over it (user-confirmed)
 
 ## Confirmed facts
 
@@ -3668,3 +3669,33 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
 - Notes: these were the **only** duplicate heading pair in the 10,174-line original; `sort | uniq
   -d` over its headings returned exactly these two lines, which is a live check if the file is ever
   audited again.
+
+## 2026-08-27 — The player's health bar was the GHOST'S OWN HUD, drawn over it (user-confirmed)
+
+- **User-confirmed on screen**: *"this fixed the health bar/UI stuffs, i can see it visually go
+  down/up now"*, after a session where the bar sat permanently full while damage, death and healing
+  all really happened.
+- **The fix**: call stock `RemoveFromParent` on the ghost's own `UI_HudRef` widget at spawn, before
+  that reference is cleared. `Plugin.cpp`, under `GHOST_DECOUPLE_SHARED_STATE`.
+- **The cause**: a ghost here is a clone of the player's own pawn class, so it runs the player's
+  `BeginPlay` and **builds its own copy of everything the player owns**. It created a second health
+  bar, initialised full, and added it to the viewport on top of the real one.
+- **This adapter had already solved the same bug once, in a different component** — "A ghost brings
+  its own camera rig, and that is what took the camera" (2026-08-16, above). The user made that
+  connection themselves: *"maybe similar to how we had to decouple/remove the camera things?"* That
+  is what turned a stalled investigation around, after two wrong fixes.
+- **Two wrong fixes preceded it, and both failed the same way** — the durable lesson is
+  **a reference is not the thing**:
+  - Clearing the ghost's `As MV Game Instance Ref` did not decouple health, because any actor
+    reaches the GameInstance singleton through `GetGameInstance()` regardless of a cached pointer.
+  - Clearing `UI_HudRef` did not remove the health bar, because a widget's lifetime belongs to its
+    **parent**, not its referrer -- the bar stayed on screen with nobody pointing at it.
+  Both were confirmed to have actually applied (`cleared (was set)` in the log), so neither was a
+  case of the fix not running. The theory was wrong, twice, in the same way.
+- **What made it findable was a control experiment the user designed**: *"should we do a non ghost
+  probe on losing/gaining health/current health? and then one with a ghost next to us?"* Run with
+  no ghost, health displayed correctly; run with a ghost, the value was STILL correct and only the
+  display was wrong. That pair is what proved the health STATE was never corrupted and sent the
+  search to the display.
+- Supporting measurement (agent-side, not a user confirmation): health is `CurrentHp` on the object
+  the pawn holds as `As MV Game Instance Ref` -- max 80, 5 per pit fall. See `PLAYER_FIELDS.md`.

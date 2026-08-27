@@ -231,6 +231,24 @@ namespace MeshGhostPseudo
         // well-defined regardless of which snapshots arrive. last_seen_montage_count is baselined
         // on a peer's first sample so a mid-session joiner doesn't replay its last montage the
         // instant its ghost spawns (same fix as last_seen_land_count's).
+        // Mirrored player effects, 2026-08-27: a comma-joined list of KEYS from Plugin.cpp's
+        // MIRRORED_EFFECTS table (currently "heal" and "chg"), naming which of the player's own
+        // attached effects are active on the peer right now. An asset path never crosses the
+        // wire -- see that table's comment for why that is the peer-data-safety design and not an
+        // implementation detail.
+        //
+        // STATE, not events: the peer resends the full active set every update, so a dropped
+        // datagram self-corrects instead of stranding an effect on the ghost. Empty means
+        // "nothing active", which is a real instruction to retire whatever is playing.
+        std::string target_vfx;
+
+        // Live components this ghost is currently playing, keyed by the same wire key. Entries
+        // are created on a rising edge and deactivated on a falling one. Not cleared on level
+        // transition on purpose: the ghost actor is destroyed out from under us there, taking its
+        // attached components with it, and the staleness check that notices already rebuilds the
+        // ghost from scratch.
+        std::unordered_map<std::string, RC::Unreal::UObject*> vfx_components;
+
         std::string target_montage;
         double target_montage_count{0};
         double last_seen_montage_count{0};
@@ -442,6 +460,10 @@ namespace MeshGhostPseudo
         auto tick_vfx_catalog_probe(RC::Unreal::AActor* ghost) -> void;
 
         // Shows/hides a ghost's empty-hand recall glow -- see RemoteGhost::recall_glow_component.
+        // Plays the peer's own attached effects on its ghost (healing, charged-projectile glow).
+        // Table and rationale: Plugin.cpp's MIRRORED_EFFECTS.
+        auto tick_remote_mirrored_vfx(const std::string& player_id, RemoteGhost& remote) -> void;
+
         auto tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void;
 
         // Two-sample capture of the ghost-spawns-mid-throw case -- see GHOST_SPAWN_WEAPON_TRACE.

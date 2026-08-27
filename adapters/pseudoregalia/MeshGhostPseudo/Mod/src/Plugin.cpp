@@ -617,7 +617,51 @@ namespace MeshGhostPseudo
     // that run showed the ledge-grab self-start happens with collision OFF too (the ghost visibly
     // could not hang on the ledge and still ended up in the hang pose), so collision does not cause
     // it and there is no reason to keep the feature disabled. See verified.md.
-    constexpr bool GHOST_COLLISION_ENABLED = true;
+    // **OFF again from 2026-08-27, the user's call**, reversing the 2026-08-15 keep-it-on
+    // decision above. No new evidence prompted it and nothing below is retracted -- the feature
+    // works as described, the user simply does not want ghosts solid. The residual melee-death
+    // risk and the untested non-player-damage vector both go away while this is false, so the
+    // "if a player dies for no visible reason near a ghost" note above only applies if it is
+    // turned back on.
+    constexpr bool GHOST_COLLISION_ENABLED = false;
+
+    // Whether a ghost is marked un-damageable on spawn (`bCanBeDamaged = false`). **False since
+    // 2026-08-27, the user's call** -- see the write's own comment at the spawn site for why it is
+    // a suspect in the "player takes no damage" symptom rather than a harmless safety net. Paired
+    // with GHOST_COLLISION_ENABLED above in practice, but deliberately a SEPARATE flag: the two
+    // were one before, which is how turning collision off silently changed damageability too.
+    constexpr bool GHOST_HURTBOX_DISABLED = false;
+
+    // Clears the ghost's references to state the PLAYER shares -- the GameInstance singleton, the
+    // HUD widget, and the two health-specific object refs. See the write site in
+    // ensure_ghost_spawned for the measurement that found them and why a shared singleton is the
+    // mechanism behind three symptoms first reported 2026-08-17. **On from 2026-08-27**, at the user's
+    // request, and the first treatment of this that addresses shared state rather than adding
+    // another engine-level flag beside it.
+    constexpr bool GHOST_DECOUPLE_SHARED_STATE = true;
+
+    // **The health probe, 2026-08-27 -- the user's own experiment design**: *"should we do a non
+    // ghost probe on losing/gaining health/current health? and then one with a ghost next to
+    // us?"* That is the right shape, and it is the method this adapter already trusts: the outfit
+    // field and the bubble's Blink track were both found by diffing two states rather than
+    // reading one.
+    //
+    // Points at the GAME INSTANCE, not the pawn, because the pawn dump settled that health is not
+    // on the pawn -- every health-shaped property there is config. The GameInstance is the
+    // singleton the pawn holds via `As MV Game Instance Ref`. `UI_HudRef` is sampled too, since
+    // the reported symptom is specifically that damage does not RENDER.
+    //
+    // **Run it twice**: once with NO ghost (stop the core -- no peer, no ghost) to learn which
+    // field is health and how it moves, then once WITH a ghost to see what differs. The first run
+    // names the field; the second shows the interference.
+    //
+    // **A quiet log is a real answer**, exactly as it was for the bubble: it would mean health is
+    // not a simple-typed property on these objects either, and the search moves on.
+    constexpr bool HEALTH_PROBE = true;
+
+    // ~0.2s at this build's measured ~150-180Hz. Health changes are discrete events, not a ramp,
+    // so this cannot alias past one, and the diff keeps the volume down by itself.
+    constexpr uint64_t HEALTH_PROBE_INTERVAL_TICKS = 30;
 
     // Redone landed?/jumped? pulse mirror, 2026-08-13 (follow-up session) -- see
     // RemoteGhost::target_land_count's comment in Plugin.hpp for the full root-cause story (the
@@ -883,6 +927,14 @@ namespace MeshGhostPseudo
     // guards -- see call_manage_recall_idle_fx's own comment), which is what that call is built on.
     // Also captured for later, not yet used: doWallRun/wallRunTick/doWallRunJump (cling-gem) and
     // slideTick/slideOverheadCheck.
+    // **ON for the 2026-08-27 health hunt.** The user's ask, in their words: *"i just want to
+    // figure out where th whole health portion thing is and decouple/remove it from the ghost all
+    // together"*. Where this game keeps health has never been established -- PLAYER_FIELDS.md has
+    // no entry for it, and the confirmed coupling (damage to a ghost hurting the real player,
+    // respawning at 0 health) has only ever been treated with engine-level flags rather than by
+    // finding the actual state. Two dumps taken either side of taking damage, then diffed, is how
+    // the outfit field was found; a dump gives 389 lines to eyeball, a diff gives the ones that
+    // moved. Flip back off once the field is named.
     constexpr bool OBJECT_REFLECTION_DUMP = false;
 
     // ~5s at a typical 60fps game thread (observed ~1.5s in practice on this build -- see
@@ -912,6 +964,10 @@ namespace MeshGhostPseudo
     // Flipped back off same day: the edge trace ruled the bool out (fires once at spawn, never
     // again) -- OBJECT_REFLECTION_DUMP is doing the next real step (recursing into
     // AnimGraphNode_Trail's own fields), not this.
+    // **ON for the 2026-08-27 capture run**, paired with VFX_WATCH above rather than run alone:
+    // it carries chargeAttackHoldTime and chargingVFX, which are the charge-and-release trigger
+    // for the ranged projectile. VFX_WATCH says WHAT appears; this says WHEN the charge is held
+    // and released, and the two together are what a mirror needs. Flip back off with it.
     constexpr bool ABILITY_FIELD_TRACE = false;
 
     // Trail-VFX prototype test, 2026-08-15 (see PLAYER_FIELDS.md's trail-VFX section and
@@ -1318,6 +1374,11 @@ namespace MeshGhostPseudo
     // glow attaches to WeaponMesh (fixing its placement) and its trigger is now mirrored by
     // observing the real effect rather than inferred. Left in place -- it is the tool for the next
     // effect, and NS_WeaponPickup is already a known, un-reproduced candidate it found.
+    // **ON for the 2026-08-27 capture run** (healing / dying / ranged-projectile VFX, the three
+    // effects the user named as still missing). This is the primary instrument for all three: it
+    // already logs asset path, [ON PLAYER], AttachParent, AttachSocketName and RelativeLocation on
+    // appearance, which is precisely the set needed to reproduce an effect on a ghost. Flip back
+    // off once the assets are recorded.
     constexpr bool VFX_WATCH = false;
 
     // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
@@ -2130,6 +2191,47 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
+        // Turns a component's collision off entirely: SetCollisionEnabled(ECollisionEnabled::
+        // NoCollision). Built 2026-08-27 for the ghost's own hitbox -- see the call site.
+        //
+        // `NoCollision = 0` is a stable public UE engine constant (Engine/EngineTypes.h),
+        // unchanged since UE4's first public release, not this game's own data -- the same
+        // provenance note the ECC_PAWN/ECR_BLOCK constants carry.
+        //
+        // Non-destructive on purpose. DestroyComponent would be simpler and is what the first
+        // draft reached for, but the ghost's own Blueprint holds this component and would then be
+        // dereferencing a destroyed object -- and this file has already been bitten twice today by
+        // assuming an object stops mattering when a pointer to it goes away.
+        auto disable_component_collision(UObject* component) -> bool
+        {
+            if (!component)
+            {
+                return false;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetCollisionEnabled"));
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            // Buffer is already zero-filled, and NoCollision is 0 -- so the write below is
+            // redundant by value and kept for the reader, not for the engine.
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (param && param->GetName() == STR("NewType"))
+                {
+                    *(params_buffer.data() + param->GetOffset_Internal()) = 0;
+                }
+            }
+            component->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
         auto call_set_collision_response_to_channel(UObject* target, UFunction* function, uint8_t channel, uint8_t response) -> void
         {
             if (!target || !function)
@@ -2646,7 +2748,11 @@ namespace MeshGhostPseudo
         // if the essential parameters aren't found it refuses to call rather than firing a
         // half-filled buffer at a Blueprint-adjacent engine function. A wrong call here is exactly
         // the class of thing that has crashed this game before.
-        auto spawn_niagara_attached(UObject* system_asset, UObject* attach_component) -> UObject*
+        // `socket` added 2026-08-27 for the mirrored-effect table: the charged-projectile glow
+        // hangs off the skeletal mesh at bone socket 'handslot_R', measured, which is why the
+        // player sees it on the sword rather than centred on the character. nullptr keeps the
+        // original behaviour (attach at the component itself) for the two existing callers.
+        auto spawn_niagara_attached(UObject* system_asset, UObject* attach_component, const wchar_t* socket = nullptr) -> UObject*
         {
             if (!system_asset || !attach_component)
             {
@@ -2703,6 +2809,19 @@ namespace MeshGhostPseudo
                 {
                     *std::bit_cast<UObject**>(slot) = attach_component;
                     has_attach = true;
+                }
+                else if (param_name == STR("AttachPointName"))
+                {
+                    // Left zeroed when no socket is asked for, which is NAME_None -- i.e. the
+                    // original "attach at the component" behaviour, unchanged for existing
+                    // callers. FNAME_Add rather than FNAME_Find: a socket name that has not been
+                    // interned yet would silently resolve to None under Find, and an effect
+                    // attached at the wrong place is exactly the class of bug that is easy to see
+                    // and hard to attribute.
+                    if (socket)
+                    {
+                        *std::bit_cast<FName*>(slot) = FName(socket, FNAME_Add);
+                    }
                 }
                 else if (param_name == STR("bAutoActivate"))
                 {
@@ -3611,6 +3730,95 @@ namespace MeshGhostPseudo
         // presumably every other native FRotator-taking function in this SDK -- do not assume any
         // of those are safe to call directly; route any future rotation write through a helper
         // like this one instead.
+        // **The general fix for the vendored SDK's FRotator float/double bug**, 2026-08-27.
+        //
+        // BANDAGES.md ("The FRotator float/double bug is fixed at exactly one call site") records
+        // the hazard: RE-UE4SS marshals FRotator's Pitch/Yaw/Roll as hardcoded `float` into a
+        // reflected parameter buffer, while FVector correctly branches on engine version via
+        // UE_COPY_VECTOR (BPMacros.hpp). Pseudoregalia is UE 5.1, where those fields are `double`,
+        // so 4 bytes of float land in an 8-byte slot and the engine reads back a denormal near
+        // zero. call_set_actor_location_and_rotation below fixed exactly that, for the one
+        // rotation-writing function this file actually called -- and its own comment said so
+        // plainly, which left every FUTURE rotation write a latent bug waiting for its author to
+        // reach for a bare SDK K2_SetActor*/K2_SetRelative* call. The register lists it under
+        // "not a compensation, but worse than most of them" for that reason.
+        //
+        // This is that fix generalised, so there is a correct thing to reach for. Any new
+        // transform write goes through here, or writes in place through a
+        // GetValuePtrByPropertyNameInChain<FVector> pointer -- never a bare SDK rotation-taking
+        // call.
+        //
+        // Deliberately takes the three inner FNames rather than branching on "vector or rotator":
+        // the two structs differ only in what their fields are called, and naming them at the call
+        // site keeps this honest about being a raw three-field write that does not know or care
+        // what the struct means.
+        //
+        // Returns false WITHOUT WRITING ANYTHING if the struct or any inner field fails to
+        // resolve, so a caller refuses the call rather than firing a half-filled buffer at the
+        // engine -- the same posture as every other reflected call in this file. A partially
+        // written buffer is the shape that produces a plausible wrong number instead of a crash,
+        // which is the failure mode CLAUDE.md's "no addresses or APIs from memory" rule exists for.
+        auto write_struct_triple(uint8_t* base, FProperty* struct_property,
+                                 const FName& a_name, const FName& b_name, const FName& c_name,
+                                 double a, double b, double c) -> bool
+        {
+            if (!base || !struct_property)
+            {
+                return false;
+            }
+            UScriptStruct* inner_struct = static_cast<FStructProperty*>(struct_property)->GetStruct();
+            if (!inner_struct)
+            {
+                return false;
+            }
+            FProperty* a_property = inner_struct->FindProperty(a_name);
+            FProperty* b_property = inner_struct->FindProperty(b_name);
+            FProperty* c_property = inner_struct->FindProperty(c_name);
+            if (!a_property || !b_property || !c_property)
+            {
+                return false;
+            }
+
+            // Mirrors UE_COPY_VECTOR: double on UE 5.0+, float below. Static because an engine
+            // version cannot change inside a running process.
+            static const bool use_float = Version::IsBelow(5, 0);
+            const int32_t struct_base = struct_property->GetOffset_Internal();
+            if (use_float)
+            {
+                *std::bit_cast<float*>(base + struct_base + a_property->GetOffset_Internal()) = static_cast<float>(a);
+                *std::bit_cast<float*>(base + struct_base + b_property->GetOffset_Internal()) = static_cast<float>(b);
+                *std::bit_cast<float*>(base + struct_base + c_property->GetOffset_Internal()) = static_cast<float>(c);
+            }
+            else
+            {
+                *std::bit_cast<double*>(base + struct_base + a_property->GetOffset_Internal()) = a;
+                *std::bit_cast<double*>(base + struct_base + b_property->GetOffset_Internal()) = b;
+                *std::bit_cast<double*>(base + struct_base + c_property->GetOffset_Internal()) = c;
+            }
+            return true;
+        }
+
+        // Named wrappers, so a call site reads as what it means and nobody has to remember which
+        // three field names belong to which struct. FVector exposes X()/Y()/Z(); FRotator exposes
+        // GetPitch()/GetYaw()/GetRoll() -- the asymmetry is the SDK's, not ours.
+        auto write_vector_param(uint8_t* base, FProperty* struct_property, const FVector& value) -> bool
+        {
+            return write_struct_triple(base, struct_property,
+                                       FName(STR("X"), FNAME_Find),
+                                       FName(STR("Y"), FNAME_Find),
+                                       FName(STR("Z"), FNAME_Find),
+                                       value.X(), value.Y(), value.Z());
+        }
+
+        auto write_rotator_param(uint8_t* base, FProperty* struct_property, const FRotator& value) -> bool
+        {
+            return write_struct_triple(base, struct_property,
+                                       FName(STR("Pitch"), FNAME_Find),
+                                       FName(STR("Yaw"), FNAME_Find),
+                                       FName(STR("Roll"), FNAME_Find),
+                                       value.GetPitch(), value.GetYaw(), value.GetRoll());
+        }
+
         auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void
         {
             if (!actor)
@@ -3649,20 +3857,6 @@ namespace MeshGhostPseudo
                 return;
             }
 
-            UScriptStruct* location_struct = static_cast<FStructProperty*>(location_property)->GetStruct();
-            UScriptStruct* rotation_struct = static_cast<FStructProperty*>(rotation_property)->GetStruct();
-            FProperty* x_property = location_struct ? location_struct->FindProperty(FName(STR("X"), FNAME_Find)) : nullptr;
-            FProperty* y_property = location_struct ? location_struct->FindProperty(FName(STR("Y"), FNAME_Find)) : nullptr;
-            FProperty* z_property = location_struct ? location_struct->FindProperty(FName(STR("Z"), FNAME_Find)) : nullptr;
-            FProperty* pitch_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Pitch"), FNAME_Find)) : nullptr;
-            FProperty* yaw_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Yaw"), FNAME_Find)) : nullptr;
-            FProperty* roll_property = rotation_struct ? rotation_struct->FindProperty(FName(STR("Roll"), FNAME_Find)) : nullptr;
-            if (!x_property || !y_property || !z_property || !pitch_property || !yaw_property || !roll_property)
-            {
-                Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation's NewLocation/NewRotation struct is missing an expected inner field -- refusing to call it.\n"));
-                return;
-            }
-
             int32_t parms_size = function->GetPropertiesSize();
             if (parms_size < static_cast<int32_t>(location_property->GetOffset_Internal() + location_property->GetSize())
                 || parms_size < static_cast<int32_t>(rotation_property->GetOffset_Internal() + rotation_property->GetSize()))
@@ -3676,34 +3870,31 @@ namespace MeshGhostPseudo
             int32_t loc_base = location_property->GetOffset_Internal();
             int32_t rot_base = rotation_property->GetOffset_Internal();
 
-            // Mirrors UE_COPY_VECTOR (BPMacros.hpp): double on UE 5.0+, float below -- this is the
-            // branch the rotation path was missing.
-            static const bool use_float = Version::IsBelow(5, 0);
+            // Migrated 2026-08-27 onto write_vector_param/write_rotator_param above. The
+            // float/double branch, the inner-field resolution and the refuse-rather-than-
+            // half-write posture all moved there unchanged; this call site keeps its own logging
+            // and its own top-level parameter validation.
+            //
+            // Migrating rather than leaving the helpers unexercised is deliberate. This is the
+            // most-run reflected call in the adapter, so a ghost that stands in the right place
+            // facing the right way confirms the shared helper for free, every session, without
+            // anyone testing it on purpose -- and a defect in it shows up HERE, immediately and
+            // unmissably, instead of surfacing later disguised as a bug in whatever new feature
+            // first reached for it. That is the whole failure mode BANDAGES.md predicted for this
+            // bug, so the fix should not reproduce it.
             static bool logged_once = false;
             if (!logged_once)
             {
                 Output::send(STR("[MeshGhostPseudo] call_set_actor_location_and_rotation: NewLocation@{} NewRotation@{} inner_type={} parms_size={}\n"),
-                             loc_base, rot_base, use_float ? STR("float") : STR("double"), parms_size);
+                             loc_base, rot_base, Version::IsBelow(5, 0) ? STR("float") : STR("double"), parms_size);
                 logged_once = true;
             }
 
-            if (use_float)
+            if (!write_vector_param(base, location_property, new_location)
+                || !write_rotator_param(base, rotation_property, new_rotation))
             {
-                *std::bit_cast<float*>(base + loc_base + x_property->GetOffset_Internal()) = static_cast<float>(new_location.X());
-                *std::bit_cast<float*>(base + loc_base + y_property->GetOffset_Internal()) = static_cast<float>(new_location.Y());
-                *std::bit_cast<float*>(base + loc_base + z_property->GetOffset_Internal()) = static_cast<float>(new_location.Z());
-                *std::bit_cast<float*>(base + rot_base + pitch_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetPitch());
-                *std::bit_cast<float*>(base + rot_base + yaw_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetYaw());
-                *std::bit_cast<float*>(base + rot_base + roll_property->GetOffset_Internal()) = static_cast<float>(new_rotation.GetRoll());
-            }
-            else
-            {
-                *std::bit_cast<double*>(base + loc_base + x_property->GetOffset_Internal()) = new_location.X();
-                *std::bit_cast<double*>(base + loc_base + y_property->GetOffset_Internal()) = new_location.Y();
-                *std::bit_cast<double*>(base + loc_base + z_property->GetOffset_Internal()) = new_location.Z();
-                *std::bit_cast<double*>(base + rot_base + pitch_property->GetOffset_Internal()) = new_rotation.GetPitch();
-                *std::bit_cast<double*>(base + rot_base + yaw_property->GetOffset_Internal()) = new_rotation.GetYaw();
-                *std::bit_cast<double*>(base + rot_base + roll_property->GetOffset_Internal()) = new_rotation.GetRoll();
+                Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation's NewLocation/NewRotation struct is missing an expected inner field -- refusing to call it.\n"));
+                return;
             }
 
             *std::bit_cast<bool*>(base + sweep_property->GetOffset_Internal()) = false;
@@ -4121,6 +4312,95 @@ namespace MeshGhostPseudo
     // component on the pawn across a whole session, which is what established that).
     constexpr const wchar_t* RECALL_GLOW_ASSET = STR("/Game/VFX/Emitters/NS_WeaponCallReady.NS_WeaponCallReady");
 
+    // ---------------------------------------------------------------------------------------
+    // Mirrored player effects, 2026-08-27. The user named three still-missing ghost visuals:
+    // healing, dying, and the charged ranged projectile. This table covers the two that are
+    // ATTACHED TO THE PLAYER, and so are unambiguously the player's own; the projectile is a
+    // separate world actor (thrown-Dream-Breaker treatment) and the death burst is world-spawned
+    // at the death location, both of which need attribution work this table deliberately avoids.
+    //
+    // Every asset, attach point and socket below was MEASURED, not guessed -- one VFX_WATCH
+    // capture run, 2026-08-27, logged each on appearance with its AttachParent, AttachSocketName
+    // and RelativeLocation. See UNVERIFIED.md for the run and the exact log lines.
+    //
+    // **`key` is what crosses the wire, and an asset path never does.** That is the whole
+    // peer-data-safety design here, not a detail: `ideas.md`'s 2026-08-27 ACE audit found this
+    // adapter plays any montage a peer names, and a VFX mirror that shipped a peer-supplied asset
+    // path would add a second unbounded peer-controlled name lookup rather than avoiding the
+    // first. A peer can say "heal" or "chg" and nothing else; anything unrecognised is dropped
+    // without a lookup. The allowlist is the table -- there is no path by which a peer reaches
+    // StaticFindObject with a string of its own choosing.
+    //
+    // The wire carries STATE (which effects are active right now), not events. A dropped or
+    // reordered datagram then self-corrects on the next update, where a missed "stop" event would
+    // strand an effect on a ghost forever -- the exact bug shape the recall glow already hit once
+    // (`component_is_active`'s own comment).
+    struct MirroredEffect
+    {
+        // Wire key. Short on purpose: extras are capped at MaxExtrasBytes = 1024 and this block
+        // measured ~689 bytes worst case before this field existed.
+        const char* key;
+        // Resolved independently on each machine, from this table -- never from the wire.
+        const wchar_t* asset;
+        // Property on the pawn naming the component to attach to. Both entries below attach to
+        // something the ghost also has, because the ghost is a clone of the player's own pawn
+        // class -- which is what makes mirroring an attach point meaningful at all.
+        const wchar_t* attach_prop;
+        // Bone socket, or nullptr for "attach at the component itself".
+        const wchar_t* socket;
+        // True for effects the game spawns at a WORLD POSITION rather than attaching to the
+        // player -- owned by the level, so the ownership test that identifies the rows above
+        // cannot see them. Those are matched by PROXIMITY to the local player instead, and
+        // rendered on the ghost's root.
+        //
+        // Proximity is a heuristic and is called one here rather than dressed up: it can be
+        // fooled by another character's identical effect going off next to you. It is accepted
+        // for these two because they are cosmetic, short-lived, and spawn exactly at the healing
+        // character. It is NOT accepted for the death burst, whose candidate asset (NS_BasicBurst)
+        // also fires on ordinary combat hits all over the screen -- see UNVERIFIED.md.
+        bool world_spawned;
+    };
+
+    // Measured 2026-08-27. NS_Healing hangs off the capsule with no socket and no offset;
+    // NS_ProjectileCharged hangs off the skeletal mesh at the RIGHT HAND socket, which is why the
+    // user sees it on the sword while charging rather than centred on the character.
+    // The first two attach to the player. The last two are the heal's completion waves -- the
+    // "yellow things" the user reported still missing after the first mirror shipped, which the
+    // capture run had already logged as world-spawned (attach='<none>', owned by WorldSettings)
+    // and which the player-ownership test therefore could never have found.
+    constexpr MirroredEffect MIRRORED_EFFECTS[] = {
+        {"heal", STR("/Game/VFX/Systems/NS_Healing.NS_Healing"), STR("CapsuleComponent"), nullptr, false},
+        // 'chg' was pulled for one run as a one-variable test of the ghost-damages-player bug and
+        // is **RESTORED 2026-08-27, EXONERATED**: with it gone the ghost still damaged the player,
+        // so a Niagara spawn was never the cause and the ghost's own logic is. Recorded because a
+        // cleared suspect is worth as much as a found one -- it stops the next session re-testing
+        // it. See UNVERIFIED.md.
+        {"chg", STR("/Game/VFX/Emitters/NS_ProjectileCharged.NS_ProjectileCharged"), STR("VisualMesh"), STR("handslot_R"), false},
+        {"hw", STR("/Game/VFX/Emitters/NS_HealWave.NS_HealWave"), STR("RootComponent"), nullptr, true},
+        {"hew", STR("/Game/VFX/Emitters/NS_HealEndwave.NS_HealEndwave"), STR("RootComponent"), nullptr, true},
+    };
+
+    // How close a world-spawned effect must be to the local player to be treated as the player's
+    // own. Derived, not tuned: the capture run logged both waves at 130-260 units from the
+    // player's own position, and this game's characters are ~130 units tall, so 600 is roughly
+    // "within a couple of body lengths" -- comfortably above the observed spread and well below
+    // the distance at which another character would plausibly be healing.
+    constexpr double MIRROR_WORLD_VFX_RADIUS = 600.0;
+
+    // Off by default like every other visual addition here, so it can be A/B'd against a build
+    // that does not spawn anything. It gates the WORK -- the local enumeration, the wire field and
+    // the ghost-side spawn all sit behind it -- not merely the decision they feed, which is the
+    // distinction CLAUDE.md's "a flag flip is not a revert" rule turns on.
+    constexpr bool MIRROR_PLAYER_VFX = true;
+
+    // How often the local side asks which mirrored effects are active. Deliberately NOT every
+    // tick: this enumerates live Niagara components, and per-tick enumeration with a name lookup
+    // per object caused the worst performance regression this project has had (pitfalls.md,
+    // 2026-08-16). The identity cache below is the other half of that lesson -- an asset name is
+    // resolved once per component, not once per sample.
+    constexpr uint64_t MIRROR_PLAYER_VFX_INTERVAL_TICKS = 5;
+
+
     // Capture for "throwing the sword BEFORE the ghost spawns leaves things weird", reported
     // 2026-08-16. Every weapon test so far has thrown with a ghost already standing there, so the
     // spawn-mid-throw ordering has genuinely never been exercised.
@@ -4499,6 +4779,109 @@ namespace MeshGhostPseudo
     //     else nobody has noticed -- is mirrored for free, and cannot drift out of sync with the
     //     game's own logic the way a reimplemented rule would.
     constexpr bool RECALL_GLOW_ENABLED = true;
+
+    // Plays the peer's own attached effects on its ghost -- healing and the charged-projectile
+    // glow as of 2026-08-27. See MIRRORED_EFFECTS for the table, the measurements behind it, and
+    // why the wire carries a key rather than an asset path.
+    //
+    // The peer is authoritative and this is a pure state match: whatever is in target_vfx should
+    // be playing, whatever is not should not be. There is no event, no counter and no duration
+    // anywhere in this path, which is deliberate -- the user's own note that a heal "can last
+    // longer/shorter" is exactly the kind of thing a reconstructed rule gets wrong and an
+    // observed mirror gets right for free. It is the same reason AFTERIMAGE_TRIGGER_FROM_
+    // OBSERVATION beat three successive actionState theories.
+    auto Plugin::tick_remote_mirrored_vfx(const std::string& player_id, RemoteGhost& remote) -> void
+    {
+        if constexpr (!MIRROR_PLAYER_VFX)
+        {
+            return;
+        }
+        if (!remote.ghost)
+        {
+            return;
+        }
+
+        constexpr size_t MIRRORED_EFFECT_COUNT = sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0]);
+        for (size_t i = 0; i < MIRRORED_EFFECT_COUNT; ++i)
+        {
+            const MirroredEffect& effect = MIRRORED_EFFECTS[i];
+            const std::string key(effect.key);
+
+            // Substring matching would let "chg" match a hypothetical "chgfoo", so the list is
+            // walked comma-separated instead. Cheap: the list has at most a couple of entries.
+            bool wanted = false;
+            size_t pos = 0;
+            while (pos <= remote.target_vfx.size())
+            {
+                const size_t comma = remote.target_vfx.find(',', pos);
+                const size_t end = (comma == std::string::npos) ? remote.target_vfx.size() : comma;
+                if (remote.target_vfx.compare(pos, end - pos, key) == 0)
+                {
+                    wanted = true;
+                    break;
+                }
+                if (comma == std::string::npos)
+                {
+                    break;
+                }
+                pos = comma + 1;
+            }
+
+            auto existing = remote.vfx_components.find(key);
+            const bool have = (existing != remote.vfx_components.end()) && (existing->second != nullptr);
+
+            if (wanted && !have)
+            {
+                // Resolved from OUR table, never from the peer's string -- the peer only ever
+                // selected which row of a compile-time table to use.
+                UObject* asset = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, effect.asset);
+                if (!asset)
+                {
+                    // Once per key, not once per tick: a missing asset is permanent for the
+                    // process, and the unthrottled version of this exact warning was found
+                    // spamming the log in a review pass elsewhere in this file.
+                    static std::set<std::string> warned_assets;
+                    if (warned_assets.insert(key).second)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: mirrored effect '{}' did not resolve -- not played on any ghost.\n"),
+                                     to_wide_ascii(key));
+                    }
+                    continue;
+                }
+                UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(effect.attach_prop);
+                if (!attach_ptr || !*attach_ptr)
+                {
+                    static std::set<std::string> warned_attach;
+                    if (warned_attach.insert(key).second)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: mirrored effect '{}' has no attach component on the ghost -- not played.\n"),
+                                     to_wide_ascii(key));
+                    }
+                    continue;
+                }
+                UObject* component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
+                remote.vfx_components[key] = component;
+                Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: started '{}' (component={})\n"),
+                             to_wide_ascii(player_id), to_wide_ascii(key),
+                             component ? STR("ok") : STR("NULL"));
+            }
+            else if (!wanted && have)
+            {
+                UObject* component = existing->second;
+                if (UFunction* deactivate_fn = component->GetFunctionByNameInChain(STR("Deactivate")))
+                {
+                    component->ProcessEvent(deactivate_fn, nullptr);
+                }
+                if (UFunction* destroy_fn = component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                {
+                    component->ProcessEvent(destroy_fn, nullptr);
+                }
+                remote.vfx_components.erase(existing);
+                Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: stopped '{}'\n"),
+                             to_wide_ascii(player_id), to_wide_ascii(key));
+            }
+        }
+    }
 
     auto Plugin::tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void
     {
@@ -5717,6 +6100,181 @@ namespace MeshGhostPseudo
 
         ghost->SetActorEnableCollision(GHOST_COLLISION_ENABLED);
 
+        // **Cutting the ghost off from the player's SHARED and health state, 2026-08-27.** The
+        // user's ask, in their words: *"can we just remove/disable anything health related on the
+        // ghost itself?"*
+        //
+        // **Where health actually lives -- measured this session, never established before.** A
+        // full reflection dump of the player pawn has NO current-health property: only config
+        // (`healAmountPerDing`, `HPpiecesNeededForHeart`, `hitsToFill`, `healUpgrades`). What it
+        // does have is `As MV Game Instance Ref`, and a UE **GameInstance is a SINGLETON** -- one
+        // object for the whole running game. The ghost is a clone of the player's pawn, so it
+        // holds a reference to THE SAME OBJECT the player does, and any health logic the ghost's
+        // Blueprint runs writes the player's health. `UI_HudRef` is the same shape for the HUD
+        // widget, which is why damage was not rendering either.
+        //
+        // That single fact explains three separately-reported symptoms with one mechanism: damage
+        // to a ghost hurting and killing the real player (VERIFIED.md 2026-08-17), respawning at 0
+        // health, and this session's "my health is also not visually going down". Every earlier
+        // treatment reached for an engine-level flag (`bCanBeDamaged`, collision) that could not
+        // possibly have addressed a shared singleton -- which is why none of them held, and why
+        // adding a fourth flag would not have either.
+        //
+        // Nulling these is the decoupling: the ghost keeps its body, animation and cosmetics and
+        // loses its handle on everything the player shares. That is the project's own line --
+        // cosmetics yes, game-state authority no (`brief.md`; the "let the game do the work" rule
+        // was always scoped to cosmetics).
+        //
+        // **Risk, stated now rather than discovered later:** a Blueprint that dereferences one of
+        // these without an IsValid guard would break on the ghost. This game does guard elsewhere
+        // (manageRecallIdleFX's internals are IsValid-guarded throughout) and a ghost runs no
+        // player input, but that is an argument, not evidence -- hence the flag, which gates the
+        // writes themselves and is therefore a real revert.
+        if constexpr (GHOST_DECOUPLE_SHARED_STATE)
+        {
+            // **The ghost's own HITBOX, 2026-08-27 -- BUILT, NEVER TESTED.** Wired at the end of
+            // the session at which point nobody has watched it; it is a candidate, not a fix.
+            //
+            // Reasoning, which is the same pattern the camera rig and the HUD both turned out to
+            // be: a ghost is a clone of the player's pawn, so it brings its own copy of everything
+            // the player owns -- including `Hit Component 1`. Zeroing the pawn's damage NUMBERS
+            // was already tried and confirmed applied (`lightAttackDamage` 15->0, `heavyAttackDamage`
+            // 50->0, `projectileFullDamage` 45->0) with `obtainedProjectile?` already false, and
+            // the ghost STILL hit the player -- so whatever deals the damage does not read those,
+            // and a live hitbox component is the obvious remaining candidate.
+            //
+            // **The unexplained detail this does NOT yet account for, recorded so it is not lost:**
+            // only the FIRST charged attack lands; later ones do not. The pawn carries a
+            // `hitActorsArray`, an already-hit list, and a ghost whose copy is never cleared would
+            // hit the player once and then treat them as permanently already-hit. That fits the
+            // symptom exactly and would mean the real bug is one hit, not a repeating one. If
+            // disabling the hitbox stops it, that theory goes untested; if it does not, start there.
+            for (const wchar_t* hitbox_prop : {STR("Hit Component 1"), STR("CollisionComponent")})
+            {
+                // **Every branch logs, including "not there".** The first version printed only on
+                // success, so when the 2026-08-27 test came back with the ghost still hitting the
+                // player the log was SILENT and the run proved nothing -- it could not distinguish
+                // "disabled it and that was not the cause" from "never found it at all". That is
+                // CLAUDE.md's "log the thing that would prove you wrong", and
+                // effect-investigation.md §3's `ours=` field, learned again the expensive way.
+                UObject** hitbox = ghost->GetValuePtrByPropertyNameInChain<UObject*>(hitbox_prop);
+                if (!hitbox)
+                {
+                    Output::send(STR("[MeshGhostPseudo] ghost decouple: '{}' does not resolve on this build.\n"), hitbox_prop);
+                }
+                else if (!*hitbox)
+                {
+                    Output::send(STR("[MeshGhostPseudo] ghost decouple: '{}' resolves but is NULL on the ghost -- nothing to disable.\n"), hitbox_prop);
+                }
+                else if (disable_component_collision(*hitbox))
+                {
+                    Output::send(STR("[MeshGhostPseudo] ghost decoupled: '{}' collision disabled.\n"), hitbox_prop);
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: '{}' has no reflected SetCollisionEnabled -- it may still hit the player.\n"), hitbox_prop);
+                }
+            }
+
+            // **Take the ghost's OWN HUD off the screen, 2026-08-27.**
+            //
+            // The clue was in our own log and was walked past once: the decouple pass reported
+            // `UI_HudRef` as `cleared (was set)` -- the ghost HAS a HUD widget of its own. A pawn
+            // clone runs the player's BeginPlay, so it creates a health bar and adds it to the
+            // viewport just as the real player's does. That second bar is initialised at full and
+            // drawn over the real one, which is EXACTLY the reported symptom: *"My health bar
+            // stays visually full all the time, even if i can get hurt/die from taking a lot of
+            // damage"*.
+            //
+            // It also explains why the previous round changed nothing. Nulling the REFERENCE
+            // leaves the widget parented to the viewport -- a widget's lifetime is its parent's,
+            // not its referrer's -- so the bar stayed on screen with nobody left pointing at it.
+            // That is the same mistake in a new place: a reference is not the thing.
+            //
+            // Consistent with the measurement, and this is what makes it more than a story:
+            // `CurrentHp` was confirmed CORRECT with a ghost present (damage, heal, death and
+            // respawn all landed on the right values), so the health STATE was never wrong and a
+            // duplicate display is the only remaining way the screen and the value disagree.
+            //
+            // RemoveFromParent is stock UUserWidget, not this game's own data. Order matters:
+            // this must run BEFORE the reference is nulled below, or there is nothing left to
+            // reach the widget through.
+            if (UObject** ghost_hud = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef")); ghost_hud && *ghost_hud)
+            {
+                if (UFunction* remove_fn = (*ghost_hud)->GetFunctionByNameInChain(STR("RemoveFromParent")))
+                {
+                    (*ghost_hud)->ProcessEvent(remove_fn, nullptr);
+                    Output::send(STR("[MeshGhostPseudo] ghost decoupled: removed the ghost's own HUD widget from the viewport.\n"));
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: ghost HUD has no reflected RemoveFromParent -- a duplicate health bar may still be on screen.\n"));
+                }
+            }
+
+            // **Zero the ghost's own DAMAGE NUMBERS, 2026-08-27.** Clearing the cached refs
+            // below turned out to be necessary-at-best and insufficient in fact: all four were
+            // confirmed cleared in the log and the ghost still hurt the player, because a UE
+            // actor can reach the GameInstance singleton with GetGameInstance() at any time --
+            // the cached pointer was never the only route to it. **A reference is not a
+            // capability.**
+            //
+            // So this stops the ghost DOING the thing rather than HOLDING the pointer. Every name
+            // here came out of this build's own reflection dump, not from memory:
+            // `lightAttackDamage` and `heavyAttackDamage` (Double), `projectileFullDamage`
+            // (Double), and `obtainedProjectile?` (Bool) -- the unlock flag the ghost's own logic
+            // checks before it may fire one at all.
+            //
+            // Deliberately BOTH: the flag should stop the projectile being spawned, and the
+            // zeroed damage means anything that slips past it lands for nothing. Belt and braces
+            // is right here because the failure mode is a peer's ghost interfering with the
+            // local player's run, which the project forbids outright -- this is not a case where
+            // the tidier single fix is worth the risk of being wrong again.
+            //
+            // The visual is unaffected: the ghost's attack POSE comes from the montage we mirror
+            // onto it, not from the ghost deciding to attack.
+            for (const wchar_t* damage_field : {STR("lightAttackDamage"), STR("heavyAttackDamage"),
+                                                STR("projectileFullDamage")})
+            {
+                if (double* dmg_ptr = ghost->GetValuePtrByPropertyNameInChain<double>(damage_field))
+                {
+                    Output::send(STR("[MeshGhostPseudo] ghost decoupled: '{}' {} -> 0.\n"), damage_field, *dmg_ptr);
+                    *dmg_ptr = 0.0;
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: ghost decouple could not resolve '{}' -- it may still deal damage.\n"), damage_field);
+                }
+            }
+            if (bool* got_projectile = ghost->GetValuePtrByPropertyNameInChain<bool>(STR("obtainedProjectile?")))
+            {
+                Output::send(STR("[MeshGhostPseudo] ghost decoupled: 'obtainedProjectile?' {} -> false.\n"), *got_projectile);
+                *got_projectile = false;
+            }
+
+            // `BP_HpHitable` and `LastHitBy` are the health-specific pair; the first two are the
+            // shared singletons. All four are ObjectProperties on the pawn, confirmed present in
+            // this build's own reflection dump rather than assumed.
+            for (const wchar_t* shared_ref : {STR("As MV Game Instance Ref"), STR("UI_HudRef"),
+                                              STR("BP_HpHitable"), STR("LastHitBy")})
+            {
+                if (UObject** ref_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(shared_ref))
+                {
+                    const bool was_set = (*ref_ptr != nullptr);
+                    *ref_ptr = nullptr;
+                    Output::send(STR("[MeshGhostPseudo] ghost decoupled: '{}' cleared (was {}).\n"),
+                                 shared_ref, was_set ? STR("set") : STR("already null"));
+                }
+                else
+                {
+                    // A name that does not resolve is a real finding on this build, not something
+                    // to pass over quietly -- CLAUDE.md's "it ran without errors is not evidence".
+                    Output::send(STR("[MeshGhostPseudo] WARNING: ghost decouple could not resolve '{}' -- the ghost may still share it.\n"),
+                                 shared_ref);
+                }
+            }
+        }
+
         // Ghost hurtbox disable, 2026-08-15 -- user's own proposal, and the right shape of fix for
         // the melee-death hazard that kept collision off until now: keep the ghost's physical
         // presence (which is what makes collision worth having, and what wall-ride detection may
@@ -5734,7 +6292,32 @@ namespace MeshGhostPseudo
         // NOT yet live-confirmed to stop the death propagation -- it targets the standard damage
         // path, and the original bug's exact mechanism (why damaging the ghost killed the REAL
         // player) was never root-caused. Verify by deliberately attacking a ghost before trusting.
-        if constexpr (GHOST_COLLISION_ENABLED)
+        // **OFF from 2026-08-27, the user's call, and it is a SUSPECT rather than a tidy-up.**
+        //
+        // History: this wrote `bCanBeDamaged = false` on every ghost from 2026-08-15, to defend
+        // against the confirmed coupling where damage to a ghost hurt and could KILL the real
+        // player (VERIFIED.md 2026-08-17). It was gated on GHOST_COLLISION_ENABLED, so when
+        // collision went off earlier the same day it stopped compiling in at all -- briefly
+        // ungated here on the reasoning that a ghost should never be a damage target whether or
+        // not it is solid.
+        //
+        // **The user's reading is better, and it explains a live symptom that one did not:** with
+        // collision off the ghost cannot be hit anyway, so the write buys nothing -- while the
+        // ghost is a CLONE of the player's own pawn, and this property is the most likely way a
+        // write meant for the ghost reaches the player. Reported the same session: *"my health is
+        // also not visually going down whenever i get hit/hurt or fall into a pit"*. An
+        // un-damageable player is exactly what setting this on shared state would produce, and it
+        // is the same family as the older bug where killing a ghost left the player respawning at
+        // 0 health.
+        //
+        // So this is off as a HYPOTHESIS UNDER TEST, not because it was judged useless. If the
+        // player takes damage normally with it off, that is a real finding about where this game
+        // keeps health -- which nobody has established -- and it is recorded in UNVERIFIED.md as
+        // the measurement that matters rather than another engine-level flag to try.
+        //
+        // The flag gates the WORK (the property write itself), not a decision it feeds, so
+        // flipping it back is a genuine revert -- CLAUDE.md's "a flag flip is not a revert".
+        if constexpr (GHOST_HURTBOX_DISABLED)
         {
             if (bool* can_be_damaged_ptr = ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bCanBeDamaged")))
             {
@@ -5927,6 +6510,11 @@ namespace MeshGhostPseudo
             // older build simply sends neither, leaving montage_count at 0 forever, which never
             // fires anything.
             std::string montage = json_string_field(line, "montage");
+            // Mirrored player effects -- a comma-joined list of KEYS from MIRRORED_EFFECTS,
+            // never an asset path. See that table's comment for why the wire carries a key.
+            // Best-effort like every other extra: a peer on an older build sends nothing, which
+            // reads as "no effects active" -- i.e. exactly today's behaviour, not a regression.
+            std::string vfx_keys = json_string_field(line, "vfx");
             double montage_count_in = 0;
             json_number_field(line, "montage_count", montage_count_in);
             double montage_stop_count_in = 0;
@@ -6120,6 +6708,10 @@ namespace MeshGhostPseudo
                 // simply "nothing playing right now"), but it's the counter that drives the ghost,
                 // and the counter only ever advances on a start, where the path is non-empty by
                 // construction. Storing the path unconditionally keeps the pair consistent.
+                // Unconditional, unlike outfit_mesh: an EMPTY list is the meaningful signal
+                // that every effect has stopped, so treating it as "no data, leave unchanged"
+                // would strand an effect on the ghost forever -- the recall-glow bug again.
+                it->second.target_vfx = vfx_keys;
                 it->second.target_montage = montage;
                 it->second.target_montage_count = montage_count_in;
                 it->second.target_montage_stop_count = montage_stop_count_in;
@@ -7635,6 +8227,37 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // Health hunt -- see HEALTH_PROBE's own comment for the two-run protocol.
+            if constexpr (HEALTH_PROBE)
+            {
+                if (tick_count % HEALTH_PROBE_INTERVAL_TICKS == 0)
+                {
+                    static std::map<StringType, StringType> prev_game_instance;
+                    static std::map<StringType, StringType> prev_hud;
+                    // The reference is read off the LOCAL pawn every sample rather than cached:
+                    // which instance the player actually points at is part of what is being
+                    // measured here.
+                    if (UObject** gi_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
+                    {
+                        std::map<StringType, StringType> now = snapshot_object_values(*gi_ptr);
+                        if (!prev_game_instance.empty())
+                        {
+                            log_value_snapshot_diff(prev_game_instance, now, STR("GameInstance"), tick_count);
+                        }
+                        prev_game_instance = std::move(now);
+                    }
+                    if (UObject** hud_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef")); hud_ptr && *hud_ptr)
+                    {
+                        std::map<StringType, StringType> now = snapshot_object_values(*hud_ptr);
+                        if (!prev_hud.empty())
+                        {
+                            log_value_snapshot_diff(prev_hud, now, STR("UI_Hud"), tick_count);
+                        }
+                        prev_hud = std::move(now);
+                    }
+                }
+            }
+
             // Live-value trace for the ability field schema (see ABILITY_FIELD_TRACE's own
             // comment and PLAYER_FIELDS.md). Every pointer here is read defensively -- a name not
             // resolving just means "not this build/this object", same posture as every other
@@ -8554,6 +9177,150 @@ namespace MeshGhostPseudo
             // across it (as this used to) only needlessly extended the critical section against
             // that other thread for no correctness benefit. Only the final assignment into
             // cached_local_state_json, which on_update does read, needs the lock.
+            // Which mirrored effects are live on the local player right now. See
+            // MIRRORED_EFFECTS above for the table, why the wire carries a key rather than an
+            // asset path, and why this is state rather than events.
+            //
+            // Two costs are managed here rather than trusted, because this is the exact shape
+            // that caused this project's worst performance regression (pitfalls.md, 2026-08-16:
+            // per-tick enumeration with a name lookup per object):
+            //   1. The enumeration runs on a cadence, not every tick.
+            //   2. An asset name is resolved ONCE per component, then cached by pointer. In the
+            //      steady state this loop does a hash lookup per component and nothing else.
+            // component_is_active() is a reflected call, so it is made only for the handful of
+            // components already known to be ours -- normally zero, at most two.
+            //
+            // Detection is by ACTIVE, not by existence, and that is load-bearing rather than
+            // fastidious: a Niagara component spawned with bAutoDestroy off is deactivated and
+            // KEPT, so it stays in the enumeration forever and an existence test can never go
+            // false again. That is precisely the recall-glow bug, already paid for once here --
+            // see component_is_active's own comment.
+            static std::string mirrored_vfx_keys;
+            if constexpr (MIRROR_PLAYER_VFX)
+            {
+                constexpr size_t MIRRORED_EFFECT_COUNT = sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0]);
+                if (tick_count % MIRROR_PLAYER_VFX_INTERVAL_TICKS == 0)
+                {
+                    // Pointer -> index into MIRRORED_EFFECTS, or -1 for "looked at it, not ours".
+                    // Caching the NEGATIVE matters as much as the positive: the great majority of
+                    // live components belong to the level or to enemies, and without this every
+                    // one of them would be re-resolved by name on every sample.
+                    //
+                    // Rebuilt from the live enumeration each sample, so a destroyed component's
+                    // pointer is dropped rather than lingering. Known limit, stated rather than
+                    // hidden: if the engine reuses a freed address for a DIFFERENT component
+                    // between two samples, it inherits the old identity for one interval. Niagara
+                    // pooling makes that possible, and §4 of effect-investigation.md is about
+                    // exactly this class of mistake. The blast radius is one wrong effect key for
+                    // ~5 ticks, self-correcting on the next sample, which is why it is accepted
+                    // here and would not be if this drove anything but a cosmetic.
+                    static std::unordered_map<UObject*, int> vfx_identity;
+
+                    std::vector<UObject*> components;
+                    UObjectGlobals::FindAllOf(STR("NiagaraComponent"), components);
+
+                    const std::string pawn_name = to_utf8(pawn->GetName());
+                    std::unordered_map<UObject*, int> live;
+                    live.reserve(components.size());
+                    bool active[MIRRORED_EFFECT_COUNT] = {};
+
+                    for (UObject* component : components)
+                    {
+                        if (!component)
+                        {
+                            continue;
+                        }
+                        int which = -1;
+                        if (auto known = vfx_identity.find(component); known != vfx_identity.end())
+                        {
+                            which = known->second;
+                        }
+                        else
+                        {
+                            // Match the asset first, then decide by the row's own kind how this
+                            // component is attributed to the player. Identity (which asset) never
+                            // changes for a component, so it is cached; ATTRIBUTION is only
+                            // cached for the player-attached rows, because an owner does not
+                            // change while a position does.
+                            if (UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                            {
+                                const std::string asset_full = to_utf8((*asset_ptr)->GetFullName());
+                                const size_t space_pos = asset_full.find(' ');
+                                const std::string asset_path = (space_pos != std::string::npos) ? asset_full.substr(space_pos + 1) : asset_full;
+                                for (size_t i = 0; i < MIRRORED_EFFECT_COUNT; ++i)
+                                {
+                                    if (asset_path != to_utf8(MIRRORED_EFFECTS[i].asset))
+                                    {
+                                        continue;
+                                    }
+                                    if (MIRRORED_EFFECTS[i].world_spawned)
+                                    {
+                                        // Owned by the level, so ownership says nothing. Accept
+                                        // the identity now and let the per-sample proximity test
+                                        // below decide whether it is ours.
+                                        which = static_cast<int>(i);
+                                    }
+                                    else if (to_utf8(component->GetFullName()).find(pawn_name) != std::string::npos)
+                                    {
+                                        // Attached to the local pawn -- unambiguously the
+                                        // player's own, and true for the life of the component.
+                                        which = static_cast<int>(i);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        live.emplace(component, which);
+                        if (which < 0 || !component_is_active(component))
+                        {
+                            continue;
+                        }
+                        if (MIRRORED_EFFECTS[which].world_spawned)
+                        {
+                            // A world-spawned effect carries its world position in
+                            // RelativeLocation, since it is attached to nothing -- confirmed in
+                            // the capture run, where both waves logged attach='<none>' with a
+                            // real world coordinate. Tested EVERY sample, not cached: the whole
+                            // question is where it is, and that is the one thing that moves.
+                            FVector* where = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+                            if (!where)
+                            {
+                                continue;
+                            }
+                            const double dx = where->X() - location.X();
+                            const double dy = where->Y() - location.Y();
+                            const double dz = where->Z() - location.Z();
+                            if ((dx * dx + dy * dy + dz * dz) > (MIRROR_WORLD_VFX_RADIUS * MIRROR_WORLD_VFX_RADIUS))
+                            {
+                                continue;
+                            }
+                        }
+                        active[which] = true;
+                    }
+                    vfx_identity = std::move(live);
+
+                    std::string keys;
+                    for (size_t i = 0; i < MIRRORED_EFFECT_COUNT; ++i)
+                    {
+                        if (!active[i])
+                        {
+                            continue;
+                        }
+                        if (!keys.empty())
+                        {
+                            keys += ",";
+                        }
+                        keys += MIRRORED_EFFECTS[i].key;
+                    }
+                    if (keys != mirrored_vfx_keys)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] MIRRORVFX local: '{}' -> '{}' tick={}\n"),
+                                     to_wide_ascii(mirrored_vfx_keys), to_wide_ascii(keys), tick_count);
+                    }
+                    mirrored_vfx_keys = keys;
+                }
+            }
+
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
@@ -8573,7 +9340,7 @@ namespace MeshGhostPseudo
                 // MaxExtrasBytes = 1024 and an unbounded double can print 17 significant digits.
                 // Measured worst case with this block: ~689 bytes.
                 "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\",\"recall_glow\":{},"
-                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}]}}"
+                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"vfx\":\"{}\"}}"
                 "}}}}}}",
                 json_escape(area_id),
                 location.X(),
@@ -8613,7 +9380,8 @@ namespace MeshGhostPseudo
                 weapon_z,
                 weapon_pitch,
                 weapon_yaw,
-                weapon_roll);
+                weapon_roll,
+                mirrored_vfx_keys);
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
@@ -9150,6 +9918,7 @@ namespace MeshGhostPseudo
             // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
             // majority of ticks.
             tick_remote_recall_glow(id, remote);
+            tick_remote_mirrored_vfx(id, remote);
 
             if constexpr (GHOST_SPAWN_WEAPON_TRACE)
             {
