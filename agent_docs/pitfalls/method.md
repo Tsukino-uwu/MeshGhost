@@ -393,6 +393,54 @@ being searched, not to what was being searched for:
 The shared shape: when a search stalls, suspect the *shape of the search* before adding another
 candidate to it.
 
+## A reference is not the thing — clearing a pointer removes nothing (2026-08-27)
+
+**Symptom.** A ghost in Pseudoregalia appeared to share the player's health: damage, death and
+healing all really happened while the health bar sat permanently full.
+
+**Two fixes, both wrong in the same way, both confirmed to have RUN.**
+
+1. The ghost's `As MV Game Instance Ref` was cleared, on the reasoning that the ghost shared the
+   player's GameInstance. It changed nothing: a UE GameInstance is a singleton and **any actor
+   reaches it through `GetGameInstance()`**, so a cached pointer was never the only route.
+2. The ghost's `UI_HudRef` was cleared, on the reasoning that the ghost shared the HUD. It changed
+   nothing either: **a widget's lifetime belongs to its parent, not its referrer.** The ghost's own
+   health bar stayed parented to the viewport with nobody left pointing at it.
+
+**Cause.** Both treated a *reference* as if it were the *thing*. Nulling a pointer does not destroy
+an object, unparent a widget, or revoke access to a singleton. The fix was `RemoveFromParent` on the
+widget — acting on the object, not on the handle.
+
+**Why it was seductive twice.** Both changes were *verifiable*: the log said `cleared (was set)`
+each time, so each looked like a fix that had definitely applied. **"The change applied" and "the
+change did anything" are different claims**, and a log line only ever proves the first. This is the
+same family as "it ran without errors is not evidence", one level up: the write really did land, and
+still meant nothing.
+
+**Reach for instead.** Ask what would have to be true for the object to stop mattering — is it
+parented somewhere, registered somewhere, reachable by a global accessor? If a null-out is the whole
+fix, ask what still holds the thing.
+
+## An instrument that logs only its success path proves nothing (2026-08-27)
+
+**Symptom.** A candidate fix (disabling a ghost's hitbox component) was shipped and tested. The
+ghost still damaged the player, which looked like a clean refutation.
+
+**It was not a refutation.** The block printed *nothing at all* — the property never resolved, and
+the code only logged on success. The run could not distinguish **"disabled it and that was not the
+cause"** from **"never found it"**, which need completely different next steps. An afternoon of
+reasoning was nearly built on a result that did not exist.
+
+**Cause.** `if (found && non_null) { do it; log it }` with no `else`. Silence read as "it worked and
+didn't help" when it meant "it never ran".
+
+**Fix.** Every branch logs, including "not there" and "resolved but null". This is
+[effect-investigation.md](../effect-investigation.md) §3's `ours=` field and CLAUDE.md's "log the
+thing that would prove you wrong", both of which already existed and were not applied.
+
+**The general rule:** before believing a negative result, check that the instrument could have
+produced a positive one. A quiet log is only evidence when silence was one of its designed outputs.
+
 ## An aggregate over a mixed series invents a defect that is not there (2026-08-25)
 
 **Crystal, judging a ghost's motion against the player's.** A per-frame delta histogram of the

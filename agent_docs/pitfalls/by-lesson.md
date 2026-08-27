@@ -3150,6 +3150,40 @@ have drawn the peer twice, a tile apart.
 **Generalise:** any renderer with two tiers has a handover, and the handover has a position. It is
 invisible only if both tiers agree on that position AND neither frame is left empty.
 
+## An escape in a heredoc can COLLAPSE in transit, and the compiler is the only thing that notices (2026-08-27)
+
+**Symptom.** A scripted edit inserted C++ that failed to build with `error C2001: newline in
+constant`. A backslash-n written inside a Python heredoc arrived in the file as a **real newline**
+instead of the two characters backslash and `n`, splitting every `STR("...")` literal across two
+lines and breaking the build.
+
+**It happened four separate times in one session**, because each fix looked local: repair the two
+broken literals, move on, write the next block the same way, break it again. The second occurrence
+should have been the signal -- `CLAUDE.md`'s "two guessed fixes failing the same way" applies to
+your own tooling as much as to the game.
+
+**Cause.** The escape was interpreted somewhere between the tool call and the file, not by the
+quoted heredoc, which should have passed it through untouched. Which layer did it does not matter.
+What matters: **a backslash escape written inline in a scripted edit is not reliably the escape
+that lands.**
+
+**Fix, and it is mechanical rather than careful.** Never write a backslash escape inline in a
+scripted edit for a language that needs one. Build it from a character code and concatenate:
+
+    NL = chr(92) + 'n'          # a literal backslash followed by n
+    text = 'Output::send(STR("...tick={}' + NL + '"), tick);'
+
+Nothing in the path can re-interpret that. The same trick repairs a file wholesale afterwards:
+match any string literal whose closing quote ended up on the following line, and rejoin it with
+`chr(92) + 'n'` in place of the newline.
+
+**Why it belongs beside the CRLF and misplaced-edit entries.** All three are one class: a scripted
+edit that *appears* to succeed, whose damage is invisible in the diff you reasoned about and is
+found only by a compiler, a linter or a runtime. `CLAUDE.md` already says to grep the RESULT after
+any scripted edit -- that catches a pattern which never matched, but **not** one that matched and
+wrote subtly different bytes than intended. For that, build it, and read the first error instead of
+assuming a stale tree.
+
 ## A scripted edit can land a thousand lines from where you meant it (2026-08-23)
 
 **Symptom.** A Python edit reported success. The file had a comment stub at the intended site and

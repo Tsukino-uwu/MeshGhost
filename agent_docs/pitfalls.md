@@ -43,6 +43,8 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A symptom word can name more than one subsystem — confirm which before probing (2026-08-16)
 - Gating a handshake on its own result (deadlock, twice in one day) (2026-08-16)
 - Diagnostic methodology
+- A reference is not the thing — clearing a pointer removes nothing (2026-08-27)
+- An instrument that logs only its success path proves nothing (2026-08-27)
 - An aggregate over a mixed series invents a defect that is not there (2026-08-25)
 - Failure signatures
 - Pitfalls by theme
@@ -185,6 +187,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A reverted `.go` file comes back as CRLF, and nothing shows you why (2026-08-23)
 - Crystal: the end-of-walk snap was TWO faults sharing one trigger (2026-08-23)
 - Crystal: a tier handover is a position handover, and a gap is a blink (2026-08-23)
+- An escape in a heredoc can COLLAPSE in transit, and the compiler is the only thing that notices (2026-08-27)
 - A scripted edit can land a thousand lines from where you meant it (2026-08-23)
 - Crystal: the ghost jittered before stopping, and the "camera" was three different mistakes (2026-08-23)
 - A peer walks, and the adapter reports `0 spawned as real objects` (Crystal, 2026-08-23)

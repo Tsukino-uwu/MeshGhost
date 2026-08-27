@@ -200,37 +200,21 @@ looks like:** a core spawns within a few seconds and `bridge connected on port 7
 **What failure looks like:** what happened here — attempts climbing with total silence from the
 launcher.
 
-## Pending — is "heal" actually healing, or the charge's body aura? (2026-08-27)
+## RESOLVED — "heal" IS healing; the table row is correctly labelled (2026-08-27)
 
-**The mirror pipeline itself is proven**: 56 local state changes produced 56 ghost actions, zero
-warnings, every start paired with a stop, `component=ok` on every spawn. Detection, wire and apply
-all work. This entry is about what one of the two rows is NAMED, not about whether it functions.
+Asked because `NS_Healing` bracketed every single charge across two runs, which fitted "the charge
+has a body aura the game happens to have named NS_Healing" at least as well as it fitted "this is
+the heal" — and in this game names have lied before (`AnimGraphNode_Trail` is cloth physics; Cling
+Gem has no "glide" string anywhere).
 
-**The anomaly.** Across both runs, `NS_Healing` **brackets every single charge** — the sequence is
-always `'' -> heal -> heal,chg -> heal -> ''`, eight times in the test run, five times in the
-capture run, with no exceptions. `NS_Healing` sits on the capsule (the body); `NS_ProjectileCharged`
-sits on `handslot_R` (the hand). That is a very good fit for the user's own unprompted report that
-*"the charge had a VFX happening on itself as well, while charging"* — two effects during a charge,
-one on the sword and one on the character.
+**Answered by the user, who watched it**: the white particle effect appears *while healing*, not
+only while charging. So the row is right and the mirror is correctly labelled. **The pairing in the
+log was just what they happened to be doing** — heal, then charge — and reading a mechanism into it
+would have been a wrong turn.
 
-**But it is not conclusive**, and the counter-evidence is in the capture run: `NS_Healing` also
-appeared three times (ticks 15121, 16991, 18121) with **no** charge following, and the 15121 one
-completed with `NS_HealWave` + `NS_HealEndwave`. So it appears both alone and before every charge.
-
-Two readings survive, and they need opposite fixes:
-1. `NS_Healing` is the heal, and charging also triggers it — the mirror is correctly labelled.
-2. `NS_Healing` is a body aura the game reuses for both, and the REAL heal is the
-   `NS_HealWave`/`NS_HealEndwave` pair — in which case the "heal" row is misnamed and the actual
-   healing visual is still missing.
-
-**This is the trap `../../agent_docs/effect-investigation.md` §1 is entirely about** — names lie in
-this game specifically, and it has cost this project real time before: `AnimGraphNode_Trail` turned
-out to be cloth physics, and Cling Gem has no "glide" string anywhere. An asset called `NS_Healing`
-is evidence about what a Blueprint author typed, not about what the effect does.
-
-**What settles it, and it is one question to the user, not a probe:** when the ghost showed the
-body aura, was that while the peer was HEALING, or only while CHARGING? Nobody has to name an
-asset to answer that.
+Worth keeping rather than deleting: the anomaly was real, the two readings needed opposite fixes,
+and **the thing that settled it was a question a person could answer without naming an asset**.
+That is cheaper than any probe and should be reached for first.
 
 ## Pending — healing and charged-projectile VFX now mirror onto a ghost (2026-08-27)
 

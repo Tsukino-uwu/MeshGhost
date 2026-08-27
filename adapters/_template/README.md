@@ -990,6 +990,46 @@ on an existing game" shape):
 - **Open** — a checklist, including what is deliberately out of scope and why.
 - **Method notes** — what worked as a way of investigating this particular game.
 
+## A ghost spawned from the player's own class brings its OWN COPY of everything the player owns
+
+**Three bugs in Pseudoregalia have now had this one cause**, which is what promotes it from an
+incident to a rule a new adapter should start with.
+
+If your ghost is a clone of the player's pawn class — the design this template recommends, because
+it is what makes the game animate and pose a ghost for free — then it runs the player's own
+`BeginPlay`. **Everything the player's pawn constructs for itself, the ghost constructs too**, and
+each copy is real, live, and competing with the player's.
+
+Confirmed cases, all in one adapter:
+
+| The ghost's own copy | How it presented |
+| --- | --- |
+| Camera rig | The camera "was stolen" on every ghost spawn (2026-08-16) |
+| HUD widget | The player's health bar sat permanently full while damage really happened (2026-08-27) |
+| Hurtbox / damage path | Damage to a ghost hurt and could KILL the real player (2026-08-17) |
+
+**The tell is that the symptom is about the PLAYER, not the ghost.** Nothing looked wrong with the
+ghost in any of the three; what was wrong was the player's camera, the player's HUD, the player's
+health. A bug where the ghost looks fine and the *player's* interface misbehaves is this pattern
+until proven otherwise.
+
+**The diagnostic question is "what does the ghost also have?", not "what value is wrong?"** The
+second question sends you hunting for state to overwrite, which is how the health bug consumed two
+wrong fixes before the right one. Dump the player pawn's object references once and read the list —
+camera rigs, HUD widgets, lights, shadow components, audio components. Every one of them is a
+candidate, and the list is short enough to read in a minute.
+
+**Then act on the OBJECT, not on the reference to it.** Clearing the ghost's pointer to its own HUD
+did not remove the HUD; `RemoveFromParent` did. See
+[`agent_docs/pitfalls/method.md`](../../agent_docs/pitfalls/method.md), "A reference is not the
+thing".
+
+**What NOT to do: give the ghost its own value instead.** Where the shared thing is a singleton
+there is nothing to give it — a UE GameInstance is one object for the whole game, so "set the
+ghost's health to zero" sets the *player's* health to zero. That is the likeliest mechanism behind
+a historical "kept respawning with 0 health" bug in the same adapter. Stop the ghost RUNNING the
+logic; do not try to hand it a private copy of state that has no private copy.
+
 ## Hard rule: never let a ghost exist before the player is actually in the game
 
 **Find the game's own "I am in play" signal early, gate every spawn on it, and do that before the
