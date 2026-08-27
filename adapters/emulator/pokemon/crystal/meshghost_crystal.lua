@@ -1218,12 +1218,11 @@ function ENGINE.xmap.rebaseEntry(o, dx, dy)
 	for _, k in ipairs({ "y", "lastY" }) do
 		if type(o[k]) == "number" then o[k] = o[k] + dy end
 	end
-	for _, k in ipairs({ "modelX", "paintedX" }) do
-		if type(o[k]) == "number" then o[k] = o[k] + dx * 16 end
-	end
-	for _, k in ipairs({ "modelY", "paintedY" }) do
-		if type(o[k]) == "number" then o[k] = o[k] + dy * 16 end
-	end
+	-- modelX/Y are MAP-pixel positions and move with the frame. paintedX/Y are SCREEN positions
+	-- and are deliberately NOT here: the screen is continuous across a seam, so shifting them
+	-- manufactured a false TWITCH on every crossing and nothing else.
+	if type(o.modelX) == "number" then o.modelX = o.modelX + dx * 16 end
+	if type(o.modelY) == "number" then o.modelY = o.modelY + dy * 16 end
 end
 
 function ENGINE.xmap.translate(srcArea, sx, sy)
@@ -4229,8 +4228,27 @@ function drawOverflow()
 		-- a spawned one is hidden by the engine for free. It also did not fix the symptom. Left
 		-- here as a dated negative result so the same theory is not re-derived: the banner needs
 		-- CLIPPING (the panel-rectangle path drawOverflow already has), never a bypass.
-		stopDrawing("not-in-play")
-		return
+		--
+		-- ...UNLESS WE JUST WALKED ACROSS A SEAM. `inPlay()` goes false for exactly SIX frames
+		-- while the connection strip loads, but a seam crossing is not a teardown: the player
+		-- keeps walking, the screen never fades, and the world on either side is continuous.
+		-- Blanking the painted tier there is the crossing flicker.
+		--
+		-- TWO EARLIER VERSIONS OF THIS BYPASS FAILED, and the difference is worth keeping:
+		--   1. First try was blamed for a glitchy sprite and reverted -- wrongly, the glitch was
+		--      facingFrames.derive keeping a mirror it should have dropped (80316b2), reproduced
+		--      on c0c6cf2 with none of this applied.
+		--   2. Second try genuinely failed: it removed the six `not-in-play` frames and the trace
+		--      showed the SAME six frames blocked as `off screen` instead. The position pipeline
+		--      needed a standing anchor, the player is mid-step by definition while crossing, and
+		--      the fallback read the window origin and scroll registers mid-rebuild.
+		-- The bypass is only safe PAIRED with the corrected walking-player anchor in the anchor
+		-- block below, which keeps a valid position reference through exactly these frames. If
+		-- that anchor is ever removed, this must go back to an unconditional stop.
+		if not (ENGINE.xmap.seamAt and (policyFrames - ENGINE.xmap.seamAt) < 15) then
+			stopDrawing("not-in-play")
+			return
+		end
 	end
 	if not DRAW_OVERFLOW and not COMPARE_TIERS then
 		stopDrawing("menu")
@@ -4427,6 +4445,42 @@ function drawOverflow()
 		local base = OBJECT_STRUCTS + anchorIndex * OBJECT_LENGTH
 		anchorTileX, anchorTileY = u8(base + F_MAP_X), u8(base + F_MAP_Y)
 		anchorPx, anchorPy = u8(base + F_SPRITE_X) or 0, u8(base + F_SPRITE_Y) or 0
+	elseif (u8(OBJECT_STRUCTS + F_SPRITE) or 0) ~= 0 then
+		-- NOBODY IS STANDING: anchor on the WALKING PLAYER, with the mid-step error corrected
+		-- rather than accepted.
+		--
+		-- The standing requirement exists because MAP_X/Y is written at the START of a step and
+		-- names the DESTINATION while the sprite is still up to 16px behind -- so a walking anchor
+		-- pairs a tile with a sprite position that does not belong to it yet. But that error is
+		-- not unknowable: it is `16 - stepProgress` back along the walk, which is EXACTLY the
+		-- correction getLocalState applies to our own outgoing pixel position every frame. Pairing
+		-- F_SPRITE_X/Y minus that vector with MAP_X/Y makes the walking player as exact an anchor
+		-- as a standing one.
+		--
+		-- Why this exists (2026-08-27): crossing a route seam. The player is mid-step by
+		-- definition while crossing, so no anchor qualified, and the old fallback below computed
+		-- the position from the window origin and scroll registers -- which are mid-rebuild for
+		-- the handful of frames of the map switch, so every peer read as "off screen" and the
+		-- ghost blinked out. Measured: bypassing the not-in-play gate alone just moved the six
+		-- blocked frames from `not-in-play` to `off screen`; the missing piece was a position
+		-- reference that stays valid mid-step and mid-load, which the player's own struct is.
+		--
+		-- Deliberately NOT stored in anchorIndex: the sticky-anchor rule keeps preferring a
+		-- standing character next frame, and a derived anchor must never be mistaken for one.
+		local base = OBJECT_STRUCTS
+		anchorTileX, anchorTileY = u8(base + F_MAP_X), u8(base + F_MAP_Y)
+		anchorPx, anchorPy = u8(base + F_SPRITE_X) or 0, u8(base + F_SPRITE_Y) or 0
+		if (u8(base + F_WALKING) or STANDING) ~= STANDING then
+			-- The same per-direction arithmetic as the send side, applied in reverse: the sprite
+			-- is `back` short of the destination tile, so the pixel that PAIRS with MAP_X/Y is
+			-- the sprite position minus that shortfall.
+			local back = stepProgress(base) - 16
+			local d = ((u8(base + F_DIRECTION) or 0) // 4) & 3
+			if d == 0 then anchorPy = anchorPy - back
+			elseif d == 1 then anchorPy = anchorPy + back
+			elseif d == 2 then anchorPx = anchorPx + back
+			else anchorPx = anchorPx - back end
+		end
 	end
 	-- The engine's sprite space and the screen differ by a constant this frame; the player's own
 	-- OAM entry gives it, and it is valid whether or not the PLAYER is the anchor.
@@ -6701,6 +6755,14 @@ function drawOverflow()
 	-- reports, so the clear and the log can never disagree about whether anything was painted.
 	if nDrawn == 0 then
 		stopDrawing("nothing-drawn")
+	end
+	-- PER-FRAME COUNTERS, stashed for the XTRACE block. The per-second tiers report prints these
+	-- same locals but only on the frame it fires, which made a 20-frame gap unreadable: every
+	-- report landed on a healthy frame and said "0 off screen, 0 no tile", and that was taken as
+	-- true of the gap. A per-frame instrument may only be trusted alongside per-frame counters.
+	if ENGINE.xmap.traceUntil and policyFrames <= ENGINE.xmap.traceUntil then
+		facingFrames.dbgCounts = string.format("want=%d drawn=%d oam=%d noTile=%d off=%d hid=%d",
+			nWanted, nDrawn, nOam, nNoTile, nOffScreen, nHidden)
 	end
 
 	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
@@ -10022,6 +10084,23 @@ local function tick()
 				for _, o in pairs(overflow) do
 					ENGINE.xmap.rebaseEntry(o, rebaseDX, rebaseDY)
 				end
+				-- AND THE CAMERA CALIBRATION MOVES THE OPPOSITE WAY, or the rebase un-draws every
+				-- peer for as long as the player keeps walking. The paint is `model + camA + K`:
+				-- the rebase above shifts every model by the tile delta, so the sum jumps by the
+				-- same amount unless K absorbs it -- the identical algebra to the camera-register
+				-- rebase absorber (its comment: "a rebase absorbed into camA is cancelled only by
+				-- the OPPOSITE change in K"). K's own big-jump recalibration cannot save this: it
+				-- only runs after the camera has been STILL for 8 frames, and the player crossing
+				-- a seam is walking by definition. Measured 2026-08-27, per-frame counters: off=1
+				-- on every frame of every visit to the far map, drawing resuming the instant the
+				-- player crossed back -- and the painted position during the gap was exactly the
+				-- correct one plus the rebase (80,76 vs 400,-212 with a +320,-288 rebase). The
+				-- user: the ghost "pops in/out", and only for "the 1st instance, that actually
+				-- goes across" -- only the crosser runs this block.
+				if facingFrames.camKX then
+					facingFrames.camKX = facingFrames.camKX - rebaseDX * 16
+					facingFrames.camKY = facingFrames.camKY - rebaseDY * 16
+				end
 			else
 				overflow = {}
 			end
@@ -10080,10 +10159,12 @@ local function tick()
 		-- that is fine for attribution and is stated so nobody reads it as exact.
 		local why = (facingFrames.stopLastAt and policyFrames - facingFrames.stopLastAt <= 1)
 			and facingFrames.stopLast or nil
-		logFile(string.format("XTRACE f=%d area=%s spawned{%s} painted{%s}%s%s", policyFrames, area,
+		logFile(string.format("XTRACE f=%d area=%s spawned{%s} painted{%s}%s%s%s", policyFrames, area,
 			table.concat(sp, ","), table.concat(pa, ","),
 			why and ("  NOT-DRAWN:" .. why) or "",
+			facingFrames.dbgCounts and ("  [" .. facingFrames.dbgCounts .. "]") or "",
 			(#sp == 0 and #pa == 0) and "   <-- NEITHER TIER: this frame draws no peer at all" or ""))
+		facingFrames.dbgCounts = nil
 	end
 
 	if ready then
