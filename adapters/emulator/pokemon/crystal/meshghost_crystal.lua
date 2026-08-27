@@ -213,6 +213,18 @@ local ADDRESSES = {
 		W_BATTLEMODE = flat(0xD22D),
 		W_BGMAPOFFSETX = flat(0xD14C),
 		W_BGMAPOFFSETY = flat(0xD14D),
+		-- CROSS-MAP GHOSTS. `wMapConnections` is a direction bitmask followed by four 12-byte
+		-- structs (north, south, west, east), rebuilt by the engine on every map load, so the
+		-- current map's neighbours are always sitting here -- no ROM scan, unlike Emerald.
+		-- `wMapWidth`/`wMapHeight` are OUR OWN dimensions in BLOCKS (a block is 2x2 tiles); a
+		-- connection struct carries the NEIGHBOUR's width and never ours, so an east or south
+		-- neighbour cannot be placed without them. Layout from pokecrystal's
+		-- `macros/ram.asm` (`map_connection_struct`), addresses from our own hash-verified
+		-- build's `pokecrystal.sym`; the arithmetic was measured across four driven crossings
+		-- (UNVERIFIED.md, 2026-08-27).
+		W_MAPCONNECTIONS = flat(0xD1A8),
+		W_MAPHEIGHT = flat(0xD19E),
+		W_MAPWIDTH = flat(0xD19F),
 		-- 01:d154, 32 two-byte entries ending at 01:d194 (wUsedSpritesEnd), which is
 		-- SPRITE_GFX_LIST_CAPACITY * 2. Each entry is [sprite id, VRAM tile base]: the id is put
 		-- there by AddSpriteGFX as the map loads, and ArrangeUsedSprites then overwrites the
@@ -403,6 +415,12 @@ local ADDRESSES = {
 		-- nothing else in this region has. (Also vanilla+7, noticed after the fact, not before.)
 		W_BGMAPOFFSETX = 0x1153,
 		W_BGMAPOFFSETY = 0x1154,
+		-- W_MAPCONNECTIONS / W_MAPWIDTH / W_MAPHEIGHT are deliberately ABSENT: unmeasured on this
+		-- build, and nil switches cross-map ghosts off here rather than reading a plausible
+		-- address. Vanilla's offsets are NOT transferable -- this build moved the coordinate block
+		-- +7 and the object array +6, and no third relationship has ever held on it. Measure the
+		-- block with probes/connections_probe.lua (MESHGHOST_CRYSTAL_CONN_ADDR tests a candidate)
+		-- before filling these in.
 	},
 }
 
@@ -1014,6 +1032,211 @@ end
 
 local function areaId()
 	return string.format("%d/%d", u8(W_MAPGROUP) or -1, u8(W_MAPNUMBER) or -1)
+end
+
+-- ===== CROSS-MAP GHOSTS: a peer across a route seam is visible, a peer in a house is not =====
+--
+-- The user's ask, 2026-08-27: *"going between routes/having the ghosts visible in other routes.
+-- similar to how we did it in emerald"*.
+--
+-- The game's own map system draws this line for us. Maps join two ways: CONNECTIONS (route
+-- touching town -- seamless, you can see across) and WARPS (doors, cave mouths). A house is only
+-- ever reached by warp, so "translate peers on maps CONNECTED to mine, hide everyone else" is
+-- routes-visible-houses-hidden with NO house special case -- measured, interiors carry mask=00.
+-- It is also the distance cull of last resort: two maps away is not in my connection list, so
+-- that peer does not exist for me at all.
+--
+-- EVERYTHING LIVES ON THIS ONE TABLE. This chunk sits at 197 of Lua's 200 top-level locals, and
+-- past the ceiling the file does not misbehave -- it silently fails to load, which reads exactly
+-- like a dead relay. One name, not eight.
+--
+-- HOW: translated AT INGEST into the local map's tile frame (see renderRemote), so every stage
+-- downstream -- the range cull, both tiers, collision, the painted copy -- sees ordinary local
+-- coordinates and needs no changes at all.
+--
+-- Structures and arithmetic: measured 2026-08-27, four driven crossings, one per direction, with
+-- probes/connections_probe.lua and probes/seam_drive.lua. Full evidence in UNVERIFIED.md.
+-- ON `ENGINE` RATHER THAN A NEW TOP-LEVEL LOCAL: this chunk is at Lua's 200-local ceiling and
+-- a new name here does not error, it silently stops the file loading. ENGINE is the right home
+-- anyway -- map connections are a fact about the engine, which is what that table holds.
+ENGINE.xmap = {
+	-- Filled from the selected address table at startup. nil on any build where the block has not
+	-- been measured (Archipelago's), which switches this whole feature off rather than reading a
+	-- plausible address -- `armed()` is the single gate.
+	connAt = nil, wAt = nil, hAt = nil,
+	conns = nil, connsFor = nil, ourW = 0, ourH = 0,
+	-- Which (peer, their map, our map) triples have already been announced, so the cross-map
+	-- line is written once per crossing instead of sixty times a second. Cleared with the rest
+	-- of the per-map bookkeeping is NOT wanted: re-announcing on every map change is noise.
+	said = {},
+	-- EAST 0x01, WEST 0x02, SOUTH 0x04, NORTH 0x08 -- constants/map_data_constants.asm's
+	-- shift_const order. The struct order in WRAM is north, south, west, east.
+	DIRS = {
+		{ name = "north", bit = 0x08, at = 1 },
+		{ name = "south", bit = 0x04, at = 13 },
+		{ name = "west", bit = 0x02, at = 25 },
+		{ name = "east", bit = 0x01, at = 37 },
+	},
+}
+
+-- A coordinate one tile past the west or north edge is stored as 255, not -1.
+function ENGINE.xmap.signed8(v) return (v > 127) and (v - 256) or v end
+
+function ENGINE.xmap.armed()
+	return ENGINE.xmap.connAt ~= nil and ENGINE.xmap.wAt ~= nil and ENGINE.xmap.hAt ~= nil
+end
+
+
+-- Rebuilt when the local map changes, not every frame: the engine writes this block on map load
+-- and never between loads, and re-reading 49 bytes a frame is exactly the shape this project keeps
+-- warning about.
+--
+-- THE BITMASK IS AUTHORITATIVE AND THE UNFLAGGED STRUCTS ARE STALE. A direction the mask does not
+-- claim still holds the PREVIOUS map's values -- measured on map 1/14, where south read 255/14 and
+-- east read 255/12 while the mask said north+west. Reading a struct without checking its bit first
+-- adopts an offset belonging to a map you already left.
+function ENGINE.xmap.build(localKey)
+	-- KEEP THE MAP WE JUST LEFT. Whether a map change was a seam or a warp is a question about the
+	-- DEPARTING map's connections, and the answer is destroyed by this rebuild -- so the previous
+	-- set is kept rather than assumed to still be current when the question is asked.
+	--
+	-- It has to be, because the rebuild usually happens FIRST: `receive()` runs before the
+	-- map-change block in tick(), so on the frame you cross a seam an arriving peer state
+	-- re-translates against the new map and rebuilds this table before anything asks what the old
+	-- one was connected to. The first version of the seam test read `connsFor` and was therefore
+	-- false every single time for the player doing the crossing -- which is precisely who saw the
+	-- flicker, and precisely who did not get the fix meant for them.
+	-- ...and only when the outgoing set is worth keeping. A build that caught the map mid-load can
+	-- produce an EMPTY conns with a perfectly valid width -- the dimensions and the connection
+	-- structs are not written on the same frame -- and stashing that emptiness over a good set
+	-- loses the only record of what the map we are leaving was joined to. Measured 2026-08-27:
+	-- crossings out of Route 40 misclassified as warps 4 times in 45 while the opposite direction
+	-- was correct 45 out of 45, which is what a poisoned per-map cache looks like.
+	if ENGINE.xmap.connsFor ~= localKey and next(ENGINE.xmap.conns or {}) ~= nil then
+		ENGINE.xmap.prevConns, ENGINE.xmap.prevFor = ENGINE.xmap.conns, ENGINE.xmap.connsFor
+		-- The DEPARTING map's own extent, kept for the same reason as its connections: the
+		-- east/south rebase below is expressed in terms of the map being left, and that number is
+		-- gone the moment this rebuild finishes.
+		ENGINE.xmap.prevW, ENGINE.xmap.prevH = ENGINE.xmap.ourW, ENGINE.xmap.ourH
+	end
+	ENGINE.xmap.conns, ENGINE.xmap.connsFor = {}, localKey
+	ENGINE.xmap.ourW = (u8(ENGINE.xmap.wAt) or 0) * 2   -- wMapWidth/wMapHeight are in BLOCKS, 2x2 tiles each
+	ENGINE.xmap.ourH = (u8(ENGINE.xmap.hAt) or 0) * 2
+	-- A BUILD THAT LANDS MID-LOAD MUST NOT BE CACHED. The engine has not written wMapWidth yet on
+	-- the first frames of a map load, so this reads 0 and there is nothing to build -- but leaving
+	-- `connsFor` set to this map would cache that emptiness FOREVER, because every later call is
+	-- skipped by the `connsFor ~= here` guard that decides whether to rebuild.
+	--
+	-- The consequence was not a missing translation, it was a MISCLASSIFIED MAP CHANGE: with no
+	-- connections recorded for the map being left, the seam test finds nothing naming the map
+	-- being entered, calls a genuine seam crossing a WARP, and runs the full teardown -- which
+	-- clears the painted tier and leaves the peer undrawn until it re-registers. Measured
+	-- 2026-08-27 on the user's back-and-forth repro: one crossing in a lap classified WARP and the
+	-- trace shows exactly 7 consecutive frames with neither tier holding the peer. Walking across
+	-- and straight back makes builds land mid-load often, which is why pacing the seam shows it
+	-- constantly and a single crossing usually does not.
+	--
+	-- Clearing `connsFor` costs one re-read on the next frame and makes the failure self-healing.
+	if ENGINE.xmap.ourW <= 0 or ENGINE.xmap.ourH <= 0 then
+		ENGINE.xmap.connsFor = nil
+		return
+	end
+	local mask = u8(ENGINE.xmap.connAt) or 0
+	for _, d in ipairs(ENGINE.xmap.DIRS) do
+		if (mask & d.bit) ~= 0 then
+			local at = ENGINE.xmap.connAt + d.at
+			local g, n = u8(at + 0) or 0, u8(at + 1) or 0
+			ENGINE.xmap.conns[g .. "/" .. n] = {
+				dir = d.name,
+				yOff = u8(at + 8) or 0,
+				xOff = u8(at + 9) or 0,
+			}
+		end
+	end
+end
+
+-- Translate a peer standing on a CONNECTED neighbour into our own tile frame, or leave it alone.
+--
+-- Each connection has an ALONG-axis field and a CROSS-axis field, and which is which flips with
+-- the axis. The cross-axis field is a signed shift along the seam. The along-axis field is the
+-- coordinate you LAND on in the neighbour -- 0 arriving from the east or south, and
+-- (neighbourExtent - 1) arriving from the west or north -- so the negative directions recover the
+-- neighbour's extent from it as `off + 1`, and the positive directions need our own.
+--
+-- `ConnectedMapWidth` is deliberately unused: it is always the neighbour's WIDTH, so on the
+-- vertical axis it answers the wrong question. The first north form was built on it and landed a
+-- peer 16 tiles out; the probe's own self-check caught it (UNVERIFIED.md, 2026-08-27).
+--
+-- Returns the translated x, y -- or nil, meaning "not on a map connected to mine", which every
+-- caller treats exactly as it treated a foreign area_id before this feature existed.
+-- THE INVERSE OF `translate`, for the frame change that happens when WE cross a seam.
+--
+-- Everything the painted tier is holding about a peer -- its model position, its painted position,
+-- the tile it was last on -- is expressed in the map we are LEAVING. Crossing into the peer's own
+-- map does not move the peer, but it does retire the coordinate frame those numbers are written
+-- in, and they are wrong by exactly the translation that has just stopped applying.
+--
+-- Neither clearing nor keeping them works, and both were shipped and watched failing (2026-08-27):
+-- clearing leaves the painted tier with nothing while a fresh model rebuilds, which is a gap;
+-- keeping them leaves a model 20 tiles from the peer, so the promotion places the engine object on
+-- that stale tile, the engine reclaims a slot it considers invalid, and the adapter respawns --
+-- the user, twice: *"it still despawn/respawn the ghost that was in another route whenever you
+-- walk into that route"*. Rebasing is the third option and the only correct one.
+--
+-- `from` is the map we left and `to` the one we arrived on. Returns the tile delta to ADD to a
+-- coordinate in `from`'s frame to express it in `to`'s, or nil when the two are not connected --
+-- a warp, where the caller falls back to clearing because nothing survives a warp anyway.
+function ENGINE.xmap.rebaseDelta(from, to)
+	local conns, ourW, ourH
+	if ENGINE.xmap.connsFor == from then
+		conns, ourW, ourH = ENGINE.xmap.conns, ENGINE.xmap.ourW, ENGINE.xmap.ourH
+	elseif ENGINE.xmap.prevFor == from then
+		conns, ourW, ourH = ENGINE.xmap.prevConns, ENGINE.xmap.prevW, ENGINE.xmap.prevH
+	end
+	local c = conns and conns[to]
+	if not c or not ourW or ourW <= 0 then return nil end
+	-- Each line is `translate` solved for the other side. Read them against it: whatever it
+	-- subtracts, this adds.
+	if c.dir == "west" then
+		return c.xOff + 1, ENGINE.xmap.signed8(c.yOff)
+	elseif c.dir == "east" then
+		return -ourW, ENGINE.xmap.signed8(c.yOff)
+	elseif c.dir == "north" then
+		return ENGINE.xmap.signed8(c.xOff), c.yOff + 1
+	end
+	return ENGINE.xmap.signed8(c.xOff), -ourH
+end
+
+-- Shift one painted entry into the new frame. Tile-valued fields move by the tile delta and
+-- pixel-valued ones by sixteen times it; both lists are explicit rather than inferred from the
+-- field name, because a position this misses is not a crash, it is a ghost a few tiles off.
+function ENGINE.xmap.rebaseEntry(o, dx, dy)
+	if type(o) ~= "table" then return end
+	for _, k in ipairs({ "x", "lastX" }) do
+		if type(o[k]) == "number" then o[k] = o[k] + dx end
+	end
+	for _, k in ipairs({ "y", "lastY" }) do
+		if type(o[k]) == "number" then o[k] = o[k] + dy end
+	end
+	for _, k in ipairs({ "modelX", "paintedX" }) do
+		if type(o[k]) == "number" then o[k] = o[k] + dx * 16 end
+	end
+	for _, k in ipairs({ "modelY", "paintedY" }) do
+		if type(o[k]) == "number" then o[k] = o[k] + dy * 16 end
+	end
+end
+
+function ENGINE.xmap.translate(srcArea, sx, sy)
+	local c = ENGINE.xmap.conns and ENGINE.xmap.conns[srcArea]
+	if not c then return nil end
+	if c.dir == "west" then
+		return sx - (c.xOff + 1), sy - ENGINE.xmap.signed8(c.yOff)
+	elseif c.dir == "east" then
+		return sx + ENGINE.xmap.ourW, sy - ENGINE.xmap.signed8(c.yOff)
+	elseif c.dir == "north" then
+		return sx - ENGINE.xmap.signed8(c.xOff), sy - (c.yOff + 1)
+	end
+	return sx - ENGINE.xmap.signed8(c.xOff), sy + ENGINE.xmap.ourH
 end
 
 ----------------------------------------------------------------------------
@@ -3842,7 +4065,18 @@ function drawOverflow()
 	--
 	-- So the tier stops by CLEARING rather than by falling silent. Cheap, and it makes "draw
 	-- nothing" mean nothing on screen instead of whatever was there last.
-	local function stopDrawing()
+	-- WHY it stopped, not just that it did. Six different early returns share this one function and
+	-- the stats line reported none of them -- so "1 peer waiting, 0 drawn" named a symptom with no
+	-- way to tell a text box from a stale history gate. Counted per reason and printed with the
+	-- tier totals; a counter that cannot say why is what turned this into several wrong guesses.
+	local function stopDrawing(why)
+		if why then
+			facingFrames.stopWhy = facingFrames.stopWhy or {}
+			facingFrames.stopWhy[why] = (facingFrames.stopWhy[why] or 0) + 1
+			-- The reason for THIS frame, so the per-frame trace can attribute a blank frame to a
+			-- cause instead of leaving a cumulative total to be guessed at.
+			facingFrames.stopLast, facingFrames.stopLastAt = why, policyFrames
+		end
 		pcall(function() gui.clearGraphics() end)
 	end
 
@@ -3881,7 +4115,44 @@ function drawOverflow()
 	-- readiness gate below in its place, the user tested this and reported *"no wiggle"*. The
 	-- regression named in that same message was the drawn tier's FACING, which is a separate,
 	-- pre-existing fault that re-rolls on every reload. Attributing it here cost a revert.
-	local settling = playerHistory.settle > 0
+	-- ...EXCEPT ACROSS A SEAM, WHICH HAS NO FADE TO PAINT OVER.
+	--
+	-- The window above is armed by the map-LOAD byte and re-armed every frame that byte is
+	-- stamped, so it runs 30 frames past the end of the load. Walking a route seam is a map load,
+	-- and walking back and forth across one re-arms it before it can ever expire -- so the painted
+	-- tier is held off indefinitely and the peer is simply never drawn. Measured 2026-08-27 on the
+	-- user's own repro: `settling` was the reason 577 frames went unpainted in one shuttle run,
+	-- more than every other cause combined, and the user saw it as *"stays invisible if constantly
+	-- going left/right across the seam"*.
+	--
+	-- Both of the window's jobs are warp jobs. A warp fades the screen and this stops the tier
+	-- painting over the fade; walking across a connection does not fade at all. The other job --
+	-- not reading a tile base while wUsedSprites is being repopulated -- is already done per peer
+	-- and per frame by the sprite-tile check downstream, which declines that peer specifically
+	-- instead of blanking the tier.
+	-- ...EXCEPT ACROSS A SEAM, WHICH HAS NO FADE TO PAINT OVER.
+	--
+	-- This window is armed by the map-LOAD byte and re-armed every frame that byte is stamped, so
+	-- it runs 30 frames past the end of the load. Walking a route seam is a map load, and walking
+	-- back and forth across one re-arms it before it can expire -- so the painted tier is held off
+	-- indefinitely and the peer is never drawn at all. Measured 2026-08-27 on the user's repro:
+	-- `settling` accounted for 577 unpainted frames in one shuttle run, more than every other
+	-- cause combined.
+	--
+	-- Both of the window's jobs are warp jobs. A warp fades the screen and this stops the tier
+	-- painting over the fade; walking across a connection does not fade at all. The other job --
+	-- not reading a tile base while wUsedSprites is repopulates -- is already done per peer by the
+	-- sprite-tile check downstream, which declines that peer specifically instead of blanking the
+	-- whole tier.
+	--
+	-- SUSPECTED ONCE OF CAUSING A GLITCHY SPRITE AND CLEARED BY BISECT, 2026-08-27. The window's
+	-- own arming comment predicts exactly that symptom, which made this the obvious culprit -- but
+	-- reverting the whole feature to c0c6cf2 left the glitchy sprite still on screen, so it is
+	-- PRE-EXISTING and nothing to do with cross-map ghosts. Recorded because the prediction is
+	-- convincing and will make this the first suspect again next time.
+	local seamRecently = ENGINE.xmap.seamAt
+		and (policyFrames - ENGINE.xmap.seamAt) < 60
+	local settling = playerHistory.settle > 0 and not seamRecently
 	if settling then
 		playerHistory.settle = playerHistory.settle - 1
 	end
@@ -3910,11 +4181,36 @@ function drawOverflow()
 		-- ceiling).
 		TEXTBOX.stale = string.format("%d,%d,%d,%d", u8(MENUBOX.top) or 0,
 			u8(MENUBOX.left) or 0, u8(MENUBOX.bottom) or 0, u8(MENUBOX.right) or 0)
-		stopDrawing()
+		-- ...UNLESS THE WORLD WAS JUST REBUILT BY A SEAM CROSSING. `wMenuBorder*` is not
+		-- meaningful for a few frames after a map load -- the game does not zero it and has not
+		-- yet written it -- so this live read sees a rectangle that is stale by definition. That
+		-- is the same fact the teardown branch above already acts on; it was applied to our cached
+		-- latch and never to the live test.
+		--
+		-- Measured 2026-08-27 with the per-frame trace: exactly six frames blocked by `textbox`
+		-- immediately after every seam crossing, and drawing resuming on the seventh. The user:
+		-- *"its still going invisible when going between the routes"*. A real text box cannot open
+		-- during a seam crossing -- you are walking -- so ignoring it briefly costs nothing, and
+		-- the window is short enough that a genuine box opened right after arriving still gates
+		-- the tier.
+		--
+		-- MIS-LABELLED AS "textbox" WHEN THIS COUNTER WAS FIRST ADDED, which cost a wrong reading:
+		-- this branch is `not inPlay()`, the overworld being torn down or rebuilt, and a text box
+		-- is only one of the things that reaches it. The tag says what the branch IS.
+		--
+		-- A 20-frame bypass was tried here on 2026-08-27 and REVERTED the same day. The theory was
+		-- that the menu bytes are stale for a few frames after a map load; the user then said what
+		-- the screen actually shows -- Crystal draws the ROUTE/TOWN NAME banner on every crossing,
+		-- so this is a real text box and refusing to paint is correct. Bypassing it would paint
+		-- the ghost ON TOP of that banner, because a painted peer is drawn after the PPU and only
+		-- a spawned one is hidden by the engine for free. It also did not fix the symptom. Left
+		-- here as a dated negative result so the same theory is not re-derived: the banner needs
+		-- CLIPPING (the panel-rectangle path drawOverflow already has), never a bypass.
+		stopDrawing("not-in-play")
 		return
 	end
 	if not DRAW_OVERFLOW and not COMPARE_TIERS then
-		stopDrawing()
+		stopDrawing("menu")
 		return
 	end
 	-- THE POSITIVE GATE: characters may only be painted while the game itself is running its
@@ -3923,7 +4219,7 @@ function drawOverflow()
 	-- deny-list approach kept losing to, stale rectangles included. See W_SPRITEUPDATESON in the
 	-- address table for the measurement.
 	if ENGINE.sprOn and (u8(ENGINE.sprOn) or 0) == 0 then
-		stopDrawing()
+		stopDrawing("sprites-off")
 		return
 	end
 
@@ -3941,7 +4237,7 @@ function drawOverflow()
 	-- -- it is the same "the world is being rebuilt" fact the spawned tier already acts on, applied
 	-- to the tier that paints outside the engine and therefore cannot be hidden by it.
 	if settling then
-		stopDrawing()
+		stopDrawing("settling")
 		return
 	end
 	learnFacingFromPlayer()
@@ -4057,7 +4353,7 @@ function drawOverflow()
 	-- Archipelago agent measured wMapStatus never leaving 2 through an entire battle on that
 	-- build, so wBattleMode is the only battle term there and this is its gap).
 	if liveSprites == 0 or playerSpriteEntries == 0 then
-		stopDrawing()
+		stopDrawing("no-live-sprites")
 		return
 	end
 
@@ -4254,7 +4550,7 @@ function drawOverflow()
 	-- describe the map we are actually on. `age + 1` because the lookup reaches back exactly
 	-- `age` pushes; at that point every term in the position belongs to one world again.
 	if (playerHistory.since or 0) <= playerHistory.age then
-		stopDrawing()
+		stopDrawing("history-not-ready")
 		return
 	end
 
@@ -6381,7 +6677,7 @@ function drawOverflow()
 	-- The counter, not a recomputation of the condition: `nDrawn` is what the summary below
 	-- reports, so the clear and the log can never disagree about whether anything was painted.
 	if nDrawn == 0 then
-		stopDrawing()
+		stopDrawing("nothing-drawn")
 	end
 
 	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
@@ -6441,9 +6737,17 @@ function drawOverflow()
 		logFile(string.format("tiers: %d on hardware. "
 			.. "drawn tier: %d peers waiting, %d drawn (%d from the cartridge), "
 			.. "%d no sprite tiles, %d off screen, %d hidden by UI, %d spawned as real objects; "
-			.. "stepping view drawn on %d of %d peer-frames so far, %d with no facing yet",
+			.. "stepping view drawn on %d of %d peer-frames so far, %d with no facing yet%s",
 			nOam, nWanted, nDrawn, nFromRom, nNoTile, nOffScreen, nHidden, ghostCount(),
-			facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0, nNoFacing))
+			facingFrames.nStepDrawn or 0, facingFrames.nDrawnFrames or 0, nNoFacing,
+			(function()
+				local w = facingFrames.stopWhy
+				if not w then return "" end
+				local parts = {}
+				for k, v in pairs(w) do parts[#parts + 1] = string.format("%s:%d", k, v) end
+				table.sort(parts)
+				return "; NOT DRAWN because -- " .. table.concat(parts, " ")
+			end)()))
 		-- THE RESYNC, REPORTED WITHOUT THE COMPARE RIG. It used to be visible only on the MODEL
 		-- walk line, which is gated behind the measuring rig -- so the number that says whether a
 		-- painted peer is being SNAPPED rather than walked could not be read in an ordinary
@@ -7209,6 +7513,56 @@ local function renderRemote(id, state)
 	if type(pos) ~= "table" or type(pos[1]) ~= "number" or type(pos[2]) ~= "number" then
 		return
 	end
+
+	-- CROSS-MAP GHOSTS, TRANSLATED AT INGEST. A peer standing on a map CONNECTED to ours is
+	-- rewritten into our own tile frame right here, so everything below -- the area gate, the
+	-- range cull, both tiers, collision, the painted copy -- sees ordinary local coordinates and
+	-- needed no changes at all. A peer anywhere else keeps its own area_id and is hidden by the
+	-- gate below, exactly as before this feature existed.
+	--
+	-- `state` is a freshly decoded message, never a cached one, so rewriting it in place is safe.
+	--
+	-- The range cull a few hundred lines down is what keeps this cheap: a translated peer far
+	-- along a neighbouring route is simply out of range and holds nothing. Nothing here needs its
+	-- own distance test.
+	if ENGINE.xmap.armed() and state.area_id ~= nil then
+		local here = areaId()
+		if ENGINE.xmap.connsFor ~= here then
+ENGINE.xmap.build(here) end
+		if state.area_id ~= here then
+			local tx, ty = ENGINE.xmap.translate(state.area_id, pos[1], pos[2])
+			if tx then
+				-- COMPONENTS 3 AND 4 MOVE TOO, and forgetting them is why the first version of
+				-- this feature made every cross-map peer look like it was teleporting tile to
+				-- tile. `position` carries the tile in [1],[2] and the character's position in
+				-- ABSOLUTE MAP PIXELS in [3],[4] -- and the smooth motion lives entirely in the
+				-- pixel pair, because the tile pair is a staircase by construction. Translating
+				-- the tiles alone left the pixels describing a point on the NEIGHBOUR's map, so
+				-- the drawn tier had nothing usable to glide along and fell back to whole tiles.
+				-- The user, 2026-08-27: *"going around in another route still looks
+				-- snap/teleporting ish to someone watching from another route"*.
+				--
+				-- Same delta, in pixels. Applied BEFORE [1],[2] are overwritten, because the
+				-- delta is defined against the untranslated values.
+				local dx, dy = tx - pos[1], ty - pos[2]
+				if type(pos[3]) == "number" then pos[3] = pos[3] + dx * 16 end
+				if type(pos[4]) == "number" then pos[4] = pos[4] + dy * 16 end
+				-- ONCE per peer per (their map -> our map) pair, never per frame: this is the one
+				-- line that says the feature is actually live rather than a peer happening to be
+				-- on our own map, and a per-frame version of it would cost the frame rate it is
+				-- reporting on (adapters/emulator/CLAUDE.md).
+				local k = id .. "|" .. state.area_id .. "|" .. here
+				if not ENGINE.xmap.said[k] then
+					ENGINE.xmap.said[k] = true
+					log(string.format("cross-map: %s is on %s, %d,%d -- translated to %d,%d on"
+						.. " our %s (via its %s connection)", id, state.area_id, pos[1], pos[2],
+						tx, ty, here,
+						(ENGINE.xmap.conns[state.area_id] or {}).dir or "?"))
+				end
+				state.area_id, pos[1], pos[2] = here, tx, ty
+			end
+		end
+	end
 	-- When did we last hear from this peer? Kept on the activity record, which already exists per
 	-- peer, so this costs no new bookkeeping. tick() uses it to forget peers that stop sending --
 	-- see the sweep there for why a peer can vanish without ever being despawned.
@@ -7398,7 +7752,26 @@ local function renderRemote(id, state)
 	if COMPARE_TIERS and isLoopback then offsetX = COMPARE.spawned end
 	local x, y = baseX + offsetX, math.floor(pos[2])
 	if COMPARE_TIERS and isLoopback then y = y + COMPARE.dy end
-	if x < 0 or x > 255 or y < 0 or y > 255 then
+	-- A TRANSLATED PEER LEGITIMATELY HAS NEGATIVE COORDINATES, and this guard used to discard it.
+	--
+	-- The guard's real subject is "a coordinate that cannot be written into the engine's u8
+	-- fields", which was the same thing as "off the map" for as long as every peer stood on OUR
+	-- map. Cross-map translation broke that: a peer one tile across the WEST seam is at x = -1 by
+	-- construction, so this returned before the area gate, the range cull and the overflow update
+	-- had run -- leaving the drawn entry frozen at wherever it last was and never cleared. The
+	-- user, 2026-08-27: *"when walking away far, the ghost is still stuck/drawn at the edge of the
+	-- screen until going into a house or coming close to the other player again"*. Both of those
+	-- recoveries are this guard letting go: approaching brings x back above 0, and a house is not
+	-- a connected map so the peer is never translated and its own coordinates are positive.
+	--
+	-- So the u8 question moves to where u8s are actually written -- the SPAWNED tier, which is
+	-- gated on the peer standing inside our own map (see `inOurMap` below). What is
+	-- left here is only a sanity bound on a corrupt or absurd message. The window is generous
+	-- because the range cull below is the real limit: anything surviving it is within
+	-- GHOST_RANGE_TILES of the player regardless of what this allows.
+	local lo, hi = 0, 255
+	if ENGINE.xmap.armed() then lo, hi = -160, 415 end
+	if x < lo or x > hi or y < lo or y > hi then
 		return
 	end
 
@@ -7624,6 +7997,17 @@ local function renderRemote(id, state)
 	local px, py = u8(OBJECT_STRUCTS + F_MAP_X) or 0, u8(OBJECT_STRUCTS + F_MAP_Y) or 0
 	if math.max(math.abs(x - px), math.abs(y - py)) > GHOST_RANGE_TILES then
 		despawnGhost(id)
+		-- `overflow[id]` TOO -- the real drawn entry, not just the two COMPARE copies. Without it
+		-- this gate despawns the object and leaves the painted ghost behind, frozen at its last
+		-- position, and the draw loop keeps painting it at the edge of the screen forever. It went
+		-- unnoticed until cross-map ghosts existed because the AREA gate above (which does clear
+		-- it) caught every distant peer first: a peer far enough to be out of range was almost
+		-- always on another map. Translating connected maps into our own frame moved that peer
+		-- from the area gate to this one, and the leak became visible immediately -- the user,
+		-- 2026-08-27: *"when walking far away from someone while in another route, you get
+		-- stuck/drawn at the edge of their screen"*, and it cleared on entering a building,
+		-- which is the area gate finally firing.
+		overflow[id] = nil
 		overflow[COMPARE.key(id)] = nil
 		overflow[COMPARE.hwKey(id)] = nil
 		return
@@ -7878,6 +8262,43 @@ local function renderRemote(id, state)
 	end
 
 	local g = ghosts[id]
+
+	-- IS THIS PEER STANDING ON OUR OWN MAP AT ALL?
+	--
+	-- Cross-map translation routinely places a peer OUTSIDE our map -- one tile across the west
+	-- seam is x = -1 -- and a real engine object cannot live there: the engine culls an object
+	-- outside its own map, and every coordinate written for one goes into a u8, where -1 becomes
+	-- 255 and puts the ghost across the map. So an off-map peer takes no engine slot and is
+	-- carried by the painted tier, promoting the moment it steps onto our map -- well before the
+	-- screen could show it doing anything else. Emerald draws the same line at its own border.
+	--
+	-- Coordinates are OBJECT space -- map space plus the 4-tile border -- so our tiles run
+	-- 4 .. 3 + extent. FAIL OPEN when cross-map is not armed: `ourW`/`ourH` are 0 on a build whose
+	-- connection block is unmeasured, and gating on them there would refuse every spawn on the map
+	-- rather than none.
+	local inOurMap = not ENGINE.xmap.armed() or ENGINE.xmap.ourW <= 0
+		or (x >= 4 and y >= 4
+			and x <= 3 + ENGINE.xmap.ourW and y <= 3 + ENGINE.xmap.ourH)
+	-- A ghost that WAS ours and whose peer has since walked off our map is handed back NOW, rather
+	-- than being stepped toward a coordinate that cannot be written. The spawn gate below only
+	-- stops new objects; without this an existing one keeps being driven off the edge.
+	if g and not inOurMap then
+		despawnGhost(id)
+		g = nil
+		-- AND DO NOT HAND THE TILES STRAIGHT BACK. `adapters/CLAUDE.md`: never re-use a despawned
+		-- entity's resources in the same tick that despawned it -- the engine has not finished with
+		-- them, and Emerald's scrambled ghost was exactly this. A peer walking the seam boundary
+		-- steps in and out of our map repeatedly, so without a cooldown this frees and re-claims
+		-- the same tiles every couple of frames. The user, 2026-08-27, watching a peer arrive into
+		-- their route: *"the 'sprite' is glitchy on the ghost"* -- a regression from the despawn
+		-- above, which did not exist before cross-map peers could leave our map at all.
+		a.reclaimAt = policyFrames
+	end
+	-- Free on one tick, allocate on a later one.
+	if a.reclaimAt and (policyFrames - a.reclaimAt) < 8 then
+		inOurMap = false
+	end
+
 	-- TWO FRAMES, NOT ONE, AND IT IS NOT AN OVERLAP -- IT IS A GAP BEING CLOSED.
 	--
 	-- Measured 2026-08-23, dumping hardware OAM every frame across four promotions: an object this
@@ -7924,7 +8345,13 @@ local function renderRemote(id, state)
 		local ov = overflow[id]
 		if ov and ov.modelX then
 			local mtx, mty = math.floor(ov.modelX / 16), math.floor(ov.modelY / 16)
-			if mtx ~= x or mty ~= y then
+			-- ...and only when a spawn is actually on the table. A peer outside our map is never
+			-- placeable (`inOurMap`), so without this the line fires EVERY FRAME for as long as a
+			-- cross-map peer is on screen -- measured at 2,556 writes in one 45-second run, which
+			-- is per-frame file I/O on the emulator's own thread and exactly the cost
+			-- `adapters/emulator/CLAUDE.md` warns about. The handover it describes cannot happen
+			-- for a peer that cannot be handed over.
+			if inOurMap and (mtx ~= x or mty ~= y) then
 				-- The size of the handover, in tiles, logged whether or not it is acted on: if this
 				-- stops appearing the cause has moved, and if it appears with the jump gone it was
 				-- never the cause. A counter that vanishes with its fix proves nothing.
@@ -7987,7 +8414,33 @@ local function renderRemote(id, state)
 		end
 		-- Try the good tier first, every frame: a slot may have freed up since last time.
 		-- (px == nil is the mid-step deferral above -- stay painted this frame.)
-		if px and not dropT and spawnGhost(id, px, py, peerSprite) then
+		-- A TRANSLATED PEER MAY STAND OUTSIDE OUR MAP, AND A REAL OBJECT MAY NOT.
+		--
+		-- Cross-map translation puts a peer on a connected neighbour into our tile frame, which
+		-- routinely lands them one or more tiles PAST our own edge -- a peer just across the west
+		-- seam sits at map x = -1. The engine culls an object outside its own map the frame it is
+		-- created, so promoting one starts the allocate/cull/allocate loop that
+		-- `adapters/CLAUDE.md` warns about: measured 2026-08-27 as 485 consecutive promote
+		-- attempts in one session with `0 spawned as real objects` to show for them, and the user
+		-- saw it as a cross-map peer that *"look[s] like teleporting/snapping"* on every tile.
+		--
+		-- So a peer outside our bounds simply takes no slot. It still EXISTS -- the painted tier
+		-- carries it, which is what makes it visible across the seam at all -- and it promotes to
+		-- a real object the moment it steps onto our map, which is before the screen can show it
+		-- doing anything else. Emerald draws the same line for the same reason.
+		--
+		-- Coordinates here are OBJECT space, which is map space + 4 (the map border), so our own
+		-- tiles run 4 .. 3 + extent. FAIL OPEN when cross-map is not armed: `ourW`/`ourH` are 0 on
+		-- a build whose connection block is unmeasured, and gating on them there would refuse
+		-- every spawn on the map rather than none.
+		-- `inOurMap` is decided above from the peer's own tile. `px,py` is the promote tile, which
+		-- is the drawn model's rather than the peer's and can differ by one -- so it is bounded
+		-- here too: the peer being on our map does not by itself prove the tile we are about to
+		-- write is.
+		local placeable = inOurMap and px and px >= 4 and py >= 4
+			and (ENGINE.xmap.ourW <= 0
+				or (px <= 3 + ENGINE.xmap.ourW and py <= 3 + ENGINE.xmap.ourH))
+		if placeable and not dropT and spawnGhost(id, px, py, peerSprite) then
 			-- FACE THE WAY THE PEER IS FACING, IMMEDIATELY.
 			--
 			-- `spawnGhost` pins the new object's standing facing to whatever direction the TEMPLATE
@@ -8689,7 +9142,18 @@ local function tryPort(port)
 	-- Log the port, always. With a walk, "connected" no longer implies a known port, and the port
 	-- is the first thing anyone needs when two instances start behaving as one.
 	log(string.format("MeshGhost: bridge connected on %s:%d", BRIDGE_HOST, port))
-	send({ type = "hello", payload = { game_id = GAME_ID, game_version = GAME_VERSION } })
+	-- `render_all_areas` (ADR 0036) tells the core to stop applying its own cross-area equality
+	-- filter and deliver every remote regardless of area_id, because THIS ADAPTER now owns area
+	-- visibility. Without it the core despawns every peer at every seam crossing: an echoed
+	-- area_id lags a real crossing by one delivery and an equality test cannot know two maps are
+	-- connected, so the pop would be one the adapter could not prevent from its side.
+	--
+	-- Sent ONLY when cross-map is actually armed. On a build where the connection block is
+	-- unmeasured there is nothing to replace the core's filter with, and taking it away would be
+	-- a straight regression -- the adapter's own gate would still hide the peers, but the core
+	-- would be shipping states across the bridge for nothing.
+	send({ type = "hello", payload = { game_id = GAME_ID, game_version = GAME_VERSION,
+		render_all_areas = ENGINE.xmap.armed() or nil } })
 	return true
 end
 
@@ -8895,6 +9359,9 @@ W_MAPGROUP, W_MAPNUMBER = A.W_MAPGROUP, A.W_MAPNUMBER
 W_YCOORD, W_XCOORD = A.W_YCOORD, A.W_XCOORD
 W_MAPSTATUS, W_BATTLEMODE = A.W_MAPSTATUS, A.W_BATTLEMODE
 W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
+-- Cross-map ghosts. All three or none: nil on a build where the block is unmeasured, and
+-- ENGINE.xmap.armed() then keeps the whole feature off rather than translating against a guess.
+ENGINE.xmap.connAt, ENGINE.xmap.wAt, ENGINE.xmap.hAt = A.W_MAPCONNECTIONS, A.W_MAPWIDTH, A.W_MAPHEIGHT
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
 W_STATEFLAGS = A.W_STATEFLAGS -- optional: nil turns the hardware tier off on that build
 OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
@@ -9446,16 +9913,95 @@ local function tick()
 	-- rebuild the array; everything else is left to stillOurs(), which asks whether the object we
 	-- recorded is still the object we made rather than guessing from a lifecycle event.
 	local area = areaId()
+	-- REFRESH WHILE STABLE. The connection block was only read when the map changed, which put the
+	-- whole feature at the mercy of whether that single read landed after the engine finished
+	-- writing it. Re-reading it every frame while the map is NOT changing costs ~17 byte reads and
+	-- means the set is correct and settled long before it is ever needed -- so a crossing can no
+	-- longer inherit one bad read. Deliberately skipped on the changing frame itself, where the
+	-- seam test below still needs the departing map's set intact.
+	if area == lastArea and ENGINE.xmap.armed() then ENGINE.xmap.build(area) end
 	if area ~= lastArea then
+		-- The connection block belongs to the map we just arrived on, so it is stale the moment
+		-- the map changes. Rebuilt HERE as well as lazily in renderRemote so that the first peer
+		-- state to arrive after a crossing is translated against the new map rather than the old
+		-- one -- the block and the map bytes were measured changing on the SAME frame (lead 0
+		-- across 26 crossings), so there is no window where this reads a half-updated block.
+		--
+		-- WAS THIS A SEAM OR A WARP? Asked BEFORE the rebuild, because the answer lives in the
+		-- DEPARTING map's connection list and the rebuild overwrites it. A seam is a map change
+		-- the old map's connections named; everything else is a warp.
+		-- Either table may hold the departing map's set, depending on whether a peer state arrived
+		-- this frame and rebuilt it first (it usually did -- see ENGINE.xmap.build). Asking both
+		-- makes the answer independent of that ordering instead of quietly depending on it.
+		local function seamTo(conns, forKey)
+			return conns ~= nil and forKey == lastArea and conns[area] ~= nil
+		end
+		local wasSeam = seamTo(ENGINE.xmap.conns, ENGINE.xmap.connsFor)
+			or seamTo(ENGINE.xmap.prevConns, ENGINE.xmap.prevFor)
+		-- Stamped so the settle window above can tell a seam from a warp. It is read at a point in
+		-- the frame that runs BEFORE this block, so it is deliberately a timestamp with a window
+		-- rather than a flag consumed here -- a flag would always be one frame late.
+		if wasSeam then ENGINE.xmap.seamAt = policyFrames end
+		-- Computed BEFORE the rebuild, like the seam test itself, and for the same reason.
+		local rebaseDX, rebaseDY = nil, nil
+		if wasSeam then rebaseDX, rebaseDY = ENGINE.xmap.rebaseDelta(lastArea, area) end
+		if lastArea and (MESHGHOST_CRYSTAL_XTRACE
+			or os.getenv("MESHGHOST_CRYSTAL_XTRACE")) then
+			ENGINE.xmap.traceUntil = policyFrames + 150
+		end
+		if lastArea and ENGINE.xmap.armed() then
+			-- ONE LINE PER MAP CHANGE, which is rare enough to be free and is the only thing that
+			-- says which branch the teardown below took. The previous version of this fix was
+			-- wrong for a whole test round with nothing in the log to show it.
+			log(string.format("map change %s -> %s: %s", lastArea, area,
+				(wasSeam and rebaseDX)
+					and string.format("SEAM (painted tier rebased by %+d,%+d tiles, no fade guard)",
+						rebaseDX, rebaseDY)
+					or (wasSeam and "SEAM but NO REBASE DELTA -- clearing (this should not happen)")
+					or "WARP (full teardown)"))
+		end
+		if ENGINE.xmap.armed() then ENGINE.xmap.build(area) end
 		if lastArea then
-			playerHistory.settle = 30 -- the world is being rebuilt: do not paint over the fade-in
+			-- A SEAM CROSSING IS NOT A WARP, and the teardown below was written when every map
+			-- change was one. Both of these were safe exactly because nobody could survive a map
+			-- change: a peer on the map you left was hidden the moment you left it. Cross-map
+			-- ghosts break that premise -- the peer across the seam is visible before AND after --
+			-- so the blanket teardown now removes a ghost that should never have gone anywhere,
+			-- and it comes back a frame later. The user, 2026-08-27: *"whenever you cross over to
+			-- a different route, their ghosts flickers a bit for you"*, and pointedly NOT for the
+			-- person watching them arrive -- which is the tell, because only the crosser runs this
+			-- block.
+			--
+			--   * the fade guard: a WARP fades the screen and painting over it is the bug this
+			--     exists for. Walking across a connection does not fade at all, so 30 frames of
+			--     held paint there is half a second of missing ghost and nothing gained.
+			--   * the painted tier: its positions are recomputed every frame against the anchor,
+			--     so a stale entry is corrected on the next paint rather than being wrong. Keeping
+			--     it across a seam is the difference between one corrected frame and a gap.
+			--
+			-- The SPAWNED tier is dropped either way and that is not negotiable: the engine really
+			-- does rebuild its object array on any map load, seam included, so every object we
+			-- recorded belongs to the old map's array and `stillOurs()` would be asking about a
+			-- slot that has already been handed to somebody else.
+			if not wasSeam then
+				playerHistory.settle = 30 -- a warp fades: do not paint over the fade-in
+			end
 			for id in pairs(ghosts) do
 				ghosts[id] = nil
 			end
 			-- The drawn tier has no slots to forget, but it does have positions, and they were
-			-- computed against the OLD map's camera. Clear them too: a peer still on this map
-			-- re-registers on its next state, which is at most a frame away.
-			overflow = {}
+			-- computed against the OLD map's camera. Clear them on a warp: a peer still on this
+			-- map re-registers on its next state, which is at most a frame away.
+			-- REBASED, not kept and not cleared. `wasSeam` alone is not enough to keep these: they
+			-- are written in the frame of the map being left, and the crossing retires it. See
+			-- ENGINE.xmap.rebaseDelta for why both of the simpler options were watched failing.
+			if wasSeam and rebaseDX then
+				for _, o in pairs(overflow) do
+					ENGINE.xmap.rebaseEntry(o, rebaseDX, rebaseDY)
+				end
+			else
+				overflow = {}
+			end
 			anchorIndex = nil -- the object array is rebuilt; last map's anchor means nothing
 			-- A MENU CANNOT SURVIVE A MAP LOAD, so a menu rectangle still set here is stale by
 			-- definition and must not go on hiding painted peers.
@@ -9489,6 +10035,32 @@ local function tick()
 			playerHistory.since = 0
 		end
 		lastArea = area
+	end
+
+	-- XTRACE -- a BOUNDED per-frame tier trace around a map change, off unless asked for.
+	--
+	-- The question it exists to answer, and which no other instrument here can: across a seam
+	-- crossing, is there a frame on which NEITHER tier holds the peer? That frame is the flicker.
+	-- The per-second `holding:` line cannot see it (a gap of a few frames never survives a
+	-- one-second sample), and the spawn/despawn lines cannot either -- they say what changed, not
+	-- whether anything was on screen in between.
+	--
+	-- Armed for 40 frames by the map change above, so it costs nothing while walking and cannot
+	-- run away: a per-frame log line is a per-frame stall (adapters/emulator/CLAUDE.md).
+	if ENGINE.xmap.traceUntil and policyFrames <= ENGINE.xmap.traceUntil then
+		local sp, pa = {}, {}
+		for gid in pairs(ghosts) do sp[#sp + 1] = gid end
+		for oid in pairs(overflow) do pa[#pa + 1] = oid end
+		table.sort(sp)
+		table.sort(pa)
+		-- The stop reason may be one frame old (drawOverflow runs at its own point in the frame);
+		-- that is fine for attribution and is stated so nobody reads it as exact.
+		local why = (facingFrames.stopLastAt and policyFrames - facingFrames.stopLastAt <= 1)
+			and facingFrames.stopLast or nil
+		logFile(string.format("XTRACE f=%d area=%s spawned{%s} painted{%s}%s%s", policyFrames, area,
+			table.concat(sp, ","), table.concat(pa, ","),
+			why and ("  NOT-DRAWN:" .. why) or "",
+			(#sp == 0 and #pa == 0) and "   <-- NEITHER TIER: this frame draws no peer at all" or ""))
 	end
 
 	if ready then
