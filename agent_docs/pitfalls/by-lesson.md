@@ -4835,3 +4835,59 @@ never did.
   anything.
 - **The user noticed the process, not the result**: *"tought we were just probing/finding how?"* A
   fix shipped in the middle of an investigation is a guess wearing the investigation's clothes.
+
+## AN ENUMERATION IS ONLY AS WIDE AS ITS FILTER — "nothing found" means nothing until you check what you looked through (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A ghost showed the game's blue through-walls outline while its peer attacked. Three
+separate probes reported that **nothing anywhere** had custom depth on during a swing: a per-tick
+walk of the ghost's own components, a name-attributed world sweep, and finally a per-tick world hunt
+over every mesh component. All clean, while the user was looking straight at the effect.
+
+**Cause.** Every one of them enumerated `SkeletalMeshComponent` and `StaticMeshComponent`. The
+carrier was an **afterimage actor**, whose mesh is a pose snapshot — a `PoseableMeshComponent` —
+which is neither. No sampling rate could have found it.
+
+**The tell was there and was misread.** When a probe disagrees with a person looking at the screen,
+the two candidate explanations are "it happens between samples" and "it is outside my filter". The
+cadence was corrected TWICE (30 ticks, then 5, then 1) on the first hypothesis while the second was
+never examined — and each cadence fix made the clean result look more trustworthy.
+
+**What actually found it**: the user watched their OWN character behind a wall and counted **two**
+outlines — themselves and their afterimages. One observation, no instrument.
+
+**Transferable:**
+
+- **Before believing a negative from an enumeration, state what it CANNOT see.** A class filter, a
+  name filter, an attach-parent filter: each is a silent exclusion, and a clean result is only as
+  strong as the narrowest one.
+- **Fixing the cadence again is a smell.** If a faster sample keeps returning the same clean answer
+  while the symptom persists, the problem is the population, not the rate.
+- **This is the same shape as `VFX_WATCH`'s first run**, which caught almost nothing because it kept
+  only components parented to the pawn. That was recorded, and the lesson still did not transfer to
+  a different filter on a different probe.
+
+## PROXIMITY IS NOT IDENTITY, AND A LOOPBACK RIG MAKES THAT WORSE (Pseudoregalia, 2026-08-27)
+
+**Symptom.** A fix that stripped a ghost's afterimage outlines also stripped the LOCAL player's, and
+the user's verdict was immediate: *"this also regressed/affect the player itself. i don't want
+anything like that."*
+
+**Cause.** The afterimages were attributed to the ghost by distance — nearer the ghost than the
+player means the ghost's. On a loopback rig the ghost stands 150 units away and mirrors the player
+about 100ms behind, so an afterimage the PLAYER left is frequently nearer the GHOST by the time it
+is sampled.
+
+**Why proximity works elsewhere in the same file and not here.** The world-spawned VFX rows attribute
+by proximity happily, because those effects fire AT the performer and last an instant. An afterimage
+is left BEHIND in space and outlives the moment that created it — so distance stops encoding
+ownership almost immediately.
+
+**Transferable:**
+
+- **Proximity is a heuristic for things that are still attached to the moment that made them.** For
+  anything that persists in world space, it decays into a coin flip.
+- **A dev rig that places two characters close together is the worst possible place to validate a
+  proximity rule** — and it is where everything gets validated. `adapters/CLAUDE.md`'s existing rule
+  covers this: re-validate against an identity marker, never against "it was near me".
+- **The revert is the cheap part; the report is the valuable one.** "It also affected the player" is
+  the sentence that turns a plausible fix into a recorded negative.

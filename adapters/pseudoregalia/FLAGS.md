@@ -2,7 +2,7 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 81 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 85 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -28,7 +28,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 24 that are `true`
+## Behaviour — the 25 that are `true`
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -62,6 +62,7 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER` | Additive: fires only where the existing trigger found nothing. Not the old `AFTERIMAGE_TRIGGER_OBSERVED`, which replaced the trigger wholesale and scanned unconditionally. |
 | `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` | Birth-proximity check, so a recycled pooled actor is not counted as a new afterimage. |
 | `RECALL_GLOW_ENABLED` | Mirrors whether the real glow is present rather than reimplementing "empty-handed AND near a save crystal". Whatever rule the game actually applies is mirrored for free and cannot drift. |
+| `GHOST_HOLD_OUTLINE_OFF` | A ghost is never drawn through walls: custom depth is stripped from everything it owns, every tick, plus a ~30Hz sweep for components attached at RUNTIME that no property points at. Generalised from a five-name list on the user's rule — *"i don't want it to apply to the ghosts at all, no matter what/where. only to the player itself."* The asymmetry is the point: a peer's position behind geometry is information. **Has never once found custom depth on**, which is how the afterimage carrier was eventually identified. |
 | `MIRROR_PEER_PROJECTILE` | **Confirmed 2026-08-27.** A peer's ranged shot, mirrored as the projectile's own Niagara EFFECT along the sampled path — never as the game's actor, which crashed the game when its pointer outlived it. The sender attributes a shot by `Instigator` and requires its `ProjectileMovement` to be ACTIVE, because this game pools actors and existence is not activity. |
 | `MIRROR_DEATH_FADE` | **Confirmed 2026-08-27.** Runs the pawn's own `dieFade(DieNotRez)` on a ghost — dying on the peer's health reaching zero, resurrecting when their `NS_RespawnSafe` starts. Found by two probes: the model is never hidden and its materials go dynamic (so it is an animated parameter), then a census named the function. |
 | `MIRROR_HURT_REACTION` | **Confirmed 2026-08-27, and the one flag with a runtime tripwire.** Runs the pawn's own `BPI_PerformDamageResponse` on a ghost whenever the peer's shared health DECREASES — a pit fall is 5 HP, damage rather than death, which is why the death fade could not carry it. Because health is a GameInstance singleton, the mirror reads `CurrentHp` around the call and **disarms itself for the session** if the value moves. It has never fired; that is a measured fact about the function, not an assumption. |
@@ -75,15 +76,15 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 
 ## Probes — off, and they must stay off
 
-44 flags, all `false` (the other 12 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
+46 flags, all `false` (the other 13 written `false` are the Dormant entries further down). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`, plus
 `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
-**The arithmetic, so a future audit can check it in one pass:** 81 `constexpr bool` in
-`Plugin.cpp` — 80 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
+**The arithmetic, so a future audit can check it in one pass:** 85 `constexpr bool` in
+`Plugin.cpp` — 84 written plus `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather
 than set (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every
-shipped build without being written so. Of the 80: **24 written `true`** (Behaviour, above) and
-**56 written `false`** — 44 probes plus the 12 Dormant entries below.
+shipped build without being written so. Of the 84: **25 written `true`** (Behaviour, above) and
+**59 written `false`** — 46 probes plus the 13 Dormant entries below.
 
 **Recounted from the code 2026-08-27, and the count had drifted.** The previous figure of 58 was
 several flags stale before this session added any, so these numbers were measured with
@@ -91,6 +92,14 @@ several flags stale before this session added any, so these numbers were measure
 that command is the audit, and it takes a second. **The audit also caught a probe shipping as
 `true`** (`HEALTH_PROBE`, now off; see its comment), which is exactly what this register is for:
 a name ending `_PROBE` sitting in the `true` list is a defect, not a special case.
+
+**`OUTLINE_HUNT` and `LOCKON_PROBE` (added 2026-08-27)** are the outline investigation's two
+instruments. `OUTLINE_HUNT` enumerates every mesh component in the world currently rendering custom
+depth, with its actor, stencil and position; `LOCKON_PROBE` watches the player's lock-on/target
+properties per tick and names what they point at. Both answered their questions and both are off.
+**`OUTLINE_HUNT` also carries a warning**: it enumerates `SkeletalMeshComponent` and
+`StaticMeshComponent` only, which is precisely why it never saw an afterimage's
+`PoseableMeshComponent` — widen the class list before trusting a clean result from it.
 
 **`GHOST_PROJECTILE_WATCH` (added 2026-08-27)** sweeps once for the projectile class this build
 actually has, then polls it and logs every instance with its Owner and **Instigator**, plus both
@@ -139,6 +148,7 @@ probe is on, and exists so a probe run does not fight the adapter's own montage 
 | `AFTERIMAGE_COLOR_TEST_OVERRIDE` | Forces a colour, for proving the colour path independent of detection. |
 | `AFTERIMAGE_TRIGGER_OBSERVED` | The first observed-spawn trail trigger, retired 2026-08-16. `false` is a **real** revert now that the enumeration it carried is gated too — the earlier A/B was worthless because only the counter increment inside the scan was gated while the scan itself still ran. Replaced by `AFTERIMAGE_TRIGGER_FROM_OBSERVATION` plus `AFTERIMAGE_OBSERVE_SPECIAL_TRIGGER`, which are additive rather than wholesale. |
 | `AFTERIMAGE_COUNT_REUSE` | Counting pooled re-use as a spawn — a **recorded negative**. Added on the theory that the ghost's thinner trail came from missed spawns; a world census measured the opposite (the ghost produced roughly twice as many afterimages as the player while still looking thinner), so this only added spurious ones. Kept because the underlying finding — these actors are pooled and re-used, which is why none ever disappear — is real and is the mechanism a future effect would want. |
+| `GHOST_AFTERIMAGE_NO_OUTLINE` | Stripped the outline from a ghost's afterimages, attributed by proximity. **Reverted the same session, confirmed by the user**: it took the LOCAL player's outline too and did not fix the ghost. On a loopback rig the ghost is 150 units away and trails by ~100ms, so proximity cannot tell two characters' afterimages apart. Kept as the recorded negative; the next attempt needs identity attribution. |
 | `MIRROR_PLAYER_BLINK` | Ran the pawn's `startBlink` on a ghost for the death flash. **Recorded negative, and a name that lied**: the function picks a `RandomFloatInRange` and sets a timer — it is the character's EYES blinking. It resolved, ran, and showed nothing. |
 | `GHOST_STOP_TRANSITION_TIMELINES` | Stopped the ghost's `Timeline_2`/`Timeline_3` for the black flash. **Recorded negative, proven by its own readback**: `IsPlaying` reported `not playing` on every ghost, so those timelines were never running and stopping them was cosmetic. |
 | `DEATH_VISIBILITY_PROBE` | Watched the player's mesh through a death. Answered in one run — never hidden, three material slots become `MaterialInstanceDynamic` — which is what redirected the search from particles to an animated material parameter. |

@@ -61,6 +61,8 @@ has never been looked at. `verified.md`.
 
 - **Pseudoregalia is FEATURE COMPLETE (user, 2026-08-27) and its scope is written down** — nine
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
+- **A ghost's AFTERIMAGES still carry the through-walls outline during melee** — cause identified by
+  the user, one proximity-based fix reverted; needs identity attribution. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured

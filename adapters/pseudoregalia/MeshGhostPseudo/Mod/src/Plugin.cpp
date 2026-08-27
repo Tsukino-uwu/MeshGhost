@@ -1419,6 +1419,12 @@ namespace MeshGhostPseudo
     // Off again 2026-08-27, the pit-fall capture done: it named `NS_RespawnSafe` (attached to the
     // player's capsule, zero offset -- now a mirrored row), plus `NS_DustLand` at the landing point
     // and `NS_BasicBurst` at the death point, both world-spawned and both deliberately not mirrored.
+    // **ON for the 2026-08-27 melee-overlay comparison.** The blue overlay a ghost shows while
+    // attacking is not custom depth on any mesh (measured per tick, world-wide). The ghost runs the
+    // game's own attack code -- established by the damage investigation -- so the question is now
+    // whether it spawns an EFFECT the player does not, or the same effect that looks different on a
+    // pawn with no controller. This logs every effect with [ON PLAYER] marking and its attach point,
+    // so the player's swing and the ghost's can be read side by side in one log.
     constexpr bool VFX_WATCH = false;
 
     // ~15 samples/sec at this build's measured ~150Hz. Tightened from 30 for the throw capture:
@@ -1566,7 +1572,134 @@ namespace MeshGhostPseudo
     // is the third. Measure the effect, then mirror it.
     constexpr bool MIRROR_PLAYER_BLINK = false;
 
-    // **Hold the ghost's through-walls OUTLINE off, every tick. Behaviour, 2026-08-27.**
+    // **What is actually outlined, right now? Probe, 2026-08-27.**
+    //
+    // `GHOST_HOLD_OUTLINE_OFF` holds custom depth off on five named meshes of the ghost and logs
+    // whenever it has to -- and across a session of melee attacks it **never logged once**, while
+    // the user still saw blue outlines on the ghost. So the outline is not those components being
+    // re-enabled, and the original outline investigation predicted exactly this branch: if custom
+    // depth is not it, the outline is "a separate outline mesh, or a material with depth testing
+    // off".
+    //
+    // The user's answer to the one question that splits it: *"no the player itself does not have
+    // these blue outline/overlays when attacking. it only has them when hidden behind a
+    // wall/obstacle"* -- so the ghost is doing something the player never does, which is ours.
+    //
+    // Rather than guess a sixth component name, this asks the world: every primitive component
+    // currently rendering custom depth, with the ACTOR it belongs to, logged on change. Whatever is
+    // drawing that outline has to be in the list -- including things we spawn for the ghost that no
+    // fixed list would ever cover, like afterimage actors.
+    //
+    // A real enumeration, so it is a probe and it comes off again: same shape and cost as VFX_WATCH.
+    // Off again 2026-08-27, its question answered: across a session of melee attacks the ONLY
+    // components rendering custom depth were the local player's own `VisualMesh` and `WeaponMesh`.
+    // The ghost's were absent entirely, and so was everything spawned for it -- so the blue the user
+    // sees during melee is not the through-walls outline, and the search moved to the afterimage
+    // trail, which is a translucent blue COPY of the character and needs no custom depth to look
+    // like an overlay.
+    // Off again 2026-08-27, and this time the answer is solid because the cadence was fixed first:
+    // at PER TICK, across a session of melee attacks, the only custom-depth components in the whole
+    // world appeared during the level load and nothing changed while swinging. No mesh gains custom
+    // depth during an attack, so the blue overlay is not the through-walls outline mechanism at all
+    // -- despite looking like it and despite drawing through a wall.
+    constexpr bool OUTLINE_HUNT = false;
+
+    // ~5 samples/sec at this build's measured ~150Hz. An attack outline lasts the swing, so this is
+    // comfortably inside it, and the log is on-change so a steady scene costs nothing.
+    // **1, not 30 -- corrected 2026-08-27 after the 30 misled this investigation.** At ~5Hz a
+    // swing's outline fell between samples and the probe reported "only the player is outlined",
+    // which was read as a finding when it was the probe not looking. This session has now been
+    // caught by an under-sampled probe three times; the cost of a per-tick enumeration is paid for
+    // one run and the flag comes straight back off.
+    constexpr uint64_t OUTLINE_HUNT_INTERVAL_TICKS = 1;
+
+    // **Is the ghost being LOCKED ON TO? Probe, 2026-08-27.**
+    //
+    // The blue overlay a ghost shows during the user's melee attacks is not the through-walls
+    // outline: a per-tick check of every component the ghost owns never once found custom depth on,
+    // and a world sweep found it only on the local player's own meshes. Yet the user is clear that
+    // it *looks* exactly like that overlay and appears only during attacks, while the ghost hides
+    // behind walls correctly the rest of the time.
+    //
+    // Targeting explains all of that where rendering does not. The pawn carries a `LockonMesh`, and
+    // a lock-on system that treats a ghost as a valid target would paint its highlight on the ghost
+    // for the duration of a swing. **It would also mean a ghost is affecting the player's combat**,
+    // which is the same class of defect as the damage bug and not merely cosmetic.
+    //
+    // This enumerates lock-on/target-shaped names on the pawn once at ghost spawn, and then watches
+    // the interesting ones per tick, logging on change -- so a reference that starts pointing at the
+    // ghost mid-swing names itself. Per tick deliberately: a swing is a few frames, and this session
+    // has already been misled twice by a 5Hz sampler.
+    // Off again 2026-08-27: the user's behind-a-wall test settled the question before this
+    // needed reading. The overlay draws THROUGH a wall during an attack, which is the through-walls
+    // outline itself rather than a targeting highlight -- so the cause is a custom-depth component
+    // the property walk could not see, not a lock-on reference. Kept because "is a ghost a valid
+    // target for the player's combat?" is still a real question nobody has answered.
+    constexpr bool LOCKON_PROBE = false;
+
+    // **A ghost's AFTERIMAGES are never outlined either. Behaviour, 2026-08-27.**
+    //
+    // The blue overlay on a ghost during melee was the afterimages, and the user found it by
+    // looking at their own character behind a wall: *"the player had 2 outlines behind the wall
+    // 'itself + the after images'"*. An afterimage is a separate ACTOR carrying its own outline, so
+    // stripping custom depth from the ghost -- which this adapter does, correctly -- was never
+    // going to touch them.
+    //
+    // **Why three probes said "nothing is outlined" while this was happening.** They enumerated
+    // `SkeletalMeshComponent` and `StaticMeshComponent`. An afterimage is a pose snapshot, which is
+    // a `PoseableMeshComponent` -- neither of those, so no amount of sampling would have found it.
+    // The cadence was fixed twice while the CLASS FILTER was the actual blind spot: an enumeration
+    // is only as wide as its filter, and "nothing found" means nothing until the filter is checked.
+    //
+    // Attribution is by proximity, the same rule the world-spawned VFX rows use: an afterimage
+    // nearer this ghost than the local player is this ghost's. The local player's own afterimages
+    // keep their outline -- the asymmetry is deliberate and is the whole point, since a peer's
+    // position behind geometry is information the local player should not get for free.
+    // **OFF from 2026-08-27 -- REVERTED on the user's report, and it failed on both counts:** it
+    // stripped the outline from the LOCAL PLAYER's afterimages too, and the ghost's blue was still
+    // there. *"this also regressed/affect the player itself. i don't want anything like that."*
+    //
+    // **Proximity attribution cannot work here, and that is the lesson.** On a loopback rig the
+    // ghost stands 150 units from the player and mirrors their motion ~100ms behind, so an
+    // afterimage left by the PLAYER is frequently nearer the GHOST than the player is by the time
+    // it is sampled. The world-spawned VFX rows get away with proximity because they fire AT the
+    // performer and last an instant; an afterimage is left behind in space and outlives the moment.
+    //
+    // `adapters/CLAUDE.md` already says this outright: re-validate an engine handle against an
+    // IDENTITY marker, never against proximity. The next attempt needs the afterimage's own record
+    // of what it was copied from -- census `BP_AfterImage_C` for a field naming its source pawn --
+    // rather than a distance test that cannot tell two characters apart when they stand together.
+    constexpr bool GHOST_AFTERIMAGE_NO_OUTLINE = false;
+
+    // **A ghost is NEVER outlined -- anything it owns, every tick. Behaviour, 2026-08-27.**
+    //
+    // The user's rule, stated twice and deliberately absolute: *"i don't want it to apply to the
+    // ghosts at all, no matter what/where. only to the player itself."* So this is not a list of
+    // components to remember to extend; it walks everything the ghost owns and strips custom depth
+    // from any of it, plus the props we spawn on the ghost's behalf (the thrown weapon), because
+    // "no matter what" has to survive somebody adding a component later.
+    //
+    // **The through-walls outline is information, and that is why it is asymmetric.** Knowing where
+    // another player is behind geometry is an advantage rather than a decoration -- for a
+    // speedrunner especially -- so the local player keeps their own outline and a peer's ghost
+    // never gets one. Same reasoning as the original spawn-time disable, generalised.
+    //
+    // **A property walk was not enough, and the user's test is what proved it.** They stood behind a
+    // wall WITH the ghost and attacked: the ghost's blue overlay drew through the wall, while the
+    // per-tick property walk reported no custom depth on anything the ghost owns. Both were true.
+    // A component created at RUNTIME and attached to the ghost is a property of nobody -- exactly
+    // the trap `VFX_WATCH`'s first filter fell into, where keeping only components parented by
+    // property caught almost nothing of what the player actually spawns.
+    //
+    // So the hold has two halves: the property walk (cheap, every tick) and a world SWEEP that
+    // attributes components by name and covers anything attached at runtime. The sweep is the one
+    // that can actually see an attack's own mesh.
+    //
+    // Cheap by construction: read `bRenderCustomDepth` and call the engine setter only when it is
+    // actually on. A ghost that is behaving costs reads and no engine calls.
+    //
+    // Kept even though nothing has ever tripped it: the cost is a read, and the alternative is
+    // trusting that no future component, prop or effect ever arrives with custom depth on.
     //
     // The outline was already disabled on a ghost's `VisualMesh` and `WeaponMesh` -- but **only
     // once, at spawn**. The user, melee attacking: *"the ghost was showing blue outlines? think we
@@ -1586,6 +1719,16 @@ namespace MeshGhostPseudo
     // Covers every mesh the census found on the pawn, not just the two the spawn path knew about:
     // the outline pass keys off the component, so a mesh nobody thought of outlines just as well.
     constexpr bool GHOST_HOLD_OUTLINE_OFF = true;
+
+    // How often the world sweep runs. ~30 samples/sec at this build's ~150Hz: an attack outline
+    // lasts a swing, so this catches it within a frame or two of appearing, and the cost is two
+    // class-scoped `FindAllOf` calls plus a name compare -- the same shape VFX_WATCH runs at 10.
+    //
+    // NOT per tick, and that is a deliberate trade rather than an oversight: a full component
+    // enumeration every frame is the exact shape that produced this adapter's worst regression
+    // (`FLAGS.md`). The property walk beside it IS per tick and costs nothing, so the fast path
+    // stays fast and only the runtime-attached case pays the sweep.
+    constexpr uint64_t OUTLINE_SWEEP_INTERVAL_TICKS = 5;
 
     // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
     //
@@ -2593,6 +2736,23 @@ namespace MeshGhostPseudo
             for (const wchar_t* needle : {STR("amage"), STR("Dmg"), STR("dmg"),
                                           STR("hitActors"), STR("HitActors"),
                                           STR("attack"), STR("Attack")})
+            {
+                if (name.find(needle) != StringType::npos)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Lock-on / targeting shaped names. The blue overlay on a ghost during melee is not custom
+        // depth on anything the ghost owns -- measured per tick, never once -- and it looks exactly
+        // like the game's own highlight. A lock-on system picking the ghost as a target would draw
+        // that highlight on it, only during attacks, which fits every detail the user reported.
+        auto is_lockon_shaped_name(const StringType& name) -> bool
+        {
+            for (const wchar_t* needle : {STR("ockon"), STR("ock On"), STR("arget"), STR("ighlight"),
+                                          STR("Focus"), STR("focus"), STR("Enemy"), STR("enemy")})
             {
                 if (name.find(needle) != StringType::npos)
                 {
@@ -8249,6 +8409,13 @@ namespace MeshGhostPseudo
             census_named_fields(ghost, STR("spawned ghost"), is_death_shaped_name, STR("DEATHCENSUS"));
         }
 
+        // Lock-on census, see LOCKON_PROBE. Named on the LOCAL player, because the question is what
+        // the player's targeting points at -- the ghost's own copy is not the one doing the aiming.
+        if constexpr (LOCKON_PROBE)
+        {
+            census_named_fields(local_pawn, STR("local pawn at ghost-spawn"), is_lockon_shaped_name, STR("LOCKONCENSUS"));
+        }
+
         // Shadow census, see SHADOW_COMPONENT_PROBE's own comment. Runs here, at spawn, because
         // this is the one moment both actors are certainly in hand and the ghost has already been
         // fully set up (mesh, rotation, possession, collision) -- a census taken before that would
@@ -8812,6 +8979,119 @@ namespace MeshGhostPseudo
                             ++death_count;
                         }
                         was_dead = dead_now;
+                    }
+                }
+            }
+
+            // See OUTLINE_HUNT. Everything rendering custom depth, by actor, on change.
+            if constexpr (OUTLINE_HUNT)
+            {
+                if (tick_count % OUTLINE_HUNT_INTERVAL_TICKS == 0)
+                {
+                    std::vector<UObject*> components;
+                    UObjectGlobals::FindAllOf(STR("SkeletalMeshComponent"), components);
+                    {
+                        // Collected separately and appended, for the reason VFX_WATCH spells out:
+                        // whether FindAllOf clears its out-parameter is not something to assume.
+                        std::vector<UObject*> statics;
+                        UObjectGlobals::FindAllOf(STR("StaticMeshComponent"), statics);
+                        components.insert(components.end(), statics.begin(), statics.end());
+                    }
+
+                    std::set<std::string> outlined_now;
+                    for (UObject* component : components)
+                    {
+                        if (!component)
+                        {
+                            continue;
+                        }
+                        bool* custom_depth = component->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        if (!custom_depth || !*custom_depth)
+                        {
+                            continue;
+                        }
+                        int32_t stencil = -1;
+                        if (int32_t* stencil_ptr = component->GetValuePtrByPropertyNameInChain<int32_t>(STR("CustomDepthStencilValue")))
+                        {
+                            stencil = *stencil_ptr;
+                        }
+                        // Position too: the question this run has to answer is not only WHAT is
+                        // outlined but WHERE it is, because a separate actor standing exactly at
+                        // the ghost looks precisely like the ghost being outlined.
+                        std::string where;
+                        if (FVector* rel = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        {
+                            where = "  rel=(" + std::to_string(static_cast<int>(rel->X())) + "," +
+                                    std::to_string(static_cast<int>(rel->Y())) + "," +
+                                    std::to_string(static_cast<int>(rel->Z())) + ")";
+                        }
+                        outlined_now.insert(to_utf8(component->GetFullName()) + "  stencil=" + std::to_string(stencil) + where);
+                    }
+
+                    static std::set<std::string> outlined_before;
+                    for (const std::string& entry : outlined_now)
+                    {
+                        if (outlined_before.find(entry) == outlined_before.end())
+                        {
+                            Output::send(STR("[MeshGhostPseudo] OUTLINEHUNT: + ON  tick={} {}\n"),
+                                         tick_count, to_wide_ascii(entry));
+                        }
+                    }
+                    for (const std::string& entry : outlined_before)
+                    {
+                        if (outlined_now.find(entry) == outlined_now.end())
+                        {
+                            Output::send(STR("[MeshGhostPseudo] OUTLINEHUNT: - off tick={} {}\n"),
+                                         tick_count, to_wide_ascii(entry));
+                        }
+                    }
+                    outlined_before = std::move(outlined_now);
+                }
+            }
+
+            // See LOCKON_PROBE. Watches the player's lock-on/target-shaped properties per tick and
+            // logs on change, naming what any object-typed one points AT -- which is the whole
+            // question: does it ever point at a ghost?
+            if constexpr (LOCKON_PROBE)
+            {
+                static std::map<StringType, StringType> prev_lockon;
+                if (UClass* pawn_class = pawn->GetClassPrivate())
+                {
+                    for (FProperty* property : TFieldRange<FProperty>(pawn_class, EFieldIterationFlags::Default))
+                    {
+                        if (!property)
+                        {
+                            continue;
+                        }
+                        const StringType prop_name = property->GetName();
+                        if (!is_lockon_shaped_name(prop_name))
+                        {
+                            continue;
+                        }
+                        const StringType prop_type = property->GetClass().GetName();
+                        StringType sample;
+                        if (prop_type == STR("ObjectProperty"))
+                        {
+                            UObject** value = pawn->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                            sample = (value && *value) ? (*value)->GetFullName() : StringType(STR("<null>"));
+                        }
+                        else if (prop_type == STR("BoolProperty"))
+                        {
+                            bool* value = pawn->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                            sample = value ? (*value ? STR("true") : STR("false")) : STR("<unreadable>");
+                        }
+                        else
+                        {
+                            continue; // only references and flags can answer "is it the ghost?"
+                        }
+                        auto previous = prev_lockon.find(prop_name);
+                        if (previous != prev_lockon.end() && previous->second == sample)
+                        {
+                            continue;
+                        }
+                        prev_lockon[prop_name] = sample;
+                        Output::send(STR("[MeshGhostPseudo] LOCKON: '{}' -> {} tick={}\n"),
+                                     prop_name, sample, tick_count);
                     }
                 }
             }
@@ -12617,28 +12897,169 @@ namespace MeshGhostPseudo
             // survive that.
             if constexpr (GHOST_HOLD_OUTLINE_OFF)
             {
-                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh"), STR("Mesh"),
-                                                 STR("LockonMesh"), STR("LightMesh")})
+                // Everything the ghost owns, plus the props we spawn for it. Walked rather than
+                // named: a fixed list is a list somebody has to remember to extend, and the rule is
+                // "no matter what".
+                UObject* outline_targets[] = {static_cast<UObject*>(remote.ghost),
+                                              static_cast<UObject*>(remote.weapon_actor)};
+                for (UObject* owner : outline_targets)
                 {
-                    UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
-                    if (!mesh || !*mesh)
+                    if (!owner)
                     {
                         continue;
                     }
-                    bool* custom_depth = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
-                    if (!custom_depth || !*custom_depth)
+                    UClass* owner_class = owner->GetClassPrivate();
+                    if (!owner_class)
                     {
-                        continue; // already off -- no engine call, which is what keeps this cheap
+                        continue;
                     }
-                    // Logged the first time per component name: "the game re-enabled it" is a fact
-                    // about this game worth having, not just a thing we quietly undo.
-                    static std::set<StringType> announced;
-                    if (announced.insert(mesh_name).second)
+                    for (FProperty* property : TFieldRange<FProperty>(owner_class, EFieldIterationFlags::Default))
                     {
-                        Output::send(STR("[MeshGhostPseudo] ghost outline: '{}' had custom depth back ON -- holding it off.\n"),
-                                     mesh_name);
+                        if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                        {
+                            continue;
+                        }
+                        const StringType prop_name = property->GetName();
+                        UObject** component = owner->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                        if (!component || !*component)
+                        {
+                            continue;
+                        }
+                        bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        if (!custom_depth || !*custom_depth)
+                        {
+                            continue; // already off -- no engine call, which is what keeps this cheap
+                        }
+                        // Logged the first time per component: "something turned it back on" is a
+                        // fact about this game worth having, not just a thing we quietly undo.
+                        static std::set<StringType> announced;
+                        if (announced.insert(prop_name).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] ghost outline: '{}' had custom depth ON -- holding it off.\n"),
+                                         prop_name);
+                        }
+                        call_set_render_custom_depth(*component, false);
                     }
-                    call_set_render_custom_depth(*mesh, false);
+                }
+
+                // **The afterimages this ghost left behind** -- separate actors, so neither the
+                // property walk nor the name sweep below can reach them. See
+                // GHOST_AFTERIMAGE_NO_OUTLINE.
+                if constexpr (GHOST_AFTERIMAGE_NO_OUTLINE)
+                {
+                    if (tick_count % OUTLINE_SWEEP_INTERVAL_TICKS == 0)
+                    {
+                        const FVector ghost_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
+                        FVector player_loc(0.0, 0.0, 0.0);
+                        bool have_player = false;
+                        if (pawn_obj)
+                        {
+                            player_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
+                            have_player = true;
+                        }
+
+                        std::vector<UObject*> afterimages;
+                        UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+                        for (UObject* image : afterimages)
+                        {
+                            if (!image || !image->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                            {
+                                continue; // the class default object, not a placed one
+                            }
+                            const FVector image_loc = static_cast<AActor*>(image)->K2_GetActorLocation();
+                            const double dgx = image_loc.X() - ghost_loc.X();
+                            const double dgy = image_loc.Y() - ghost_loc.Y();
+                            const double dgz = image_loc.Z() - ghost_loc.Z();
+                            const double to_ghost = dgx * dgx + dgy * dgy + dgz * dgz;
+                            if (have_player)
+                            {
+                                const double dpx = image_loc.X() - player_loc.X();
+                                const double dpy = image_loc.Y() - player_loc.Y();
+                                const double dpz = image_loc.Z() - player_loc.Z();
+                                if ((dpx * dpx + dpy * dpy + dpz * dpz) <= to_ghost)
+                                {
+                                    continue; // nearer the player: theirs, and theirs keeps its outline
+                                }
+                            }
+
+                            // Walk the actor's components rather than naming one: an afterimage's
+                            // mesh is a PoseableMeshComponent here, and naming classes is exactly
+                            // what made this invisible to three earlier probes.
+                            UClass* image_class = image->GetClassPrivate();
+                            if (!image_class)
+                            {
+                                continue;
+                            }
+                            for (FProperty* property : TFieldRange<FProperty>(image_class, EFieldIterationFlags::Default))
+                            {
+                                if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                                {
+                                    continue;
+                                }
+                                UObject** component = image->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
+                                if (!component || !*component)
+                                {
+                                    continue;
+                                }
+                                bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                                if (!custom_depth || !*custom_depth)
+                                {
+                                    continue;
+                                }
+                                static bool announced_afterimage = false;
+                                if (!announced_afterimage)
+                                {
+                                    announced_afterimage = true;
+                                    Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON -- holding it off.\n"),
+                                                 property->GetName());
+                                }
+                                call_set_render_custom_depth(*component, false);
+                            }
+                        }
+                    }
+                }
+
+                // **The other half: components attached to the ghost at RUNTIME.** Attributed by
+                // name containment, the same test VFX_WATCH uses -- a component's full name carries
+                // its outer chain, so anything living under this ghost's instance is ours to strip.
+                // This is what covers an attack's own mesh, which no property walk can see.
+                if (tick_count % OUTLINE_SWEEP_INTERVAL_TICKS == 0)
+                {
+                    const std::string ghost_name = to_utf8(remote.ghost->GetName());
+                    std::vector<UObject*> meshes;
+                    UObjectGlobals::FindAllOf(STR("SkeletalMeshComponent"), meshes);
+                    {
+                        // Appended via its own vector: whether FindAllOf clears its out-parameter
+                        // is not something to assume, and getting it wrong would silently drop
+                        // every static mesh.
+                        std::vector<UObject*> statics;
+                        UObjectGlobals::FindAllOf(STR("StaticMeshComponent"), statics);
+                        meshes.insert(meshes.end(), statics.begin(), statics.end());
+                    }
+                    for (UObject* mesh : meshes)
+                    {
+                        if (!mesh)
+                        {
+                            continue;
+                        }
+                        bool* custom_depth = mesh->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        if (!custom_depth || !*custom_depth)
+                        {
+                            continue; // off already -- the overwhelmingly common case
+                        }
+                        const std::string full_name = to_utf8(mesh->GetFullName());
+                        if (full_name.find(ghost_name) == std::string::npos)
+                        {
+                            continue; // somebody else's, including the local player's own outline
+                        }
+                        static std::set<std::string> announced_sweep;
+                        if (announced_sweep.insert(full_name).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] ghost outline: runtime component '{}' had custom depth ON -- holding it off.\n"),
+                                         to_wide_ascii(full_name));
+                        }
+                        call_set_render_custom_depth(mesh, false);
+                    }
                 }
             }
 

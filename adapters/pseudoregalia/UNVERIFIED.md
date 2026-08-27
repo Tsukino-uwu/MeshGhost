@@ -81,6 +81,50 @@ the tempting fix is to watch it and restore it. That is a bandage by this projec
 restoring a value rather than preventing what changed it — and it would also be fixing the wrong
 thing entirely, since the value is already correct.
 
+## Pending — a ghost's AFTERIMAGES keep the through-walls outline during melee (2026-08-27)
+
+**User-reported and then user-diagnosed.** A ghost shows the blue through-walls overlay while its
+peer attacks, and only then — it hides correctly when walking or idle. The user settled what it was
+by watching their OWN character behind a wall: *"the player had 2 outlines behind the wall 'itself +
+the after images'"*. So the carrier is the afterimage actors, which each own an outline, and
+stripping custom depth from the GHOST — which this adapter does correctly — was never going to
+reach them.
+
+**What is ruled out, by measurement rather than argument:**
+
+| Ruled out | How |
+| --- | --- |
+| Custom depth returning on a ghost COMPONENT | A per-tick walk of every component the ghost owns, plus a name-attributed world sweep at ~30Hz, never logged once across sessions of attacking. |
+| Any mesh in the world gaining custom depth during a swing | A world hunt at PER TICK: the only custom-depth components anywhere appeared during the level load, and nothing changed while swinging. |
+| A lock-on / targeting highlight | The user's wall test — the overlay draws THROUGH a wall, which is the outline mechanism, not a target marker. |
+
+**Three probes came back clean while the bug was happening, and the reason is the lesson**: they
+enumerated `SkeletalMeshComponent` and `StaticMeshComponent`. An afterimage is a pose snapshot — a
+`PoseableMeshComponent` — so no cadence would ever have found it. The sampling rate was corrected
+twice while the CLASS FILTER was the actual blind spot.
+
+**One fix was tried and REVERTED the same session.** Attributing afterimages to the ghost by
+PROXIMITY stripped the local player's outline too, and did not fix the ghost:
+
+> *"this also regressed/affect the player itself. i don't want anything like that."*
+
+On a loopback rig the ghost stands 150 units away and mirrors the player ~100ms behind, so an
+afterimage the PLAYER left is frequently nearer the GHOST by the time it is sampled. The
+world-spawned VFX rows get away with proximity because they fire AT the performer and last an
+instant; an afterimage is left behind in space and outlives the moment. `../CLAUDE.md` already says
+it: re-validate against an **identity** marker, never proximity. The revert is confirmed — the
+user's own outline is back.
+
+**The next step, and it is a measurement rather than another attempt:** census `BP_AfterImage_C` for
+a field naming the pawn it copied its pose from. An afterimage has to copy a pose from somewhere, so
+that reference very likely exists; with it, the strip keys on "this one came from the ghost" and
+cannot touch the player's. If no such field exists, the fallback is to strip at the moment WE
+trigger one on a ghost, where the actor's identity is known without inference.
+
+**The asymmetry is deliberate and should survive any fix**: the local player keeps their own
+outline, including on their afterimages. A peer's position behind geometry is information, not
+decoration — for a speedrunner especially.
+
 ## Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
 
 **User-reported:** *"'black flash' on the screen whenever a ghost appears, is this something the

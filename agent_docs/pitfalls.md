@@ -249,3 +249,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A probe's sampling rate is part of its answer — "nothing happened" at 5Hz is not a result (Pseudoregalia, 2026-08-27)
 - A refusal on safety grounds is still a claim, and claims get checked (Pseudoregalia, 2026-08-27)
 - A function name is a claim about what somebody meant, not what the code does (Pseudoregalia, 2026-08-27)
+- An enumeration is only as wide as its filter — "nothing found" means nothing until you check what you looked through (Pseudoregalia, 2026-08-27)
+- Proximity is not identity, and a loopback rig makes that worse (Pseudoregalia, 2026-08-27)
