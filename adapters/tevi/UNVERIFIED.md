@@ -187,6 +187,7 @@ was, until the core's own drop detection finally despawned that peer (quic ~17s,
   recorded states. A state that lands this frame is still drawn this frame, so the change costs no
   latency in the normal case.
 - **A marker whose state is older than `MarkerStaleSeconds` (1s) HIDES.** Hidden, not destroyed --
+- MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
   destroying stays the core despawn's job, so a peer mid-hitch comes straight back. One second is
   chosen because the core re-sends every remote it tracks on *every* adapter frame: a peer standing
   perfectly still still produces `render_remote`, so silence means the states stopped arriving,
@@ -274,3 +275,41 @@ A probe here is a `DIAG_*` block inside `Plugin.cs`. Corrected 2026-08-28.
 
 Nothing to confirm here yet: a probe that has never run proves nothing, and its own log is not
 evidence either (`../../agent_docs/testing.md`).
+
+## MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
+
+**Here because the evidence is a log this agent read.** What the user saw and confirmed -- two
+instances rendering each other, and the ghosts returning after the relay was restarted -- is in
+`VERIFIED.md`. The mechanism below is not visible on screen at all.
+
+**The test.** The relay was stopped, the standalone instance closed and relaunched, so its adapter
+attached to a core that could not reach the relay. That is the only moment this code path runs: a
+relay that drops MID-session is handled by the core retrying on its own, and never rejects anybody.
+
+**What the log showed, in its first 25 seconds:**
+
+```
+connected to bridge at 127.0.0.1:7778.
+the core on port 7778 rejected this adapter (busy: this core already has a game attached)
+  -- walking to the next bridge port.
+connected to bridge at 127.0.0.1:7779.
+the core on port 7779 cannot reach the relay (core: dial relay: ... actively refused it.)
+  -- waiting on this core rather than walking; it retries by itself.
+```
+
+with **1** port walk and **5** connect attempts total.
+
+**Both branches of the distinction in one run, which is what makes it convincing.** The same
+adapter walked on for "busy" and stayed put for "cannot reach the relay" -- the two cases three of
+the four adapters treated identically until this day. Broken, this run would have cooled 7779,
+7780, 7781 and the rest of the range in turn, reported "no free port to start a core on", and on an
+autostarting adapter spawned cores nobody could use. That is the shape Crystal's own comment prices
+at **Emerald running at 5fps while a relay was full**.
+
+**Recovery, same run:** the relay was restarted and both cores reconnected with no intervention,
+`members=2` within seconds.
+
+**Still not measured anywhere:** the same path on Emerald, Crystal and Pseudoregalia. All three now
+carry the guard -- Crystal since 2026-08-19, the other two added 2026-08-28 -- and on Pseudoregalia
+it could not have worked before that day's separate fix, because the rejection it branches on was
+being discarded before anything could read it.

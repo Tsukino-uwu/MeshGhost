@@ -2,6 +2,36 @@
 
 <!-- ADR 0035. Indexed in ../architecture.md, which is the decision log front door. -->
 
+## Amendment 2026-08-28: collision is a PER-ADAPTER capability, not a global one
+
+**User, after TEVI:** *"not all games will have or work well with collision, its basically a per
+adapter kind of thing. not a global thing i originally planned it as."*
+
+The room policy below is not wrong, but its premise -- that every game can make a ghost solid, so
+the only question is whether a room wants it -- does not hold:
+
+- **TEVI cannot do it at all.** The ghost is a clone of the player's visual object with every
+  `Collider2D` and `Rigidbody2D` stripped at creation, and the adapter does not handle
+  `session_policy`. Shipping `ghost_collision: enabled` there advertised a switch that does
+  nothing, which is the same shape of trap `local_game_bridge` was until the same day's fix.
+- **Pseudoregalia can, and should not**: a solid ghost in a 3D platformer blocks doorways and
+  ledges, so it ships disabled.
+- **The Pokemon adapters can, meaningfully**, since a spawned object event is a real map object.
+
+**What survives unchanged:** the resolution rule. `ResolveGhostCollision` disables if EITHER side
+asks, so a room can turn collision OFF for everyone but can never force it ON for a player -- and a
+game that cannot do it simply never does. That asymmetry is what keeps the room policy merely
+optimistic rather than wrong.
+
+**What changed in practice:** the default now lives per game, in that game's
+`client-config-overrides.json`, rather than being one value every adapter receives. The room knob
+remains for a host who wants it off room-wide.
+
+**What is still owed:** an adapter that cannot honour the policy should SAY so rather than be told
+and silently ignore it -- today the core logs "told the adapter" for TEVI, which is not true. That
+is a bridge-contract question (a capability declaration, like `render_all_areas`) and is unbuilt.
+
+
 - **Decision:** Add `server.ghost_collision`, values `"enabled"` (the default) and `"disabled"`.
   The relay advertises it in `Welcome` beside `SendHz`; the core forwards it to the adapter over a
   new `session_policy` bridge message; the adapter honours it. `"enabled"` does **not** mean

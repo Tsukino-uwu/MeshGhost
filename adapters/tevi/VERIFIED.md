@@ -73,6 +73,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI's charged attack under a bad link: the held pose, and the weapon's white/blue variant (2026-08-28)
 - TEVI stops sending what a ghost can derive: 70% of its states suppressed, and it looks identical (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
+- TEVI: two release instances, a relay outage, and both ghosts back without touching anything (2026-08-28)
 
 ## Confirmed facts
 
@@ -824,3 +825,33 @@ filed under the right theme, but anything can check that it is listed.
   perfectly still, not by session length.
 - Source: `MeshGhostTevi/Plugin.cs` (`ReadAnimTime`). The ranking that chose this over per-field
   deltas and over quantising the same value: `../../agent_docs/ideas.md`, "Ranked by measurement".
+
+## TEVI: two release instances, a relay outage, and both ghosts back without touching anything (2026-08-28)
+
+**User, running the Steam install and the standalone side by side, both from the staged release:**
+*"TEVI seems to work? i see ghosts on both clients"*, and after the relay was stopped and started
+again mid-session, *"I can see the ghosts on both games again now"*.
+
+**What that confirms on screen:**
+
+- **Two instances render each other**, from release builds -- release DLL, release `config.json`
+  (`interp: 175ms`, the netsim-measured value shipping for the first time), `meshghost.exe` beside
+  the mod, hot-reload off, no stray DLL in `scripts\`.
+- **The port walk needs no configuration.** Both installs start from the same `BridgePort` default
+  of 7778; the second is refused by the first's core and takes 7779. Each ends up with its own
+  core: `bridge ready on port 7778` and `bridge ready on port 7779`, joining as p12 and p13.
+- **A relay outage is survivable without restarting a game.** The relay was stopped for about three
+  minutes with both games running, then restarted; both cores reconnected on their own and the
+  ghosts came back. Nothing was relaunched.
+
+**What is NOT claimed here** and lives in `UNVERIFIED.md` instead: the relay-down BACKOFF itself.
+Its evidence is a log this agent read, not something visible on screen, and this file's gate does
+not accept that.
+
+**Ghost collision is now shipped disabled for TEVI**, which is descriptive rather than a choice:
+the ghost is a clone of the player's visual object with every `Collider2D` and `Rigidbody2D`
+stripped at creation, and this adapter does not handle `session_policy` at all. The template's
+`enabled` was advertising a switch that does nothing. User, same session: *"TEVI don't have
+collission on the player, and we will most likely never add it."* See ADR 0035's 2026-08-28
+amendment, which records the wider correction -- collision is a per-adapter capability, not the
+global one it was designed as.

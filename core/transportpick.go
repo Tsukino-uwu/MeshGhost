@@ -207,9 +207,23 @@ func (c *Core) chooseTransport(addr string, offers []protocol.TransportOffer) (n
 		wants = netx.AutoPreference
 	}
 
+	// A transport that already failed to DIAL on this machine is skipped in automatic mode.
+	// See Core.unusableTransports: without this, a platform that cannot do quic at all --
+	// Wine being the case that found it -- re-picks quic on every retry and never connects,
+	// while tcp was sitting there the whole time.
+	c.mu.Lock()
+	unusable := make(map[string]bool, len(c.unusableTransports))
+	for k := range c.unusableTransports {
+		unusable[k] = true
+	}
+	c.mu.Unlock()
+
 	for _, want := range wants {
 		if want == netx.TCP {
 			return netx.TCP, addr
+		}
+		if c.Transport == netx.Auto && unusable[want.String()] {
+			continue
 		}
 		o, ok := byKind[want.String()]
 		if !ok {

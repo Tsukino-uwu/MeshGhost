@@ -68,6 +68,26 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// further down, which is a different thing.
 	netConn, err := netx.DialWithTLS(kind, dialAddr, transport.DefaultDialTimeout, tlsOpts)
 	if err != nil {
+		// In automatic mode, a transport that cannot be DIALLED here is not tried again --
+		// the next attempt falls to the next preference, and tcp always works because the
+		// handshake already happened over it. Without this a machine that cannot do quic at
+		// all (Wine returns WSAEOPNOTSUPP from quic-go's UDP setup) re-picks quic forever.
+		//
+		// An explicit preference is deliberately NOT remembered: someone who asked for quic
+		// should keep being told it is failing rather than be quietly moved.
+		if c.Transport == netx.Auto && kind != netx.TCP {
+			c.mu.Lock()
+			if c.unusableTransports == nil {
+				c.unusableTransports = map[string]bool{}
+			}
+			first := !c.unusableTransports[kind.String()]
+			c.unusableTransports[kind.String()] = true
+			c.mu.Unlock()
+			if first {
+				log.Printf("core: %s cannot be used on this machine (%v) -- not choosing it again "+
+					"this session; the next attempt falls back to the next transport", kind, err)
+			}
+		}
 		return fmt.Errorf("core: dial relay: %w", err)
 	}
 	if kind == netx.TCP && c.TLS != tlsx.Off && !tlsx.IsTLS(netConn) {

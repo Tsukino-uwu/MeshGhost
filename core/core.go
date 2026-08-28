@@ -598,6 +598,24 @@ type Core struct {
 	// for the rest of the process.
 	adapterFeatures []string
 
+	// unusableTransports records transports whose DIAL failed on this machine, so
+	// automatic selection stops choosing one that cannot work here.
+	//
+	// It exists because of a real session: a Windows client running under Wine picked quic
+	// (the top automatic preference), and quic-go's UDP setup returned WSAEOPNOTSUPP --
+	// "winapi error #10045" -- because Wine does not implement the socket option it needs.
+	// Selection is otherwise stateless, so every retry re-picked quic and failed the same
+	// way forever. The user's own workaround was to force tcp by hand, which worked and
+	// which nobody should have to discover.
+	//
+	// ONLY CONSULTED IN netx.Auto MODE. An explicit preference is still honoured exactly:
+	// somebody who asked for quic and cannot have it gets a clear repeated error rather
+	// than a silent downgrade, which is the same reasoning chooseTransport already applies
+	// to never letting an explicit quic land on plain udp.
+	//
+	// Guarded by mu; keyed by netx.Kind.String().
+	unusableTransports map[string]bool
+
 	// adapterRenderAllAreas mirrors the attached adapter's Hello
 	// render_all_areas: when true, remoteStatesAt skips the cross-area
 	// filter -- the adapter has declared it translates or hides foreign
