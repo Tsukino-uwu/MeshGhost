@@ -187,6 +187,9 @@ namespace MeshGhostTevi
             // not replay its whole history the moment its ghost appears.
             public int LastVfxSeq;
 
+            // Last phase received for this peer, for drift correction.
+            public float LastAnimTime;
+
             // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
             // trailing at once must not share a cadence.
             public float TrailTimer;
@@ -559,6 +562,32 @@ namespace MeshGhostTevi
             {
                 visual.Pc.anim.Play(state.Anim);
                 visual.LastAnim = state.Anim;
+                visual.LastAnimTime = state.AnimTime ?? 0f;
+            }
+            else if (state.AnimTime.HasValue && visual.Pc != null && visual.Pc.anim != null)
+            {
+                // PHASE CORRECTION, deliberately not every frame. Re-seeking an Animator that is
+                // already close enough is what makes a remote character stutter, so this acts only
+                // once the two have drifted past a tolerance the eye can see.
+                //
+                // It is also what replays a REPEATED identical clip: attacking twice in a row never
+                // changes the name, so the branch above never fires and the ghost would hold the
+                // finished pose. The peer's phase jumping backwards IS that event, and it exceeds
+                // the tolerance by construction.
+                float peerT = state.AnimTime.Value;
+                float ghostT = visual.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+                ghostT -= Mathf.Floor(ghostT);
+                float drift = Mathf.Abs(peerT - ghostT);
+                // A clip near its end and one near its start are adjacent, not a whole clip apart.
+                if (drift > 0.5f)
+                {
+                    drift = 1f - drift;
+                }
+                if (drift > AnimPhaseTolerance)
+                {
+                    visual.Pc.anim.Play(state.Anim, 0, peerT);
+                }
+                visual.LastAnimTime = peerT;
             }
 
             // Unlike the animation above, this is NOT gated on having changed. SetTrail arms a
@@ -566,6 +595,21 @@ namespace MeshGhostTevi
             // on "same as last frame" would let the trail lapse in the middle of a slide.
             // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
             ApplyTrail(visual, state.TrailMode ?? 0, cloneTemplate);
+
+            // HITSTOP, mirrored onto the GHOST'S ANIMATOR ONLY. The peer's game is holding a
+            // temp pause, which freezes their character mid-swing; a watcher of a real second
+            // player would see exactly that. Freezing our own game instead would be a peer's
+            // attack stuttering someone else's play, which is why the game's own
+            // `SetTempPause` call is deliberately not mirrored (BANDAGES).
+            //
+            // Speed rather than a stored clip time: the ghost is already playing the right clip,
+            // and holding it is the whole effect. Restored to 1 the moment the peer's pause ends,
+            // and set unconditionally so a peer that vanishes mid-pause cannot strand a ghost
+            // frozen forever.
+            if (visual.Pc != null && visual.Pc.anim != null)
+            {
+                visual.Pc.anim.speed = (state.TempPause ?? 0f) > 0f ? 0f : 1f;
+            }
 
             // One-shot pooled VFX. Only ever plays on a RISE, and a first sighting adopts the
             // peer's current counter without playing anything -- otherwise a ghost created
@@ -689,9 +733,28 @@ namespace MeshGhostTevi
         // it only inside `if (cb.isPlayer())`, where it copies the effect-sprite transform; we
         // pass no effect sprite, so that branch sets a transform on a renderer with nothing in it.
         // Passing null instead would throw there.
+        // How far out of phase a ghost's clip may drift before it is re-seeked. Small enough that
+        // a hitstop lands on the right frame, large enough that ordinary jitter does not cause a
+        // visible re-seek every frame.
+        private const float AnimPhaseTolerance = 0.06f;
+
         private const float TrailSpawnRate = 0.07f;      // SpriteAnimation.trailRate
         private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
         private const int TrailSortingOrder = 99;        // SpriteAnimation.trailOrder
+
+        // Where the local player is inside its current clip, 0..1. Looping clips run
+        // normalizedTime past 1 forever, so it is wrapped -- a ghost needs the phase, not how many
+        // times the peer has looped.
+        private static float ReadAnimTime(CharacterBase player)
+        {
+            if (player == null || player.spranim_prefer == null || player.spranim_prefer.pixel == null
+                || player.spranim_prefer.pixel.anim == null)
+            {
+                return 0f;
+            }
+            float t = player.spranim_prefer.pixel.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            return t - Mathf.Floor(t);
+        }
 
         private void ApplyTrail(RemoteGhostVisual visual, int mode, CharacterBase localPlayer)
         {
@@ -941,16 +1004,32 @@ namespace MeshGhostTevi
             public int Index;
             public float OffsetX;
             public float OffsetY;
-            public float Scale;          // 0 = leave the prefab's own scale alone
-            public bool NegateOnLeft;    // false = negate when facing RIGHT instead
+            public float ScaleX;         // 0 = leave the prefab's own scale alone
+            public float ScaleY;
+            public bool NegateOnLeft;    // false = negate the OFFSET when facing RIGHT instead
+            public bool FlipScaleByFacing; // does the game mirror this effect's scale at all?
         }
 
         private static readonly MirroredEffect[] MirroredCommonEffectTable =
         {
-            // "Normal4H Blast": offset 105/-64, uniform scale 55, negated when facing LEFT.
-            new MirroredEffect { Index = 56, OffsetX = 105f, OffsetY = -64f, Scale = 55f, NegateOnLeft = true },
-            // "CutinStar": offset 109/-18, prefab scale untouched, negated when facing RIGHT.
-            new MirroredEffect { Index = 0, OffsetX = 109f, OffsetY = -18f, Scale = 0f, NegateOnLeft = false },
+            // "Normal4H Blast": offset 105/-64, uniform scale 55, offset AND scale mirrored by
+            // facing (the game writes `(LEFT ? -1 : 1) * 55f`).
+            new MirroredEffect { Index = 56, OffsetX = 105f, OffsetY = -64f, ScaleX = 55f, ScaleY = 55f,
+                                 NegateOnLeft = true, FlipScaleByFacing = true },
+            // "CutinStar": offset 109/-18, prefab scale untouched, offset negated when facing RIGHT.
+            new MirroredEffect { Index = 0, OffsetX = 109f, OffsetY = -18f, ScaleX = 0f, ScaleY = 0f,
+                                 NegateOnLeft = false, FlipScaleByFacing = false },
+            // Index 37, the PERFECT-TIMING extra -- the game spawns it only when its
+            // BADGE_GroundNormalCombo4AltTiming state reads 4 or 5, the same condition that swaps
+            // the swing sound. That is why it appears only on some attacks, and why a ghost that
+            // did not mirror it always looked like the plain version.
+            //
+            // Its X is taken from the BLAST's X in the game's own code, not computed independently,
+            // so it carries the blast's offset and the blast's negate rule. Its Y is -107 from the
+            // character, and its scale is NON-UNIFORM and never mirrored -- which is why the table
+            // grew ScaleX/ScaleY and FlipScaleByFacing rather than being forced into one number.
+            new MirroredEffect { Index = 37, OffsetX = 105f, OffsetY = -107f, ScaleX = 225f, ScaleY = 260f,
+                                 NegateOnLeft = true, FlipScaleByFacing = false },
         };
         // An effect this far from the local player is not the local player's. Generous, because the
         // measured figure was 123 units for the player against 275 for a ghost standing well away.
@@ -1057,10 +1136,23 @@ namespace MeshGhostTevi
             bool left = orientation == Character.Direction.LEFT.ToString();
             bool negate = eff.NegateOnLeft ? left : !left;
             float offX = negate ? -eff.OffsetX : eff.OffsetX;
-            go.transform.position = visual.Go.transform.position + new Vector3(offX, eff.OffsetY, 0f);
-            if (eff.Scale > 0f)
+            // THE LOGICAL POSITION, not the drawn one. The game places these relative to
+            // `cb_perfer.t.position` -- the character's transform -- while our ghost IS the pixel
+            // child, which hangs 56 units below it (`documentation.md`: the two positions do not
+            // coincide, and AnchorOffset is that gap, measured at clone time). Placing an effect at
+            // the ghost's own position therefore puts it a whole anchor-offset too LOW, which the
+            // user saw first on the star: *"happening way too low down"*. Subtracting the offset
+            // recovers the logical position the game's own numbers are written against.
+            //
+            // This applies to EVERY mirrored effect, not just the one it was noticed on -- the
+            // blast was equally wrong and merely less obvious, which is exactly why a single
+            // reported symptom should be checked against the whole class.
+            Vector3 logicalPos = visual.Go.transform.position - visual.AnchorOffset;
+            go.transform.position = logicalPos + new Vector3(offX, eff.OffsetY, 0f);
+            if (eff.ScaleX > 0f)
             {
-                go.transform.localScale = new Vector3((left ? -1f : 1f) * eff.Scale, eff.Scale, eff.Scale);
+                float sx = eff.FlipScaleByFacing ? (left ? -1f : 1f) * eff.ScaleX : eff.ScaleX;
+                go.transform.localScale = new Vector3(sx, eff.ScaleY, eff.ScaleY);
             }
             go.SetActive(true);
         }
@@ -1529,6 +1621,8 @@ namespace MeshGhostTevi
                 TrailMode = ReadTrailMode(player),
                 VfxSeq = localVfxSeq,
                 VfxEffect = localVfxEffect,
+                TempPause = GameSystem.Instance != null ? GameSystem.Instance.GetTempPause() : 0f,
+                AnimTime = ReadAnimTime(player),
             });
 
             // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,

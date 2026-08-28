@@ -57,6 +57,24 @@ namespace MeshGhostTevi
             // meaningful only between two TEVI clients, exactly like Anim and TrailMode.
             public int? VfxSeq;
             public int? VfxEffect;
+
+            // Seconds of HITSTOP this character's game is currently holding
+            // (`GameSystem.GetTempPause()`). Carried because the hitstop is not only feedback to
+            // the person swinging: it freezes THEIR animation, so a second real player watching
+            // over a network would see a frozen character. We sync the clip NAME, not the clip
+            // TIME, so without this the ghost's Animator keeps advancing through a pause the peer
+            // is actually holding -- the attack reads as rushed. The watcher's own game is never
+            // paused; only the ghost's Animator is.
+            public float? TempPause;
+
+            // WHERE IN THE CLIP this character is, 0..1. Anim carries WHICH clip; without this the
+            // ghost's Animator starts whenever the name changed and then advances on its own, so
+            // the two drift out of phase. That was invisible until the hitstop arrived: freezing
+            // the ghost when the peer pauses freezes it at ITS phase, not the peer's, so the hold
+            // lands early or late and the star fired at that instant inherits the error.
+            // Also what makes a REPEATED identical clip replay: Anim alone cannot express
+            // "the same attack again", because the name never changed.
+            public float? AnimTime;
         }
 
         private readonly string host;
@@ -473,6 +491,16 @@ namespace MeshGhostTevi
                 }
                 // Sent every frame once non-zero, not only on the frame it changed: the receiver
                 // dedupes on the counter, so repeating it is what makes a dropped frame harmless.
+                if (state.AnimTime.HasValue)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["anim_t"] = state.AnimTime.Value;
+                }
+                if (state.TempPause.HasValue && state.TempPause.Value > 0f)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["pause"] = state.TempPause.Value;
+                }
                 if (state.VfxSeq.HasValue && state.VfxSeq.Value > 0)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -556,6 +584,8 @@ namespace MeshGhostTevi
                                 RoomX = (int?)extras?["room_x"],
                                 RoomY = (int?)extras?["room_y"],
                                 TrailMode = (int?)extras?["trail"],
+                                TempPause = (float?)extras?["pause"],
+                                AnimTime = (float?)extras?["anim_t"],
                                 VfxSeq = (int?)extras?["vfx_seq"],
                                 VfxEffect = (int?)extras?["vfx_id"],
                             };
