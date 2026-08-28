@@ -346,6 +346,12 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   and warns when the repo's own binary is older than a `.go` file, after both installs were found
   on 2026-08-28 running a core from 2026-08-18. Two things it cannot tell you — a cold-start-only
   bug, and anything a reload orphaned in the scene — are written at the top of the script.
+- `tevi-label-windows.ps1` — retitles each running TEVI window with which install it is
+  (`[A: STEAM]` / `[B: STANDALONE]`), for dual-instance testing. **This is an instrument, not a
+  convenience:** two identical windows cost a whole measurement round on 2026-08-28, when a probe
+  run was performed on one instance and read from the other's log, so a clean-looking result proved
+  nothing. Sets the title from outside the game with `SetWindowText` — no game code, nothing
+  shipped, and the label is gone on relaunch, so re-run it after starting the games.
 - `pseudo-hotreload.ps1` — the same idea for Pseudoregalia, but weaker by necessity: UE4SS
   hot-reloads **Lua** mods only, so this speeds up probe iteration and does nothing for the C++
   adapter, which still costs a rebuild and a relaunch. UE4SS exposes reloading only as a keybind
