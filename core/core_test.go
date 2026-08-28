@@ -1331,7 +1331,7 @@ func TestStateForUnknownPlayerIDIsIgnored(t *testing.T) {
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	c.handleRelayMessage(env, welcome, reject)
+	c.handleRelayMessage(nil, env, welcome, reject)
 
 	c.mu.Lock()
 	_, exists := c.remotes["ghost-nobody-announced"]
@@ -1372,7 +1372,7 @@ func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	c.handleRelayMessage(joinEnv, welcome, reject)
+	c.handleRelayMessage(nil, joinEnv, welcome, reject)
 
 	// Our own welcome follows, and its roster does not mention that peer --
 	// it was snapshotted before they joined.
@@ -1384,7 +1384,7 @@ func TestJoinArrivingBeforeWelcomeIsNotErased(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal envelope: %v", err)
 	}
-	c.handleRelayMessage(welcomeEnv, welcome, reject)
+	c.handleRelayMessage(nil, welcomeEnv, welcome, reject)
 
 	c.mu.Lock()
 	_, early := c.roster["p-early"]
@@ -1436,7 +1436,7 @@ func TestCoreDependsOnOrderedLifecycleDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal envelope: %v", err)
 		}
-		c.handleRelayMessage(env, welcome, reject)
+		c.handleRelayMessage(nil, env, welcome, reject)
 	}
 
 	// In order, the normal case: the peer joins, then leaves, and is gone.
@@ -1486,7 +1486,7 @@ func TestSecondWelcomeIgnored(t *testing.T) {
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	c.handleRelayMessage(env, welcome, reject)
+	c.handleRelayMessage(nil, env, welcome, reject)
 
 	c.mu.Lock()
 	_, stillKnown := c.roster["p2"]
@@ -1997,7 +1997,7 @@ func TestUnadvertisedSendRateFallsBackToTheBuiltInDefault(t *testing.T) {
 	}
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	c.handleRelayMessage(env, welcome, reject)
+	c.handleRelayMessage(nil, env, welcome, reject)
 
 	c.mu.Lock()
 	interval := c.effectiveSendInterval()
@@ -2023,7 +2023,7 @@ func TestAbsurdAdvertisedSendRateIsClampedNotBelieved(t *testing.T) {
 	}
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	c.handleRelayMessage(env, welcome, reject)
+	c.handleRelayMessage(nil, env, welcome, reject)
 
 	c.mu.Lock()
 	interval := c.effectiveSendInterval()

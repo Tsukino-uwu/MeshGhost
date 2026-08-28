@@ -4025,7 +4025,9 @@ invariant "once both are attached and sending, each renders exactly the other, u
 name". A second, narrower target on the same idea (`FuzzNameDeliverySurvivesAnyConnectOrdering`)
 covers the connect-ordering half.
 
-**Three bugs, all the predicted family** -- a game left permanently invisible by a drop landing on
+**Five bugs, all the predicted family** (three found locally, then two more by CI's Windows
+runner against the target's own seed corpus -- reproducible here only at `GOMAXPROCS=2`, which is
+itself a lesson: a concurrency test's parallelism setting is part of what it can see) -- a game left permanently invisible by a drop landing on
 the wrong tick. The evidence and the regression tests are in `verified.md` (2026-08-29): a drop
 inside the join handshake, the same hole in the ownership-transfer path added the day before, and a
 mid-handshake hangup that nothing was watching for. Every one of them had an attached adapter, a

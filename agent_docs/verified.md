@@ -118,6 +118,7 @@ filed under the right theme, but anything can check that it is listed.
 - The render-knob sweep: damped prediction wins on a jittery link, and two bugs fell out first (2026-08-28)
 - TEVI's render pick on a bad link: 175ms linear, no prediction -- and the delay floor is a rule about links (2026-08-28)
 - Fuzzing the SCHEDULE found three ways a live game goes permanently invisible (2026-08-29)
+- Two more from the same campaign, and CI's Windows runner found them (2026-08-29)
 
 
 ## Split per game — 2026-08-25
@@ -1309,3 +1310,34 @@ watched each game and said so.
 - Source: `core/relaysession.go`, `core/handshakedrop_test.go`,
   `core/schedule_convergence_fuzz_test.go`, `core/testdata/fuzz/FuzzSchedule/`; the plan is in
   `agent_docs/ideas.md`, "Fuzz the SCHEDULE, not just the bytes".
+
+## Two more from the same campaign, and CI's Windows runner found them (2026-08-29)
+
+- Confirmed by: the tools. CI's `windows` job went red on `FuzzSchedule`'s own seed corpus after
+  the first three fixes shipped -- the same target, on a slower two-core runner. Reproduced
+  locally at `GOMAXPROCS=2` (6-10 failures per 30 corpus runs, none at full parallelism), which
+  is what made them fixable; both now have regression tests that fail without the fix.
+- **4. A reconnect that beat the dead connection's own callback left the core deaf.** The
+  callback runs on the dead connection's read goroutine and lands whenever the runtime gets to
+  it, so a new session can be established first. `clearRelaySession`'s stale-callback guard then
+  correctly refuses to touch the live session -- and the OLD `playerID` was therefore never
+  cleared, so the NEW connection's Welcome hit the "a second Welcome is protocol-illegal" guard
+  (which keys off exactly that field) and was DISCARDED. No id, no roster, no send rate, no
+  policy, no clock for the session it was actually on; states from ids outside the roster are
+  dropped by design, so the player went silently deaf. **Fix: taking the connection slot over
+  forgets what was in it** (`forgetRelaySessionLocked`, called from both the teardown and the
+  takeover), plus a guard that ignores messages arriving on a connection already replaced.
+- **5. A Welcome could be applied AFTER its own connection's teardown.** The losing race is
+  inside a single connect: the Welcome sits in a channel, the socket dies, the teardown clears
+  the session, and only then does the connecting goroutine wake and write the id -- resurrecting
+  a dead session's identity on a Core that has none, which then makes the reconnect's Welcome the
+  "second" one. **Fix: the Welcome is applied only if that connection is still the current one.**
+- **The shape all five share, which is the transferable part**: a callback that runs on a
+  connection's own goroutine can land at any point relative to the code that replaced it, so
+  every write of per-session state must be guarded by "is this still the connection I think it
+  is". Four of the five were invisible to a single-threaded reading of the code and all five were
+  invisible to a fixed-sequence test.
+- **And the instrument lesson**: full parallelism on this desktop could not produce finds 4 and 5
+  at all -- `GOMAXPROCS=2` could, in seconds. A concurrency test's parallelism setting is part of
+  what it can see.
+- Source: `core/relaysession.go`, `core/handshakedrop_test.go`; CI run 33219562169.

@@ -116,8 +116,25 @@ func (c *Core) ConnectRelay(gameID string) error {
 	}
 	conn := transport.FromConnWithLimits(netConn, protocol.MaxLineBytes, 0, 0)
 	c.mu.Lock()
+	// TAKING THE SLOT OVER FORGETS WHAT WAS IN IT. If a previous connection is
+	// still sitting here, this Core is done with it whatever its own callback
+	// has managed to run yet -- and leaving its identity in place is what makes
+	// this connection's Welcome look like an illegal second one and get thrown
+	// away. See forgetRelaySessionLocked for the full failure and the run that
+	// found it.
+	replaced := c.relay
+	if replaced != nil && replaced != conn {
+		c.forgetRelaySessionLocked()
+	}
 	c.relay = conn
 	c.mu.Unlock()
+	if replaced != nil && replaced != conn {
+		// The samples belonged to the session that just ended, and the socket
+		// to a connection nobody will read again. Both outside the lock:
+		// dropAllRemotes takes it, and Close can land its own callback.
+		c.dropAllRemotes()
+		_ = replaced.Close()
+	}
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
@@ -175,7 +192,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 			go c.reconnectWithBackoff(retry.gameID, retry.adapterGameVersion, retry.bridgeConn)
 		}
 	})
-	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(payload, welcome, reject) })
+	conn.OnReceive(func(payload []byte) { c.handleRelayMessage(conn, payload, welcome, reject) })
 
 	// A resume token from a previous session on this Core, if any. Presented
 	// on every connect attempt: the relay silently ignores one it does not
@@ -234,6 +251,23 @@ func (c *Core) ConnectRelay(gameID string) error {
 	select {
 	case w := <-welcome:
 		c.mu.Lock()
+		if c.relay != conn {
+			// The connection died while its own Welcome was sitting in this
+			// channel, and the teardown has already run. Applying it now
+			// RESURRECTS the dead session's identity on a Core that has none
+			// -- and the next connection's Welcome is then thrown away as an
+			// illegal second one, leaving the core answering to a name the
+			// relay retired and deaf to everyone in the room.
+			//
+			// This is the last of the five the schedule fuzzer found on
+			// 2026-08-29, and the only one where the losing race is INSIDE a
+			// single connect: the select can be handed a buffered Welcome and
+			// a closed socket at the same instant, and it is free to take
+			// either. Both are now correct.
+			c.mu.Unlock()
+			_ = conn.Close()
+			return fmt.Errorf("core: the relay connection dropped before its welcome could be applied")
+		}
 		c.playerID = w.PlayerID
 		c.relayGame = gameID
 		c.mu.Unlock()
@@ -289,10 +323,41 @@ func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 	if c.relay != conn {
 		// A stale connection's callback, landing after a newer one already
 		// replaced it. Touching anything here would wipe the LIVE session.
+		//
+		// This is correct and it is NOT the whole story: what the old session
+		// left behind still has to be forgotten, and by the time this runs the
+		// new connection owns the fields. That is why the forgetting also
+		// happens at the takeover -- see forgetRelaySessionLocked's callers.
 		return false, retry
 	}
 
 	c.relay = nil
+	c.forgetRelaySessionLocked()
+
+	return true, retry
+}
+
+// forgetRelaySessionLocked drops everything that belonged to ONE relay
+// connection, without touching c.relay itself. Called from two places, and the
+// second one is why it exists: clearRelaySession, when a connection this Core
+// still owns dies, and ConnectRelay, when a NEW connection takes the slot over.
+//
+// The takeover call closes the fourth bug the schedule fuzzer found
+// (2026-08-29, on CI's Windows runner, in a schedule that drops a relay socket
+// under a running game). A reconnect can complete before the dead connection's
+// OnDisconnect is scheduled -- the callback runs on that connection's own read
+// goroutine, whenever the runtime gets to it. The stale-callback guard above
+// then correctly declines to touch anything, and the old session's playerID
+// was therefore never cleared. The new connection's Welcome then hits the
+// "a second Welcome is protocol-illegal" guard in handleRelayMessage, which
+// keys off exactly that field, and is DISCARDED: the core keeps the old id,
+// gets no roster, no send rate, no policy and no clock for the session it is
+// actually on -- and since states from ids outside the roster are dropped by
+// design, it goes permanently, silently deaf. Attached adapter, bridge_ready
+// sent, live socket, no error logged, and every other player invisible.
+//
+// The caller must hold c.mu.
+func (c *Core) forgetRelaySessionLocked() {
 	c.playerID = ""
 	c.relayGame = ""
 	c.relayOwner = nil
@@ -327,8 +392,6 @@ func (c *Core) clearRelaySession(conn transport.Transport) (bool, relayRetry) {
 	// the reset has to be explicit here, or a stale id could outlive the
 	// connection that named it and pass the trust check on the next one.
 	c.roster = make(map[string]struct{})
-
-	return true, retry
 }
 
 func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
@@ -597,7 +660,31 @@ func (c *Core) PlayerID() string {
 	return c.playerID
 }
 
-func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcome, reject chan<- protocol.Reject) {
+// handleRelayMessage handles one line from the relay. conn is the connection it
+// arrived on, and a message from a connection this Core has already replaced is
+// DISCARDED rather than applied.
+//
+// That guard is the other half of clearRelaySession's stale-callback guard, and
+// it is there for the same reason: a connection's callbacks run on that
+// connection's own goroutine and land whenever the runtime gets to them, so a
+// dead session's Welcome can arrive after a new session is established.
+// Applied, it overwrites the LIVE session's identity with a retired one -- the
+// core then calls itself by a name the relay has given to nobody, while the
+// room calls it something else, and every check that compares the two silently
+// disagrees. Found 2026-08-29 by the schedule fuzzer on a constrained CPU, one
+// shape after the takeover fix in ConnectRelay closed the mirror-image case.
+//
+// A nil conn means "no connection context" and skips the check, which is how
+// core_test.go drives this function directly.
+func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welcome chan<- protocol.Welcome, reject chan<- protocol.Reject) {
+	if conn != nil {
+		c.mu.Lock()
+		stale := c.relay != conn
+		c.mu.Unlock()
+		if stale {
+			return
+		}
+	}
 	// Counted before parsing, so a malformed line still shows up as inbound
 	// cost -- it was paid for on the wire either way.
 	atomic.AddUint64(&c.stats.messagesReceived, 1)

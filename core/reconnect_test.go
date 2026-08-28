@@ -292,11 +292,11 @@ func TestAStaleIdCannotPassTheNextConnectionsTrustCheck(t *testing.T) {
 	// DIFFERENT peer, then one state from each id.
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
-	c.handleRelayMessage(mustEnvelope(t, protocol.TypeWelcome,
+	c.handleRelayMessage(nil, mustEnvelope(t, protocol.TypeWelcome,
 		protocol.Welcome{PlayerID: "self-2", Roster: []string{"announced-peer"}}), welcome, reject)
-	c.handleRelayMessage(mustEnvelope(t, protocol.TypeState, protocol.State{
+	c.handleRelayMessage(nil, mustEnvelope(t, protocol.TypeState, protocol.State{
 		PlayerID: staleID, AreaID: "a", Position: []float64{1, 2}, Anim: "idle"}), welcome, reject)
-	c.handleRelayMessage(mustEnvelope(t, protocol.TypeState, protocol.State{
+	c.handleRelayMessage(nil, mustEnvelope(t, protocol.TypeState, protocol.State{
 		PlayerID: "announced-peer", AreaID: "a", Position: []float64{3, 4}, Anim: "idle"}), welcome, reject)
 
 	c.mu.Lock()

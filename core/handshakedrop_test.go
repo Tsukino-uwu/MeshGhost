@@ -1,11 +1,14 @@
 package core
 
 import (
+	"bufio"
+	"encoding/json"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
@@ -227,5 +230,146 @@ func TestARelayThatHangsUpMidHandshakeIsNoticedImmediately(t *testing.T) {
 		t.Fatalf("ConnectRelay took %v to notice a dropped connection with a %v dial timeout -- "+
 			"it is waiting out the clock instead of watching the socket (err: %v)",
 			took.Round(time.Millisecond), dialTimeout, err)
+	}
+}
+
+// A reconnect that beats the dead connection's own callback must still be able
+// to say who it is.
+//
+// The fourth find of the schedule fuzzer's first campaign, and the worst of
+// them: caught by CI's Windows runner on 2026-08-29, on the seed schedule that
+// drops a relay socket under a running game. A reconnect can complete before
+// the old connection's OnDisconnect is scheduled -- that callback runs on the
+// old read loop's own goroutine, whenever the runtime gets to it -- and the
+// stale-callback guard in clearRelaySession then correctly refuses to touch
+// the live session's fields, leaving the OLD playerID in place. The new
+// connection's Welcome then trips handleRelayMessage's "a second Welcome is
+// protocol-illegal" guard, which keys off exactly that field, and is thrown
+// away: no id, no roster, no send rate, no policy, no clock for the session
+// this core is actually on. States from ids outside the roster are dropped by
+// design, so the player goes permanently deaf while everything looks healthy.
+//
+// Reproduced here by connecting twice WITHOUT letting the first connection
+// die, which is precisely the state that race produces and is what the
+// takeover path has to survive.
+func TestASecondConnectDoesNotInheritTheFirstsIdentity(t *testing.T) {
+	relayAddr := startRelay(t)
+	c, _ := startCoreLazyWith(t, relayAddr, "room1", "alice", nil)
+
+	if err := c.ConnectRelay("fuzzgame"); err != nil {
+		t.Fatalf("first connect: %v", err)
+	}
+	first := c.PlayerID()
+	if first == "" {
+		t.Fatal("setup: the first connect produced no player id")
+	}
+
+	// A peer, so the second session has a roster worth losing.
+	peer, peerBridge := startCoreLazy(t, relayAddr, "room1", "bob")
+	peerAdapter := dialFakeAdapter(t, peerBridge)
+	t.Cleanup(func() { peerAdapter.conn.Close() })
+	peerAdapter.hello("fuzzgame")
+	waitForPlayerID(t, peer)
+
+	// The reconnect, arriving while the previous connection is still in the
+	// slot. Before the fix this returned "timed out waiting for welcome": the
+	// Welcome was discarded as an illegal second one, so nothing ever landed
+	// on the channel this call waits on.
+	if err := c.ConnectRelay("fuzzgame"); err != nil {
+		t.Fatalf("second connect: %v -- the welcome for the new session was discarded", err)
+	}
+
+	second := c.PlayerID()
+	if second == first {
+		t.Fatalf("the core still calls itself %q after reconnecting -- it kept the dead session's "+
+			"identity, and the relay is calling it something else", first)
+	}
+	if second == "" {
+		t.Fatal("the core has no player id after reconnecting")
+	}
+
+	// And the roster is the NEW session's, not an empty map left by the old
+	// one: without it every peer's state is dropped as coming from an id this
+	// core does not trust.
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		_, known := c.roster[peer.PlayerID()]
+		c.mu.Unlock()
+		if known {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	t.Fatalf("the peer %q is not in the roster after reconnecting -- every state it sends will be "+
+		"dropped as untrusted, which is what being silently deaf looks like from inside", peer.PlayerID())
+}
+
+// A Welcome that arrives for a connection which is already gone must not be
+// applied.
+//
+// The fifth and last find of the schedule fuzzer's first campaign, and the
+// subtlest: the losing race is INSIDE one connect. handleRelayMessage puts the
+// Welcome on a channel; the socket dies; the teardown clears the session; and
+// only then does the connecting goroutine wake and write the id it was handed.
+// The Core then holds a player_id belonging to a connection that no longer
+// exists -- and the reconnect's own Welcome is discarded as an illegal second
+// one, because that guard keys off exactly this field. Attached adapter, live
+// socket, no error, and permanently deaf to the room.
+//
+// The invariant, stated so it holds whichever way the select goes: this Core
+// never claims an identity it has no connection for.
+func TestAWelcomeForADeadConnectionIsNotApplied(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	// A relay that welcomes and hangs up in the same breath, which is what
+	// makes the two events land on the connect goroutine together.
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func(conn net.Conn) {
+				defer conn.Close()
+				br := bufio.NewReader(conn)
+				if _, err := br.ReadString('\n'); err != nil {
+					return
+				}
+				payload, err := json.Marshal(protocol.Welcome{PlayerID: "p1"})
+				if err != nil {
+					return
+				}
+				env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeWelcome, Payload: payload})
+				if err != nil {
+					return
+				}
+				_, _ = conn.Write(append(env, '\n'))
+			}(conn)
+		}
+	}()
+
+	// Repeated because the select is genuinely free to take either branch: the
+	// fix has to make BOTH orderings correct, and a single attempt only ever
+	// exercises one of them.
+	for i := 0; i < 30; i++ {
+		c := New()
+		c.RelayAddr = ln.Addr().String()
+		c.Room = "room1"
+		c.DialTimeout = testTimeout
+		_ = c.ConnectRelay("fuzzgame")
+
+		c.mu.Lock()
+		id, live := c.playerID, c.relay != nil
+		c.mu.Unlock()
+		if id != "" && !live {
+			t.Fatalf("attempt %d: the core calls itself %q with no relay connection -- it applied a "+
+				"welcome belonging to a session that had already been torn down, and the next "+
+				"connection's welcome will be thrown away as an illegal second one", i, id)
+		}
 	}
 }
