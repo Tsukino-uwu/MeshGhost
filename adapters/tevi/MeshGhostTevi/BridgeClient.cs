@@ -81,6 +81,15 @@ namespace MeshGhostTevi
             // Also what makes a REPEATED identical clip replay: Anim alone cannot express
             // "the same attack again", because the name never changed.
             public float? AnimTime;
+
+            // The WEAPON layer's strobe color, packed 0xAARRGGBB, 0/absent = plain white. TEVI
+            // tints the character's effectsprite -- the slash/weapon frames -- by alternating it
+            // between white and a color every frame during some combos. The DECISION travels, not
+            // the frames: sampling a 60Hz strobe through a 20Hz state stream would alias into a
+            // slow flicker, so the sender says "strobing with color C" and the ghost strobes
+            // locally. Found 2026-08-28: a clone froze on whichever strobe frame it was created
+            // during, so every ghost's weapon was permanently white or permanently blue.
+            public int? WeaponRgba;
         }
 
         private readonly string host;
@@ -558,6 +567,11 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["trail"] = state.TrailMode.Value;
                 }
+                if (state.WeaponRgba.HasValue && state.WeaponRgba.Value != 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["weapon_rgba"] = state.WeaponRgba.Value;
+                }
                 // Sent every frame once non-zero, not only on the frame it changed: the receiver
                 // dedupes on the counter, so repeating it is what makes a dropped frame harmless.
                 if (state.AnimTime.HasValue)
@@ -662,6 +676,7 @@ namespace MeshGhostTevi
                                 RoomX = (int?)extras?["room_x"],
                                 RoomY = (int?)extras?["room_y"],
                                 TrailMode = (int?)extras?["trail"],
+                                WeaponRgba = (int?)extras?["weapon_rgba"],
                                 TempPause = (float?)extras?["pause"],
                                 AnimTime = (float?)extras?["anim_t"],
                                 VfxSeq = (int?)extras?["vfx_seq"],

@@ -197,6 +197,25 @@ namespace MeshGhostTevi
             // a seek.
             public float PhaseCatchup = 1f;
 
+            // The peer's weapon-strobe colour and when one was last seen, so the strobe's white
+            // frames do not read as the strobe having stopped. Receiver-side state: the sender
+            // reports only the truth of each frame (see ReadWeaponStrobe).
+            public int StrobeRgb = 0xFFFFFF;
+            public float StrobeSeenAt = float.NegativeInfinity;
+
+            // HITSTOP BY PHASE, not by arrival. The peer's game freezes their clip at a specific
+            // phase; the state that says "paused" also says WHERE (AnimTime holds still while the
+            // peer's animator is frozen). Freezing this ghost the moment the message arrives
+            // freezes it at ITS phase, which under network jitter lags the peer's -- seen live
+            // 2026-08-28 on the netsim rig as the charged attack "freezing the pose a bit early"
+            // while the same code looked right under clean conditions. PendingFreezePhase is
+            // where the peer froze (-1 none armed, -2 freeze immediately, no phase known);
+            // Frozen is whether this ghost has actually stopped.
+            public float PendingFreezePhase = -1f;
+            public float FreezeArmedAt;
+            public bool Frozen;
+
+
             // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
             // trailing at once must not share a cadence.
             public float TrailTimer;
@@ -715,7 +734,13 @@ namespace MeshGhostTevi
             // clip from time 0 every frame and the animation would never visibly progress.
             if (animPlayable && state.Anim != visual.LastAnim)
             {
-                visual.Pc.anim.Play(state.Anim);
+                // Started AT THE PEER'S REPORTED PHASE, not at 0. Starting at 0 left every new
+                // clip ~0.1 behind from its first frame -- the delivered state is already that far
+                // in -- and the catch-up then ground the gap down for the rest of the clip. The
+                // hitstop probe measured it directly (2026-08-28): at freeze time the ghost still
+                // lagged the target by 0.11, so it spent 100-140ms of a 250ms hitstop catching up
+                // and the hold read as barely-there.
+                visual.Pc.anim.Play(state.Anim, 0, state.AnimTime ?? 0f);
                 visual.LastAnim = state.Anim;
                 visual.LastAnimTime = state.AnimTime ?? 0f;
             }
@@ -782,6 +807,70 @@ namespace MeshGhostTevi
             // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
             ApplyTrail(visual, state.TrailMode ?? 0, cloneTemplate);
 
+            // THE WEAPON STROBE, reproduced locally -- see ReadWeaponStrobe for why the decision
+            // travels and the frames do not. The cadence is MEASURED, not guessed: the probe's
+            // frame numbers show 2 frames of color, 3 of white, a 5-frame period -- the first
+            // build used the enemy code's 2:2 and the user read it as "a bit better? unsure if
+            // 1:1". And during a hitstop the game's strobe HOLDS its current color (measured: 18
+            // frames of blue straight through a freeze), so a frozen ghost's layer is not touched.
+            // With no strobe reported the layer rests white, which is also what un-freezes a clone
+            // that inherited a strobe frame at Instantiate time.
+            if (visual.Pc != null && visual.Pc.effectsprite != null)
+            {
+                int packed = state.WeaponRgba ?? 0;
+                // FROZEN MEANS HELD ON THE COLOUR, not held on whatever frame we stopped at. The
+                // probe measured the player's strobe running 18 unbroken frames of colour through
+                // a hitstop, and the peer keeps REPORTING that colour while paused -- so a ghost
+                // that merely stopped updating showed white for the 3-in-5 of freezes that caught
+                // it mid-white, at the one moment the weapon is largest on screen. That is what
+                // the user saw as "the ghost still has a white wrench sometimes while the player
+                // has a blue one".
+                // ALPHA IS NEVER OURS TO WRITE. This layer's VISIBILITY is driven by the clone's
+                // own animation; its sprite is not (a clone carries no SpriteAnimation, which is
+                // what would clear the layer between attacks). Driving alpha from the peer
+                // therefore lights up a STALE attack frame that nothing will ever take down --
+                // seen live 2026-08-28 as an attack effect welded to the ghost's model, surviving
+                // every later action. Only the COLOUR travels; the alpha stays whatever the
+                // ghost's own animation is doing, which was already correct before any of this.
+                float a = visual.Pc.effectsprite.color.a;
+                if (packed == 0)
+                {
+                    visual.Pc.effectsprite.color = new Color(1f, 1f, 1f, a);
+                }
+                else
+                {
+                    int rgb = packed & 0xFFFFFF;
+                    if (rgb != 0xFFFFFF)
+                    {
+                        // A coloured frame arrived: remember it, so the strobe's white frames in
+                        // between do not read as "the strobe stopped".
+                        visual.StrobeRgb = rgb;
+                        visual.StrobeSeenAt = Time.time;
+                    }
+                    if (visual.Frozen)
+                    {
+                        // HELD POSE: exactly what the peer's layer held, no strobe logic. The peer
+                        // is paused, so its reported colour is constant and correct, and this is
+                        // the one moment the weapon is big enough on screen to read precisely.
+                        visual.Pc.effectsprite.color = new Color(
+                            ((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, a);
+                    }
+                    else
+                    {
+                        // Moving: reproduce the strobe LOCALLY at the measured 2-of-5 cadence,
+                        // because sampling a ~12Hz alternation through the state stream would
+                        // alias into a slow flicker.
+                        bool strobing = Time.time - visual.StrobeSeenAt < WeaponStrobeHold;
+                        bool coloured = strobing && Time.frameCount % 5 < 2;
+                        visual.Pc.effectsprite.color = coloured
+                            ? new Color(((visual.StrobeRgb >> 16) & 255) / 255f,
+                                        ((visual.StrobeRgb >> 8) & 255) / 255f,
+                                        (visual.StrobeRgb & 255) / 255f, a)
+                            : new Color(1f, 1f, 1f, a);
+                    }
+                }
+            }
+
             // HITSTOP, mirrored onto the GHOST'S ANIMATOR ONLY. The peer's game is holding a
             // temp pause, which freezes their character mid-swing; a watcher of a real second
             // player would see exactly that. Freezing our own game instead would be a peer's
@@ -794,10 +883,56 @@ namespace MeshGhostTevi
             // frozen forever.
             if (visual.Pc != null && visual.Pc.anim != null)
             {
-                // Hitstop wins outright; otherwise the animator runs at the phase catch-up speed,
-                // which is 1 whenever the ghost is already in step. Written every frame so a peer
-                // that vanishes mid-pause cannot strand a ghost frozen forever.
-                visual.Pc.anim.speed = (state.TempPause ?? 0f) > 0f ? 0f : visual.PhaseCatchup;
+                // Hitstop, mirrored AT THE PEER'S PHASE rather than on arrival -- see
+                // PendingFreezePhase's comment for the live evidence. While armed and not yet
+                // reached, the clip keeps running (at the catch-up speed, which is actively
+                // converging on the freeze phase, since the peer's reported AnimTime holds still
+                // during their pause); it stops the frame its own phase gets there. Written every
+                // frame so a peer that vanishes mid-pause cannot strand a ghost frozen forever.
+                if ((state.TempPause ?? 0f) > 0f)
+                {
+                    if (visual.PendingFreezePhase == -1f)
+                    {
+                        // SEEK TO THE HELD POSE AND STOP, immediately. The first version waited
+                        // for the ghost's own clip to reach the peer's phase, and the probe
+                        // measured why that was wrong: steady-state drift under jitter is ~0.09
+                        // of a clip, so the ghost spent 100-140ms of a ~250ms hitstop still
+                        // swinging -- frames the peer's screen never showed -- and held for only
+                        // the remainder. A hitstop IS the peer's timeline snapping to one pose;
+                        // matching that pose for the full window is the 1:1 rendering, and the
+                        // seek is legitimate by the same rule as the repeated-attack restart:
+                        // the peer's own animation snapped, so ours does too. Cost: the ~3
+                        // skipped in-between frames, which were wrong to show anyway.
+                        visual.PendingFreezePhase = state.AnimTime ?? -2f;
+                        visual.FreezeArmedAt = Time.time;
+                        if (DIAG_HITSTOP_PHASE)
+                        {
+                            float g0 = visual.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+                            Logger.LogInfo($"MeshGhost/probe hitstop: ARM target={visual.PendingFreezePhase:0.000} "
+                                + $"ghostRaw={g0:0.000} pause={state.TempPause:0.000} anim={state.Anim} last={visual.LastAnim}");
+                        }
+                        if (visual.PendingFreezePhase >= 0f && animPlayable)
+                        {
+                            visual.Pc.anim.Play(state.Anim, 0, visual.PendingFreezePhase);
+                            visual.LastAnim = state.Anim;
+                            visual.LastAnimTime = visual.PendingFreezePhase;
+                        }
+                        visual.Frozen = true;
+                    }
+                    visual.Pc.anim.speed = 0f;
+                }
+                else
+                {
+                    if (DIAG_HITSTOP_PHASE && visual.PendingFreezePhase != -1f)
+                    {
+                        float g1 = visual.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+                        Logger.LogInfo($"MeshGhost/probe hitstop: UNPAUSE frozen={visual.Frozen} "
+                            + $"ghostRaw={g1:0.000} target={visual.PendingFreezePhase:0.000}");
+                    }
+                    visual.PendingFreezePhase = -1f;
+                    visual.Frozen = false;
+                    visual.Pc.anim.speed = visual.PhaseCatchup;
+                }
             }
 
             // One-shot pooled VFX. Only ever plays on a RISE, and a first sighting adopts the
@@ -810,7 +945,20 @@ namespace MeshGhostTevi
             }
             else if (vfxSeq > visual.LastVfxSeq)
             {
+                if (DIAG_HITSTOP_PHASE)
+                {
+                    Logger.LogInfo($"MeshGhost/probe vfx: RECV seq {visual.LastVfxSeq}->{vfxSeq} "
+                        + $"idx={state.VfxEffect ?? -1} (a jump of more than 1 lost an effect)");
+                }
                 visual.LastVfxSeq = vfxSeq;
+                // ON ARRIVAL, deliberately -- phase-gating was tried here (2026-08-28) alongside
+                // the hitstop's phase work and REVERTED the same hour: waiting for the ghost's
+                // lagging clip to reach the fire phase pushed the star past the freeze-snap, so
+                // it appeared AFTER the held pose began -- the peer shows star THEN freeze, and
+                // the gate reversed them. Arrival order preserves the game's own ordering because
+                // the impulse and the pause ride the same delivered timeline, and the star's
+                // arrival timing was never the faulted half; only the freeze needed phase work,
+                // and it gets it by SNAPPING (see the hitstop block).
                 PlayGhostVfx(visual, state.VfxEffect ?? -1, state.VfxFacingLeft ?? false);
             }
         }
@@ -891,6 +1039,16 @@ namespace MeshGhostTevi
             // from), and the early return below would otherwise leave that entry behind for
             // RefreshRemoteMapMarkers to keep drawing after we left play.
             remoteMarkerStates.Clear();
+            // Pooled effects we lit for a ghost go back off. Done before the early return, since
+            // an effect can be mid-flight with no ghost left to own it.
+            foreach (GameObject fx in ghostEffectObjects)
+            {
+                if (fx != null && fx.activeSelf)
+                {
+                    fx.SetActive(false);
+                }
+            }
+            ghostEffectObjects.Clear();
             if (remoteVisuals.Count == 0)
             {
                 return;
@@ -1009,6 +1167,43 @@ namespace MeshGhostTevi
         // never look like (adapters/CLAUDE.md: never in units the game does not use).
         private const float PhaseCatchupGain = 2f;
         private const float PhaseCatchupRange = 0.25f;
+
+        // How long a phase-gated freeze or effect may wait for the ghost's clip to reach the
+        // peer's reported phase before firing anyway. A missed crossing (a clip change mid-wait,
+        // a frozen animator) must degrade to today's fire-on-arrival, never to nothing.
+        private const float FreezePhaseTimeout = 0.25f;
+
+        // TEMPORARY probe for the freeze-phase gating, logging one line per hitstop TRANSITION
+        // (arm / freeze / unpause) -- a handful per attack, never per frame. On while the gating
+        // is being timed against a live game; remove with the answer (PROBES.md).
+        // DIAG_HITSTOP_PHASE answered three questions in one session (2026-08-28) and is kept for
+        // the next timing question rather than deleted: it logs one line per hitstop TRANSITION
+        // (arm / freeze / unpause), one per effect impulse SENT and RECEIVED, the player's sprite
+        // layers whenever their colour changes, and all five layers once per freeze. Events, never
+        // per-frame -- a few lines per attack.
+        //
+        // What it found, in order: the freeze was landing 100-140ms early because the ghost's clip
+        // started at 0 instead of the peer's phase; the effect impulses were arriving fine, so the
+        // white/blue difference was NOT a lost effect; and the held pose's colour lives on the
+        // effect sprite layer, which the RGB-only version of this probe could not have shown.
+        private const bool DIAG_HITSTOP_PHASE = false;
+        private bool loggedThisFreeze;
+
+        private static void AppendLayer(System.Text.StringBuilder sb, string label, SpriteRenderer sr)
+        {
+            if (sr == null)
+            {
+                sb.Append($" | {label}=none");
+                return;
+            }
+            Color c = sr.color;
+            sb.Append($" | {label} on={sr.enabled} rgba=({c.r:0.00},{c.g:0.00},{c.b:0.00},{c.a:0.00})"
+                + $" spr={(sr.sprite != null ? sr.sprite.name : "null")}"
+                + $" mat={(sr.sharedMaterial != null ? sr.sharedMaterial.name : "null")}");
+        }
+
+        private Vector3 lastEffectRgb = new Vector3(-1f, -1f, -1f);
+        private Vector3 lastFlashRgb = new Vector3(-1f, -1f, -1f);
 
         private const float TrailSpawnRate = 0.07f;      // SpriteAnimation.trailRate
         private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
@@ -1337,6 +1532,10 @@ namespace MeshGhostTevi
         // counts cannot separate "the game spawned one" from "we spawned one".
         private readonly HashSet<int> ghostSpawnedEffects = new HashSet<int>();
 
+        // The pooled objects behind those ids, so teardown can switch off anything still lit --
+        // see PlayGhostVfx for why an id alone is not enough.
+        private readonly List<GameObject> ghostEffectObjects = new List<GameObject>(16);
+
         // Runs on the LOCAL side: did the game just activate one of the effects we mirror, close
         // enough to the player to be the player's? If so, bump the counter the peer reads.
         private void WatchLocalVfx(CharacterBase player)
@@ -1391,12 +1590,136 @@ namespace MeshGhostTevi
                     localVfxSeq++;
                     localVfxEffect = index;
                     localVfxFacingLeft = player.direction == Character.Direction.LEFT;
+                    if (DIAG_HITSTOP_PHASE)
+                    {
+                        Logger.LogInfo($"MeshGhost/probe vfx: SEND rise idx={index} seq={localVfxSeq}");
+                        // One dump per rise (rare): the color-bearing components of the object the
+                        // GAME just spawned, so a white attack and a blue one can be diffed to
+                        // find which field carries the variant. Temporary, removed with the answer.
+                        GameObject risen = null;
+                        foreach (GameObject go2 in pool)
+                        {
+                            if (go2 != null && go2.activeInHierarchy
+                                && !ghostSpawnedEffects.Contains(go2.GetInstanceID()))
+                            {
+                                risen = go2;
+                            }
+                        }
+                        if (risen != null)
+                        {
+                            Logger.LogInfo($"MeshGhost/probe vfx: PLAYER idx={index} " + DumpEffectObject(risen));
+                        }
+                    }
                 }
             }
         }
 
         // Runs on the WATCHER: play the peer's effect on their ghost, with the game's own offsets
         // and the ghost's own facing. The pooled object and everything it does are the game's.
+        // TEMPORARY, with DIAG_HITSTOP_PHASE: everything colour-bearing on one effect object, so
+        // the player's pooled instance and the ghost's can be DIFFED. The first dump read only
+        // startColor.color, which is meaningless when the mode is gradient/two-colours -- this one
+        // reads the mode, both bounds, the trail module and the renderer's material.
+        private string DumpEffectObject(GameObject go)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(go.name);
+            foreach (ParticleSystem ps in go.GetComponentsInChildren<ParticleSystem>(true))
+            {
+                var sc = ps.main.startColor;
+                sb.Append($" | PS:{ps.gameObject.name} mode={sc.mode} c={sc.color} cMin={sc.colorMin} cMax={sc.colorMax}");
+                if (ps.trails.enabled)
+                {
+                    sb.Append($" trail={ps.trails.colorOverLifetime.color}");
+                }
+                var psr = ps.GetComponent<ParticleSystemRenderer>();
+                if (psr != null && psr.sharedMaterial != null)
+                {
+                    sb.Append($" mat={psr.sharedMaterial.name}");
+                    if (psr.sharedMaterial.HasProperty("_TintColor"))
+                    {
+                        sb.Append($" tint={psr.sharedMaterial.GetColor("_TintColor")}");
+                    }
+                    if (psr.sharedMaterial.HasProperty("_Color"))
+                    {
+                        sb.Append($" col={psr.sharedMaterial.GetColor("_Color")}");
+                    }
+                }
+            }
+            foreach (SpriteRenderer sr in go.GetComponentsInChildren<SpriteRenderer>(true))
+            {
+                sb.Append($" | SR:{sr.gameObject.name}={sr.color} mat={(sr.sharedMaterial != null ? sr.sharedMaterial.name : "none")}");
+            }
+            return sb.ToString();
+        }
+
+        // THE WEAPON STROBE. During some combos TEVI tints the character's effectsprite -- the
+        // slash/weapon frames -- by alternating its color between white and a color (measured:
+        // (0, 0.82, 1), the cyan family) EVERY FRAME. Which look a combo gets is the game's
+        // decision; what a watcher must not do is sample it: a 60Hz strobe through a 20Hz state
+        // stream aliases into slow flicker. So the sender detects "a strobe is running with color
+        // C" -- a non-white weapon RGB seen within the last WeaponStrobeHold -- and sends C once
+        // per state; the ghost reproduces the alternation locally at frame rate.
+        //
+        // Alpha rides along (0xAARRGGBB) because the attack also runs the layer at partial alpha
+        // (measured 0.59), which the clone would otherwise freeze or overstate.
+        // Just above the strobe's own white gap, which the probe measured at 3 frames (~50ms) --
+        // long enough to bridge it, short enough not to leave a blue TAIL after the combo that
+        // owned it has ended. The first value was 0.15s, nine frames, which reported "still
+        // strobing" for ~100ms after the last real colour frame.
+        private const float WeaponStrobeHold = 0.07f;
+        private int lastWeaponRgb = 0xFFFFFF;
+        private float lastWeaponSeenAt = float.NegativeInfinity;
+
+        private int? ReadWeaponStrobe(CharacterBase player)
+        {
+            if (player.spranim_prefer == null || player.spranim_prefer.pixel == null
+                || player.spranim_prefer.pixel.effectsprite == null)
+            {
+                return null;
+            }
+            Color c = player.spranim_prefer.pixel.effectsprite.color;
+
+            // ALPHA DECIDES WHETHER THE LAYER EXISTS AT ALL, and reading only RGB was the bug
+            // behind "the ghost kept using blue when the player used white" (2026-08-28). The game
+            // does not reset this layer's COLOUR when an attack ends -- it drops the ALPHA and
+            // leaves the colour sitting there (`effectsprite.color = (1,1,1,0)` on some paths,
+            // SyncEffectAlpha copying alpha on others). So a leftover blue at alpha 0 is invisible
+            // on the player and read as "still strobing" by anything that ignores alpha: the ghost
+            // strobed blue forever, through white combos and idling alike.
+            if (c.a <= 0.02f)
+            {
+                lastWeaponSeenAt = float.NegativeInfinity;
+                return 0;
+            }
+
+            // THE INSTANTANEOUS COLOUR, with no substitution. An earlier version reported the
+            // remembered strobe colour during the strobe's white frames, to stop the "is it
+            // strobing" decision flickering -- and that is precisely what broke the HELD POSE: a
+            // hitstop freezes the layer on whichever half it caught, the peer can freeze on white,
+            // and a sender substituting blue made every ghost's held wrench blue. The freeze needs
+            // the truth of this frame; the strobe's continuity is the RECEIVER's problem, where it
+            // can be solved without lying about the current frame (see the render side).
+            return ((int)(c.a * 255f) << 24)
+                | ((int)(c.r * 255f) << 16) | ((int)(c.g * 255f) << 8) | (int)(c.b * 255f);
+        }
+
+        // Whether ghostPhase is at or past target, on a looping 0..1 clip where the short way
+        // round is the truth (the same wrap rule the phase correction uses).
+        private static bool PhaseReached(float ghostPhase, float target)
+        {
+            float lead = target - ghostPhase;
+            if (lead > 0.5f)
+            {
+                lead -= 1f;
+            }
+            else if (lead < -0.5f)
+            {
+                lead += 1f;
+            }
+            return lead <= 0f;
+        }
+
         private void PlayGhostVfx(RemoteGhostVisual visual, int effect, bool left)
         {
             if (visual.Go == null || GemaPoolManager.Instance == null)
@@ -1455,7 +1778,22 @@ namespace MeshGhostTevi
             // echo it straight back. The set is bounded by the pools themselves -- a pooled object
             // is reused, so the same handful of ids recur rather than growing without limit.
             ghostSpawnedEffects.Add(go.GetInstanceID());
+            // Tracked as an OBJECT too, not just an id, so teardown can put it back. A pooled
+            // effect is the GAME's object that we switched on; if this plugin instance goes away
+            // mid-effect -- a hot reload, a crash -- nothing of ours is left to switch it off and
+            // it stays on screen forever. Seen live 2026-08-28: a reload during a combo stranded a
+            // slash effect on the ground. The list is small and oldest-out, because only recently
+            // activated objects can still be lit.
+            ghostEffectObjects.Add(go);
+            if (ghostEffectObjects.Count > 16)
+            {
+                ghostEffectObjects.RemoveAt(0);
+            }
             go.SetActive(true);
+            if (DIAG_HITSTOP_PHASE)
+            {
+                Logger.LogInfo($"MeshGhost/probe vfx: GHOST idx={effect} " + DumpEffectObject(go));
+            }
         }
 
         // DIAG_POOL_WATCH -- the deliberate WIDENING after the hierarchy probe came back empty.
@@ -1975,6 +2313,7 @@ namespace MeshGhostTevi
                 RoomX = roomX,
                 RoomY = roomY,
                 TrailMode = ReadTrailMode(player),
+                WeaponRgba = ReadWeaponStrobe(player),
                 VfxSeq = localVfxSeq,
                 VfxEffect = localVfxEffect,
                 VfxFacingLeft = localVfxFacingLeft,
@@ -1990,6 +2329,61 @@ namespace MeshGhostTevi
             }
 
             WatchLocalVfx(player);
+
+            // TEMPORARY, with DIAG_HITSTOP_PHASE: ALL FIVE sprite layers, once per hitstop, with
+            // full RGBA. The earlier layer probe edge-triggered on RGB only, so a layer that
+            // varies by ALPHA alone was structurally invisible to it -- which is the shape the
+            // held pose's white-vs-blue difference must have, since the effect layer's colour
+            // follows correctly everywhere else.
+            if (DIAG_HITSTOP_PHASE && GameSystem.Instance != null
+                && player.spranim_prefer != null && player.spranim_prefer.pixel != null)
+            {
+                bool paused = GameSystem.Instance.GetTempPause() > 0f;
+                if (paused && !loggedThisFreeze)
+                {
+                    loggedThisFreeze = true;
+                    var px2 = player.spranim_prefer.pixel;
+                    var sb2 = new System.Text.StringBuilder("MeshGhost/probe freeze-layers:");
+                    AppendLayer(sb2, "base", px2.basesprite);
+                    AppendLayer(sb2, "outline", px2.outlinesprite);
+                    AppendLayer(sb2, "effect", px2.effectsprite);
+                    AppendLayer(sb2, "flash", px2.flashsprite);
+                    AppendLayer(sb2, "support", px2.supportsprite);
+                    Logger.LogInfo(sb2.ToString());
+                }
+                else if (!paused)
+                {
+                    loggedThisFreeze = false;
+                }
+            }
+
+            // TEMPORARY, with DIAG_HITSTOP_PHASE: which sprite-layer COLOR carries the weapon's
+            // white/blue variant. Edge-triggered on the RGB part only (alpha fades every frame),
+            // so a combo logs a handful of lines, not a stream.
+            if (DIAG_HITSTOP_PHASE && player.spranim_prefer != null && player.spranim_prefer.pixel != null)
+            {
+                var px = player.spranim_prefer.pixel;
+                if (px.effectsprite != null)
+                {
+                    Color ec = px.effectsprite.color;
+                    var rgb = new Vector3(ec.r, ec.g, ec.b);
+                    if ((rgb - lastEffectRgb).sqrMagnitude > 0.0001f)
+                    {
+                        lastEffectRgb = rgb;
+                        Logger.LogInfo($"MeshGhost/probe layer: effectsprite rgb=({ec.r:0.00},{ec.g:0.00},{ec.b:0.00}) a={ec.a:0.00} frame={Time.frameCount} clip={player.spranim_prefer.GetAnimationTrueName()}");
+                    }
+                }
+                if (px.flashsprite != null)
+                {
+                    Color fc = px.flashsprite.color;
+                    var rgbF = new Vector3(fc.r, fc.g, fc.b);
+                    if ((rgbF - lastFlashRgb).sqrMagnitude > 0.0001f)
+                    {
+                        lastFlashRgb = rgbF;
+                        Logger.LogInfo($"MeshGhost/probe layer: flashsprite rgb=({fc.r:0.00},{fc.g:0.00},{fc.b:0.00}) a={fc.a:0.00}");
+                    }
+                }
+            }
 
             if (DIAG_SPAWN_DIFF)
             {

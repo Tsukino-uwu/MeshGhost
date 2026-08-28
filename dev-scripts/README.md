@@ -417,6 +417,25 @@ ran did.
 started a core. `meshghost.log` in that mod folder says which client it was, and the mod's own log
 prints `started meshghost.exe (pid N)` when it spawned one.
 
+## The two-rig doctrine: clean for FIDELITY, netsim for BEHAVIOUR (user's call, 2026-08-28)
+
+**A clean loopback and a faulted link answer different questions, and using the wrong rig returns
+a confident wrong answer.** The user's rule, set the day one netsim session exposed three shipped
+bugs and a timing flaw that months of clean-loopback testing could never have shown:
+
+- **The clean rig** (100Hz, `-interp=0`, loopback offset) is the BOOTSTRAP phase, in the user's
+  own scoping: *"should only be used when first trying to match movement/make sure the game moves
+  1:1 correctly"*. Zero network in the way is the point -- any difference you see is the
+  renderer's. Once movement matches, this rig has answered its question.
+- **After that, EVERYTHING runs on the netsim rig** (`run-netsim.bat`, e.g. `-latency 60ms
+  -jitter 25ms -loss 0.02 -reorder 0.02`, shipped-like interp): timing, sync, effects, hitstop,
+  transitions, reconnects -- *"to actually show how they will look/work"*. On a clean link,
+  arrival and phase coincide, so any coupling of an effect to message arrival looks correct and
+  is not; 2026-08-28's charged-attack timing "looked fine" for a whole prior session that way.
+- **One netsim run is one dice roll** -- the fault sequence is random (the seed is logged; replay
+  with `-seed`). A value or feature judged at the edge of tolerance varies by session, so confirm
+  across runs before recording a verdict.
+
 ## Three render knobs, and how to compare them per game (2026-08-28)
 
 **They are per-GAME tastes, not settings with a right answer** -- ADR 0040. One interpolation value

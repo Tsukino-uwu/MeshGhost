@@ -169,7 +169,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
 - **Pseudoregalia's two unattributed crashes** — a hard crash after the pause menu opened twice, and
   a `Fatal Error!` on exit that recurred 2026-08-27. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI's charged attack, trails and warp wake-up all SHIP and are confirmed (2026-08-28)** —
-  none is claimed 1:1. Residuals and the unwatched dodge trail: `tevi/UNVERIFIED.md`.
+  the held pose and the weapon's white/blue variant were fixed under netsim the same day; the
+  unwatched dodge trail remains. `tevi/VERIFIED.md`, `tevi/UNVERIFIED.md`.
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at

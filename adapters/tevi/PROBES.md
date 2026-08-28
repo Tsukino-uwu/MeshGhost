@@ -104,3 +104,28 @@ null`, whether the player transform is null, whether `EventManager.Instance` is 
 - **What it cannot tell you** is whether `PlayerControl` exists or what it does. It can only tell
   you whether the member this adapter actually reads is doing the work the doc credits to another
   one. If the answer is yes, `documentation.md`'s claim needs the user's word, not ours.
+
+## `DIAG_HITSTOP_PHASE` -- timing and colour of a mirrored attack (added 2026-08-28)
+
+**What it answers.** Anything about WHEN a mirrored attack happens on the ghost versus the peer,
+and WHAT the character's sprite layers hold while it does. One line per EVENT, never per frame:
+
+- `hitstop: ARM / FREEZE / UNPAUSE` -- the peer's freeze phase, the ghost's own phase, whether the
+  freeze landed by phase-match or by timeout, and how long it waited.
+- `vfx: SEND / RECV` -- each effect impulse leaving and arriving, with its pool index and counter,
+  so a lost effect and a mis-rendered one are distinguishable.
+- `layer: effectsprite / flashsprite` -- the player's sprite-layer colours whenever they change,
+  with the frame number, which is how the weapon strobe's 2-of-5 cadence was measured.
+- `freeze-layers` -- ALL FIVE layers with full RGBA, sprite and material, once per hitstop.
+
+**What it found, in one session:** the freeze landing 100-140ms early (the ghost's clip started at
+0 instead of the peer's phase); that effect impulses were arriving intact, so the white/blue
+problem was not a lost effect; and that the held pose's colour lives on the effect layer.
+
+**The lesson attached to it** (`../../agent_docs/pitfalls.md`): the first version of the layer probe
+edge-triggered on RGB only and was therefore blind to any layer that varies by ALPHA -- it reported
+silence, which reads as absence. The `freeze-layers` dump exists because of that: dump the WHOLE
+value at a rare event rather than a projection of it continuously.
+
+**Off by default**, compiled out with its flag. Kept rather than deleted: the next timing question
+about this adapter starts here.

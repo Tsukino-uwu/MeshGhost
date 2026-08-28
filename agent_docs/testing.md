@@ -504,13 +504,15 @@ Everything above runs over a perfect loopback. `dev-scripts/run-netsim.bat`
 (`cmd/meshghost-netsim`) is the way to run a **real** session — relay, client, adapter, game —
 under loss, latency, jitter, reordering, duplication or partitions.
 
-Added 2026-08-16, because the gap was already written down twice in this file (jitter and
-clock skew untested; interpolation degrading *silently*) and the only fault injection in the
-repo was a package-private drop counter inside `netx/udpconn`'s tests. That counter is
-what found the lifecycle-ordering bug the same day — a `leave` overtaking its own `join`, which
-stranded a peer's ghost for the whole session. The proxy is that idea at session scope.
+**HARD RULE (user's call, 2026-08-28): the clean 100Hz/`-interp=0` rig is ONLY for first
+matching movement 1:1; after that, everything runs on the netsim rig.** One netsim session that day found three
+shipped bugs and a timing flaw every clean-loopback session had hidden, because on a clean link
+message arrival and animation phase coincide. Doctrine and rig recipes: `dev-scripts/README.md`,
+"The two-rig doctrine".
 
-Two things about it are easy to get wrong:
+Added 2026-08-16, after `netx/udpconn`'s package-private drop counter — then the repo's only
+fault injection — found a `leave` overtaking its own `join` the same day. The proxy is that idea
+at session scope. Two things about it are easy to get wrong:
 
 - **Point the client at `127.0.0.2`, not a different port.** The proxy mirrors the relay's port
   *numbers* on a second loopback address on purpose: discovery sends the port but not the host,
@@ -520,13 +522,10 @@ Two things about it are easy to get wrong:
   failure is an anecdote. (The seed fixes the draws, not the interleaving of concurrent flows —
   the tool's own doc comment is careful about that and so should any bug report be.)
 
-`-loss`/`-duplicate`/`-reorder` are udp-only, and mirroring tcp alongside them is **allowed** —
-which matters, because the handshake is always tcp, so every real session needs tcp mirrored and
-refusing the combination made `-loss` unusable in exactly the case it exists for. Instead the tool
-prints a `NOTE` saying the faults reached the udp flows only; the mirrored tcp ports get
-`-latency`/`-jitter`/`-partition` and nothing else, because dropping bytes out of a proxied tcp
-stream corrupts it rather than simulating loss — the kernel's retransmission is below where the
-proxy sits. The only **refusal** is asking for those flags when *no* udp ports are mirrored at all,
+`-loss`/`-duplicate`/`-reorder` are udp-only; mirrored tcp ports (the handshake is always tcp)
+get `-latency`/`-jitter`/`-partition` and nothing else, since dropping bytes from a proxied tcp
+stream corrupts it rather than simulating loss — the kernel retransmits below the proxy. The tool
+prints a `NOTE` about the split; its only **refusal** is those flags with *no* udp ports mirrored,
 where they would silently do nothing.
 
 ## Confirming a test can actually fail

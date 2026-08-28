@@ -877,6 +877,14 @@ Two more shapes that failed silently in the same attempt, both worth not repeati
 2> err`. That keeps the launcher's filename in the record, which is the whole reason `run-core.bat`
 and the `-shipped` pair are separate files (see `run-core.bat`'s own header).
 
+## The default dev rig is NETSIM, not a clean loopback (user's call, 2026-08-28)
+
+The clean 100Hz/`-interp=0` rig is only for FIRST matching a game's movement 1:1; after that,
+everything runs through `run-netsim.bat` with a bad link, to show how it will actually look. Rule and recipes:
+`agent_docs/testing.md` ("Running a session over a bad network") and `dev-scripts/README.md`
+("The two-rig doctrine"). Why: one netsim session found three shipped bugs and a timing flaw the
+clean rig structurally could not show.
+
 ## Running the TEVI two-instance rig — the runbook is in `dev-scripts/README.md`
 
 Relay, two cores, hot-reload mode, both installs, both windows labelled, and the three ways that

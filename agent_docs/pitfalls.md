@@ -55,6 +55,8 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A second derivative of network samples is visible no matter how you gate it (2026-08-28)
 - An interpolation delay below the link's jitter converts smoothing into chop (2026-08-28)
 - A count-bounded history silently shortens a time-based delay -- "250ms" was 140ms with stutter (2026-08-28)
+- A probe that edge-triggers on part of a value is blind to the rest of it (2026-08-28)
+- When mirroring an IMPULSE and a HOLD, the hold needs the truth of its own frame (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

@@ -70,6 +70,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI charged-attack VFX mirror to a ghost — three pooled effects, the hitstop, and animation phase
 - TEVI comes up clean on a cold launch: two instances, two cores, no port churn (2026-08-28)
 - TEVI ghost hygiene under core restarts, and the phase correction that stopped twitching (2026-08-28)
+- TEVI's charged attack under a bad link: the held pose, and the weapon's white/blue variant (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -749,3 +750,49 @@ filed under the right theme, but anything can check that it is listed.
   (`IsPlayableAnimName`) ran throughout with real names passing -- ghosts animated all session.
 - Source: `MeshGhostTevi/Plugin.cs` (PhaseCatchup, SweepOrphanGhosts, the session-epoch despawn),
   `MeshGhostTevi/BridgeClient.cs` (SessionEpoch, DiscardQueuedMessages).
+
+## TEVI's charged attack under a bad link: the held pose, and the weapon's white/blue variant (2026-08-28)
+
+- Confirmed by: the user, on screen, on the netsim rig (60ms/±25ms jitter/2% loss/2% reorder) --
+  the conditions that made all of this visible in the first place. It had "looked fine yesterday
+  when we tried to sync/time it to look properly under good circumstances".
+- **The hitstop's held pose now matches.** The peer's pause froze the ghost wherever ITS clip had
+  got to, which under jitter is behind: *"its freezing the pose a bit early"*. Two fixes, both
+  measured rather than guessed: a new clip now STARTS at the peer's reported phase instead of 0
+  (the probe showed the ghost arriving ~0.11 of a clip behind and spending 100-140ms of a 250ms
+  hitstop catching up), and the freeze SNAPS to the held phase instead of waiting for the ghost's
+  clip to reach it. User: *"its freezing at the right pose now"*.
+- **The star/flash stays on ARRIVAL, and that is a measured decision.** Phase-gating it -- tried in
+  the same pass -- pushed it past the freeze snap so it fired after the held pose began, reversing
+  the game's own star-then-freeze order: *"the 'star/flash' thing is happening to late now"*.
+  Reverted; the star's own timing was never the faulted half. User after the revert:
+  *"star looks fine now"*.
+- **The weapon's white/blue variant now follows the player.** TEVI strobes the character's EFFECT
+  sprite layer between white and cyan (0, 0.82, 1) during combos -- measured at 2 coloured frames
+  in every 5 -- and the held pose shows whichever half the freeze caught. A clone inherited one
+  strobe frame at `Instantiate` time and never changed, so every ghost's weapon was permanently
+  one colour: *"the ghost is always getting the 'white' thing now"*. The colour now travels in
+  `extras` (`weapon_rgba`, packed ARGB) and the ghost reproduces the strobe locally at the
+  measured cadence, because sampling a ~12Hz alternation through the state stream would alias.
+  User: *"now the ghost is swapping between blue/white"*.
+- **Two wrong turns on the way, both reverted, both worth knowing**: reporting the REMEMBERED
+  strobe colour during the strobe's white frames (it made every held pose blue -- the freeze needs
+  the truth of its own frame, and strobe continuity belongs on the receiver), and ignoring ALPHA
+  when deciding whether the layer is showing at all (the game leaves the colour set and drops
+  alpha, so an invisible leftover blue read as "still strobing" forever: *"the ghost kept using
+  blue when the player used white"*).
+- **Two defects introduced by this work and confirmed fixed in the same session**, both the same
+  shape -- touching something that was never ours to drive: mirroring the effect layer's ALPHA lit
+  a stale attack frame permanently onto the ghost's model (*"the ghosts attacking vfx got stuck
+  onto the ghosts model, and does not go away"*), because a clone has no `SpriteAnimation` to
+  clear that layer's sprite -- only the COLOUR travels now, alpha stays with the ghost's own
+  animation; and a hot reload mid-combo stranded a pooled slash effect on the ground, because
+  teardown despawned ghosts and markers but not the GAME'S pooled objects we had switched on.
+  Both re-checked on screen after the fix: *"yes to all 3. its working properly"*.
+- **Scope:** loopback ghost, one machine, simulated faults. Not judged: two real machines, and
+  whether the strobe's PHASE can ever agree frame-for-frame with a delayed ghost (it cannot -- the
+  cycle is ~83ms and the ghost renders 175ms behind, so only rhythm and colour set can match).
+- Source: `MeshGhostTevi/Plugin.cs` (`ReadWeaponStrobe`, the strobe render, the freeze snap, the
+  clip-start phase), `MeshGhostTevi/BridgeClient.cs` (`WeaponRgba`). Effect indices, offsets and
+  the badge condition read from this machine's `Assembly-CSharp.dll` with `ilspycmd` -- facts with
+  a citation, no code copied.

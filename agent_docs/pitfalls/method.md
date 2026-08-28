@@ -765,6 +765,57 @@ unit every buffer behind a duration setting actually trims on. And the tell was 
 correct in one motion pattern, wrong in another, on the same settings.
 
 
+## A probe that edge-triggers on part of a value is blind to the rest of it (2026-08-28)
+
+**Symptom.** A ghost's weapon rendered the wrong colour variant. A probe watched the player's
+sprite layers and logged every colour CHANGE -- and reported the effect layer strobing while
+saying nothing at all about the flash layer, which looked like "the flash layer never changes".
+The real hunt then ran for several rounds against an incomplete picture.
+
+**Cause.** The probe compared only the RGB part of each colour. A layer whose ALPHA varies while
+its RGB stays put -- which is how this game shows and hides an overlay -- is structurally
+invisible to that comparison. The probe was not quiet because nothing happened; it was quiet
+because it could not see the axis the change was on.
+
+**Fix.** Dump the WHOLE value at a known event (all five layers, full RGBA, sprite and material,
+once per hitstop) rather than edge-triggering on a projection of it. That dump answered the
+question on its first run.
+
+**Transferable, and it generalises past colours:**
+
+- **An edge trigger encodes a hypothesis about which field matters.** When the hypothesis is
+  wrong the instrument reports silence, and silence reads as evidence of absence.
+- **Prefer dumping everything at a rare EVENT over sampling a projection continuously.** A hitstop
+  happens a few times per attack; there was never a cost argument for the narrower probe.
+- **The game's own idiom is the clue**: this engine leaves colours set and drives alpha. The same
+  session's other bug -- a ghost stuck on one colour forever -- was the mirror image of the same
+  fact, ignoring alpha when deciding whether a layer was showing at all.
+
+
+## When mirroring an IMPULSE and a HOLD, the hold needs the truth of its own frame (2026-08-28)
+
+**Symptom.** TEVI's charged attack, mirrored onto a ghost over a jittery link. The frozen pose
+landed early; fixing that with phase-gating then made the star fire AFTER the freeze, reversing
+the game's own order; and a sender that reported a remembered colour to keep a strobe continuous
+made every held pose show the wrong colour.
+
+**Cause.** Two kinds of event were being mirrored with one mechanism. An IMPULSE (the star) is
+already ordered correctly by arrival, because it rides the same delivered timeline as everything
+else. A HOLD (the hitstop pose, the frozen colour) is a state the peer is SITTING IN, so it must
+be reproduced from what the peer reports at that moment -- not waited for, not substituted, not
+smoothed.
+
+**Fix.** Impulses fire on arrival. The hold snaps: the ghost seeks to the peer's reported phase and
+stops there, and takes the peer's instantaneous colour verbatim. Continuity tricks that help the
+moving case (bridging a strobe's gaps) live on the RECEIVER, where they cannot corrupt what the
+sender reports about the current frame.
+
+**Transferable.** **Ask of every mirrored event: is this a thing that HAPPENED, or a thing the peer
+is IN?** The first wants ordering, the second wants truth. And a "helpful" substitution in a sender
+-- reporting what is usually true instead of what is true now -- is invisible until some consumer
+needs the exact frame, which is exactly when it is hardest to attribute.
+
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:

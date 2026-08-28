@@ -49,13 +49,18 @@ star, hold and slam, at the same heights, on the same sides.
 
 **Three residuals, in the order they are likely to be noticed, none of them measured:**
 
-- **A ghost renders 250ms behind by design** (`core.DefaultInterpolationDelay`). Body and effects
-  are delayed together, so it should not look internally out of step -- if the star lags the
-  ghost's OWN swing, interpolation is not the cause and something else is.
-- **Effects spawn on message ARRIVAL, not at the ghost's own `animTime`.** The game fires the star
-  at `animTime 0.425`; the ghost fires it when told, which coincides only while phase is in sync.
-  **The better fix, deliberately not built:** spawn when the ghost's own clip crosses the phase the
-  peer reported. More faithful, and it couples effect to animation, so it wanted evidence first.
+- **A ghost renders behind by design** (`interp`, and TEVI's dev-judged pick is now 175ms --
+  `../../agent_docs/verified.md`). Body and effects are delayed together, so it should not look
+  internally out of step -- if the star lags the ghost's OWN swing, interpolation is not the cause.
+  **One consequence is permanent and not a defect:** the weapon strobe cycles every ~83ms while the
+  ghost renders 175ms behind, so a delayed replica can never agree with the live player frame for
+  frame -- only its rhythm, its colours and its HELD poses can match.
+- **Effects spawn on message ARRIVAL, and that is now a MEASURED decision rather than a pending
+  one (2026-08-28).** The "better fix" this entry used to propose -- spawning when the ghost's clip
+  crosses the peer's reported phase -- was built, watched under simulated jitter, and reverted the
+  same hour: it pushed the star past the freeze snap, reversing the game's own star-then-freeze
+  order. The HOLD needed phase work and got it; the impulse did not. `VERIFIED.md`,
+  `../../agent_docs/pitfalls.md` ("IMPULSE and a HOLD").
 - **The phase-correction constants are guesses** (updated 2026-08-28: small drift is now a
   playback-speed nudge, not a re-seek -- `PhaseCatchupGain = 2`, range ±0.25, re-seek only past
   0.25 of a clip). The twitch the old tolerance caused is confirmed gone; the exact values are not
