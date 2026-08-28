@@ -71,6 +71,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI comes up clean on a cold launch: two instances, two cores, no port churn (2026-08-28)
 - TEVI ghost hygiene under core restarts, and the phase correction that stopped twitching (2026-08-28)
 - TEVI's charged attack under a bad link: the held pose, and the weapon's white/blue variant (2026-08-28)
+- TEVI stops sending what a ghost can derive: 70% of its states suppressed, and it looks identical (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -796,3 +797,30 @@ filed under the right theme, but anything can check that it is listed.
   clip-start phase), `MeshGhostTevi/BridgeClient.cs` (`WeaponRgba`). Effect indices, offsets and
   the badge condition read from this machine's `Assembly-CSharp.dll` with `ilspycmd` -- facts with
   a citation, no code copied.
+
+## TEVI stops sending what a ghost can derive: 70% of its states suppressed, and it looks identical (2026-08-28)
+
+- Confirmed by: the user, on screen, on the netsim rig, immediately after the change --
+  *"I think it looks identical ? stood idle for a bit, jumped/attacked a bit and then went idle
+  again. not not spotting anything weird/bad ?"*. The measurement half is the agent's, from the
+  client's own counters, which is the split the user drew: *"i won't be able to spot/tell if its
+  using more/less data. but i can at least tell if its visually noticable or not"*.
+- **The numbers, from `-stats` on that session:** 4,389 frames suppressed, **70% of what would
+  have been sent** and still climbing while idle; upload **49.8 -> 16.5 MB/hour** on this 100Hz
+  dev relay (a shipped 20Hz room scales down from there); **21 brackets** total, i.e. the feature's
+  entire cost was 21 extra packets against 4,389 saved.
+- **What changed:** `anim_t` is no longer sent while the current Animator state LOOPS and the peer
+  is not in hitstop. It was the only field TEVI sent that changes every frame by construction --
+  an idle is a looping clip -- and it alone kept the core's change suppression (ADR 0039) from
+  ever firing for this adapter, while a standing Pokemon player already got the full benefit.
+- **Nothing that depends on phase lost it**, which is why it looks identical: non-looping clips
+  (every attack and one-shot) still carry it, so a ghost still starts a clip at the peer's phase
+  and the hitstop's held pose still snaps correctly; hitstop frames carry it regardless; and a
+  moving player's states differ in position anyway, so they are never suppressed. `loop` is the
+  Animator's own flag for the current state, so the test is exact rather than a guess about which
+  clips are idles.
+- **The accepted cost, unobserved so far:** two motionless characters' idle loops can slide out of
+  phase with each other, re-anchoring the moment either acts. Bounded by how long someone stands
+  perfectly still, not by session length.
+- Source: `MeshGhostTevi/Plugin.cs` (`ReadAnimTime`). The ranking that chose this over per-field
+  deltas and over quantising the same value: `../../agent_docs/ideas.md`, "Ranked by measurement".

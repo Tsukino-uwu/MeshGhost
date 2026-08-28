@@ -3095,7 +3095,7 @@ header overhead scale with PACKET COUNT, not packet size**:
 
 | Option | Idle cost at 20Hz | Verdict |
 |---|---|---|
-| **Do not send a value the receiver can DERIVE** (TEVI's `anim_t` while a clip loops) | **~4 packets/s, ~2 MB/h** | **The win.** Idle states become identical, so the whole-state suppression that already ships takes over. A few lines, one adapter, no protocol change |
+| **Do not send a value the receiver can DERIVE** (TEVI's `anim_t` while a clip loops) | **~4 packets/s, ~2 MB/h** | **BUILT AND CONFIRMED 2026-08-28** -- 70% of states suppressed, 49.8 -> 16.5 MB/h, and the user's read was *"looks identical"*. `adapters/tevi/VERIFIED.md` |
 | Quantise that value instead | ~no saving | Dead end: a 1/32 step still changes faster than a 20Hz send rate, and a step coarse enough to help (1/8) exceeds the 0.06 phase tolerance and visibly seeks |
 | **Per-field deltas** (the entry above) | ~4-6 MB/h | Real but smallest, and by far the most expensive |
 
@@ -3109,8 +3109,8 @@ from a parsed, validated struct.
 
 **The rule to generalise instead: do not send what the receiver can derive for itself.** Pokemon
 already gets the full benefit (a standing player's states are byte-identical); Pseudoregalia's
-per-frame values go constant when idle and should too, unmeasured; TEVI is the only adapter with a
-continuously-advancing field, so it is the only one needing work.
+per-frame values go constant when idle and should too, **unmeasured -- the one piece of this left
+to check**; TEVI was the only adapter with a continuously-advancing field and is now done.
 
 **The safety property that makes this uncontroversial** (user's constraint, 2026-08-28: *"i don't
 want normal gameplay to look/feel weird due to data not being sent. but we don't have to send

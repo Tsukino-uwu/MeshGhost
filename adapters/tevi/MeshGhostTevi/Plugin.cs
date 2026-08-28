@@ -1209,17 +1209,47 @@ namespace MeshGhostTevi
         private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
         private const int TrailSortingOrder = 99;        // SpriteAnimation.trailOrder
 
-        // Where the local player is inside its current clip, 0..1. Looping clips run
-        // normalizedTime past 1 forever, so it is wrapped -- a ghost needs the phase, not how many
-        // times the peer has looped.
-        private static float ReadAnimTime(CharacterBase player)
+        // Where the local player is inside its current clip, 0..1 -- or NULL when the receiver can
+        // work it out for itself, which is most of the time a player is standing around.
+        //
+        // WHY IT IS EVER OMITTED. This is the only field TEVI sends that changes every single
+        // frame by construction: an idle is a looping clip (the breathing/ear wiggle), so its
+        // phase advances forever even when nothing is happening. That single field is what stops
+        // the core's change suppression from ever firing for this adapter -- a standing TEVI
+        // player uploads ~20 states a second that differ in nothing else, where a standing Pokemon
+        // player sends 4. Measured ranking of the alternatives: `agent_docs/ideas.md`, "Ranked by
+        // measurement".
+        //
+        // WHAT STILL GETS IT, so nothing that depends on phase can regress:
+        //   * NON-LOOPING clips -- every attack and one-shot. This is what makes a ghost start a
+        //     clip at the peer's phase, and what the hitstop's held pose is measured against.
+        //   * Any frame the peer is in HITSTOP, so the freeze lands on the right pose even if it
+        //     somehow happens during a looping clip.
+        //   * MOVEMENT needs no special case: a moving player's position differs anyway, so those
+        //     states are never identical and never suppressed.
+        //
+        // WHAT IT COSTS: a ghost's idle loop can slide out of phase with its peer's while BOTH are
+        // motionless, re-anchoring the moment either does anything (any clip change sends phase
+        // again). Bounded by how long someone stands perfectly still, not by session length.
+        //
+        // `loop` is the Animator's own flag for the current state, so this is exact rather than a
+        // guess about which clips are idles.
+        private static float? ReadAnimTime(CharacterBase player)
         {
             if (player == null || player.spranim_prefer == null || player.spranim_prefer.pixel == null
                 || player.spranim_prefer.pixel.anim == null)
             {
-                return 0f;
+                return null;
             }
-            float t = player.spranim_prefer.pixel.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+            AnimatorStateInfo info = player.spranim_prefer.pixel.anim.GetCurrentAnimatorStateInfo(0);
+            bool paused = GameSystem.Instance != null && GameSystem.Instance.GetTempPause() > 0f;
+            if (info.loop && !paused)
+            {
+                return null;
+            }
+            // Looping clips run normalizedTime past 1 forever, so it is wrapped -- a ghost needs
+            // the phase, not how many times the peer has looped.
+            float t = info.normalizedTime;
             return t - Mathf.Floor(t);
         }
 

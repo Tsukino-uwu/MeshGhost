@@ -160,8 +160,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
 - **The render-knob sweep is DONE and the user picked 175ms linear for TEVI (2026-08-28)** — with
   the bugs fixed the delay is a slider; the floor is the link's worst gap. `verified.md`, ADR 0040.
-- **Change suppression SHIPS with a 250ms keepalive (2026-08-28)** — ran a whole live session with
-  no visible effect, its success condition. Per-field deltas still unbuilt. ADR 0039, `ideas.md`.
+- **Change suppression SHIPS, and TEVI now benefits: 70% of its states suppressed, confirmed to
+  look identical (2026-08-28)** — 49.8 -> 16.5 MB/h. Pseudoregalia's share unmeasured. ADR 0039.
 - **OPEN: a predicted ghost sinks into the floor, and jumps land a beat late** — every generic
   lever exhausted; the named fix is an adapter-side ground query. `tevi/UNVERIFIED.md`, ADR 0040.
 - **OPEN: render values for the other three games, and a real two-machine pass** — the sweep was
