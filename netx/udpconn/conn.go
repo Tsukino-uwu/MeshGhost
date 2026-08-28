@@ -50,6 +50,19 @@ type Conn struct {
 	readDeadline  time.Time
 	writeDeadline time.Time
 
+	// lossyMu guards lossyBuf, the scratch buffer WriteUnreliable frames
+	// into. Its own mutex rather than mu, which rawWrite takes and releases
+	// while the buffer is still in use, and rather than the caller's lock,
+	// because this package is public and its own tests call WriteUnreliable
+	// directly.
+	//
+	// The buffer exists because the relay's fan-out calls this once PER
+	// RECIPIENT for every state, and each call was allocating a fresh
+	// framing buffer -- the one allocation in the state path that really did
+	// scale with room size (agent_docs/plans.md's n x (n-1)).
+	lossyMu  sync.Mutex
+	lossyBuf []byte
+
 	// Reliability state. Write goes through here; WriteUnreliable does not
 	// touch any of it.
 	relMu   sync.Mutex
@@ -184,11 +197,16 @@ func (c *Conn) WriteUnreliable(p []byte) (int, error) {
 	if err := c.checkWritable(p, 2+tokenLen); err != nil {
 		return 0, err
 	}
-	wire := make([]byte, 0, 2+tokenLen+len(p))
-	wire = append(wire, ctrlPrefix, ctrlLossy)
-	wire = append(wire, c.token[:]...)
-	wire = append(wire, p...)
-	return c.rawWrite(wire)
+	// Held across rawWrite, not merely across the framing: the buffer is still
+	// the argument being written when rawWrite runs, so releasing early would
+	// let a concurrent WriteUnreliable overwrite a datagram mid-send. That is
+	// also why this cannot share mu, which rawWrite takes and drops itself.
+	c.lossyMu.Lock()
+	defer c.lossyMu.Unlock()
+	c.lossyBuf = append(c.lossyBuf[:0], ctrlPrefix, ctrlLossy)
+	c.lossyBuf = append(c.lossyBuf, c.token[:]...)
+	c.lossyBuf = append(c.lossyBuf, p...)
+	return c.rawWrite(c.lossyBuf)
 }
 
 // checkWritable rejects a write that is closed or would risk IP
