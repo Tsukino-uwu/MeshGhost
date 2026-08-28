@@ -129,6 +129,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-26 — Crystal: Dig / Escape Rope, both tiers
 - CONFIRMED ON SCREEN 2026-08-27 — Crystal: ghosts are visible across a route seam
 - CONFIRMED ON SCREEN 2026-08-27 — Crystal: three of four facings were drawing mirrored
+- CONFIRMED ON SCREEN 2026-08-28 — Crystal survives relay-side area filtering, and the reject line finally tells the truth
 
 ## Confirmed facts
 
@@ -2307,3 +2308,45 @@ when a derived entry is used. Before cross-map that peer was hidden outright.
 **Found by the user isolating it**: *"its when looking down/left/up... facing right looks
 correct"*. One facing correct and three wrong is the fingerprint of a learned-vs-derived split,
 not of a tile-loading fault, and it named the mechanism in one step. Commit `80316b2`.
+
+## CONFIRMED ON SCREEN 2026-08-28 — Crystal survives relay-side area filtering, and the reject line finally tells the truth
+
+**User, two instances, after the day's relay work:** *"crystal seems to work fine as well. along
+with crossing seam/routes"*.
+
+**What this closes.** Relay-side cross-area filtering (ADR 0041) must never apply to Crystal while
+its cross-map block is armed, because that block renders peers standing on ADJACENT maps. The
+adapter's own log confirms the translation still runs: `cross-map: p1 is on 22/1, 23,9 -- translated
+to 3,27 on our 1/14 (via its west connection)`.
+
+**Measured alongside, from the relay's `-introspect`:** `filtered: 0 recipients, 0 B -- 0% of
+offered bytes never sent`, against **76%** of that room's bytes being cross-area. That is the
+highest cross-area share measured on any adapter and the correct answer for all of it: Crystal wants
+every one of those bytes. The core's own line says why it is exempt — `adapter renders all areas —
+asked the relay not to filter by area` — which is the `prefs` message added the same day, doing the
+job the `hello` could not (ADR 0041's amendment).
+
+**The honest-rejection fix, confirmed live and by accident.** The second instance logged:
+
+```
+MeshGhost: bridge connected on 127.0.0.1:7778
+MeshGhost: rejected (busy: this core already has a game attached)
+MeshGhost: port 7778 refused us (busy: this core already has a game attached) — skipping it for 10s.
+MeshGhost: bridge connected on 127.0.0.1:7779
+MeshGhost: bridge_ready — this core is ours
+```
+
+Before 2026-08-28 that third line read *"is a core that already has an adapter"* for EVERY
+rejection, whatever the reason — so a core that could not reach the relay announced itself as busy
+with a game, one line under the line printing the truth. Here the reason genuinely is "busy" and the
+message says so because it was told, not because it guessed. It also shows the 8-port walk doing
+exactly what it is for: refused on 7778, ready on 7779, two instances each with their own core and
+nothing configured.
+
+**Caveat, recorded rather than glossed: this run loaded the adapter from the SOURCE checkout, not
+from the staged release.** The adapter's own first two lines give it away — `no LuaSocket at
+...\adapters\emulator\pokemon\crystal/lib/x64/` followed by the fallback to `../emerald/lib/x64/`.
+That fallback exists only for a source tree; a release ships Crystal its own `lib\`, so **the
+release's bundled LuaSocket for Crystal is still unexercised**. Everything above holds for the
+adapter logic, which is byte-identical in both copies.
+
