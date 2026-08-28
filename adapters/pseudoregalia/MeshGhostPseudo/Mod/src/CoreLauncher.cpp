@@ -1,5 +1,9 @@
 #include <CoreLauncher.hpp>
 
+#include <cstdlib>
+#include <fstream>
+#include <iterator>
+
 #include <DynamicOutput/DynamicOutput.hpp>
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -29,11 +33,11 @@ namespace MeshGhostPseudo
         // Mods folder, so there is nothing to walk up to a MeshGhost release folder, and a
         // game's working directory is whatever its launcher chose. The one thing that is always
         // true is that meshghost.exe ships beside this DLL.
-        auto module_directory() -> std::wstring
+        auto module_directory_impl() -> std::wstring
         {
             HMODULE self{};
             if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                                    reinterpret_cast<LPCWSTR>(&module_directory),
+                                    reinterpret_cast<LPCWSTR>(&module_directory_impl),
                                     &self))
             {
                 return {};
@@ -73,6 +77,61 @@ namespace MeshGhostPseudo
             return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
         }
     } // namespace
+
+    auto module_directory() -> std::wstring
+    {
+        return module_directory_impl();
+    }
+
+    auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t
+    {
+        // 1. The environment wins. Same variable name as the two Lua adapters, so one launcher
+        //    setting moves every game's range the same way.
+        if (char* env = nullptr; _dupenv_s(&env, nullptr, BRIDGE_PORT_ENV) == 0 && env != nullptr)
+        {
+            const unsigned long parsed = std::strtoul(env, nullptr, 10);
+            free(env);
+            if (parsed >= 1 && parsed <= 65535)
+            {
+                return static_cast<uint16_t>(parsed);
+            }
+        }
+
+        // 2. "local_game_bridge" in the config.json beside this DLL -- the file the player is told
+        //    to edit. Read by hand rather than with a JSON parser: this mod has none, the shape is
+        //    fixed ("host:port" in quotes), and adding a parser for one key would be the larger
+        //    change. Anything unrecognised falls through to the default rather than failing.
+        const std::wstring dir = module_directory();
+        if (!dir.empty())
+        {
+            std::ifstream f(dir + L"\\config.json");
+            if (f)
+            {
+                const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+                const std::string key = "\"local_game_bridge\"";
+                if (const size_t k = text.find(key); k != std::string::npos)
+                {
+                    // Value is "host:port"; take the digits after the LAST colon inside the quotes
+                    // so an IPv6 host, or a bare port, still resolves sensibly.
+                    const size_t open_q = text.find('"', k + key.size());
+                    const size_t close_q = open_q == std::string::npos ? std::string::npos : text.find('"', open_q + 1);
+                    if (close_q != std::string::npos)
+                    {
+                        const std::string value = text.substr(open_q + 1, close_q - open_q - 1);
+                        const size_t colon = value.rfind(':');
+                        const std::string port_text = colon == std::string::npos ? value : value.substr(colon + 1);
+                        const unsigned long parsed = std::strtoul(port_text.c_str(), nullptr, 10);
+                        if (parsed >= 1 && parsed <= 65535)
+                        {
+                            return static_cast<uint16_t>(parsed);
+                        }
+                    }
+                }
+            }
+        }
+
+        return fallback;
+    }
 
     CoreLauncher::CoreLauncher()
     {
@@ -158,7 +217,7 @@ namespace MeshGhostPseudo
             return;
         }
 
-        std::wstring dir = module_directory();
+        std::wstring dir = module_directory();  // the exported one, same result
         if (dir.empty())
         {
             spawn_disabled = true;

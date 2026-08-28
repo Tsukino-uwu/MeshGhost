@@ -7375,7 +7375,16 @@ namespace MeshGhostPseudo
     {
         Output::send(STR("[MeshGhostPseudo] on_unreal_init reached.\n"));
         unreal_ready = true;
-        bridge = std::make_unique<BridgeClient>(BRIDGE_HOST);
+        // Resolved once here: MESHGHOST_BRIDGE_PORT, then "local_game_bridge" in the config.json
+        // beside this DLL, then the compiled-in default. See resolve_bridge_base_port.
+        const uint16_t bridge_base = resolve_bridge_base_port(BRIDGE_BASE_PORT);
+        if (bridge_base != BRIDGE_BASE_PORT)
+        {
+            Output::send(STR("[MeshGhostPseudo] bridge port range moved to {}-{} by configuration.\n"),
+                         bridge_base,
+                         static_cast<uint16_t>(bridge_base + BRIDGE_PORT_COUNT - 1));
+        }
+        bridge = std::make_unique<BridgeClient>(BRIDGE_HOST, bridge_base);
         core_launcher = std::make_unique<CoreLauncher>();
 
         // Kept from the investigation: releases every remote's ghost reference synchronously

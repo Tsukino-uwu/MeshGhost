@@ -51,6 +51,15 @@ namespace MeshGhostPseudo
     // A fixed, documented range rather than any free high port: a core someone started by hand,
     // or one of dev-scripts' launchers, has to remain findable. A random port would be invisible
     // to everything except the adapter that chose it.
+    // The DEFAULT base of the walk. No longer the only possible base: since 2026-08-28 the range
+    // can be moved by MESHGHOST_BRIDGE_PORT or by "local_game_bridge" in the config.json beside
+    // this DLL (CoreLauncher.hpp's resolve_bridge_base_port). It stayed a hard constant until a
+    // 0.9.9 user reported "setting the config to 7780 it still starts at 7778" -- the setting was
+    // in the file they were told to edit, read only by the core, while the mod chose its own port
+    // and then overrode theirs by passing it to the core with -bridge.
+    //
+    // Still a constant here because it is the value the other three adapters agree on, which
+    // dev-scripts/preflight.ps1 checks across all four.
     inline constexpr uint16_t BRIDGE_BASE_PORT = 7778;
     inline constexpr uint16_t BRIDGE_PORT_COUNT = 8;
 
@@ -80,7 +89,10 @@ namespace MeshGhostPseudo
     {
       public:
         // Walks BRIDGE_BASE_PORT..+BRIDGE_PORT_COUNT looking for a core that will have it.
-        explicit BridgeClient(std::string host);
+        // base_port is the resolved start of the walk -- see resolve_bridge_base_port. Passed in
+        // rather than read here so the resolution happens once, at construction, and this class
+        // stays what it says it is: a socket.
+        BridgeClient(std::string host, uint16_t base_port);
         ~BridgeClient();
 
         BridgeClient(const BridgeClient&) = delete;
@@ -164,6 +176,11 @@ namespace MeshGhostPseudo
         BridgeStats counters{};
 
         // Per-candidate "answered busy, skip me until" stamps, index-aligned with the port range.
+        // The resolved base of this walk. busy_until is indexed relative to it, so the two must
+        // move together -- which is why the index arithmetic below uses base_port and never
+        // BRIDGE_BASE_PORT.
+        uint16_t base_port{BRIDGE_BASE_PORT};
+
         std::chrono::steady_clock::time_point busy_until[BRIDGE_PORT_COUNT]{};
 
         // Set when a core rejects us because IT cannot reach the relay. Until it passes, the

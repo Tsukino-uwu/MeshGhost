@@ -35,6 +35,29 @@ namespace MeshGhostPseudo
     // see agent_docs/risks.md.
     inline constexpr auto NO_AUTOSTART_ENV = "MESHGHOST_NO_AUTOSTART";
 
+    // Set this to move the whole bridge port range, the same variable Emerald and Crystal already
+    // honour. Highest precedence, because it is what a launcher or a dev script sets for one run.
+    inline constexpr auto BRIDGE_PORT_ENV = "MESHGHOST_BRIDGE_PORT";
+
+    // The folder this DLL sits in. Shared rather than duplicated: the launcher needs it to find
+    // meshghost.exe, and the bridge needs it to find config.json, and two copies of a
+    // path-resolution routine is exactly the kind of divergence this adapter has been bitten by.
+    auto module_directory() -> std::wstring;
+
+    // The base of the bridge port walk, resolved once at startup.
+    //
+    // Precedence: MESHGHOST_BRIDGE_PORT, then "local_game_bridge" in the config.json beside this
+    // DLL, then the compiled-in default. That middle step is the one a player has: until
+    // 2026-08-28 this mod's port was a compile-time constant, so editing local_game_bridge did
+    // nothing and a 0.9.9 user reported exactly that -- "setting the config to 7780 it still
+    // starts at 7778". The setting was in the file they were told to edit and was read only by
+    // the core, while the mod both chose its own port and passed it to the core with -bridge,
+    // overriding what they had written.
+    //
+    // Returns the default rather than failing on anything unparseable: a typo in a cosmetic port
+    // setting must not stop a game's mod from loading.
+    auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t;
+
     class CoreLauncher
     {
       public:

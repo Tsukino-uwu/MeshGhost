@@ -43,7 +43,8 @@ namespace MeshGhostPseudo
         }
     } // namespace
 
-    BridgeClient::BridgeClient(std::string host_) : host(std::move(host_)), sock(static_cast<uintptr_t>(INVALID_SOCKET))
+    BridgeClient::BridgeClient(std::string host_, uint16_t base_port_)
+        : base_port(base_port_), host(std::move(host_)), sock(static_cast<uintptr_t>(INVALID_SOCKET))
     {
     }
 
@@ -103,9 +104,9 @@ namespace MeshGhostPseudo
             if (hello_sent_this_connection && !core_answered_ready &&
                 std::chrono::steady_clock::now() - hello_sent_at > HELLO_ANSWER_TIMEOUT)
             {
-                if (current_port >= BRIDGE_BASE_PORT && current_port < BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT)
+                if (current_port >= base_port && current_port < base_port + BRIDGE_PORT_COUNT)
                 {
-                    busy_until[current_port - BRIDGE_BASE_PORT] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                    busy_until[current_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
                 }
                 Output::send(STR("[MeshGhostPseudo] whatever is on port {} never answered our hello -- "
                                  "not a MeshGhost core we can use, trying another port.\n"),
@@ -146,7 +147,7 @@ namespace MeshGhostPseudo
                 continue; // a core that told us it was busy, still inside its cooldown
             }
 
-            uint16_t candidate = static_cast<uint16_t>(BRIDGE_BASE_PORT + i);
+            uint16_t candidate = static_cast<uint16_t>(base_port + i);
             bool refused = false;
             if (try_port(candidate, refused))
             {
@@ -444,9 +445,9 @@ namespace MeshGhostPseudo
                     // Somebody else's core. Skip this port for a while and let the next sweep
                     // find another -- without the cooldown we would reconnect immediately, make
                     // it log another refusal, and hang up, forever.
-                    if (current_port >= BRIDGE_BASE_PORT && current_port < BRIDGE_BASE_PORT + BRIDGE_PORT_COUNT)
+                    if (current_port >= base_port && current_port < base_port + BRIDGE_PORT_COUNT)
                     {
-                        busy_until[current_port - BRIDGE_BASE_PORT] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                        busy_until[current_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
                     }
                     Output::send(STR("[MeshGhostPseudo] core on port {} refused us ({}) -- trying another port.\n"),
                                  current_port,
