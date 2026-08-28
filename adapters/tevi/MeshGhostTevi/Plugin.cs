@@ -63,10 +63,12 @@ namespace MeshGhostTevi
         // run proves nothing -- see adapters/tevi/UNVERIFIED.md.
 
         // DIAG_MARKER_STALENESS answers ONE question: how long has the FullMap marker been showing
-        // a position no peer has confirmed? The marker is update-driven -- UpdateRemoteMapMarker
-        // runs only from UpsertRemoteGhost, which runs only when a render_remote arrives -- so a
-        // peer that stops sending leaves it frozen. That is a shipped defect, and the thing worth
-        // measuring is the AGE of what is on screen, which no amount of reading the code gives you.
+        // a position no peer has confirmed? It was written while the marker was update-driven --
+        // UpdateRemoteMapMarker ran only from UpsertRemoteGhost, which runs only when a
+        // render_remote arrives, so a peer that stopped sending left it frozen. The refresh is
+        // frame-driven as of 2026-08-28 and a stale marker now HIDES after MarkerStaleSeconds,
+        // which is what this measures now: an age that climbs past that bound while the marker is
+        // still visible means the fix is not working. Ages are of the DATA, not of the redraw.
         //
         // Fires only while the map is actually open AND at most once a second, because a per-frame
         // log line is a per-frame stall on any host (adapters/emulator/CLAUDE.md measured 63-83ms
@@ -223,14 +225,39 @@ namespace MeshGhostTevi
         {
             public GameObject Go;
 
-            // When a render_remote last moved this marker. Written unconditionally -- one float
-            // assignment on a path that is already touching the object -- and read only under
-            // DIAG_MARKER_STALENESS. The marker's AGE is the whole question the staleness defect
-            // turns on, and it is not recoverable after the fact from anything on screen.
+            // When the state this marker is DRAWING arrived -- not when the marker was last
+            // redrawn, which since the refresh went frame-driven is every frame regardless.
+            // Read only under DIAG_MARKER_STALENESS. The marker's AGE is the whole question the
+            // staleness defect turns on, and it is not recoverable after the fact from anything
+            // on screen.
             public float LastUpdateTime;
         }
 
         private readonly Dictionary<string, RemoteMapMarker> remoteMapMarkers = new Dictionary<string, RemoteMapMarker>();
+
+        // The last state each peer sent, with WHEN it arrived. Kept because the marker is
+        // refreshed every frame from here rather than only when a message lands: the old path
+        // ran UpdateRemoteMapMarker from inside UpsertRemoteGhost, so a peer that stopped
+        // sending left its marker frozen wherever it was until the core's own drop detection
+        // finally despawned it (quic ~17s, udp up to 60s), and a peer whose ghost could not be
+        // built yet -- no local player to clone from, a state carrying no position -- got no
+        // marker at all, because both of those return before the marker call at the bottom.
+        // Recorded at the TOP of UpsertRemoteGhost, above every one of those returns.
+        private sealed class RemoteMarkerState
+        {
+            public BridgeClient.RemoteState State;
+            public float ArrivedAt;
+        }
+
+        private readonly Dictionary<string, RemoteMarkerState> remoteMarkerStates = new Dictionary<string, RemoteMarkerState>();
+
+        // How long a marker may keep claiming a position after the last state that backed it.
+        // The core re-sends every remote it still tracks on EVERY adapter frame -- a peer
+        // standing perfectly still still produces render_remote -- so silence here means the
+        // states stopped arriving, never that the peer stopped moving. One second is many frames
+        // of ordinary jitter and far below the core's own drop detection, which is exactly the
+        // window the marker used to spend lying.
+        private const float MarkerStaleSeconds = 1f;
 
         // FullMap.playerPos (the local player's own map marker, a SpriteRenderer) and
         // FullMap.maxroom (the per-area stride into FullMap.roomtilelist) are both private
@@ -248,10 +275,9 @@ namespace MeshGhostTevi
         // 6.4/6.5), one consistent "this is a MeshGhost marker" visual language.
         private static readonly Color RemoteMapMarkerColor = new Color(0f, 1f, 1f, 1f);
 
-        // Set once per Update, before bridge.DrainInto runs, so UpdateRemoteMapMarker (called
-        // from inside UpsertRemoteGhost, itself invoked by DrainInto) has the local player's
-        // current area to gate against without needing to parse it back out of the AreaId
-        // string on every remote.
+        // Set once per Update, before bridge.DrainInto and RefreshRemoteMapMarkers run, so
+        // UpdateRemoteMapMarker has the local player's current area to gate against without
+        // needing to parse it back out of the AreaId string on every remote.
         private byte currentLocalArea = 255;
 
         // Finds the FullMapTile for (area, x, y) the same way FullMap.MoveMapToCurrentRoom
@@ -289,7 +315,35 @@ namespace MeshGhostTevi
         // filtered out here).
         private const int MaxRoomCoordinate = 100000;
 
-        private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state)
+        // Every peer's marker, once per frame, from the last state each one sent. Frame-driven
+        // rather than arrival-driven: that is the whole fix for a marker that used to sit frozen
+        // at a position its peer had long left. Called immediately after DrainInto so a state
+        // that landed this frame is drawn this frame -- moving the refresh costs no latency.
+        private void RefreshRemoteMapMarkers()
+        {
+            if (remoteMarkerStates.Count == 0)
+            {
+                return;
+            }
+            float now = Time.time;
+            foreach (KeyValuePair<string, RemoteMarkerState> kv in remoteMarkerStates)
+            {
+                if (now - kv.Value.ArrivedAt > MarkerStaleSeconds)
+                {
+                    // Hidden, not destroyed: the peer may simply be mid-hitch, and the entry
+                    // still has to come back the moment states resume. Destroying is
+                    // DespawnRemoteMapMarker's job, driven by the core's despawn.
+                    if (remoteMapMarkers.TryGetValue(kv.Key, out RemoteMapMarker stale) && stale.Go != null)
+                    {
+                        stale.Go.SetActive(false);
+                    }
+                    continue;
+                }
+                UpdateRemoteMapMarker(kv.Key, kv.Value.State, kv.Value.ArrivedAt);
+            }
+        }
+
+        private void UpdateRemoteMapMarker(string playerId, BridgeClient.RemoteState state, float stateArrivedAt)
         {
             FullMap map = FullMap.Instance;
             bool roomInRange = state.RoomX.HasValue && state.RoomY.HasValue
@@ -349,7 +403,7 @@ namespace MeshGhostTevi
             }
             marker.Go.SetActive(true);
             marker.Go.transform.position = tile.transform.position;
-            marker.LastUpdateTime = Time.time;
+            marker.LastUpdateTime = stateArrivedAt;
         }
 
         // PROBE, off unless DIAG_MARKER_STALENESS. Reports how old each visible marker's position
@@ -396,6 +450,10 @@ namespace MeshGhostTevi
                 }
                 remoteMapMarkers.Remove(playerId);
             }
+            // Dropped with the marker, or RefreshRemoteMapMarkers would keep rebuilding a marker
+            // for a peer the core has already despawned -- and the entry would outlive every
+            // session the peer was ever in.
+            remoteMarkerStates.Remove(playerId);
         }
 
         // Set once per Update from EventManager.Instance.mainCharacter, before bridge.DrainInto
@@ -465,6 +523,20 @@ namespace MeshGhostTevi
 
         private void UpsertRemoteGhost(string playerId, BridgeClient.RemoteState state)
         {
+            // FIRST, above every early return below. The map marker is a separate feature from
+            // the world ghost and must not inherit its preconditions: a peer with no position, or
+            // one arriving before there is a local player to clone a ghost from, still belongs on
+            // the map. RefreshRemoteMapMarkers draws from here.
+            if (remoteMarkerStates.TryGetValue(playerId, out RemoteMarkerState markerState))
+            {
+                markerState.State = state;
+                markerState.ArrivedAt = Time.time;
+            }
+            else
+            {
+                remoteMarkerStates[playerId] = new RemoteMarkerState { State = state, ArrivedAt = Time.time };
+            }
+
             if (state.Position == null || state.Position.Length < 2)
             {
                 return;
@@ -624,14 +696,17 @@ namespace MeshGhostTevi
                 visual.LastVfxSeq = vfxSeq;
                 PlayGhostVfx(visual, state.VfxEffect ?? -1, state.VfxFacingLeft ?? false);
             }
-
-            UpdateRemoteMapMarker(playerId, state);
         }
 
         // Every peer ghost at once, for leaving play rather than for a peer leaving. Iterates a
         // copy of the key list because DespawnRemoteGhost mutates remoteVisuals as it goes.
         private void DespawnAllRemoteGhosts()
         {
+            // Cleared even when there are no visuals to despawn: a peer can have a recorded
+            // marker state and no ghost (it arrived before there was a local player to clone
+            // from), and the early return below would otherwise leave that entry behind for
+            // RefreshRemoteMapMarkers to keep drawing after we left play.
+            remoteMarkerStates.Clear();
             if (remoteVisuals.Count == 0)
             {
                 return;
@@ -1538,9 +1613,8 @@ namespace MeshGhostTevi
             // crashing" standard applied to a missing reference instead of a bad address.
             CharacterBase player = EventManager.Instance != null ? GetMainCharacter(EventManager.Instance) : null;
             cloneTemplate = (player != null && player.t != null) ? player : cloneTemplate;
-            // Set before bridge.DrainInto below, which invokes UpsertRemoteGhost ->
-            // UpdateRemoteMapMarker synchronously and needs the local player's current area
-            // to gate remote markers against.
+            // Set before bridge.DrainInto and RefreshRemoteMapMarkers below, which need the
+            // local player's current area to gate remote markers against.
             currentLocalArea = WorldManager.Instance != null ? WorldManager.Instance.Area : (byte)255;
 
             bridge.DrainLogsInto(msg => Logger.LogInfo(msg));
@@ -1617,6 +1691,11 @@ namespace MeshGhostTevi
             // while the local player did not exist -- the very thing the gate is for -- and it
             // would then be destroyed again on the same frame by the branch above.
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
+
+            // Marker refresh, every frame, from what DrainInto just recorded. Not inside
+            // UpsertRemoteGhost: a marker that only moves when a message arrives cannot hide
+            // itself when the messages stop.
+            RefreshRemoteMapMarkers();
 
             Vector3 pos = player.t.position;
             byte area = currentLocalArea;

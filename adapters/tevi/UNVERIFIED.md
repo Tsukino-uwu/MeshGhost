@@ -136,35 +136,48 @@ attach** -- only that the port answers. `../../agent_docs/environment.md`.
 the doorstop flag is one line in a local install, and `packaging/release/` carries only the
 rebuilt DLL. The pdb the dev loop needs is deployed by `tevi-hotreload.ps1`, never staged.
 
-## Pending — the FullMap peer marker goes stale when a peer stops sending (shipped bug)
+## Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
 
-**This one is a known DEFECT waiting to be looked at, not a fix waiting to be confirmed** — it is
-here because the queue is where "not yet seen by the user" lives, and nobody has watched it happen.
+**The defect was real and is described below as it stood.** `UpdateRemoteMapMarker` ran only from
+inside `UpsertRemoteGhost`, which runs only when a `render_remote` arrives, so the marker was
+update-driven rather than frame-driven: a peer that stopped sending left it sitting wherever it
+was, until the core's own drop detection finally despawned that peer (quic ~17s, udp up to 60s).
 
-`UpdateRemoteMapMarker` runs only from inside `UpsertRemoteGhost`, which only fires when a
-`render_remote` arrives. So the marker is update-driven, not frame-driven: if a peer's state stops
-arriving while the local player has the map open, the marker neither hides nor refreshes. It sits
-wherever it was.
+**What changed, built this session and NOT watched:**
 
-**What to look at.** Open the FullMap with a peer connected, then stop the peer (close its game, or
-kill its core). **What correct looks like:** the marker disappears, or at minimum stops claiming a
-position the peer no longer holds. **What it does today:** the marker stays frozen at the last
-position that arrived.
+- **Every peer's last state is recorded at the TOP of `UpsertRemoteGhost`, above every early
+  return.** Two of those returns used to swallow the marker entirely: a state carrying no position,
+  and one arriving before there is a local player to clone a ghost from. The map marker is a
+  separate feature from the world ghost and no longer inherits the ghost's preconditions -- which
+  is the one mechanism that could plausibly explain the *"took a while before it decided to work"*
+  symptom below, since a rejoining peer's first states arrive around a scene load.
+- **`RefreshRemoteMapMarkers` runs once per frame**, immediately after `DrainInto`, from those
+  recorded states. A state that lands this frame is still drawn this frame, so the change costs no
+  latency in the normal case.
+- **A marker whose state is older than `MarkerStaleSeconds` (1s) HIDES.** Hidden, not destroyed --
+  destroying stays the core despawn's job, so a peer mid-hitch comes straight back. One second is
+  chosen because the core re-sends every remote it tracks on *every* adapter frame: a peer standing
+  perfectly still still produces `render_remote`, so silence means the states stopped arriving,
+  never that the peer stopped moving.
 
-**A SECOND symptom, reported 2026-08-28 and not investigated:** after a peer left and rejoined, the
-custom bunny marker on the pause-screen map *"took a while before it decided to work/update again"*
-(user). It did correctly disappear when that peer went to the main menu, so the despawn path is
-fine. Whether the delay shares a cause with the staleness above is unknown -- both live in
-`UpdateRemoteMapMarker` being driven only by `UpsertRemoteGhost`, but "slow to resume" and "never
-refreshes" are not obviously the same defect and should not be assumed to be.
+**What to look at, and it takes one session.** Open the FullMap with a peer connected, then stop
+the peer (close its game, or kill its core). **What correct looks like:** the marker disappears
+within about a second, rather than sitting frozen at the last position that arrived.
 
-**What to look at.** With the map open, have a peer quit to the title and rejoin. **What correct
-looks like:** the marker disappears on leave, and reappears tracking within a second or so of the
-peer being back in play.
+**The second symptom, and whether it shares a cause is still UNKNOWN.** Reported 2026-08-28: after
+a peer left and rejoined, the marker *"took a while before it decided to work/update again"*
+(user); the despawn itself was correct. **What to look at:** with the map open, have a peer quit to
+the title and rejoin. **What correct looks like:** the marker disappears on leave, and reappears
+tracking within a second or so of the peer being back in play. If it is still slow, the early
+returns were not the cause and this needs measuring rather than another guess.
 
-Detail and the line numbers: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap list.
-`DIAG_MARKER_STALENESS` exists to measure exactly this and has still never been run
-([PROBES.md](PROBES.md)).
+`DIAG_MARKER_STALENESS` still exists and now measures the fix rather than the defect: it reports
+the age of the DATA each marker is drawing (`LastUpdateTime` is the state's arrival time, not the
+redraw time, which is now every frame). A visible marker whose age climbs past one second means
+this did not work. It has still never been run ([PROBES.md](PROBES.md)).
+
+Detail and the line numbers as they were: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap
+list.
 
 ## PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
 

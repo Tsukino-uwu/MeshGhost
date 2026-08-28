@@ -153,10 +153,9 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
-- **TEVI's FullMap marker goes stale, and is ALSO slow to resume after a peer rejoins** (2026-08-28,
-  uninvestigated) — it only refreshes on a `render_remote`, so a peer who
-  stops sending leaves a marker frozen where it was. Shipped bug; a probe now exists to measure the
-  age, and has never been run. `tevi/UNVERIFIED.md`, `tevi/PROBES.md`.
+- **TEVI's FullMap marker refresh is now FRAME-DRIVEN, unwatched (2026-08-28)** — a stale marker
+  hides after 1s instead of freezing until the core despawns the peer. Whether it also fixes the
+  slow resume after a rejoin is unknown. `tevi/UNVERIFIED.md`.
 - **TEVI's port walk is CONFIRMED (2026-08-28)** — one reject naming 7778, then 7779. A separate
   DEADLOCK was found and fixed the same day; its recovery path is unreproduced. `tevi/UNVERIFIED.md`.
 - **Pseudoregalia's two unattributed crashes** — a hard crash after the pause menu opened twice, and
