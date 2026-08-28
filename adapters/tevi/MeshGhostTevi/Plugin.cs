@@ -182,6 +182,11 @@ namespace MeshGhostTevi
             public PixelCharacter Pc;
             public string LastAnim;
 
+            // Highest one-shot VFX counter already played for this peer. Per-ghost, and it
+            // starts at 0 so a peer that has already fired effects before we first saw it does
+            // not replay its whole history the moment its ghost appears.
+            public int LastVfxSeq;
+
             // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
             // trailing at once must not share a cadence.
             public float TrailTimer;
@@ -562,6 +567,20 @@ namespace MeshGhostTevi
             // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
             ApplyTrail(visual, state.TrailMode ?? 0, cloneTemplate);
 
+            // One-shot pooled VFX. Only ever plays on a RISE, and a first sighting adopts the
+            // peer's current counter without playing anything -- otherwise a ghost created
+            // mid-session would replay every effect its peer had fired.
+            int vfxSeq = state.VfxSeq ?? 0;
+            if (vfxSeq > 0 && visual.LastVfxSeq == 0)
+            {
+                visual.LastVfxSeq = vfxSeq;
+            }
+            else if (vfxSeq > visual.LastVfxSeq)
+            {
+                visual.LastVfxSeq = vfxSeq;
+                PlayGhostVfx(visual, state.VfxEffect ?? -1, state.Orientation);
+            }
+
             UpdateRemoteMapMarker(playerId, state);
         }
 
@@ -881,6 +900,306 @@ namespace MeshGhostTevi
             }
         }
 
+        // POOLED VFX MIRRORING -- the shipped half of what DIAG_POOL_WATCH found.
+        //
+        // The charged attack's burst does NOT parent to the character: measured 2026-08-28, 4,926
+        // hierarchy scans with the player's subtree constant at 53 objects and the probe's budget
+        // barely touched, so it was a true negative rather than a truncated log. Widening to the
+        // POOL found it immediately, by name: `Normal4H Blast`, pool index 56 of
+        // `GemaPoolManager.Instance.CommonEffectsPooler`, six activations for six attacks, at
+        // dPlayer=123 against dGhost=275.
+        //
+        // MIRROR THE DECISION, NOT THE RULE. The game spawns it from inside its 4th-hit attack at
+        // `animTime >= 21f/32f` gated on an internal counter. Re-deriving that timing on the ghost
+        // would mean reproducing a rule the game owns -- and one that also consults the local
+        // player's BADGES, which a peer's differ from. Instead the local side notices that the game
+        // ITSELF activated the effect and reports that it happened; the ghost then plays it. What
+        // travels is "this occurred", never "here is when it should occur".
+        //
+        // WHY A COUNTER and not a boolean: this is an impulse on a latest-wins state plane, so a
+        // flag can be missed entirely between two frames. A monotonic counter survives a dropped
+        // frame -- the receiver spawns the difference -- and cannot double-fire on a repeated one.
+        //
+        // Deliberately an ALLOWLIST of indices rather than "mirror every pooled effect": a pool
+        // activation near the player may belong to the world, an enemy, or another system, and
+        // firing all of them on a ghost would be inventing visuals rather than mirroring them.
+        // One row per pooled effect we mirror. EVERY number is copied from that effect's own spawn
+        // site in the game, never eyeballed, and the placement genuinely differs per effect -- so a
+        // table rather than one shared offset.
+        //
+        // NegateOnLeft is the trap this table exists for. The blast negates its offset when facing
+        // LEFT; CutinStar negates when facing RIGHT, so the two sit on OPPOSITE sides of the
+        // character. Copying one effect's placement to another puts it on the wrong flank, and it
+        // looks close enough to be believed.
+        //
+        // NOT MIRRORED, deliberately: the same attack calls `GameSystem.Instance.SetTempPause` for
+        // its hitstop. That is global, so replaying it for a peer would freeze the WATCHER's game
+        // -- a peer's attack stuttering your own play. Same class as the warp's autosave: the
+        // visual is mirrored, the side effect never is.
+        private struct MirroredEffect
+        {
+            public int Index;
+            public float OffsetX;
+            public float OffsetY;
+            public float Scale;          // 0 = leave the prefab's own scale alone
+            public bool NegateOnLeft;    // false = negate when facing RIGHT instead
+        }
+
+        private static readonly MirroredEffect[] MirroredCommonEffectTable =
+        {
+            // "Normal4H Blast": offset 105/-64, uniform scale 55, negated when facing LEFT.
+            new MirroredEffect { Index = 56, OffsetX = 105f, OffsetY = -64f, Scale = 55f, NegateOnLeft = true },
+            // "CutinStar": offset 109/-18, prefab scale untouched, negated when facing RIGHT.
+            new MirroredEffect { Index = 0, OffsetX = 109f, OffsetY = -18f, Scale = 0f, NegateOnLeft = false },
+        };
+        // An effect this far from the local player is not the local player's. Generous, because the
+        // measured figure was 123 units for the player against 275 for a ghost standing well away.
+        private const float MirroredEffectOwnershipRange = 200f;
+        private const float VfxWatchInterval = 0.05f;
+        private float lastVfxWatchTime;
+        private readonly Dictionary<int, int> mirroredEffectActive = new Dictionary<int, int>();
+        private int localVfxSeq;
+        private int localVfxEffect;
+
+        // Runs on the LOCAL side: did the game just activate one of the effects we mirror, close
+        // enough to the player to be the player's? If so, bump the counter the peer reads.
+        private void WatchLocalVfx(CharacterBase player)
+        {
+            if (Time.time - lastVfxWatchTime < VfxWatchInterval)
+            {
+                return;
+            }
+            lastVfxWatchTime = Time.time;
+            if (GemaPoolManager.Instance == null || player == null || player.t == null)
+            {
+                return;
+            }
+            ObjectPooler op = GemaPoolManager.Instance.CommonEffectsPooler;
+            if (op == null || op.pooledObjectsList == null)
+            {
+                return;
+            }
+            foreach (MirroredEffect eff in MirroredCommonEffectTable)
+            {
+                int index = eff.Index;
+                if (index < 0 || index >= op.pooledObjectsList.Count)
+                {
+                    continue;
+                }
+                List<GameObject> pool = op.pooledObjectsList[index];
+                if (pool == null)
+                {
+                    continue;
+                }
+                int active = 0;
+                bool nearPlayer = false;
+                foreach (GameObject go in pool)
+                {
+                    if (go == null || !go.activeInHierarchy)
+                    {
+                        continue;
+                    }
+                    active++;
+                    if (Vector3.Distance(go.transform.position, player.t.position) <= MirroredEffectOwnershipRange)
+                    {
+                        nearPlayer = true;
+                    }
+                }
+                int prev;
+                bool known = mirroredEffectActive.TryGetValue(index, out prev);
+                mirroredEffectActive[index] = active;
+                // A rise, near the player, and only after a baseline exists -- the first sample
+                // must not report the resting state as an event.
+                if (known && active > prev && nearPlayer)
+                {
+                    localVfxSeq++;
+                    localVfxEffect = index;
+                }
+            }
+        }
+
+        // Runs on the WATCHER: play the peer's effect on their ghost, with the game's own offsets
+        // and the ghost's own facing. The pooled object and everything it does are the game's.
+        private void PlayGhostVfx(RemoteGhostVisual visual, int effect, string orientation)
+        {
+            if (visual.Go == null || GemaPoolManager.Instance == null)
+            {
+                return;
+            }
+            ObjectPooler op = GemaPoolManager.Instance.CommonEffectsPooler;
+            if (op == null)
+            {
+                return;
+            }
+            MirroredEffect eff = default(MirroredEffect);
+            bool found = false;
+            foreach (MirroredEffect candidate in MirroredCommonEffectTable)
+            {
+                if (candidate.Index == effect)
+                {
+                    eff = candidate;
+                    found = true;
+                    break;
+                }
+            }
+            // An id we do not have placement data for is dropped rather than guessed at. A peer on
+            // a newer adapter can name an effect this build has never heard of, and putting it at
+            // an invented offset would be worse than not showing it.
+            if (!found)
+            {
+                return;
+            }
+            GameObject go = op.GetPooledObject(effect);
+            if (go == null)
+            {
+                return;
+            }
+            bool left = orientation == Character.Direction.LEFT.ToString();
+            bool negate = eff.NegateOnLeft ? left : !left;
+            float offX = negate ? -eff.OffsetX : eff.OffsetX;
+            go.transform.position = visual.Go.transform.position + new Vector3(offX, eff.OffsetY, 0f);
+            if (eff.Scale > 0f)
+            {
+                go.transform.localScale = new Vector3((left ? -1f : 1f) * eff.Scale, eff.Scale, eff.Scale);
+            }
+            go.SetActive(true);
+        }
+
+        // DIAG_POOL_WATCH -- the deliberate WIDENING after the hierarchy probe came back empty.
+        //
+        // `DIAG_SPAWN_DIFF` watches a character's own subtree, which is where `ChargeShot` parents
+        // its effect. If a hunted effect never appears there, that is a finding: it does not parent
+        // to the character. The documented response is to widen the SUBSYSTEM rather than sample
+        // harder (`agent_docs/pitfalls.md`), and the honest place to widen to is the POOL, because
+        // every effect in this game comes from one:
+        // `GemaPoolManager.Instance.CommonEffectsPooler` / `.AreaPooler`, both `ObjectPooler`s
+        // holding `pooledObjectsList` (a list of pools) and `itemsToPool` (the prefab per pool).
+        //
+        // WHY THIS IS THE RIGHT INSTRUMENT and not just a bigger net: it reports the PREFAB NAME.
+        // Every dead end tonight -- `isAfterImage`, `shadowMat`, `Charge` under `Jetpack Meter` --
+        // came from guessing which name meant the effect. A pool activation names the thing the
+        // game itself chose to spawn, with no interpretation in between.
+        //
+        // Cost is the open question, so this reports its own like the other probe does. It walks
+        // every pooled object once per sample; if that is too slow the log says so, and the answer
+        // is a slower sample rate, never a quieter log.
+        private const bool DIAG_POOL_WATCH = true;
+        private const float PoolWatchInterval = 0.05f;
+        private const int PoolWatchBudget = 400;
+        private float lastPoolWatchTime;
+        private float lastPoolWatchCoverageTime;
+        private int poolWatchLines;
+        private int poolWatchScans;
+        private int poolWatchObjects;
+        private double poolWatchMsTotal;
+        private double poolWatchMsWorst;
+        // Active count per pool, keyed "poolerName#index". A RISE means the game just spawned one.
+        private readonly Dictionary<string, int> poolActiveCounts = new Dictionary<string, int>();
+
+        private void DiagPoolWatch(CharacterBase player)
+        {
+            if (Time.time - lastPoolWatchTime < PoolWatchInterval)
+            {
+                return;
+            }
+            lastPoolWatchTime = Time.time;
+            if (GemaPoolManager.Instance == null)
+            {
+                return;
+            }
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            int objects = 0;
+            var poolers = new List<KeyValuePair<string, ObjectPooler>> {
+                new KeyValuePair<string, ObjectPooler>("common", GemaPoolManager.Instance.CommonEffectsPooler),
+                // AreaPooler hangs off AreaResource, not GemaPoolManager -- cited from the game's
+                // own call site, `AreaResource.Instance.AreaPooler.GetPooledObject(...)`.
+                new KeyValuePair<string, ObjectPooler>("area",
+                    AreaResource.Instance != null ? AreaResource.Instance.AreaPooler : null),
+            };
+
+            foreach (KeyValuePair<string, ObjectPooler> pooler in poolers)
+            {
+                ObjectPooler op = pooler.Value;
+                if (op == null || op.pooledObjectsList == null || op.itemsToPool == null)
+                {
+                    continue;
+                }
+                for (int i = 0; i < op.pooledObjectsList.Count; i++)
+                {
+                    List<GameObject> pool = op.pooledObjectsList[i];
+                    if (pool == null)
+                    {
+                        continue;
+                    }
+                    int active = 0;
+                    GameObject sample = null;
+                    for (int j = 0; j < pool.Count; j++)
+                    {
+                        objects++;
+                        if (pool[j] != null && pool[j].activeInHierarchy)
+                        {
+                            active++;
+                            if (sample == null)
+                            {
+                                sample = pool[j];
+                            }
+                        }
+                    }
+                    string key = pooler.Key + "#" + i;
+                    int prev;
+                    bool known = poolActiveCounts.TryGetValue(key, out prev);
+                    poolActiveCounts[key] = active;
+                    // First sample establishes a baseline; reporting it would dump the whole
+                    // resting state and spend the budget before anything happened.
+                    if (!known || active <= prev || poolWatchLines >= PoolWatchBudget)
+                    {
+                        continue;
+                    }
+                    string prefab = (i < op.itemsToPool.Count && op.itemsToPool[i] != null
+                        && op.itemsToPool[i].objectToPool != null)
+                        ? op.itemsToPool[i].objectToPool.name
+                        : "<unnamed>";
+                    // Distance to the player AND to the nearest ghost, because the whole question
+                    // is which of the two an effect belongs to.
+                    string where = "";
+                    if (sample != null && player != null && player.t != null)
+                    {
+                        float dPlayer = Vector3.Distance(sample.transform.position, player.t.position);
+                        float dGhost = float.MaxValue;
+                        foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+                        {
+                            if (kv.Value.Go != null)
+                            {
+                                float d = Vector3.Distance(sample.transform.position, kv.Value.Go.transform.position);
+                                if (d < dGhost) { dGhost = d; }
+                            }
+                        }
+                        where = $" dPlayer={dPlayer:0} dGhost={(dGhost == float.MaxValue ? -1f : dGhost):0}";
+                    }
+                    poolWatchLines++;
+                    Logger.LogInfo($"MeshGhost/probe pool: +{active - prev} '{prefab}' "
+                        + $"[{key}] active={active}{where}");
+                }
+            }
+
+            watch.Stop();
+            poolWatchScans++;
+            poolWatchObjects = objects;
+            poolWatchMsTotal += watch.Elapsed.TotalMilliseconds;
+            if (watch.Elapsed.TotalMilliseconds > poolWatchMsWorst)
+            {
+                poolWatchMsWorst = watch.Elapsed.TotalMilliseconds;
+            }
+            if (Time.time - lastPoolWatchCoverageTime >= 5f)
+            {
+                lastPoolWatchCoverageTime = Time.time;
+                Logger.LogInfo($"MeshGhost/probe pool coverage: scans={poolWatchScans} "
+                    + $"pooledObjects={poolWatchObjects} pools={poolActiveCounts.Count} "
+                    + $"avgMs={(poolWatchScans == 0 ? 0 : poolWatchMsTotal / poolWatchScans):0.00} "
+                    + $"worstMs={poolWatchMsWorst:0.00} budget={poolWatchLines}/{PoolWatchBudget}");
+            }
+        }
+
         // PROBE, off unless DIAG_SPAWN_DIFF. See the flag's own comment for the question and the
         // method. Reports APPEARED/DISAPPEARED GameObjects near a character, by instance id.
         private void DiagSpawnDiff(CharacterBase player)
@@ -898,49 +1217,58 @@ namespace MeshGhostTevi
             // ghost" side by side -- which is the comparison, and doing it in one pass means the
             // two lists come from the same frames rather than from two runs that have to be
             // trusted to match.
-            Vector3 playerPos = player.t.position;
-            var anchors = new List<KeyValuePair<string, Vector3>> {
-                new KeyValuePair<string, Vector3>("player", playerPos)
+            var anchorRoots = new List<KeyValuePair<string, Transform>> {
+                new KeyValuePair<string, Transform>("player", player.t)
             };
             foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
             {
                 if (kv.Value.Go != null)
                 {
-                    anchors.Add(new KeyValuePair<string, Vector3>("ghost:" + kv.Key, kv.Value.Go.transform.position));
+                    anchorRoots.Add(new KeyValuePair<string, Transform>("ghost:" + kv.Key, kv.Value.Go.transform));
                 }
             }
 
-            Transform[] all = FindObjectsOfType<Transform>();
+            // HIERARCHY, not the whole scene. The first version enumerated every Transform and
+            // MEASURED ITSELF AT avgMs=19.19 / worstMs=27.13 against a 16.7ms frame, in a scene
+            // holding 36,854 transforms -- unusable, and it said so, which is the only reason it
+            // was not simply believed. The clue that made this cheap is in the game's own code:
+            // spawned effects are PARENTED to the character (`ChargeShot` does
+            // `SetParent(_owner.t)`), so a character's own subtree is where they appear. Tens of
+            // objects instead of tens of thousands.
+            //
+            // If a hunted effect never shows up here, it does not parent to the character -- that
+            // is a FINDING, and the response is to widen the subsystem deliberately rather than to
+            // sample harder (`agent_docs/pitfalls.md`).
             var current = new Dictionary<int, string>();
-            foreach (Transform t in all)
+            int scanned = 0;
+            foreach (KeyValuePair<string, Transform> a in anchorRoots)
             {
-                if (t == null)
+                if (a.Value == null)
                 {
                     continue;
                 }
-                Vector3 p = t.position;
-                string nearest = null;
-                float best = float.MaxValue;
-                foreach (KeyValuePair<string, Vector3> a in anchors)
+                foreach (Transform t in a.Value.GetComponentsInChildren<Transform>(true))
                 {
-                    float d = (p - a.Value).sqrMagnitude;
-                    if (d < best) { best = d; nearest = a.Key; }
-                }
-                if (nearest == null || best > SpawnDiffRadius * SpawnDiffRadius)
-                {
-                    continue;
-                }
+                    if (t == null)
+                    {
+                        continue;
+                    }
+                    scanned++;
+                    Vector3 p = t.position;
+                    string nearest = a.Key;
+                    float best = (p - a.Value.position).sqrMagnitude;
                 // NOT filtered by name. A name filter is a guess about the answer, and a wrong
                 // guess still returns a complete-looking list (effect-investigation.md).
-                current[t.gameObject.GetInstanceID()] =
-                    $"{t.name} parent={(t.parent == null ? "-" : t.parent.name)} "
-                    + $"near={nearest} d={Mathf.Sqrt(best):0} active={t.gameObject.activeInHierarchy} "
-                    + $"comps=[{DescribeComponents(t.gameObject)}]";
+                    current[t.gameObject.GetInstanceID()] =
+                        $"{t.name} parent={(t.parent == null ? "-" : t.parent.name)} "
+                        + $"near={nearest} d={Mathf.Sqrt(best):0} active={t.gameObject.activeInHierarchy} "
+                        + $"comps=[{DescribeComponents(t.gameObject)}]";
+                }
             }
             watch.Stop();
 
             spawnDiffScans++;
-            spawnDiffLastTotal = all.Length;
+            spawnDiffLastTotal = scanned;
             spawnDiffLastInRadius = current.Count;
             spawnDiffScanMsTotal += watch.Elapsed.TotalMilliseconds;
             if (watch.Elapsed.TotalMilliseconds > spawnDiffScanMsWorst)
@@ -985,7 +1313,7 @@ namespace MeshGhostTevi
                 lastSpawnDiffCoverageTime = Time.time;
                 Logger.LogInfo($"MeshGhost/probe spawn-diff coverage: scans={spawnDiffScans} "
                     + $"transformsInScene={spawnDiffLastTotal} inRadius={spawnDiffLastInRadius} "
-                    + $"anchors={anchors.Count} avgMs={(spawnDiffScans == 0 ? 0 : spawnDiffScanMsTotal / spawnDiffScans):0.00} "
+                    + $"anchors={anchorRoots.Count} avgMs={(spawnDiffScans == 0 ? 0 : spawnDiffScanMsTotal / spawnDiffScans):0.00} "
                     + $"worstMs={spawnDiffScanMsWorst:0.00} "
                     + $"appearBudget={spawnDiffAppearLines}/{SpawnDiffAppearBudget} "
                     + $"disappearBudget={spawnDiffDisappearLines}/{SpawnDiffDisappearBudget}");
@@ -1199,6 +1527,8 @@ namespace MeshGhostTevi
                 RoomX = roomX,
                 RoomY = roomY,
                 TrailMode = ReadTrailMode(player),
+                VfxSeq = localVfxSeq,
+                VfxEffect = localVfxEffect,
             });
 
             // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,
@@ -1208,9 +1538,16 @@ namespace MeshGhostTevi
                 UpdateWarpDevicesForGhosts();
             }
 
+            WatchLocalVfx(player);
+
             if (DIAG_SPAWN_DIFF)
             {
                 DiagSpawnDiff(player);
+            }
+
+            if (DIAG_POOL_WATCH)
+            {
+                DiagPoolWatch(player);
             }
 
             if (DIAG_MENU_GATE && !hadPlayerLastFrame)

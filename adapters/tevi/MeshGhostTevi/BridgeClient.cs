@@ -48,6 +48,15 @@ namespace MeshGhostTevi
             // that predates this field, which must render as no trail rather than as mode 0
             // asserted.
             public int? TrailMode;
+
+            // A ONE-SHOT pooled VFX the game spawned for this character, as a monotonic counter
+            // plus which effect it was. A counter rather than a flag because the state plane is
+            // latest-wins: a boolean impulse can be missed entirely between two frames, while a
+            // counter survives a dropped frame and cannot double-fire on a repeated one. The
+            // effect id is an index into the game's own CommonEffectsPooler -- opaque to the core,
+            // meaningful only between two TEVI clients, exactly like Anim and TrailMode.
+            public int? VfxSeq;
+            public int? VfxEffect;
         }
 
         private readonly string host;
@@ -462,6 +471,14 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["trail"] = state.TrailMode.Value;
                 }
+                // Sent every frame once non-zero, not only on the frame it changed: the receiver
+                // dedupes on the counter, so repeating it is what makes a dropped frame harmless.
+                if (state.VfxSeq.HasValue && state.VfxSeq.Value > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["vfx_seq"] = state.VfxSeq.Value;
+                    extrasMap["vfx_id"] = state.VfxEffect ?? -1;
+                }
             }
             object extras = extrasMap;
             object payloadState = state == null
@@ -539,6 +556,8 @@ namespace MeshGhostTevi
                                 RoomX = (int?)extras?["room_x"],
                                 RoomY = (int?)extras?["room_y"],
                                 TrailMode = (int?)extras?["trail"],
+                                VfxSeq = (int?)extras?["vfx_seq"],
+                                VfxEffect = (int?)extras?["vfx_id"],
                             };
                             onRenderRemote(playerId, remote);
                             break;

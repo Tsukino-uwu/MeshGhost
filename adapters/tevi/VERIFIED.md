@@ -606,9 +606,10 @@ filed under the right theme, but anything can check that it is listed.
 - Notes: **the cadence is a registered compensation, not the game's** -- a ghost has no
   `SpriteAnimation` (the clone is the pixel child), so the public `SetTrail` is unreachable and the
   spawn loop is reproduced with the component's own constants. `BANDAGES.md` entry 6 carries the
-  cost and the two real fixes. **Scope: the quickdrop case is what was watched.** Slide (same mode)
-  and dodge (mode 2, the yellow one) follow from the same code path and were NOT separately
-  confirmed on screen.
+  cost and the two real fixes. **Scope, tightened later the same day:** quickdrop AND **slide are
+  both confirmed on screen** (user: *"slide trails work"*), which is both halves of mode 1.
+  **Dodge (mode 2, the yellow one) is still unconfirmed** and needs a spot near enemies to trigger
+  it (user), so it is the one branch of this feature nobody has seen.
 
 
 ## TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
