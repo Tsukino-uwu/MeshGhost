@@ -38,6 +38,29 @@ Commercial category (indie/AAA) was rejected for the same reason and a worse one
 nothing about the adapter. Where access difficulty genuinely differs, that is an **access model**,
 and `agent_docs/access-models.md` is its one home.
 
+## Hard rule: build the live-reload loop BEFORE the first feature, on every host
+
+**User, 2026-08-28:** *"this should probly be done before starting any adapter, on any kind of
+engine. it speeds up development a lot"*.
+
+Every host here can reload adapter code into a RUNNING game — BizHawk via this repo's dev loader,
+Unity via BepInEx's ScriptEngine, UE4SS via its own hot reload for Lua mods (a UE4SS **C++** mod is
+the one exception and must be relaunched). Doing it first is not a convenience: it is the difference
+between a change costing a relaunch-and-navigate and costing seconds, and it compounds over every
+iteration of every feature afterwards.
+
+**The evidence is two adapters in this repo.** The Pokemon pair got a dev loader in Phase 8 and
+became the fastest to work on. TEVI relaunched for every change from Phase 6 until 2026-08-28, then
+shipped three features in one session once it did not have to.
+
+**Two things the loop can never test, so it does not replace a cold start:** a bug that only appears
+on a COLD START is invisible to it, and a reload ORPHANS whatever the old instance parented into the
+scene — a ghost is usually a clone in the world, not a child of your component, so despawn
+everything you spawned in your teardown or you gain one orphan per reload.
+
+Full guidance, the per-host table, and the three traps that each reported success while doing
+nothing: [_template/README.md](_template/README.md), "BUILD THE LIVE-RELOAD LOOP FIRST".
+
 ## Hard rule: anything the player can do, anything else should be able to do
 
 **User, 2026-08-19:** *"anything the player can do, anything else should be able to do"*, and, when

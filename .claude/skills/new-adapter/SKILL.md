@@ -34,6 +34,22 @@ under `adapters/`, plus `adapters/emulator/CLAUDE.md` if the game is an emulated
    already says. `licensing.md` clears all four `pret` decomps for facts-with-a-citation.
    Measurement is for CONFIRMING what the source says, not for discovering it.
 
+## THE FIRST THING YOU BUILD IS THE LIVE-RELOAD LOOP — before the first ghost
+
+**Not the first feature. The loop.** Every host this project has touched can reload adapter code
+into a RUNNING game, and doing it first is the highest-leverage decision in a new adapter. The
+evidence is two adapters: the Pokemon pair got a dev loader and became the fastest to work on, while
+TEVI relaunched the game for every single change from Phase 6 until 2026-08-28 — and shipped three
+features in one session once it did not have to.
+
+Read **"BUILD THE LIVE-RELOAD LOOP FIRST"** in `adapters/_template/README.md`: the per-host table of
+what already exists, the three traps that each reported success while doing nothing, and the two
+things a reload can never test (cold-start bugs, and scene objects the old instance orphaned).
+
+**Then turn on the host's runtime inspector too**, before writing a probe to answer something it
+would simply have shown you. Note whose tool it is: an inspector is a GUI and belongs to the USER;
+the agent's equivalent is a probe that writes to the log. They are complements, not alternatives.
+
 ## Then, in `adapters/_template/README.md`, these sections in this order
 
 - **"Folder convention"** — where the files go, and which are expected of every adapter
