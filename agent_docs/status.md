@@ -212,8 +212,14 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   deliberately different clocks. `dev-scripts/run-core-pseudoregalia-online.bat` step 3.
 - **quic's drop detection (~17s) dominates any resume grace** — `quicConfig` sets no
   `MaxIdleTimeout`. `verified.md` 2026-08-17, `architecture.md` ADR.
-- **Nameplates / one-shot peer effects are now unblocked** — both were parked for want of the
-  event plane, which exists. Needs per-adapter work. `ideas.md`.
+- **Nametags ship on Pseudoregalia; their COLOUR does not** — text renders black, every route this
+  engine build offers is exhausted. Evidence: `adapters/pseudoregalia/UNVERIFIED.md` (2026-08-28).
+- **Nametags are unimplemented on Emerald, Crystal and TEVI** — all three receive `remote_name` and
+  ignore it, which is harmless. Per-adapter rendering work. `pseudoregalia/VERIFIED.md` for the shape.
+- **Randomized ordering/timing fuzzing does not exist** — every fuzzer targets data, none targets
+  order; the plan and its first step are in `ideas.md` (2026-08-28).
+- **One-shot peer effects are still unblocked and unbuilt** — parked for want of the event plane,
+  which exists. Per-adapter work. `ideas.md`.
 
 ## Links
 

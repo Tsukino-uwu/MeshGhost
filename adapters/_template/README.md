@@ -1,6 +1,6 @@
 # Adapter template
 
-<!-- line-cap: 1600 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: none -- the user's call, 2026-08-28: this is what a NEW adapter reads to start from lessons already paid for, so a cap that forces a lesson out is the wrong trade here. It is not licence to sprawl: prefer POINTING at the canonical home (agent_docs/pitfalls/*, agent_docs/*) over restating it, and keep entries skimmable. Why caps exist at all, and why this file is the exception: agent_docs/claude-md-cap.md. -->
 <!-- Raised from 1500 on 2026-08-27, once. The file had sat at exactly 1500/1500 and git shows it
      trimmed back on reaching it, so every new lesson was being paid for by deleting an old
      one -- which is not what the cap is for. The next time this fills up the answer is NOT

@@ -103,3 +103,26 @@ was applied by an earlier pass that generalised this rule past its own argument.
 them or is told to read them end to end: the five `CLAUDE.md` files, `.claude/skills/`, the indexes
 (`agent_docs/README.md`, `architecture.md`, `pitfalls.md`), every probe file, and all of
 `_template/`.
+
+## The fifth case: what a NEW adapter reads to start (2026-08-28)
+
+**The user's call:** `adapters/_template/README.md` and `adapters/_template/probes.md` come off the
+hard cap — *"its probly fine to extend the _template ... its a really important file for new/future
+adapters after all"*, and *"i don't think it has to use the text cap at least"*.
+
+**The reasoning, which is the same one the cap rests on rather than an exception to it.** A cap
+exists because an over-long always-loaded file makes every rule in it obeyed slightly worse. These
+two are not always-loaded: they are read deliberately, once, by whoever is starting an adapter, in
+the order `/new-adapter` sequences. The failure a cap prevents does not apply, and the failure it
+CAUSES here does: `_template/README.md` sat exactly at 1600 of 1600, so the next lesson paid for in
+a live session had nowhere to go — and a lesson that cannot be written down gets re-derived by the
+next adapter at full price.
+
+**It is not licence to sprawl, and the user said so in the same breath:** *"we should also probly
+just make it index/point to where other things are if its getting a bit to big."* So the rule these
+two files follow is POINT, DON'T RESTATE — the canonical home keeps the detail, the template keeps
+a few lines saying the trap exists and where the case is written up. The 2026-08-28 nametag session
+went in as six lines pointing at `pitfalls/method.md`, not as the full account.
+
+**Everything else keeps its cap**, including the nested `CLAUDE.md`s, which genuinely do load
+without being asked.

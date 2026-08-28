@@ -174,6 +174,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 (late session) — A hard crash on "retry last save": the VFX mirror's component map outlived its level (user-confirmed)
 - 2026-08-27 (late session) — A hard crash on starting a NEW SAVE: the camera fallback pointer, never cleared, dereferenced two levels later (user-confirmed)
 - 2026-08-27 (late session) — The ghost flinched on every save-file swap; and the carried-over health is the GAME's, proven by the user's control run (user-confirmed)
+- Nametags: a peer's name renders above their ghost, both join orderings (2026-08-28)
 
 ## Confirmed facts
 
@@ -4275,3 +4276,32 @@ Pseudoregalia speedrunner pointed out the game has no Steam single-instance inte
 can simply be launched twice. That one correction turned a whole class of test from impossible to
 routine, and it found three real bugs in the first run.
 
+
+## Nametags: a peer's name renders above their ghost, both join orderings (2026-08-28)
+
+**User-confirmed on screen**, which is the gate this file holds and the reason this entry exists
+separately from `UNVERIFIED.md`'s record of the colour.
+
+- *"can see the name 'Rin' now"* — a peer already in the room when the game launched.
+- *"text appeard on 1 client"*, then after the handshake fix, both orderings.
+- Billboarding, in the user's own words: *"think the text is cardboarded, and facing towards my
+  direction while looking at it / spins around and follows so its always visible"*.
+- Centring, after switching from a position nudge to the component's own `HorizontalAlignment`:
+  *"the text looks a bit more centered now"*.
+- A screenshot shows the name rendering clearly above the ghost at the shipped height.
+
+**What is drawn:** a `UTextRenderComponent` created at runtime on the ghost pawn with
+`AActor:AddComponentByClass`, using the engine's own `RobotoDistanceField` font and
+`DefaultTextMaterialOpaque` — both confirmed present in this shipped build by
+`NAMETAG_CENSUS_PROBE`, even though the game itself uses no text component anywhere (0 instances).
+
+**Nothing of ours ships to draw it**, which is what ruled out the UMG-widget approach the other
+Pseudoregalia multiplayer mod took — that one ships its own `.uasset` font, which this repo cannot
+commit.
+
+**What is NOT claimed here:** the colour. It renders black; the evidence and the exhausted routes
+are in `UNVERIFIED.md`'s entry for the same date.
+
+**A peer with no name draws nothing at all** — the shipped default is an empty name, on the user's
+call: *"if its blank it should not display/do anything, it should only have a text box/show
+something if a custom name is put in"*.

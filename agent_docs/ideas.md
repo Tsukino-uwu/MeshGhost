@@ -3968,3 +3968,57 @@ and the ghost-load/despawn rigs stop needing a human to aim them.
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`. The method notes for
 writing such a probe belong in `adapters/_template/probes.md`, which carries the pointer.
 
+
+## Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
+
+**The user's question, and it is the right one:** *"do we have random start/stop timings for things
+as well in the tests? we have had a lot of 'ohh this only happens after 8-15sec' or ohh this only
+happens early/late?"* and *"basically fuzz everything?, even how long/short times are between
+things?"*
+
+**The gap, measured rather than felt.** There are 17 fuzz targets and roughly 20
+reconnect/restart/disconnect tests. **Every fuzzer targets DATA** — never panics, stable across the
+wire, matches `json.Marshal`. Not one targets ORDER or TIMING, and each reconnect test runs one
+fixed sequence with fixed sleeps. So the suite is structurally blind to the exact family that keeps
+reaching the user live.
+
+**2026-08-28 is the case in point, twice in one evening.** A nametag failed depending purely on
+WHICH SIDE CONNECTED FIRST — a peer already in the room took a different code path from one that
+joined while you watched, and no test varied that. And the underlying adapter bug was a readiness
+flag sampled one call too early, which only bites on the single tick where acceptance arrives.
+
+**Why this is affordable, which is the part that decides whether it ever gets built.** All four
+timing constants that matter are already PER-CORE FIELDS, not hardcoded: `InterpolationDelay`,
+`MinSendInterval`, `IdleKeepalive`, `RemoteStaleAfter`. So the clock compresses — set
+`RemoteStaleAfter` to 30ms instead of 3s and "peer silent for ten times the stale window" costs
+300ms. "Only happens after 8-15 seconds" becomes a 40ms test, same code paths.
+
+**Two tiers, and only one of them gets fuzzed:**
+
+- **Fast tier, in-process, fuzzed.** The seed picks both the delays and the ORDER of events: relay
+  up, client connects, adapter attaches, peer joins, peer goes silent, relay restarts, peer leaves.
+  A compressed cycle is ~50ms, so a few hundred schedules is under a minute — CI-affordable under
+  `-fuzztime`.
+- **Slow tier, real binaries, NOT fuzzed.** `internal/e2e` is dominated by process startup, which
+  cannot be compressed. Keep it to a handful of fixed shapes chosen for cases known to matter.
+
+**Assert INVARIANTS, never a script** — a script is what makes these brittle. Things that must hold
+under every ordering: every peer that set a name eventually has it delivered to every other
+adapter; no ghost outlives its peer's leave; the core's roster never disagrees with the relay's; a
+reconnect never leaves a peer permanently invisible.
+
+**First piece of work, and it is small:** make `MaxReconnectBackoff` (15s), `DefaultHeartbeatInterval`
+(20s) and `DefaultHelloTimeout` (10s) configurable the way the other four already are. Until then a
+long-outage test costs real seconds, because the backoff cap cannot be shrunk.
+
+**What does NOT compress at any price**, so the e2e tier keeps a floor: quic-go's own ~17s idle
+timeout, OS socket behaviour, and process startup.
+
+**And the class this never reaches**, worth knowing so it is not oversold: bugs needing ABSOLUTE
+elapsed time or accumulation — a sequence number wrapping, a token expiring, a slow leak. Those are
+tested by seeding the counter near its limit, not by waiting.
+
+**Honest limit on the whole idea:** it would have caught the ordering half of 2026-08-28 and NONE
+of the other half. `RegisterComponent` not being a reflected UFunction is a fact about a shipped
+game's reflection data; no amount of Go fuzzing can see it. The live failures split into those two
+families and this addresses one.

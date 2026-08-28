@@ -862,6 +862,54 @@ seconds: it read **60% of bytes filtered in a room that should have had 0%**. Re
 a feature was justified with before reasoning about the feature's behaviour -- they are usually
 still pointed at the right place.
 
+## LOG THE SUCCESS PATH FROM THE FIRST BUILD, or three bugs share one symptom (2026-08-28)
+
+**The rule, paid for over roughly twelve live launches in one evening:** anything that DRAWS
+something needs a readback of what it actually built, in the very first version, not after it fails.
+
+Pseudoregalia's nametags logged only failures. That made three completely different states
+indistinguishable on screen and in the log:
+
+- the component was never created (a lookup returned null and the code quietly did nothing),
+- it existed and rendered nothing,
+- it existed and rendered the WRONG STRING -- `UTextRenderComponent`'s default `"Text"`, which
+  reads exactly like "the name never arrived".
+
+Each needed a different fix and each cost a live session to tell apart. The readback that finally
+separated them -- registered / visible / hidden / font / material / size / the string it actually
+holds / where it actually is / its colour bytes -- took twenty minutes to write and would have
+skipped nearly all of that had it existed from the start.
+
+**"No warning" is not evidence of success.** It only ever means "not missing". Twice in that
+session a call was read as having worked because nothing complained, when it had resolved and done
+nothing. Log which lookups RESOLVED, not only which ones failed -- an absence proves nothing about
+either.
+
+**And the corollary that catches the rest:** when two logs disagree, believe the pair, not either
+one. The bug that had eaten the evening was found in one minute by logging every distinct bridge
+message type on first sight: the adapter's log listed one type, the core's log showed three being
+sent, and the contradiction pointed straight at the tick between them.
+
+## TWO COPIES OF ONE GAME SHARE ONE LOG FILE, so neither can be attributed (2026-08-28)
+
+Two instances of the same install write to the SAME `UE4SS.log` and, because the mod launches the
+core with its own folder as the working directory, the same `meshghost.log`. The second process's
+lines are simply absent -- the first holds the file.
+
+That produced a false finding and most of an evening's misdirection: "only the game started FIRST
+shows a nametag" was taken as a fact about join ORDER between clients. In truth the second instance
+logged nothing at all, so there was no evidence either way about what it did.
+
+**So a two-instance test on one install can confirm what a person SEES and can prove nothing from
+logs.** When a symptom needs log evidence, reproduce it with ONE game plus a synthetic peer
+(`meshghost-fakeadapter`, which can join first to recreate the "already in the room" ordering), or
+use a second install. Stamp the process id into any log line you intend to attribute -- one call,
+and it is what finally made the two separable.
+
+**A related rig limitation, same evening:** `meshghost-fakeadapter` does NOT redial when the relay
+restarts. Twice a "the ghost vanished" report was the rig quietly dying rather than anything about
+the code under test. Check the peer is still connected before believing a disappearance.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
