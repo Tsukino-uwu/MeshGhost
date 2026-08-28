@@ -231,13 +231,30 @@ func TestAResumeAfterSilenceDoesNotMakeAGhostCreep(t *testing.T) {
 			at.Position[0], standing.Position[0])
 	}
 
-	// And one millisecond before the move, still standing.
-	at, ok = buf.at(sent[2].Timestamp - 1)
-	if !ok {
-		t.Fatal("no state available just before the move")
-	}
-	if at.Position[0] != standing.Position[0] {
-		t.Fatalf("ghost rendered at x=%v one millisecond before the peer moved, want x=%v",
-			at.Position[0], standing.Position[0])
+	// And standing for the WHOLE silence, right up to the bracket -- every
+	// millisecond of it, not one sampled instant.
+	//
+	// This used to sample `sent[2].Timestamp - 1`, one millisecond before the
+	// move, and that made the test an assertion about the MACHINE: the bracket
+	// and the moving state are sent by the same call, so on a fast box they
+	// land in the same millisecond and "one before the move" IS the bracket,
+	// while on CI under -race they landed 2ms apart and the sample fell inside
+	// the bracket-to-move gap, where interpolating is not merely allowed but
+	// the entire point. It rendered the exact midpoint, x=104, and reported it
+	// as creep. Red on CI 2026-08-29, green on every local run.
+	//
+	// The gap between the bracket and the move is the one blend this feature
+	// deliberately leaves in place -- it is a single frame's worth, which is
+	// what the bracket exists to reduce it to. Everything BEFORE the bracket is
+	// the silence, and that is what must not creep.
+	for ts := sent[0].Timestamp; ts <= sent[1].Timestamp; ts++ {
+		at, ok = buf.at(ts)
+		if !ok {
+			t.Fatalf("no state available at %dms into the silence", ts-sent[0].Timestamp)
+		}
+		if at.Position[0] != standing.Position[0] {
+			t.Fatalf("ghost rendered at x=%v %dms into a silence it spent standing at x=%v (%dms before the bracket) -- it is creeping across the gap",
+				at.Position[0], ts-sent[0].Timestamp, standing.Position[0], sent[1].Timestamp-ts)
+		}
 	}
 }
