@@ -52,17 +52,29 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	// otherwise claim someone else's id. Cheap now; Phase 4 puts
 	// untrusted peers on the wire.
 	st.PlayerID = senderID
-	stateEnv, err := envelope(protocol.TypeState, st)
+	statePayload, err := json.Marshal(st)
 	if err != nil {
 		return protocol.State{}, false
 	}
+	// Built once, here, instead of marshaling the State and then marshaling an
+	// Envelope around the bytes that produced -- which re-parsed, re-escaped
+	// and re-copied every one of them. protocol.AppendEnvelope's own comment
+	// carries the precondition that makes appending byte-identical to
+	// marshaling, and the fuzz target that proves it.
+	//
+	// Freshly allocated per state rather than taken from a pool, deliberately:
+	// forwardLine hands this exact slice to c.pending for any client still
+	// waiting on its Welcome, where it outlives the call. A pool here would
+	// need that copy first, and an aliasing bug on the fan-out path is not
+	// worth one allocation.
+	line := protocol.AppendEnvelope(nil, protocol.TypeState, statePayload)
 	// Remembered before forwarding, and independent of the
 	// per-recipient rate gate below: a late joiner should be seeded
 	// with the newest sample, not the newest one that happened to be
 	// forwarded to somebody. Recorded for every room, not only ones
 	// that asked for snapshots -- see recordState.
 	r.recordState(senderID, st)
-	r.ForwardUnreliable(stateEnv, r.stateRecipients(senderID, st.AreaID, len(stateEnv.Payload), time.Now()))
+	r.forwardLine(line, r.stateRecipients(senderID, st.AreaID, len(statePayload), time.Now()), true)
 	return st, true
 }
 

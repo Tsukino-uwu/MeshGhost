@@ -340,7 +340,19 @@ func (r *Room) forward(msg protocol.Envelope, to []string, unreliable bool) {
 		log.Printf("relay: BUG: envelope failed to marshal: %v", err)
 		return
 	}
+	r.forwardLine(payload, to, unreliable)
+}
 
+// forwardLine is forward once the wire bytes already exist. The state plane
+// builds its line directly with protocol.AppendEnvelope and comes in here,
+// which is what stopped every state being marshaled twice; the control plane
+// keeps going through forward above, marshaling at exactly the point it always
+// did so its BUG-log behaviour is unchanged.
+//
+// line is retained beyond this call for a client still waiting on its Welcome
+// (see c.pending below), so a caller may not reuse or mutate the slice it
+// passes.
+func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 	// Snapshot the target connections under the lock, then send after
 	// releasing it. This used to send while holding r.mu for the whole
 	// loop; now that NDJSONConn.Send can block for up to its own

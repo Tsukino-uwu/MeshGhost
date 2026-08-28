@@ -239,3 +239,55 @@ func FuzzValidateWorldIsStableAcrossTheWire(f *testing.F) {
 		}
 	})
 }
+
+// FuzzExtrasSizingMatchesMarshal pins the one thing extrasWithinLimit is
+// allowed to be: a cheaper way to compute EXACTLY the number json.Marshal would
+// have produced. It replaced a literal json.Marshal whose only use was len() on
+// the result, so a disagreement here would not be a slow path — it would be a
+// moved validation boundary, a state one enforcement point accepts and the
+// other rejects, which is the drift protocol/limits.go exists to prevent.
+//
+// Worth fuzzing rather than table-testing because the hazard lives in encoding,
+// not in logic: HTML escaping, U+2028/9, invalid UTF-8 replaced by U+FFFD, and
+// float formatting all change the byte count without changing the value.
+func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
+	f.Add([]byte(`{"k":"v"}`))
+	f.Add([]byte(`{"a":"<&>"}`))
+	f.Add([]byte(`{"gender":"m","gfx":1,"sanim":0,"pspeed":1}`))
+	f.Add([]byte(`{"f":0.30000000000000004,"big":1e308,"neg":-0}`))
+	f.Add([]byte(`{"u":"\u2028\u2029"}`))
+	f.Add([]byte(`{"nested":{"deep":[1,2,{"x":null}]}}`))
+	f.Add([]byte(`{}`))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		var extras map[string]any
+		if err := json.Unmarshal(data, &extras); err != nil {
+			return
+		}
+		marshaled, err := json.Marshal(extras)
+		if err != nil {
+			return
+		}
+		want := len(marshaled) <= MaxExtrasBytes
+		if len(extras) == 0 {
+			// An empty or absent map is not serialized at all by the caller's
+			// own short-circuit, so it is within the limit by definition.
+			want = true
+		}
+		if got := extrasWithinLimit(extras); got != want {
+			t.Fatalf("extrasWithinLimit=%v but json.Marshal is %d bytes (limit %d): %q",
+				got, len(marshaled), MaxExtrasBytes, marshaled)
+		}
+
+		// The property the cheap path RESTS on, checked separately because the
+		// check above would still pass if the bound were wrong in a way that
+		// happened not to straddle the limit for this input. A bound that ever
+		// came in UNDER the true length would accept an oversized extras
+		// without ever consulting the encoder -- silently raising
+		// MaxExtrasBytes for exactly the values it mis-measured.
+		if bound, ok := extrasLengthBound(extras); ok && bound < len(marshaled) {
+			t.Fatalf("extrasLengthBound under-estimated: bound=%d actual=%d for %q",
+				bound, len(marshaled), marshaled)
+		}
+	})
+}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -298,4 +299,61 @@ func TestClampSendHzAndClampReceiveHzDifferOnZero(t *testing.T) {
 			t.Errorf("%s(%d) = %d, want it unchanged", f.name, MaxSendHz, got)
 		}
 	}
+}
+
+// The exact byte where Extras stops being acceptable. Pinned so that any future
+// attempt to compute this length more cheaply — a hand-written size walker was
+// considered and rejected in 2026-08-28's efficiency pass — cannot move the
+// boundary by one byte without a test saying so. A moved boundary is not a
+// performance regression, it is a state the relay accepts and the core rejects.
+func TestExtrasLimitIsExactlyMarshalLength(t *testing.T) {
+	// Build a single-key map whose marshaled form lands on a chosen length.
+	// {"k":"<pad>"} is 8 bytes of syntax around the padding.
+	const overhead = len(`{"k":""}`)
+	atLength := func(n int) map[string]any {
+		return map[string]any{"k": strings.Repeat("a", n-overhead)}
+	}
+
+	exact := atLength(MaxExtrasBytes)
+	if b, err := json.Marshal(exact); err != nil || len(b) != MaxExtrasBytes {
+		t.Fatalf("fixture is wrong: len=%d err=%v, wanted exactly %d", len(b), err, MaxExtrasBytes)
+	}
+	if !ValidateState(State{Extras: exact}) {
+		t.Fatalf("extras of exactly MaxExtrasBytes (%d) must be accepted", MaxExtrasBytes)
+	}
+
+	over := atLength(MaxExtrasBytes + 1)
+	if b, _ := json.Marshal(over); len(b) != MaxExtrasBytes+1 {
+		t.Fatalf("fixture is wrong: len=%d, wanted exactly %d", len(b), MaxExtrasBytes+1)
+	}
+	if ValidateState(State{Extras: over}) {
+		t.Fatalf("extras of MaxExtrasBytes+1 (%d) must be rejected", MaxExtrasBytes+1)
+	}
+}
+
+// The pooled sizer is shared across goroutines by construction: the relay
+// validates every client's state on that client's own read goroutine, so this
+// runs concurrently at exactly the room's message rate. Guards against the
+// buffer being reused mid-encode, which -race reports and a serial test cannot.
+func TestExtrasSizingIsConcurrencySafe(t *testing.T) {
+	small := map[string]any{"k": "v"}
+	big := map[string]any{"k": strings.Repeat("b", MaxExtrasBytes)}
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				if !ValidateState(State{Extras: small}) {
+					t.Errorf("small extras rejected under concurrency")
+					return
+				}
+				if ValidateState(State{Extras: big}) {
+					t.Errorf("oversized extras accepted under concurrency")
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }

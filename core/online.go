@@ -234,10 +234,9 @@ func (c *Core) sendControlOn(t protocol.MessageType, feature string, payload any
 	if err != nil {
 		return err
 	}
-	env, err := json.Marshal(protocol.Envelope{Type: t, Payload: b})
-	if err != nil {
-		return err
-	}
+	// See sendState's note: one pass rather than marshaling the payload and
+	// then marshaling an envelope around its own output.
+	env := protocol.AppendEnvelope(nil, t, b)
 	if unreliable {
 		return relay.SendUnreliable(env)
 	}

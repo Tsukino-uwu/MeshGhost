@@ -170,12 +170,22 @@ func BenchmarkEnvelopeMarshal(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	b.Run("payloadToLine", func(b *testing.B) {
+	// The two ways of turning a payload into a line, side by side, so the
+	// saving is attributable rather than inferred from the fan-out number
+	// moving. "viaMarshal" is what the state path did until 2026-08-28 and is
+	// what the control plane still does.
+	b.Run("payloadToLine/viaMarshal", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			if _, err := json.Marshal(env); err != nil {
 				b.Fatal(err)
 			}
+		}
+	})
+	b.Run("payloadToLine/viaAppend", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			_ = protocol.AppendEnvelope(nil, protocol.TypeState, env.Payload)
 		}
 	})
 }

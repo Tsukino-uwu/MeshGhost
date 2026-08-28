@@ -233,11 +233,17 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 		log.Printf("core: BUG: state failed to marshal: %v", err)
 		return
 	}
-	env, err := json.Marshal(protocol.Envelope{Type: protocol.TypeState, Payload: payload})
-	if err != nil {
-		log.Printf("core: BUG: state envelope failed to marshal: %v", err)
-		return
-	}
+	// One pass, not two. This used to marshal the State and then marshal an
+	// Envelope around the bytes that produced, re-parsing and re-copying every
+	// one of them -- the same shape the relay had, and the same fix
+	// (protocol.AppendEnvelope, whose comment carries the precondition and the
+	// fuzz target behind it).
+	//
+	// It matters more here than on the relay despite the smaller share: a core
+	// runs on the same machine as the game it is serving, at up to 100Hz, so
+	// its cost lands on the frame budget that agent_docs/plans.md says may
+	// never be spent to buy bandwidth.
+	env := protocol.AppendEnvelope(nil, protocol.TypeState, payload)
 	// SendUnreliable, not Send: this is the state plane, which
 	// agent_docs/contract.md defines as lossy and latest-wins. On tcp
 	// there is no difference at all. On a datagram transport it means a
@@ -271,11 +277,59 @@ func sameSentState(prev *protocol.State, cur *protocol.State) bool {
 	if prev.AreaID != cur.AreaID || prev.Anim != cur.Anim {
 		return false
 	}
-	if !reflect.DeepEqual(prev.Position, cur.Position) {
+	if !samePosition(prev.Position, cur.Position) {
 		return false
 	}
 	if !bytes.Equal(prev.Orientation, cur.Orientation) {
 		return false
 	}
+	// Extras keeps reflect.DeepEqual. Hand-comparing a map[string]any means
+	// re-implementing reflection, badly, on the one field whose contents are
+	// free-form by contract -- and the cheap fields above already short-circuit
+	// almost every changed frame before reaching it.
 	return reflect.DeepEqual(prev.Extras, cur.Extras)
+}
+
+// samePosition is reflect.DeepEqual for a []float64, without the reflection.
+// This runs once per adapter frame -- up to 100Hz on the dev rig, on the
+// machine running the game -- which is the whole reason it is worth spelling
+// out by hand.
+//
+// The nil-versus-empty case is not pedantry and must not be "simplified" away:
+// DeepEqual reports a nil slice and an empty one as DIFFERENT, and both really
+// occur (protocol.IsValidPosition accepts either, and a state with no position
+// decodes to nil while "position":[] decodes to empty). A plain length check
+// followed by a loop would call them equal and quietly change which frames get
+// suppressed.
+//
+// The aliasing shortcut is likewise not an optimisation but a correctness
+// requirement, and TestSamePositionMatchesDeepEqual is what found that out.
+// DeepEqual documents that two slices sharing a backing array and a length are
+// deeply equal WITHOUT comparing elements, so it reports a []float64{NaN} as
+// equal to itself while an element-wise loop reports the opposite. That case is
+// live rather than theoretical: forwardLocalState keeps `kept := *state`, a
+// struct copy that shares the adapter's own Position array, so prev and cur
+// really can be the same memory on the next frame.
+//
+// Element comparison is then plain ==, exactly as DeepEqual does it: two
+// DISTINCT slices both holding NaN are not equal, so such a state is not
+// suppressed. That errs toward sending, which is the safe direction, and it is
+// bit-for-bit what this path did before -- the bar for a change meant to be
+// invisible.
+func samePosition(a, b []float64) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) > 0 && &a[0] == &b[0] {
+		return true
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

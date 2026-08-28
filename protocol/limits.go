@@ -1,8 +1,10 @@
 package protocol
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
+	"sync"
 )
 
 // State field limits, checked both where the relay accepts a State from a
@@ -169,12 +171,6 @@ func ValidateState(st State) bool {
 	if len(st.Position) > MaxPositionLen {
 		return false
 	}
-	if len(st.Extras) > 0 {
-		extrasBytes, err := json.Marshal(st.Extras)
-		if err != nil || len(extrasBytes) > MaxExtrasBytes {
-			return false
-		}
-	}
 	// AreaID and Anim get the same UTF-8 requirement as the identifiers on
 	// the other planes (ValidOpaqueString), and for the identical reason: the
 	// core is permitted to compare them by equality and nothing else, and a
@@ -191,7 +187,82 @@ func ValidateState(st State) bool {
 	// A syntactically valid JSON number like 1e308 survives []float64
 	// unmarshaling and becomes +Inf the moment an adapter narrows it to
 	// float32 — see IsValidPosition's doc comment.
-	return IsValidPosition(st.Position)
+	if !IsValidPosition(st.Position) {
+		return false
+	}
+	// Last on purpose, because it is the only check here that has to SERIALIZE
+	// anything: measured 2026-08-28 at 1399ns and 30 of the 115 allocations a
+	// relay spends on one Emerald state, against 13ns for every other check in
+	// this function put together. Nothing observes WHICH check rejected a state
+	// — both call sites drop it either way — so ordering the cheap ones first
+	// is invisible for an accepted state and pure profit for a rejected one.
+	return extrasWithinLimit(st.Extras)
+}
+
+// extrasSizer is a buffer and encoder kept together so the pool hands out one
+// warm pair rather than two cold halves.
+type extrasSizer struct {
+	buf bytes.Buffer
+	enc *json.Encoder
+}
+
+var extrasSizers = sync.Pool{
+	New: func() any {
+		s := &extrasSizer{}
+		s.enc = json.NewEncoder(&s.buf)
+		// Explicit rather than relying on the default, because this must agree
+		// with json.Marshal EXACTLY: it is measuring the bytes Marshal would
+		// produce, and a disagreement moves a validation boundary rather than
+		// merely reporting a different number. A state the relay accepts and
+		// the core rejects is precisely the drift this file exists to prevent.
+		s.enc.SetEscapeHTML(true)
+		return s
+	},
+}
+
+// maxPooledSizerCap stops one adversarially large in-process Extras from
+// parking a big buffer in the pool forever. The wire can never deliver one —
+// MaxLineBytes bounds it long before here — but ValidateState is also called
+// by in-process Go callers, where nothing has clipped the input yet.
+const maxPooledSizerCap = 8 * MaxExtrasBytes
+
+// extrasWithinLimit reports whether extras serializes to at most
+// MaxExtrasBytes, WITHOUT allocating the serialized form. It replaced a plain
+// json.Marshal whose only use was len() on the result — the same encoder, so
+// the byte count is identical by construction rather than by estimate. A
+// hand-written size walker would be faster still and is deliberately not used:
+// matching encoding/json's float formatting exactly is a real hazard, and being
+// wrong here moves a limit rather than costing time.
+func extrasWithinLimit(extras map[string]any) bool {
+	if len(extras) == 0 {
+		return true
+	}
+	// The cheap path, which every shipped adapter takes: bound the length from
+	// above without encoding anything. If even the worst case fits, the exact
+	// length cannot possibly exceed the limit and there is nothing to compute.
+	//
+	// This is safe in a way an exact hand-written sizer is not, and that is the
+	// whole reason it is shaped as a bound: it can only ever accept early,
+	// never reject early, so any state it is unsure about — and every state
+	// near the boundary — still goes through encoding/json itself. No bound,
+	// however wrong, can move the limit; a wrong exact sizer would.
+	if n, ok := extrasLengthBound(extras); ok && n <= MaxExtrasBytes {
+		return true
+	}
+	s := extrasSizers.Get().(*extrasSizer)
+	defer func() {
+		if s.buf.Cap() <= maxPooledSizerCap {
+			extrasSizers.Put(s)
+		}
+	}()
+	s.buf.Reset()
+	if err := s.enc.Encode(extras); err != nil {
+		return false
+	}
+	// Encode terminates its value with a newline that Marshal does not write,
+	// so the marshaled length is one less. Pinned by test against Marshal
+	// itself rather than trusted from the doc comment.
+	return s.buf.Len()-1 <= MaxExtrasBytes
 }
 
 // JSONWireLen reports how many bytes a raw JSON value occupies once it is
@@ -226,6 +297,89 @@ func JSONWireLen(raw []byte) int {
 			if i+2 < len(raw) && raw[i+1] == 0x80 && (raw[i+2] == 0xa8 || raw[i+2] == 0xa9) {
 				n += 3
 			}
+		}
+	}
+	return n
+}
+
+// maxFloatJSONLen bounds how many bytes encoding/json spends on one float64.
+// The longest it can produce is a full-precision negative with a three-digit
+// exponent, -1.7976931348623157e+308, which is 24.
+const maxFloatJSONLen = 24
+
+// extrasLengthBound returns an UPPER bound on len(json.Marshal(extras)) and
+// ok=false when it cannot bound the value cheaply. It never allocates.
+//
+// It is deliberately not exact. Being exact would mean reproducing
+// encoding/json's float formatting, which is the hazard that got a hand-written
+// sizer rejected outright; being an upper bound means the only thing a mistake
+// can cost is a needless trip through the real encoder. Callers must treat
+// ok=false and "bound exceeds the limit" identically: as "go and measure".
+//
+// Nested containers return ok=false rather than recursing. They are unreachable
+// from every shipped adapter — extras is a flat scalar map in all four — so
+// recursion would be untested depth for no measured gain, and untested depth on
+// peer-controlled input is how a stack overflow gets written.
+func extrasLengthBound(extras map[string]any) (int, bool) {
+	if len(extras) == 0 {
+		// Just "{}". Its own case because the comma arithmetic below goes
+		// negative here, which made this the first thing
+		// FuzzExtrasSizingMatchesMarshal reported. Unreachable through
+		// extrasWithinLimit, which short-circuits an empty map before calling
+		// this — but a bound that is wrong only where nobody currently looks is
+		// still a bound that is wrong.
+		return 2, true
+	}
+	// The enclosing braces, plus a comma between every pair.
+	n := 2 + len(extras) - 1
+	for k, v := range extras {
+		// Key, quoted, plus its colon.
+		n += jsonStringLenBound(k) + 1
+		switch val := v.(type) {
+		case nil:
+			n += len("null")
+		case bool:
+			n += len("false")
+		case string:
+			n += jsonStringLenBound(val)
+		case float64, float32:
+			n += maxFloatJSONLen
+		case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+			// json renders these as plain integers, never wider than a float.
+			n += maxFloatJSONLen
+		default:
+			// []any, map[string]any, json.RawMessage, a struct an in-process
+			// caller passed — all handed to the encoder rather than guessed at.
+			return 0, false
+		}
+	}
+	return n, true
+}
+
+// jsonStringLenBound bounds the encoded length of one JSON string, quotes
+// included, using the same escaping rules JSONWireLen documents: '<', '>' and
+// '&' become six bytes under SetEscapeHTML(true), a quote or backslash becomes
+// two, and a control byte becomes six. A byte that is part of invalid UTF-8 is
+// replaced by U+FFFD, three bytes for one, which is the case that stops this
+// being a simple len() and the reason it is a bound rather than a count.
+func jsonStringLenBound(s string) int {
+	n := 2 // the surrounding quotes
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '<' || c == '>' || c == '&':
+			n += 6
+		case c == '"' || c == '\\':
+			n += 2
+		case c < 0x20:
+			n += 6
+		case c >= 0x80:
+			// Either it is valid UTF-8 and passes through at its own width, or
+			// it is not and each offending byte becomes a three-byte U+FFFD.
+			// U+2028/U+2029 also escape to six, from three bytes in.
+			n += 6
+		default:
+			n++
 		}
 	}
 	return n
