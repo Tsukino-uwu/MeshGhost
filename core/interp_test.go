@@ -74,15 +74,31 @@ func TestRemoteBufferClampsBeforeFirstAndAfterLast(t *testing.T) {
 }
 
 func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
+	// Eviction is by TIME first (2026-08-28): a bare count starved a large
+	// interpolation delay at a high send rate -- 8 samples at 100Hz is 80ms of
+	// history, so a 250ms render time fell off the old edge and edge-held,
+	// seen on screen as stutter on long walks. History must cover
+	// maxSnapshotAgeMs regardless of rate.
 	var b remoteBuffer
-	for i := 0; i < maxSnapshots+5; i++ {
+	for i := 0; i < 69; i++ {
 		b.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 100), Position: []float64{float64(i)}})
 	}
-	if len(b.snapshots) != maxSnapshots {
-		t.Fatalf("buffer length = %d, want %d", len(b.snapshots), maxSnapshots)
+	// Newest is t=6800; everything older than 6800-600 is gone.
+	want := 1 + maxSnapshotAgeMs/100
+	if len(b.snapshots) != want {
+		t.Fatalf("buffer length = %d, want %d (a %dms window at 100ms spacing)", len(b.snapshots), want, maxSnapshotAgeMs)
 	}
-	if b.snapshots[0].Position[0] != 5 {
-		t.Fatalf("oldest retained snapshot position = %v, want [5] (first 5 evicted)", b.snapshots[0].Position)
+	if b.snapshots[0].Position[0] != 62 {
+		t.Fatalf("oldest retained snapshot position = %v, want [62]", b.snapshots[0].Position)
+	}
+
+	// The count cap still exists, for an adversarially fast sender only.
+	var dense remoteBuffer
+	for i := 0; i < maxSnapshots+6; i++ {
+		dense.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 5), Position: []float64{float64(i)}})
+	}
+	if len(dense.snapshots) != maxSnapshots {
+		t.Fatalf("dense buffer length = %d, want the %d count cap", len(dense.snapshots), maxSnapshots)
 	}
 }
 

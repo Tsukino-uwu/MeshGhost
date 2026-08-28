@@ -79,8 +79,30 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make(map[string]protocol.State, len(c.remotes))
+	// AGE OUT A PEER NOBODY IS HEARING FROM. Until 2026-08-28 a remote was
+	// dropped only when the relay said it had LEFT, and a buffer that stops
+	// being fed keeps answering: remoteBuffer.at returns its newest sample for
+	// any render time past it. So a peer that simply went quiet rendered
+	// forever, frozen at its last position -- which is what the user saw as
+	// "multiple static ghosts", one per core restart, each a relay identity
+	// that stopped sending without ever leaving.
+	//
+	// A Leave is not something to rely on: the relay's dev loopback echo never
+	// sends one by construction, a hard-killed client never gets to say
+	// goodbye, and udp signals nothing on close at all (status.md). Aging out
+	// is the only mechanism covering all three, and it is game-agnostic --
+	// "no sample for this long" needs no knowledge of what a sample means.
+	stale := c.remoteStaleAfter()
+	cutoff := c.nowMsLocked() - stale.Milliseconds()
 	for id, buf := range c.remotes {
-		st, ok := buf.at(renderTime)
+		if stale > 0 && buf.newestTimestamp() < cutoff {
+			// Dropped from the map, not merely skipped: keeping it would hold
+			// its snapshots forever and let it spring back to life.
+			delete(c.remotes, id)
+			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
+			continue
+		}
+		st, ok := buf.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
 		if !ok {
 			continue
 		}

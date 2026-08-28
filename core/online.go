@@ -93,6 +93,18 @@ func (cs *clockSync) observe(sentAt, recvAt time.Time, serverMs int64) {
 func (c *Core) nowMs() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.nowMsLocked()
+}
+
+// nowMsLocked is nowMs for a caller that ALREADY HOLDS c.mu. It exists
+// because Go mutexes are not reentrant and taking c.mu twice on one goroutine
+// deadlocks the whole client -- which is not hypothetical: remoteStatesAt,
+// which runs under the lock, called nowMs on 2026-08-28 and hung the core on
+// its first render tick. The visible symptom was two frozen GAMES, because an
+// adapter writing state to a core that has stopped reading eventually blocks on
+// the socket, on the game's main thread. Anything called from under c.mu needs
+// this form.
+func (c *Core) nowMsLocked() int64 {
 	ms := time.Now().UnixMilli() + c.clockAdjustLocked()
 	// **Never go backwards.** The offset is re-estimated whenever a better
 	// (lower-RTT) sample arrives, so it can DECREASE — and this value feeds

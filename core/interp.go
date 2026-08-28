@@ -1,10 +1,25 @@
 package core
 
-import "github.com/Tsukino-uwu/MeshGhost/protocol"
+import (
+	"math"
 
-// maxSnapshots bounds how much history is kept per remote — enough to
-// smooth over a couple of dropped packets, not a full replay log.
-const maxSnapshots = 8
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
+)
+
+// History is bounded by TIME first and count second. It was a bare count of 8
+// until 2026-08-28, and a count starves a large interpolation delay at a high
+// send rate: at the dev rig's 100Hz, 8 samples span ~80ms, so a 250ms render
+// time fell off the buffer's old edge during sustained movement and edge-held
+// -- seen on screen as stutter on long walks, while a jump from standing still
+// looked correctly delayed because change suppression had spread the idle
+// samples out. The "250ms" runs were silently something else. At the shipped
+// 20Hz the old count covered 350ms and never bit, which is why nothing noticed.
+//
+// maxSnapshotAgeMs comfortably covers the largest delay anyone configures plus
+// prediction's lookback; maxSnapshots now only caps an adversarially fast
+// sender's memory (64 × ~40 bytes is still nothing per peer).
+const maxSnapshots = 64
+const maxSnapshotAgeMs = 600
 
 // remoteBuffer holds a short history of a remote player's snapshots,
 // ordered oldest to newest by protocol.State.Timestamp, used to compute an
@@ -14,13 +29,52 @@ type remoteBuffer struct {
 	snapshots []protocol.State
 }
 
-// add appends a new snapshot. Callers are expected to add snapshots in
-// non-decreasing Timestamp order (the order they arrive from the relay);
-// add does not re-sort.
+// add inserts a snapshot IN TIMESTAMP ORDER, which is not the order they
+// necessarily arrive in.
+//
+// This used to append blindly and say in its own comment that callers were
+// expected to deliver samples in non-decreasing order. That assumption was
+// false the whole time and localhost hid it: the state plane travels on
+// UNRELIABLE DATAGRAMS by design (contract.md -- lossy, latest-wins), and
+// datagrams reorder. Out of order, the buffer's ordering invariant breaks and
+// at() brackets a render time with the wrong pair, so a ghost jumps back to
+// where it was and then forward again.
+//
+// Found 2026-08-28 the first time this project ever ran a session through
+// meshghost-netsim with real jitter, loss and reordering: the user's read was
+// "looks really delayed, and kinda snap/teleport around a bit". The delay was
+// the interpolation delay doing its job; the snapping was this.
+//
+// A sample older than everything held is DROPPED rather than inserted: the
+// buffer is a short window near the render time, and a straggler that arrives
+// after the window has moved past it can only pull a ghost backwards.
 func (b *remoteBuffer) add(s protocol.State) {
-	b.snapshots = append(b.snapshots, s)
+	n := len(b.snapshots)
+	if n == 0 || s.Timestamp >= b.snapshots[n-1].Timestamp {
+		b.snapshots = append(b.snapshots, s)
+	} else if s.Timestamp < b.snapshots[0].Timestamp && n >= maxSnapshots {
+		return // older than the whole window, and the window is full
+	} else {
+		i := n
+		for i > 0 && b.snapshots[i-1].Timestamp > s.Timestamp {
+			i--
+		}
+		b.snapshots = append(b.snapshots, protocol.State{})
+		copy(b.snapshots[i+1:], b.snapshots[i:])
+		b.snapshots[i] = s
+	}
 	if len(b.snapshots) > maxSnapshots {
 		b.snapshots = b.snapshots[len(b.snapshots)-maxSnapshots:]
+	}
+	// Age out the old edge against the NEWEST sample's clock, keeping at least
+	// two so interpolation always has a pair to work with.
+	cutoff := b.snapshots[len(b.snapshots)-1].Timestamp - maxSnapshotAgeMs
+	drop := 0
+	for drop < len(b.snapshots)-2 && b.snapshots[drop].Timestamp < cutoff {
+		drop++
+	}
+	if drop > 0 {
+		b.snapshots = b.snapshots[drop:]
 	}
 }
 
@@ -31,9 +85,28 @@ func (b *remoteBuffer) add(s protocol.State) {
 // agent_docs/contract.md and are never interpolated — they're taken from
 // the older of the two bracketing snapshots, holding their value until the
 // next real sample passes renderTime. If renderTime falls outside the
-// buffered range, the nearest edge snapshot is returned unchanged (no
-// extrapolation). ok is false only if no snapshots have been added yet.
+// buffered range, the nearest edge snapshot is returned unchanged -- unless
+// extrapolateAhead is positive, which is the opt-in prediction described on
+// extrapolate below. ok is false only if no snapshots have been added yet.
+// newestTimestamp is when this remote last said anything, or 0 if it never
+// has. Used to age out a peer that stopped sending without leaving -- see
+// remoteStatesAt.
+func (b *remoteBuffer) newestTimestamp() int64 {
+	if len(b.snapshots) == 0 {
+		return 0
+	}
+	return b.snapshots[len(b.snapshots)-1].Timestamp
+}
+
+// at is the no-prediction form: hold the newest sample once the render time
+// passes it. Kept as its own entry point because that is the shipped default
+// and most callers (and every test that predates prediction) mean exactly it.
 func (b *remoteBuffer) at(renderTime int64) (protocol.State, bool) {
+	return b.atAhead(renderTime, 0, CurveLinear, PredictLinear, nil)
+}
+
+// atAhead is at with the opt-in prediction window described on extrapolate.
+func (b *remoteBuffer) atAhead(renderTime int64, extrapolateAhead int64, curve CurveMode, predict PredictMode, meter *extrapolationMeter) (protocol.State, bool) {
 	n := len(b.snapshots)
 	if n == 0 {
 		return protocol.State{}, false
@@ -43,11 +116,14 @@ func (b *remoteBuffer) at(renderTime int64) (protocol.State, bool) {
 	}
 	last := b.snapshots[n-1]
 	if renderTime >= last.Timestamp {
-		return last, true
+		return b.extrapolate(last, renderTime, extrapolateAhead, predict, meter), true
 	}
 	for i := 0; i < n-1; i++ {
 		older, newer := b.snapshots[i], b.snapshots[i+1]
 		if renderTime >= older.Timestamp && renderTime <= newer.Timestamp {
+			if curve == CurveCatmullRom {
+				return b.curved(i, renderTime), true
+			}
 			return lerp(older, newer, renderTime), true
 		}
 	}
@@ -87,3 +163,357 @@ func lerp(older, newer protocol.State, renderTime int64) protocol.State {
 	out.Timestamp = renderTime
 	return out
 }
+
+// minVelocitySpanMs is the shortest sample gap a velocity may be measured
+// over. Two samples a millisecond apart carry no usable rate -- a few pixels
+// across 1ms extrapolates to a character crossing the screen -- and the send
+// path deliberately produces exactly such a pair: the bracket re-statement
+// that makes change suppression invisible sits 1ms before the state that
+// follows it (see forwardLocalState). Refusing to measure over it is what
+// stops a resume from launching a ghost.
+const minVelocitySpanMs = 8
+
+// maxVelocitySpanMs is the longest gap a velocity may be measured over. Past
+// it the pair says nothing about what the peer is doing NOW: a sample from
+// half a second ago and the newest one average a stand and a walk into a
+// creep, which is invented motion at a speed the game never used
+// (adapters/CLAUDE.md). It also falls out of change suppression -- an idle
+// player's samples sit a keepalive apart (250ms), and those must never be read
+// as a rate. Holding is the honest answer when nothing recent can be measured.
+const maxVelocitySpanMs = 200
+
+// minPredictConfidence is how much prediction a completely unpredictable axis
+// still gets under PredictDamped. Not zero -- see the floor's own comment.
+const minPredictConfidence = 0.4
+
+// extrapolate is the OPT-IN half of the render model, off unless a Core sets
+// Extrapolate (`-extrapolate`, default 0/off). Instead of holding the newest
+// sample when the render time has run past it, it continues the peer's last
+// measured velocity for up to extrapolateAhead milliseconds.
+//
+// What it buys: a ghost drawn where the peer probably IS rather than where
+// they were, which is the visible half of the interpolation delay. What it
+// costs: every prediction the peer does not follow -- a stop, a turn, a
+// landing -- has to be taken back, and that correction is the thing to judge
+// on screen rather than in a test. It is off by default for that reason, and
+// per adapters/CLAUDE.md the games that move on a fixed beat (2px per tick and
+// never 1) are the ones where a smooth prediction is a defect rather than an
+// improvement.
+//
+// Deliberately conservative in three ways, each of which is a way a naive
+// version misbehaves:
+//   - It measures velocity only over a pair between minVelocitySpanMs and
+//     maxVelocitySpanMs apart, so neither a resume's 1ms bracket pair nor a
+//     half-second-old sample can be read as a rate.
+//   - It refuses to predict across an area change or a position-length change,
+//     the same two guards lerp already applies for the same reason.
+//   - It caps how far ahead it will go, so a peer who went quiet freezes where
+//     they were last seen rather than walking off forever.
+func (b *remoteBuffer) extrapolate(last protocol.State, renderTime int64, ahead int64, predict PredictMode, m *extrapolationMeter) protocol.State {
+	if ahead <= 0 {
+		return last
+	}
+	dt := renderTime - last.Timestamp
+	if dt <= 0 {
+		return last
+	}
+	capped := false
+	if dt > ahead {
+		dt = ahead
+		capped = true
+	}
+	// The LONGEST usable baseline in the window, not the shortest -- so walk
+	// forward from the oldest sample and take the first one close enough to
+	// measure against. Sample arrival times wobble by tens of milliseconds on a
+	// real link, and a velocity measured across two adjacent samples inherits
+	// that wobble in full, which shows up as a ghost that shimmers while its
+	// peer moves steadily. A longer baseline averages the same wobble down.
+	// Bounded on both sides for the reasons on the two constants.
+	for i := 0; i <= len(b.snapshots)-2; i++ {
+		older := b.snapshots[i]
+		span := last.Timestamp - older.Timestamp
+		if span > maxVelocitySpanMs {
+			continue
+		}
+		if span < minVelocitySpanMs {
+			break
+		}
+		if older.AreaID != last.AreaID || len(older.Position) != len(last.Position) {
+			return last
+		}
+		pos := make([]float64, len(last.Position))
+		// ACCELERATION, not just velocity, whenever there is a third sample to
+		// measure it with. A jump is an accelerating body: predicting it along a
+		// straight line lags on the way up and carries the ghost through the
+		// floor on the way down, which is exactly what the user reported on
+		// 2026-08-28 ("feels a bit slow when jumping", "still sinks into the
+		// floor a bit"). Fitting the curvature costs one more subtraction per
+		// axis and no extra bytes on the wire -- the samples are already here.
+		//
+		// The middle sample is the one halfway between in TIME, not in index, so
+		// an uneven arrival pattern does not tilt the estimate.
+		mid, hasMid := b.midSample(i, len(b.snapshots)-1)
+		if predict == PredictLinear {
+			hasMid = false
+		}
+		for j := range pos {
+			v := (last.Position[j] - older.Position[j]) / float64(span)
+			p := last.Position[j] + v*float64(dt)
+			if hasMid && len(mid.Position) == len(last.Position) && mid.AreaID == last.AreaID {
+				t1 := float64(mid.Timestamp - older.Timestamp)
+				t2 := float64(last.Timestamp - mid.Timestamp)
+				if t1 > 0 && t2 > 0 {
+					v1 := (mid.Position[j] - older.Position[j]) / t1
+					v2 := (last.Position[j] - mid.Position[j]) / t2
+					if predict == PredictDamped {
+						// PREDICT ONLY WHAT LOOKS PREDICTABLE, per axis.
+						//
+						// Confidence is how much the two halves of the window
+						// AGREE about the velocity: steady running gives v1 ~ v2
+						// and full prediction; a jump's vertical axis changes
+						// every frame under gravity and gets little; at the apex
+						// the velocity reverses outright, v2 ~ -v1, and it gets
+						// none at all -- which is precisely the instant a
+						// straight-line guess would fling a ghost the wrong way.
+						//
+						// This is what the user saw as a "constant snap/drag"
+						// going up and down while left/right looked fine
+						// (2026-08-28): the horizontal axis was predictable and
+						// the vertical one never was, and a single prediction
+						// applied to both cannot tell them apart.
+						//
+						// Nothing here knows which axis is which, or that
+						// gravity exists -- it is a statement about the samples,
+						// not about the game (CLAUDE.md's game-blindness rule).
+						spread := math.Abs(v2 - v1)
+						scale := math.Abs(v1) + math.Abs(v2)
+						confidence := 1.0
+						if scale > 0 {
+							confidence = 1 - spread/scale
+						}
+						// FLOORED, not free to reach zero. Refusing outright is
+						// right in principle and wrong on screen: rapidly
+						// tapping left and right reverses the horizontal axis
+						// constantly, confidence collapses, and the ghost falls
+						// back to pure lateness -- which the user read as
+						// "spam left/right looks slow/delayed" (2026-08-28)
+						// while long runs looked fine.
+						//
+						// A floor keeps some prediction under a peer who is
+						// changing their mind, which is better than none: the
+						// error it can introduce is bounded by the same cap
+						// everything else is, and being a little wrong for
+						// 30ms beats being reliably a whole interp delay late.
+						if confidence < minPredictConfidence {
+							confidence = minPredictConfidence
+						}
+						// NOT smoothed across frames. That was tried
+						// (2026-08-28) to stop the amount of prediction
+						// wobbling, and an A/B with everything else held equal
+						// made every axis WORSE -- steady walking turned
+						// choppy, jumps read as low-framerate -- because a
+						// lagging confidence applies yesterday's damping to
+						// today's motion. The wobble it was meant to fix
+						// turned out to be an interp-below-jitter artifact,
+						// cured by keeping the delay above the link's jitter,
+						// not by filtering here.
+						// VELOCITY ONLY, and that is a measured conclusion,
+						// not a first draft. Acceleration was added here twice
+						// on 2026-08-28 -- raw (PredictAccelerated) and then
+						// gated by its own cross-window consistency -- and
+						// BOTH failed the same way on screen: chop on jumps,
+						// and the gated version added a snap at the end of a
+						// steady run, because the second derivative's
+						// contribution fluctuates frame to frame under jitter
+						// however it is gated, and a prediction whose SIZE
+						// wobbles is visible even when its direction is right.
+						// Two variants failing identically is the stop signal
+						// (CLAUDE.md); the jump's residual lag is paid for
+						// with steadiness everywhere else.
+						p = last.Position[j] + v2*float64(dt)*confidence
+						pos[j] = p
+						continue
+					}
+					a := (v2 - v1) / ((t1 + t2) / 2)
+					// A velocity measured ACROSS a span is the velocity at the
+					// MIDDLE of that span, not at its end -- so v2 has to be
+					// carried forward by half of t2 to give the rate in force at
+					// the newest sample. Without that half-step the prediction
+					// is systematically behind on anything accelerating: a body
+					// falling to y=20 was predicted at y=30, and the test that
+					// says so is the reason this line exists.
+					vNow := v2 + a*(t2/2)
+					p = last.Position[j] + vNow*float64(dt) + 0.5*a*float64(dt)*float64(dt)
+				}
+			}
+			pos[j] = p
+		}
+		out := last
+		out.Position = pos
+		out.Timestamp = renderTime
+		m.record(dt, capped)
+		return out
+	}
+	// Nothing to measure against: one sample, or every pair too close
+	// together to carry a rate. Holding is the honest answer.
+	return last
+}
+
+// extrapolationMeter answers "is the prediction doing anything, and how much"
+// with numbers rather than opinion. The question came up the moment the knob
+// existed (user, 2026-08-28: "does higher/lower extrapolate do anything?") and
+// it cannot be answered from the setting: the cap is an upper bound, while what
+// is actually predicted is however far the render time has run past the newest
+// sample -- about one send interval on a quiet localhost rig, and far more
+// under jitter or loss, which is the case the knob exists for.
+//
+// Cheap on purpose: three integers updated on a path that is already building a
+// position. Read through Core.Stats.
+type extrapolationMeter struct {
+	count     uint64
+	cappedHit uint64
+	totalMs   uint64
+	maxMs     int64
+}
+
+func (m *extrapolationMeter) record(dt int64, capped bool) {
+	if m == nil {
+		return
+	}
+	m.count++
+	m.totalMs += uint64(dt)
+	if dt > m.maxMs {
+		m.maxMs = dt
+	}
+	if capped {
+		m.cappedHit++
+	}
+}
+
+// CurveMode picks how a position between two samples is computed. It is a
+// per-client setting rather than a per-game one, because the core is not
+// allowed to know what game it is serving (CLAUDE.md) -- what makes it a
+// per-game DECISION is that a player, an adapter or a launcher chooses it.
+type CurveMode string
+
+const (
+	// CurveLinear is the shipped default and the only mode used before
+	// 2026-08-28: a straight line between the two bracketing samples.
+	CurveLinear CurveMode = "linear"
+
+	// CurveCatmullRom fits a curve through four consecutive samples instead,
+	// so an arcing path renders as an arc rather than as a series of chords.
+	//
+	// NOT a free improvement, and off by default for the same reason
+	// extrapolation is: a curve is SMOOTHER THAN THE SAMPLES IMPLY. For a game
+	// that moves on a fixed beat -- 2px per tick and never 1 -- that is a
+	// defect this project already has a case file on (adapters/CLAUDE.md,
+	// "never in units the game does not use"), while for a game with real
+	// momentum it may well be closer to the truth. It is a per-game judgement
+	// to be made on screen.
+	//
+	// Uniform parameterisation, and it can overshoot slightly on a sharp
+	// direction change -- the classic Catmull-Rom trade. Anything that must
+	// never overshoot wants the centripetal variant, which is more arithmetic
+	// than this is currently worth.
+	CurveCatmullRom CurveMode = "catmull-rom"
+)
+
+// curved renders between snapshots[i] and snapshots[i+1] using the samples on
+// either side as tangents. Falls back to lerp whenever the four samples are
+// not all usable -- fewer than four in the buffer, an area change anywhere
+// among them, or mismatched position lengths -- so the curve is never fitted
+// across a discontinuity the straight line already refuses to cross.
+func (b *remoteBuffer) curved(i int, renderTime int64) protocol.State {
+	p1, p2 := b.snapshots[i], b.snapshots[i+1]
+	if i-1 < 0 || i+2 >= len(b.snapshots) {
+		return lerp(p1, p2, renderTime)
+	}
+	p0, p3 := b.snapshots[i-1], b.snapshots[i+2]
+	span := p2.Timestamp - p1.Timestamp
+	if span <= 0 {
+		return lerp(p1, p2, renderTime)
+	}
+	d := len(p1.Position)
+	for _, s := range []protocol.State{p0, p2, p3} {
+		if len(s.Position) != d || s.AreaID != p1.AreaID {
+			return lerp(p1, p2, renderTime)
+		}
+	}
+
+	t := float64(renderTime-p1.Timestamp) / float64(span)
+	pos := make([]float64, d)
+	for j := range pos {
+		pos[j] = catmullRom(p0.Position[j], p1.Position[j], p2.Position[j], p3.Position[j], t)
+	}
+	out := p1
+	out.Position = pos
+	out.Timestamp = renderTime
+	return out
+}
+
+// catmullRom is the standard uniform spline at t in [0,1] between p1 and p2.
+// Collinear points give back the straight line exactly, which is what makes
+// this safe to enable on motion that happens to be straight.
+func catmullRom(p0, p1, p2, p3, t float64) float64 {
+	t2 := t * t
+	t3 := t2 * t
+	return 0.5 * ((2 * p1) +
+		(-p0+p2)*t +
+		(2*p0-5*p1+4*p2-p3)*t2 +
+		(-p0+3*p1-3*p2+p3)*t3)
+}
+
+// midSample returns the snapshot closest to halfway in TIME between the two
+// given indices, which is what makes an acceleration estimate honest when
+// samples arrive unevenly -- the middle by index can sit anywhere.
+func (b *remoteBuffer) midSample(lo, hi int) (protocol.State, bool) {
+	if hi-lo < 2 {
+		return protocol.State{}, false
+	}
+	target := (b.snapshots[lo].Timestamp + b.snapshots[hi].Timestamp) / 2
+	best := -1
+	var bestDist int64
+	for i := lo + 1; i < hi; i++ {
+		d := b.snapshots[i].Timestamp - target
+		if d < 0 {
+			d = -d
+		}
+		if best < 0 || d < bestDist {
+			best, bestDist = i, d
+		}
+	}
+	if best < 0 {
+		return protocol.State{}, false
+	}
+	return b.snapshots[best], true
+}
+
+// PredictMode picks HOW a ghost is carried past its newest sample, when
+// prediction is on at all (Core.Extrapolate).
+type PredictMode string
+
+const (
+	// PredictLinear continues the last measured velocity. Steady, and wrong in
+	// one specific way: an accelerating body -- a jump -- lags on the way up and
+	// is carried through the floor on the way down, because a straight line
+	// cannot describe an arc.
+	PredictLinear PredictMode = "linear"
+
+	// PredictAccelerated fits the curvature too, from three samples. It models a
+	// jump properly and costs nothing on the wire, but an acceleration estimated
+	// from network samples is a SECOND derivative of jittery data, which
+	// amplifies that jitter -- so it can read as snappy exactly where it was
+	// supposed to help. Which of the two wins is a per-game, on-screen question
+	// and that is why both exist.
+	PredictAccelerated PredictMode = "accelerated"
+
+	// PredictDamped is linear prediction scaled per axis by how consistent the
+	// recent velocity has been. An axis moving steadily is predicted in full; one
+	// whose velocity is changing -- or reversing, as at the top of a jump -- is
+	// predicted barely or not at all, because there is nothing trustworthy to
+	// extend. It is the middle ground between the two above: it keeps what linear
+	// prediction is good at without pretending to know where an accelerating body
+	// is going.
+	PredictDamped PredictMode = "damped"
+)

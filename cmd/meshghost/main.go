@@ -67,13 +67,29 @@ func logRunBanner(autostarted bool) {
 // "local_game_bridge" (not "bridge") makes clear that socket never leaves
 // the machine -- see packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Relay       *string `json:"connect_to"`
-	Bridge      *string `json:"local_game_bridge"`
-	Game        *string `json:"game"`
-	Room        *string `json:"room"`
-	Name        *string `json:"name"`
-	Interp      *string `json:"interp"`
-	MinSend     *string `json:"min_send"`
+	Relay   *string `json:"connect_to"`
+	Bridge  *string `json:"local_game_bridge"`
+	Game    *string `json:"game"`
+	Room    *string `json:"room"`
+	Name    *string `json:"name"`
+	Interp  *string `json:"interp"`
+	MinSend *string `json:"min_send"`
+	// Keepalive is how often an UNCHANGED state is re-sent (core.IdleKeepalive).
+	// "0" disables change suppression and sends every frame.
+	Keepalive *string `json:"keepalive"`
+	// Extrapolate is the opt-in prediction window (core.Core.Extrapolate).
+	// Absent or "0" holds the newest sample, which is the shipped behaviour.
+	Extrapolate *string `json:"extrapolate"`
+	// Curve is "linear" (default) or "catmull-rom" -- see core.CurveMode.
+	Curve *string `json:"curve"`
+	// Predict is "linear" (default) or "accelerated" -- see core.PredictMode.
+	Predict *string `json:"predict"`
+	// Stats is how often to log the one-line summary, e.g. "10s". Absent or "0"
+	// disables it. In the FILE as well as on the flag because the client a player
+	// actually runs is usually started by their game, which passes no flags -- so
+	// without this there is no way to turn the numbers on in the session that has
+	// the problem.
+	Stats       *string `json:"stats"`
 	RoomCode    *string `json:"room_code"`
 	GameVersion *string `json:"game_version"`
 	// MaxReceiveHzPerPlayer is the highest rate, per OTHER player, at which
@@ -160,6 +176,11 @@ type configTargets struct {
 	name           *string
 	interp         *time.Duration
 	minSend        *time.Duration
+	keepalive      *time.Duration
+	extrapolate    *time.Duration
+	curve          *string
+	predict        *string
+	stats          *time.Duration
 	roomCode       *string
 	gameVersion    *string
 	maxReceiveHz   *int
@@ -215,6 +236,11 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "name", t.name, fc.Name)
 	cfg.OverrideDuration(explicit, "interp", t.interp, fc.Interp, shown, "meshghost", "interp")
 	cfg.OverrideDuration(explicit, "min-send", t.minSend, fc.MinSend, shown, "meshghost", "min_send")
+	cfg.OverrideDuration(explicit, "keepalive", t.keepalive, fc.Keepalive, shown, "meshghost", "keepalive")
+	cfg.OverrideDuration(explicit, "extrapolate", t.extrapolate, fc.Extrapolate, shown, "meshghost", "extrapolate")
+	cfg.Override(explicit, "curve", t.curve, fc.Curve)
+	cfg.Override(explicit, "predict", t.predict, fc.Predict)
+	cfg.OverrideDuration(explicit, "stats", t.stats, fc.Stats, shown, "meshghost", "stats")
 	cfg.Override(explicit, "room-code", t.roomCode, fc.RoomCode)
 	cfg.Override(explicit, "game-version", t.gameVersion, fc.GameVersion)
 	cfg.Override(explicit, "max-receive-hz-per-player", t.maxReceiveHz, fc.MaxReceiveHzPerPlayer)
@@ -380,6 +406,31 @@ func main() {
 			"ever makes you send SLOWER than the room, never faster: it's for a poor connection "+
 			"that wants to opt out of a fast room, not a way to exceed what the relay allows. "+
 			"e.g. 100ms means 'send at most 10 times/sec even if this room runs faster'")
+	curve := flag.String("curve", string(core.CurveLinear),
+		"how a ghost's position BETWEEN two samples is computed: \"linear\" (the default, a "+
+			"straight line) or \"catmull-rom\" (a curve fitted through four samples, so an arc "+
+			"renders as an arc). The curve is smoother than the samples imply, which is right for "+
+			"a game with real momentum and wrong for one that moves on a fixed beat -- judge it "+
+			"per game on screen. On a straight path the two are identical")
+	extrapolate := flag.Duration("extrapolate", 0,
+		"OPT-IN, default off. How far past a peer's newest sample to keep moving their ghost "+
+			"along its last measured velocity, e.g. 100ms. It removes the visible half of "+
+			"-interp -- a ghost drawn where the peer probably IS rather than where they were -- "+
+			"and pays for it with a correction every time the peer does something the prediction "+
+			"did not. Only does anything alongside a SMALL -interp: at the shipped 250ms the "+
+			"render time never reaches the newest sample. Judge it per game on screen; a game "+
+			"that moves on a fixed beat is where it is most likely to look wrong")
+	predict := flag.String("predict", string(core.PredictLinear),
+		"how a ghost is carried past its newest sample when -extrapolate is on: \"linear\" "+
+			"(continue the last measured velocity) or \"accelerated\" (fit the curvature too, so "+
+			"a jump is predicted along its arc). Accelerated models a jump properly but estimates "+
+			"a SECOND derivative from network samples, which amplifies jitter -- judge it on screen")
+	keepalive := flag.Duration("keepalive", core.DefaultIdleKeepalive,
+		"how often to re-send your position when NOTHING about it has changed. Identical states "+
+			"are otherwise skipped -- a standing player sends the same packet at the room's full "+
+			"rate for nothing -- and this is the floor that keeps the relay, a late joiner and a "+
+			"lossy udp link from ever being more than this far behind. 0 disables the skipping "+
+			"entirely and sends every frame, which is what this client did before 2026-08-28")
 	stats := flag.Duration("stats", 0, "log a one-line client stats summary this often (e.g. 10s); "+
 		"0 disables it. The client-side counterpart to the relay's -introspect: link health (rtt, "+
 		"clock offset), how many peers are known versus actually rendered, bytes sent and received "+
@@ -448,7 +499,7 @@ func main() {
 			"agent_docs/beyond-cosmetic.md")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp/min_send/room_code/game_version/"+
+			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
 			"max_receive_hz_per_player/transport/show_console/features) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
@@ -473,6 +524,11 @@ func main() {
 		name:           name,
 		interp:         interp,
 		minSend:        minSend,
+		keepalive:      keepalive,
+		extrapolate:    extrapolate,
+		curve:          curve,
+		predict:        predict,
+		stats:          stats,
 		roomCode:       roomCode,
 		gameVersion:    gameVersion,
 		maxReceiveHz:   maxReceiveHz,
@@ -546,6 +602,26 @@ func main() {
 	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
 	c.MinSendInterval = *minSend
+	c.IdleKeepalive = *keepalive
+	c.Extrapolate = *extrapolate
+	switch core.PredictMode(*predict) {
+	case core.PredictLinear, core.PredictAccelerated, core.PredictDamped:
+		c.Predict = core.PredictMode(*predict)
+	default:
+		log.Fatalf("meshghost: -predict %q is not a prediction model -- use %q, %q or %q",
+			*predict, core.PredictLinear, core.PredictDamped, core.PredictAccelerated)
+	}
+	switch core.CurveMode(*curve) {
+	case core.CurveLinear, core.CurveCatmullRom:
+		c.Curve = core.CurveMode(*curve)
+	default:
+		// Refused rather than silently ignored: a typo here changes how every
+		// ghost moves, and a run that quietly used the default while its
+		// launcher said otherwise is exactly the ambiguity the smoothing log
+		// line below exists to remove.
+		log.Fatalf("meshghost: -curve %q is not a render curve -- use %q or %q",
+			*curve, core.CurveLinear, core.CurveCatmullRom)
+	}
 	// SAY WHICH SMOOTHING THIS RUN IS USING. These two decide how a ghost moves
 	// on screen more than anything else the client does, and until 2026-08-23
 	// neither appeared in the log -- so a session could not tell afterwards
@@ -558,11 +634,27 @@ func main() {
 	// "the shipped values" is the part a reader needs: a dev rig is only worth
 	// noticing when it has departed from what a player would actually run.
 	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
-	if *interp == core.DefaultInterpolationDelay && *minSend == 0 {
+	if *interp == core.DefaultInterpolationDelay && *minSend == 0 && *extrapolate == 0 && c.Curve == core.CurveLinear {
 		smoothingNote = " (the shipped defaults)"
 	}
-	log.Printf("meshghost: smoothing: interpolation delay %s, minimum send interval %s%s",
-		*interp, *minSend, smoothingNote)
+	// The keepalive belongs on this line for the same reason the other two do:
+	// it decides how long a receiver can be working from a state this client has
+	// stopped restating, so a recording of a stutter has to say what it was.
+	keepaliveNote := ", unchanged states re-sent every " + keepalive.String()
+	if *keepalive <= 0 {
+		keepaliveNote = ", change suppression OFF (every frame sent)"
+	}
+	if c.Curve != core.CurveLinear {
+		keepaliveNote += ", curve " + string(c.Curve)
+	}
+	if c.Predict != core.PredictLinear {
+		keepaliveNote += ", prediction " + string(c.Predict)
+	}
+	if *extrapolate > 0 {
+		keepaliveNote += ", EXTRAPOLATING up to " + extrapolate.String() + " past the newest sample"
+	}
+	log.Printf("meshghost: smoothing: interpolation delay %s, minimum send interval %s%s%s",
+		*interp, *minSend, keepaliveNote, smoothingNote)
 	c.MaxReceiveHz = *maxReceiveHz
 	// Only ever restrictive: "enabled" here does not override a host who
 	// turned collision off. protocol.ResolveGhostCollision is where that is

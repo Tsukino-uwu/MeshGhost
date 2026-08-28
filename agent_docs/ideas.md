@@ -3059,7 +3059,11 @@ Why that is the right minimum rather than an arbitrary one:
 The resume rule from above still applies and gets easier: the first packet after presence-only must
 be a **full state**, not a delta — the relay never had a position to delta against.
 
-**Third rung, same ladder (requested 2026-08-21):** *"clients should not send new values if they
+**Third rung, same ladder (requested 2026-08-21) -- THE WHOLE-STATE HALF SHIPPED 2026-08-28**, see
+ADR 0039: a core no longer restates an identical state, with a 250ms keepalive floor and a bracket
+re-statement on resume so no receiver interpolates across the silence. What is described below as
+per-FIELD suppression is the part still unbuilt, and it is a protocol revision rather than a patch.
+TEVI is the adapter this saves nothing for, because it sends animation phase every frame: *"clients should not send new values if they
 have not changed since the previous ones... we don't really need to send things we already know
 from before already."* Not culling but **change suppression**, and it applies all the time, not
 only when isolated:

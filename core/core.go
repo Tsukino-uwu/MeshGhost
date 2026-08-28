@@ -117,6 +117,24 @@ func IsPermanentRejectErr(err error) bool {
 // Overridable per-Core (see Core.InterpolationDelay).
 const DefaultInterpolationDelay = 250 * time.Millisecond
 
+// DefaultIdleKeepalive is how often an UNCHANGED state is sent anyway once
+// change suppression has started dropping repeats. 250ms is deliberately the
+// same figure as DefaultInterpolationDelay: it is the bound on how long a
+// receiver can be working from a state this client has stopped restating, and
+// choosing anything longer than the delay a ghost is already rendered behind
+// would make the suppression the dominant source of staleness rather than a
+// negligible one. At a 20Hz room it turns an idle player's 20 packets a second
+// into 4; at the 100Hz dev rig, 100 into 4.
+const DefaultIdleKeepalive = 250 * time.Millisecond
+
+// DefaultRemoteStaleAfter is how long a peer may be silent before its ghost is
+// despawned rather than left standing at its last position. Twelve times
+// DefaultIdleKeepalive: a live peer restates itself every keepalive even when
+// nothing about it changes, so silence this long is not a quiet player, it is
+// a client that is gone. Comfortably above quic's own ~17s drop detection
+// being irrelevant here -- that is what this exists to stop waiting for.
+const DefaultRemoteStaleAfter = 3 * time.Second
+
 // DefaultMinSendInterval is this Core's fallback send interval when neither
 // the relay advertised a rate nor this Core's own MinSendInterval was set
 // (see effectiveSendInterval) — an older relay that predates
@@ -349,6 +367,64 @@ type Core struct {
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	MinSendInterval time.Duration
 	lastSendAt      time.Time
+
+	// RemoteStaleAfter is how long a peer may go without sending anything
+	// before its ghost is despawned. Zero means DefaultRemoteStaleAfter;
+	// negative disables aging out entirely, which is the pre-2026-08-28
+	// behaviour of trusting a Leave to arrive. See remoteStatesAt.
+	RemoteStaleAfter time.Duration
+
+	// Predict picks how a ghost is carried past its newest sample: a straight
+	// line from the last velocity, or a curve that includes acceleration. Empty
+	// means PredictLinear. Only consulted when Extrapolate is positive.
+	Predict PredictMode
+
+	// How much work the prediction is actually doing. Guarded by mu, which
+	// remoteStatesAt already holds when it updates this. See extrapolationMeter.
+	extrapolation extrapolationMeter
+
+	// Curve picks how a position BETWEEN two samples is computed -- straight
+	// line (the default) or a Catmull-Rom spline through four of them. Empty
+	// means CurveLinear. See CurveMode: this is the second of the two render
+	// knobs added 2026-08-28, and like Extrapolate it is a per-game judgement
+	// made on screen rather than a setting with a right answer.
+	Curve CurveMode
+
+	// Extrapolate turns on prediction for remote ghosts: how far past the
+	// newest sample a peer may be drawn by continuing their last measured
+	// velocity. Zero -- the default -- holds the newest sample instead, which
+	// is what every session before 2026-08-28 did.
+	//
+	// OPT-IN, and it is a per-GAME judgement rather than a setting with a right
+	// answer. It removes the visible half of InterpolationDelay, and pays for it
+	// with a correction every time a peer does not do what was predicted. Only
+	// meaningful alongside a small InterpolationDelay: at the shipped 250ms the
+	// render time is always behind the newest sample, so there is nothing to
+	// predict. See remoteBuffer.extrapolate.
+	Extrapolate time.Duration
+
+	// IdleKeepalive is how often a state identical to the last one sent goes
+	// out anyway. Change suppression (forwardLocalState) drops the rest: a
+	// standing player produces byte-identical packets at the room's full rate,
+	// every one of them uploaded, fanned out to every peer, and rendered as no
+	// movement at all.
+	//
+	// It is a KEEPALIVE rather than silence on purpose, and the interval is the
+	// price of three things at once: the relay being able to tell quiet from
+	// gone, a late joiner who has never seen a state from this player getting
+	// one within this bound, and a suppressed packet's loss on udp costing at
+	// most this long rather than lasting until the player next moves.
+	//
+	// Zero disables suppression entirely -- every frame that survives rate
+	// limiting is sent, which is the behaviour before 2026-08-28.
+	IdleKeepalive time.Duration
+
+	// The last state actually sent, with the per-packet fields (player_id,
+	// seq, timestamp) zeroed so it compares on what a receiver would RENDER.
+	// suppressedSinceSend records whether anything was skipped since, which is
+	// what decides the bracket re-statement. Both guarded by mu.
+	lastSentState       *protocol.State
+	suppressedSinceSend bool
 
 	// serverSendInterval is the interval derived from the relay's advertised
 	// Welcome.SendHz, or 0 if the relay advertised nothing (an older relay)
@@ -606,6 +682,7 @@ func New() *Core {
 		startedAt:          time.Now(),
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
+		IdleKeepalive:      DefaultIdleKeepalive,
 		HeartbeatInterval:  DefaultHeartbeatInterval,
 		roster:             make(map[string]struct{}),
 	}
@@ -685,3 +762,16 @@ func setReconnectLogInterval(d time.Duration) time.Duration {
 // transport is "auto", and a relay that cannot answer promptly is one we
 // should stop waiting on and just connect to over tcp.
 const discoverTransportTimeout = 3 * time.Second
+
+// remoteStaleAfter resolves the configured value: zero means the default, and
+// a negative value means "never age out", which is what a caller sets to get
+// the pre-2026-08-28 behaviour back. Caller holds c.mu.
+func (c *Core) remoteStaleAfter() time.Duration {
+	if c.RemoteStaleAfter == 0 {
+		return DefaultRemoteStaleAfter
+	}
+	if c.RemoteStaleAfter < 0 {
+		return 0
+	}
+	return c.RemoteStaleAfter
+}

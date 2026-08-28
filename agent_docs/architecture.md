@@ -177,6 +177,8 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-20 — An adapter may take area visibility away from the core: `render_all_areas`](adr/0036-2026-08-20-an-adapter-may-take-area-visibility-away-from.md)
 - [2026-08-21 — Emulator adapters are Lua-only: no ROM patch, ever](adr/0037-2026-08-21-emulator-adapters-are-lua-only-no-rom-patch-ever.md)
 - [2026-08-21 — Extra hardware sprites come from OAM injection above `gOamLimit`, not HBlank multiplexing](adr/0038-2026-08-21-extra-hardware-sprites-come-from-oam-injection.md)
+- [2026-08-28 — A client stops restating an unchanged state, and brackets its resume so nothing creeps](adr/0039-2026-08-28-a-client-stops-restating-an-unchanged-state.md)
+- [2026-08-28 — The render model becomes three knobs, chosen per game rather than one size fits all](adr/0040-2026-08-28-the-render-model-becomes-three-knobs-chosen-per-game.md)
 
 ## Prior art
 

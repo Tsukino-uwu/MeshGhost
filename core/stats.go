@@ -46,6 +46,20 @@ type coreStats struct {
 
 	rendersSent  uint64
 	despawnsSent uint64
+
+	// statesSuppressed counts local frames that were NOT sent because the
+	// state was identical to the last one sent (see forwardLocalState's
+	// change suppression). bracketsSent counts the extra re-statements sent
+	// on resume so a receiver never interpolates across a silence. The pair
+	// is what says whether suppression is paying: suppressed is the saving,
+	// brackets are its cost, and the cost is one packet per resume.
+	statesSuppressed uint64
+	bracketsSent     uint64
+
+	// remotesAgedOut counts peers dropped for going silent rather than for
+	// leaving -- see remoteStatesAt. A non-zero value in a healthy session
+	// means Leaves are not arriving, which is worth knowing on its own.
+	remotesAgedOut uint64
 }
 
 // Stats is one snapshot of what this core has done and what it currently
@@ -68,6 +82,27 @@ type Stats struct {
 
 	RendersSent  uint64
 	DespawnsSent uint64
+
+	// StatesSuppressed is how many local frames were skipped as identical to
+	// the last one sent; BracketsSent is how many extra re-statements were
+	// sent on resume to keep interpolation exact.
+	StatesSuppressed uint64
+	BracketsSent     uint64
+
+	// RemotesAgedOut is how many peers were despawned for silence rather than
+	// for a Leave.
+	RemotesAgedOut uint64
+
+	// What the prediction actually did, as opposed to what it was allowed to
+	// do. ExtrapolatedRenders counts render-set entries that were predicted
+	// rather than interpolated or held; ExtrapolatedAvgMs and ExtrapolatedMaxMs
+	// are how far past the newest sample those went; ExtrapolationsCapped is how
+	// many hit the configured ceiling, which is the number that says the ceiling
+	// is too low rather than merely present.
+	ExtrapolatedRenders  uint64
+	ExtrapolationsCapped uint64
+	ExtrapolatedAvgMs    float64
+	ExtrapolatedMaxMs    int64
 
 	// PeersKnown is roster size (everyone the relay says is in the room);
 	// PeersRendered is how many are currently being drawn. The gap between
@@ -97,6 +132,18 @@ func (s Stats) CrossAreaShare() float64 {
 	return float64(s.StatesFilteredByArea) / float64(total)
 }
 
+// SuppressedShare is the fraction of would-be sends that change suppression
+// removed, 0 to 1 -- the honest denominator being everything that reached the
+// send path after rate limiting, i.e. what was actually sent plus what was
+// skipped. The bracket re-statements are counted as sends, because they are.
+func (s Stats) SuppressedShare() float64 {
+	total := s.StatesSent + s.StatesSuppressed
+	if total == 0 {
+		return 0
+	}
+	return float64(s.StatesSuppressed) / float64(total)
+}
+
 // Stats captures the current counters and link state.
 func (c *Core) Stats() Stats {
 	s := Stats{
@@ -108,9 +155,18 @@ func (c *Core) Stats() Stats {
 		StatesFilteredByArea: atomic.LoadUint64(&c.stats.statesFilteredByArea),
 		RendersSent:          atomic.LoadUint64(&c.stats.rendersSent),
 		DespawnsSent:         atomic.LoadUint64(&c.stats.despawnsSent),
+		StatesSuppressed:     atomic.LoadUint64(&c.stats.statesSuppressed),
+		BracketsSent:         atomic.LoadUint64(&c.stats.bracketsSent),
+		RemotesAgedOut:       atomic.LoadUint64(&c.stats.remotesAgedOut),
 	}
 	s.PeersRendered = int(atomic.LoadInt64(&c.renderedNow))
 	c.mu.Lock()
+	s.ExtrapolatedRenders = c.extrapolation.count
+	s.ExtrapolationsCapped = c.extrapolation.cappedHit
+	s.ExtrapolatedMaxMs = c.extrapolation.maxMs
+	if c.extrapolation.count > 0 {
+		s.ExtrapolatedAvgMs = float64(c.extrapolation.totalMs) / float64(c.extrapolation.count)
+	}
 	s.PeersKnown = len(c.roster)
 	s.RelayRTTMs = c.clock.bestRTTMs
 	s.ClockOffsetMs = c.clock.offsetMs
@@ -140,6 +196,14 @@ func (s Stats) String() string {
 	out := fmt.Sprintf("meshghost stats: %s | %d peers known, %d rendered", link, s.PeersKnown, s.PeersRendered)
 	out += fmt.Sprintf(" | sent %d states (%s, %s)", s.StatesSent, textfmt.Bytes(s.BytesSent), textfmt.PerHour(s.BytesSent, s.Uptime))
 	out += fmt.Sprintf(" | received %d msgs (%s, %s)", s.MessagesReceived, textfmt.Bytes(s.BytesReceived), textfmt.PerHour(s.BytesReceived, s.Uptime))
+	if s.ExtrapolatedRenders > 0 {
+		out += fmt.Sprintf(" | predicted %d renders (avg %.0fms ahead, max %dms, %d hit the cap)",
+			s.ExtrapolatedRenders, s.ExtrapolatedAvgMs, s.ExtrapolatedMaxMs, s.ExtrapolationsCapped)
+	}
+	if s.StatesSuppressed > 0 {
+		out += fmt.Sprintf(" | %d frames suppressed as unchanged (%.0f%% of what would have been sent, %d brackets)",
+			s.StatesSuppressed, s.SuppressedShare()*100, s.BracketsSent)
+	}
 	if s.StatesReceived > 0 {
 		out += fmt.Sprintf(" | %.0f%% of remote states discarded as cross-area",
 			s.CrossAreaShare()*100)

@@ -8,8 +8,10 @@ package core
 // speed a client up past a rate it explicitly chose.
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -75,9 +77,66 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 		c.mu.Unlock()
 		return
 	}
+	// CHANGE SUPPRESSION. An identical state is not worth a packet: most of a
+	// singleplayer session is spent standing still, and at 20-100Hz that is
+	// hundreds of byte-identical messages a minute, uploaded, fanned out to
+	// every peer in the room, and rendered as no movement at all. Requested
+	// 2026-08-21 and again 2026-08-28 (agent_docs/ideas.md, "third rung");
+	// this is the whole-state half of it, which needs no protocol change --
+	// the per-field version makes wire fields optional and is a protocol rev.
+	//
+	// GAME-AGNOSTIC by construction: "is this value the same as last time" needs
+	// no knowledge of what the value means, which is why it belongs here rather
+	// than in four adapters.
+	//
+	// The keepalive is not optional. Silence and absence must stay
+	// distinguishable -- for the relay, for a late joiner who has never seen a
+	// state from this player, and on udp, where a suppressed packet's loss would
+	// otherwise persist until the player next moves.
+	unchanged := c.IdleKeepalive > 0 && sameSentState(c.lastSentState, state)
+	if unchanged && time.Since(c.lastSendAt) < c.IdleKeepalive {
+		// lastSendAt deliberately NOT updated: this frame did not send, and the
+		// next CHANGED frame must be free to go out as soon as the ordinary
+		// rate limit allows rather than being pushed back by a skip.
+		c.suppressedSinceSend = true
+		c.mu.Unlock()
+		atomic.AddUint64(&c.stats.statesSuppressed, 1)
+		return
+	}
+
+	// THE BRACKET SAMPLE, and it is what makes suppression invisible rather
+	// than merely cheap. A receiver interpolates between the two samples that
+	// bracket its render time (core/interp.go), so resuming after a silence
+	// would blend the stale standing position into the first moving one across
+	// the whole gap -- a ghost creeping at a fraction of walking speed, which
+	// adapters/CLAUDE.md forbids outright ("never move a ghost slower than the
+	// game moves"). Re-stating the unchanged state one millisecond before the
+	// changed one collapses that gap: the peer holds still until the instant it
+	// genuinely moved, then moves at its own true rate.
+	var bracket *protocol.State
+	if !unchanged && c.suppressedSinceSend && c.lastSentState != nil {
+		b := *c.lastSentState
+		bracket = &b
+	}
+	c.suppressedSinceSend = false
+	kept := *state
+	kept.PlayerID = ""
+	kept.Seq = 0
+	kept.Timestamp = 0
+	c.lastSentState = &kept
+
 	c.lastSendAt = time.Now()
 	playerID := c.playerID
 	c.mu.Unlock()
+
+	if bracket != nil {
+		bs := *bracket
+		bs.PlayerID = playerID
+		bs.Seq = atomic.AddUint64(&c.seq, 1)
+		bs.Timestamp = c.nowMs() - 1
+		c.sendState(relay, bs)
+		atomic.AddUint64(&c.stats.bracketsSent, 1)
+	}
 
 	st := *state
 	st.PlayerID = playerID
@@ -193,4 +252,30 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	}
 	atomic.AddUint64(&c.stats.statesSent, 1)
 	atomic.AddUint64(&c.stats.bytesSent, uint64(len(env)))
+}
+
+// sameSentState answers the one question change suppression turns on: would
+// this state render exactly as the last one sent? Seq and Timestamp are
+// excluded because they differ on every frame by design and mean nothing on
+// screen; PlayerID because it is stamped after this comparison.
+//
+// Every other field is compared WITHOUT interpretation -- Orientation is raw
+// JSON, Extras is a free-form map, and both are opaque to the core
+// (contract.md). reflect.DeepEqual is the honest tool for that: it compares
+// what is there without the core having to know what any of it means, and a
+// state is a handful of small fields at at most 100Hz.
+func sameSentState(prev *protocol.State, cur *protocol.State) bool {
+	if prev == nil || cur == nil {
+		return false
+	}
+	if prev.AreaID != cur.AreaID || prev.Anim != cur.Anim {
+		return false
+	}
+	if !reflect.DeepEqual(prev.Position, cur.Position) {
+		return false
+	}
+	if !bytes.Equal(prev.Orientation, cur.Orientation) {
+		return false
+	}
+	return reflect.DeepEqual(prev.Extras, cur.Extras)
 }

@@ -1,6 +1,8 @@
 {
   "_comment": "MeshGhost settings for this game. The mod starts meshghost.exe for you and it reads THIS file, not the config.json in the release folder you unzipped -- that one is for the server and for running the client by hand. Edit connect_to to your host's address, and make sure room matches everyone else's.",
   "_comment_no_bridge_here": "local_game_bridge is deliberately absent: the mod passes its own bridge port when it starts the client, so there is one owner of that value instead of two settings that can disagree. Adding it here would have no effect.",
+  "_comment_render": "interp, curve and extrapolate decide how a ghost MOVES. interp is how far behind live it is drawn (250ms smooths out the network; lower feels more immediate and shows every hitch). curve is linear or catmull-rom, which fits a curve through the samples -- better for a game with momentum, worse for one that moves on a fixed grid. extrapolate keeps a ghost moving past its newest sample for up to this long, which hides the delay and costs a correction whenever the guess was wrong; 0s is off. predict is how that guess is made -- damped (the measured best: full prediction on an axis moving steadily, reduced on one changing direction), linear, or accelerated (looked worse everywhere it was tried). It only matters when extrapolate is on. One hard rule from measuring: never set interp below your connection's jitter, or ghosts turn choppy. These are per-GAME tastes, which is why they live in the game's own file.",
+  "_comment_keepalive": "keepalive is how often your position is re-sent when NOTHING about it changed. Identical updates are otherwise skipped, so standing still costs almost nothing. 0 sends every frame like older versions did.",
   "_comment_show_console": "show_console opens a real window for the client the mod started, so you can watch it work instead of reading meshghost.log. Windows only -- under Proton/Wine there is no console to open and it does nothing.",
   "client": {
     "connect_to": "127.0.0.1:7777",
@@ -10,6 +12,10 @@
     "name": "player",
     "ghost_collision": "enabled",
     "interp": "250ms",
+    "curve": "linear",
+    "extrapolate": "0s",
+    "predict": "damped",
+    "keepalive": "250ms",
     "max_receive_hz_per_player": 0,
     "show_console": false
   }
