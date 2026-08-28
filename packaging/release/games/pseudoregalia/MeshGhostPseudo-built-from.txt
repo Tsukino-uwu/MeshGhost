@@ -1,12 +1,12 @@
 # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
 # on purpose so it never lands in a user's game folder.
-commit: 6bec7d4375ffd5cb8e50b7591cfb75b63837292d
+commit: 1adb4b9d23af4bfbe7901f9526e7513428a20002
 Plugin.cpp: 0c8233574a16ccd04df97dd90631c4fc9865e2a314fbe184ac40e2e0d98d2922
 Plugin.hpp: 07edbfd1d0be9f6583710bde80b622bcd7e003885d8249336ac09b352e1f5a0a
 BridgeClient.cpp: 8bdf1f88e3e3b77c43b684e8a174ac35193d22807f01e180768ae5269d541013
 BridgeClient.hpp: ddb9318c52b894d76fd900d1bed573f54117a2075cab209119bb03b4694057f0
 dllmain.cpp: 2a4cb8328001507fb5d3d7d5a50c03439731867700654b39c5aba6b36a85637c
-CoreLauncher.cpp: 3c32552c47fd5de83c2c7effb0dc31db393581bbdc95292e472a1bd6143e50e9
+CoreLauncher.cpp: d505e6f3f8a9b723cade1132ff8a430905dd07d63e43bb17281960622bd0e270
 CoreLauncher.hpp: aff11765f3637a4413e2e4f113b42c1af1443b570a37b0bf7c894252dc4b1729
 CMakeLists.txt: d8b536c00018170b7970484d7dd524ad553acfb57ba565cd091b442f0623b3a3

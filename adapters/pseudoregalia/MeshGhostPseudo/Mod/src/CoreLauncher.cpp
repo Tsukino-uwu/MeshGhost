@@ -97,13 +97,34 @@ namespace MeshGhostPseudo
             }
         }
 
-        // 2. "local_game_bridge" in the config.json beside this DLL -- the file the player is told
-        //    to edit. Read by hand rather than with a JSON parser: this mod has none, the shape is
-        //    fixed ("host:port" in quotes), and adding a parser for one key would be the larger
-        //    change. Anything unrecognised falls through to the default rather than failing.
-        const std::wstring dir = module_directory();
-        if (!dir.empty())
+        // 2. "local_game_bridge" in the mod's config.json -- the file the player is told to edit.
+        //    Read by hand rather than with a JSON parser: this mod has none, the shape is fixed
+        //    ("host:port" in quotes), and adding a parser for one key would be the larger change.
+        //    Anything unrecognised falls through to the default rather than failing.
+        //
+        //    UE4SS LOADS A C++ MOD FROM <ModFolder>\dlls\main.dll, so module_directory() is the
+        //    dlls folder and NOT the folder a player drags into their game -- config.json sits one
+        //    level UP. The first version of this read the dlls folder, found nothing, and silently
+        //    used the default, which the user saw as the config being ignored outright. The
+        //    launcher below has carried a comment saying exactly this since it was written; this
+        //    code was added forty lines away from it and did not read it.
+        //
+        //    Both are checked, parent first, matching how the launcher looks for meshghost.exe:
+        //    the player's folder is the answer, and the dlls folder is there so a developer
+        //    copying files by hand is not caught out.
+        std::wstring dirs[2];
+        dirs[1] = module_directory();
+        dirs[0] = dirs[1];
+        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
         {
+            dirs[0].resize(slash);
+        }
+        for (const std::wstring& dir : dirs)
+        {
+            if (dir.empty())
+            {
+                continue;
+            }
             std::ifstream f(dir + L"\\config.json");
             if (f)
             {

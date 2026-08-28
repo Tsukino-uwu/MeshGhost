@@ -1,5 +1,7 @@
 {
   "_comment": "Per-game overrides applied on top of ../client-config-template.json when the release is staged. ONLY the keys that differ for this game belong here -- everything else, including the template's explanatory comments, comes from the template so there is one copy of it. dev-scripts/stage-release.ps1 applies these.",
   "_comment_ghost_collision": "Disabled for Pseudoregalia specifically, on the user's call 2026-08-28: a solid ghost in a 3D platformer can stand in a doorway or on a ledge and physically block the player, which is a worse failure than a ghost you can walk through. protocol.ResolveGhostCollision returns disabled if EITHER side asks for it, so this client-side default holds even in a room whose relay advertises collision enabled -- the player is never made solid to themselves by someone else's server setting. The room can never force it back on; that asymmetry is deliberate (ADR 0035).",
+  "_comment_local_game_bridge": "Shipped PRESENT for this game so it is visible and editable, unlike the shared template which omits it. Since 2026-08-28 this mod reads it to decide where its 8-port bridge walk starts, and passes the result to the core it launches -- so changing it here really does move the port, which it did not before. 127.0.0.1:7778 is the default and matches the other three adapters. MESHGHOST_BRIDGE_PORT overrides it for one run.",
+  "local_game_bridge": "127.0.0.1:7778",
   "ghost_collision": "disabled"
 }

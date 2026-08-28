@@ -113,14 +113,37 @@ foreach ($f in $modFolders) {
             $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)"[^"]*"'
             $before = $text
             $text = [regex]::Replace($text, $pattern, ('${1}"' + $prop.Value + '"'))
-            if ($text -eq $before) {
-                throw "$ovPath overrides '$($prop.Name)', which is not a string key in client-config-template.json -- the override would have been silently dropped."
+            if ($text -ne $before) {
+                $applied += "$($prop.Name) (replaced)"
+                continue
             }
-            $applied += $prop.Name
+            # Not in the template. INSERT it into the client block rather than failing, because a
+            # game may legitimately need a setting the shared template deliberately omits --
+            # local_game_bridge is exactly that: honoured by Pseudoregalia, meaningless for TEVI,
+            # so it must not sit in the file every game gets.
+            #
+            # The old behaviour here was to throw, which protected against a typo silently doing
+            # nothing. That protection is kept in a different form: an addition is REPORTED as
+            # "(added)" in this script's output, so a misspelled key shows up as a new setting
+            # appearing rather than an existing one changing. Watch that line.
+            $anchor = '"connect_to"'
+            $at = $text.IndexOf($anchor)
+            if ($at -lt 0) {
+                throw "$ovPath adds '$($prop.Name)' but client-config-template.json has no `"connect_to`" line to anchor the insertion to."
+            }
+            $lineStart = $text.LastIndexOf("`n", $at) + 1
+            $indent = ($text.Substring($lineStart) -replace '(?s)^(\s*).*', '$1')
+            $text = $text.Insert($lineStart, "$indent`"$($prop.Name)`": `"$($prop.Value)`",`n")
+            $applied += "$($prop.Name) (added)"
         }
         Write-Host "  $game config: overrode $($applied -join ', ')"
     }
-    Set-Content -Path "$f\config.json" -Value $text -Encoding utf8 -NoNewline
+    # WriteAllText with an explicit no-BOM encoder, NOT Set-Content -Encoding utf8: PowerShell
+    # 5.1 writes a BOM for that, and the tracked template has none. internal/cfg.StripBOM means a
+    # BOM would in fact load fine -- it exists because Windows editors save them -- but a staged
+    # file that differs from its own template by three invisible bytes is a difference nobody
+    # wants to rediscover.
+    [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $f) 'config.json'), $text, (New-Object System.Text.UTF8Encoding $false))
 }
 if ($ForRelease) {
     Remove-Item packaging\release\games\client-config-template.json
