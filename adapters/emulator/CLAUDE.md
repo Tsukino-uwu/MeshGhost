@@ -100,9 +100,9 @@ and each time cost a reload cycle to identify. Re-counted 2026-08-27:
 | adapter | lines | top-level locals |
 |---|---|---|
 | Crystal | 9,539 | **197 of 200** (re-measured 2026-08-27, unchanged) |
-| Emerald | 11,265 | **198 of 200** (re-measured 2026-08-27, unchanged) |
+| Emerald | 11,290 | **199 of 200** (re-measured 2026-08-28: compiles with 1 added, fails with 2) |
 
-**Crystal is three names from the wall and Emerald is two.** Crystal's row read 188 for one day and was
+**Crystal is three names from the wall and Emerald is ONE.** Crystal's row read 188 for one day and was
 already stale when it was read: adding two plain constants for a feature stopped the file loading
 outright (2026-08-26, the fourth time). **A number nothing re-measures is a number that WAS true**
 — so re-measure before planning around the headroom, and expect the answer to be worse. Neither
@@ -118,8 +118,10 @@ to a copy and compile it, halving N until it flips:
 C:/msys64/mingw64/bin/luac.exe -p <copy-with-N-extra-locals.lua>
 ```
 
-Both figures above were confirmed that way, and re-confirmed on 2026-08-27: **Crystal compiles with
-3 added and fails with 4; Emerald compiles with 2 and fails with 3.** Read it off the PASSING count
+Both figures above were confirmed that way. Re-measured 2026-08-28: **Crystal compiles with 3 added
+and fails with 4; Emerald compiles with ONE and fails with 2** -- Emerald moved a name that same day
+(the relay-down backoff), and the row here said 198 for several hours while the file was at 199,
+which is this section's own warning happening to this section. Read it off the PASSING count
 — `used = 200 - N` where N is the largest number that still compiles — because taking it off the
 failing one is off by one in the reassuring direction.
 

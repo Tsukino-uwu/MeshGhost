@@ -584,6 +584,51 @@ console.log = function(msg)
     end
 end
 
+-- WHERE THE BRIDGE PORT RANGE STARTS, from the player's own config.json.
+--
+-- Until 2026-08-28 this script walked 7778-7785 whatever that file said, so a player who moved
+-- the port moved the CLIENT and not the script, and the two then never found each other -- the
+-- config did not fail loudly, it silently broke the connection. Reported on Pseudoregalia as
+-- "setting the config to 7780 it still starts at 7778"; the same defect, in a different language.
+--
+-- Read by hand rather than with a JSON parser: the shape is fixed ("host:port", quoted) and one
+-- key does not justify a parser. Anything unrecognised leaves the default alone.
+--
+-- IN A do ... end BLOCK ON PURPOSE. This file sits two names below Lua's 200-local ceiling for a
+-- main chunk (adapters/emulator/CLAUDE.md), and locals inside a block are released at its end, so
+-- this costs none of them. Past that ceiling the script does not load AT ALL -- not loudly, just
+-- absent, which reads exactly like a dead relay.
+--
+-- MESHGHOST_BRIDGE_PORT still wins over this: pinning one port for one run is a stronger
+-- statement than saying where a range begins.
+do
+    -- The same places the autostart search looks for meshghost.exe, in the same order: the
+    -- config the client reads is the one sitting beside it.
+    local candidates = {
+        SCRIPT_DIR .. "../../../config.json",
+        SCRIPT_DIR .. "../../../../config.json",
+        SCRIPT_DIR .. "config.json",
+    }
+    for _, path in ipairs(candidates) do
+        local f = io.open(path, "r")
+        if f then
+            local text = f:read("*a")
+            f:close()
+            local port = tonumber(string.match(text or "",
+                '"local_game_bridge"%s*:%s*"[^"]*:(%d+)"'))
+            if port and port >= 1 and port <= 65535 and port ~= BRIDGE_BASE_PORT then
+                console.log(string.format(
+                    "MeshGhost: bridge ports %d-%d, from local_game_bridge in config.json",
+                    port, port + BRIDGE_PORT_COUNT - 1))
+                BRIDGE_BASE_PORT = port
+            end
+            -- First readable config wins, even if it has no such key: a later file is a
+            -- different install's, and silently preferring it would be worse than the default.
+            break
+        end
+    end
+end
+
 -- File only. A per-tick line in the Lua Console scrolls the startup lines out of view, and those
 -- name the ROM and every address in use -- which is what a reader actually needs. Same split
 -- Crystal's adapter uses (probes.md: detail to the log file, headlines to the console).
@@ -1072,6 +1117,21 @@ local function startCore(port)
         -- a player edits. Passing -relay here would silently override it.
         si.Arguments = string.format("-exit-with-pid=%d -bridge=%s:%d",
             Process.GetCurrentProcess().Id, BRIDGE_HOST, port)
+        -- THE CORE READS ITS config.json FROM ITS WORKING DIRECTORY, so it has to be the
+        -- directory the exe lives in -- which is where the player's config.json is, and where
+        -- every README says to keep the pair together.
+        --
+        -- Without this the child inherits the emulator's working directory, finds no config.json
+        -- there, and silently falls back to built-in defaults: connect_to 127.0.0.1:7777, the
+        -- player's own machine. Someone who edited the release-root config.json to reach a
+        -- friend's host would autostart a core that quietly ignored it and connected to nobody,
+        -- with a log line in a folder they were never told to look in. Measured 2026-08-28 with
+        -- a staged release, which reported exactly that:
+        --   "no config file at ...\games\pokemon\emerald\config.json -- using built-in defaults"
+        --
+        -- TEVI (WorkingDirectory) and Pseudoregalia (CreateProcessW's lpCurrentDirectory) have
+        -- always set this; these two adapters were the pair that did not.
+        si.WorkingDirectory = (exe:gsub("meshghost%.exe$", ""))
         si.UseShellExecute = false
         si.CreateNoWindow = true
         coreChild = Process.Start(si)

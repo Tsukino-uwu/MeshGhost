@@ -1,10 +1,12 @@
 package core
 
 import (
+	"net"
 	"testing"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
+	"github.com/Tsukino-uwu/MeshGhost/relay"
 )
 
 // A transport this machine cannot dial must not be chosen again in AUTOMATIC mode.
@@ -93,5 +95,113 @@ func TestAnExplicitPreferenceIsNeverSkipped(t *testing.T) {
 	if kind != netx.QUIC {
 		t.Fatalf("an explicitly requested quic was silently changed to %v; only automatic mode "+
 			"may skip a transport, so the user keeps being told what is wrong", kind)
+	}
+}
+
+// deadPort returns a port nothing is listening on, by binding one and letting it go.
+func deadPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
+}
+
+// relayAdvertisingADeadQUICPort is the RESTARTING-RELAY shape, and the only shape that can
+// reach the dial-failure path at all: a relay whose tcp listener is up and answering the
+// handshake, while the quic port it advertises accepts nothing.
+//
+// A relay that is entirely down cannot produce this -- resolveTransport's tcp handshake fails
+// first and returns before any transport is dialled -- which is what bounds this whole risk.
+func relayAdvertisingADeadQUICPort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+
+	s := relay.NewServer()
+	s.SendHz = protocol.MaxSendHz
+	// Set BEFORE Serve: the offers are read by the handshake goroutine.
+	s.Offers = []protocol.TransportOffer{
+		{Kind: "tcp", Port: ln.Addr().(*net.TCPAddr).Port},
+		{Kind: "quic", Port: deadPort(t)},
+	}
+	go s.Serve(ln)
+	return ln.Addr().String()
+}
+
+// ONE FAILED DIAL MUST NOT CONDEMN A TRANSPORT FOR THE WHOLE SESSION.
+//
+// This is the regression test for a defect introduced by the fallback itself, on the exact path
+// a restarting relay takes. A relay coming back up has its tcp listener accepting before its quic
+// listener does; a client reconnecting inside that window succeeds at the handshake and then fails
+// the quic dial. Condemning on that single failure pins the rest of the session to tcp -- silently,
+// with a working session and nothing visible on screen, so nobody would ever report it.
+//
+// Without the consecutive-failure requirement this test fails on the FIRST attempt.
+func TestOneFailedDialDoesNotCondemnATransport(t *testing.T) {
+	addr := relayAdvertisingADeadQUICPort(t)
+
+	c := New()
+	c.RelayAddr = addr
+	c.Transport = netx.Auto
+	c.DialTimeout = testTimeout
+
+	// First attempt: quic is chosen, and cannot be dialled.
+	if err := c.ConnectRelay("faketest"); err == nil {
+		t.Fatal("connecting over a dead quic port succeeded, so this test proves nothing")
+	}
+
+	c.mu.Lock()
+	condemned := c.unusableTransports[netx.QUIC.String()]
+	failures := c.transportDialFailures[netx.QUIC.String()]
+	c.mu.Unlock()
+
+	if failures != 1 {
+		t.Fatalf("recorded %d quic failures after one attempt, want 1", failures)
+	}
+	if condemned {
+		t.Fatal("quic was given up on after ONE failed dial -- a relay that is merely restarting " +
+			"fails one dial like this, and the session would be pinned to tcp until the game is " +
+			"restarted, silently and with nothing on screen to report")
+	}
+}
+
+// ...but a transport that keeps failing IS given up on, and the session still works.
+//
+// The pair matters: the test above alone could be satisfied by never condemning anything, which
+// would restore the Wine loop this whole mechanism exists to break.
+func TestARepeatedlyFailingTransportIsGivenUpOnAndTheSessionSurvivesOnTCP(t *testing.T) {
+	addr := relayAdvertisingADeadQUICPort(t)
+
+	c := New()
+	c.RelayAddr = addr
+	c.Transport = netx.Auto
+	c.DialTimeout = testTimeout
+
+	// Attempt until quic is condemned, bounded so a failure to condemn shows up as this
+	// assertion rather than as a hang.
+	var connected bool
+	for attempt := 1; attempt <= transportDialFailuresBeforeGivingUp+2; attempt++ {
+		if err := c.ConnectRelay("faketest"); err == nil {
+			connected = true
+			break
+		}
+	}
+	if !connected {
+		t.Fatalf("never established a session: quic kept being chosen even after "+
+			"%d consecutive failures, which is the Wine loop", transportDialFailuresBeforeGivingUp+2)
+	}
+
+	c.mu.Lock()
+	condemned := c.unusableTransports[netx.QUIC.String()]
+	c.mu.Unlock()
+	if !condemned {
+		t.Fatal("a session was established without quic ever being recorded as unusable")
 	}
 }

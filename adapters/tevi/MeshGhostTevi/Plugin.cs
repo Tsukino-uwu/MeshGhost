@@ -2108,14 +2108,34 @@ namespace MeshGhostTevi
             // Anything of ours already in the scene at load belongs to an instance that is gone --
             // a previous hot reload, or a crashed one. See SweepOrphanGhosts.
             SweepOrphanGhosts("plugin load");
-            int bridgePort = Config.Bind(
+            int configuredPort = Config.Bind(
                 "Network",
                 "BridgePort",
                 DefaultBridgePort,
                 "First local core process bridge port to try. The adapter WALKS " +
                 "BridgePortCount ports upward from here, so a second TEVI instance on the same " +
                 "machine finds its own core without this being set at all -- since 2026-08-27. " +
-                "Change it only to move the whole range.").Value;
+                "Change it only to move the whole range. Left at the default, " +
+                "\"local_game_bridge\" in the client's own config.json is used instead, so the " +
+                "port has one owner rather than two that can disagree.").Value;
+
+            // TWO SETTINGS COULD NAME THIS PORT, so the tie is broken explicitly rather than by
+            // whichever happens to be read last.
+            //
+            // A BridgePort that differs from the default is a decision somebody made HERE, in this
+            // game's own config, and it wins. Left alone, the client's config.json decides -- that
+            // is the file every README tells a player to edit, it travels with meshghost.exe, and
+            // before 2026-08-28 editing it moved the core while this adapter kept walking 7778,
+            // after which the two could never meet. A silently broken connection is the worst
+            // possible outcome for a setting, and it was the shipped one.
+            int bridgePort = configuredPort != DefaultBridgePort
+                ? configuredPort
+                : CoreLauncher.ResolveBridgeBasePort(DefaultBridgePort);
+            if (bridgePort != DefaultBridgePort)
+            {
+                Logger.LogInfo($"MeshGhost: bridge ports {bridgePort}-" +
+                    $"{bridgePort + BridgeClient.BridgePortCount - 1}.");
+            }
             bridge = new BridgeClient(BridgeHost, bridgePort);
             launcher = new CoreLauncher(msg => Logger.LogInfo(msg));
         }

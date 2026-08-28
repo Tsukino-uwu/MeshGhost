@@ -545,3 +545,70 @@ which is live code on a feature the user signed off as 1:1. Emerald is parked, s
 watched since. **Before Emerald is next used for anything, load it and surf**; a wrong field name
 here reads as nil and would show up as a missing or misplaced blob rather than an error.
 
+
+## MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
+
+**Here rather than in `VERIFIED.md` because the evidence is a log this agent read**, from a
+staged-release run it drove itself. Nothing below was watched on screen, and none of it changes
+what a ghost looks like.
+
+**The rig.** A release staged to a scratch folder, `config.json` edited to
+`"local_game_bridge": "127.0.0.1:6672"` and `"connect_to": "127.0.0.1:7999"` — a port with nothing
+on it, so the relay is unreachable **without touching the relay the user had running on 7777**.
+BizHawk launched with the vanilla ROM and the staged script.
+
+**1. The config's port is honoured, end to end.** It was not before this day: the range was a
+constant, so a player who moved the port moved the client and not the script, and the two then
+never met.
+
+```
+MeshGhost: bridge ports 6672-6679, from local_game_bridge in config.json
+Bridge: walking 127.0.0.1:6672-6679 for a core that will have us.
+MeshGhost: started a core (no window) on bridge port 6672
+MeshGhost: bridge_ready on port 6672 -- this core is ours.
+```
+
+Independently confirmed from outside the adapter: the spawned core held a listening socket on
+**6672**, checked with `Get-NetTCPConnection`, not read back from the thing that set it.
+
+**2. The relay-down backoff waits instead of walking — the first time this was measured on
+Emerald.** Over ~60 seconds with the relay unreachable: **7 connect attempts, every one on 6672,
+and no other port ever touched.** Broken, this would have cooled 6673, 6674 and the rest of the
+range in turn, reported "no free port to start a core on", and gone on spawning cores nobody could
+use — the shape Crystal's own comment prices at *Emerald running at 5fps while a relay was full*.
+
+**Only ONE branch of the distinction was exercised here**, unlike TEVI's run: this adapter never
+met a genuinely busy core, so "walks on busy" is still unmeasured on Emerald. Do not read this as
+both halves.
+
+**3. A shipped bug found by accident, and fixed: an autostarted core was reading no config at
+all.** The first run's core reported
+
+```
+working directory ...\games\pokemon\emerald (config and this log are read/written here)
+no config file at ...\games\pokemon\emerald\config.json -- using built-in defaults (connect_to 127.0.0.1:7777)
+```
+
+It then connected to `127.0.0.1:7777` — the machine's own relay — while the config it was supposed
+to obey said `7999`. The child process inherited the emulator's working directory, and this
+adapter's folder ships no `config.json`, so **every setting a player edited in the release root was
+silently ignored whenever the adapter started the core itself.** A player pointing `connect_to` at
+a friend's host would have autostarted a core that quietly talked to nobody, with its log written
+somewhere they were never told to look. The README promised the opposite: *"It reads the
+config.json next to it, so there is nothing to copy and nothing to edit anywhere else."*
+
+TEVI (`WorkingDirectory`) and Pseudoregalia (`CreateProcessW`'s `lpCurrentDirectory`) had always
+set this; the two Lua adapters were the pair that did not. After the fix, the same run reports
+
+```
+working directory ...\mg_porttest (config and this log are read/written here)
+config loaded from ...\mg_porttest\config.json
+core: dial relay: dial tcp 127.0.0.1:7999 ... -- will keep retrying
+```
+
+which is the configured address being obeyed. **The core's log moves with the working directory**,
+from the game's folder to the folder holding `meshghost.exe` — the same place option 1 has always
+written it.
+
+**What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no
+sprite was part of this run.

@@ -264,3 +264,37 @@ in this queue depends on them, and none of their logs is evidence for anything n
 `VERIFIED.md`.
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
+
+## Two ghost cosmetics the user saw wrong on screen (2026-08-28) — reported, not yet diagnosed
+
+**These run the opposite way to everything else in this file.** The rest is "the agent believes it
+works, the user has not looked yet". These two the user HAS looked at, and they are wrong. They are
+here because they are open work with nothing measured yet, and nothing below is established.
+
+**1. Jumping dust is not handled by the ghost.** The player kicks up dust on a jump; the ghost does
+not. Unexamined so far: whether the ghost never spawns it, spawns it somewhere invisible, or spawns
+it and something strips it.
+
+This is the shape `../CLAUDE.md` names outright — *reproduce the WHOLE effect, the animation and its
+extras*. A jump is not just a pose, and Emerald's surf blob is the worked precedent: the state
+looked done because the animation played, and the thing riders sit ON was a separate sprite nobody
+had counted. So the first move is the one that file prescribes: **do the jump in the real game and
+count what appears**, rather than reading the ghost's spawn path and reasoning about it.
+`../../agent_docs/effect-investigation.md` is the method.
+
+**2. Light / "ascendant light" level is being COPIED onto the ghost, and never should be.** User:
+these *"should always be off for a ghost similar to the blue outline things"*.
+
+So this is not a value to mirror more accurately — it is a value to force off, in the same class as
+the blue outline, and the outline's own history says how. `GHOST_HOLD_OUTLINE_OFF` in `Plugin.cpp`
+is a per-tick **HOLD**, not a spawn-time write, and the comment there records why: the outline was
+already disabled at spawn on `VisualMesh` and `WeaponMesh`, and the user still saw blue outlines
+mid-attack, because the game re-enabled it. That was the **third** time in one session a spawn-time
+write turned out to be the bug, after the blob shadow and the collision disable.
+
+**So whatever writes this must be a hold too**, unless it is measured to be written exactly once —
+and "the ghost looked right in one run" is not that measurement. Expect the same trap: set it at
+spawn, watch it come back the moment the game touches the level again.
+
+**Neither is diagnosed and neither has a fix.** No probe has been run for either, so there is no
+number here to be wrong about later — which is the only good thing about the state of this entry.

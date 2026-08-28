@@ -1,11 +1,17 @@
 package e2e
 
 import (
+	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
+	"github.com/Tsukino-uwu/MeshGhost/netx"
 )
 
 // Restarts, against the real binaries.
@@ -188,5 +194,76 @@ func TestARelaunchedGameGetsAWorkingSessionAgain(t *testing.T) {
 	again := awaitFreshRender(t, relaunched, "relaunching the adapter")
 	if again.PlayerID == "" {
 		t.Error("the relaunched game's render carried no player_id")
+	}
+}
+
+// TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart is the one restart test that does
+// NOT pin -transport tcp, and the exception is the point of it.
+//
+// Its three neighbours pin tcp for the reason this file's header gives, and that choice left a real
+// gap: AUTOMATIC mode is the only mode that can silently change transport, and no restart test ever
+// ran in it. A defect introduced on 2026-08-28 lived exactly there -- a transport was given up on
+// after a single failed dial, so a client reconnecting while a relay's tcp listener was back but
+// its quic listener was not would spend the rest of its session on tcp. Every existing test still
+// passed, because the session RECOVERS; it just recovers degraded, with nothing visible on screen.
+// THIS IS A GUARD, NOT A REGRESSION TEST, and the difference is worth stating because the opposite
+// claim is the easy one to make. It PASSES with that defect reintroduced: a relay restarted here
+// brings both listeners up together -- waitForRelayTransport below even waits for quic before the
+// client reconnects -- so the race window never opens and no quic dial ever fails. Reproducing the
+// race needs a relay that ADVERTISES quic while nothing accepts on that port, which is what
+// core/transportfallback_test.go builds, and that is the test which fails without the fix.
+//
+// What this one is for is the property no other restart test asserts at all: after a real relay
+// process dies and comes back, a real client is still on the transport it started on. Any future
+// change that downgrades more eagerly -- on a timeout, on a Welcome failure, on a backoff -- lands
+// here, and none of the neighbours would notice.
+//
+// It pays the cost the header describes -- a hard-killed quic client lingers until quic's own idle
+// timeout -- which is what restartTimeout is for.
+func TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	base := newRig(t)
+	r := base.withFreshPorts(t)
+	quicAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	relayArgs := []string{
+		"-loopback", "-transport", "tcp,quic", "-addr", r.relayAddr, "-listen-quic", quicAddr,
+	}
+
+	relayCmd := start(t, r.dir, r.relayBin, relayArgs...)
+	waitForRelayTransport(t, netx.TCP, r.relayAddr)
+	waitForRelayTransport(t, netx.QUIC, quicAddr)
+
+	// Auto, and given the TCP address only: reaching quic requires asking the relay.
+	startClientOn(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, netx.Auto)
+
+	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+	defer stop()
+	awaitFreshRender(t, renders, "the initial session")
+
+	killAndWait(t, relayCmd)
+	requireRendersStop(t, renders, "killing the relay")
+
+	start(t, r.dir, r.relayBin, relayArgs...)
+	waitForRelayTransport(t, netx.TCP, r.relayAddr)
+	waitForRelayTransport(t, netx.QUIC, quicAddr)
+	awaitFreshRender(t, renders, "restarting the relay")
+
+	logBytes, err := os.ReadFile(filepath.Join(r.dir, "meshghost.log"))
+	if err != nil {
+		t.Fatalf("read client log: %v", err)
+	}
+	logText := string(logBytes)
+
+	// THE ASSERTION THE OTHER RESTART TESTS CANNOT MAKE: recovered, and recovered on quic.
+	if strings.Contains(logText, "not be chosen again this session") {
+		t.Fatal("the client gave up on a transport across a relay restart -- the session came " +
+			"back on tcp instead of quic, which no existing assertion would have noticed")
+	}
+	if n := strings.Count(logText, "using quic at"); n < 2 {
+		t.Fatalf("client chose quic %d times, want at least 2 (once before the restart and once "+
+			"after) -- it reconnected on something other than the transport it started on", n)
 	}
 }

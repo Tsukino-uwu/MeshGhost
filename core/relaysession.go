@@ -75,17 +75,36 @@ func (c *Core) ConnectRelay(gameID string) error {
 		//
 		// An explicit preference is deliberately NOT remembered: someone who asked for quic
 		// should keep being told it is failing rather than be quietly moved.
+		//
+		// TWO CONSECUTIVE failures, not one. See Core.transportDialFailures: a relay that is
+		// merely RESTARTING can fail a single quic dial while its tcp listener is already back,
+		// and condemning on that would silently pin the rest of the session to tcp.
 		if c.Transport == netx.Auto && kind != netx.TCP {
 			c.mu.Lock()
-			if c.unusableTransports == nil {
-				c.unusableTransports = map[string]bool{}
+			if c.transportDialFailures == nil {
+				c.transportDialFailures = map[string]int{}
 			}
-			first := !c.unusableTransports[kind.String()]
-			c.unusableTransports[kind.String()] = true
+			c.transportDialFailures[kind.String()]++
+			n := c.transportDialFailures[kind.String()]
+			condemn := n >= transportDialFailuresBeforeGivingUp
+			first := false
+			if condemn {
+				if c.unusableTransports == nil {
+					c.unusableTransports = map[string]bool{}
+				}
+				first = !c.unusableTransports[kind.String()]
+				c.unusableTransports[kind.String()] = true
+			}
 			c.mu.Unlock()
-			if first {
-				log.Printf("core: %s cannot be used on this machine (%v) -- not choosing it again "+
-					"this session; the next attempt falls back to the next transport", kind, err)
+			switch {
+			case first:
+				log.Printf("core: %s cannot be used on this machine (%v) -- %d attempts in a row "+
+					"failed, so it will not be chosen again this session; the next attempt falls "+
+					"back to the next transport", kind, err, n)
+			case !condemn:
+				log.Printf("core: %s dial failed (%v) -- retrying; it is only given up on after "+
+					"%d failures in a row, because a restarting relay can fail one", kind, err,
+					transportDialFailuresBeforeGivingUp)
 			}
 		}
 		return fmt.Errorf("core: dial relay: %w", err)

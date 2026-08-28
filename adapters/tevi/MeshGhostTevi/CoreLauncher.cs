@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using BepInEx;
 
 namespace MeshGhostTevi
@@ -151,6 +152,73 @@ namespace MeshGhostTevi
         // install path. Neither of those is reliable: the plugin is dropped into the game's
         // BepInEx/plugins tree, and a game's working directory is whatever its launcher chose. The
         // one thing that is always true is that meshghost.exe ships beside this DLL.
+        // Where the bridge port range starts, from the config.json the player actually edits.
+        //
+        // Until 2026-08-28 this adapter's only port setting was BepInEx's own BridgePort, so
+        // "local_game_bridge" in config.json moved the CORE and not the adapter, and the two then
+        // never found each other -- the setting did not fail loudly, it silently broke the
+        // connection. Reported on Pseudoregalia as "setting the config to 7780 it still starts at
+        // 7778"; the same defect, in a different language, and all four adapters had a version.
+        //
+        // Searched in CoreSearchDirs order, because config.json travels WITH meshghost.exe --
+        // "the client reads the config.json in its own folder" is what every game's README says,
+        // so the first directory holding the exe is the one holding the config that governs it.
+        //
+        // Parsed by hand rather than with a JSON library: the shape is fixed ("host:port", quoted)
+        // and this assembly deliberately carries no JSON dependency. Anything unrecognised falls
+        // through to the caller's fallback rather than throwing.
+        public static int ResolveBridgeBasePort(int fallback)
+        {
+            // The environment wins, and it is the same variable name the two Lua adapters use, so
+            // one launcher setting moves every game's range the same way.
+            try
+            {
+                string env = Environment.GetEnvironmentVariable("MESHGHOST_BRIDGE_PORT");
+                if (!string.IsNullOrEmpty(env)
+                    && int.TryParse(env, out int fromEnv)
+                    && fromEnv >= 1 && fromEnv <= 65535)
+                {
+                    return fromEnv;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                foreach (string dir in CoreSearchDirs())
+                {
+                    if (string.IsNullOrEmpty(dir))
+                    {
+                        continue;
+                    }
+                    string cfg = Path.Combine(dir, "config.json");
+                    if (!File.Exists(cfg))
+                    {
+                        continue;
+                    }
+                    Match m = Regex.Match(
+                        File.ReadAllText(cfg),
+                        "\"local_game_bridge\"\\s*:\\s*\"[^\"]*:(\\d+)\"");
+                    if (m.Success
+                        && int.TryParse(m.Groups[1].Value, out int port)
+                        && port >= 1 && port <= 65535)
+                    {
+                        return port;
+                    }
+                    // The first config.json found wins even without the key: a later one belongs
+                    // to a different install, and silently preferring it is worse than the default.
+                    break;
+                }
+            }
+            catch
+            {
+            }
+
+            return fallback;
+        }
+
         private static string FindCoreExe()
         {
             try

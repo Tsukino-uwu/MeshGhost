@@ -2635,3 +2635,39 @@ the fault. What finally worked, in order — the general form is now in
 **Final measurement, 29 crossings / 3,080 traced frames: two isolated single-frame blips, no run
 longer than one frame.** An earlier run showing a clean result was discarded because the user had a
 "repel ran out" text box open during it; it was re-taken from the savestate.
+
+## MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
+
+**Here rather than in `VERIFIED.md` because the evidence is a log this agent read**, from a
+staged-release run it drove itself. Nothing below was watched on screen.
+
+**The rig.** The same scratch release Emerald's entry describes, same edited `config.json`
+(`local_game_bridge` 127.0.0.1:6672, `connect_to` 127.0.0.1:7999 — a port with nothing on it, so
+the relay is unreachable **without touching the relay the user had running on 7777**). BizHawk
+launched with the V1.0 ROM, alongside the Emerald instance.
+
+**1. The config's port is honoured.** `MeshGhost: bridge ports 6672-6679, from local_game_bridge in
+config.json`, where before this day the range was a compile-time constant and editing the config
+moved the client away from the adapter rather than with it.
+
+**2. The relay-down backoff waits instead of walking.** Over ~90 seconds: **7 connect attempts,
+every one on 6672, no other port ever touched.** Same result as Emerald's run and the same meaning
+— a core that cannot reach the relay is waited on, not mistaken for somebody else's port and cooled.
+
+**The "walks on busy" branch was NOT exercised, and the run was set up expecting that it would
+be.** Crystal was launched second precisely so it would meet Emerald's occupied core on 6672 and
+have to walk. It never did: the core refuses on **the unreachable relay before it considers whether
+a game is already attached**, so Crystal got the relay-down answer from a core that was also busy,
+and correctly waited. That is not wrong — when the relay returns, that core serves Emerald, Crystal
+is then told "busy", and walks — but it means **one branch is measured on this adapter and the
+other still is not.** TEVI's run remains the only one showing both in a single session.
+
+**3. The working-directory fix applies here identically** and is described once, in Emerald's entry
+for the same date: an autostarted core inherited the emulator's working directory, found no
+`config.json` in this adapter's folder, and silently used built-in defaults instead of the player's
+settings. Both Lua adapters had it; both are fixed in the same pass. Crystal's fixed run reads the
+staged config and obeys `connect_to 127.0.0.1:7999`, which is what produces the backoff measured
+above — before the fix, that address could not even have been reached to fail.
+
+**What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no tier
+handover was part of this run.

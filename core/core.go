@@ -238,6 +238,11 @@ type Adapter interface {
 // Core is the game-agnostic client: one relay connection, a bridge
 // listener accepting adapter connections, and a per-remote-player
 // interpolation buffer.
+// transportDialFailuresBeforeGivingUp is how many CONSECUTIVE failed dials of one
+// transport it takes before automatic selection stops choosing it. Two, not one,
+// because a single failure is ambiguous -- see Core.transportDialFailures.
+const transportDialFailuresBeforeGivingUp = 2
+
 type Core struct {
 	relay     transport.Transport
 	playerID  string
@@ -615,6 +620,23 @@ type Core struct {
 	//
 	// Guarded by mu; keyed by netx.Kind.String().
 	unusableTransports map[string]bool
+
+	// transportDialFailures counts CONSECUTIVE dial failures per transport, because one
+	// failure is not evidence that a transport cannot work here.
+	//
+	// A dial failure is only ever reached when the relay is REACHABLE: the tcp handshake
+	// runs first, and resolveTransport returns early if it fails, so a relay that is simply
+	// down never gets this far. What remains is the narrow window where a RESTARTING relay
+	// has its tcp listener up and its quic listener not yet accepting. Condemning on the
+	// first failure would pin that session to tcp until the game restarts -- silently, with
+	// nothing visible on screen to report. Requiring two IN A ROW closes that window, since
+	// retries are seconds apart and the window is milliseconds, while costing a genuinely
+	// incapable machine (Wine) one extra retry before it settles on tcp.
+	//
+	// Reset by a successful dial: this asks "is it failing NOW", not "has it ever failed".
+	//
+	// Guarded by mu; keyed by netx.Kind.String().
+	transportDialFailures map[string]int
 
 	// adapterRenderAllAreas mirrors the attached adapter's Hello
 	// render_all_areas: when true, remoteStatesAt skips the cross-area
