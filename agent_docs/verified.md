@@ -116,6 +116,7 @@ filed under the right theme, but anything can check that it is listed.
 - All four adapters still run end to end after the doc/refactor pass — 2026-08-25
 - A relaunched game could get a DEAD session, and CI caught it once in two runs (2026-08-27)
 - The render-knob sweep: damped prediction wins on a jittery link, and two bugs fell out first (2026-08-28)
+- TEVI's render pick on a bad link: 175ms linear, no prediction -- and the delay floor is a rule about links (2026-08-28)
 
 
 ## Split per game — 2026-08-25
@@ -1246,3 +1247,25 @@ watched each game and said so.
   machines, the other three games, and any shipped-default change -- deliberately none was made.
 - Source: `core/interp.go`, `core/sending.go`, `core/remotes.go`, `cmd/meshghost/main.go`;
   regression tests under `core/*_test.go`; the sweep table in `dev-scripts/README.md`.
+
+## TEVI's render pick on a bad link: 175ms linear, no prediction -- and the delay floor is a rule about links (2026-08-28)
+
+- Confirmed by: the user, closing the render-knob sweep with a three-way A/B on the fixed buffer,
+  same simulated link (60ms/±25ms/2% loss/2% reorder).
+- **With every bug fixed, plain linear interpolation is visually perfect and the delay is a
+  slider.** 250ms: *"everything looks perfect. just the '250ms delay'"*. 150ms: *"looks really
+  good, and feels more responsive"*, one *"really really tiny"* stutter on a long walk, *"not
+  noticable unless i looked for it"*. 175ms: *"didn't see anything at all"*. The user's own
+  summary, kept because it is the finding: *"175ms perfect, 150ms living at the edge where its
+  99% perfect"*. And the edge proved to be a DICE ROLL, not a constant: a later
+  150ms session rolled worse fault bursts and the stutter was *"really noticable"* -- a value with
+  no margin is only sometimes perfect, which is the argument for the margin. The winner-with-
+  prediction (100ms damped) stayed the most responsive but carried several small artifacts at
+  once, and the user chose correctness: **TEVI's dev-judged pick is 175ms, linear, prediction
+  off**, with the prediction stack remaining available in config.
+- **The transferable finding: the visual floor is the LINK's worst sample gap plus a margin** --
+  ~175ms on this simulated link (150 sat at the edge and varied by session), a different number on any other connection. A rule about
+  links, not about TEVI; re-judge per connection rather than copying the value.
+- **Scope:** one machine, loopback ghost, simulated faults, TEVI only. Shipped defaults unchanged
+  (250ms) pending real-network and other-game passes.
+- Source: the sweep entry above; the pick is written into the dev install's own `config.json`.

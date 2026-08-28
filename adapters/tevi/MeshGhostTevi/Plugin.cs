@@ -842,8 +842,8 @@ namespace MeshGhostTevi
         // changes and once at load, which are the two moments an orphan can appear.
         //
         // Found live 2026-08-28: the user saw several static ghosts standing around after cores
-        // were restarted under running games, and they survived the despawn-everything fix that
-        // shipped an hour earlier -- because that fix walks a dictionary and these were not in it.
+        // were restarted under running games, and they survived the despawn-everything fix
+        // shipped earlier that same day -- because that fix walks a dictionary and these were not in it.
         private void SweepOrphanGhosts(string reason)
         {
             int destroyed = 0;

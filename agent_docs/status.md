@@ -158,8 +158,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   slow resume after a rejoin is unknown. `tevi/UNVERIFIED.md`.
 - **TEVI's cold launch is CONFIRMED clean (2026-08-28)** — two instances, no port churn, ghosts on
   screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
-- **The render-knob sweep is DONE and recorded (2026-08-28)** — damped prediction won; acceleration
-  is out twice; two shipped bugs (reordering, phase re-seek) fixed. `verified.md`, ADR 0040.
+- **The render-knob sweep is DONE and the user picked 175ms linear for TEVI (2026-08-28)** — with
+  the bugs fixed the delay is a slider; the floor is the link's worst gap. `verified.md`, ADR 0040.
 - **Change suppression SHIPS with a 250ms keepalive (2026-08-28)** — ran a whole live session with
   no visible effect, its success condition. Per-field deltas still unbuilt. ADR 0039, `ideas.md`.
 - **OPEN: a predicted ghost sinks into the floor, and jumps land a beat late** — every generic
