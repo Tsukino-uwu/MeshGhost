@@ -1,0 +1,5 @@
+{
+  "_comment": "Per-game overrides applied on top of ../client-config-template.json when the release is staged. ONLY the keys that differ for this game belong here -- everything else, including the template's explanatory comments, comes from the template so there is one copy of it. dev-scripts/stage-release.ps1 applies these.",
+  "_comment_ghost_collision": "Disabled for Pseudoregalia specifically, on the user's call 2026-08-28: a solid ghost in a 3D platformer can stand in a doorway or on a ledge and physically block the player, which is a worse failure than a ghost you can walk through. protocol.ResolveGhostCollision returns disabled if EITHER side asks for it, so this client-side default holds even in a room whose relay advertises collision enabled -- the player is never made solid to themselves by someone else's server setting. The room can never force it back on; that asymmetry is deliberate (ADR 0035).",
+  "ghost_collision": "disabled"
+}

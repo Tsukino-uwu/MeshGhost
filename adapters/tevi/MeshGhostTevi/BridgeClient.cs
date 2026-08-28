@@ -122,6 +122,25 @@ namespace MeshGhostTevi
         // from both threads -- the read loop marks a port on reject, TryConnect reads it -- hence
         // the concurrent map.
         private static readonly TimeSpan BusyPortCooldown = TimeSpan.FromSeconds(10);
+
+        // How long to wait on the SAME core after it says IT cannot reach the relay -- which is a
+        // different thing from a busy port and must not be treated as one.
+        //
+        // A core that cannot reach the relay is a perfectly good core. Cooling its port and walking
+        // on finds nothing, cools every port in turn, and then leaves the adapter with nowhere to
+        // go -- and on adapters that autostart, spawning fresh cores nobody can use. Crystal has
+        // guarded against this since 2026-08-19 and its comment names the measurement: Emerald at
+        // 5fps doing exactly that while a relay was full. Emerald and Pseudoregalia got the guard
+        // on 2026-08-28; TEVI is the fourth and last adapter to get it. The fix existed in one of
+        // four for nine days, which is what adapters/CLAUDE.md's sibling-divergence sweep is about.
+        private static readonly TimeSpan RelayDownBackoff = TimeSpan.FromSeconds(10);
+
+        // Set when a core rejects us because the RELAY is unreachable. Until it passes, the walk
+        // does not advance and no port is cooled: there is nothing to walk to. Touched from the
+        // read loop and read by TryConnect, hence the volatile-by-lock convention used for
+        // portCooldownUntil above -- a DateTime write is not atomic on 32-bit, so it is guarded by
+        // the same object.
+        private DateTime relayDownUntil = DateTime.MinValue;
         private readonly ConcurrentDictionary<int, DateTime> portCooldownUntil =
             new ConcurrentDictionary<int, DateTime>();
 
@@ -283,6 +302,16 @@ namespace MeshGhostTevi
                 // churn so hard to attribute.
                 Log($"MeshGhost: nothing has answered on bridge port {dead} in {refusals} attempts " +
                     $"-- walking on to {CurrentPort}.");
+            }
+
+            // A core has told us the relay is unreachable: do not walk, do not cool a port, do not
+            // dial. There is nothing to walk TO, and walking is the defect this guard exists for.
+            lock (portCooldownUntil)
+            {
+                if (now < relayDownUntil)
+                {
+                    return;
+                }
             }
 
             // Skip ports a core has already refused us on, unless every port is cooling down --
@@ -729,6 +758,22 @@ namespace MeshGhostTevi
                             // moved. Using the cursor cooled down innocent ports and left the busy
                             // one hot, which is what made the walk churn.
                             int refusedPort = connectedPort;
+                            // ONE rejection means something different from the others. "busy"
+                            // means this core has an adapter, so walk on. "cannot reach the relay"
+                            // means this core is FINE and the relay is not -- walking on cools
+                            // every port in turn and leaves nowhere to go. Wait on the same core:
+                            // it retries the relay by itself and reconnects when it comes back.
+                            if (reason != null && reason.IndexOf("relay", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                lock (portCooldownUntil)
+                                {
+                                    relayDownUntil = DateTime.UtcNow + RelayDownBackoff;
+                                }
+                                Log($"MeshGhost: the core on port {refusedPort} cannot reach the relay " +
+                                    $"({reason}) -- waiting on this core rather than walking; it retries by itself.");
+                                connected = false;
+                                break;
+                            }
                             portCooldownUntil[refusedPort] = DateTime.UtcNow + BusyPortCooldown;
                             Log($"MeshGhost: the core on port {refusedPort} rejected this adapter " +
                                 $"({reason}) -- walking to the next bridge port.");

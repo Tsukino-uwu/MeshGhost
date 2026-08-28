@@ -61,8 +61,28 @@ foreach ($exe in @('meshghost.exe', 'meshghost-server.exe')) {
 }
 
 Write-Host '== Staging into packaging\release\ =='
-Copy-Item meshghost.exe packaging\release\ -Force
-Copy-Item meshghost-server.exe packaging\release\ -Force
+# A running relay or client HOLDS its .exe open, and staging while one runs is an ordinary thing to
+# do -- mid-session you often want to restage a config without stopping the session. So an
+# identical binary is skipped rather than copied, and a locked one that genuinely DIFFERS fails
+# with a message naming the process, instead of a raw IOException from Copy-Item.
+function Copy-Binary($name) {
+    $dest = Join-Path 'packaging\release' $name
+    if ((Test-Path $dest) -and (Get-FileHash $name).Hash -eq (Get-FileHash $dest).Hash) {
+        Write-Host "  $name already staged and identical -- skipped (safe while it is running)"
+        return
+    }
+    try {
+        Copy-Item $name $dest -Force
+    } catch [System.IO.IOException] {
+        $proc = Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($name)) -ErrorAction SilentlyContinue
+        if ($proc) {
+            throw "$name is running (pid $($proc.Id -join ', ')) and the staged copy differs -- stop it and re-run."
+        }
+        throw
+    }
+}
+Copy-Binary 'meshghost.exe'
+Copy-Binary 'meshghost-server.exe'
 
 # Each mod that installs INTO a game gets its own config.json, but NOT its own copy of the
 # client -- the mod starts the client from beside its own DLL, and shipping a 9 MB binary per

@@ -60,6 +60,17 @@ namespace MeshGhostPseudo
     // from.
     inline constexpr std::chrono::milliseconds BUSY_PORT_COOLDOWN{10000};
 
+    // How long to wait on the SAME core after it says it cannot reach the relay.
+    //
+    // A core that cannot reach the relay is a perfectly good core, so treating that rejection like
+    // a busy port makes the adapter walk on, find nothing, mark every port busy in turn, and then
+    // start spawning fresh cores at the retry cadence. Crystal has guarded against this since
+    // 2026-08-19 and its comment names the measurement: EMERALD at 5fps doing exactly that while a
+    // relay was full. Emerald got the guard back on 2026-08-28; this is the third sibling, and the
+    // symptom a 0.9.9 user reported -- "the sweep found NO free port to start a core on, every port
+    // in the range either answered or never refused" -- is what it looks like from outside.
+    inline constexpr std::chrono::milliseconds RELAY_DOWN_BACKOFF{10000};
+
     // How long to wait for the core to answer a hello before assuming it is an older build that
     // predates bridge_ready/reject (agent_docs/contract.md). Treating silence as acceptance keeps
     // a mixed setup working exactly as it did before, rather than refusing a perfectly good core.
@@ -154,6 +165,11 @@ namespace MeshGhostPseudo
 
         // Per-candidate "answered busy, skip me until" stamps, index-aligned with the port range.
         std::chrono::steady_clock::time_point busy_until[BRIDGE_PORT_COUNT]{};
+
+        // Set when a core rejects us because IT cannot reach the relay. Until it passes, the
+        // sweep does not run at all: there is nothing to walk to, and walking anyway is the
+        // defect above.
+        std::chrono::steady_clock::time_point relay_down_until{};
         // Where the last sweep found nothing listening, for CoreLauncher to spawn on.
         uint16_t spawnable{0};
         bool have_spawnable_port{false};

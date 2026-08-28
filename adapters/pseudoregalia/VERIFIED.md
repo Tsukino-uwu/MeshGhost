@@ -150,6 +150,7 @@ filed under the right theme, but anything can check that it is listed.
 - Pseudoregalia: a ghost's slide pose CYCLES instead of holding, and it is not a latency problem
 - Pseudoregalia: a held slide re-triggers every ~600ms, and the capsule really does stand up between repeats
 - Pseudoregalia: a hard crash mid-session, and the discovery that we ship six unnecessary UE4SS mods enabled
+- CONFIRMED ON SCREEN 2026-08-28 — relay-side area filtering is invisible in Pseudoregalia, both halves
 - The loopback offset manufactures positions real multiplayer never produces
 - 2026-08-17 — The double pause menu recurred, and this time did NOT crash
 - 2026-08-17 — A relay that dies leaves every ghost frozen in place, for up to 60 seconds
@@ -4161,3 +4162,46 @@ the two identical. Reach for `cmd/meshghost-fakeadapter` whenever that distincti
   meet this; the mirror was wrong to react, and only that was fixed.
 - Notes: same control-experiment shape as the health-bar investigation earlier the same day — one
   run without the suspect, one with — and it exonerated the mod in a single swap.
+
+## CONFIRMED ON SCREEN 2026-08-28 — relay-side area filtering is invisible in Pseudoregalia, both halves
+
+**The largest unwatched change of the day, watched.** Relay-side cross-area filtering (ADR 0041)
+applies to exactly two adapters — TEVI and Pseudoregalia — because the other two declare
+`render_all_areas` and are exempt. Until this run it had never been seen working on any screen.
+
+**User, watching a peer hop between their area and another every 20s:**
+
+- On the way out: *"it just pops in/out cleanly, when it leaves or comes back"* — **no freeze.**
+- On the way back: *"whenever the ghost comes back, it starts to move around in a circle
+  directly"* — **already in motion, no beat of empty space.**
+
+**Those are the two fixes, and each has a distinct failure mode that would have looked different.**
+
+- **The transition rule.** A peer leaving your area is announced by exactly one message: its first
+  state carrying the new `area_id`. Filter that and the recipient hears silence, `remoteBuffer`
+  edge-holds the last sample, and the ghost **stands frozen mid-circle** until
+  `DefaultRemoteStaleAfter` (3s) removes it. "Pops out cleanly" is that message arriving.
+- **The arrival seed.** A filtered client receives nothing from another area, so on arriving it
+  knows nothing about who is standing there — and change suppression (ADR 0039) means a motionless
+  peer says nothing for up to `IdleKeepalive`. Without the seed the ghost appears a quarter-second
+  late. "Starts moving in a circle directly" is the seed landing: the state is already there, so it
+  renders in motion rather than after a wait.
+
+**Setup, stated because it is not a two-instance test.** Pseudoregalia cannot run two copies on this
+machine, so the peer was `meshghost-fakeadapter` — a synthetic client that is nonetheless a REAL
+relay client speaking the real protocol, circling radius 250 at the user's own `area_id` and
+position, with `-churn-every 20s -churn-for 8s` moving it to a second area and back. The relay,
+the client and the mod were all **release** builds from `packaging/release/`; only the extra peer
+was synthetic. That is the tier-3 rig `dev-scripts/README.md` describes, used here to answer a
+correctness question rather than a load one.
+
+**Also confirmed incidentally: the shipped build is quiet again.** The same session showed **zero
+`TRACE local` lines**, where the build an hour earlier wrote 24 of them per 18 seconds. See
+`FLAGS.md`'s `LOCAL_MOVEMENT_TRACE`.
+
+**Ghost collision is now disabled by default for this game** (user's call, same session): a solid
+ghost in a 3D platformer can stand in a doorway or on a ledge and block the player, which is worse
+than one you walk through. It rides the per-game config override, and
+`protocol.ResolveGhostCollision` returns disabled if EITHER side asks — so this holds even in a room
+whose relay advertises collision enabled, and a room can never force it back on.
+

@@ -123,6 +123,12 @@ namespace MeshGhostPseudo
         // connect every single call while the core was down, on the order of 200 socket
         // create/connect/abort cycles per second.
         auto now = std::chrono::steady_clock::now();
+        if (now < relay_down_until)
+        {
+            // A core told us the relay is unreachable. Do not sweep: there is nothing to walk to,
+            // and walking marks every port busy and then spawns cores nobody can use.
+            return;
+        }
         if (now - last_connect_attempt < RECONNECT_INTERVAL)
         {
             return;
@@ -413,6 +419,28 @@ namespace MeshGhostPseudo
                 }
                 if (line.find("\"reject\"") != std::string::npos)
                 {
+                    // ONE rejection means something different from the others, and treating them
+                    // alike is what cost a 0.9.9 user their session. "busy" means this core has an
+                    // adapter, so the answer is to try the next port. "cannot reach the relay"
+                    // means this core is FINE and the relay is not -- walking on finds nothing,
+                    // every port gets marked busy in turn, and the adapter then starts spawning
+                    // fresh cores at the retry cadence. Wait on the same core instead: it retries
+                    // the relay by itself and reconnects when the relay comes back.
+                    //
+                    // Crystal has had this since 2026-08-19, Emerald since 2026-08-28. This is the
+                    // third sibling to get it, which is why adapters/CLAUDE.md's "rules that live
+                    // in one code path and are missing from their sibling" sweep exists.
+                    if (line.find("relay") != std::string::npos)
+                    {
+                        relay_down_until = std::chrono::steady_clock::now() + RELAY_DOWN_BACKOFF;
+                        Output::send(STR("[MeshGhostPseudo] core on port {} cannot reach the relay ({}) -- "
+                                         "waiting on this core rather than walking; it retries by itself.\n"),
+                                     current_port,
+                                     to_wide_ascii(line));
+                        close_socket();
+                        recv_buffer.clear();
+                        return lines;
+                    }
                     // Somebody else's core. Skip this port for a while and let the next sweep
                     // find another -- without the cooldown we would reconnect immediately, make
                     // it log another refusal, and hang up, forever.
