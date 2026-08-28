@@ -217,9 +217,13 @@ type Client struct {
 	// peers sharing its own area_id, so the relay may drop the rest rather
 	// than forward states the receiving core would discard anyway. Absent
 	// means false, which means "forward everything" -- see the protocol field
-	// for why that fail-open default is load-bearing. Written once at
-	// construction before publication into Room.members, like maxReceiveHz and
-	// features above, so it needs no lock.
+	// for why that fail-open default is load-bearing.
+	//
+	// GUARDED BY Room.mu, unlike maxReceiveHz and features beside it. Those
+	// are written once before the Client is published and never change; this
+	// one does, via protocol.TypePrefs, because a core connects at startup and
+	// its adapter attaches later -- so the Hello cannot know the answer yet.
+	// Read in stateRecipients under the same lock.
 	ownAreaOnly bool
 
 	// lastArea is this client's own most recently reported area_id, cached
@@ -1626,6 +1630,22 @@ func (s *Server) handleConn(conn net.Conn) {
 			s.forgetSessionsOf(r, id)
 			_ = nd.Close()
 			return
+		case protocol.TypePrefs:
+			var prefs protocol.Prefs
+			if err := json.Unmarshal(env.Payload, &prefs); err != nil {
+				return
+			}
+			if prefs.OwnAreaOnly != nil {
+				// Under r.mu because stateRecipients reads this field there,
+				// on every state -- unlike the write-once fields beside it,
+				// which are set before the Client is published and never
+				// change.
+				r.mu.Lock()
+				if c, ok := r.members[id]; ok {
+					c.ownAreaOnly = *prefs.OwnAreaOnly
+				}
+				r.mu.Unlock()
+			}
 		case protocol.TypePing:
 			var ping protocol.Ping
 			if err := json.Unmarshal(env.Payload, &ping); err != nil {

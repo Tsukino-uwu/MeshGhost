@@ -279,13 +279,17 @@ var frozenProtocolFields = map[string][]string{
 	// learns nothing about what an area is, exactly as it learns nothing from area_id itself --
 	// which is the field it makes the relay act on. It mirrors bridge.Hello.render_all_areas
 	// below, already frozen on the same reasoning.
-	"Hello":          {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
-	"Welcome":        {"features", "ghost_collision", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
-	"Reject":         {"reason"},
-	"Join":           {"player_id", "state"},
-	"Leave":          {"player_id"},
-	"Event":          {"corr_id", "from", "payload", "seq", "to"},
-	"Ping":           {"nonce"},
+	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
+	"Welcome": {"features", "ghost_collision", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
+	"Reject":  {"reason"},
+	"Join":    {"player_id", "state"},
+	"Leave":   {"player_id"},
+	"Event":   {"corr_id", "from", "payload", "seq", "to"},
+	"Ping":    {"nonce"},
+	// own_area_only again, for the same reason it is allowed on Hello: a bool asking the relay
+	// to compare two opaque ids for equality teaches it nothing about what an area is. It needs
+	// its own message because Hello is sent before the adapter attaches -- see protocol.TypePrefs.
+	"Prefs":          {"own_area_only"},
 	"Pong":           {"nonce", "server_time_ms"},
 	"TransportOffer": {"kind", "port"},
 	"Transports":     {"offers"},
@@ -337,8 +341,9 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"State": protocol.State{}, "Envelope": protocol.Envelope{}, "Hello": protocol.Hello{},
 		"Welcome": protocol.Welcome{}, "Reject": protocol.Reject{}, "Join": protocol.Join{},
 		"Leave": protocol.Leave{}, "Event": protocol.Event{}, "Ping": protocol.Ping{},
-		"Pong": protocol.Pong{}, "TransportOffer": protocol.TransportOffer{},
-		"Transports": protocol.Transports{}, "Lease": protocol.Lease{},
+		"Pong": protocol.Pong{}, "Prefs": protocol.Prefs{},
+		"TransportOffer": protocol.TransportOffer{},
+		"Transports":     protocol.Transports{}, "Lease": protocol.Lease{},
 		"LeaseState": protocol.LeaseState{}, "Escrow": protocol.Escrow{},
 		"EscrowState": protocol.EscrowState{}, "World": protocol.World{},
 		"WorldEntry": protocol.WorldEntry{}, "WorldState": protocol.WorldState{},

@@ -85,6 +85,20 @@ const (
 	TypeWorldState MessageType = "world_state"
 	TypePing       MessageType = "ping"
 	TypePong       MessageType = "pong"
+	// TypePrefs updates per-client settings a client first stated in its
+	// Hello, for the case where the truth is not yet known at connect time.
+	//
+	// It exists because own_area_only got that wrong in a way that reached a
+	// live session (2026-08-28). A core connects to the relay at startup, from
+	// its -game flag, and its ADAPTER attaches later -- when the game itself
+	// launches, which can be minutes afterwards. So the Hello was necessarily
+	// sent before the core could know whether its adapter renders neighbouring
+	// areas, and Emerald's cross-map ghosts were filtered away as a result.
+	//
+	// Client to relay only, and additive: a relay too old to know this type
+	// ignores it under the unknown-type rule below and simply keeps forwarding
+	// everything, which is the fail-open direction.
+	TypePrefs MessageType = "prefs"
 	// TypeReject is the relay's reply to a Hello it refuses — wrong protocol
 	// version, mismatched game_id/game_version for the room, a wrong room
 	// code, or a full room — or, since the send/receive rate-control feature
@@ -436,6 +450,19 @@ type Event struct {
 // even computable.
 type Ping struct {
 	Nonce uint64 `json:"nonce"`
+}
+
+// Prefs updates settings this client already stated in its Hello. Every field
+// is a POINTER so that absent means "unchanged" rather than "false" -- an
+// update message that silently reset the fields it did not mention would be a
+// trap the first time a second field is added.
+//
+// Sent by a core whenever the answer changes, which in practice means when an
+// adapter attaches and declares itself. See TypePrefs for the incident.
+type Prefs struct {
+	// OwnAreaOnly has exactly the meaning it has on Hello: this client renders
+	// only peers sharing its own area_id, so the relay may skip the rest.
+	OwnAreaOnly *bool `json:"own_area_only,omitempty"`
 }
 
 // Pong is the relay's reply.

@@ -3228,6 +3228,53 @@ most likely a large room on a real socket rather than the discard transport the 
 - **It is a saving in syscalls and IP/UDP header overhead, not in payload.** That puts it in the
   same class as this file's packet-count finding: it removes per-message overhead rather than bytes.
 
+## BUG: with MESHGHOST_BRIDGE_PORT set, a rejected adapter hot-loops and its own log line is a lie (2026-08-28)
+
+**Found live**, in the Emerald session that tested relay-side area filtering. Not caused by that
+work -- it is pre-existing, and only shows when the relay is unreachable while the port override is
+set. The user's console filled with this, hundreds of times:
+
+```
+MeshGhost: bridge connected on 127.0.0.1:7779.
+MeshGhost: rejected (core: dial relay: dial tcp 127.0.0.1:7777: ... actively refused it.)
+MeshGhost: port 7779 is a core that already has an adapter -- skipping it for 10s.
+MeshGhost: bridge connection lost, will retry connecting.
+```
+
+repeating immediately rather than every 10s.
+
+**Two defects, and the same line states both wrongly.**
+
+1. **The cooldown is bypassed.** `connectBridge` returns early when `BRIDGE_PORT_OVERRIDE` is set
+   (`meshghost_emerald.lua:964`, `meshghost_crystal.lua:9268`) and that early path never consults
+   `busyUntil`, which is checked only in the port-walk loop below it. So `markPortBusy` logs
+   *"skipping it for 10s"* and the next frame retries the same port anyway. The 10s is real for the
+   walk and fiction for the override.
+2. **The reason is invented.** `handleBridgeLine` passes a hardcoded *"is a core that already has an
+   adapter"* to `markPortBusy` for EVERY rejection (`meshghost_emerald.lua:1941`). The actual reason
+   string is printed on the line above and, here, said the relay could not be dialled. The code
+   comment is right that no rejection should be BRANCHED on; it does not follow that every rejection
+   should be DESCRIBED as the same thing.
+
+**Why it has never been seen before.** Both conditions are needed: the override set (the dev
+launchers set it; a shipped single-instance player has no override and gets the working cooldown)
+and a core that keeps rejecting (relay down). Normal play meets neither.
+
+**Why it is worth fixing rather than tolerating.** `crowd-limits.md` already records console spam as
+a frame-rate killer in this exact adapter -- ~1,400 `console.log` writes a second took Emerald to
+3fps, and throttling them restored 59.7. This loop writes four lines per reconnect with no delay at
+all, so a player whose relay is not up yet pays for it in frame time while seeing a message that
+misdescribes what is wrong.
+
+**Both Pokémon adapters have it identically**, which is `ideas.md`'s own "rules that live in one
+code path and are missing from their sibling" sweep, in its less usual form: not a rule missing from
+one sibling, but a defect present in both.
+
+**The fix is small**: have the override path respect `busyUntil` like the walk does, and pass the
+rejection's real reason through to `markPortBusy` instead of a fixed string. Untested and
+unscheduled -- it needs a live check with the relay deliberately down, which is cheap to arrange but
+was not worth interrupting a test in progress for.
+
 ## Sweep: rules that live in one code path and are missing from their sibling
 
 **Unscheduled.** Three instances surfaced in a single session (2026-08-22) and each reached the user

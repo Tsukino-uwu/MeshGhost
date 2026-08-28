@@ -184,6 +184,15 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// keys off bridge_ready to start sending, so the policy has to
 			// follow it, not precede it.
 			c.pushSessionPolicy()
+			// And tell the RELAY what this adapter just told us, because the
+			// Hello could not have known it. A core started from its -game
+			// flag connects at startup and its adapter attaches whenever the
+			// game launches -- so the relay has been assuming this client
+			// wants only its own area, which for a cross-map adapter is
+			// exactly wrong. Sent after the connect, unconditionally, so the
+			// relay's view matches the adapter's regardless of which order
+			// the two arrived in.
+			c.pushAreaPreference()
 		case bridge.TypeLocalState:
 			var msg bridge.LocalState
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {
@@ -354,5 +363,56 @@ func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload an
 	}
 	if err := nd.Send(env); err != nil {
 		log.Printf("core: send %s to adapter failed: %v", t, err)
+	}
+}
+
+// pushAreaPreference tells the relay whether this client wants states from
+// other areas, which is the inverse of the attached adapter's own
+// render_all_areas declaration (bridge.Hello).
+//
+// It exists because the Hello cannot answer the question. A core started from
+// its -game flag connects to the relay at startup; its adapter attaches when
+// the game launches, which may be minutes later. So at Hello time there is no
+// adapter to ask, the core defaults to "only my own area", and a cross-map
+// adapter's peers are then filtered away by the relay.
+//
+// FOUND LIVE 2026-08-28, in the first real Emerald session after relay-side
+// area filtering shipped: a ghost crossing a route seam froze on the tile it
+// entered and vanished three seconds later, which is the departing-ghost
+// signature exactly -- one state delivered by the transition rule, then
+// silence, then the stale-after timer. The relay's own introspect line
+// confirmed it, reporting 60% of bytes filtered in a room where Emerald should
+// have had none. The code comment claiming an unattached adapter was
+// "harmless" because the filter fails open was wrong: it fails open only until
+// the client's area is known, and then the stale declaration applies forever.
+//
+// Sent unconditionally rather than only on a change: it is one small message
+// per adapter attach, and "only when it differs from what we sent" is state
+// this does not need to keep.
+func (c *Core) pushAreaPreference() {
+	c.mu.Lock()
+	relay := c.relay
+	ownAreaOnly := !c.adapterRenderAllAreas
+	c.mu.Unlock()
+	if relay == nil {
+		// Not connected yet, so there is nothing to correct -- the Hello this
+		// core sends when it does connect reads the same field, and by then
+		// the adapter is attached.
+		return
+	}
+	payload, err := json.Marshal(protocol.Prefs{OwnAreaOnly: &ownAreaOnly})
+	if err != nil {
+		log.Printf("core: BUG: prefs failed to marshal: %v", err)
+		return
+	}
+	if err := relay.Send(protocol.AppendEnvelope(nil, protocol.TypePrefs, payload)); err != nil {
+		// Reliable, not lossy: a dropped prefs message leaves the relay
+		// filtering a client that needs everything, which is a ghost that
+		// never appears rather than a sample that arrives late.
+		log.Printf("core: could not tell the relay our area preference: %v", err)
+		return
+	}
+	if !ownAreaOnly {
+		log.Printf("core: adapter renders all areas — asked the relay not to filter by area")
 	}
 }

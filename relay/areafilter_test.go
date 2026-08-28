@@ -286,3 +286,36 @@ func TestClientThatDidNotOptInIsNotSeeded(t *testing.T) {
 		t.Fatalf("a client receiving everything was seeded anyway: %d message(s)", len(got))
 	}
 }
+
+// THE BUG THAT REACHED A LIVE SESSION, at the unit level.
+//
+// A core connects to the relay from its -game flag at startup; its adapter
+// attaches when the game launches, which can be minutes later. So the Hello is
+// necessarily sent before the core can know whether its adapter renders
+// neighbouring areas, and it defaults to own_area_only -- which for Emerald,
+// whose cross-map ghosts are a shipped feature, is exactly wrong.
+//
+// The symptom on 2026-08-28 was a ghost crossing a route seam freezing on the
+// tile it entered and vanishing three seconds later: one state delivered by the
+// transition rule, then silence, then the stale-after timer. protocol.TypePrefs
+// is the correction, and this is it working.
+func TestPrefsCanTurnFilteringOffAfterTheHello(t *testing.T) {
+	r, _ := areaRoom(t, map[string]member{
+		"sender":   {area: "town", ownAreaOnly: true},
+		"crossmap": {area: "route", ownAreaOnly: true}, // as its Hello had to guess
+	})
+
+	if recipientsOf(r, "sender", "town")["crossmap"] {
+		t.Fatal("precondition: a client that declared own_area_only should be filtered")
+	}
+
+	// The adapter attaches and declares render_all_areas; the core relays that.
+	r.mu.Lock()
+	r.members["crossmap"].ownAreaOnly = false
+	r.mu.Unlock()
+
+	if !recipientsOf(r, "sender", "town")["crossmap"] {
+		t.Fatal("after the adapter declared it renders all areas, the relay must stop filtering — " +
+			"this is the Emerald cross-map regression found live on 2026-08-28")
+	}
+}

@@ -29,6 +29,16 @@ import (
 // which is the whole point: a seam crossing is an area_id changing between two
 // consecutive states from the same peer.
 func movingAdapter(t *testing.T, bridgeAddr, gameID string, area *atomic.Value) (<-chan bridge.RenderRemote, func()) {
+	return movingAdapterWith(t, bridgeAddr, gameID, area, false)
+}
+
+// movingAdapterAllAreas declares render_all_areas, the way Emerald and
+// cross-map-armed Crystal do, so its client must never be filtered by area.
+func movingAdapterAllAreas(t *testing.T, bridgeAddr, gameID string, area *atomic.Value) (<-chan bridge.RenderRemote, func()) {
+	return movingAdapterWith(t, bridgeAddr, gameID, area, true)
+}
+
+func movingAdapterWith(t *testing.T, bridgeAddr, gameID string, area *atomic.Value, allAreas bool) (<-chan bridge.RenderRemote, func()) {
 	t.Helper()
 
 	renders := make(chan bridge.RenderRemote, 256)
@@ -81,7 +91,7 @@ func movingAdapter(t *testing.T, bridgeAddr, gameID string, area *atomic.Value) 
 					}
 				})
 
-				if !sendBridge(conn, bridge.TypeHello, bridge.Hello{GameID: gameID}) {
+				if !sendBridge(conn, bridge.TypeHello, bridge.Hello{GameID: gameID, RenderAllAreas: allAreas}) {
 					return
 				}
 				var seq uint64
@@ -213,4 +223,63 @@ func TestCrossAreaFilteringIsInvisibleThroughTheRealBinaries(t *testing.T) {
 	awaitPeerEvent(t, stayerRenders, promptly, func(rr bridge.RenderRemote) bool {
 		return rr.State.AreaID == "cave"
 	}, "the stayer to see the walker again after following it into the cave")
+}
+
+// THE ORDERING THAT REACHED A LIVE SESSION, through the real binaries.
+//
+// The client process connects to the relay from its -game flag at STARTUP. Its
+// adapter attaches whenever the game launches -- in the session that found this,
+// two minutes later. So the Hello could not know whether the adapter renders
+// neighbouring areas, defaulted to own_area_only, and the relay filtered a
+// cross-map adapter's peers away: a ghost crossing a route seam froze on the
+// tile it entered and vanished three seconds later.
+//
+// Worth an e2e rather than only a unit test precisely because the bug WAS the
+// ordering of two real processes. Every unit test passed while this was broken,
+// and so did the previous e2e case -- because both built their clients and
+// adapters in the same breath, which is the one arrangement that hides it.
+func TestAnAdapterAttachingLateStillDisablesAreaFiltering(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	r := newRig(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+
+	bridge2 := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	startClient(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr)
+	startClient(t, r.dir, r.clientBin, r.relayAddr, bridge2)
+
+	// THE DELAY IS THE TEST, which is why it is here rather than being tuned
+	// away. The defect is about two real processes doing things in a
+	// particular ORDER: the client connects to the relay from its -game flag,
+	// and its adapter attaches whenever the game launches. Without this wait
+	// the adapter attaches within milliseconds -- often before the client has
+	// finished connecting, so the Hello happens to carry the right answer and
+	// the bug hides. That is exactly why the FIRST version of this test passed
+	// with the fix removed, and why the live session (a two-minute gap) found
+	// what every automated check had missed.
+	//
+	// A second is far more than the ~200ms a client takes to connect, and the
+	// assertion below still has the full testTimeout to succeed in.
+	time.Sleep(time.Second)
+
+	// Both clients are now connected to the relay with NO adapter attached,
+	// which is exactly the state the live session was in. Anything that
+	// attaches from here on is "late".
+	var aArea, bArea atomic.Value
+	aArea.Store("town")
+	bArea.Store("route")
+
+	// The peer that renders every area, like Emerald's cross-map adapter.
+	aRenders, stopA := movingAdapterAllAreas(t, r.bridgeAddr, "e2egame", &aArea)
+	defer stopA()
+	_, stopB := movingAdapter(t, bridge2, "e2egame", &bArea)
+	defer stopB()
+
+	// The two are in DIFFERENT areas, so a filtered client would see nothing at
+	// all. A cross-map one must still be sent the peer, and decide for itself.
+	awaitPeerEvent(t, aRenders, testTimeout, func(rr bridge.RenderRemote) bool {
+		return rr.State.AreaID == "route"
+	}, "a cross-map adapter attaching AFTER its client connected to still receive another area's peer")
 }

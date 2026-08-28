@@ -59,6 +59,31 @@ pops them in a quarter-second later, at every seam, and gets *worse* the better 
 Sent reliably: a dropped seed reinstates the pop, and unlike an ordinary sample there is no next one
 coming.
 
+## Amendment, same day: the Hello alone cannot answer this
+
+**Shipped broken, found in the first live Emerald session, fixed the same day.** A core connects to
+the relay at startup from its `-game` flag; its adapter attaches when the GAME launches, which in
+that session was two minutes later. So the Hello was necessarily sent while no adapter existed to
+ask, defaulted to `own_area_only`, and the relay filtered Emerald -- whose cross-map ghosts must
+never be filtered.
+
+The symptom the user reported: *"the ghost gets stuck right on the tile they crossed over into, and
+despawn after a few seconds"* -- the departing-ghost signature exactly. One state delivered by the
+transition rule above, then silence, then `DefaultRemoteStaleAfter`. The relay's own introspect line
+confirmed it in seconds, reporting **60% of bytes filtered in a room that should have had none**.
+
+**The correction is `protocol.TypePrefs`**, a small client-to-relay message carrying the same field,
+sent when an adapter attaches. Additive and fail-open at every combination: a relay too old to know
+the type ignores it and keeps forwarding everything; a client too old never sends it and keeps the
+Hello value. The Hello field stays, because it is right on a reconnect, when the adapter is already
+attached.
+
+**The reasoning that failed is worth keeping.** The original code comment said an unattached adapter
+was harmless *"because it sends no state, so the relay's filter fails open for it regardless."* That
+is true only until the client's area becomes known -- which happens the moment it starts playing --
+and then the stale declaration applies for the rest of the session. **A fail-open that is temporary
+is not a fail-open.**
+
 ## Why a new Hello field and not a `features` entry
 
 `protocol.IsRoomScopedFeature` is a **deny-list defaulting to room-scoped**: an unrecognised

@@ -816,6 +816,52 @@ is IN?** The first wants ordering, the second wants truth. And a "helpful" subst
 needs the exact frame, which is exactly when it is hardest to attribute.
 
 
+## A test that builds both processes in the same breath cannot catch a bug about the delay between them (2026-08-28)
+
+**Symptom.** First live Emerald session after relay-side area filtering shipped: *"the ghost gets
+stuck right on the tile they crossed over into, and despawn after a few seconds."*
+
+**Cause.** A client declares `own_area_only` in its relay Hello. But `cmd/meshghost` connects to the
+relay at STARTUP from its `-game` flag, while its adapter attaches when the GAME launches -- two
+minutes later in that session. So the Hello was sent with no adapter to ask, defaulted to "filter
+me", and the relay filtered Emerald, whose cross-map ghosts must never be filtered.
+
+**Fix.** `protocol.TypePrefs`, a small client-to-relay message sent when an adapter attaches,
+correcting what the Hello could not know. ADR 0041's amendment.
+
+### Why every automated check missed it, which is the transferable part
+
+The unit tests all passed, and so did the first `internal/e2e` case written specifically for this
+feature. **Because they constructed the client and the adapter in the same breath** -- so the
+adapter attached within milliseconds, usually before the client had finished connecting, and the
+Hello happened to carry the right answer. The one arrangement that hides the bug is the one a test
+writes by default.
+
+**The rule: when a defect is about the ORDER of two real processes, the test must force that order,
+and forcing it usually means letting real time pass.** The regression test here sleeps a second
+between starting the clients and attaching the adapters, and that sleep IS the test rather than
+something to tune away. It was confirmed by deleting the fix and watching it go red -- which the
+version without the sleep did not.
+
+Related, and the same shape: `_template/probes.md`'s warning that a diagnostic can break the thing
+it measures. Here a TEST was hiding the thing it measured.
+
+### Two more lessons, both cheap to reuse
+
+**"It fails open, so it is harmless" is only true if the fail-open is permanent.** The code comment
+justifying the broken default said an unattached adapter was harmless *"because it sends no state,
+so the relay's filter fails open for it regardless."* True -- until the client starts playing and
+its area becomes known, after which the stale declaration applies for the whole session. **A
+temporary fail-open is not a fail-open**, and the window it covers is exactly the window before
+anyone would notice.
+
+**A counter built to SIZE a decision is also the diagnostic for that decision regressing.** The
+cross-area shadow counters shipped on 2026-08-18 to answer "would filtering be worth it?" On
+2026-08-28 the same `-introspect` line answered "is the filter wrongly on for this game?" in
+seconds: it read **60% of bytes filtered in a room that should have had 0%**. Reach for the numbers
+a feature was justified with before reasoning about the feature's behaviour -- they are usually
+still pointed at the right place.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
