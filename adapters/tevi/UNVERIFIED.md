@@ -36,6 +36,35 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## Pending -- the charged attack is BUILT and improved, but never called 1:1 (2026-08-28)
+
+The 2026-08-15 gap (*"the animation plays and the effect does not"*) is closed in the sense that
+effects now appear. **It is NOT confirmed as 1:1**, and the user's own words are the record:
+*"looks better now, unsure if its 1:1 or not"*, then after the timing fix *"yee this looks much
+better"*. Both are improvements reported, neither is a confirmation.
+
+**What is built.** Three pooled effects mirror (`Normal4H Blast` 56, `CutinStar` 0, and 37, the
+perfect-timing extra the game gates on its own timing-quality state). The hitstop holds the
+ghost's Animator. Animation PHASE travels, not just the clip name.
+
+**What to look at.** A charged attack watched from the other instance, several times, landing the
+timing well on some of them. **What correct looks like:** the star, the hold and the slam in the
+same rhythm as your own, the blue variant appearing on the ghost when you get it, and no visible
+snap when the hold ends.
+
+**Known residuals, in the order they are likely to be noticed:**
+
+- **A ghost renders 250ms behind by design** (`core.DefaultInterpolationDelay`). That delays body
+  and effects together, so it should not look internally out of step -- if the star lags the
+  ghost's OWN swing, interpolation is not the cause.
+- **Effects spawn on message ARRIVAL, not at the ghost's own `animTime`.** The game fires the star
+  at `animTime 0.425`; the ghost fires it when told. Those coincide only while phase is in sync,
+  which is held to a 0.06 tolerance -- roughly 25ms on a half-second clip. **The better fix, not
+  built:** spawn when the ghost's own clip crosses the phase the peer reported. More faithful, and
+  it couples the effect to the animation, so it was not done speculatively.
+- **`AnimPhaseTolerance = 0.06` is a guess.** Too loose and the hold lands a frame or two off; too
+  tight and the ghost shimmers from constant re-seeking. Nobody has measured the right value.
+
 ## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 
 **The defect was observed, not theorised.** Both instances sat logging

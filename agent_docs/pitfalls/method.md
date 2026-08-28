@@ -580,6 +580,28 @@ FREQUENCY changes its cost class**; cache whatever it reads at the same time.
 
 **Cross-reference:** `adapters/tevi/VERIFIED.md`, warp devices; `adapters/tevi/BANDAGES.md` 7.
 
+
+## A probe's sample rate is not a mechanism's sample rate (2026-08-28)
+
+**Symptom.** A mirrored effect landed *"a tiny bit late"* on a peer ghost — consistently late,
+never early, which is the shape of a bias rather than of jitter.
+
+**Cause.** The code that detects the effect was written by copying a PROBE's polling interval
+(20Hz) into the shipped mechanism. For a probe that rate is correct: a diagnostic must not cost
+frames, and 50ms of sampling delay costs a diagnostic nothing because it is only ever read
+afterwards. For a mechanism the same interval IS latency, added to every event, in one direction.
+
+**The rule.** **A sample rate chosen for cost is not a sample rate chosen for latency, and code
+that moves from probe to product must have that number re-decided rather than inherited.** The
+give-away is a one-directional error: jitter is symmetric, sampling delay never is.
+
+**Also check what the two are actually walking.** The probe here enumerated 375 pooled objects, the
+mechanism only an allowlist of three pools — a few dozen. The mechanism could always have run
+per-frame; the shared constant implied a shared cost that was never real.
+
+**Cross-reference:** `adapters/tevi/MeshGhostTevi/Plugin.cs`, `WatchLocalVfx`;
+`adapters/tevi/UNVERIFIED.md`, the charged attack.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:

@@ -36,12 +36,25 @@ the measurement that made it a rule.
 | Redraw trace | `DIAG_REDRAW_TRACE` | Whether a peer ghost's position, `activeInHierarchy` and scene drift *after* creation — written for the 2026-08-14 zone-transition invisibility bug, which is root-caused and fixed. | One line per remote every 2s, **forever** while on. | Yes, 2026-08-14 |
 | Marker staleness | `DIAG_MARKER_STALENESS` | How old the position each FullMap peer marker is showing actually is. | One line per marker per second, **only while the map is open**. | **No** |
 | Menu gate | `DIAG_MENU_GATE` | What the adapter can see at each play-session transition, and therefore what really distinguishes the pause overlay from the main menu. | One line per transition. | **No** |
-| Spawn diff | `DIAG_SPAWN_DIFF` | What a move actually **spawns** — every GameObject that appears or disappears near the player *and* near each peer ghost, by instance id. Written for the charged-attack gap, where the ghost animates and no effect appears. | A scene-wide `FindObjectsOfType<Transform>()` at 20Hz, plus one line per appearance. **Reports its own scan time**; raise `SpawnDiffSampleInterval` if that is bad. | **No** |
+| Spawn diff | `DIAG_SPAWN_DIFF` | What a move actually **spawns** — every GameObject that appears or disappears near the player *and* near each peer ghost, by instance id. Written for the charged-attack gap, where the ghost animates and no effect appears. | A scene-wide `FindObjectsOfType<Transform>()` at 20Hz, plus one line per appearance. **Reports its own scan time**; raise `SpawnDiffSampleInterval` if that is bad. | Yes, 2026-08-28 (rebuilt first — see below) |
+| Pool watch | `DIAG_POOL_WATCH` | Which POOLED effect the game just spawned, **by prefab name** (`Normal4H Blast`, `CutinStar`), for effects that do not parent to the character — which is most of them. The widening to reach for when Spawn diff comes back empty. | Walks the two `ObjectPooler`s (~375 objects) per sample; measured `avgMs=0.09`. | Yes, 2026-08-28 |
 
-**Two of the three have never been run.** That is their honest state and it is written here rather
-than left to be assumed: a probe that has never run proves nothing, and neither does its own output
-once it has (`../../agent_docs/testing.md`). Both are queued in
-[UNVERIFIED.md](UNVERIFIED.md).
+**Three of the five have been run; `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` never have.** That
+is their honest state and it is written here rather than left to be assumed: a probe that has never
+run proves nothing, and neither does its own output once it has
+(`../../agent_docs/testing.md`). Both unrun ones are queued in [UNVERIFIED.md](UNVERIFIED.md).
+
+**`DIAG_SPAWN_DIFF` had to be rebuilt before it was usable, and the reason is the point of the cost
+column.** Its first version enumerated every `Transform` in the scene and **measured itself at
+`avgMs=19.19`, `worstMs=27.13` against a 16.7ms frame**, in a scene holding 36,854 transforms. It
+said so, which is the only reason it was not simply believed — a probe too expensive to run does
+not report being expensive, it reports NOTHING, and a quiet log reads exactly like "the game spawned
+nothing". Rebuilt to walk only the anchors' own subtrees (~50 objects): `avgMs=0.22`.
+
+**Then it returned a clean negative, and that was the finding.** 4,926 scans, the player's subtree
+constant, budget at 12/500 so nothing was truncated: the charged attack's effects do not parent to
+the character. That is the documented cue to widen the SUBSYSTEM rather than sample harder, and
+`DIAG_POOL_WATCH` is that widening — it named both effects on its first run.
 
 ## Marker staleness — `DIAG_MARKER_STALENESS`
 

@@ -1034,8 +1034,16 @@ namespace MeshGhostTevi
         // An effect this far from the local player is not the local player's. Generous, because the
         // measured figure was 123 units for the player against 275 for a ghost standing well away.
         private const float MirroredEffectOwnershipRange = 200f;
-        private const float VfxWatchInterval = 0.05f;
-        private float lastVfxWatchTime;
+        // EVERY FRAME, and the interval that used to be here was a real defect. It was 0.05f,
+        // copied from the probe's sample rate without thinking -- and for a PROBE that is right
+        // (a diagnostic must not cost frames), while for a MECHANISM the interval simply becomes
+        // latency. Polling at 20Hz meant a mirrored effect was detected 0-50ms after the game
+        // actually spawned it, averaging ~25ms, and biased ENTIRELY one way: always late, never
+        // early. The user saw it as the star landing "a tiny bit late".
+        //
+        // Affordable because this walks only the allowlisted pools -- a few dozen objects -- not
+        // the 375 the DIAG_POOL_WATCH probe enumerates. The probe's cost is not this one's cost,
+        // and the two should never have shared a number.
         private readonly Dictionary<int, int> mirroredEffectActive = new Dictionary<int, int>();
         private int localVfxSeq;
         private int localVfxEffect;
@@ -1044,11 +1052,6 @@ namespace MeshGhostTevi
         // enough to the player to be the player's? If so, bump the counter the peer reads.
         private void WatchLocalVfx(CharacterBase player)
         {
-            if (Time.time - lastVfxWatchTime < VfxWatchInterval)
-            {
-                return;
-            }
-            lastVfxWatchTime = Time.time;
             if (GemaPoolManager.Instance == null || player == null || player.t == null)
             {
                 return;
