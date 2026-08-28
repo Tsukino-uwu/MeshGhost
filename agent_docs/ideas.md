@@ -3086,6 +3086,39 @@ only when isolated:
   same mechanism for COST, generalised across every field and done once in the core (game-agnostic
   — "has this value changed?" needs no knowledge of what the value means), not per adapter.
 
+### Ranked by measurement, 2026-08-28 -- and per-field deltas are NOT the biggest win
+
+Measured on the netsim rig: **~136 bytes per state** on the wire, so a shipped 20Hz room costs
+about **9.8 MB/hour** per uploading player before IP/UDP overhead (another ~30-50 bytes a packet).
+Against that baseline the three candidates rank opposite to intuition, because **relay CPU and
+header overhead scale with PACKET COUNT, not packet size**:
+
+| Option | Idle cost at 20Hz | Verdict |
+|---|---|---|
+| **Do not send a value the receiver can DERIVE** (TEVI's `anim_t` while a clip loops) | **~4 packets/s, ~2 MB/h** | **The win.** Idle states become identical, so the whole-state suppression that already ships takes over. A few lines, one adapter, no protocol change |
+| Quantise that value instead | ~no saving | Dead end: a 1/32 step still changes faster than a 20Hz send rate, and a step coarse enough to help (1/8) exceeds the 0.06 phase tolerance and visibly seeks |
+| **Per-field deltas** (the entry above) | ~4-6 MB/h | Real but smallest, and by far the most expensive |
+
+**Why deltas cost the most for the least here:** they shrink packets without removing any, so the
+relay still parses, validates, re-encodes and fans out the same number of messages. They need
+capability negotiation (absent must flip from "not present" to "unchanged", reinterpreting every
+existing message), keyframe/resend rules for late joiners, reconnects and udp loss, and -- the part
+to weigh hardest -- **the relay would have to hold per-peer state to reconstruct full states**,
+weakening the property the ACE audit leaned on: today it keeps nothing and re-encodes every message
+from a parsed, validated struct.
+
+**The rule to generalise instead: do not send what the receiver can derive for itself.** Pokemon
+already gets the full benefit (a standing player's states are byte-identical); Pseudoregalia's
+per-frame values go constant when idle and should too, unmeasured; TEVI is the only adapter with a
+continuously-advancing field, so it is the only one needing work.
+
+**The safety property that makes this uncontroversial** (user's constraint, 2026-08-28: *"i don't
+want normal gameplay to look/feel weird due to data not being sent. but we don't have to send
+'everything' all the time either"*): suppression skips only a BYTE-IDENTICAL state, so any
+movement, clip change, effect or hitstop resumes full rate instantly. Active play cannot degrade;
+only a motionless peer is affected, and the phase re-anchors the moment they act -- so the idle
+drift is bounded by how long someone stands perfectly still, not by session length.
+
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
 
 ## Sweep: rules that live in one code path and are missing from their sibling
