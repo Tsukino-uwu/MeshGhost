@@ -73,7 +73,34 @@ $modFolders = @(
     'packaging\release\games\tevi\MeshGhost'
 )
 foreach ($f in $modFolders) {
-    Copy-Item packaging\release\games\client-config-template.json "$f\config.json" -Force
+    # The shared template, with this game's own overrides applied on top if it has any. The
+    # overrides file holds ONLY the keys that differ, so the template stays the single copy of the
+    # long explanatory comments a player actually reads -- duplicating a whole config per game
+    # would guarantee the two drift, and the comments are the half most likely to rot.
+    #
+    # Applied as a targeted text replacement rather than by parsing and re-emitting JSON:
+    # round-tripping through ConvertTo-Json reorders the keys and reflows the file, which would
+    # churn the very comments this exists to preserve.
+    $text = Get-Content packaging\release\games\client-config-template.json -Raw
+    $game = Split-Path (Split-Path $f -Parent) -Leaf
+    if ($game -eq 'Mods') { $game = 'pseudoregalia' }   # the UE tree is deeper than TEVI's
+    $ovPath = "packaging\release\games\$game\client-config-overrides.json"
+    if (Test-Path $ovPath) {
+        $ov = Get-Content $ovPath -Raw | ConvertFrom-Json
+        $applied = @()
+        foreach ($prop in $ov.PSObject.Properties) {
+            if ($prop.Name -like '_comment*') { continue }
+            $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)"[^"]*"'
+            $before = $text
+            $text = [regex]::Replace($text, $pattern, ('${1}"' + $prop.Value + '"'))
+            if ($text -eq $before) {
+                throw "$ovPath overrides '$($prop.Name)', which is not a string key in client-config-template.json -- the override would have been silently dropped."
+            }
+            $applied += $prop.Name
+        }
+        Write-Host "  $game config: overrode $($applied -join ', ')"
+    }
+    Set-Content -Path "$f\config.json" -Value $text -Encoding utf8 -NoNewline
 }
 if ($ForRelease) {
     Remove-Item packaging\release\games\client-config-template.json

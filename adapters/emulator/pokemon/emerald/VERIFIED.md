@@ -198,6 +198,7 @@ filed under the right theme, but anything can check that it is listed.
 - Two write-only registers that lie when read
 - Emerald is FEATURE COMPLETE — the user's call (2026-08-21)
 - Emerald: a same-town Fly, watched from a second instance — user-confirmed (2026-08-26)
+- Emerald survives relay-side area filtering, confirmed from the RELEASE files (2026-08-28)
 - Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
 - CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
 
@@ -3731,3 +3732,37 @@ the user's savestates while a second watched, with both logging, and by keying s
 bird's own sprite callback so the frames land on the event rather than on a timer. Twelve faults
 in one session had struct fields reading correct throughout; the screenshots are what separated
 them. `_template/probes.md`.
+
+## Emerald survives relay-side area filtering, confirmed from the RELEASE files (2026-08-28)
+
+**User, after two instances run entirely from `packaging/release/`:** *"Emerald is working fine.
+nothing spammed in the lua console, and crossing seam/route still works as intended."*
+
+**What this closes.** Relay-side cross-area filtering shipped earlier the same day (ADR 0041) and
+briefly broke Emerald's cross-map ghosts: a peer crossing a route seam froze on the tile it entered
+and vanished three seconds later. The user's first read after the fix was *"crossing a seam/route
+seems to work at least"*, held as unconfirmed under the let-it-settle rule; this is the second and
+unhedged confirmation, and it was taken on a different, stricter setup.
+
+**Why the RELEASE run is the one worth recording.** Every earlier check ran through `dev-scripts`,
+which reach the adapter at its source path, set `MESHGHOST_BRIDGE_PORT`, and start a core by hand.
+This run used the staged release instead: the adapter loaded from
+`packaging/release/games/pokemon/emerald/`, the client and server were the release binaries built
+with release flags, no port override was set, and both cores were autostarted by the adapters
+themselves. So it also confirms the shipped **8-port walk** gives two instances on one machine their
+own core with nothing configured — `bridge connected on 127.0.0.1:7778` on the first, its own port
+on the second.
+
+**Measured alongside, from the relay's own `-introspect`:** `filtered: 0 recipients, 0 B -- 0% of
+offered bytes never sent`, against `56%` of that room's bytes being cross-area. That is the correct
+answer for Emerald and the whole point of the fix — the adapter declares `render_all_areas`, so the
+relay must forward everything even though most of it crosses areas. Before the fix the same line
+read 60% filtered.
+
+**What "nothing spammed" does and does not prove.** It proves no regression in normal operation. It
+does NOT prove the relay-down backoff also fixed today, because the relay was up throughout: that
+defect only fires when the core keeps REJECTING an adapter, which needs the relay unreachable at
+attach time. A deliberate 25-second relay outage mid-session added only 12 log lines, none of them
+reconnect churn — but that is the graceful mid-session path, not the attach path. **The attach-time
+backoff remains unconfirmed** and is recorded as such in `UNVERIFIED.md`.
+

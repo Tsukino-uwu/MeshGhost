@@ -1,0 +1,187 @@
+MeshGhost: drawn overflow tier = off
+MeshGhost Emerald adapter running.
+Decoding Brendan/May sprite frames...
+MeshGhost: sprite data found at the vanilla ROM address.
+Bridge: walking 127.0.0.1:7778-7785 for a core that will have us. Two copies on one machine each find their own.
+MeshGhost: bridge connected on 127.0.0.1:7778.
+MeshGhost: rejected (busy: this core already has a game attached)
+MeshGhost: port 7778 refused us (busy: this core already has a game attached) -- skipping it for 10s.
+MeshGhost: bridge connection lost, will retry connecting.
+MeshGhost: started a core (no window) on bridge port 7779; it will exit with the emulator.
+MeshGhost: bridge connected on 127.0.0.1:7779.
+MeshGhost: bridge_ready on port 7779 -- this core is ours.
+MeshGhost: gObjectEvents/gPlayerAvatar found at the vanilla ROM address.
+status: frame=300 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(48,76) camOff=(0,0)
+status: frame=600 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(48,64) camOff=(0,0)
+status: frame=900 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(94,79) camOff=(0,0)
+status: frame=1200 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(20,40) camOff=(0,0)
+status: frame=1500 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(47,88) camOff=(0,0)
+status: frame=1800 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(84,88) camOff=(0,0)
+status: frame=2100 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(119,88) camOff=(0,0)
+status: frame=2400 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=false inGame=false slide=0/0 paused=0
+  player: pos=(11,16) coords=(18,23) sprite=(104,140) camOff=(0,0)
+state load detected: emu frame 2639 -> 4463399; dropping every ghost, hardware entry and tile claim rather than freeing them
+MeshGhost: in game -- now sending local state.
+MeshGhost: local gender = male
+status: frame=2700 connected=true ready=true port=7779 remotes=1 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  unrendered p1: area=0:17 local=0:10 at=(49,11)
+  player: pos=(1,10) coords=(8,17) sprite=(34,0) camOff=(86,112)
+status: frame=3000 connected=true ready=true port=7779 remotes=1 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  unrendered p1: area=0:17 local=0:10 at=(49,11)
+  player: pos=(4,10) coords=(11,17) sprite=(74,0) camOff=(46,112)
+MeshGhost: cross-map ghosts armed (gMapGroups self-located at 08486578)
+MeshGhost: xmap cache NOT saved -- cannot write C:\dev\MeshGhost\packaging\release\games\pokemon\emerald\logs/xmap_cache.txt
+f=3287 XMAP rebase -> 0:17 d=50,0 ghosts=1
+status: frame=3300 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(49,10) coords=(56,17) sprite=(11,0) camOff=(109,112)
+  ghost p1: obj=15 spr=60 coords=(56,18) sprite=(8,16) held=0/0 anim=7 action=0 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 906D 081C 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+f=3351 XMAP rebase -> 0:10 d=-50,0 ghosts=1
+f=3473 XMAP rebase -> 0:17 d=50,0 ghosts=1
+status: frame=3600 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(44,10) coords=(51,17) sprite=(-76,0) camOff=(196,112)
+  ghost p1: obj=15 spr=60 coords=(56,18) sprite=(8,16) held=0/0 anim=7 action=0 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90C4 081C 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=23/1 img=08505A8C anims=08509288
+f=3643 XMAP rebase -> 0:10 d=-50,0 ghosts=1
+status: frame=3900 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(5,8) coords=(12,15) sprite=(120,128) camOff=(0,-16)
+  ghost p1: obj=15 spr=60 coords=(6,18) sprite=(24,176) held=0/0 anim=7 action=0 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8068 9010 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=4/1 img=08505A8C anims=08509288
+MeshGhost: the engine reclaimed p1's ghost slot (cull or map load) -- respawning.
+f=4051 XMAP rebase -> 0:17 d=50,0 ghosts=1
+f=4125 XMAP rebase -> 0:10 d=-50,0 ghosts=1
+f=4183 XMAP rebase -> 0:17 d=50,0 ghosts=1
+status: frame=4200 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(47,10) coords=(54,17) sprite=(6,160) camOff=(114,-48)
+  ghost p1: obj=15 spr=60 coords=(56,18) sprite=(24,176) held=0/0 anim=7 action=0 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 9082 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=22/2 img=08505A8C anims=08509288
+f=4242 XMAP rebase -> 0:10 d=-50,0 ghosts=1
+status: frame=4500 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=37/136 paused=0
+  player: pos=(3,10) coords=(10,17) sprite=(88,160) camOff=(32,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(18,176) held=1/0 anim=22 action=55 peerAnim=running
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 802A 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=22/0 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+status: frame=4800 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=47/166 paused=0
+  player: pos=(3,10) coords=(10,17) sprite=(88,160) camOff=(32,-48)
+  ghost p1: obj=15 spr=60 coords=(13,18) sprite=(136,176) held=0/0 anim=11 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90A0 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=11/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+status: frame=5100 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(3,10) coords=(10,17) sprite=(88,160) camOff=(32,-48)
+  ghost p1: obj=15 spr=60 coords=(13,18) sprite=(136,176) held=0/0 anim=11 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90A0 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=11/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+status: frame=5400 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(3,10) coords=(10,17) sprite=(88,160) camOff=(32,-48)
+  ghost p1: obj=15 spr=60 coords=(13,18) sprite=(136,176) held=0/0 anim=11 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90A0 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=11/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+status: frame=5700 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(3,10) coords=(10,17) sprite=(88,160) camOff=(32,-48)
+  ghost p1: obj=15 spr=60 coords=(13,18) sprite=(136,176) held=0/0 anim=11 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90A0 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=11/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/3 img=08505A8C anims=08509288
+f=5852 XMAP rebase -> 0:17 d=50,0 ghosts=1
+status: frame=6000 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(49,10) coords=(56,17) sprite=(21,160) camOff=(99,-48)
+  ghost p1: obj=15 spr=60 coords=(63,18) sprite=(136,176) held=0/0 anim=11 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 90E3 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=11/3 img=08505A8C anims=08509288
+         player oam=8038 9070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=7/1 img=08505A8C anims=08509288
+f=6004 XMAP rebase -> 0:10 d=-50,0 ghosts=1
+status: frame=6300 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=43/156 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(11,18) sprite=(92,176) held=1/0 anim=23 action=56 peerAnim=running
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 9084 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=23/2 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=6600 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=55/267 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(7,18) sprite=(26,176) held=1/0 anim=23 action=56 peerAnim=running
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 9042 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=23/2 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=6900 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=20/78 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=7200 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=7500 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=7800 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=8100 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=8400 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=8700 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=9000 connected=true ready=true port=7779 remotes=1 ghosts=1 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+  ghost p1: obj=15 spr=60 coords=(5,18) sprite=(8,176) held=0/0 anim=6 action=255 peerAnim=idle
+         gfx: ghost drawn as 0, peer reports 0
+         ghost  oam=8048 8030 0824 0000 flags=03 08 sub=41 c2c=248,240 anim=6/1 img=08505A8C anims=08509288
+         player oam=8038 8070 0800 0000 flags=03 08 sub=41 c2c=248,240 anim=6/3 img=08505A8C anims=08509288
+status: frame=9300 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=9600 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=9900 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=10200 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=10500 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=10800 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=11100 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
+status: frame=11400 connected=true ready=true port=7779 remotes=0 ghosts=0 hw=0 drawn=0 clipped=0 overworld=true inGame=true slide=0/0 paused=0
+  player: pos=(2,10) coords=(9,17) sprite=(72,160) camOff=(48,-48)
