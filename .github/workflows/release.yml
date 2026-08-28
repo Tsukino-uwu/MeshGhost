@@ -276,59 +276,20 @@ jobs:
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          Copy-Item meshghost.exe packaging\release\
-          Copy-Item meshghost-server.exe packaging\release\
-          # Each mod that installs INTO the game gets its own config.json, but NOT its own copy
-          # of the client. The mod starts the client from beside its own DLL (autostart ADR in
-          # agent_docs/architecture.md), so the user copies meshghost.exe in once per game --
-          # a step, deliberately, rather than shipping the same 9 MB binary N times.
+          # ONE implementation of the staging, shared with the local dry run. It used to live
+          # inline here, which meant there was no way to try a release without cutting one --
+          # every local test ran against dev-scripts instead, reaching the adapters at their
+          # source paths and never exercising the layout a player installs. Moving it into a
+          # script both callers use is what makes dev-scripts/stage-release.ps1 a real rehearsal
+          # rather than a second thing that merely resembles this one. Read that file for what
+          # each copy is for; the comments went with it.
           #
-          # Changed 2026-08-18, on the user's call. Every alternative was worse in a way that
-          # cost more than it saved: shipping a copy per mod grows the download by ~2.6 MB
-          # (stripped, compressed) per game forever, and a %LOCALAPPDATA% breadcrumb pointing at
-          # one shared client is machinery we would have to own -- it goes stale when the folder
-          # moves, and silently picks the wrong one when two installs exist. Copying a file is a
-          # thing a user already understands and that cannot rot.
-          #
-          # config.json DOES ship here (1 KB), so only the big file is a manual step, and the
-          # mod folder still arrives configured.
-          #
-          # Emerald and Crystal are not in this list at all: their scripts load from the release
-          # folder itself, so they reach the root exe and config with no copy of anything.
-          #
-          # The cost of the step is a forgotten copy, so both mods name the exact folder in
-          # their log when the exe is missing rather than doing nothing.
-          $modFolders = @(
-            'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo',
-            'packaging\release\games\tevi\MeshGhost'
-          )
-          foreach ($f in $modFolders) {
-            Copy-Item packaging\release\games\client-config-template.json $f\config.json
-          }
-          Remove-Item packaging\release\games\client-config-template.json
-          New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
-          Copy-Item adapters\emulator\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\meshghost_emerald.lua
-          Copy-Item -Recurse adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
-          # Crystal, the same way. Its lib\ comes from Emerald's: it is the same BizHawk LuaSocket
-          # build, and adapters/emulator/pokemon/crystal/ deliberately has no copy of its own -- in a source
-          # checkout the script falls back to ../emerald/lib/x64/, and a release gives each game
-          # folder its own so that fallback is never needed by a player.
-          New-Item -ItemType Directory -Force packaging\release\games\pokemon\crystal | Out-Null
-          Copy-Item adapters\emulator\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\meshghost_crystal.lua
-          Copy-Item -Recurse adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
-          # An experiment flag beside the adapter would make it run an Archipelago ROM on an
-          # unconfirmed address. It is gitignored, so this only catches a stray local copy -- but
-          # a release is exactly where that must not slip through.
-          #
-          # Checked at the SOURCE, not in the staging folder. This used to test the staged path,
-          # which the Copy-Item above had just built from a copy list of exactly two things (the
-          # adapter and Emerald's lib) -- so the flag could never be there and the guard could
-          # never fire. The adapter reads it from its own directory (SCRIPT_DIR .. "/ap_try.flag"),
-          # which is where a stray one actually lives.
-          if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
-            Write-Host "::error::ap_try.flag must never be packaged"
-            exit 1
-          }
+          # -NoBuild: the two .exe files are built by this job's own earlier steps, with the same
+          # -ldflags, and other steps expect them at the repo root.
+          # -ForRelease: removes the tracked config template from the staged tree, which only a
+          # real release should do.
+          pwsh dev-scripts/stage-release.ps1 -NoBuild -ForRelease
+
           # "full" rather than "windows", for two reasons. It says what is actually in here
           # (client, server, and every game's mod) instead of naming a platform, and GitHub
           # sorts release assets ALPHABETICALLY BY FILENAME -- upload order is ignored, and

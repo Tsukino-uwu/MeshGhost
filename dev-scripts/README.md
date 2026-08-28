@@ -393,6 +393,18 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   staged. The stock Mods folder is deliberately NOT staged -- see the script's own header for the
   cheat-manager/console reasoning -- and no mods.txt/mods.json ships either. Re-run whenever the
   RE-UE4SS submodule pin changes; requires the build tree already built once.
+- `stage-release.ps1` — **assembles the Windows release into `packaging/release/`, so a release
+  can be tried without cutting one.** That folder holds only the hand-written half; the Go
+  binaries and the Emerald/Crystal adapter scripts were added by `release.yml` and existed
+  nowhere else, so "does the RELEASE work" could only be answered after tagging, and every local
+  test ran against the scripts here instead -- which reach the adapters at their SOURCE paths and
+  never exercise the layout a player installs.
+  **`release.yml` calls this same script**, deliberately: a second copy of the staging steps would
+  drift, and a dry run that stages something slightly different from the release reports success
+  about the wrong thing. Run it bare (`pwsh dev-scripts/stage-release.ps1`) and install from
+  `packaging/release/` exactly as the game READMEs describe.
+  It does NOT cover the zip, the Linux/macOS builds, or the mod-DLL staleness gates -- those stay
+  CI-only, so a clean dry run still is not a green release.
 
 ## Since autostart works, the MOD's config decides the client's settings — not these scripts
 
