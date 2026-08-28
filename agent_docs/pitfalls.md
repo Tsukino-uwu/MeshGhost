@@ -57,6 +57,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A count-bounded history silently shortens a time-based delay -- "250ms" was 140ms with stutter (2026-08-28)
 - A probe that edge-triggers on part of a value is blind to the rest of it (2026-08-28)
 - When mirroring an IMPULSE and a HOLD, the hold needs the truth of its own frame (2026-08-28)
+- A test that builds both processes in the same breath cannot catch a bug about the delay between them (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

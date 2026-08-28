@@ -920,6 +920,11 @@ local recvPartial = "" -- straddling-line remainder from the last drainBridge() 
 
 -- Ports that answered but would not have us, with the frame their cooldown ends.
 local busyUntil = {}
+
+-- ONE table rather than two names, because this file sits at 198 of Lua'''s 200-local ceiling
+-- (../CLAUDE.md) and spending the last two on a two-line feature would leave the next change
+-- with none. `frames` is the backoff, `until_` the deadline it sets.
+local relayDown = { frames = 600, until_ = 0 } -- 600 frames = 10s
 local currentPort = nil
 local helloSentAtFrame = nil
 
@@ -964,7 +969,18 @@ local firstFreePort = nil
 local function connectBridge()
     if BRIDGE_PORT_OVERRIDE then
         firstFreePort = BRIDGE_PORT_OVERRIDE
-        tryPort(BRIDGE_PORT_OVERRIDE)
+        -- The cooldown applies here TOO. It used to be checked only in the walk below, so an
+        -- override -- which every dev launcher sets, and which any two-instance setup needs --
+        -- retried the same port on the very next frame while markPortBusy had just printed
+        -- "skipping it for 10s". The log said one thing and the code did another.
+        --
+        -- Found live 2026-08-28: with the relay down, the core rejects every adapter, and this
+        -- produced four console lines per frame indefinitely. crowd-limits.md already records
+        -- console spam as a frame-rate killer in this adapter (~1,400 writes/second took Emerald
+        -- to 3fps), so a hot loop that logs is not a cosmetic problem.
+        if (busyUntil[BRIDGE_PORT_OVERRIDE] or 0) <= frameCounter then
+            tryPort(BRIDGE_PORT_OVERRIDE)
+        end
         return
     end
     firstFreePort = nil
@@ -1933,12 +1949,25 @@ local function handleBridgeLine(line)
         console.log(string.format("MeshGhost: bridge_ready on port %s -- this core is ours.",
             tostring(currentPort)))
     elseif env.type == "reject" then
-        -- The reason is for the log, never for branching on: the right response to any rejection
-        -- is the same one, which is to try the next port.
+        -- The reason is never BRANCHED on -- the right response to any rejection is the same, try
+        -- the next port -- but it is carried into the cooldown message rather than replaced by a
+        -- guess. The old text said "is a core that already has an adapter" for every rejection,
+        -- so a core that could not reach the RELAY reported itself as busy with a game: the line
+        -- above printed the truth and the line below contradicted it. Not branching on a reason
+        -- is a good rule; inventing one is a different thing (2026-08-28).
         local payload = env.payload
-        console.log("MeshGhost: rejected ("
-            .. tostring(type(payload) == "table" and payload.reason or "no reason given") .. ")")
-        markPortBusy(currentPort, "is a core that already has an adapter")
+        local reason = tostring(type(payload) == "table" and payload.reason or "no reason given")
+        console.log("MeshGhost: rejected (" .. reason .. ")")
+        -- ONE rejection means something different from the others. "busy" means this core has an
+        -- adapter, so try the next port. "cannot reach the relay" means this core is fine and the
+        -- RELAY is not -- there is nothing to walk to, and walking anyway is what produced the
+        -- 5fps measurement Crystal cites. Wait on the same core: it retries the relay itself.
+        if reason:find("relay", 1, true) then
+            relayDown.until_ = frameCounter + relayDown.frames
+            resetBridge()
+            return
+        end
+        markPortBusy(currentPort, "refused us (" .. reason .. ")")
         resetBridge()
     elseif env.type == "render_remote" then
         local payload = env.payload
@@ -10727,6 +10756,16 @@ local function runFrame()
     end
 
     if not connected then
+        -- BACK-PORTED FROM CRYSTAL 2026-08-28. A core that cannot reach the RELAY is a perfectly
+        -- good core, so walking on finds nothing, marks every port busy, and then starts spawning
+        -- fresh cores at the retry cadence. Crystal has carried this guard since 2026-08-19, and
+        -- its comment cites the measurement that justified it: EMERALD at 5fps doing exactly this
+        -- while a relay was full. The fix was written in the sibling and never brought back here,
+        -- so Emerald kept the defect its own measurement had proven -- and it resurfaced live on
+        -- 2026-08-28 as a console filling four lines per frame with the relay down.
+        if frameCounter < relayDown.until_ then
+            return
+        end
         connectBridge()
         -- Only after a full sweep found nothing. A core that is already running -- started by
         -- hand, by a dev script, or left by a previous session -- is used as-is and nothing is

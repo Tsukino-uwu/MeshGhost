@@ -9267,7 +9267,13 @@ local firstFreePort = nil
 local function connect()
 	if BRIDGE_PORT_OVERRIDE then
 		firstFreePort = BRIDGE_PORT_OVERRIDE
-		tryPort(BRIDGE_PORT_OVERRIDE)
+		-- The cooldown applies here TOO. It was checked only in the walk below, so an override --
+		-- which every dev launcher sets, and which any two-instance setup needs -- retried the
+		-- same port on the very next frame while markPortBusy had just printed "skipping it for
+		-- 10s". Found in Emerald live 2026-08-28 and fixed in both, since the shape is identical.
+		if (busyUntil[BRIDGE_PORT_OVERRIDE] or 0) <= bridgeFrames then
+			tryPort(BRIDGE_PORT_OVERRIDE)
+		end
 		return
 	end
 	firstFreePort = nil
@@ -9396,7 +9402,10 @@ local function handle(msg)
 			disconnect(nil)
 			return
 		end
-		markPortBusy(currentPort, "is a core that already has an adapter")
+		-- The reason is carried rather than guessed at: every rejection used to be reported as
+		-- "already has an adapter", so the line above could print the truth and this one
+		-- contradict it. Not BRANCHING on a reason is the rule; inventing one is not.
+		markPortBusy(currentPort, "refused us (" .. reason .. ")")
 		disconnect(nil)
 	elseif t == "render_remote" then
 		renderRemote(tostring(p.player_id), p.state)
