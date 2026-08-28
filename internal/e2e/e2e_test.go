@@ -166,6 +166,34 @@ func waitForListener(t *testing.T, addr string) {
 //
 // The returned stop function is idempotent so a test can both defer it and
 // call it early.
+// observedNames records every remote_name any adapter in this process was told.
+//
+// A map rather than a channel because this message arrives exactly once per peer: a channel
+// nobody happens to be reading at that instant loses it, and "the test missed it" would be
+// indistinguishable from "the core never sent it" -- which is the exact ambiguity the bug being
+// tested for lived inside.
+var observedNames struct {
+	sync.Mutex
+	byPlayer map[string]bridge.RemoteName
+}
+
+// nameToldTo waits for the adapter to be told a nametag for any peer, and returns it.
+func awaitAnyRemoteName(t *testing.T, what string) bridge.RemoteName {
+	t.Helper()
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		observedNames.Lock()
+		for _, rn := range observedNames.byPlayer {
+			observedNames.Unlock()
+			return rn
+		}
+		observedNames.Unlock()
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("no remote_name ever reached the adapter (%s)", what)
+	return bridge.RemoteName{}
+}
+
 func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.RenderRemote, func()) {
 	t.Helper()
 
@@ -196,7 +224,25 @@ func startAdapter(t *testing.T, bridgeAddr, gameID string) (<-chan bridge.Render
 		conn.OnDisconnect(func(error) { deadOnce.Do(func() { close(dead) }) })
 		conn.OnReceive(func(payload []byte) {
 			var env bridge.Envelope
-			if json.Unmarshal(payload, &env) != nil || env.Type != bridge.TypeRenderRemote {
+			if json.Unmarshal(payload, &env) != nil {
+				return
+			}
+			// remote_name is delivered ONCE, at attach or on a join -- so unlike render_remote
+			// there is no second chance to observe it. Recorded here rather than in a channel a
+			// test might not be reading yet.
+			if env.Type == bridge.TypeRemoteName {
+				var rn bridge.RemoteName
+				if json.Unmarshal(env.Payload, &rn) == nil {
+					observedNames.Lock()
+					if observedNames.byPlayer == nil {
+						observedNames.byPlayer = map[string]bridge.RemoteName{}
+					}
+					observedNames.byPlayer[rn.PlayerID] = rn
+					observedNames.Unlock()
+				}
+				return
+			}
+			if env.Type != bridge.TypeRenderRemote {
 				return
 			}
 			var rr bridge.RenderRemote
@@ -954,5 +1000,45 @@ func TestATLSRequiredClientRefusesAPlaintextRelay(t *testing.T) {
 		t.Fatalf("a ghost (%s) came back from a PLAINTEXT relay while the client was configured "+
 			"tls=required — the session was silently downgraded", rr.PlayerID)
 	case <-time.After(3 * time.Second):
+	}
+}
+
+// A NAMETAG MUST REACH AN ADAPTER THAT ATTACHES TO A ROOM SOMEBODY IS ALREADY IN.
+//
+// Through the real binaries, in the order that actually failed live on 2026-08-28: a named peer
+// is already connected, and only THEN does the second game launch. That client learns the name
+// from its Welcome roster rather than from a Join, and has to hand it to an adapter that did not
+// exist when the handshake happened.
+//
+// The reverse order -- peer joins while you watch -- worked from the first build and was what got
+// tested by hand twice, which is precisely why this shape went unnoticed.
+func TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and launches real binaries; skipped under -short")
+	}
+
+	observedNames.Lock()
+	observedNames.byPlayer = nil
+	observedNames.Unlock()
+
+	base := newRig(t)
+	r := base.withFreshPorts(t)
+	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+
+	// The peer who is already here, with a name.
+	firstBridge := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
+	startClient(t, r.dir, r.clientBin, r.relayAddr, firstBridge, "-transport", "tcp", "-name", "Alice")
+	_, stopFirst := startAdapter(t, firstBridge, "e2egame")
+	defer stopFirst()
+
+	// Now the second game launches: its client connects, and its adapter attaches after.
+	startClient(t, r.dir, r.clientBin, r.relayAddr, r.bridgeAddr, "-transport", "tcp", "-name", "Bob")
+	renders, stop := startAdapter(t, r.bridgeAddr, "e2egame")
+	defer stop()
+	awaitFreshRender(t, renders, "the two-client session")
+
+	got := awaitAnyRemoteName(t, "a peer named Alice was in the room before this adapter attached")
+	if got.DisplayName != "Alice" && got.DisplayName != "Bob" {
+		t.Fatalf("adapter was told nametag %q, want one of the two names in the room", got.DisplayName)
 	}
 }

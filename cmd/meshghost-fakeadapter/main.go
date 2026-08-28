@@ -313,6 +313,7 @@ func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	room := flag.String("room", "fake", "room name to join")
 	name := flag.String("name", "fake-ghost", "display name to advertise to the relay (a -clients index is appended when >1)")
+	nameColor := flag.String("name-color", "", "nametag colour for the synthetic peers, as a hex code like \"#F54927\" -- exercises the nametag colour path end to end")
 	roomCode := flag.String("room-code", "", "shared secret to send the relay for room-code auth "+
 		"-- only needed if the relay you're connecting to has one configured")
 	gameID := flag.String("game-id", "faketest", "game_id to advertise -- must match the real client's "+
@@ -522,6 +523,7 @@ func main() {
 		c.RelayAddr = *relayAddr
 		c.Room = *room
 		c.DisplayName = displayName
+		c.NameColor = *nameColor
 		c.RoomCode = *roomCode
 		c.GameVersion = *gameVersion
 		c.Features = featureList

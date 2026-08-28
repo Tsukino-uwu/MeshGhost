@@ -51,6 +51,28 @@ namespace MeshGhostPseudo
 
         RC::Unreal::AActor* ghost{nullptr};
         RC::Unreal::UWorld* owning_world{nullptr}; // which UWorld `ghost` belongs to (spawned into, or hijacked from)
+
+        // The nametag this peer chose, from the bridge's remote_name message, and the component
+        // drawing it.
+        //
+        // EMPTY NAME MEANS NO TAG AT ALL, which is the shipped default -- not an empty label, and
+        // not a placeholder. The core sends "" for a player who set no name, and the rule from the
+        // user is that nothing is drawn unless somebody deliberately typed something.
+        //
+        // NOT the name itself -- see Plugin::nametags. A name can arrive BEFORE this peer has a
+        // ghost (it does whenever the peer was already in the room when this game launched), and
+        // storing it here meant touching remotes[player_id] to save it, which silently created the
+        // entry. That flipped is_new_remote to false for that peer, so its land/jump/montage
+        // counters were never baselined and its ghost fired a spurious landing pulse and replayed
+        // old montages the instant it spawned. Found 2026-08-28, and entirely self-inflicted.
+        RC::Unreal::UObject* nametag_component{nullptr};
+        // What the component was last SET to, so a per-tick update can skip the engine call when
+        // nothing changed -- a name changes at most once a session and this runs every frame.
+        std::string nametag_applied_name;
+        std::string nametag_applied_color;
+        // Latches a failed creation so a build where this cannot work logs once rather than
+        // once per frame per ghost.
+        bool nametag_create_failed{false};
         double target_x{}, target_y{}, target_z{};
         double target_pitch{}, target_yaw{}, target_roll{};
 
@@ -467,6 +489,11 @@ namespace MeshGhostPseudo
 
       private:
         auto handle_bridge_line(const std::string& line, RC::Unreal::UObject* local_pawn, RC::Unreal::UObject* local_controller) -> void;
+
+        // Creates, updates and positions the nametag above one ghost. Called every tick from the
+        // redraw loop, and cheap when nothing changed: it compares against what it last applied
+        // and makes no engine call when the name and colour are unchanged.
+        auto update_ghost_nametag(RemoteGhost& entry, RC::Unreal::UObject* local_pawn, const std::string& player_id) -> void;
 
         // Phase 7.6: spawns a clone of the local player's own pawn class (ported field-for-field
         // from the Lua adapter's trySpawnRemoteGhost, probe_ghost/Scripts/main.lua:596-650), then
@@ -968,6 +995,22 @@ namespace MeshGhostPseudo
         // all without breaking contract.md's invariant.
         std::unique_ptr<CoreLauncher> core_launcher;
         std::unordered_map<std::string, RemoteGhost> remotes;
+
+        // A peer's chosen nametag, keyed by player id, kept OUTSIDE `remotes` on purpose.
+        //
+        // A name is not per-ghost state: it arrives once and can arrive before the peer's first
+        // position does, which is the normal case for anybody already in the room when this game
+        // launched. Writing it into `remotes` to hold it created the entry as a side effect and
+        // broke is_new_remote for exactly those peers (see RemoteGhost's comment).
+        //
+        // Erased on despawn_remote alongside the ghost, so a name cannot be inherited by whoever
+        // the relay next hands that player id to.
+        struct Nametag
+        {
+            std::string name;
+            std::string color; // "#RRGGBB", or empty for the component's own default
+        };
+        std::unordered_map<std::string, Nametag> nametags;
         std::unordered_set<RC::Unreal::AActor*> hijacked_actors; // prevents two remotes sharing one prop
         RC::Unreal::UWorld* last_logged_world{nullptr};
 

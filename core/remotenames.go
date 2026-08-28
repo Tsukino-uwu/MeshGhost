@@ -1,6 +1,8 @@
 package core
 
 import (
+	"log"
+
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
@@ -62,6 +64,23 @@ func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
 	ready := c.adapterReady
 	c.mu.Unlock()
 
+	// LOGGED EITHER WAY, once per change, because silence here was unreadable.
+	//
+	// A nametag failing to appear in a game had three possible causes on this side -- the relay
+	// never sent one, this core never stored it, or it stored it and never handed it over -- and
+	// nothing distinguished them. That cost several live sessions chasing the renderer while the
+	// message was never arriving. Cheap by construction: a name changes at most once per peer per
+	// session, so this cannot become per-frame logging.
+	if changed {
+		switch {
+		case !ready || nd == nil:
+			log.Printf("core: learned %s's nametag %q -- holding it, no adapter is attached yet "+
+				"(it gets pushed when one attaches)", playerID, tag.Name)
+		default:
+			log.Printf("core: telling the adapter %s's nametag %q", playerID, tag.Name)
+		}
+	}
+
 	// Only on a change: a name is stable for a whole session, so an adapter
 	// that has been told once must not be told again every time somebody
 	// reconnects into the same id.
@@ -82,6 +101,9 @@ func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
 // because a Join only ever announces an ARRIVAL, and names are deliberately not
 // in the state stream.
 func (c *Core) storeRosterNames(names map[string]protocol.Nametag) {
+	if len(names) > 0 {
+		log.Printf("core: the room's welcome carried %d nametag(s)", len(names))
+	}
 	for id, raw := range names {
 		c.storeRemoteName(id, &raw)
 	}
@@ -110,7 +132,11 @@ func (c *Core) remoteNamesSnapshot() map[string]protocol.Nametag {
 // anyone joining later gets one, which looks like a bug in the nametags rather
 // than a missed handover.
 func (c *Core) pushRemoteNames(nd transport.Transport) {
-	for id, tag := range c.remoteNamesSnapshot() {
+	known := c.remoteNamesSnapshot()
+	// Says the COUNT, including zero. "No nametags to hand over" and "this was never called" are
+	// different facts and looked identical for an entire evening of live testing.
+	log.Printf("core: adapter attached -- handing it %d already-known nametag(s)", len(known))
+	for id, tag := range known {
 		sendBridgeEnvelope(nd, bridge.TypeRemoteName, bridge.RemoteName{
 			PlayerID:    id,
 			DisplayName: tag.Name,

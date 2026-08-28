@@ -64,6 +64,10 @@ type fakeAdapter struct {
 
 	mu       sync.Mutex
 	rendered map[string]protocol.State
+	// names is every remote_name this adapter was told, keyed by player id. A real adapter
+	// draws from exactly this, and a test that only inspects the Core's own map cannot see the
+	// handover -- which is where the 2026-08-28 ordering bug actually lived.
+	names    map[string]bridge.RemoteName
 	despawns chan string
 	// ready/rejects capture the Core's two possible answers to a hello. Buffered
 	// so a test that never reads them cannot wedge the receive callback.
@@ -126,6 +130,18 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 			delete(fa.rendered, dr.PlayerID)
 			fa.mu.Unlock()
 			fa.despawns <- dr.PlayerID
+		case bridge.TypeRemoteName:
+			var rn bridge.RemoteName
+			if err := json.Unmarshal(env.Payload, &rn); err != nil {
+				t.Errorf("unmarshal remote_name: %v", err)
+				return
+			}
+			fa.mu.Lock()
+			if fa.names == nil {
+				fa.names = map[string]bridge.RemoteName{}
+			}
+			fa.names[rn.PlayerID] = rn
+			fa.mu.Unlock()
 		case bridge.TypeBridgeReady:
 			select {
 			case fa.ready <- struct{}{}:

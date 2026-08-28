@@ -264,3 +264,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - An enumeration is only as wide as its filter — "nothing found" means nothing until you check what you looked through (Pseudoregalia, 2026-08-27)
 - Proximity is not identity, and a loopback rig makes that worse (Pseudoregalia, 2026-08-27)
 - Reacting to an actor that spawns visible is too late by construction — refuse at the setter, and invert an unattributable failure (Pseudoregalia, 2026-08-27)
+- A readiness flag sampled before the call that sets it drops everything arriving with the handshake (Pseudoregalia, 2026-08-28)
+- A hardcoded /Script path finds nothing and says nothing — resolve UFunctions through the class chain (Pseudoregalia, 2026-08-28)

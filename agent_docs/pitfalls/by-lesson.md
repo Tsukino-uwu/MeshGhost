@@ -4931,3 +4931,80 @@ frame on a ghost's is the entire bug.
   lag, refuse-then-restore in the direction whose failure is invisible.
 - **A guard's backstop should log when something gets PAST the guard**, so its silence becomes the
   evidence. The confirming session's absence of that line is what "nothing slipped through" rests on.
+
+## A READINESS FLAG SAMPLED BEFORE THE CALL THAT SETS IT DROPS EVERYTHING ARRIVING WITH THE HANDSHAKE (Pseudoregalia, 2026-08-28)
+
+**Symptom.** A peer already in the room when the game launched never got a nametag; a peer who
+joined while you watched got one immediately. Two games side by side showed a label on the one
+started FIRST and never on the second — which looks like a bug about *ordering between clients*
+and is not.
+
+**What it actually was.** The tick read the socket and then decided whether to process what it
+read, using a readiness flag sampled ~70 lines earlier:
+
+```
+bool now_connected = bridge->is_ready();     // sampled at the top of the tick
+...
+received_lines = bridge->poll_lines();       // and THIS is what makes it ready
+if (now_connected) { queue(received_lines); }
+```
+
+`poll_lines` consumes `bridge_ready` and flips the adapter to ready *inside itself*. So on the one
+tick where acceptance arrives, the stale flag is still false and **every other line that arrived in
+the same read is returned and then silently discarded.**
+
+That window is exactly where the core puts its handover: `session_policy` and `remote_name` are
+both sent microseconds after `bridge_ready`, so they share a TCP segment with it. Both were being
+dropped EVERY session. Ghost-collision policy included — nobody had noticed, because the core
+re-pushes policy on later events and the first loss is invisible.
+
+**Why the symptom pointed away from the cause.** A name that arrives LATER (a peer joining while
+you play) travels the normal path and works perfectly. Only the handover at attach is lost, and
+"peer already present" is the only case that uses it. Three live sessions were spent on the
+renderer — text component creation, fonts, materials, facing — while the message was never
+arriving at all.
+
+**What found it.** Logging every distinct bridge message type on first sight. The mod's own log
+listed only `render_remote`, while the core's log showed `session_policy` and `remote_name` being
+sent. Two logs, one contradiction, one tick's worth of code between them. Before that line existed,
+"the core never sent it" and "the adapter threw it away" were indistinguishable — and the whole
+evening was spent guessing which.
+
+**The rule.** **Re-read any state that the call you just made can change.** A flag captured before
+a read is a claim about the past. Anything derived from "am I ready" must be sampled AFTER the
+thing that establishes readiness, or the first message of every session is a coin toss.
+
+**The general form, which is the transferable half:** an adapter's handshake window is not empty.
+Whatever the core sends immediately on acceptance lands there, so a bridge that gates processing on
+readiness must either queue what it read or re-check afterwards. Assume the first read of a session
+contains more than the acceptance itself.
+
+## A HARDCODED /Script PATH FINDS NOTHING AND SAYS NOTHING — RESOLVE UFUNCTIONS THROUGH THE CLASS CHAIN (Pseudoregalia, 2026-08-28)
+
+**Symptom, three times in one evening, each looking like a different bug:**
+
+- `RegisterComponent` "missing" → no component created at all, nothing drawn, no error.
+- `SetText` "missing" → the component existed and displayed `UTextRenderComponent`'s default
+  string, `"Text"`, which reads as "the name never arrived".
+- `SetTextRenderColor` looked up the same way → suspected for text rendering pure black.
+
+**Cause.** Every one was looked up as `UObjectGlobals::StaticFindObject<UFunction*>(nullptr,
+nullptr, STR("/Script/Engine.<Class>:<Function>"))`. A path lookup asserts where a function lives.
+When it is wrong — inherited from a parent, or simply not reflected at that path — the result is a
+null pointer and a code path that quietly does nothing.
+
+**The fix, which was already in the same file.** `component->GetFunctionByNameInChain(STR("..."))`
+asks the OBJECT what it can do and walks its class chain. `component_world_location` in this very
+mod had always used it and had always worked, twenty lines from where the broken lookups were being
+written.
+
+**And a real finding underneath it:** `SetText` and `MarkRenderStateDirty` are genuinely absent on
+this build even through the chain, while `SetTextRenderColor` is present. So the text is set by
+writing the `Text` property directly — reachable, and confirmed by reading it back. A missing
+setter is a fact about the build, not always a lookup mistake; the point is that a PATH lookup
+cannot tell the two apart and a chain lookup can.
+
+**The rule.** On a UE4SS adapter, resolve a UFunction through the class chain, and log which ones
+resolved — not only which ones did not. "No warning" only ever means "not missing"; it never means
+"did something". Both the empty string and the black text were read as success for exactly that
+reason.

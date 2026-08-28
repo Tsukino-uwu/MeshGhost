@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <set>
 #include <cstring>
 #include <map>
 #include <cwctype>
@@ -1899,6 +1900,83 @@ namespace MeshGhostPseudo
     // not a new guess.
     constexpr uint64_t GHOST_SPAWN_FADE_GUARD_TICKS = 10;
 
+    // ONE QUESTION, AND IT DECIDES THE WHOLE NAMETAG DESIGN: can this shipped build draw a
+    // UTextRenderComponent at all?
+    //
+    // A world-space text component is the only way to label a ghost that ships no asset of ours
+    // (a UMG widget needs one authored, which this repo cannot commit). But a shipping UE game
+    // only cooks the assets it REFERENCES, and a text component gets its font and material from
+    // engine defaults. If Pseudoregalia never uses one, those defaults may simply not be in the
+    // build -- and the component would then register with no error and draw NOTHING, which is
+    // exactly the "it ran without errors" trap this project has a rule about.
+    //
+    // The suspicion is not idle: the other Pseudoregalia multiplayer mod shipped its own FONT
+    // asset with its nametags, which is what you would have to do if the engine default were not
+    // available to you either.
+    //
+    // So this dumps what EXISTS rather than testing whether one guess works, and its most useful
+    // output may be the list of fonts the GAME itself has loaded -- using the game's own font
+    // would both dodge the cooking problem and make a nametag match the game's typography instead
+    // of looking like engine debug text.
+    //
+    // Read-only, one-shot, and it enumerates -- so it is off by default like every other probe
+    // here, and belongs off again the moment its question is answered.
+    constexpr bool NAMETAG_CENSUS_PROBE = false;
+
+    // Draw a peer's chosen name above their ghost. Fed by the bridge's remote_name message; a
+    // peer who set no name gets nothing drawn, which is the shipped default.
+    //
+    // The font and material come from UTextRenderComponent's own class defaults, which the
+    // NAMETAG_CENSUS_PROBE above confirmed ARE cooked into this build (2026-08-28) even though
+    // the game itself uses no text components -- Font=/Engine/EngineFonts/RobotoDistanceField,
+    // TextMaterial=/Engine/EngineMaterials/DefaultTextMaterialOpaque. So nothing of ours ships,
+    // which is the constraint that ruled out the UMG-widget approach the other Pseudoregalia
+    // multiplayer mod took (it shipped its own .uasset font).
+    constexpr bool GHOST_NAMETAGS = true;
+
+    // One-shot readback of each nametag component once its name is applied: registered/visible/
+    // hidden, font, material, world size, the string it actually holds, where it actually is, and
+    // its colour bytes.
+    //
+    // OFF by default because it is a diagnostic, and ON is how it earned its place: the first
+    // build of this feature logged only failures, so a component that was never created, one that
+    // existed and drew nothing, and one that drew the wrong string were indistinguishable -- three
+    // different bugs behind one symptom, each costing a live session to tell apart. Flip it on
+    // before theorising about anything a nametag does or does not do.
+    constexpr bool NAMETAG_STATE_READBACK = false;
+
+    // Swap the nametag's material. EMPTY MEANS LEAVE THE COMPONENT'S OWN, which is the shipped
+    // state until this is proven to help.
+    //
+    // Why it exists: the text renders pure black while the component demonstrably holds the right
+    // TextRenderColor -- confirmed by readback in two different colours, in a BRIGHT room, after a
+    // forced render-state rebuild, with the engine's own SetTextRenderColor having resolved and
+    // run. Every one of those addressed getting the colour INTO the component, and that half works.
+    // What has never been tested is whether the material it draws with uses that colour at all.
+    //
+    // EmissiveMeshMaterial takes its colour from vertex colour and is unlit, which is what a
+    // nametag wants anyway. The risk is that it does not sample the font texture, in which case
+    // the glyphs come out as solid blocks -- and THAT is still a useful result, because it would
+    // prove the vertex colour is reaching the mesh and the original material was ignoring it.
+    // TRIED AND REVERTED, kept as the record of what the answer is NOT.
+    //
+    // EmissiveMeshMaterial rendered a solid WHITE BOX: no glyphs (it does not sample the font
+    // texture) and no cyan (it did not pick up the colour either). That second half is the
+    // finding. The material was demonstrably in control of what appeared, and the vertex colour
+    // still did not reach it -- so TextRenderColor is not arriving as vertex colour on this build,
+    // and every attempt aimed at getting the value into the component was aimed at the wrong half.
+    //
+    // Empty means "leave the component's own material", which draws readable text in the engine's
+    // default. A path here swaps it, and the log line says which.
+    constexpr const wchar_t* NAMETAG_MATERIAL_OVERRIDE = STR("");
+
+    // How far above the ghost's origin the tag sits, in Unreal units, and how tall the glyphs are.
+    // Both are eyeball values to be judged on screen, not measurements -- the capsule is ~88 units
+    // half-height, so 110 clears the head with a little air.
+    constexpr double NAMETAG_HEIGHT_ABOVE_GHOST = 110.0;
+    constexpr float NAMETAG_WORLD_SIZE = 18.0f;
+
+
     constexpr bool SHADOW_COMPONENT_PROBE = false;
 
     // ~5 samples/sec at this build's measured ~150Hz. The trace logs on CHANGE, so a faster cadence
@@ -3047,6 +3125,164 @@ namespace MeshGhostPseudo
         //
         // Attribution is by name containment, the same test VFX_WATCH uses: a component's full name
         // carries its outer chain, so the local pawn's and the ghost's instance names sort them.
+        // What this build actually has for drawing text in the world. See NAMETAG_CENSUS_PROBE.
+        //
+        // Reports COVERAGE, not a verdict: every section prints its count, including zero, so
+        // "the game has no fonts loaded" and "this probe did not look for fonts" cannot be
+        // confused for one another. A probe that answered yes/no here would be unfalsifiable --
+        // the whole point is which objects exist, by name, so the next step can name one.
+        auto census_text_render_capability() -> void
+        {
+            // 1. Does the CLASS exist, and did anything in the game ever make one? An existing
+            //    instance would be the strongest possible answer: it means the engine defaults
+            //    are cooked AND the game already draws text this way.
+            std::vector<UObject*> instances;
+            UObjectGlobals::FindAllOf(STR("TextRenderComponent"), instances);
+            Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: {} TextRenderComponent instance(s) exist in the world.\n"),
+                         instances.size());
+            for (UObject* instance : instances)
+            {
+                if (instance)
+                {
+                    Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   instance {}\n"), instance->GetFullName());
+                }
+            }
+
+            // 2. The class default object, which is where a text component's Font and
+            //    TextMaterial come from when one is constructed. Null here is the finding that
+            //    kills the simple approach, so it is printed either way rather than only on
+            //    failure -- a probe that prints nothing when all is well cannot be told apart
+            //    from a probe that did not run.
+            UObject* cdo = UObjectGlobals::StaticFindObject<UObject*>(
+                nullptr, nullptr, STR("/Script/Engine.Default__TextRenderComponent"));
+            if (!cdo)
+            {
+                Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: no Default__TextRenderComponent -- "
+                                 "either the class is absent from this build or the path is wrong. "
+                                 "Both are findings; the instance count above tells them apart.\n"));
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: CDO {}\n"), cdo->GetFullName());
+                // Read each by name rather than by offset: an offset here would be an invented
+                // address, which this project does not do.
+                for (const wchar_t* prop : {STR("Font"), STR("TextMaterial")})
+                {
+                    UObject** value = cdo->GetValuePtrByPropertyNameInChain<UObject*>(prop);
+                    if (!value)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   {} -- NO SUCH PROPERTY "
+                                         "(so this build's class differs from what was expected)\n"), prop);
+                    }
+                    else if (!*value)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   {} = <null> -- the engine "
+                                         "default was NOT cooked into this build; a component made from "
+                                         "this CDO would draw nothing\n"), prop);
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   {} = {}\n"), prop, (*value)->GetFullName());
+                    }
+                }
+            }
+
+            // 2b. Materials whose name mentions text -- the candidates for a nametag that is
+            //     currently rendering BLACK despite carrying the right colour. Dumped rather than
+            //     guessed at: the colour is provably set on the component (readback shows the
+            //     right RGBA), so what remains is whether the material it draws with actually
+            //     uses that colour.
+            {
+                std::vector<UObject*> materials;
+                UObjectGlobals::FindAllOf(STR("Material"), materials);
+                size_t shown = 0;
+                for (UObject* material : materials)
+                {
+                    if (!material)
+                    {
+                        continue;
+                    }
+                    // UNFILTERED NOW. The narrow "Text or Unlit" filter found exactly one
+                    // material -- the engine default that is already in use and provably ignores
+                    // the colour we set (confirmed in a BRIGHT area 2026-08-28, so not a lighting
+                    // effect). A filter chosen from a guess about the answer is how you get a
+                    // complete-looking list that excludes the thing you needed.
+                    Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   material {}\n"),
+                                 material->GetFullName());
+                    ++shown;
+                }
+                Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: {} of {} loaded material(s) listed.\n"),
+                             shown, materials.size());
+
+                // And WHICH ROUTES TO A COLOUR this build actually offers, since the component's
+                // own TextRenderColor is set correctly and ignored. Named on the class chain, not
+                // by path -- the lesson from SetText earlier today.
+                if (UObject* cdo = UObjectGlobals::StaticFindObject<UObject*>(
+                        nullptr, nullptr, STR("/Script/Engine.Default__TextRenderComponent")))
+                {
+                    for (const wchar_t* fn : {STR("SetTextMaterial"), STR("CreateDynamicMaterialInstance"),
+                                              STR("SetVectorParameterValueOnMaterials"), STR("SetMaterial"),
+                                              STR("SetTextRenderColor"), STR("MarkRenderStateDirty")})
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   fn {} = {}\n"), fn,
+                                     cdo->GetFunctionByNameInChain(fn) ? STR("found") : STR("MISSING"));
+                    }
+                }
+            }
+
+            // 3. Every font the GAME has loaded -- the fallback, and possibly the better answer.
+            //    UNFILTERED ON PURPOSE: filtering by a name guessed in advance is a guess about
+            //    the answer, and a wrong guess still produces a complete-looking list.
+            std::vector<UObject*> fonts;
+            UObjectGlobals::FindAllOf(STR("Font"), fonts);
+            Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: {} Font object(s) loaded right now.\n"), fonts.size());
+            for (UObject* font : fonts)
+            {
+                if (!font)
+                {
+                    continue;
+                }
+                // FontCacheType is the field that decides whether a text component can USE this
+                // font at all. An OFFLINE font carries baked glyph textures, which is what a
+                // TextRenderComponent draws from; a RUNTIME font is cached by Slate for UI and has
+                // no such textures, so assigning one renders nothing -- silently, which is the
+                // same failure shape as a missing font and would be hunted as a bug in the
+                // nametag code rather than in the choice of font.
+                //
+                // Printed as a raw number rather than a name: the enum's values are not something
+                // this project can cite from a header it has, and inventing labels for them would
+                // be exactly the "API from memory" it forbids. The engine font's value is the
+                // control -- whatever number RobotoDistanceField carries is, by definition, one a
+                // text component can draw, and any game font sharing it is usable.
+                const wchar_t* cache_type = STR("<no FontCacheType property>");
+                StringType cache_value;
+                if (uint8_t* raw = font->GetValuePtrByPropertyNameInChain<uint8_t>(STR("FontCacheType")))
+                {
+                    cache_value = std::to_wstring(static_cast<int>(*raw));
+                    cache_type = cache_value.c_str();
+                }
+                // Textures is the corroborating evidence: an offline font has baked pages, a
+                // runtime one does not. Two independent signals beat one, and this one needs no
+                // enum decoding at all.
+                int32_t texture_count = -1;
+                if (TArray<UObject*>* textures = font->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("Textures")))
+                {
+                    texture_count = textures->Num();
+                }
+                Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   font {} FontCacheType={} Textures={}\n"),
+                             font->GetFullName(), cache_type, texture_count);
+            }
+
+            // WHAT THIS PROBE CANNOT SEE, stated so nobody reads its silence as coverage:
+            // objects not yet loaded. UE loads on demand, so a font used only by a menu this
+            // session never opened will be missing from the list above and is not proof of
+            // absence. Run it again from a different part of the game before concluding a font
+            // does not exist.
+            Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS: end. Counts above are of what is LOADED "
+                             "now -- an asset the game has not needed yet is absent from this list and "
+                             "that is not evidence it does not exist.\n"));
+        }
+
         auto census_world_shadow_components(UObject* local_pawn, UObject* ghost) -> void
         {
             std::vector<UObject*> found;
@@ -5415,6 +5651,677 @@ namespace MeshGhostPseudo
                                        FName(STR("Yaw"), FNAME_Find),
                                        FName(STR("Roll"), FNAME_Find),
                                        value.GetPitch(), value.GetYaw(), value.GetRoll());
+        }
+
+        // ---- Nametags -------------------------------------------------------------------
+        //
+        // A floating label above a ghost, built from a UTextRenderComponent. See GHOST_NAMETAGS.
+        //
+        // Actor:AddComponentByClass, and the first attempt got this WRONG in an instructive way.
+        //
+        // It originally used NewObject + ActorComponent:RegisterComponent, avoiding
+        // AddComponentByClass because that one takes an FTransform and UE4SS models FTransform as
+        // a version-dependent byte blob -- a zeroed Scale3D renders a component of size nothing,
+        // which is indistinguishable from "the nametag code does not work".
+        //
+        // That reasoning was sound and the conclusion was still wrong: RegisterComponent is NOT a
+        // reflected UFunction (measured live 2026-08-28 -- "class=found RegisterComponent=MISSING"),
+        // it is a plain C++ method, so there was nothing for ProcessEvent to call and no component
+        // was ever created. Avoiding a hazard by choosing a path that does not exist is not
+        // avoiding it.
+        //
+        // So the FTransform is faced instead of dodged: its Rotation.W and Scale3D are written
+        // FIELD BY FIELD BY NAME, the same technique the colour uses, which needs no layout
+        // knowledge at all. Both are values a zeroed buffer gets silently wrong.
+
+        // Lists the component-related UFunctions a class actually exposes.
+        //
+        // Called only when the expected one is missing: a guess about which function to use is
+        // cheap to make and costs a whole launch to test, so when one is wrong the next thing to
+        // do is read the vocabulary rather than guess again.
+        auto dump_component_functions(const wchar_t* class_path) -> void
+        {
+            UClass* klass = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, class_path);
+            if (!klass)
+            {
+                Output::send(STR("[MeshGhostPseudo] NAMETAGFUNCS: {} not found at all.\n"), class_path);
+                return;
+            }
+            size_t shown = 0;
+            for (UFunction* fn : klass->ForEachFunctionInChain())
+            {
+                if (!fn)
+                {
+                    continue;
+                }
+                const StringType name = fn->GetName();
+                if (name.find(STR("Component")) != StringType::npos || name.find(STR("Register")) != StringType::npos)
+                {
+                    Output::send(STR("[MeshGhostPseudo] NAMETAGFUNCS: {} -> {}\n"), class_path, name);
+                    ++shown;
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] NAMETAGFUNCS: {} had {} matching function(s).\n"), class_path, shown);
+        }
+
+        // Creates a text component on `owner`, already registered and attached.
+        //
+        // AddComponentByClass rather than NewObject + RegisterComponent, because the first live
+        // run proved RegisterComponent is NOT a reflected UFunction in this build (2026-08-28:
+        // "TextRenderComponent class=found RegisterComponent=MISSING"). It is a plain C++ method,
+        // so there is nothing for ProcessEvent to call, and the component was never created at
+        // all -- which is why nothing drew while every other call reported success.
+        //
+        // AddComponentByClass does the creation, registration and attachment together, at the cost
+        // of an FTransform parameter. Its fields are written BY NAME below rather than by assuming
+        // a layout -- see the comment there for the two that must not be left zero.
+        auto create_text_render_on(AActor* owner) -> UObject*
+        {
+            if (!owner)
+            {
+                return nullptr;
+            }
+            static UClass* text_class = UObjectGlobals::StaticFindObject<UClass*>(
+                nullptr, nullptr, STR("/Script/Engine.TextRenderComponent"));
+            static UFunction* add_fn = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.Actor:AddComponentByClass"));
+            if (!text_class || !add_fn)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: TextRenderComponent class={} AddComponentByClass={} "
+                                     "-- nametags cannot be drawn in this build. Dumping what IS available:\n"),
+                                 text_class ? STR("found") : STR("MISSING"),
+                                 add_fn ? STR("found") : STR("MISSING"));
+                    dump_component_functions(STR("/Script/Engine.Actor"));
+                    dump_component_functions(STR("/Script/Engine.ActorComponent"));
+                }
+                return nullptr;
+            }
+
+            FProperty* class_param = add_fn->FindProperty(FName(STR("Class"), FNAME_Find));
+            FProperty* manual_param = add_fn->FindProperty(FName(STR("bManualAttachment"), FNAME_Find));
+            FProperty* transform_param = add_fn->FindProperty(FName(STR("RelativeTransform"), FNAME_Find));
+            FProperty* deferred_param = add_fn->FindProperty(FName(STR("bDeferredFinish"), FNAME_Find));
+            FProperty* return_param = add_fn->FindProperty(FName(STR("ReturnValue"), FNAME_Find));
+            if (!class_param || !transform_param || !return_param)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: AddComponentByClass is missing an expected parameter "
+                                     "(Class={} RelativeTransform={} ReturnValue={}) -- refusing to call it.\n"),
+                                 class_param ? STR("ok") : STR("MISSING"),
+                                 transform_param ? STR("ok") : STR("MISSING"),
+                                 return_param ? STR("ok") : STR("MISSING"));
+                }
+                return nullptr;
+            }
+
+            const int32_t parms_size = add_fn->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return nullptr;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            uint8_t* base = params_buffer.data();
+
+            *reinterpret_cast<UClass**>(base + class_param->GetOffset_Internal()) = text_class;
+            if (manual_param)
+            {
+                *(base + manual_param->GetOffset_Internal()) = 0; // attach to the root for us
+            }
+            if (deferred_param)
+            {
+                *(base + deferred_param->GetOffset_Internal()) = 0; // finish now, not later
+            }
+
+            // AN IDENTITY TRANSFORM, WRITTEN FIELD BY FIELD BY NAME.
+            //
+            // A zeroed buffer is NOT identity and both mistakes are invisible rather than loud: a
+            // zero Scale3D renders a component of size nothing, and a zero quaternion is not a
+            // rotation at all. Those would look exactly like "the nametag does not work", which is
+            // the failure this whole path is already recovering from. The names are resolved
+            // rather than assumed because UE4SS models FTransform as a version-dependent blob.
+            if (FStructProperty* transform_struct = CastField<FStructProperty>(transform_param);
+                transform_struct && transform_struct->GetStruct())
+            {
+                uint8_t* t = base + transform_param->GetOffset_Internal();
+                UStruct* layout = transform_struct->GetStruct();
+                auto write_named_float = [&](FProperty* outer, const wchar_t* inner, double value) {
+                    if (!outer)
+                    {
+                        return;
+                    }
+                    FStructProperty* as_struct = CastField<FStructProperty>(outer);
+                    if (!as_struct || !as_struct->GetStruct())
+                    {
+                        return;
+                    }
+                    FProperty* field = as_struct->GetStruct()->FindProperty(FName(inner, FNAME_Find));
+                    if (!field)
+                    {
+                        return;
+                    }
+                    uint8_t* at = t + outer->GetOffset_Internal() + field->GetOffset_Internal();
+                    // float or double depending on engine version -- decided by the field's own
+                    // size rather than by assuming which build this is.
+                    if (field->GetSize() == sizeof(double))
+                    {
+                        *reinterpret_cast<double*>(at) = value;
+                    }
+                    else
+                    {
+                        *reinterpret_cast<float*>(at) = static_cast<float>(value);
+                    }
+                };
+                FProperty* rotation = layout->FindProperty(FName(STR("Rotation"), FNAME_Find));
+                FProperty* scale = layout->FindProperty(FName(STR("Scale3D"), FNAME_Find));
+                write_named_float(rotation, STR("W"), 1.0);
+                write_named_float(scale, STR("X"), 1.0);
+                write_named_float(scale, STR("Y"), 1.0);
+                write_named_float(scale, STR("Z"), 1.0);
+                if (!rotation || !scale)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: FTransform has no {}{} field -- the nametag may be "
+                                     "invisible even though it exists.\n"),
+                                 rotation ? STR("") : STR("Rotation "),
+                                 scale ? STR("") : STR("Scale3D"));
+                }
+            }
+
+            owner->ProcessEvent(add_fn, params_buffer.data());
+            UObject* component = *reinterpret_cast<UObject**>(base + return_param->GetOffset_Internal());
+            if (component)
+            {
+                // CENTRE THE TEXT ON THE COMPONENT, rather than nudging its position sideways.
+                //
+                // A text component is LEFT-aligned by default: the string starts at the
+                // component's location and grows rightward, so a nametag looks offset to the
+                // right of the head -- and the amount depends on how long the name is. Shifting
+                // the position instead would centre one name and mis-centre every other, which is
+                // the kind of fix that looks right in the one test that produced it.
+                //
+                // The enum value is written directly because it is a plain byte property; that it
+                // is the CENTRE value is confirmed on screen, not cited -- if the tag ends up
+                // right- or left-hung instead, this number is why.
+                if (uint8_t* halign = component->GetValuePtrByPropertyNameInChain<uint8_t>(STR("HorizontalAlignment")))
+                {
+                    *halign = 1; // EHTA_Center
+                }
+
+                // WHAT A COLOUR PARAMETER WOULD EVEN BE CALLED, listed once rather than guessed.
+                //
+                // With vertex colour ruled out, the remaining route is a dynamic instance of the
+                // component's own material with a colour parameter set on it. That needs the
+                // parameter's NAME, and inventing one would be the same mistake as inventing a
+                // /Script path. This asks the material what it has.
+                {
+                    static bool listed = false;
+                    if (!listed)
+                    {
+                        listed = true;
+                        UObject* material = nullptr;
+                        if (UObject** m = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("TextMaterial")); m)
+                        {
+                            material = *m;
+                        }
+                        if (!material)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: the component has no TextMaterial to inspect.\n"));
+                        }
+                        else
+                        {
+                            Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: inspecting {}\n"), material->GetFullName());
+                            size_t shown = 0;
+                            for (FProperty* prop : TFieldRange<FProperty>(material->GetClassPrivate(), EFieldIterationFlags::IncludeSuper))
+                            {
+                                if (!prop)
+                                {
+                                    continue;
+                                }
+                                const StringType name = prop->GetName();
+                                if (name.find(STR("Param")) != StringType::npos || name.find(STR("Vector")) != StringType::npos
+                                    || name.find(STR("Color")) != StringType::npos || name.find(STR("Colour")) != StringType::npos)
+                                {
+                                    Output::send(STR("[MeshGhostPseudo] NAMETAGMAT:   property {} ({})\n"),
+                                                 name, prop->GetClass().GetName());
+                                    ++shown;
+                                }
+                            }
+                            Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: {} colour-ish propert(ies) on the material.\n"), shown);
+                        }
+                    }
+                }
+
+                // The material, if one is being tried. See NAMETAG_MATERIAL_OVERRIDE.
+                if (NAMETAG_MATERIAL_OVERRIDE && *NAMETAG_MATERIAL_OVERRIDE)
+                {
+                    UObject* material = UObjectGlobals::StaticFindObject<UObject*>(
+                        nullptr, nullptr, NAMETAG_MATERIAL_OVERRIDE);
+                    UFunction* set_material = component->GetFunctionByNameInChain(STR("SetTextMaterial"));
+                    if (!material || !set_material)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: material={} SetTextMaterial={} -- "
+                                         "leaving the component's own material.\n"),
+                                     material ? STR("found") : STR("MISSING"),
+                                     set_material ? STR("found") : STR("MISSING"));
+                    }
+                    else if (FProperty* value = set_material->FindProperty(FName(STR("Material"), FNAME_Find));
+                             value && set_material->GetPropertiesSize() >=
+                                          static_cast<int32_t>(value->GetOffset_Internal() + sizeof(UObject*)))
+                    {
+                        std::vector<uint8_t> buf(static_cast<size_t>(set_material->GetPropertiesSize()), 0);
+                        *reinterpret_cast<UObject**>(buf.data() + value->GetOffset_Internal()) = material;
+                        component->ProcessEvent(set_material, buf.data());
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: set text material to {}\n"),
+                                     material->GetFullName());
+                    }
+                    else
+                    {
+                        Output::send(STR("[MeshGhostPseudo] NAMETAGMAT: SetTextMaterial has no usable "
+                                         "'Material' parameter -- leaving the component's own.\n"));
+                    }
+                }
+            }
+            if (!component)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: AddComponentByClass returned null for a TextRenderComponent.\n"));
+                }
+                return nullptr;
+            }
+            return component;
+        }
+
+        // Reports what the text component ACTUALLY is, once per ghost.
+        //
+        // Exists because the first live run drew nothing while every call reported success. "No
+        // warnings" is not evidence: the success path logged nothing, so there was no way to tell
+        // a component that was never really created from one that exists and is invisible from one
+        // that is visible but empty. Those are three different bugs with three different fixes,
+        // and guessing between them costs a launch each.
+        //
+        // Every value is READ BACK off the component rather than echoed from what was written --
+        // the writes all already claimed to work.
+        auto report_text_render_state(UObject* component, const std::string& player_id) -> void
+        {
+            if (!component)
+            {
+                Output::send(STR("[MeshGhostPseudo] NAMETAGSTATE {}: component is NULL\n"), to_wide_ascii(player_id));
+                return;
+            }
+
+            const wchar_t* registered = STR("<none>");
+            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bRegistered")))
+            {
+                registered = *v ? STR("true") : STR("FALSE");
+            }
+            const wchar_t* visible = STR("<none>");
+            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+            {
+                visible = *v ? STR("true") : STR("FALSE");
+            }
+            const wchar_t* hidden = STR("<none>");
+            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+            {
+                hidden = *v ? STR("TRUE(hidden)") : STR("false");
+            }
+
+            // Did the instance inherit a font and material from the class defaults? If NewObject
+            // did not copy them there is nothing to draw WITH, which looks exactly like this.
+            StringType font_name = STR("<null>");
+            if (UObject** f = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Font")); f && *f)
+            {
+                font_name = (*f)->GetName();
+            }
+            StringType material_name = STR("<null>");
+            if (UObject** m = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("TextMaterial")); m && *m)
+            {
+                material_name = (*m)->GetName();
+            }
+
+            // The colour that ACTUALLY landed, read back off the component -- "pure black" on
+            // screen with a colour we believed we set is precisely the gap this closes.
+            //
+            // Printed as the four RAW BYTES in memory order rather than as named channels: the
+            // question this has to answer is "are they all zero", which is what an untouched
+            // parameter buffer leaves behind, and that needs no knowledge of whether FColor is
+            // stored B,G,R,A or R,G,B,A. A non-zero set that looks wrong on screen is a DIFFERENT
+            // finding and would then be worth decoding properly.
+            StringType colour_value = STR("<no TextRenderColor>");
+            if (uint8_t* rgba = component->GetValuePtrByPropertyNameInChain<uint8_t>(STR("TextRenderColor")))
+            {
+                colour_value = std::to_wstring(static_cast<int>(rgba[0])) + STR(",")
+                             + std::to_wstring(static_cast<int>(rgba[1])) + STR(",")
+                             + std::to_wstring(static_cast<int>(rgba[2])) + STR(",")
+                             + std::to_wstring(static_cast<int>(rgba[3]));
+            }
+
+            StringType size_value = STR("<none>");
+            if (float* w = component->GetValuePtrByPropertyNameInChain<float>(STR("WorldSize")))
+            {
+                size_value = std::to_wstring(*w);
+            }
+            StringType text_value = STR("<none>");
+            if (FText* t = component->GetValuePtrByPropertyNameInChain<FText>(STR("Text")))
+            {
+                text_value = t->ToString();
+            }
+
+            // WHERE IT ACTUALLY IS, which the first version of this failed to report and which
+            // was the first thing asked when nothing appeared: "is it near the player, or out in
+            // the void?" A position that is merely INTENDED is not an answer to that.
+            //
+            // component_world_location is this file's own helper, not a second copy of it.
+            StringType where = STR("<unreadable>");
+            if (FVector at{}; component_world_location(component, at))
+            {
+                where = std::to_wstring(at.X()) + STR(",") + std::to_wstring(at.Y()) + STR(",")
+                      + std::to_wstring(at.Z());
+            }
+
+            // THE PROCESS ID, because two copies of this game share one UE4SS.log.
+            //
+            // Both instances run from the same install folder and therefore write to the same
+            // file, so a line without a pid cannot be attributed to either -- which made "only
+            // the first client shows a nametag" impossible to tell apart from "the second
+            // client's lines were overwritten by the first".
+            Output::send(STR("[MeshGhostPseudo] NAMETAGSTATE pid={} {}: {} registered={} visible={} hidden={} "
+                             "font={} material={} worldsize={} text=\"{}\" at={} colour={}\n"),
+                         GetCurrentProcessId(),
+                         to_wide_ascii(player_id), component->GetFullName(), registered, visible, hidden,
+                         font_name, material_name, size_value, text_value, where, colour_value);
+        }
+
+        // Sets the drawn string, by WRITING THE PROPERTY rather than calling a setter.
+        //
+        // TextRenderComponent:SetText does not resolve in this build -- measured live 2026-08-28,
+        // "SetText not found", while every other reflected call in this file resolved fine. The
+        // component was created, visible, carrying a font and material, and still displaying the
+        // class default string "Text", which is what a missing setter looks like from the outside.
+        //
+        // The Text property itself IS reachable: report_text_render_state below already reads it
+        // back and prints it. So this writes what it can already read, which needs no function at
+        // all. FText::SetString is UE4SS's own API for exactly this.
+        //
+        // The render state is then poked through MarkRenderStateDirty where that exists, because a
+        // property written behind the engine's back does not by itself tell the renderer anything
+        // changed. Absent, the text still updates the next time the engine rebuilds it for its own
+        // reasons -- which is why this is best-effort rather than a hard failure.
+        auto set_text_render_string(UObject* component, const wchar_t* text) -> void
+        {
+            if (!component || !text)
+            {
+                return;
+            }
+            // THE FUNCTION FIRST, RESOLVED THROUGH THE CLASS CHAIN.
+            //
+            // The first attempt looked SetText up by hardcoded path
+            // ("/Script/Engine.TextRenderComponent:SetText") and did not find it, which is what
+            // sent this down the property-writing route. But component_world_location right here
+            // in this file has always used GetFunctionByNameInChain, and it works -- a path-based
+            // lookup misses anything that does not live exactly where the path says, while a chain
+            // lookup asks the object what it can actually do. Preferring the engine's own setter
+            // matters because it updates the render state itself, which a raw property write does
+            // not.
+            if (UFunction* fn = component->GetFunctionByNameInChain(STR("SetText")))
+            {
+                if (FProperty* value = fn->FindProperty(FName(STR("Value"), FNAME_Find)))
+                {
+                    const int32_t parms_size = fn->GetPropertiesSize();
+                    if (parms_size >= static_cast<int32_t>(value->GetOffset_Internal() + value->GetSize()))
+                    {
+                        std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                        FText as_text{text};
+                        std::memcpy(params_buffer.data() + value->GetOffset_Internal(), &as_text, sizeof(FText));
+                        component->ProcessEvent(fn, params_buffer.data());
+                        return;
+                    }
+                }
+            }
+
+            // Fallback: write the property directly. Reachable because the readback already reads
+            // this exact property, so if the setter is genuinely absent this still puts a string
+            // in -- it just leaves the render state to be refreshed below.
+            FText* slot = component->GetValuePtrByPropertyNameInChain<FText>(STR("Text"));
+            if (!slot)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: TextRenderComponent has no reachable 'Text' "
+                                     "property -- nametags cannot be given a string.\n"));
+                }
+                return;
+            }
+            slot->SetString(FString(text));
+
+            if (UFunction* dirty_fn = component->GetFunctionByNameInChain(STR("MarkRenderStateDirty")))
+            {
+                component->ProcessEvent(dirty_fn, nullptr);
+            }
+        }
+
+
+        // Sets the drawn colour from "#RRGGBB". An empty or unparsable string leaves whatever the
+        // component already had, which is the component's own default.
+        auto set_text_render_color(UObject* component, const std::string& hex) -> void
+        {
+            if (!component || hex.size() != 7 || hex[0] != '#')
+            {
+                return;
+            }
+            auto nibble = [](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                return -1;
+            };
+            int channels[3]{};
+            for (int i = 0; i < 3; ++i)
+            {
+                const int hi = nibble(hex[1 + i * 2]);
+                const int lo = nibble(hex[2 + i * 2]);
+                if (hi < 0 || lo < 0)
+                {
+                    return;
+                }
+                channels[i] = hi * 16 + lo;
+            }
+
+            // CHAIN LOOKUP, for the reason SetText now uses one: a hardcoded /Script path found
+            // nothing for SetText in this build while the object itself answers the same question
+            // correctly. Pure black text -- every channel zero, which is what an untouched zeroed
+            // parameter buffer holds -- was the symptom that sent this the same way.
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetTextRenderColor"));
+            // THE SUCCESS PATH IS LOGGED TOO, once.
+            //
+            // Silence has already been mistaken for success twice here: "no warning" only ever
+            // meant "not missing", and a call that resolved and did nothing looks identical to a
+            // call that never happened. This says which of the three actually exist on this
+            // build's component, so the next surprise starts from facts.
+            {
+                static bool reported = false;
+                if (!reported)
+                {
+                    reported = true;
+                    Output::send(STR("[MeshGhostPseudo] NAMETAGFN SetTextRenderColor={} SetText={} MarkRenderStateDirty={}\n"),
+                                 function ? STR("found") : STR("MISSING"),
+                                 component->GetFunctionByNameInChain(STR("SetText")) ? STR("found") : STR("MISSING"),
+                                 component->GetFunctionByNameInChain(STR("MarkRenderStateDirty")) ? STR("found") : STR("MISSING"));
+                }
+            }
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetTextRenderColor not found -- nametags keep the default colour.\n"));
+                }
+                return;
+            }
+            FProperty* value_property = function->FindProperty(FName(STR("Value"), FNAME_Find));
+            if (!value_property)
+            {
+                // Was a silent return, which is how a colour can fail to apply while nothing
+                // anywhere says so -- the text then renders in whatever the zeroed buffer means,
+                // which is black.
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetTextRenderColor has no 'Value' parameter "
+                                     "-- nametags keep the component's default colour.\n"));
+                }
+                return;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(value_property->GetOffset_Internal() + value_property->GetSize()))
+            {
+                return;
+            }
+
+            // EACH CHANNEL RESOLVED BY NAME, never by assumed byte order. FColor's members are
+            // stored B,G,R,A rather than R,G,B,A, and this project does not encode a layout it
+            // cannot cite -- write_vector_param resolves X/Y/Z the same way for the same reason.
+            // Getting it wrong here would swap red and blue, which looks like a colour bug rather
+            // than a layout bug and would be hunted in the wrong place.
+            FStructProperty* as_struct = CastField<FStructProperty>(value_property);
+            if (!as_struct || !as_struct->GetStruct())
+            {
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            uint8_t* base = params_buffer.data() + value_property->GetOffset_Internal();
+            const std::pair<const wchar_t*, int> fields[4] = {
+                {STR("R"), channels[0]}, {STR("G"), channels[1]}, {STR("B"), channels[2]}, {STR("A"), 255},
+            };
+            for (const auto& [field_name, channel_value] : fields)
+            {
+                FProperty* field = as_struct->GetStruct()->FindProperty(FName(field_name, FNAME_Find));
+                if (!field)
+                {
+                    static bool warned = false;
+                    if (!warned)
+                    {
+                        warned = true;
+                        Output::send(STR("[MeshGhostPseudo] WARNING: FColor has no '{}' field -- nametag colour not set.\n"), field_name);
+                    }
+                    return;
+                }
+                *(base + field->GetOffset_Internal()) = static_cast<uint8_t>(channel_value);
+            }
+            component->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Forces the component's render state to be rebuilt, WITHOUT MarkRenderStateDirty.
+        //
+        // That function does not exist on this build (measured 2026-08-28: "MarkRenderStateDirty =
+        // MISSING"), which matters because a text component bakes its colour into the vertices of
+        // the mesh it builds. The component can therefore hold a perfectly correct TextRenderColor
+        // -- readback confirmed the exact bytes, twice, in two different colours -- while the mesh
+        // actually on screen was built with the old one and never rebuilt. That is precisely the
+        // symptom: correct value, black text, in a BRIGHT room so not a lighting effect.
+        //
+        // Toggling visibility off and on makes the engine tear down and recreate the render state,
+        // which is the same rebuild by another route. Ugly, and cheap: it runs once per nametag,
+        // not per frame.
+        auto force_render_refresh(UObject* component) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            UFunction* set_visibility = component->GetFunctionByNameInChain(STR("SetVisibility"));
+            if (!set_visibility)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetVisibility not found -- cannot force a "
+                                     "nametag render refresh, so its colour may stay stale.\n"));
+                }
+                return;
+            }
+            FProperty* new_visibility = set_visibility->FindProperty(FName(STR("bNewVisibility"), FNAME_Find));
+            if (!new_visibility)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetVisibility has no 'bNewVisibility' parameter.\n"));
+                }
+                return;
+            }
+            const int32_t parms_size = set_visibility->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(new_visibility->GetOffset_Internal() + 1))
+            {
+                return;
+            }
+            for (uint8_t value : {uint8_t{0}, uint8_t{1}})
+            {
+                std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                *(params_buffer.data() + new_visibility->GetOffset_Internal()) = value;
+                component->ProcessEvent(set_visibility, params_buffer.data());
+            }
+        }
+
+        // Places the component in the world and turns it to face the viewer.
+        auto set_text_render_transform(UObject* component,
+                                       double x, double y, double z,
+                                       double pitch, double yaw, double roll) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.SceneComponent:K2_SetWorldLocationAndRotation"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetWorldLocationAndRotation not found -- nametags cannot be positioned.\n"));
+                }
+                return;
+            }
+            FProperty* location_property = function->FindProperty(FName(STR("NewLocation"), FNAME_Find));
+            FProperty* rotation_property = function->FindProperty(FName(STR("NewRotation"), FNAME_Find));
+            if (!location_property || !rotation_property)
+            {
+                return;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            uint8_t* base = params_buffer.data();
+            // Same shared writers the ghost's own placement uses, so a defect in them shows up in
+            // the most-run path first rather than hiding here.
+            if (!write_vector_param(base, location_property, FVector{x, y, z}))
+            {
+                return;
+            }
+            if (!write_rotator_param(base, rotation_property, FRotator{pitch, yaw, roll}))
+            {
+                return;
+            }
+            component->ProcessEvent(function, params_buffer.data());
         }
 
         auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void
@@ -8747,9 +9654,147 @@ namespace MeshGhostPseudo
     // `remotes` map accordingly. Does not reposition anything itself -- redraw happens
     // unconditionally every tick in on_update, per PROTOCOL.md's "redraw every entry currently in
     // the remote-ghost map, unconditionally" rule (network updates arrive far slower than render).
+    // Creates and maintains the floating name above one ghost.
+    //
+    // Runs every tick from the redraw loop and is deliberately cheap when idle: the text and
+    // colour are only pushed to the engine when they differ from what was last applied, because a
+    // name changes at most once in a session while this is called at the game's frame rate.
+    //
+    // FAILURE IS LATCHED AND LOGGED ONCE. If this build cannot make a text component, saying so
+    // every frame per ghost would be its own performance bug -- exactly the shape
+    // adapters/emulator/CLAUDE.md prices at four to five frames per log line elsewhere.
+    auto Plugin::update_ghost_nametag(RemoteGhost& entry, UObject* local_pawn, const std::string& player_id) -> void
+    {
+        if constexpr (!GHOST_NAMETAGS)
+        {
+            return;
+        }
+        if (!entry.ghost || entry.nametag_create_failed)
+        {
+            return;
+        }
+
+        // NO NAME MEANS NO TAG. Not an empty label, not a placeholder -- the user's rule: "if its
+        // blank it should not display/do anything". If a component already exists and the name has
+        // since gone away, blank it rather than leaving a stale label floating.
+        const auto tag_it = nametags.find(player_id);
+        const std::string wanted_name = tag_it == nametags.end() ? std::string() : tag_it->second.name;
+        const std::string wanted_color = tag_it == nametags.end() ? std::string() : tag_it->second.color;
+
+        if (wanted_name.empty())
+        {
+            if (entry.nametag_component && !entry.nametag_applied_name.empty())
+            {
+                set_text_render_string(entry.nametag_component, STR(""));
+                entry.nametag_applied_name.clear();
+            }
+            return;
+        }
+
+        if (!entry.nametag_component)
+        {
+            entry.nametag_component = create_text_render_on(entry.ghost);
+            if (!entry.nametag_component)
+            {
+                entry.nametag_create_failed = true;
+                return;
+            }
+        }
+
+        // COLOUR FIRST, THEN THE TEXT. The order is the fix, not a preference.
+        //
+        // Setting the string marks the render state dirty, which is what makes the engine rebuild
+        // the text mesh -- and a text mesh carries its colour in its vertices. Setting the colour
+        // AFTER that rebuild left the component holding the right colour while the thing actually
+        // on screen had been built with the old one, which is exactly what was seen: a readback
+        // reporting 39,73,245,255 (the correct orange-red, BGRA) above pure black text.
+        //
+        // Doing colour first means the rebuild that follows picks it up. set_text_render_string
+        // ends by dirtying the state, so it is also the last word either way.
+        if (entry.nametag_applied_color != wanted_color)
+        {
+            set_text_render_color(entry.nametag_component, wanted_color);
+            entry.nametag_applied_color = wanted_color;
+        }
+        const bool first_application = entry.nametag_applied_name != wanted_name;
+        if (first_application)
+        {
+            set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
+            entry.nametag_applied_name = wanted_name;
+        }
+        else if (entry.nametag_applied_color != wanted_color)
+        {
+            // A colour that changed without the name changing still needs the rebuild.
+            set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
+        }
+
+        // Position and facing, every tick: the ghost moves, and the tag has to move with it and
+        // stay readable. Faced at the LOCAL PLAYER rather than the camera -- in a third-person
+        // game the camera sits behind the player, so the two agree closely enough to read, and it
+        // avoids a second reflected call into PlayerCameraManager on every ghost every frame.
+        const FVector ghost_loc = entry.ghost->K2_GetActorLocation();
+        const double gx = ghost_loc.X();
+        const double gy = ghost_loc.Y();
+        const double gz = ghost_loc.Z();
+        // Default the viewer a little to the side so the yaw below is defined even with no pawn
+        // in hand; a tag facing an arbitrary direction is better than one facing NaN.
+        double px = gx, py = gy + 1.0;
+        if (local_pawn)
+        {
+            const FVector viewer_loc = static_cast<AActor*>(local_pawn)->K2_GetActorLocation();
+            px = viewer_loc.X();
+            py = viewer_loc.Y();
+        }
+        // Yaw only: the text stays upright, and turns to face the viewer around the vertical
+        // axis. Pitching it toward the camera would make a tag above a ghost on a ledge lean
+        // backwards, which reads as broken rather than as three-dimensional.
+        const double yaw_to_viewer = std::atan2(py - gy, px - gx) * 180.0 / 3.14159265358979323846;
+        // NO +180 HERE, and the 180 that used to be is a prime suspect for the first build
+        // showing nothing at all. Text renders on a PLANE with a facing direction: pointing that
+        // plane's forward axis AT the viewer is what makes it readable, and adding 180 points it
+        // directly away -- which is invisible or mirrored, while every value in the readback still
+        // looks perfectly correct. Judged on screen, not from this comment.
+        set_text_render_transform(entry.nametag_component,
+                                  gx, gy, gz + NAMETAG_HEIGHT_ABOVE_GHOST,
+                                  0.0, yaw_to_viewer, 0.0);
+
+        // Once per name change, AFTER everything is applied and positioned, so what it reports is
+        // the finished component rather than one caught mid-setup.
+        if (first_application)
+        {
+            // The colour is in the component by now. This SHOULD be what gets it into the mesh --
+            // it does not on this build, and see NAMETAG_MATERIAL_OVERRIDE for how far that was
+            // chased. Kept because it is the correct thing to do and costs one call per nametag.
+            force_render_refresh(entry.nametag_component);
+            if constexpr (NAMETAG_STATE_READBACK)
+            {
+                report_text_render_state(entry.nametag_component, player_id);
+            }
+        }
+    }
+
     auto Plugin::handle_bridge_line(const std::string& line, UObject* local_pawn, UObject* local_controller) -> void
     {
         std::string type = json_string_field(line, "type");
+
+        // EVERY DISTINCT MESSAGE TYPE, LOGGED ONCE.
+        //
+        // Added 2026-08-28 after a nametag failed to appear three times running and the logs could
+        // not tell WHY: the mod logs a line when it handles remote_name, so silence meant either
+        // "the core never sent one" or "one arrived and this dispatch did not match it". Those are
+        // different bugs in different processes, and guessing between them cost a launch each.
+        //
+        // One set lookup per line and a log only on first sight, so the steady-state cost is a
+        // string compare against a handful of entries -- not the per-line logging that
+        // adapters/emulator/CLAUDE.md prices at four to five frames each.
+        {
+            static std::set<std::string> seen_types;
+            if (seen_types.insert(type).second)
+            {
+                Output::send(STR("[MeshGhostPseudo] BRIDGETYPE first sight: \"{}\"\n"), to_wide_ascii(type));
+            }
+        }
+
         if (type == "render_remote")
         {
             std::string player_id = json_string_field(line, "player_id");
@@ -9108,6 +10153,34 @@ namespace MeshGhostPseudo
                 }
             }
         }
+        else if (type == "remote_name")
+        {
+            // The peer's chosen label. Arrives once when they join (or, for peers already in the
+            // room when this game launched, once when the core hands over what it already knew),
+            // NOT every frame -- which is why it is its own message rather than a field on
+            // render_remote.
+            //
+            // Stored even when no ghost exists yet: the name can legitimately arrive before the
+            // first state does, and dropping it would leave that peer unlabelled until they
+            // reconnect. update_ghost_nametag applies it whenever the ghost turns up.
+            const std::string player_id = json_string_field(line, "player_id");
+            if (player_id.empty())
+            {
+                return;
+            }
+            // Into `nametags`, NOT remotes[player_id] -- the latter creates a ghost entry as a
+            // side effect and breaks is_new_remote for any peer whose name arrives before its
+            // first state, which is every peer that was already in the room.
+            Nametag& tag = nametags[player_id];
+            tag.name = json_string_field(line, "display_name");
+            tag.color = json_string_field(line, "color");
+            Output::send(STR("[MeshGhostPseudo] pid={} remote {} nametag = \"{}\"{}\n"),
+                         GetCurrentProcessId(),
+                         to_wide_ascii(player_id),
+                         to_wide_ascii(tag.name),
+                         tag.color.empty() ? StringType()
+                                           : StringType(STR(" colour ")) + to_wide_ascii(tag.color));
+        }
         else if (type == "despawn_remote")
         {
             std::string player_id = json_string_field(line, "player_id");
@@ -9115,6 +10188,8 @@ namespace MeshGhostPseudo
             {
                 release_ghost(player_id);
                 remotes.erase(player_id);
+                // With the ghost, so a name is never inherited by the next holder of this id.
+                nametags.erase(player_id);
                 Output::send(STR("[MeshGhostPseudo] despawned remote {}\n"), to_wide_ascii(player_id));
             }
         }
@@ -9128,6 +10203,24 @@ namespace MeshGhostPseudo
         if (!unreal_ready)
         {
             return;
+        }
+
+        // Nametag capability census: ONCE per session, on the first tick the engine is ready.
+        //
+        // Deliberately NOT on the ghost-spawn path where the other one-shot dumps live. This asks
+        // what fonts and text classes the BUILD has, which has nothing to do with ghosts -- and
+        // putting it there would mean a second client had to be set up before the question could
+        // be answered at all. One launch, one log, no peers.
+        //
+        // After unreal_ready, because everything it enumerates needs the object system up.
+        if constexpr (NAMETAG_CENSUS_PROBE)
+        {
+            static bool nametag_census_done = false;
+            if (!nametag_census_done)
+            {
+                nametag_census_done = true;
+                census_text_render_capability();
+            }
         }
 
         // Populated below whenever the local pawn/world resolve this tick; used as the cheaper of
@@ -12526,6 +13619,10 @@ namespace MeshGhostPseudo
                 remote.owning_world = nullptr;
                 continue;
             }
+            // The nametag rides along with the redraw: the ghost has just been confirmed alive,
+            // and the tag has to follow it every frame or it lags behind a moving peer.
+            update_ghost_nametag(remote, pawn_obj, id);
+
             // Cheaper secondary check: only meaningful once current_world has actually resolved
             // this tick (it's null on ticks where the local pawn/controller aren't found, e.g.
             // mid-transition -- don't treat that as "the world changed", just skip the check).
@@ -14792,7 +15889,27 @@ namespace MeshGhostPseudo
             received_lines = bridge->poll_lines();
         }
 
-        if (now_connected)
+        // RE-READ READINESS, because poll_lines above is what CREATES it.
+        //
+        // `now_connected` was sampled at the top of this tick, ~70 lines and one socket read ago.
+        // poll_lines consumes bridge_ready and flips the adapter to ready inside itself, so on the
+        // very tick acceptance arrives the stale value is still false -- and every other line that
+        // arrived in the SAME read was returned by poll_lines and then silently dropped by the
+        // gate below.
+        //
+        // That window is not rare, it is where the core puts its handover: session_policy and
+        // remote_name are both sent microseconds after bridge_ready, so they arrive in the same
+        // TCP segment and were being discarded EVERY session. Measured 2026-08-28 -- the mod's
+        // own first-sight log recorded only "render_remote", never bridge_ready, session_policy
+        // or remote_name, while the core's log showed all three being sent.
+        //
+        // The nametag symptom was: a peer who joined while you watched got a label (its name
+        // arrives later, in normal operation) and a peer already in the room never did (its name
+        // is pushed at attach, into this window). Ghost-collision policy was landing in the same
+        // hole and nobody had noticed.
+        const bool ready_after_poll = bridge->is_ready();
+
+        if (ready_after_poll)
         {
             std::string local_state_to_send;
             {

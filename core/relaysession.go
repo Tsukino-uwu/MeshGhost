@@ -545,11 +545,6 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 		}
 		var w protocol.Welcome
 		if err := json.Unmarshal(env.Payload, &w); err == nil {
-			// The nametags of everyone already in the room. Stored outside the
-			// lock below because storeRemoteName takes c.mu itself, and it may
-			// also write to the bridge -- neither belongs inside this critical
-			// section.
-			defer c.storeRosterNames(w.Nametags)
 			c.mu.Lock()
 			// MERGED into the roster, not assigned over it. The relay adds a
 			// joining client to the room before it sends that client's
@@ -604,6 +599,26 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			// the room it is actually in now. No-ops when nothing changed.
 			c.pushSessionPolicy()
 			logResumeOutcome(w, hadToken)
+
+			// THE NAMETAGS OF EVERYONE ALREADY IN THE ROOM, AND THIS MUST HAPPEN BEFORE THE
+			// SEND BELOW.
+			//
+			// The send is what completes the handshake: ConnectRelay returns on it, and its
+			// caller then marks the adapter ready and pushes it everything already known --
+			// including these names, via pushRemoteNames. Storing them after that send means
+			// the push reads an empty map and the adapter is never told, which is a race with
+			// a completely reliable outcome rather than an occasional one.
+			//
+			// This was written as a `defer` first, which looked equivalent and is not: a defer
+			// runs at FUNCTION exit, so it landed after the send rather than before it. Found
+			// live 2026-08-28 -- a peer already in the room rendered with no label for the whole
+			// session, while a peer who joined later got one immediately, because the later peer
+			// arrives on the Join path where the adapter is already ready.
+			//
+			// Outside the lock above deliberately: storeRemoteName takes c.mu itself and may
+			// write to the bridge, neither of which belongs in that critical section.
+			c.storeRosterNames(w.Nametags)
+
 			select {
 			case welcome <- w:
 			default:

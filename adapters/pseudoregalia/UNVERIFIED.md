@@ -298,3 +298,45 @@ spawn, watch it come back the moment the game touches the level again.
 
 **Neither is diagnosed and neither has a fix.** No probe has been run for either, so there is no
 number here to be wrong about later — which is the only good thing about the state of this entry.
+
+## Nametags work, and their COLOUR does not — the routes this build offers are exhausted (2026-08-28)
+
+**Confirmed on screen by the user**, so the working half is not in doubt: a peer's chosen name
+appears above their ghost, correctly spelled, positioned above the head, centred, and billboarded
+(*"cardboarded, and facing towards my direction while looking at it / spins around and follows so
+its always visible"*). Both join orderings work — a peer who arrives while you watch, and a peer
+already in the room when you launch.
+
+**What does not work: the colour. The text renders pure black.**
+
+**The evidence, so nobody repeats any of it:**
+
+- The component holds the RIGHT colour. Read back off the component, twice, in two different
+  colours: `#F54927` came back as `39,73,245,255` and `#33CCFF` as `255,204,51,255` — both exactly
+  correct as BGRA. The value is not the problem and neither is the byte order.
+- `SetTextRenderColor` EXISTS on this build and runs. It is the engine's own setter, resolved
+  through the class chain, and it complains about nothing.
+- **Not a lighting effect.** The user checked in a brightly lit area specifically: still black.
+- `MarkRenderStateDirty` is MISSING on this build, so the render state cannot be poked directly.
+  Forcing a rebuild by toggling visibility instead changed nothing.
+- Setting the colour BEFORE the text (so any rebuild the text triggers would pick it up) changed
+  nothing.
+- `DefaultTextMaterialOpaque` exposes NO colour parameter — the only colour-ish property on it is
+  `bAllowNegativeEmissiveColor`, a material flag. So a dynamic material instance has nothing to set.
+- Swapping the material to `EmissiveMeshMaterial` produced a solid WHITE BOX: no glyphs, and not
+  the requested colour either. Reverted; `NAMETAG_MATERIAL_OVERRIDE` is the flag, empty by default.
+
+**One conclusion was overstated at the time and is corrected here:** the white box was read as
+proof that vertex colour never reaches the mesh. That assumed EmissiveMeshMaterial takes its colour
+from vertex colour, which was asserted from memory rather than from anything citable — so the white
+may simply be that material's own default. The honest statement is that vertex colour remains
+UNTESTED, not disproven.
+
+**Where a next attempt should start**, given the above: find a material that provably samples both
+the font texture and vertex colour, rather than assuming one does. The game's own materials were
+listed (35 loaded, all logged under `NAMETAGCENSUS`) and none was inspected for what it samples.
+`NAMETAG_STATE_READBACK` turns the per-nametag readback back on.
+
+**What ships meanwhile:** black text, which the user's own screenshot shows reading clearly. The
+colour plumbing is complete and correct end to end — relay, core, bridge, adapter — so this is one
+rendering detail away from working, on this engine build.
