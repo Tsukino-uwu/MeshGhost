@@ -192,6 +192,11 @@ namespace MeshGhostTevi
             // Last phase received for this peer, for drift correction.
             public float LastAnimTime;
 
+            // Playback speed multiplier currently correcting this ghost's clip phase, 1 when it
+            // is in step. See the phase correction in UpsertRemoteGhost for why a speed and not
+            // a seek.
+            public float PhaseCatchup = 1f;
+
             // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
             // trailing at once must not share a cadence.
             public float TrailTimer;
@@ -727,15 +732,46 @@ namespace MeshGhostTevi
                 float peerT = state.AnimTime.Value;
                 float ghostT = visual.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
                 ghostT -= Mathf.Floor(ghostT);
-                float drift = Mathf.Abs(peerT - ghostT);
-                // A clip near its end and one near its start are adjacent, not a whole clip apart.
+                // SIGNED, and wrapped the short way round: a clip near its end and one near its
+                // start are adjacent, not a whole clip apart. The sign is what makes a smooth
+                // correction possible at all -- it says whether the ghost is behind or ahead.
+                float drift = peerT - ghostT;
                 if (drift > 0.5f)
                 {
-                    drift = 1f - drift;
+                    drift -= 1f;
                 }
-                if (drift > AnimPhaseTolerance)
+                else if (drift < -0.5f)
                 {
+                    drift += 1f;
+                }
+
+                if (Mathf.Abs(drift) > AnimReseekThreshold)
+                {
+                    // A genuinely different point in the clip: the peer restarted it. Attacking
+                    // twice in a row never changes the clip NAME, so this jump backwards is the
+                    // only evidence the second attack happened, and seeking is correct here --
+                    // the peer really did snap.
                     visual.Pc.anim.Play(state.Anim, 0, peerT);
+                    visual.PhaseCatchup = 1f;
+                }
+                else
+                {
+                    // EVERYTHING ELSE IS REPAID CONTINUOUSLY, NOT SNAPPED. Seeking on every small
+                    // drift is what made an idle ghost's ears "snap a bit every now and then"
+                    // (user, 2026-08-28, watching over a jittery link): the arrival times wobble,
+                    // the measured drift crosses the tolerance constantly, and each correction is
+                    // a visible jump in the animation.
+                    //
+                    // This is the same rule adapters/CLAUDE.md already states for POSITION -- do
+                    // not save up a correction and pay it in one go, repay it continuously and
+                    // finely -- applied to time instead of space. A small speed change converges
+                    // the ghost's clip onto the peer's phase over a few frames and is invisible,
+                    // where the jump it replaces was not.
+                    //
+                    // Clamped hard: the ghost's animation must never look like a different speed
+                    // of the same move, which is a thing no player can do.
+                    visual.PhaseCatchup = Mathf.Clamp(1f + drift * PhaseCatchupGain,
+                        1f - PhaseCatchupRange, 1f + PhaseCatchupRange);
                 }
                 visual.LastAnimTime = peerT;
             }
@@ -758,7 +794,10 @@ namespace MeshGhostTevi
             // frozen forever.
             if (visual.Pc != null && visual.Pc.anim != null)
             {
-                visual.Pc.anim.speed = (state.TempPause ?? 0f) > 0f ? 0f : 1f;
+                // Hitstop wins outright; otherwise the animator runs at the phase catch-up speed,
+                // which is 1 whenever the ghost is already in step. Written every frame so a peer
+                // that vanishes mid-pause cannot strand a ghost frozen forever.
+                visual.Pc.anim.speed = (state.TempPause ?? 0f) > 0f ? 0f : visual.PhaseCatchup;
             }
 
             // One-shot pooled VFX. Only ever plays on a RISE, and a first sighting adopts the
@@ -778,7 +817,74 @@ namespace MeshGhostTevi
 
         // Every peer ghost at once, for leaving play rather than for a peer leaving. Iterates a
         // copy of the key list because DespawnRemoteGhost mutates remoteVisuals as it goes.
-        private void DespawnAllRemoteGhosts()
+        // Set to whatever session was live when this frame's ghosts were built. Compared every
+        // frame; a change means they belong to a connection that no longer exists.
+        private int lastBridgeSessionEpoch;
+
+        // The last session actually SWEPT, which is only ever a session that reached ready --
+        // see the sweep's call site for why those are different numbers.
+        private int lastSweptSessionEpoch;
+
+        // ORPHANS: ghost objects in the scene that no live plugin instance is tracking. Despawning
+        // through the dictionary can only ever reach what THIS instance created, and two things
+        // routinely leave objects it never knew about:
+        //
+        //   * a HOT RELOAD -- the outgoing instance's OnDestroy is the only thing that cleans up
+        //     after it, and anything it missed (or anything created between its teardown and the
+        //     new instance's first frame) is now parented to the scene with nobody holding it;
+        //   * a plugin instance that DIED rather than unloaded.
+        //
+        // Naming is the whole mechanism: every object this adapter parents into the scene is
+        // called MeshGhostRemote_<id> or MeshGhostMapMarker_<id>, so "ours but untracked" is
+        // answerable from the scene alone -- which is what makes a sweep possible at all.
+        //
+        // Deliberately NOT run per frame: it enumerates the scene. It runs when the bridge session
+        // changes and once at load, which are the two moments an orphan can appear.
+        //
+        // Found live 2026-08-28: the user saw several static ghosts standing around after cores
+        // were restarted under running games, and they survived the despawn-everything fix that
+        // shipped an hour earlier -- because that fix walks a dictionary and these were not in it.
+        private void SweepOrphanGhosts(string reason)
+        {
+            int destroyed = 0;
+            foreach (GameObject go in FindObjectsOfType<GameObject>())
+            {
+                if (go == null)
+                {
+                    continue;
+                }
+                string name = go.name;
+                string id;
+                if (name.StartsWith("MeshGhostRemote_", System.StringComparison.Ordinal))
+                {
+                    id = name.Substring("MeshGhostRemote_".Length);
+                    if (remoteVisuals.TryGetValue(id, out RemoteGhostVisual tracked) && tracked.Go == go)
+                    {
+                        continue; // ours, and we know about it
+                    }
+                }
+                else if (name.StartsWith("MeshGhostMapMarker_", System.StringComparison.Ordinal))
+                {
+                    id = name.Substring("MeshGhostMapMarker_".Length);
+                    if (remoteMapMarkers.TryGetValue(id, out RemoteMapMarker marker) && marker.Go == go)
+                    {
+                        continue;
+                    }
+                }
+                else
+                {
+                    continue;
+                }
+                Destroy(go);
+                destroyed++;
+            }
+            if (destroyed > 0)
+            {
+                Logger.LogInfo($"MeshGhost: swept {destroyed} orphaned ghost object(s) nobody was tracking ({reason}).");
+            }
+        }
+
+        private void DespawnAllRemoteGhosts(string reason = "leaving play")
         {
             // Cleared even when there are no visuals to despawn: a peer can have a recorded
             // marker state and no ghost (it arrived before there was a local player to clone
@@ -789,7 +895,7 @@ namespace MeshGhostTevi
             {
                 return;
             }
-            Logger.LogInfo($"MeshGhost: leaving play -- despawning all {remoteVisuals.Count} remote ghost(s).");
+            Logger.LogInfo($"MeshGhost: {reason} -- despawning all {remoteVisuals.Count} remote ghost(s).");
             foreach (string playerId in new List<string>(remoteVisuals.Keys))
             {
                 DespawnRemoteGhost(playerId);
@@ -890,6 +996,19 @@ namespace MeshGhostTevi
         // a hitstop lands on the right frame, large enough that ordinary jitter does not cause a
         // visible re-seek every frame.
         private const float AnimPhaseTolerance = 0.06f;
+
+        // Past this much drift the ghost is not lagging, it is somewhere else in the clip -- the
+        // peer restarted it. A seek is right there and a gentle catch-up would be wrong, because
+        // the peer's own animation snapped and 1:1 means ours does too. Below it, nothing is ever
+        // seeked; see PhaseCatchupGain.
+        private const float AnimReseekThreshold = 0.25f;
+
+        // How hard a small phase error pulls on playback speed, and the ceiling on that pull.
+        // 0.06 of a clip corrected at gain 2 is a 12% speed change, gone within a few frames --
+        // below what the eye reads as "moving at a different speed", which is the thing this must
+        // never look like (adapters/CLAUDE.md: never in units the game does not use).
+        private const float PhaseCatchupGain = 2f;
+        private const float PhaseCatchupRange = 0.25f;
 
         private const float TrailSpawnRate = 0.07f;      // SpriteAnimation.trailRate
         private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
@@ -1618,6 +1737,9 @@ namespace MeshGhostTevi
             // says what this build actually is. It said "(Phase 6 step 6.1 hello-world)" until
             // 2026-08-27, which the adapter has been well past since Phase 6.6.
             Logger.LogInfo($"{PluginName} v{PluginVersion} loaded.");
+            // Anything of ours already in the scene at load belongs to an instance that is gone --
+            // a previous hot reload, or a crashed one. See SweepOrphanGhosts.
+            SweepOrphanGhosts("plugin load");
             int bridgePort = Config.Bind(
                 "Network",
                 "BridgePort",
@@ -1713,6 +1835,40 @@ namespace MeshGhostTevi
                 launcher.TickDisconnected(bridge.CurrentPort);
             }
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
+
+            // A NEW BRIDGE SESSION INVALIDATES EVERY GHOST. Peer ghosts are built from what one
+            // core told us, and `despawn_remote` travels over that same connection -- so if it
+            // drops, every despawn it would ever have sent is gone with it, and the ghosts stand
+            // there forever. The next core is a different session with different player ids, so it
+            // will never despawn them either: it has never heard of them.
+            //
+            // Found live 2026-08-28, restarting cores under running games -- the user saw several
+            // static ghosts accumulate in both instances. Harmless-looking and permanent.
+            if (bridge.SessionEpoch != lastBridgeSessionEpoch)
+            {
+                lastBridgeSessionEpoch = bridge.SessionEpoch;
+                // ORDER MATTERS. Drop the dead session's unread messages BEFORE despawning, or
+                // this frame's drain recreates a ghost for a player id that no longer exists --
+                // and it is then tracked, so the orphan sweep leaves it alone and it stands there
+                // forever. That is exactly what a static ghost turned out to be, twice.
+                bridge.DiscardQueuedMessages();
+                // Cheap: walks the ghost dictionary, nothing else.
+                DespawnAllRemoteGhosts("the bridge session changed");
+            }
+
+            // THE SWEEP IS NOT CHEAP and is deliberately not hung on the line above. It
+            // enumerates every GameObject in the scene, while SessionEpoch changes on every DIAL
+            // ATTEMPT -- including the failed ones, every two seconds, for as long as no core is
+            // up. Hung there it is a full scene walk on repeat, and the first version of this cost
+            // the user a frozen game inside ten minutes of shipping (2026-08-28).
+            //
+            // Tied to a session that actually came UP instead: at most one sweep per working
+            // connection, which is exactly when an orphan can have appeared.
+            if (bridge.IsReady && bridge.SessionEpoch != lastSweptSessionEpoch)
+            {
+                lastSweptSessionEpoch = bridge.SessionEpoch;
+                SweepOrphanGhosts("a new bridge session");
+            }
 
             if (DIAG_MARKER_STALENESS && remoteMapMarkers.Count > 0)
             {

@@ -69,6 +69,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
 - TEVI charged-attack VFX mirror to a ghost — three pooled effects, the hitstop, and animation phase
 - TEVI comes up clean on a cold launch: two instances, two cores, no port churn (2026-08-28)
+- TEVI ghost hygiene under core restarts, and the phase correction that stopped twitching (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -725,3 +726,26 @@ filed under the right theme, but anything can check that it is listed.
 - Source: `MeshGhostTevi/BridgeClient.cs` (`MinDrainsBeforeHelloTimeout`), `Plugin.cs` (the
   out-of-play drain), `dev-scripts/tevi-hotreload.ps1`. The full runbook this produced:
   `dev-scripts/README.md`, "Running the TEVI two-instance rig".
+
+## TEVI ghost hygiene under core restarts, and the phase correction that stopped twitching (2026-08-28)
+
+- Confirmed by: the user, on screen, across a long netsim session with cores restarted many times
+  under the running game.
+- **Static ghosts no longer accumulate.** Three distinct causes were found and fixed in sequence,
+  each surviving the previous fix: the CORE kept rendering a peer that went silent without a Leave
+  (aged out after 3s now -- Go side, `agent_docs/verified.md`); untracked ghost objects from a dead
+  plugin instance (swept by name at load and on a ready session); and a dead bridge session's
+  queued messages recreating a ghost one frame after the session-change despawn (queue discarded on
+  the main thread, before the despawn). After the third fix: *"no static ghost"*, and repeated
+  core swaps produced exactly one ghost every time.
+- **The idle twitch is gone.** The animation phase correction re-seeked the Animator whenever
+  drift crossed a tolerance, and under network jitter that crossing is constant -- the user saw it
+  as the bunny ears twitching/snapping on idle. Small drift is now repaid as a clamped playback-
+  speed nudge (the position rule "repay continuously, never snap at a boundary", applied to time);
+  only a genuine clip restart still seeks. User: *"Idle looks fine now"*, and later runs held it
+  (*"idle looks fine/perfect"*). Charged attacks -- the deliberate-seek path -- were re-checked
+  after the change: *"did a few charged melee attcks, and looked fine i think ?"*.
+- **Scope:** loopback ghost, one machine, simulated faults. The peer animation-name bound
+  (`IsPlayableAnimName`) ran throughout with real names passing -- ghosts animated all session.
+- Source: `MeshGhostTevi/Plugin.cs` (PhaseCatchup, SweepOrphanGhosts, the session-epoch despawn),
+  `MeshGhostTevi/BridgeClient.cs` (SessionEpoch, DiscardQueuedMessages).

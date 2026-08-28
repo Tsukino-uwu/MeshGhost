@@ -352,6 +352,16 @@ namespace MeshGhostTevi
                 bridgeReady = false;
                 helloSentAt = DateTime.MinValue;
                 drainsSinceHello = 0;
+                // A DEAD SESSION'S MESSAGES MUST NOT OUTLIVE IT. Lines are parsed on the main
+                // thread, so whatever the previous connection had queued is still sitting here
+                // when the next one is published -- and Plugin.Update drains it AFTER it has
+                // despawned everything for the session change, which promptly recreates a ghost
+                // for a player id that no longer exists. It is then tracked, so the orphan sweep
+                // will not touch it either, and it stands there forever.
+                //
+                // Found live 2026-08-28: a static ghost survived both the despawn-everything fix
+                // and the sweep, and the log showed it being created one line after the despawn.
+                DiscardQueuedMessages();
                 connectedPort = dialPort;
                 Log($"MeshGhost: connected to bridge at {host}:{dialPort}.");
 
@@ -421,12 +431,41 @@ namespace MeshGhostTevi
         // architecture.md), which the relay turns into a real Leave for any peer -- the same
         // despawn path a real game-close already took. TryConnect() redials automatically on a
         // later frame once IsConnected is false, the same as any other dropped connection.
+        // Which bridge SESSION this is. Every dial and every Disconnect bumps it, so a change
+        // means "everything the last connection told us is now unverifiable" -- most importantly
+        // which peers exist. A watcher outside this class (Plugin.Update) uses it to drop the
+        // ghosts it built, because nothing else can: despawn_remote arrives over the very
+        // connection that just died, so a core that goes away takes the despawns with it.
+        //
+        // Found live 2026-08-28 while restarting cores under running games: each restarted core
+        // came back with a fresh relay identity, so a NEW ghost appeared for the same player while
+        // the previous one stood there forever. The user saw several static ghosts per game.
+        public int SessionEpoch => Interlocked.CompareExchange(ref connectionGeneration, 0, 0);
+
+        // Empties the receive queue. Called wherever a session ends or a new one begins -- see
+        // the call site in ConnectAndReadLoop for what a leftover line does.
+        //
+        // PUBLIC because the connection-side calls are not enough on their own. The read loop and
+        // Disconnect both run off the main thread, and the epoch a watcher sees changes when a
+        // DIAL STARTS, not when it completes -- so Plugin.Update can despawn everything for a new
+        // session and then drain the dead session's leftovers in the same frame, recreating what
+        // it just removed. The main thread clearing this itself, at the moment it notices, is the
+        // only version with no window. Found live 2026-08-28, twice, the second time after the
+        // background-thread clear alone was thought sufficient.
+        public void DiscardQueuedMessages()
+        {
+            while (incoming.TryDequeue(out _))
+            {
+            }
+        }
+
         public void Disconnect()
         {
             // Also invalidates any in-flight ConnectAndReadLoop's generation, so if that thread
             // is still dialing or blocked in stream.Read, its eventual finally block won't
             // clobber the state of whatever TryConnect() dials next.
             Interlocked.Increment(ref connectionGeneration);
+            DiscardQueuedMessages();
             TcpClient c = client;
             connected = false;
             client = null;

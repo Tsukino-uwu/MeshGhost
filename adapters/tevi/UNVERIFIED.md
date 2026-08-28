@@ -56,8 +56,10 @@ star, hold and slam, at the same heights, on the same sides.
   at `animTime 0.425`; the ghost fires it when told, which coincides only while phase is in sync.
   **The better fix, deliberately not built:** spawn when the ghost's own clip crosses the phase the
   peer reported. More faithful, and it couples effect to animation, so it wanted evidence first.
-- **`AnimPhaseTolerance = 0.06` is a guess** -- roughly 25ms on a half-second clip. Too loose and
-  the hold lands a frame or two late; too tight and the ghost shimmers from constant re-seeking.
+- **The phase-correction constants are guesses** (updated 2026-08-28: small drift is now a
+  playback-speed nudge, not a re-seek -- `PhaseCatchupGain = 2`, range ±0.25, re-seek only past
+  0.25 of a clip). The twitch the old tolerance caused is confirmed gone; the exact values are not
+  tuned against anything.
 
 **Also unconfirmed, and cheap when the chance comes:** the DODGE trail (mode 2, the yellow one) is
 the one trail branch nobody has seen. It needs somewhere with enemies (user). Slide and quickdrop
@@ -135,6 +137,18 @@ attach** -- only that the port answers. `../../agent_docs/environment.md`.
 **Nothing here changes what ships.** ScriptEngine and UnityExplorer are developer-machine tools,
 the doorstop flag is one line in a local install, and `packaging/release/` carries only the
 rebuilt DLL. The pdb the dev loop needs is deployed by `tevi-hotreload.ps1`, never staged.
+
+## Open -- a predicted ghost can sink into the floor; the fix is asking the GAME where the ground is (2026-08-28)
+
+**The one residual the render-knob sweep could not close** (`../../agent_docs/verified.md`, "The
+render-knob sweep"): with prediction on, a descending ghost is carried a little below the ground
+before the landing sample arrives, and the jump reads a beat late besides. Every generic lever was
+tried and the verdicts are pinned in ADR 0040 -- the core cannot know a floor exists.
+
+**The named fix, deliberately not built yet:** the adapter asks TEVI whether the ghost's position
+is inside ground (the game's own collision query) and clamps the render. Game-specific by nature,
+same "let the game do the work" posture as everything else here. Until then the sink ships as a
+known cosmetic limit of prediction -- and prediction itself is opt-in config, off by default.
 
 ## Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
 
