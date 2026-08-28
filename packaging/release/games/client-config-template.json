@@ -9,7 +9,7 @@
     "transport": "auto",
     "room": "default",
     "room_code": "",
-    "name": "player",
+    "name": "",
     "ghost_collision": "enabled",
     "interp": "250ms",
     "curve": "linear",

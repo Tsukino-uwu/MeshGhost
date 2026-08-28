@@ -6,7 +6,7 @@
     "tls_fingerprint": "",
     "room": "default",
     "room_code": "",
-    "name": "player",
+    "name": "",
     "ghost_collision": "enabled",
     "local_game_bridge": "127.0.0.1:7778",
     "interp": "250ms",

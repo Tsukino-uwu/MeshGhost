@@ -395,7 +395,13 @@ func main() {
 		"real adapter's own Hello declares it (bridge.Hello); set this to connect at "+
 		"startup instead of waiting for one, e.g. for dev/testing scripts with no adapter attached")
 	room := flag.String("room", "default", "room name to join")
-	name := flag.String("name", "player", "display name to advertise to the relay")
+	// EMPTY BY DEFAULT, and that is the feature. A name is opt-in: leave it unset and no
+	// nametag is drawn over your ghost at all. The old default was "player", which put the
+	// SAME label over every ghost in the room -- a nametag that identifies nobody is worse
+	// than none, and it also broadcast a name for people who never asked to have one shown.
+	// User's call, 2026-08-28: "if its blank it should not display/do anything, it should
+	// only have a text box/show something if a custom name is put in".
+	name := flag.String("name", "", "display name to show above your ghost for other players. Empty (the default) means no nametag is drawn for you at all; set it only if you want to be labelled. Sanitized by the relay before anyone sees it -- see protocol.SanitizeDisplayName")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
