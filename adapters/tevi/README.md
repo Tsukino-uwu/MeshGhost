@@ -85,6 +85,13 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
    inherited a disabled sprite-renderer field from the live character at clone time.
 9. Added a marker on TEVI's own pause-screen map showing where the other player is, gated by
    the local player's own fog-of-war so it doesn't leak undiscovered rooms. (6.7)
+10. Gave ghosts the afterimage trail — the blue one a quickdrop leaves. TEVI decides each frame
+    whether to trail, from three values it exposes publicly, so the adapter reads the same three
+    and mirrors that *decision* rather than listing moves; every move using the system works at
+    once. (2026-08-28)
+11. Made warp devices wake up for a ghost, the animation only. The game's own trigger would have
+    done it for free, but it also autosaves and heals — so the visual is driven from the flag its
+    `Update` reads instead, and nothing else fires. (2026-08-28)
 
 ### Further work past "good enough"
 

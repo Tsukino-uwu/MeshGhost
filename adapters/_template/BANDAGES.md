@@ -162,6 +162,21 @@ existence is justified — a painted ghost has no engine occlusion, no reflectio
 unless each is separately reproduced, which is most of what the Emerald drawn tier's work has been.
 Legitimate does not mean free.
 
+## A SECOND legitimate kind: the game's own route is closed by a rule — 2026-08-28
+
+Not a hardware ceiling: the mechanism exists, works, and is reachable — and using it would
+break a project rule. TEVI's warp devices animate from a trigger their own collider fires, and that
+handler also calls `AutoSave()` and heals the LOCAL player. Restoring a ghost's collider would have
+been the proper fix and would have made a cosmetic layer write a save.
+
+**So: before letting a ghost fire any reaction the game already has, READ WHAT THE HANDLER DOES.**
+A visual reaction is rarely only visual, and the side effects are usually aimed at the local player
+rather than at whatever triggered it — so a peer would have healed the watcher.
+
+**The compensation is then legitimate but still owes its cost**, and the cheapest safe shape is to
+find the seam where the visual is driven separately (a flag its `Update` reads) and touch only
+that. Register which real route is closed and by which rule, so nobody re-proposes it.
+
 ## How to tell a bandage from a proper fix
 
 **This is the canonical version. The per-adapter registers carry a compact form and link here.**

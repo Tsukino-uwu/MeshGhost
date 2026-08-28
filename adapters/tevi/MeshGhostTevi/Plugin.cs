@@ -722,6 +722,117 @@ namespace MeshGhostTevi
             effect.transform.position = visual.Pc.transform.position;
         }
 
+        // WARP DEVICES WAKE UP FOR A GHOST -- the visual half only, and the split is the whole
+        // point of this code.
+        //
+        // A WarpDevice animates when the player stands in it. It does that from `OnTriggerStay2D`
+        // and `OnTriggerEnter2D`, which also do all of this:
+        //
+        //     SaveManager.Instance.AutoSave();                    <- WRITES A SAVE
+        //     ...playerc_perfer.RegenHealth(3f, ...);             <- heals the LOCAL player
+        //     EnterTips.Instance.EnableMe(2, null, 0);            <- interaction prompt
+        //     FullMap.Instance.SetMiniMapIcon(..., Icon.WARP);    <- marks the local minimap
+        //
+        // So the obvious implementation -- give the ghost its collider back and let the game's own
+        // trigger fire -- is FORBIDDEN, not merely untidy. `CLAUDE.md`: nothing that ships writes a
+        // save, ever, not even as a feature. Note also that RegenHealth is called on
+        // `EventManager.Instance.mainCharacter` rather than on whatever entered the trigger, so a
+        // peer standing in a portal would heal YOU. That is a gameplay effect caused by a cosmetic
+        // layer, which is the exact thing the cosmetic-first design exists to prevent.
+        // (`BANDAGES.md` entry 4 is why a ghost has no colliders in the first place.)
+        //
+        // THE SEAM: `WarpDevice.Update()` produces the entire visual -- the "assembling" animation,
+        // the particle scale, the light intensity -- from the private `readyopen`/`readyclose`
+        // flags and `lastAnim`. None of the side effects above is in Update. So setting one flag
+        // gives the wake-up and nothing else, and the game still owns every frame of the animation.
+        //
+        // Membership is tested with the device's OWN trigger collider (`OverlapPoint`), never a
+        // radius of our own: the shape is the game's, so a ghost wakes a portal at exactly the
+        // distance a player does, and there is no constant here to get wrong.
+        private const float WarpScanInterval = 0.5f;
+        private float lastWarpScanTime;
+        private WarpDevice[] warpDevices = new WarpDevice[0];
+        // Which devices currently have a ghost inside, so the flags are set on the TRANSITION --
+        // matching OnTriggerEnter/Exit semantics rather than re-asserting every frame, which would
+        // fight Update's own clearing of them.
+        private readonly HashSet<int> warpsWithGhostInside = new HashSet<int>();
+
+        private static readonly FieldInfo WarpReadyOpenField =
+            typeof(WarpDevice).GetField("readyopen", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo WarpReadyCloseField =
+            typeof(WarpDevice).GetField("readyclose", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        private void UpdateWarpDevicesForGhosts()
+        {
+            // Reflection resolved once; if a future build renames either field this does nothing
+            // at all rather than throwing every frame, and the ghost simply stops waking portals.
+            if (WarpReadyOpenField == null || WarpReadyCloseField == null)
+            {
+                return;
+            }
+            // Re-scan on a timer rather than every frame: FindObjectsOfType is O(scene), and the
+            // set of warp devices only changes on a room change.
+            if (Time.time - lastWarpScanTime >= WarpScanInterval)
+            {
+                lastWarpScanTime = Time.time;
+                warpDevices = FindObjectsOfType<WarpDevice>();
+            }
+            if (warpDevices.Length == 0)
+            {
+                return;
+            }
+
+            foreach (WarpDevice device in warpDevices)
+            {
+                // OnBecameInvisible disables the component off-camera, and a disabled Update will
+                // not act on the flag anyway -- so skip rather than set something nothing reads.
+                if (device == null || !device.isActiveAndEnabled)
+                {
+                    continue;
+                }
+                int id = device.GetInstanceID();
+                bool ghostInside = false;
+                foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+                {
+                    if (kv.Value.Go == null || !kv.Value.Go.activeInHierarchy)
+                    {
+                        continue;
+                    }
+                    Vector3 p = kv.Value.Go.transform.position;
+                    foreach (Collider2D col in device.GetComponentsInChildren<Collider2D>())
+                    {
+                        if (col != null && col.isTrigger && col.OverlapPoint(p))
+                        {
+                            ghostInside = true;
+                            break;
+                        }
+                    }
+                    if (ghostInside)
+                    {
+                        break;
+                    }
+                }
+
+                bool wasInside = warpsWithGhostInside.Contains(id);
+                if (ghostInside && !wasInside)
+                {
+                    warpsWithGhostInside.Add(id);
+                    WarpReadyOpenField.SetValue(device, true);
+                    WarpReadyCloseField.SetValue(device, false);
+                }
+                else if (!ghostInside && wasInside)
+                {
+                    warpsWithGhostInside.Remove(id);
+                    // Only ask it to close if the LOCAL player is not standing in it too --
+                    // otherwise a ghost leaving would shut a portal the player is still using.
+                    // The game re-opens it from its own trigger every frame the player is inside,
+                    // so this is belt-and-braces rather than the only guard.
+                    WarpReadyCloseField.SetValue(device, true);
+                    WarpReadyOpenField.SetValue(device, false);
+                }
+            }
+        }
+
         // PROBE, off unless DIAG_SPAWN_DIFF. See the flag's own comment for the question and the
         // method. Reports APPEARED/DISAPPEARED GameObjects near a character, by instance id.
         private void DiagSpawnDiff(CharacterBase player)
@@ -1041,6 +1152,13 @@ namespace MeshGhostTevi
                 RoomY = roomY,
                 TrailMode = ReadTrailMode(player),
             });
+
+            // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,
+            // without going near the trigger that would save, heal and mark the local minimap.
+            if (remoteVisuals.Count > 0)
+            {
+                UpdateWarpDevicesForGhosts();
+            }
 
             if (DIAG_SPAWN_DIFF)
             {

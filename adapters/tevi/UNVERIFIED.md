@@ -36,6 +36,21 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## Pending -- a warp device may flicker if a ghost leaves one the local player is standing in (2026-08-28)
+
+The warp wake-up is confirmed (`VERIFIED.md`), but one case in it was reasoned rather than watched.
+`UpdateWarpDevicesForGhosts` asks a device to close when the last ghost leaves it, and does **not**
+first check whether the local player is still inside. The game re-opens it from its own
+`OnTriggerStay2D` every frame the player is there, so the close should be overwritten before it is
+ever drawn.
+
+**What to look at.** Stand in a warp device yourself while a peer walks into it and back out.
+**What correct looks like:** the portal stays awake throughout, with no flicker at the moment the
+peer leaves. **If it does flicker**, the fix is to make the close conditional on the local player
+being absent, which is a two-line change already identified.
+
+Detail and why the close is unconditional today: [BANDAGES.md](BANDAGES.md) entry 7.
+
 ## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 
 **The defect was observed, not theorised.** Both instances sat logging
@@ -72,30 +87,30 @@ path is reasoned from the code, and the log line it would emit
 **What to look at:** if a session ever shows repeated refusals again, that line appearing within
 ~8s is the fix working; its absence means this is still open.
 
-## Pending -- the dev loop's COLD START has never been watched (2026-08-28)
+## Pending -- the cold start LOADS; one VISUAL detail is unwatched (2026-08-28)
 
 **The hot-reload half is CONFIRMED and moved to [`VERIFIED.md`](VERIFIED.md)** -- the reload works
 and leaves no orphan ghost, watched in a two-instance session. What is left here is everything
 that a hot reload cannot, by construction, exercise.
 
-**Nothing has been launched cold since the setup was finished.** The session that confirmed the
-reload had started BEFORE `LoadOnStart = true` and `Hide On Startup = true` were written, so both
-were only ever picked up by a reload, never by a startup. Two things follow:
+**`LoadOnStart = true` IS CONFIRMED**, later the same session: the user relaunched both games and
+both logs show `Loading plugins from ...MeshGhostTevi.dll` during Chainloader followed by
+`MeshGhost v0.2.0 loaded.`, with nothing deployed first, and ghosts followed. **`CoreLauncher`'s
+cold-start path is confirmed with it** -- `started a core (meshghost.exe, pid ...)` on that same
+launch, which is the beside-the-assembly branch rather than the reload branch.
 
-- **`LoadOnStart = true` is unproven.** Until it is, a fresh TEVI launch may come up with the
+What is left is the one thing a log cannot answer and nobody looked at:
+
+- **UnityExplorer's overlay should now stay hidden until F7.** It opened by default on both
+  instances before `Hide On Startup = true` was written, which is what prompted the setting, and no
+  launch since has been watched for it. **What correct looks like:** no overlay on top of the game
+  until F7 is pressed. Harmless if wrong, and purely a nuisance rather than a defect.
+
+The paragraph below is kept because it names the trap this entry was originally about:
+
+- **If `LoadOnStart` ever regresses**, a fresh TEVI comes up with the
   adapter sitting in `BepInEx\scripts\` **unloaded**, which looks exactly like the mod being
   broken -- there is no ghost and no error. The workaround if it happens is one `-Deploy`.
-- **UnityExplorer's overlay should now be hidden until F7.** It opened by default on both
-  instances on 2026-08-28, which is what prompted the setting.
-
-**What to look at.** Launch either TEVI normally, touching nothing. **What correct looks like:**
-`MeshGhost v… loaded.` in `BepInEx\LogOutput.log` without anything being deployed first, and no
-UnityExplorer overlay until F7 is pressed.
-
-**Also unproven: `CoreLauncher`'s fallback on a cold start.** It was confirmed working under a
-reload (`started a core (meshghost.exe, pid …)`), where `Assembly.Location` is empty. On a cold
-start the FIRST search path -- beside the assembly -- is the one that answers, which is the
-shipping path and a different branch.
 
 **The Mono debugger question is answered, and then deliberately switched back off.** Both agents
 were confirmed listening on 2026-08-28 (`127.0.0.1:10000` owned by the Steam pid, `:10001` by the

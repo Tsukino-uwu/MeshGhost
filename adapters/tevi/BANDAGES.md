@@ -140,6 +140,35 @@ child. Neither was attempted; the cadence version was confirmed working on scree
 (`VERIFIED.md`, 2026-08-28) and the cost of the shortcut is written here so it is a decision rather
 than a default.
 
+### 7. Warp devices are woken by writing a private flag, because their real trigger writes a save
+
+`MeshGhostTevi/Plugin.cs`, `UpdateWarpDevicesForGhosts()`. A ghost standing in a warp device makes
+it animate, by setting `WarpDevice`'s private `readyopen`/`readyclose` through reflection.
+
+**The proper mechanism exists and is the collider the game already uses** -- restore a ghost's
+colliders and its own `OnTriggerEnter2D`/`OnTriggerStay2D` do everything correctly, including the
+animation. **It is unusable, and not for a reason effort can fix:** those handlers also call
+`SaveManager.Instance.AutoSave()`, `RegenHealth` on the LOCAL `mainCharacter`, the interaction
+prompt and the local minimap icon. `../../CLAUDE.md` forbids anything shipped writing a save, and
+the heal would be a peer causing a gameplay effect on the watcher.
+
+**So this is the legitimate kind of compensation** -- the game's own route is closed by a rule
+rather than by a gap in our understanding -- but it is still a compensation and owes its cost:
+
+- **It writes a private field.** A rename in any future TEVI build silently stops portals waking,
+  with no error; the reflection is resolved once and null-checked, so the failure is a quiet
+  nothing rather than a throw. That is the safe failure and still a silent one.
+- **It reproduces the trigger's ENTER/EXIT semantics** with `OverlapPoint` against the device's own
+  trigger collider. The shape is the game's, but the *decision to test it* is ours, and any
+  condition the real handler applies that we have not noticed is simply absent.
+- **The close is unconditional.** If the local player is inside a device when a ghost leaves it,
+  this asks it to close; the game re-opens it from its own trigger every frame, so it should be
+  invisible. Unwatched -- `UNVERIFIED.md`.
+
+**What would retire it:** a way to let a ghost's collider fire only the visual half -- a layer the
+warp's trigger does not filter on, or a game build where the animation is driven separately from
+the save. Neither exists today.
+
 ### 5. CLOSED 2026-08-27 — the send gate, the port walk, and the walk's own root-caused defect
 
 `BridgeClient.cs` handles `bridge_ready` and `reject` as of 2026-08-18 -- before that both fell

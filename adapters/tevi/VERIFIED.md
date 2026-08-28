@@ -66,6 +66,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI zone-transition ghost-invisibility fix, live confirmed
 - TEVI hot-reload dev loop — the adapter reloads in a running game, and the reload leaves no orphan ghost
 - TEVI afterimage trails sync to a peer ghost — by mirroring the game's own decision, not its moves
+- TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -608,3 +609,36 @@ filed under the right theme, but anything can check that it is listed.
   cost and the two real fixes. **Scope: the quickdrop case is what was watched.** Slide (same mode)
   and dodge (mode 2, the yellow one) follow from the same code path and were NOT separately
   confirmed on screen.
+
+
+## TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
+
+- Date: 2026-08-28
+- What: a `WarpDevice` animates when a player stands in it, and did nothing for a peer ghost. It
+  now wakes for a ghost too. **USER-CONFIRMED ON SCREEN:** *"its working. shows visually to the
+  other player now"*, after the user specified the intent: *"I only want the 'visual' part of it
+  shared. the animation its doing. not the healing/saving or actually using it"*.
+- **The obvious implementation is FORBIDDEN, and that is the finding worth keeping.** The portal
+  reacts from `OnTriggerStay2D`/`OnTriggerEnter2D`, which a ghost would fire if its colliders were
+  restored (`BANDAGES.md` entry 4 strips them). Those handlers also call
+  `SaveManager.Instance.AutoSave()`, `playerc_perfer.RegenHealth(3f, ...)`,
+  `EnterTips.Instance.EnableMe(2, null, 0)` and `FullMap.Instance.SetMiniMapIcon(..., Icon.WARP)`.
+  `CLAUDE.md`'s absolute rule is that nothing shipped writes a save. **And RegenHealth is called on
+  `EventManager.Instance.mainCharacter`, not on whatever entered the trigger** -- so a peer standing
+  in a portal would have healed the WATCHER. A cosmetic layer causing a gameplay effect, from the
+  most natural-looking implementation available.
+- **The seam that makes it safe:** `WarpDevice.Update()` produces the entire visual -- the
+  `assembling` animation, `parteffect`'s scale, the light intensity -- from the private
+  `readyopen`/`readyclose` flags and `lastAnim`. **None of the side effects above is in Update.**
+  Setting one flag yields the wake-up and nothing else, and the game still animates every frame.
+- **Membership uses the device's OWN trigger collider** (`Collider2D.OverlapPoint`), never a radius
+  of ours, so a ghost wakes a portal at exactly the distance a player does and there is no constant
+  here that can be wrong. Flags are set on the ENTER/EXIT transition rather than re-asserted every
+  frame, so `Update`'s own clearing of them is not fought.
+- Source: `MeshGhostTevi/Plugin.cs`, `UpdateWarpDevicesForGhosts`. Field and method names read from
+  this machine's `Assembly-CSharp.dll` with `ilspycmd` (`agent_docs/licensing.md`).
+- Notes: registered as `BANDAGES.md` entry 7 -- the proper mechanism is the collider the game
+  already uses, and it is unusable precisely because it is wired to a save. **Not separately
+  watched:** whether a portal flickers if the local player is standing in one while a ghost walks
+  out of it. The close is unconditional; the game re-opens it every frame the player is inside, so
+  it should be invisible, but nobody has looked. `UNVERIFIED.md`.
