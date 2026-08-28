@@ -1344,34 +1344,14 @@ func (s *Server) handleConn(conn net.Conn) {
 
 		switch env.Type {
 		case protocol.TypeState:
-			var st protocol.State
-			if err := json.Unmarshal(env.Payload, &st); err != nil {
+			// The decode/validate/stamp/record/fan-out sequence lives in
+			// states.go so the benchmark can call it directly. Everything
+			// below is the dev-only loopback echo, which is the only part
+			// that needs anything from the connection itself.
+			st, ok := r.forwardState(id, env.Payload)
+			if !ok {
 				return
 			}
-			// Size/length/finiteness limits (agent_docs/contract.md) — drop
-			// rather than truncate, so a client sees silence instead of a
-			// half-forwarded, confusing state. protocol.ValidateState is
-			// shared with core so both enforcement points can't
-			// silently drift apart.
-			if !protocol.ValidateState(st) {
-				return
-			}
-			// player_id is stamped server-side from the connection's own
-			// assigned id, never trusted from the payload — a peer could
-			// otherwise claim someone else's id. Cheap now; Phase 4 puts
-			// untrusted peers on the wire.
-			st.PlayerID = id
-			stateEnv, err := envelope(protocol.TypeState, st)
-			if err != nil {
-				return
-			}
-			// Remembered before forwarding, and independent of the
-			// per-recipient rate gate below: a late joiner should be seeded
-			// with the newest sample, not the newest one that happened to be
-			// forwarded to somebody. Recorded for every room, not only ones
-			// that asked for snapshots -- see recordState.
-			r.recordState(id, st)
-			r.ForwardUnreliable(stateEnv, r.stateRecipients(id, st.AreaID, len(stateEnv.Payload), time.Now()))
 
 			if s.Loopback {
 				// Dev-only Phase 3 loopback (agent_docs/phases/phase3.md):

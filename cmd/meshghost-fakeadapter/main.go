@@ -294,6 +294,21 @@ func cloneExtras(src map[string]any) map[string]any {
 	return out
 }
 
+// peerAreaID spreads peer i over areas distinct area_ids. areas <= 1 returns
+// base unchanged, which is what every existing launcher and every recorded
+// measurement before 2026-08-28 assumed -- so the default cannot alter a
+// historical number.
+//
+// The suffix is appended rather than replacing base so a run stays traceable to
+// the game it was imitating, and so two rigs pointed at one relay cannot
+// collide on a bare index.
+func peerAreaID(base string, i, areas int) string {
+	if areas <= 1 {
+		return base
+	}
+	return fmt.Sprintf("%s-%d", base, i%areas)
+}
+
 func main() {
 	relayAddr := flag.String("relay", "127.0.0.1:7777", "relay address to connect to")
 	room := flag.String("room", "fake", "room name to join")
@@ -312,6 +327,12 @@ func main() {
 		"\"1200,-3400,520\" -- put this near the real player so the ghosts are actually on screen")
 	areaID := flag.String("area-id", "fake-arena", "area_id to send -- MUST equal the real client's own "+
 		"area_id or its core filters these ghosts out and nothing renders")
+	areas := flag.Int("areas", 1, "spread the synthetic peers over this many distinct area_ids: peer i gets "+
+		"-area-id with a -N suffix, and 1 (the default) keeps every peer in -area-id exactly as before. "+
+		"Dev-only, and the only way this rig can produce the room SHAPE relay-side area filtering exists for -- a "+
+		"single-area room is that filter's worst case and saves nothing by construction. Note the ghosts stop being "+
+		"visible to a real game client at anything above 1, since its core filters by area equality: this is for "+
+		"measuring the relay, not for loading a renderer.")
 	churnArea := flag.String("churn-area-id", "fake-elsewhere", "area_id used during churn windows (see -churn-every)")
 	churnEvery := flag.Duration("churn-every", 0, "if set, each ghost periodically switches to -churn-area-id, "+
 		"forcing the real client to despawn and respawn it -- measures spawn cost, not just steady-state render cost")
@@ -390,6 +411,13 @@ func main() {
 	}
 	if *dims < 1 {
 		log.Fatalf("meshghost-fakeadapter: -dims must be at least 1, got %d", *dims)
+	}
+	// Refused rather than clamped, unlike the protocol's own rate knobs: this
+	// is a dev rig where a nonsense value means the operator meant something
+	// else, and silently measuring a different room shape than the one asked
+	// for is exactly how a measurement stops being evidence.
+	if *areas < 1 {
+		log.Fatalf("meshghost-fakeadapter: -areas must be at least 1, got %d", *areas)
 	}
 	centerVec, err := parseCenter(*center, *dims)
 	if err != nil {
@@ -523,7 +551,7 @@ func main() {
 			phase:         2 * math.Pi * float64(i) / float64(*clients),
 			dims:          *dims,
 			center:        centerVec,
-			areaID:        *areaID,
+			areaID:        peerAreaID(*areaID, i, *areas),
 			churnAreaID:   *churnArea,
 			churnEvery:    *churnEvery,
 			churnFor:      *churnFor,
@@ -544,6 +572,14 @@ func main() {
 	log.Printf("meshghost-fakeadapter: %d client(s) connected to relay %s in room %q as game_id=%q area_id=%q, "+
 		"circling radius=%.1f period=%.1fs dims=%d",
 		*clients, *relayAddr, *room, *gameID, *areaID, *radius, *period, *dims)
+	if *areas > 1 {
+		// Said out loud because a run that meant to load a renderer and got
+		// -areas by accident renders NOTHING, which looks exactly like a
+		// broken rig rather than a deliberate spread.
+		log.Printf("meshghost-fakeadapter: peers spread over %d area_ids (%q..%q) -- a real game client will "+
+			"render only the share matching its own area",
+			*areas, peerAreaID(*areaID, 0, *areas), peerAreaID(*areaID, *areas-1, *areas))
+	}
 	if *churnEvery > 0 {
 		log.Printf("meshghost-fakeadapter: churn on -- each ghost spends %s of every %s in area_id %q",
 			*churnFor, *churnEvery, *churnArea)

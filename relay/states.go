@@ -13,8 +13,58 @@ package relay
 // Read online.go's header before changing anything in this file.
 
 import (
+	"encoding/json"
+	"time"
+
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
+
+// ---------------------------------------------------------------------------
+// The state plane's inbound path
+// ---------------------------------------------------------------------------
+
+// forwardState is everything the relay does with one inbound state: decode it,
+// enforce the shared limits, stamp the sender's real id over whatever the
+// payload claimed, remember it for late joiners, and fan it out. It returns the
+// validated, stamped state so the dev loopback echo can reuse it, and ok=false
+// for anything dropped.
+//
+// Extracted from handleConn's OnReceive on 2026-08-28, mechanically and with no
+// behaviour change, so that relay/forward_bench_test.go measures THE path
+// rather than a copy of it kept in step by hand. A benchmark that replicates
+// the sequence it claims to measure stops being evidence the moment either side
+// drifts, and this is the hottest path in the process.
+func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bool) {
+	var st protocol.State
+	if err := json.Unmarshal(payload, &st); err != nil {
+		return protocol.State{}, false
+	}
+	// Size/length/finiteness limits (agent_docs/contract.md) — drop
+	// rather than truncate, so a client sees silence instead of a
+	// half-forwarded, confusing state. protocol.ValidateState is
+	// shared with core so both enforcement points can't
+	// silently drift apart.
+	if !protocol.ValidateState(st) {
+		return protocol.State{}, false
+	}
+	// player_id is stamped server-side from the connection's own
+	// assigned id, never trusted from the payload — a peer could
+	// otherwise claim someone else's id. Cheap now; Phase 4 puts
+	// untrusted peers on the wire.
+	st.PlayerID = senderID
+	stateEnv, err := envelope(protocol.TypeState, st)
+	if err != nil {
+		return protocol.State{}, false
+	}
+	// Remembered before forwarding, and independent of the
+	// per-recipient rate gate below: a late joiner should be seeded
+	// with the newest sample, not the newest one that happened to be
+	// forwarded to somebody. Recorded for every room, not only ones
+	// that asked for snapshots -- see recordState.
+	r.recordState(senderID, st)
+	r.ForwardUnreliable(stateEnv, r.stateRecipients(senderID, st.AreaID, len(stateEnv.Payload), time.Now()))
+	return st, true
+}
 
 // ---------------------------------------------------------------------------
 // Late-join snapshot
