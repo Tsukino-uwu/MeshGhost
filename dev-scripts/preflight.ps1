@@ -1019,7 +1019,12 @@ Section "Leftover scaffolding"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
 # Leaving a relay alive is how a later run silently binds the wrong port.
-$strays = Get-Process -Name "meshghost", "meshghost-relay", "meshghost-fakeadapter", "meshghost-netsim" -ErrorAction SilentlyContinue
+# meshghost-server is the RELAY'S SHIPPED NAME -- one program, two names, per packaging/README.md.
+# It was missing here until 2026-08-28, so a relay left running from a staged release (which is
+# exactly what a release dry run leaves behind) reported "no MeshGhost processes left running".
+# The check that exists to stop a stale relay silently binding the port was blind to the only name
+# a player ever sees.
+$strays = Get-Process -Name "meshghost", "meshghost-relay", "meshghost-server", "meshghost-fakeadapter", "meshghost-netsim" -ErrorAction SilentlyContinue
 if ($strays) {
     Report-Warn "MeshGhost processes are already running -- close them before a clean test:"
     $strays | ForEach-Object { Write-Host "          $($_.ProcessName) (pid $($_.Id))" }

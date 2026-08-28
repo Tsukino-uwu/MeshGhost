@@ -2,7 +2,7 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 86 `constexpr bool` switches. They look alike and they are not alike, and
+`Plugin.cpp` carries 87 `constexpr bool` switches. They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -78,18 +78,31 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 
 ## Probes — off, and they must stay off
 
-45 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
+**One of them shipped ON, and it took a release test to notice (2026-08-28).**
+`LOCAL_MOVEMENT_TRACE` did not exist as a flag at all: the block it now gates was written for the
+"stuck flying after jump" investigation and left running unconditionally, so every RELEASE build
+dumped movement state, VisualMesh transform and capsule rotation every ~2s forever. Measured in a
+real session at **24 of the 73 adapter log lines in 18 seconds**, beside 25 bridge-stat lines --
+**two thirds of what the shipped adapter logged was diagnostics from finished work.** It is now a
+flag, `false`, and counted below.
+
+The lesson for this register: a probe with no flag is invisible to this file, so counting flags
+cannot prove the shipped build is quiet. What proves it is reading a real session's log, which is
+the only reason this was found.
+
+46 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
 `_CENSUS`, `_HUNT`, plus `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`,
 `AFTERIMAGE_DISCOVERY`, `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
 
 **The arithmetic, so a future audit can check it in one pass** — recounted 2026-08-27, after the
-outline work: **86** `constexpr bool` in `Plugin.cpp`, being 85 written plus
+outline work: **87** `constexpr bool` in `Plugin.cpp` (86 until 2026-08-28), being 85 written plus
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather than set
 (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped build
 without being written so. Of the 85:
 
 - **26 written `true`** — Behaviour, above.
-- **59 written `false`**, splitting by name into **45 probe-shaped** and **14 not**.
+- **60 written `false`** (59 until `LOCAL_MOVEMENT_TRACE` was added on 2026-08-28), splitting by
+  name into **46 probe-shaped** and **14 not**.
 - Of those 14, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
   `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and the
   remaining **12 are the Dormant recorded negatives** below.

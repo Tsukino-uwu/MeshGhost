@@ -526,6 +526,21 @@ namespace MeshGhostPseudo
     // what we asked for, which would prove nothing (CLAUDE.md).
     constexpr bool POSSESS_TRACE = false;
 
+    // LOCAL_MOVEMENT_TRACE dumps the local player's movement state, VisualMesh transform and
+    // capsule rotation every LOG_INTERVAL_TICKS (~2s).
+    //
+    // OFF BY DEFAULT SINCE 2026-08-28, when it was found SHIPPING. It was written for the "stuck
+    // flying after jump, slide resets it" investigation and never gated, so a release build wrote
+    // it forever: measured in a real session at 24 of the 73 MeshGhostPseudo lines produced in 18
+    // seconds, beside 25 bridge-stat lines -- two thirds of the shipped adapter's log output was
+    // diagnostics from finished work. adapters/CLAUDE.md is explicit that a standing diagnostic is
+    // a shipping decision, not a debugging convenience: probes come off when they stop answering a
+    // question, and what stays is off by default and flag-gated.
+    //
+    // Kept rather than deleted because it is the right instrument for the next movement-state
+    // question in this game -- it just has to be switched on deliberately.
+    constexpr bool LOCAL_MOVEMENT_TRACE = false;
+
     // How many redraw ticks after a spawn to keep checking who holds the controller. Long enough
     // to catch a possess that lands a frame or two later, short enough not to become per-tick
     // logging.
@@ -11100,8 +11115,9 @@ namespace MeshGhostPseudo
 
             // Live trace for the "stuck flying after jump, slide resets it" investigation --
             // reusing the existing ~2s log cadence (LOG_INTERVAL_TICKS) so this can run through a
-            // full jump/stuck/slide/recovered cycle without flooding the log.
-            if (tick_count % LOG_INTERVAL_TICKS == 0)
+            // full jump/stuck/slide/recovered cycle without flooding the log. Gated since
+            // 2026-08-28: see LOCAL_MOVEMENT_TRACE for what shipping it unflagged actually cost.
+            if (LOCAL_MOVEMENT_TRACE && tick_count % LOG_INTERVAL_TICKS == 0)
             {
                 Output::send(STR("[MeshGhostPseudo] TRACE local: moveState={} actionState={} hSpeed={} vSpeed={} animJumpType={} movementMode={} landed={} jumped={} yaw={} bOrientRotationToMovement={}\n"),
                              move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
