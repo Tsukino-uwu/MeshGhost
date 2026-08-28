@@ -496,7 +496,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 // It logs and stops retrying instead; ConnectRelayOnAdapterHello's own
 // permanent-reject caching means this doesn't spam the relay either.
 func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeConn transport.Transport) {
-	backoff := InitialReconnectBackoff
+	backoff, backoffMax := c.reconnectBackoffBounds()
 	for {
 		err := c.ConnectRelayOnAdapterHello(gameID, adapterGameVersion, bridgeConn)
 		if err == nil {
@@ -507,7 +507,7 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 			return
 		}
 		time.Sleep(backoff)
-		backoff = NextReconnectBackoff(backoff)
+		backoff = nextBackoffWithin(backoff, backoffMax)
 	}
 }
 

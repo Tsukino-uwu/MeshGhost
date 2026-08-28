@@ -195,14 +195,50 @@ const (
 // MaxReconnectBackoff. Shared so the clamp cannot be got subtly wrong in one
 // of the two callers.
 func NextReconnectBackoff(cur time.Duration) time.Duration {
-	if cur >= MaxReconnectBackoff {
-		return MaxReconnectBackoff
+	return nextBackoffWithin(cur, MaxReconnectBackoff)
+}
+
+// nextBackoffWithin is NextReconnectBackoff against an explicit ceiling, so a
+// Core can use its own (see Core.ReconnectMaxBackoff) without a second copy of
+// the doubling-and-clamp -- which is the duplication this pair was collapsed to
+// one home to remove in the first place.
+func nextBackoffWithin(cur, max time.Duration) time.Duration {
+	if cur >= max {
+		return max
 	}
-	next := cur * 2
-	if next > MaxReconnectBackoff {
-		return MaxReconnectBackoff
+	if next := cur * 2; next < max {
+		return next
 	}
-	return next
+	return max
+}
+
+// reconnectBackoffBounds is this Core's retry cadence: its own values where set,
+// the package defaults otherwise.
+//
+// OVERRIDABLE BECAUSE A TEST CANNOT WAIT OUT THE REAL ONE. A relay outage that
+// outlasts the cap takes fifteen seconds per attempt to exercise, which is why
+// "the relay was down for a while" has only ever been tested by hand. With these
+// as fields, the same code path runs on a 20ms ceiling and an outage of any
+// LOGICAL length costs milliseconds -- the whole reason InterpolationDelay,
+// MinSendInterval, IdleKeepalive and RemoteStaleAfter are fields too. See
+// agent_docs/ideas.md's scheduling-fuzzer entry, which this exists to unblock.
+//
+// Zero means "use the default", the same convention every other timing knob in
+// this codebase follows.
+func (c *Core) reconnectBackoffBounds() (initial, max time.Duration) {
+	initial, max = InitialReconnectBackoff, MaxReconnectBackoff
+	if c.ReconnectInitialBackoff > 0 {
+		initial = c.ReconnectInitialBackoff
+	}
+	if c.ReconnectMaxBackoff > 0 {
+		max = c.ReconnectMaxBackoff
+	}
+	// A ceiling below the floor would make the first wait longer than the cap,
+	// which is the one combination that reads as a bug rather than a setting.
+	if max < initial {
+		max = initial
+	}
+	return initial, max
 }
 
 // DefaultDialTimeout is ConnectRelay's fallback when its timeout parameter
@@ -292,6 +328,13 @@ type Core struct {
 	RelayAddr   string
 	Room        string
 	DisplayName string
+	// ReconnectInitialBackoff and ReconnectMaxBackoff override this Core's
+	// automatic-reconnect cadence; 0 means the package defaults
+	// (InitialReconnectBackoff, MaxReconnectBackoff). See
+	// reconnectBackoffBounds for why they are fields at all.
+	ReconnectInitialBackoff time.Duration
+	ReconnectMaxBackoff     time.Duration
+
 	// NameColor is the colour this player wants their own nametag drawn in, as
 	// "#RRGGBB" (protocol.SanitizeNameColor). Empty means no preference, which
 	// is the default. Ignored when DisplayName is empty -- no name, no tag, so
