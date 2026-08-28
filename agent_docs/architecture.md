@@ -180,6 +180,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-28 — A client stops restating an unchanged state, and brackets its resume so nothing creeps](adr/0039-2026-08-28-a-client-stops-restating-an-unchanged-state.md)
 - [2026-08-28 — The render model becomes three knobs, chosen per game rather than one size fits all](adr/0040-2026-08-28-the-render-model-becomes-three-knobs-chosen-per-game.md)
 - [2026-08-28 — The relay filters cross-area state, for clients that ask for it](adr/0041-2026-08-28-the-relay-filters-cross-area-state-for-clients-that-ask.md)
+- [2026-08-28 — Every client gets its own outbound queue and writer](adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)
 
 ## Prior art
 

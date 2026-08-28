@@ -91,6 +91,13 @@ func (s *Server) suspend(r *Room, c *Client, token string) {
 	r.mu.Lock()
 	c.suspended = true
 	c.Conn = nil
+	// The socket behind this queue is gone, so its writer has nothing left to
+	// write. A resume builds a fresh Client with a fresh outbox rather than
+	// reviving this one, which is what keeps the two connections from ever
+	// sharing a writer.
+	if c.out != nil {
+		c.out.close()
+	}
 	r.mu.Unlock()
 
 	s.mu.Lock()
@@ -279,6 +286,8 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		holdUntilWelcome: true,
 	}
 
+	resumed.out = newOutbox(sess.playerID, nd)
+
 	r.mu.Lock()
 	prev, ok := r.members[sess.playerID]
 	if !ok {
@@ -288,6 +297,12 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		return nil, "", false
 	}
 	previousConn := prev.Conn
+	// The identity is being taken over by a new connection, so the previous
+	// one's writer is finished -- including in the live-takeover case, where
+	// the relay never noticed the old socket die (routine on quic).
+	if prev.out != nil {
+		prev.out.close()
+	}
 	// The resumed Client is brand new, so its cached area starts empty while
 	// the room still remembers this player's real one. See seedLastAreaLocked.
 	r.seedLastAreaLocked(resumed)

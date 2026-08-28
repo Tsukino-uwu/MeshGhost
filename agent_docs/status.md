@@ -160,6 +160,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
 - **The render-knob sweep is DONE and the user picked 175ms linear for TEVI (2026-08-28)** — with
   the bugs fixed the delay is a slider; the floor is the link's worst gap. `verified.md`, ADR 0040.
+- **One stalled peer no longer freezes a whole room (2026-08-28)** -- per-client outbound queue and
+  writer; the old fan-out blocked every peer behind it AND the sender for up to 10s. ADR 0042.
 - **The relay now filters cross-area state, and it is a scaling-shape change (2026-08-28)** --
   93% of offered bytes suppressed on a 16-peer/8-area rig, 0% at one area; UNWATCHED on screen,
   Emerald seam crossings are the check. ADR 0041.

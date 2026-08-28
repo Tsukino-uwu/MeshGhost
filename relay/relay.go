@@ -236,6 +236,14 @@ type Client struct {
 	// with an empty area and quietly fail open for a message or two.
 	lastArea string
 
+	// out is this client's outbound queue and its single writer goroutine, so
+	// a peer that has stopped draining its socket blocks only itself. See
+	// outbox.go for the defect this fixes and the overflow policy. Created
+	// with the Client and never reassigned, so it needs no lock; nil is
+	// tolerated for the Clients that tests construct directly, which fall back
+	// to writing inline.
+	out *outbox
+
 	// suspended marks a client whose connection dropped but whose identity
 	// the relay is still holding, waiting out protocol.DefaultResumeGrace in
 	// case it reconnects with its resume token (see resume.go's
@@ -397,6 +405,7 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 	type target struct {
 		id   string
 		conn transport.Transport
+		out  *outbox
 	}
 	r.mu.Lock()
 	targets := make([]target, 0, len(to))
@@ -441,16 +450,39 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 			continue
 		}
 
-		targets = append(targets, target{id: id, conn: c.Conn})
+		targets = append(targets, target{id: id, conn: c.Conn, out: c.out})
 	}
 	r.mu.Unlock()
 
 	for _, t := range targets {
-		send := t.conn.Send
-		if unreliable {
-			send = t.conn.SendUnreliable
+		// Handed to this client's own writer goroutine rather than written
+		// here. That is the whole point: this loop used to block on each
+		// recipient's socket in turn, so one peer that had stopped draining
+		// starved every peer behind it AND the sender's own read goroutine,
+		// for up to the write timeout. See outbox.go.
+		if t.out != nil {
+			if !t.out.enqueue(outMsg{line: payload, unreliable: unreliable}) {
+				// A message that may not be dropped arrived at a full queue,
+				// so this peer is not reading at all. Closing is the honest
+				// report: the client retries, where a silently dropped leave
+				// or escrow step would leave everyone inconsistent with no
+				// symptom. Closed here rather than inside the outbox so the
+				// connection's own OnDisconnect drives the normal leave path.
+				log.Printf("relay: %s is not draining its connection (%d messages queued) — disconnecting it",
+					t.id, maxOutboxLines)
+				_ = t.conn.Close()
+			}
+			continue
 		}
-		if err := send(payload); err != nil {
+		// No writer: a Client built directly by a test. Written inline, which
+		// is what every caller did before outboxes existed.
+		var err error
+		if unreliable {
+			err = t.conn.SendUnreliable(payload)
+		} else {
+			err = t.conn.Send(payload)
+		}
+		if err != nil {
 			log.Printf("relay: send to %s failed: %v", t.id, err)
 		}
 	}
@@ -579,6 +611,12 @@ func (r *Room) seedLastAreaLocked(c *Client) {
 
 func (r *Room) remove(playerID string) {
 	r.mu.Lock()
+	if gone, ok := r.members[playerID]; ok && gone.out != nil {
+		// Stops this client's writer goroutine once its queue drains. Missing
+		// this would leak one goroutine per player who ever joined, which
+		// relay/leak_test.go exists to catch.
+		gone.out.close()
+	}
 	delete(r.members, playerID)
 	remaining := make([]*Client, 0, len(r.members))
 	for _, c := range r.members {
@@ -1365,6 +1403,9 @@ func (s *Server) handleConn(conn net.Conn) {
 				// has been written — see Client.holdUntilWelcome.
 				holdUntilWelcome: true,
 			}
+			// Started before the add, so this client is never reachable by a
+			// fan-out without a writer to hand the line to.
+			newClient.out = newOutbox(newID, nd)
 			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(newClient)
 
 			// A resume token is minted only for a room that asked for

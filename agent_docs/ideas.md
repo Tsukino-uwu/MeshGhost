@@ -3203,6 +3203,31 @@ Yes for one of them, and the difference is the whole argument.
 only then ask whether binary is still worth its risk.** The hand-written step is reversible and
 provable; the binary step is neither.
 
+## Coalescing writes to one peer -- deferred with the measurement it would need (2026-08-28)
+
+**Filed, not scheduled.** ADR 0042 gave every client an outbound queue and a single writer. That
+makes coalescing possible for the first time: when the writer wakes and several lines are already
+queued for the same peer, they could go out in one syscall, and NDJSON makes the concatenation exact
+-- lines already end in a newline and the reader splits them back identically.
+
+**Deliberately not built, because nothing has shown it would pay.** The 2026-08-28 profile puts
+~58% of the relay's per-state path in `encoding/json` and the syscall nowhere near the top. The
+measurement that would justify it is a profile where write syscalls are actually significant --
+most likely a large room on a real socket rather than the discard transport the benchmarks use.
+
+**Three constraints any implementation must respect**, recorded because each is easy to get wrong:
+
+- **Opportunistic only.** Batch what is ALREADY queued; never a timed tick that waits for more. The
+  user picked 175ms interpolation for TEVI and called 150ms *"living at the edge"* (ADR 0040), and
+  per-adapter tuning may go lower -- there is no latency budget to spend, so the only acceptable
+  form adds none.
+- **Never on udp or quic.** `netx/udpconn`'s `MaxDatagramBytes` is 1200 and Pseudoregalia's state
+  lines are 597+, so two do not reliably fit; and a merged datagram doubles the blast radius of one
+  loss on the plane that is deliberately lossy. Detect with the same `unreliableWriter` assertion
+  `SendUnreliable` already uses.
+- **It is a saving in syscalls and IP/UDP header overhead, not in payload.** That puts it in the
+  same class as this file's packet-count finding: it removes per-message overhead rather than bytes.
+
 ## Sweep: rules that live in one code path and are missing from their sibling
 
 **Unscheduled.** Three instances surfaced in a single session (2026-08-22) and each reached the user
