@@ -602,6 +602,39 @@ per-frame; the shared constant implied a shared cost that was never real.
 **Cross-reference:** `adapters/tevi/MeshGhostTevi/Plugin.cs`, `WatchLocalVfx`;
 `adapters/tevi/UNVERIFIED.md`, the charged attack.
 
+
+## Mirroring through SHARED state makes symmetric peers echo each other (2026-08-28)
+
+**Symptom.** A mirrored one-shot effect fired repeatedly instead of once — user: *"it sometimes
+spams the ending VFX"*, and then, on checking, *"both the VFX & stars can get repeated/spammed"*.
+
+**Cause, and it is a feedback loop of our own making.** The mechanism detected the effect by
+watching the game's OBJECT POOL for a rise in active objects. Playing the effect on a ghost
+activates an object in **that same pool**. Both peers run the same adapter, so: A attacks, B plays
+it on A's ghost, B's own watcher sees B's pool rise, B reports it as B's own effect, A plays it on
+B's ghost, and round it goes.
+
+**The guard that could not work.** Ownership was decided by distance — an effect within N units of
+the local player is the local player's. That is exactly wrong here: it fails precisely when the two
+characters are NEAR each other, which is when anyone is watching them. **A heuristic that degrades
+where the feature is used is not a weak guard, it is an inverted one.**
+
+**The fix is identity.** Record the instance ids of the objects THIS adapter activated for a ghost
+and never count those as local activity. Counts cannot separate *"the game spawned one"* from *"we
+spawned one"*; ids can, which is the same lesson `effect-investigation.md` already records for
+pooled effects and here appears in a new place.
+
+**The general rule, worth having before mirroring anything else this way.** Reading a game's own
+state to detect an event is a great way to MIRROR A DECISION rather than re-derive it — and it is
+safe only while that state is written by the game alone. **The moment your own mirroring writes to
+the same place you are reading, two symmetric peers form a loop.** Ask, before choosing a detector:
+*if the peer ran this exact code, would my detector see their output as my input?* Field reads
+(a clip name, a speed value) are immune; shared containers — pools, spawn lists, scene queries —
+are not.
+
+**Cross-reference:** `adapters/tevi/MeshGhostTevi/Plugin.cs` (`ghostSpawnedEffects`),
+`adapters/tevi/VERIFIED.md`, the charged-attack entry.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:

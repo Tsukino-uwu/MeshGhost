@@ -51,8 +51,9 @@ Phase 6 fully done 2026-08-13.**
 
 Map marker for other player ghosts, shows a constantly tracking/updating tiny tevi bunny icon
 for where other players are in your current zone (as long as you have discovered/seen the maps
-before). Known limitation: it only refreshes when a `render_remote` arrives, so a peer who stops
-sending leaves their marker frozen where it was — see
+before). Known limitations: it only refreshes when a `render_remote` arrives, so a peer who stops
+sending leaves their marker frozen where it was, and it was reported slow to start tracking again
+after a peer left and rejoined (2026-08-28, not investigated) — see
 [agent_docs/status.md](../../agent_docs/status.md).
 
 ## How this adapter was built
@@ -92,6 +93,9 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
 11. Made warp devices wake up for a ghost, the animation only. The game's own trigger would have
     done it for free, but it also autosaves and heals — so the visual is driven from the flag its
     `Update` reads instead, and nothing else fires. (2026-08-28)
+12. Gave ghosts the charged attack's effects. Three name-guesses failed, so a probe was written
+    that reports the prefab the game itself spawns; it named them immediately. The ghost also holds
+    on the impact frame now, which needed the clip's PHASE synced, not just its name. (2026-08-28)
 
 ### Further work past "good enough"
 
@@ -100,6 +104,8 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
   invisible-ghost bug in item 8 above. That bug is root-caused and fixed, so the trace is now
   gated behind `DIAG_REDRAW_TRACE` (default `false`) — flip it on only when chasing a similar
   live repro.
-- Still open, found live 2026-08-15: a ghost's charged-attack VFX don't render — the animations
-  play, the effects don't. Not root-caused; see
-  [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md)'s Notes.
+- **Closed 2026-08-28:** the charged-attack VFX gap found live on 2026-08-15. The effects turned
+  out not to parent to the character at all, which is why watching its hierarchy found nothing; they
+  come from the game's shared effect POOL, and a probe that reports the prefab name found them at
+  once. See [VERIFIED.md](VERIFIED.md). Whether it is truly 1:1 was never settled and the residuals
+  are listed in [UNVERIFIED.md](UNVERIFIED.md).

@@ -67,6 +67,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI hot-reload dev loop — the adapter reloads in a running game, and the reload leaves no orphan ghost
 - TEVI afterimage trails sync to a peer ghost — by mirroring the game's own decision, not its moves
 - TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
+- TEVI charged-attack VFX mirror to a ghost — three pooled effects, the hitstop, and animation phase
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -659,3 +660,43 @@ filed under the right theme, but anything can check that it is listed.
   cached per scan rather than fetched per frame: `GetComponentsInChildren` allocates, and the
   per-frame test would otherwise have made that a per-frame allocation per portal
   (`../CLAUDE.md`'s cost rule).
+
+
+## TEVI charged-attack VFX mirror to a ghost — three pooled effects, the hitstop, and animation phase
+
+- Date: 2026-08-28
+- What: the 2026-08-15 gap -- *"the animation plays and the effect does not"* -- is closed. A peer's
+  charged melee attack now shows its star, its slam, and the perfect-timing variant on the ghost,
+  holds on the impact frame, and survives the attacker turning mid-move.
+  **USER-CONFIRMED ON SCREEN**, across several rounds: *"its doing both now"*, then after the last
+  two fixes *"yee both seem to work, left/right and no spam"*.
+- **How it was FOUND is the durable part, because reading names failed three times.** `isAfterImage`
+  was a boss AI field, `shadowMat` a cutscene, and `Charge` turned out to be parented to
+  `Jetpack Meter`, a HUD element. What settled it was a probe that reports the **prefab name the
+  game itself chose**: `Normal4H Blast` (CommonEffectsPooler #56) and `CutinStar` (#0), six
+  activations for six attacks, at dPlayer=123/110 against dGhost=275/491.
+- **The negative that pointed there was itself the finding.** A hierarchy probe watched the
+  player's own subtree for 4,926 scans: constant at 53 objects, budget 12/500 so nothing was
+  truncated. **The effects do not parent to the character.** That is the documented cue to widen the
+  subsystem rather than sample harder.
+- **What travels:** a monotonic counter plus the effect id and the facing captured AT THE INSTANT it
+  fired, in the wire protocol's free-form `extras`. No protocol change, and the core forwards
+  numbers it cannot interpret. The game fires these at specific `animTime`s gated on an internal
+  counter and on the LOCAL player's badges, so re-deriving the timing would have used the wrong
+  player's state.
+- **Animation PHASE now travels too**, not just the clip name, corrected past a tolerance rather
+  than every frame. This was invisible until the hitstop arrived and landed early: freezing a ghost
+  when its peer pauses freezes it at ITS phase. It also fixed something never reported -- a REPEATED
+  identical clip never replayed, because `Play()` only fired when the name changed.
+- **The hitstop's visible half is mirrored, the global one is not.** Only the ghost's `Animator` is
+  frozen; the watcher's game never is. The user's correction is what established this: it is not
+  merely actor feedback, because it freezes the attacker's own animation and a real second player
+  would see that.
+- Source: `MeshGhostTevi/Plugin.cs` (`WatchLocalVfx`, `PlayGhostVfx`, `MirroredCommonEffectTable`,
+  `ReadAnimTime`), `BridgeClient.cs`. Offsets, scales and the timing-gate condition read from this
+  machine's `Assembly-CSharp.dll` with `ilspycmd` -- facts with a citation, no code copied.
+- Notes: **not claimed as 1:1.** The user's read is *"much better"*, never *"identical"*, and three
+  residuals are written down in `UNVERIFIED.md`: the 250ms interpolation delay, effects spawning on
+  message arrival rather than at the ghost's own `animTime`, and a phase tolerance nobody measured.
+  **Screen shake is deliberately NOT mirrored** -- it moves the viewer's camera, so it is not part
+  of the peer's appearance, and mirroring it would be less 1:1 rather than more.

@@ -3186,6 +3186,35 @@ non-tile-quantised motion), which is exactly the kind of case that finds out whe
    the game exposes a stable object table the way Crystal's does.
 3. Only then ask spawn-versus-draw, which is the decision that shaped the whole Crystal adapter.
 
+## TEVI: the orbitars are not synced at all, projectiles included (2026-08-28)
+
+**The user's own framing:** *"we haven't added the 'orbitar' orbs yet -- basically 2 balls that fly
+around with the player and can do ranged attacks + some other fancy skills, but we do have to add
+those as well + sync up their ranged/projectiles as well sometime"*.
+
+**Two halves, and they are not the same problem.**
+
+- **The orbs themselves are cosmetic** and should follow the pattern that worked three times on
+  2026-08-28: read what the game decided, send it opaquely, let the game render it. The probe
+  already saw them -- `Orb Trail (1..7)` and `GemaOrbTrail` showed up in a hierarchy scan -- so
+  finding the mechanism starts from evidence rather than from names.
+- **The projectiles are NOT obviously cosmetic**, and that is the part to think about before
+  building. A bullet that exists on the watcher's machine can hit things. `ChargeShot` spawns real
+  ones through `BulletManager`, alongside its `OrbChargeFlash`, and the two are tangled in one call
+  -- the same shape as the warp's animation being tangled with an autosave, and the charged
+  attack's burst with a global hitstop. **The visual half is the deliverable; a peer's bullet
+  damaging your enemies is a gameplay plane, not a cosmetic one** (`beyond-cosmetic.md`).
+
+**What is already known and does not need rediscovering:** `chargeheld` is a public byte on the
+physics component and is the ORB charge (it drives `chargeTips` and `orbUsing`), not the melee one
+-- established while hunting the melee charge on 2026-08-28. `GemaChargedShotCombo` holds the
+charge combo state.
+
+**The mirroring mechanism to reuse, and its one trap:** `MirroredCommonEffectTable` in
+`Plugin.cs` already carries pooled effects by index with per-effect placement. Adding an effect is
+adding a row. **But read `pitfalls.md`'s echo-loop entry first** -- detecting effects by watching a
+shared pool makes symmetric peers feed each other, and the guard is identity, not distance.
+
 ## Interpolation delay should be PER ADAPTER, not one number for every game (2026-08-28)
 
 **The user's observation, and it is about the shape of the games rather than about tuning:** a

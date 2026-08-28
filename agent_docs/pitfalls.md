@@ -50,6 +50,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Owning a live core you cannot reach — a walk that never advances past an empty port (2026-08-28)
 - Mirror the handler the game actually uses — Stay, not Enter/Exit (2026-08-28)
 - A probe's sample rate is not a mechanism's sample rate (2026-08-28)
+- Mirroring through SHARED state makes symmetric peers echo each other (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

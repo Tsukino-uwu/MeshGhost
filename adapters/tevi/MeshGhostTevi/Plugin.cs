@@ -622,7 +622,7 @@ namespace MeshGhostTevi
             else if (vfxSeq > visual.LastVfxSeq)
             {
                 visual.LastVfxSeq = vfxSeq;
-                PlayGhostVfx(visual, state.VfxEffect ?? -1, state.Orientation);
+                PlayGhostVfx(visual, state.VfxEffect ?? -1, state.VfxFacingLeft ?? false);
             }
 
             UpdateRemoteMapMarker(playerId, state);
@@ -1047,6 +1047,23 @@ namespace MeshGhostTevi
         private readonly Dictionary<int, int> mirroredEffectActive = new Dictionary<int, int>();
         private int localVfxSeq;
         private int localVfxEffect;
+        // Which way the character was facing AT THE MOMENT the effect fired. Sent with the event
+        // rather than read on arrival: the attack can be performed while turning, and by the time
+        // a peer renders it the reported facing may already be the other one -- which put the star
+        // and blast on the wrong side when moving left/right mid-move.
+        private bool localVfxFacingLeft;
+
+        // Instance ids of pooled objects THIS adapter activated for a ghost. They must not be
+        // counted as local activity, and that is not a nicety -- it is a FEEDBACK LOOP otherwise.
+        // Both instances run this same code: A attacks, B plays it on A's ghost by activating an
+        // object in B's own pool, B's watcher sees its pool rise and reports it as B's own effect,
+        // A plays it on B's ghost, and it echoes indefinitely. The user saw it as the ending VFX
+        // being spammed. The distance guard cannot fix this: it is exactly wrong when the two
+        // characters are near each other, which is when they are being watched.
+        //
+        // Identity rather than a count, per pitfalls' "when a count is suspect, log IDENTITY" --
+        // counts cannot separate "the game spawned one" from "we spawned one".
+        private readonly HashSet<int> ghostSpawnedEffects = new HashSet<int>();
 
         // Runs on the LOCAL side: did the game just activate one of the effects we mirror, close
         // enough to the player to be the player's? If so, bump the counter the peer reads.
@@ -1081,6 +1098,11 @@ namespace MeshGhostTevi
                     {
                         continue;
                     }
+                    // Ours, played for a ghost. Not local activity, and counting it is the echo.
+                    if (ghostSpawnedEffects.Contains(go.GetInstanceID()))
+                    {
+                        continue;
+                    }
                     active++;
                     if (Vector3.Distance(go.transform.position, player.t.position) <= MirroredEffectOwnershipRange)
                     {
@@ -1096,13 +1118,14 @@ namespace MeshGhostTevi
                 {
                     localVfxSeq++;
                     localVfxEffect = index;
+                    localVfxFacingLeft = player.direction == Character.Direction.LEFT;
                 }
             }
         }
 
         // Runs on the WATCHER: play the peer's effect on their ghost, with the game's own offsets
         // and the ghost's own facing. The pooled object and everything it does are the game's.
-        private void PlayGhostVfx(RemoteGhostVisual visual, int effect, string orientation)
+        private void PlayGhostVfx(RemoteGhostVisual visual, int effect, bool left)
         {
             if (visual.Go == null || GemaPoolManager.Instance == null)
             {
@@ -1136,7 +1159,6 @@ namespace MeshGhostTevi
             {
                 return;
             }
-            bool left = orientation == Character.Direction.LEFT.ToString();
             bool negate = eff.NegateOnLeft ? left : !left;
             float offX = negate ? -eff.OffsetX : eff.OffsetX;
             // THE LOGICAL POSITION, not the drawn one. The game places these relative to
@@ -1157,6 +1179,10 @@ namespace MeshGhostTevi
                 float sx = eff.FlipScaleByFacing ? (left ? -1f : 1f) * eff.ScaleX : eff.ScaleX;
                 go.transform.localScale = new Vector3(sx, eff.ScaleY, eff.ScaleY);
             }
+            // Remembered so our own watcher does not mistake it for the local player's effect and
+            // echo it straight back. The set is bounded by the pools themselves -- a pooled object
+            // is reused, so the same handful of ids recur rather than growing without limit.
+            ghostSpawnedEffects.Add(go.GetInstanceID());
             go.SetActive(true);
         }
 
@@ -1178,7 +1204,7 @@ namespace MeshGhostTevi
         // Cost is the open question, so this reports its own like the other probe does. It walks
         // every pooled object once per sample; if that is too slow the log says so, and the answer
         // is a slower sample rate, never a quieter log.
-        private const bool DIAG_POOL_WATCH = true;
+        private const bool DIAG_POOL_WATCH = false;
         private const float PoolWatchInterval = 0.05f;
         private const int PoolWatchBudget = 400;
         private float lastPoolWatchTime;
@@ -1624,6 +1650,7 @@ namespace MeshGhostTevi
                 TrailMode = ReadTrailMode(player),
                 VfxSeq = localVfxSeq,
                 VfxEffect = localVfxEffect,
+                VfxFacingLeft = localVfxFacingLeft,
                 TempPause = GameSystem.Instance != null ? GameSystem.Instance.GetTempPause() : 0f,
                 AnimTime = ReadAnimTime(player),
             });

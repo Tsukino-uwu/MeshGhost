@@ -36,34 +36,32 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending -- the charged attack is BUILT and improved, but never called 1:1 (2026-08-28)
+## Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 
-The 2026-08-15 gap (*"the animation plays and the effect does not"*) is closed in the sense that
-effects now appear. **It is NOT confirmed as 1:1**, and the user's own words are the record:
-*"looks better now, unsure if its 1:1 or not"*, then after the timing fix *"yee this looks much
-better"*. Both are improvements reported, neither is a confirmation.
+**The feature is confirmed and lives in [`VERIFIED.md`](VERIFIED.md)** -- three pooled effects, the
+hitstop hold, animation phase, and facing captured at fire time, all watched on screen. What stays
+here is the standard this project holds itself to: the user's read was *"much better"* and
+*"unsure if its 1:1 or not"*, never *"identical"*, and nobody has compared the two side by side.
 
-**What is built.** Three pooled effects mirror (`Normal4H Blast` 56, `CutinStar` 0, and 37, the
-perfect-timing extra the game gates on its own timing-quality state). The hitstop holds the
-ghost's Animator. Animation PHASE travels, not just the clip name.
+**What to look at.** The compare setup: a peer doing the charged attack repeatedly while you watch,
+against your own attack in the same room. **What correct looks like:** the same rhythm between
+star, hold and slam, at the same heights, on the same sides.
 
-**What to look at.** A charged attack watched from the other instance, several times, landing the
-timing well on some of them. **What correct looks like:** the star, the hold and the slam in the
-same rhythm as your own, the blue variant appearing on the ghost when you get it, and no visible
-snap when the hold ends.
+**Three residuals, in the order they are likely to be noticed, none of them measured:**
 
-**Known residuals, in the order they are likely to be noticed:**
-
-- **A ghost renders 250ms behind by design** (`core.DefaultInterpolationDelay`). That delays body
-  and effects together, so it should not look internally out of step -- if the star lags the
-  ghost's OWN swing, interpolation is not the cause.
+- **A ghost renders 250ms behind by design** (`core.DefaultInterpolationDelay`). Body and effects
+  are delayed together, so it should not look internally out of step -- if the star lags the
+  ghost's OWN swing, interpolation is not the cause and something else is.
 - **Effects spawn on message ARRIVAL, not at the ghost's own `animTime`.** The game fires the star
-  at `animTime 0.425`; the ghost fires it when told. Those coincide only while phase is in sync,
-  which is held to a 0.06 tolerance -- roughly 25ms on a half-second clip. **The better fix, not
-  built:** spawn when the ghost's own clip crosses the phase the peer reported. More faithful, and
-  it couples the effect to the animation, so it was not done speculatively.
-- **`AnimPhaseTolerance = 0.06` is a guess.** Too loose and the hold lands a frame or two off; too
-  tight and the ghost shimmers from constant re-seeking. Nobody has measured the right value.
+  at `animTime 0.425`; the ghost fires it when told, which coincides only while phase is in sync.
+  **The better fix, deliberately not built:** spawn when the ghost's own clip crosses the phase the
+  peer reported. More faithful, and it couples effect to animation, so it wanted evidence first.
+- **`AnimPhaseTolerance = 0.06` is a guess** -- roughly 25ms on a half-second clip. Too loose and
+  the hold lands a frame or two late; too tight and the ghost shimmers from constant re-seeking.
+
+**Also unconfirmed, and cheap when the chance comes:** the DODGE trail (mode 2, the yellow one) is
+the one trail branch nobody has seen. It needs somewhere with enemies (user). Slide and quickdrop
+are both confirmed.
 
 ## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 
@@ -153,21 +151,20 @@ kill its core). **What correct looks like:** the marker disappears, or at minimu
 position the peer no longer holds. **What it does today:** the marker stays frozen at the last
 position that arrived.
 
+**A SECOND symptom, reported 2026-08-28 and not investigated:** after a peer left and rejoined, the
+custom bunny marker on the pause-screen map *"took a while before it decided to work/update again"*
+(user). It did correctly disappear when that peer went to the main menu, so the despawn path is
+fine. Whether the delay shares a cause with the staleness above is unknown -- both live in
+`UpdateRemoteMapMarker` being driven only by `UpsertRemoteGhost`, but "slow to resume" and "never
+refreshes" are not obviously the same defect and should not be assumed to be.
+
+**What to look at.** With the map open, have a peer quit to the title and rejoin. **What correct
+looks like:** the marker disappears on leave, and reappears tracking within a second or so of the
+peer being back in play.
+
 Detail and the line numbers: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap list.
-
-## Pending — charged-attack VFX are missing on a peer ghost (2026-08-15)
-
-The animation plays and the effect does not. Same shape as Pseudoregalia's ultra-hop trail and
-Emerald's surf blob, both of which turned out to be a separate spawned thing the state owns rather
-than part of the pose — see `../CLAUDE.md`'s "reproduce the WHOLE effect" rule, which exists
-because of exactly this class of gap.
-
-**What to look at.** A peer performing a charged attack, watched from another instance. **What
-correct looks like:** whatever the local player's own charged attack shows, shown on the ghost too.
-**What it does today:** the ghost animates and spawns nothing.
-
-Written up in `../../agent_docs/phases/phase6.md`. Not started as work; the investigation method is
-`../../agent_docs/effect-investigation.md`, which is what to read first.
+`DIAG_MARKER_STALENESS` exists to measure exactly this and has still never been run
+([PROBES.md](PROBES.md)).
 
 ## PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
 
@@ -218,12 +215,17 @@ settled on, and reports waiting for `bridge_ready` before its first send rather 
 start two TEVI copies with no `BridgePort` set in either config, and each should land on its own
 core (7778 and 7779) rather than one failing or both talking to the same one.
 
-## Pending — the two probes under `probes/` have never been run
+## Pending -- two of the five probes have never been run
 
-`probes/README.md` marks both as **written, never run**, which is their honest state. Neither is
-part of the shipped mod. They exist because the two questions above cannot be answered by reading
-code: the marker one needs to be watched going stale, and the pause-menu one is the exact question
-whose answer was reasoned out from code on 2026-08-18 and produced a false regression report.
+`DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` are still written-but-never-run, which is their honest
+state ([PROBES.md](PROBES.md)). Neither is part of the shipped mod; both are compiled out while
+their flag is false. They exist because their questions cannot be answered by reading code: the
+marker one needs to be watched going stale, and the pause-menu one is the exact question whose
+answer was reasoned out from code on 2026-08-18 and produced a false regression report.
 
-Nothing to confirm here yet — this entry is a reminder that a probe that has never run proves
-nothing, and that its own log is not evidence either (`../../agent_docs/testing.md`).
+**This entry used to say "the two probes under `probes/`", which was wrong** -- TEVI has no
+`probes/` folder and cannot have one, because BepInEx has no equivalent of BizHawk's Lua console.
+A probe here is a `DIAG_*` block inside `Plugin.cs`. Corrected 2026-08-28.
+
+Nothing to confirm here yet: a probe that has never run proves nothing, and its own log is not
+evidence either (`../../agent_docs/testing.md`).

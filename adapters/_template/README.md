@@ -296,6 +296,57 @@ deliberately no template, since a stub with no content would go stale immediatel
    only the big file is manual. An adapter loaded from the release folder itself (both BizHawk
    adapters) reaches the root exe and config with no copy of anything.
 
+## BUILD THE LIVE-RELOAD LOOP FIRST, before any feature
+
+**Do this before the first ghost, not after the tenth.** Every host this project has touched can
+reload adapter code into a RUNNING game, and the difference is not a convenience: it is the
+difference between a change costing a relaunch-and-navigate and costing about two seconds. Emerald
+and Crystal got a dev loader in Phase 8 and became the fastest adapters to work on. TEVI relaunched
+the game for every change from Phase 6 until **2026-08-28**, when a loop was finally built — and
+three features shipped that same session, each iterating in seconds.
+
+**What exists per host, so nobody has to go looking:**
+
+| Host | Reloads adapter code live? | How |
+|---|---|---|
+| BizHawk (Lua) | yes | this repo's dev loader: attach, swap, drop scripts |
+| Unity + BepInEx | yes | ScriptEngine (BepInEx.Debug) from `BepInEx/scripts`, file-watcher armed |
+| UE4SS (Lua mods) | yes | `EnableHotReloadSystem`, Ctrl+R — already on in the shipped config |
+| UE4SS (C++ mod) | **no** | native; rebuild and relaunch. Put logic in a Lua probe while iterating |
+
+**Also turn on the runtime inspector the host already has**, before writing a probe to answer
+something it would have told you: UE4SS's Live Viewer (search, edit and WATCH any object's
+properties, and call functions with no code) ships with the loader this repo already vendors and was
+switched off and unused until 2026-08-28. Unity's equivalent is a separate plugin. **These are for
+the USER's eyes** — an agent cannot read a GUI, so the agent's equivalent is a probe that writes
+to the log, and the two are complements rather than alternatives.
+
+**THREE TRAPS, all of which reported success while doing nothing** (dated 2026-08-28, detail in
+[../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md)):
+
+1. **A wrong-format symbol file reads as a missing one.** ScriptEngine loads through Mono.Cecil
+   WITH symbols and cannot read the SDK's default *portable* pdb — it throws "no symbol found"
+   naming the DLL while the pdb sits beside it. Check the file's magic bytes, not the build setting.
+2. **A copy that preserves timestamps fires no file watcher.** A rebuild producing an identical
+   binary copies an identical mtime, so nothing reloads while the script still says "deployed".
+   Stamp the destination so the DEPLOY is the trigger, not the bytes.
+3. **`Assembly.Location` is empty when a loader loads from bytes**, so anything resolving a path
+   from "where am I" resolves to nowhere. Give such lookups an explicit search list.
+
+**And two things the loop can never tell you, which is why it does not replace a cold start:**
+
+- **A bug that only appears on a COLD START is invisible to it** — load order, first-frame nulls, a
+  stale config. Re-confirm anything important with a real launch before it counts as verified.
+- **A reload orphans whatever the old instance parented into the SCENE.** A ghost is usually a clone
+  parented in the world, not a child of your component, so it OUTLIVES the reload while the fresh
+  instance builds another. Despawn everything you spawned in your teardown, or you gain one orphan
+  per reload and every later reading agrees with itself while being wrong.
+
+**Finally, label the windows if you run two instances.** Two identical copies cost a whole
+measurement round on 2026-08-28: a probe was run on one and read from the other's log, so a
+clean-looking result proved nothing. `dev-scripts/tevi-label-windows.ps1` is the pattern — set the
+title from OUTSIDE the game, so nothing ships.
+
 ## An emulator adapter is Lua-only — never patch the ROM (moved)
 
 The rule and its full reasoning are in [../emulator/CLAUDE.md](../emulator/CLAUDE.md), which loads

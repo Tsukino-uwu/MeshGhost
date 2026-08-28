@@ -58,6 +58,12 @@ namespace MeshGhostTevi
             public int? VfxSeq;
             public int? VfxEffect;
 
+            // Facing AT THE MOMENT the effect fired, not when it is rendered. The attack can be
+            // performed while turning, so by the time a peer draws it the character's current
+            // facing may already be the other one -- which mirrored the effects onto the wrong
+            // side when moving left/right mid-move. An impulse carries its own context.
+            public bool? VfxFacingLeft;
+
             // Seconds of HITSTOP this character's game is currently holding
             // (`GameSystem.GetTempPause()`). Carried because the hitstop is not only feedback to
             // the person swinging: it freezes THEIR animation, so a second real player watching
@@ -506,6 +512,7 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["vfx_seq"] = state.VfxSeq.Value;
                     extrasMap["vfx_id"] = state.VfxEffect ?? -1;
+                    extrasMap["vfx_left"] = state.VfxFacingLeft ?? false;
                 }
             }
             object extras = extrasMap;
@@ -588,6 +595,7 @@ namespace MeshGhostTevi
                                 AnimTime = (float?)extras?["anim_t"],
                                 VfxSeq = (int?)extras?["vfx_seq"],
                                 VfxEffect = (int?)extras?["vfx_id"],
+                                VfxFacingLeft = (bool?)extras?["vfx_left"],
                             };
                             onRenderRemote(playerId, remote);
                             break;
