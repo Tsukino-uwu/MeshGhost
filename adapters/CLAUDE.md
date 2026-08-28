@@ -58,6 +58,11 @@ on a COLD START is invisible to it, and a reload ORPHANS whatever the old instan
 scene — a ghost is usually a clone in the world, not a child of your component, so despawn
 everything you spawned in your teardown or you gain one orphan per reload.
 
+**On a NEW host, the question is not what the engine is — it is WHERE THE ADAPTER RUNS.** Inside
+the host (Lua script, plugin, mod) means depending on that host to reload it, which is every current
+adapter. As its own process over IPC means reload is free by construction, because it is our program
+to restart — prefer that shape where a host offers it. `/new-adapter` carries the detail.
+
 Full guidance, the per-host table, and the three traps that each reported success while doing
 nothing: [_template/README.md](_template/README.md), "BUILD THE LIVE-RELOAD LOOP FIRST".
 

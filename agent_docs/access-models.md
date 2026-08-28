@@ -393,6 +393,22 @@ transparent overlay window, or a fork. All three are real work, and the fork opt
 GPL in a way the MIT/permissive tools we bundle today do not. `licensing.md`'s rule applies first:
 read the licence before the source.
 
+### One upside of the external route, added 2026-08-28
+
+**An adapter that lives OUTSIDE the emulator gets its live-reload loop for free.** That matters more
+than it sounds: `adapters/CLAUDE.md` makes building that loop a hard rule before the first feature,
+and for every adapter so far it has been real work, because the adapter runs INSIDE its host — a
+Lua script in BizHawk, a plugin in BepInEx, a mod in UE4SS — so reloading depends on what that host
+offers. An external process reading memory over IPC has no such problem: it is our own program, so
+restarting it is free and the emulator needs to support nothing at all.
+
+It also sidesteps the host-scripting constraints this repo has already paid for elsewhere — Lua's
+200-local ceiling, the per-line console cost, one shared Lua environment across every script.
+
+**This does not change the ordering above.** Reading was never the hard half here; **drawing is**,
+and an external process is no closer to drawing than anything else. Take it as a reason the
+reading half is cheaper than it looks, not as a reason the adapter is.
+
 ### Dolphin has a wrinkle none of the others do: netplay already exists
 
 Dolphin ships deterministic-lockstep netplay. That is the alternative `beyond-cosmetic.md` §7

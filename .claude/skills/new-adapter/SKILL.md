@@ -42,6 +42,23 @@ evidence is two adapters: the Pokemon pair got a dev loader and became the faste
 TEVI relaunched the game for every single change from Phase 6 until 2026-08-28 — and shipped three
 features in one session once it did not have to.
 
+**The question that decides how hard this is, and it is NOT about the engine: WHERE DOES THE
+ADAPTER CODE RUN?**
+
+- **Inside the host** — a BizHawk Lua script, a BepInEx plugin, a UE4SS mod. Then you depend on
+  the host to reload it, which is the hard case and the one every current adapter is. Check what
+  that host already offers before writing anything.
+- **As its OWN PROCESS, talking to the emulator over IPC.** Then **reload is free by
+  construction**: it is your program, so you restart it, and the emulator needs to support nothing.
+  Which emulators offer this, what it does not solve, and the licence traps: `access-models.md`,
+  "Emulated platforms" — that file owns this question and is not summarised here.
+
+**Prefer the second shape where a host offers it.** It removes the reload problem instead of
+solving it, and it is the shape MeshGhost already uses between adapter and core. Dolphin is the
+cautionary case for the first: official builds ship no scripting and the Lua forks are
+community-maintained (one is marked obsolete), so an in-emulator adapter there would rest on a fork
+nobody here controls.
+
 Read **"BUILD THE LIVE-RELOAD LOOP FIRST"** in `adapters/_template/README.md`: the per-host table of
 what already exists, the three traps that each reported success while doing nothing, and the two
 things a reload can never test (cold-start bugs, and scene objects the old instance orphaned).
