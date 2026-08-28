@@ -156,8 +156,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
 - **TEVI's FullMap marker refresh is now FRAME-DRIVEN, unwatched (2026-08-28)** — a stale marker
   hides after 1s instead of freezing until the core despawns the peer. Whether it also fixes the
   slow resume after a rejoin is unknown. `tevi/UNVERIFIED.md`.
-- **TEVI's port walk is CONFIRMED (2026-08-28)** — one reject naming 7778, then 7779. A separate
-  DEADLOCK was found and fixed the same day; its recovery path is unreproduced. `tevi/UNVERIFIED.md`.
+- **TEVI's cold launch is CONFIRMED clean (2026-08-28)** — two instances, no port churn, ghosts on
+  screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
 - **Pseudoregalia's two unattributed crashes** — a hard crash after the pause menu opened twice, and
   a `Fatal Error!` on exit that recurred 2026-08-27. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI's charged attack, trails and warp wake-up all SHIP and are confirmed (2026-08-28)** —

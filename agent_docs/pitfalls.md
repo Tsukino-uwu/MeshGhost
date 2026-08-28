@@ -51,6 +51,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Mirror the handler the game actually uses — Stay, not Enter/Exit (2026-08-28)
 - A probe's sample rate is not a mechanism's sample rate (2026-08-28)
 - Mirroring through SHARED state makes symmetric peers echo each other (2026-08-28)
+- An answer that ARRIVED and was never READ -- a control-plane message parsed behind a gameplay gate (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

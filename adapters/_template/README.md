@@ -299,11 +299,10 @@ deliberately no template, since a stub with no content would go stale immediatel
 ## BUILD THE LIVE-RELOAD LOOP FIRST, before any feature
 
 **Do this before the first ghost, not after the tenth.** Every host this project has touched can
-reload adapter code into a RUNNING game, and the difference is not a convenience: it is the
-difference between a change costing a relaunch-and-navigate and costing about two seconds. Emerald
-and Crystal got a dev loader in Phase 8 and became the fastest adapters to work on. TEVI relaunched
-the game for every change from Phase 6 until **2026-08-28**, when a loop was finally built — and
-three features shipped that same session, each iterating in seconds.
+reload adapter code into a RUNNING game, and that is the difference between a change costing a
+relaunch-and-navigate and costing about two seconds. Emerald and Crystal got a dev loader in Phase 8
+and became the fastest adapters to work on; TEVI relaunched for every change from Phase 6 until
+**2026-08-28**, then shipped three features in that one session.
 
 **What exists per host, so nobody has to go looking:**
 
@@ -315,25 +314,31 @@ three features shipped that same session, each iterating in seconds.
 | UE4SS (C++ mod) | **no** | native; rebuild and relaunch. Put logic in a Lua probe while iterating |
 
 **Also turn on the runtime inspector the host already has**, before writing a probe to answer
-something it would have told you: UE4SS's Live Viewer (search, edit and WATCH any object's
-properties, and call functions with no code) ships with the loader this repo already vendors and was
-switched off and unused until 2026-08-28. Unity's equivalent is a separate plugin. **These are for
-the USER's eyes** — an agent cannot read a GUI, so the agent's equivalent is a probe that writes
-to the log, and the two are complements rather than alternatives.
+something it would have told you: UE4SS's Live Viewer ships with the loader this repo vendors and
+was unused until 2026-08-28; Unity's equivalent is a separate plugin. **These are for the USER's
+eyes** — an agent cannot read a GUI, so its equivalent is a probe writing to the log.
 
-**THREE TRAPS, all of which reported success while doing nothing** (dated 2026-08-28, detail in
+**FIVE TRAPS, all of which reported success while doing nothing** (dated 2026-08-28, detail in
 [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md)):
 
-1. **A wrong-format symbol file reads as a missing one.** ScriptEngine loads through Mono.Cecil
-   WITH symbols and cannot read the SDK's default *portable* pdb — it throws "no symbol found"
-   naming the DLL while the pdb sits beside it. Check the file's magic bytes, not the build setting.
+1. **A wrong-format symbol file reads as a missing one.** A loader reading symbols may reject the
+   SDK's default *portable* pdb, throwing "no symbol found" naming the DLL while the pdb sits
+   beside it. Check the file's magic bytes, not the build setting.
 2. **A copy that preserves timestamps fires no file watcher.** A rebuild producing an identical
    binary copies an identical mtime, so nothing reloads while the script still says "deployed".
    Stamp the destination so the DEPLOY is the trigger, not the bytes.
 3. **`Assembly.Location` is empty when a loader loads from bytes**, so anything resolving a path
    from "where am I" resolves to nowhere. Give such lookups an explicit search list.
+4. **Rewriting the reloader's config WHOLE drops the sections you did not write** — the host
+   regenerates them at its defaults, and the switch that armed the loop turned "load at startup"
+   back off.
+5. **The symbols must MOVE with the assembly.** Left behind, the reloader throws out of its own
+   `Awake` and dies: no startup load AND no file watcher, so no later deploy recovers it.
 
-**And two things the loop can never tell you, which is why it does not replace a cold start:**
+**The rule under all five: "armed" and "deployed" are claims about YOUR SCRIPT.** The adapter is
+loaded when the adapter's own log line says so — check that, not the deploy output.
+
+**And two things the loop can never tell you, so it does not replace a cold start:**
 
 - **A bug that only appears on a COLD START is invisible to it** — load order, first-frame nulls, a
   stale config. Re-confirm anything important with a real launch before it counts as verified.

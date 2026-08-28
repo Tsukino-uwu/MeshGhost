@@ -502,7 +502,20 @@ Fix: an explicit short search list, assembly directory first (the shipping path)
 environment override, then the loader's own `Paths.*`. **Not a scan** — each entry is a place the
 file legitimately is.
 
-**The lesson, which is the same one three times.** A dev loop is an instrument, and
+**Cause 4 (2026-08-28) -- rewriting a config file WHOLE drops the sections you did not write.**
+`-On` wrote ScriptEngine's config with only its `[AutoReload]` section, so BepInEx regenerated
+`[General]` with the shipped default `LoadOnStart = false`: the switch that arms the loop disarmed
+the loop. The game then launched with the adapter sitting in `scripts\` **unloaded** -- no ghost,
+no error, indistinguishable from a broken mod.
+
+**Cause 5 (2026-08-28) -- the symbols have to MOVE with the DLL, and this one is fatal rather than
+untidy.** `-On` moved `MeshGhostTevi.dll` into `scripts\` and left `MeshGhostTevi.pdb` behind in
+`plugins\`. Cecil then threw `SymbolsNotFoundException` out of `ScriptEngine.Awake`, which kills
+the whole component: nothing loads at startup AND the file watcher is never armed, so no later
+`-Deploy` can recover it either. One Unity error line is the entire trace. Note this is the SAME
+exception as cause 1 with a different cause -- the message names the DLL either way.
+
+**The lesson, which is now the same one five times.** A dev loop is an instrument, and
 `CLAUDE.md`'s rule that *a diagnostic can break the thing it measures* applies to it before it
 applies to anything it measures. **Prove the loop moves the thing** — here, by counting
 ScriptEngine's own `Loading plugins from` lines in the log and the adapter's own despawn lines,
@@ -634,6 +647,50 @@ are not.
 
 **Cross-reference:** `adapters/tevi/MeshGhostTevi/Plugin.cs` (`ghostSpawnedEffects`),
 `adapters/tevi/VERIFIED.md`, the charged-attack entry.
+
+## An answer that ARRIVED and was never READ -- a control-plane message parsed behind a gameplay gate (2026-08-28)
+
+**Symptom.** Two TEVI instances, launched against two healthy cores that were already listening,
+walked the entire 7778-7785 bridge range on every launch, spawning a core per port and logging
+`bridge port N accepted a connection but never answered hello within 1.5s` for every one of them.
+The user saw ports churning and no ghosts until they reached play.
+
+**What settled it in ONE step: read the ACCUSED side's log at the accusing timestamp.** The
+adapter said the core never answered. The core's own log, at that exact second, said
+`core: ghost collision enabled (set by the room) -- told the adapter` -- which the core only ever
+prints AFTER accepting an adapter's hello. Two logs disagreeing about one event localises the bug
+to whichever side's claim is unsupported, without a theory, a probe, or a rebuild. **Whenever a
+component blames another component, go and read the other one before believing it.**
+
+**Cause.** `bridge_ready` is parsed inside `DrainInto`, which runs on the main thread -- and
+`Plugin.Update` called `DrainInto` only BELOW its play-session gate. At the main menu, on the title
+and through every loading screen, nothing consumed the message. Meanwhile the 1.5s deadline ran on
+wall clock, so it expired against a core that had already accepted us, and the walk moved on. TEVI
+always launches into a main menu, so this fired on every launch.
+
+**Fix, and the shape of it is the lesson.** Two halves: the gate now drains every frame with the
+remote callbacks replaced by no-ops (the control plane gets through, the invariant that no ghost
+may exist without a local player is untouched), and the deadline additionally requires that the
+drain has actually RUN a number of times since the hello went out. A wall clock cannot express
+"we had a chance to look" -- which is exactly what the Lua adapters' equivalent bound, 90 FRAMES,
+expresses for free, because a frame count cannot advance while the host is stalled.
+
+**Transferable, and none of it is about TEVI:**
+
+- **A timeout on a message you only read on a gated path is measuring the gate, not the peer.**
+  Either read it ungated, or measure the deadline in units that stop when the reader stops.
+- **Separate the CONTROL plane from the CONTENT plane at the gate.** The reason it is safe to
+  drain out of play is that only the remote-state callbacks were ever the hazard, and they can be
+  dropped independently. A gate that blocks both is blocking more than its stated reason.
+- **Any host with a loading screen has a multi-second main-thread stall built in**, so any
+  wall-clock deadline whose satisfaction depends on the main thread is a launch-time bug waiting
+  for a slow disk. Look for these deliberately when porting the pattern to a new host.
+
+**Cross-reference:** the walk's two earlier and DIFFERENT causes are "Owning a live core you cannot
+reach" above (a refusal that never released the cursor) and the misattributed reject in
+`adapters/tevi/BANDAGES.md` entry 5. Three distinct causes, one identical symptom -- which is why
+the log line now names the port the CONNECTION was on.
+
 
 ## Failure signatures
 

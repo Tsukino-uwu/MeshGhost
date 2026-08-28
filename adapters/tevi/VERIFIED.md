@@ -68,6 +68,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI afterimage trails sync to a peer ghost — by mirroring the game's own decision, not its moves
 - TEVI warp devices wake up for a peer ghost — the visual half only, with the save and heal left untouched
 - TEVI charged-attack VFX mirror to a ghost — three pooled effects, the hitstop, and animation phase
+- TEVI comes up clean on a cold launch: two instances, two cores, no port churn (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 
 ## Confirmed facts
@@ -700,3 +701,27 @@ filed under the right theme, but anything can check that it is listed.
   message arrival rather than at the ghost's own `animTime`, and a phase tolerance nobody measured.
   **Screen shake is deliberately NOT mirrored** -- it moves the viewer's camera, so it is not part
   of the peer's appearance, and mirroring it would be less 1:1 rather than more.
+
+## TEVI comes up clean on a cold launch: two instances, two cores, no port churn (2026-08-28)
+
+- Confirmed by: the user, on screen, during a two-instance session -- *"works now, can see the
+  ghosts."* Both games launched by the agent, both adapters hot-reload mode, cores on 7778/7779
+  against a non-loopback relay.
+- **What the confirmation covers:** the adapter loads, finds its own core without walking the port
+  range, and renders a peer ghost. Instance A logged `bridge ready on port 7778`; instance B logged
+  exactly one reject naming 7778 and then `bridge ready on port 7779` -- the walk behaving as
+  designed rather than churning.
+- **It also covers the peer animation bound shipped the same day**, though nobody set out to test
+  it: `IsPlayableAnimName` refuses any clip name the ghost's own controller does not have, and the
+  failure it could have caused is unmissable -- every ghost frozen in one pose. Ghosts animated,
+  so real names pass. The bound itself (that a hostile name is refused) is reasoned, not watched.
+- **What it does NOT cover:** the FullMap marker staleness fix, which needs the map open while a
+  peer stops sending; and nothing about 1:1 quality of anything.
+- Three defects had to be fixed to get here, all found this session and all producing the same
+  symptom -- a game with no ghost and no error: the control-plane message read behind a gameplay
+  gate (`../../agent_docs/pitfalls.md`), and two in `dev-scripts/tevi-hotreload.ps1` (a config
+  rewritten whole, dropping `LoadOnStart`; and the `.pdb` left behind by `-On`, which kills
+  ScriptEngine on startup).
+- Source: `MeshGhostTevi/BridgeClient.cs` (`MinDrainsBeforeHelloTimeout`), `Plugin.cs` (the
+  out-of-play drain), `dev-scripts/tevi-hotreload.ps1`. The full runbook this produced:
+  `dev-scripts/README.md`, "Running the TEVI two-instance rig".

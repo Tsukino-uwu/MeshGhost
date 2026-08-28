@@ -417,6 +417,80 @@ ran did.
 started a core. `meshghost.log` in that mod folder says which client it was, and the mod's own log
 prints `started meshghost.exe (pid N)` when it spawned one.
 
+## Running the TEVI two-instance rig, start to finish (2026-08-28)
+
+**This is the whole procedure**, written after a session lost half an hour to three separate
+defects that each looked like "the mod is broken". The agent runs every step here; the person only
+plays. Nothing below needs a `.bat` typed by hand.
+
+**1. Relay, then two cores, all hidden and logged** (`agent_docs/environment.md`, "keep it
+hidden"). A non-loopback relay, because there are two real clients:
+
+```
+run-relay.bat                 relay on 7777, -send-hz=100
+run-core.bat tevi             core 1, bridge 7778, name player1
+run-core.bat tevi auto 2      core 2, bridge 7779, name player2
+```
+
+Confirm from the logs before launching anything: `bridge listening on 127.0.0.1:777x` and
+`connected to relay ... in room "default"` for both. The cores share `dev-scripts/meshghost.log`,
+so read that when a redirected stdout looks empty.
+
+**2. Put both installs in hot-reload mode ONCE, before launching** — after this every code change
+is `-Deploy` and a ~2s automatic reload, with no relaunch and nothing to press:
+
+```
+$env:MESHGHOST_TEVI_DIR2 = "<second install>"
+.\tevi-hotreload.ps1 -On -Both
+```
+
+**3. Launch both games and label the windows.** Start the Steam copy first, wait for it to reach
+the title, then the standalone -- then `tevi-label-windows.ps1`, which retitles them `[A: STEAM]`
+and `[B: STANDALONE]` so a screenshot or a bug report can name which one it is.
+
+**4. Verify from the ADAPTER logs, not from the absence of errors.** Each install's
+`BepInEx\LogOutput.log` must show, in order: `Loading plugins from ...MeshGhostTevi.dll` (or
+`Loading [MeshGhost 0.2.0]` in shipping mode), `MeshGhost v0.2.0 loaded.`, and
+**`bridge ready on port 777x -- the core accepted this adapter`**. The second instance should show
+**exactly one** reject naming 7778 before its ready line on 7779. Anything else is the finding.
+
+**5. Tear it down when the test ends**, and verify: both games, both cores, the relay. Watch the
+game process rather than asking whether the session is over (`CLAUDE.md`).
+
+### The three ways this rig came up broken, all on 2026-08-28
+
+Each of these produced a game with **no ghost and no error**, which is the worst shape a failure
+can take. All three are fixed; they are recorded because the SYMPTOM is identical and the causes
+are not.
+
+- **The adapter walked all eight ports, spawning a core on each.** It reported that every core
+  "accepted a connection but never answered hello" while those cores' own logs showed each hello
+  accepted at that same second. `bridge_ready` is read in `DrainInto`, which ran only while the
+  player was in play, so nothing consumed the answer at the main menu. **When an adapter accuses
+  the other side, read the other side's log at that timestamp** -- that is what settled it in one
+  step. `agent_docs/pitfalls.md`.
+- **`-On` disarmed the loop it had just armed.** It rewrote ScriptEngine's config with only the
+  `[AutoReload]` section, so BepInEx regenerated `[General]` with its default `LoadOnStart = false`
+  and the adapter sat in `scripts\` unloaded on every launch.
+- **`-On` left the `.pdb` behind in `plugins\`.** ScriptEngine reads the assembly through Cecil
+  WITH symbols, so a DLL with no symbols beside it throws `SymbolsNotFoundException` out of
+  `ScriptEngine.Awake` -- which kills the component, so nothing loads at startup AND the file
+  watcher is never armed. The only trace is one Unity error line.
+
+**The rule they all point at: `-On`, `-Deploy` and "armed" are claims about the SCRIPT, not about
+the game.** The adapter is loaded when its own log line says so, and not before.
+
+### Hot-reload is the dev default; `-Off` is for judging a cold start
+
+Asked and answered 2026-08-28 (user): hot-reload can be the normal state of a developer's install.
+ScriptEngine is a developer-machine tool, it is never a MeshGhost dependency, and
+`packaging/release/games/tevi/` contains only `MeshGhostTevi.dll` and its README -- the shipping
+layout is `plugins\`, which no amount of local hot-reloading touches.
+
+**The one thing that still needs `-Off`:** anything only a COLD start can show -- load order,
+first-frame nulls, a stale config, `LoadOnStart` itself. A hot reload cannot test any of them, so
+re-confirm anything important in shipping mode before calling it verified.
+
 ## CI and repo hygiene
 
 Not launchers at all, and not strays — one of them CI calls by name.

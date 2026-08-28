@@ -877,6 +877,13 @@ Two more shapes that failed silently in the same attempt, both worth not repeati
 2> err`. That keeps the launcher's filename in the record, which is the whole reason `run-core.bat`
 and the `-shipped` pair are separate files (see `run-core.bat`'s own header).
 
+## Running the TEVI two-instance rig — the runbook is in `dev-scripts/README.md`
+
+Relay, two cores, hot-reload mode, both installs, both windows labelled, and the three ways that
+rig came up broken on 2026-08-28 (each a game with no ghost and no error): **`dev-scripts/README.md`,
+"Running the TEVI two-instance rig"**. It lives there rather than here because every step of it is a
+script in that folder, and that file has no reading budget to spend — this one does.
+
 ## Launching BizHawk from PowerShell — quote the ROM path yourself, 2026-08-19
 
 `Start-Process -FilePath EmuHawk.exe -ArgumentList '--lua=...', 'C:\...\bizhawk roms\...gba'`

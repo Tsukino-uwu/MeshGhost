@@ -136,33 +136,18 @@ attach** -- only that the port answers. `../../agent_docs/environment.md`.
 the doorstop flag is one line in a local install, and `packaging/release/` carries only the
 rebuilt DLL. The pdb the dev loop needs is deployed by `tevi-hotreload.ps1`, never staged.
 
-## Pending -- a peer can no longer name any animation state it likes (2026-08-28)
+## Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
 
-**What this closes.** The 2026-08-27 ACE audit traced every peer-controlled field to its sink and
-found one thing crossing the line the user drew (*"i never want someone else to do anything
-malicious/harmful towards someone elses computer"*): `visual.Pc.anim.Play(state.Anim)` handed a peer
-string straight to Unity's animator, bounded only by the wire protocol's 256-byte cap. Not code
-execution -- managed and memory-safe -- but a peer alternating two nonexistent names defeats the
-`LastAnim` dedupe and produces a Unity warning **every frame**, which is disk and CPU on the
-RECIPIENT'S machine driven entirely by remote input. `../../agent_docs/ideas.md`, gap 2.
+**The half that is confirmed moved to [`VERIFIED.md`](VERIFIED.md)**: ghosts animate normally with
+`IsPlayableAnimName` live, which is the regression this could have caused (every ghost frozen in
+one pose) not happening. What stays here is the half a normal session cannot show.
 
-**The bound is the ghost's own controller, not a list written in the adapter.** `IsPlayableAnimName`
-asks `Animator.HasState` on every layer -- the same name -> state lookup `Play` itself performs -- so
-anything refused here is something `Play` could not have found either, and no animation vocabulary
-is invented (`contract.md`: `anim` is opaque outside the adapter that produced it). A length bound
-sits in front of the hash, and a rejection is logged **once per name per peer, first four only**:
-an unthrottled complaint would reproduce the exact per-frame log line this exists to remove.
-
-**What to look at, and it is the ordinary case rather than an attack.** Any two-instance session:
-**ghost animation must be exactly as it was** -- walking, attacking, the charged attack, the phase
-correction. **What correct looks like:** no change at all, because every real name passes.
-
-**What a failure would look like, and why it is worth naming:** if this build's controller state
-names did not match the clip names `GetAnimationTrueName()` sends, real names would be refused and
-**every ghost would hold a single pose**, with `ignored an animation name no local controller has`
-in the BepInEx log. That should be impossible -- animation and phase sync are confirmed on screen,
-so `Play` is resolving these names today -- but it is the one regression this could cause and it is
-unmissable if it happened.
+**Still unwatched: that a HOSTILE name is actually refused**, and the throttled complaint that goes
+with it. Nobody has sent a nonexistent clip name. The check is `Animator.HasState` across every
+layer -- the same lookup `Play` performs -- so a name it refuses is one `Play` could not have found
+either; that reasoning is what the entry rests on, not a run. **What it would look like:** at most
+four `ignored an animation name no local controller has` lines per peer, and no Unity animator
+warnings at all. `../../agent_docs/ideas.md`, "The ACE audit", gap 2.
 
 ## Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
 
