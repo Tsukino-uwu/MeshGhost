@@ -269,6 +269,7 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		PlayerID:     sess.playerID,
 		Conn:         nd,
 		maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
+		ownAreaOnly:  hello.OwnAreaOnly,
 		transport:    transportName,
 		features:     protocol.NormalizeFeatures(hello.Features),
 		// Same window as a fresh join: this Client is published into
@@ -287,6 +288,9 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		return nil, "", false
 	}
 	previousConn := prev.Conn
+	// The resumed Client is brand new, so its cached area starts empty while
+	// the room still remembers this player's real one. See seedLastAreaLocked.
+	r.seedLastAreaLocked(resumed)
 	r.members[sess.playerID] = resumed
 	roster := make([]string, 0, len(r.members))
 	for id := range r.members {

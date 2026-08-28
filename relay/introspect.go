@@ -98,9 +98,10 @@ type WorldSnapshot struct {
 	Seq       uint64
 }
 
-// StateFanoutSnapshot answers one question: what share of this room's state
-// fan-out is cross-area, and therefore what an area-equality filter at the
-// relay would save.
+// StateFanoutSnapshot answers one question: how much of this room's state
+// fan-out crosses areas, and how much of that the relay's own filter is
+// removing. Until 2026-08-28 there was no filter and this only reported what
+// one WOULD save, which is why SuppressibleShare is named for a hypothetical.
 //
 // Counts and bytes only -- the area_id STRINGS are deliberately never exposed
 // here. They are opaque game data, a host may paste an introspect dump into an
@@ -115,28 +116,54 @@ type StateFanoutSnapshot struct {
 	// Recipients is the sum over those messages of how many members each was
 	// fanned out to. This is the O(n^2) term made visible.
 	Recipients uint64
-	// CrossAreaRecipients is the subset that an area-equality filter would
-	// have suppressed: both areas known, and different.
+	// CrossAreaRecipients is how many of those recipients were in another
+	// area: both areas known, and different. It is the CEILING on what area
+	// filtering can suppress, not what it did suppress.
 	CrossAreaRecipients uint64
-	// PayloadBytes and CrossAreaPayloadBytes are the same two numbers weighted
-	// by message size, which is what actually matters on the wire. Payload
-	// only, excluding the envelope -- see stateRecipients for why, and why the
-	// ratio is unaffected by that.
+	// FilteredRecipients is what the filter actually dropped -- cross-area AND
+	// the recipient having declared own_area_only. It is lower than
+	// CrossAreaRecipients by exactly the traffic to clients that did not opt
+	// in: the cross-map adapters, and any client too old to know the field.
+	// The gap between the two is therefore the remaining headroom.
+	FilteredRecipients uint64
+	// The same three numbers weighted by message size, which is what actually
+	// matters on the wire. Payload only, excluding the envelope -- see
+	// stateRecipients for why, and why the shares are unaffected by that.
 	PayloadBytes          uint64
 	CrossAreaPayloadBytes uint64
+	FilteredPayloadBytes  uint64
 	// DistinctAreas is how many different areas the room's members are
 	// currently spread across.
 	DistinctAreas int
 }
 
-// SuppressibleShare is the fraction of forwarded state bytes an area-equality
-// filter would have saved, 0 to 1. This is THE number the relay-side filtering
-// decision rests on; everything else in this struct is context for it.
+// offeredBytes is the pre-filter total: what this room would have put on the
+// wire with no area filtering at all. Both shares below divide by it, so
+// neither can end up comparing a post-filter numerator against a post-filter
+// denominator and reporting a share that shrinks as the filter gets better.
+func (f StateFanoutSnapshot) offeredBytes() uint64 {
+	return f.PayloadBytes + f.FilteredPayloadBytes
+}
+
+// SuppressibleShare is the fraction of state bytes that area filtering COULD
+// remove, 0 to 1 -- the ceiling, reached only if every client opted in. This is
+// the number the relay-side filtering decision originally rested on, and it
+// stays meaningful afterwards as the size of the opportunity.
 func (f StateFanoutSnapshot) SuppressibleShare() float64 {
-	if f.PayloadBytes == 0 {
+	if f.offeredBytes() == 0 {
 		return 0
 	}
-	return float64(f.CrossAreaPayloadBytes) / float64(f.PayloadBytes)
+	return float64(f.CrossAreaPayloadBytes) / float64(f.offeredBytes())
+}
+
+// SavedShare is the fraction area filtering ACTUALLY removed. It equals
+// SuppressibleShare in a room where every client opted in, and is lower by the
+// share going to cross-map adapters and older clients.
+func (f StateFanoutSnapshot) SavedShare() float64 {
+	if f.offeredBytes() == 0 {
+		return 0
+	}
+	return float64(f.FilteredPayloadBytes) / float64(f.offeredBytes())
 }
 
 // RoomSnapshot is one room's whole visible state.
@@ -229,8 +256,10 @@ func (r *Room) snapshot(now time.Time) RoomSnapshot {
 			StatesIn:              r.statesIn,
 			Recipients:            r.stateRecipientsOut,
 			CrossAreaRecipients:   r.stateRecipientsCross,
+			FilteredRecipients:    r.stateRecipientsFiltered,
 			PayloadBytes:          r.stateBytesForwarded,
 			CrossAreaPayloadBytes: r.stateBytesCrossArea,
+			FilteredPayloadBytes:  r.stateBytesFiltered,
 		},
 	}
 	// Counted from live membership rather than from lastState, so a departed
@@ -339,8 +368,10 @@ func (s Snapshot) String() string {
 		if f := r.StateFanout; f.StatesIn > 0 {
 			fmt.Fprintf(&b, "\n    state fan-out: %d states to %d recipients (%s), %d area(s)",
 				f.StatesIn, f.Recipients, textfmt.Bytes(f.PayloadBytes), f.DistinctAreas)
-			fmt.Fprintf(&b, "\n      cross-area: %d recipients, %s -- %.0f%% of forwarded bytes go to a peer whose core will discard them",
+			fmt.Fprintf(&b, "\n      cross-area: %d recipients, %s -- %.0f%% of offered bytes are for a peer in another area",
 				f.CrossAreaRecipients, textfmt.Bytes(f.CrossAreaPayloadBytes), f.SuppressibleShare()*100)
+			fmt.Fprintf(&b, "\n      filtered: %d recipients, %s -- %.0f%% of offered bytes never sent (the rest go to clients that render other areas)",
+				f.FilteredRecipients, textfmt.Bytes(f.FilteredPayloadBytes), f.SavedShare()*100)
 		}
 		for _, m := range r.Members {
 			fmt.Fprintf(&b, "\n    %s over %s", m.PlayerID, m.Transport)

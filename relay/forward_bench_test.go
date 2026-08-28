@@ -31,11 +31,12 @@ import (
 // bookkeeping. recordingTransport in world_test.go deliberately copies and
 // retains every payload, which would put ITS allocations in these numbers.
 //
-// Deliberately a POINTER to a non-empty struct, which is not a detail: an
-// interface holding a zero-sized value lets the compiler keep the bound method
-// value in Room.forward on the stack, so a zero-sized discard type reports the
-// per-recipient closure allocation as free when against a real *NDJSONConn it
-// is not. Measured both ways 2026-08-28 -- the empty version hid it completely.
+// A POINTER to a non-empty struct rather than an empty value type, so the
+// compiler cannot treat the interface as zero-sized and optimise away costs a
+// real *NDJSONConn would pay. Measured both ways on 2026-08-28: it made no
+// difference, which is itself the finding -- the bound method value in
+// Room.forward does not escape, so allocations stay flat from a 2-member room
+// to a 128-member one and the planned fix for it was dropped as a non-win.
 type discardTransport struct{ sent int }
 
 func (d *discardTransport) Send([]byte) error           { d.sent++; return nil }
@@ -208,7 +209,7 @@ func TestBenchmarkFixturesAreRealisticAndForwarded(t *testing.T) {
 	if got.PlayerID != "p0" {
 		t.Fatalf("sender id not stamped: got %q", got.PlayerID)
 	}
-	if n := len(r.stateRecipients("p0", got.AreaID, 100, time.Now())); n != 3 {
+	if n := len(r.stateRecipients("p0", got.AreaID, got.AreaID, 100, time.Now())); n != 3 {
 		t.Fatalf("expected the other 3 members as recipients, got %d", n)
 	}
 }

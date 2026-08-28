@@ -31,7 +31,7 @@ func TestCrossAreaFanoutCountersMeasureWhatTheyClaim(t *testing.T) {
 
 	// One state from a. Recipients are b (same area) and c (cross-area).
 	const payload = 100
-	got := r.stateRecipients("a", "town", payload, time.Now())
+	got := r.stateRecipients("a", "town", "town", payload, time.Now())
 	if len(got) != 2 {
 		t.Fatalf("forwarded to %v, want both other members — the counters must not change delivery", got)
 	}
@@ -81,7 +81,7 @@ func TestUnknownAreaIsNeverCountedAsSuppressible(t *testing.T) {
 			r.tryAdd(&Client{PlayerID: "b", Conn: &recordingTransport{}})
 			r.recordState("b", protocol.State{PlayerID: "b", AreaID: tc.recipientArea})
 
-			r.stateRecipients("a", tc.senderArea, 100, time.Now())
+			r.stateRecipients("a", tc.senderArea, tc.senderArea, 100, time.Now())
 
 			r.mu.Lock()
 			defer r.mu.Unlock()

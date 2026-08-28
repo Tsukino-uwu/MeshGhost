@@ -182,7 +182,7 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only` |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
@@ -356,6 +356,20 @@ Both are refused with `reject` (see the message table above) before any `state` 
 the same "reject at handshake" shape the protocol-version check already used — researched
 against CelesteNet's own version-check pattern (`architecture.md`'s prior-art section) before
 building this.
+
+### `own_area_only` — the relay may skip what your core would discard
+
+A client that renders only peers sharing its own `area_id` says so with `own_area_only` on its
+`hello`, and the relay stops forwarding it states from elsewhere. **Absent means send everything**,
+which is what an older client sends and what an adapter declaring `render_all_areas` over the
+bridge produces -- Emerald's cross-map ghosts render peers in ADJACENT areas and must keep receiving
+them. The decision is per recipient, so a room may mix the two freely.
+
+The core's own render-time filter is unchanged and still runs, so this only removes messages that
+were going to be discarded. Two rules keep it invisible: the state that announces a crossing is
+still delivered to the area being LEFT (it is what the recipient despawns on), and a client
+entering an area is seeded, reliably, with the newest state of everyone already there (a motionless
+peer is change-suppressed and would otherwise stay invisible for up to one keepalive). ADR 0041.
 
 ### `send_hz` and `max_receive_hz_per_player`
 

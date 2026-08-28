@@ -272,9 +272,14 @@ func TestGoSideImportsStayGeneric(t *testing.T) {
 // is free to put whatever it likes inside an opaque field it already has (`extras`, an event
 // payload) without the core ever knowing.
 var frozenProtocolFields = map[string][]string{
-	"State":          {"anim", "area_id", "extras", "orientation", "player_id", "position", "seq", "timestamp"},
-	"Envelope":       {"payload", "type"},
-	"Hello":          {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "protocol_version", "query_only", "resume_token", "room", "room_code"},
+	"State":    {"anim", "area_id", "extras", "orientation", "player_id", "position", "seq", "timestamp"},
+	"Envelope": {"payload", "type"},
+	// own_area_only (2026-08-28) qualifies under the SECOND test above: it is a bare bool
+	// asking the relay to compare two area_ids for equality and forward accordingly. The relay
+	// learns nothing about what an area is, exactly as it learns nothing from area_id itself --
+	// which is the field it makes the relay act on. It mirrors bridge.Hello.render_all_areas
+	// below, already frozen on the same reasoning.
+	"Hello":          {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
 	"Welcome":        {"features", "ghost_collision", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
 	"Reject":         {"reason"},
 	"Join":           {"player_id", "state"},

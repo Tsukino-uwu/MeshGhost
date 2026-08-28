@@ -73,9 +73,62 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	// with the newest sample, not the newest one that happened to be
 	// forwarded to somebody. Recorded for every room, not only ones
 	// that asked for snapshots -- see recordState.
-	r.recordState(senderID, st)
-	r.forwardLine(line, r.stateRecipients(senderID, st.AreaID, len(statePayload), time.Now()), true)
+	prevArea := r.recordState(senderID, st)
+	r.forwardLine(line, r.stateRecipients(senderID, st.AreaID, prevArea, len(statePayload), time.Now()), true)
+	if prevArea != "" && prevArea != st.AreaID {
+		r.seedArrivalInto(senderID, st.AreaID)
+	}
 	return st, true
+}
+
+// seedArrivalInto hands a player who has just entered an area the newest state
+// the relay holds for everyone already standing in it.
+//
+// It is the other half of the filter, and it is REQUIRED rather than a
+// nicety -- because of change suppression, not despite it. A filtered client
+// receives nothing from another area, so on arriving it knows nothing about
+// the peers there and must wait for each of them to speak. ADR 0039 means a
+// motionless peer does not speak: it re-states only every IdleKeepalive
+// (250ms by default). So without this, walking into a room where somebody is
+// standing still shows an empty room first and pops them in up to a keepalive
+// later -- a defect that appears at every seam and gets worse the more
+// successful suppression is.
+//
+// Sent RELIABLY. A dropped seed on the lossy state plane would reinstate
+// exactly the pop this exists to remove, and unlike an ordinary state sample
+// there is no next one coming to supersede it.
+//
+// Only for a client that opted into filtering: anyone else was already being
+// sent everything and needs no catching up.
+func (r *Room) seedArrivalInto(arrival, area string) {
+	r.mu.Lock()
+	c, ok := r.members[arrival]
+	if !ok || !c.ownAreaOnly || c.suspended {
+		r.mu.Unlock()
+		return
+	}
+	var seeds []protocol.State
+	for id, m := range r.members {
+		if id == arrival || m.suspended || m.lastArea != area {
+			continue
+		}
+		if st, ok := r.lastState[id]; ok {
+			seeds = append(seeds, st)
+		}
+	}
+	r.mu.Unlock()
+
+	// Built and delivered after unlocking, the same snapshot-then-act shape
+	// every other handler in this package uses.
+	for _, st := range seeds {
+		// The peer's ORIGINAL timestamp, deliberately: core's remoteBuffer
+		// renders behind live, so a sample from the recent past is what it
+		// wants to interpolate from. Re-stamping it as "now" would place the
+		// ghost ahead of the render time and hold it at the buffer's edge.
+		if env, err := envelope(protocol.TypeState, st); err == nil {
+			r.Forward(env, []string{arrival})
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -93,13 +146,23 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 // State per member, bounded by MaxClients, which is not worth a condition. The
 // gate that survives is the one that matters: whether to SEND a seed, which is
 // the receiving client's own question.
-func (r *Room) recordState(playerID string, st protocol.State) {
+// It returns the area this player was in BEFORE this state, which the caller
+// needs to recognise a seam crossing -- see stateRecipients' transition rule.
+func (r *Room) recordState(playerID string, st protocol.State) (prevArea string) {
 	r.mu.Lock()
 	if r.lastState == nil {
 		r.lastState = make(map[string]protocol.State)
 	}
 	r.lastState[playerID] = st
+	// One lookup here replaces one per member per message in stateRecipients,
+	// which is the whole point of caching it on the Client. Kept strictly in
+	// step with the map above by living in its only writer.
+	if c, ok := r.members[playerID]; ok {
+		prevArea = c.lastArea
+		c.lastArea = st.AreaID
+	}
 	r.mu.Unlock()
+	return prevArea
 }
 
 // stateSnapshotLocked returns a Join carrying each other member's last known

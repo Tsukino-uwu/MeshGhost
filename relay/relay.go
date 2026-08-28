@@ -131,25 +131,34 @@ type Room struct {
 	// see freeLeaseLocked and world.go.
 	world map[worldKey]*worldEntry
 
-	// Shadow counters for the cross-area fan-out question: how much of what
-	// this room forwards is state that every recipient's core will throw away
-	// at render time because the sender is in another area (core's
-	// remoteStatesAt). MEASUREMENT ONLY -- nothing branches on these, and the
-	// relay still forwards exactly what it always did. They exist because the
-	// argument for filtering at the relay rests entirely on a number nobody
-	// had ever measured, and the honest way to find out is to count first and
-	// decide after. Same "introspection only" status as world.go's holder
-	// field. Guarded by mu, read by snapshot().
+	// Counters for the cross-area fan-out question: how much of what this room
+	// carries is state whose recipient is somewhere else entirely. They began
+	// on 2026-08-18 as shadow counters, measurement only, because the argument
+	// for filtering at the relay rested on a number nobody had measured. The
+	// filter now exists, so they measure what it does rather than what it
+	// would do -- and they are split three ways so that stays legible:
 	//
-	// crossArea* is the subset that WOULD have been suppressed by an
-	// area-equality filter. Fail-open matches what such a filter would have to
-	// do: a message is only counted as suppressible when BOTH areas are known
-	// and they differ.
-	statesIn             uint64
-	stateRecipientsOut   uint64
-	stateRecipientsCross uint64
-	stateBytesForwarded  uint64
-	stateBytesCrossArea  uint64
+	//   - Out/BytesForwarded: what was ACTUALLY sent, after filtering.
+	//   - Cross/BytesCrossArea: recipients in another area, whether or not
+	//     they were filtered. This is the CEILING -- what a filter could
+	//     suppress if every client opted in.
+	//   - Filtered/BytesFiltered: what was actually suppressed. Lower than
+	//     Cross by exactly the traffic to clients that did not opt in, which
+	//     is the cross-map adapters (Emerald, Crystal) and any older client.
+	//
+	// The pre-filter total is Forwarded+Filtered, which is what both shares in
+	// StateFanoutSnapshot divide by, so neither can drift into comparing a
+	// post-filter numerator against a pre-filter denominator.
+	//
+	// Fail-open throughout: a recipient counts as elsewhere only when BOTH
+	// areas are known and they differ. Guarded by mu, read by snapshot().
+	statesIn                uint64
+	stateRecipientsOut      uint64
+	stateRecipientsCross    uint64
+	stateRecipientsFiltered uint64
+	stateBytesForwarded     uint64
+	stateBytesCrossArea     uint64
+	stateBytesFiltered      uint64
 
 	// Two once-per-room complaints about adapter misconfiguration, each of
 	// which would otherwise repeat at the world plane's own message rate.
@@ -203,6 +212,29 @@ type Client struct {
 	// construction, before this Client is published into Room.members, so like
 	// maxReceiveHz and transport it needs no lock.
 	features []string
+
+	// ownAreaOnly mirrors this client's Hello.OwnAreaOnly: it renders only
+	// peers sharing its own area_id, so the relay may drop the rest rather
+	// than forward states the receiving core would discard anyway. Absent
+	// means false, which means "forward everything" -- see the protocol field
+	// for why that fail-open default is load-bearing. Written once at
+	// construction before publication into Room.members, like maxReceiveHz and
+	// features above, so it needs no lock.
+	ownAreaOnly bool
+
+	// lastArea is this client's own most recently reported area_id, cached
+	// here rather than read from Room.lastState. Guarded by Room.mu, which is
+	// where it is both written and read.
+	//
+	// It is a cache for one reason: the filter and the shadow counters need
+	// one recipient's area once per member PER MESSAGE, and reading that from
+	// the lastState map meant hashing a string and copying a whole
+	// protocol.State value out of it for every member of the room, every
+	// time. Profiled 2026-08-28 at roughly 15% of the relay's per-state work
+	// before this existed. Seeded on join and resume from lastState so a
+	// resumed client -- which is a brand new *Client -- does not come back
+	// with an empty area and quietly fail open for a message or two.
+	lastArea string
 
 	// suspended marks a client whose connection dropped but whose identity
 	// the relay is still holding, waiting out protocol.DefaultResumeGrace in
@@ -521,8 +553,28 @@ func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
 	for id := range r.members {
 		rosterBeforeJoin = append(rosterBeforeJoin, id)
 	}
+	r.seedLastAreaLocked(c)
 	r.members[c.PlayerID] = c
 	return rosterBeforeJoin
+}
+
+// seedLastAreaLocked gives a Client its area from whatever this room already
+// remembers about that player id. Caller holds r.mu.
+//
+// It matters on RESUME, where it is not merely an optimisation. A resumed
+// session keeps its player_id, its leases and its escrows, but it arrives as a
+// brand new *Client -- so without this its cached area would start empty while
+// r.lastState still holds a real one. The cross-area filter fails open on an
+// empty area, so the symptom would be a resumed player being sent every other
+// area's traffic until their next state landed: harmless, invisible, and
+// exactly the kind of thing that never gets noticed or fixed.
+//
+// A fresh join finds nothing and stays empty, which is correct: a player who
+// has never sent a state has no area yet.
+func (r *Room) seedLastAreaLocked(c *Client) {
+	if st, ok := r.lastState[c.PlayerID]; ok {
+		c.lastArea = st.AreaID
+	}
 }
 
 func (r *Room) remove(playerID string) {
@@ -585,29 +637,70 @@ func (r *Room) roster() []string {
 // and the ratio is the number the filtering decision actually rests on. Worth
 // counting bytes rather than only messages because a state line differs about
 // threefold between games (206 Emerald / 249 TEVI / 597+ Pseudoregalia).
-func (r *Room) stateRecipients(sender, senderArea string, payloadBytes int, now time.Time) []string {
+func (r *Room) stateRecipients(sender, senderArea, senderPrevArea string, payloadBytes int, now time.Time) []string {
 	r.mu.Lock()
 	members := make([]*Client, 0, len(r.members))
-	var cross uint64
+	var cross, filtered uint64
+	// The sender just crossed a seam, so this one state is a DEPARTURE as far
+	// as its old area is concerned. See the transition rule below.
+	crossed := senderPrevArea != "" && senderPrevArea != senderArea
 	for id, c := range r.members {
-		if id != sender && !c.suspended {
-			members = append(members, c)
-			// Counted here, against the full recipient set, BEFORE the receive
-			// gate below: a real filter would run in this same position, since
-			// dropping by area first is what would stop a cross-area message
-			// consuming a recipient's rate-gate slot at all.
-			if senderArea != "" {
-				if last, ok := r.lastState[id]; ok && last.AreaID != "" && last.AreaID != senderArea {
-					cross++
+		if id == sender || c.suspended {
+			continue
+		}
+		// Counted against the full recipient set and BEFORE the receive gate
+		// below: dropping by area first is what stops a cross-area message
+		// consuming a recipient's rate-gate slot at all.
+		elsewhere := senderArea != "" && c.lastArea != "" && c.lastArea != senderArea
+		if elsewhere {
+			cross++
+			// The filter, and the reason it is safe: it is a STRICT SUBSET of
+			// the check core.remoteStatesAt already applies at render time,
+			// which stays in place untouched. Dropping here removes only
+			// messages the recipient's own core would have discarded, so the
+			// picture on screen cannot change -- with one exception the
+			// caller handles, a peer LEAVING this recipient's area, whose
+			// departure is announced by exactly such a message.
+			//
+			// Every one of the three conditions above fails OPEN, each
+			// mirroring a core-side one: an unknown sender area, an unknown
+			// recipient area, or a recipient that never opted in.
+			if c.ownAreaOnly {
+				// THE TRANSITION RULE, and the one case where filtering by
+				// area alone is wrong rather than merely wasteful. A peer
+				// walking OUT of this recipient's area is announced by exactly
+				// one message: the first state carrying its new area_id. That
+				// is what the recipient's core notices the mismatch on and
+				// despawns the ghost for (core.remoteStatesAt, then
+				// tickRenders). Drop it and the recipient hears only silence,
+				// its buffer edge-holds the last sample it did get, and the
+				// ghost stands frozen at the doorway until DefaultRemoteStaleAfter
+				// ages it out three seconds later.
+				//
+				// So a crossing state is still delivered to the area being
+				// LEFT -- once, since the sender's area only changes once per
+				// crossing. Trading a ~200ms clean despawn for a 3s frozen
+				// ghost is exactly the kind of visible regression
+				// agent_docs/plans.md forbids buying bandwidth with. Found by
+				// core's own TestCrossAreaFiltersRemote, which went red the
+				// moment the filter went in.
+				if crossed && c.lastArea == senderPrevArea {
+					members = append(members, c)
+					continue
 				}
+				filtered++
+				continue
 			}
 		}
+		members = append(members, c)
 	}
 	r.statesIn++
 	r.stateRecipientsOut += uint64(len(members))
 	r.stateRecipientsCross += cross
+	r.stateRecipientsFiltered += filtered
 	r.stateBytesForwarded += uint64(len(members)) * uint64(payloadBytes)
 	r.stateBytesCrossArea += cross * uint64(payloadBytes)
+	r.stateBytesFiltered += filtered * uint64(payloadBytes)
 	r.mu.Unlock()
 
 	ids := make([]string, 0, len(members))
@@ -1263,6 +1356,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				PlayerID:     newID,
 				Conn:         nd,
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
+				ownAreaOnly:  hello.OwnAreaOnly,
 				transport:    transportName(conn),
 				features:     protocol.NormalizeFeatures(hello.Features),
 				// Set BEFORE the add below, so there is no instant at which

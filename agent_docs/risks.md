@@ -725,7 +725,18 @@
   light round trip, then reopened the same day once real 10Hz sustained traffic exposed an
   83-98% corruption rate that the light test never exercised.
 
-## Cross-area state fan-out is unmeasured in a REAL session (opened 2026-08-18)
+## Cross-area state fan-out is unmeasured in a REAL SESSION (opened 2026-08-18, halved 2026-08-28)
+
+**The filter now exists (ADR 0041), so the cost this risk describes is no longer paid by any client
+that opts in.** Measured against the real binaries on 2026-08-28 with `meshghost-fakeadapter`'s new
+`-areas` flag: 16 peers over 8 areas, **93% of offered state bytes suppressed**; the same rig at one
+area suppresses 0%, which is the control proving the single-area case is untouched. What remains
+open is the half this entry always meant: **that number came from a rig, where areas are assigned by
+a flag. A real Emerald or Crystal session with `-introspect` has still never been recorded**, and
+only it can say what share a real player's movement produces.
+
+Below is the entry as written on 2026-08-18, kept because its reasoning is what the filter was built
+from.
 
 **The risk this closes, and the one it leaves open.** The relay fans every state message to every
 room member and never reads `area_id`; the core discards non-matching areas at render time

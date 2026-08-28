@@ -160,6 +160,13 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
 - **The render-knob sweep is DONE and the user picked 175ms linear for TEVI (2026-08-28)** — with
   the bugs fixed the delay is a slider; the floor is the link's worst gap. `verified.md`, ADR 0040.
+- **The relay now filters cross-area state, and it is a scaling-shape change (2026-08-28)** --
+  93% of offered bytes suppressed on a 16-peer/8-area rig, 0% at one area; UNWATCHED on screen,
+  Emerald seam crossings are the check. ADR 0041.
+- **Relay per-state cost is down 26% CPU / 27% allocations (2026-08-28)** -- two redundant JSON
+  passes gone, measured by the first relay benchmarks this repo has had. `relay/forward_bench_test.go`.
+- **OPEN: encoding/json is still ~58% of the relay per-state path** -- hand-written encoders are the
+  reversible next step, binary is rejected. Filed with the reasoning in `ideas.md`.
 - **Change suppression SHIPS, and TEVI now benefits: 70% of its states suppressed, confirmed to
   look identical (2026-08-28)** — 49.8 -> 16.5 MB/h. Pseudoregalia's share unmeasured. ADR 0039.
 - **OPEN: a predicted ghost sinks into the floor, and jumps land a beat late** — every generic

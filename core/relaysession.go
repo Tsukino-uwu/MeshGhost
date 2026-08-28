@@ -131,6 +131,17 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// recognise, so there is no need to know whether this is a reconnect.
 	c.mu.Lock()
 	resumeToken := c.resumeToken
+	// Told to the relay so it can stop forwarding what this core would only
+	// discard at render time. It is the exact inverse of the adapter's own
+	// declaration, read under the same lock that writes it in bridgeserve.go,
+	// which runs before ConnectRelayOnAdapterHello -- so an adapter that takes
+	// over area visibility (Emerald, Crystal with cross-map armed) is never
+	// filtered by the relay either.
+	//
+	// A core with no adapter attached yet reports true, which is harmless: it
+	// sends no state, so it has no area of its own on record and the relay's
+	// filter fails open for it regardless.
+	ownAreaOnly := !c.adapterRenderAllAreas
 	c.mu.Unlock()
 
 	hello, err := json.Marshal(protocol.Hello{
@@ -143,6 +154,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		MaxReceiveHz:    c.MaxReceiveHz,
 		Features:        c.effectiveFeatures(),
 		ResumeToken:     resumeToken,
+		OwnAreaOnly:     ownAreaOnly,
 	})
 	if err != nil {
 		_ = conn.Close()

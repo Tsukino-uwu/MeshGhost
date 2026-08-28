@@ -201,6 +201,29 @@ type Hello struct {
 	// the connection rather than assume a Transports reply — see
 	// core.
 	QueryOnly bool `json:"query_only,omitempty"`
+
+	// OwnAreaOnly declares that this client renders ONLY peers whose area_id
+	// equals its own, so the relay may stop forwarding it the rest instead of
+	// spending both uplinks on states the receiving core would discard at
+	// render time anyway (core.remoteStatesAt).
+	//
+	// ABSENT MEANS SEND EVERYTHING, and that default is load-bearing rather
+	// than polite. An older client does not know this field. More importantly,
+	// an adapter that translates a neighbouring map's coordinates renders peers
+	// in ADJACENT areas — Emerald always, Crystal when its cross-map block is
+	// armed (bridge.Hello's RenderAllAreas) — and for those a naive area filter
+	// would delete a shipped, user-confirmed feature. Only a client that
+	// explicitly opts in is ever filtered, so being wrong about this costs
+	// bandwidth rather than ghosts.
+	//
+	// A new optional field rather than a Features entry, deliberately:
+	// IsRoomScopedFeature is a deny-list that defaults to room-scoped, so an
+	// unrecognised capability string is sticky on first join and refuses any
+	// later joiner who disagrees (ReasonFeatureMismatch). Advertising this as a
+	// feature against an older relay would therefore make a mixed room
+	// UNJOINABLE, turning a bandwidth optimisation into a connectivity bug.
+	// See the ADR in agent_docs/architecture.md.
+	OwnAreaOnly bool `json:"own_area_only,omitempty"`
 }
 
 // TransportOffer is one transport a relay serves.

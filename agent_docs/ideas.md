@@ -3134,6 +3134,75 @@ drift is bounded by how long someone stands perfectly still, not by session leng
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`.
 
+## The wire format itself: JSON costs ~58% of the relay's per-state CPU (measured 2026-08-28)
+
+**Filed, not scheduled.** Recorded because the number is much higher than anyone had assumed, and
+because the obvious conclusion drawn from it -- "go binary" -- is the wrong one for reasons that
+are easy to forget and expensive to re-derive.
+
+**The measurement.** After the 2026-08-28 efficiency pass removed the two redundant JSON passes
+(`ValidateState` marshaling `Extras` purely to measure it; `forward` re-marshaling a payload
+`envelope()` had already produced), a CPU profile of `Room.forwardState` on an 8-member room
+carrying an Emerald-shaped state reads:
+
+| | share of the path |
+|---|---|
+| `encoding/json.Unmarshal` | 34% |
+| `encoding/json.Marshal` | 24% |
+| `runtime.mallocgc` | 27%, largely driven by the two above |
+
+So the format costs roughly **58% of what the relay spends per state**, and what remains is not
+redundancy -- it is the price of the syntax and of walking a `map[string]any` through reflection.
+Reproduce with `go test ./relay/ -bench StateFanout/emerald/8 -cpuprofile`.
+
+### Two candidates, and they do not compose
+
+**Hand-written JSON encoders** for the hot types (`State`, `Envelope`). Go's JSON cost is mostly
+*reflection* -- walking the struct type, tag lookup, interface dispatch -- not the braces and
+quotes, so writing the bytes directly is typically 3-6x faster while producing **identical output**.
+No wire change, no protocol version bump, no negotiation, and debuggability is untouched: a raw
+socket, `-introspect` and `meshghost-netsim` all still read as text. `protocol.AppendEnvelope`
+already proves the pattern, including the differential fuzz target that keeps it honest. It buys
+**CPU only** -- not one byte of bandwidth.
+
+**A binary wire format.** Bigger on both axes, since it also removes float-to-decimal formatting,
+which runs on every position component. But: a new parser on untrusted input (the highest-risk
+change category in this repo, and the reason `protocol/limits.go` and the fuzz corpus exist), a
+version bump with negotiation forever, a corpus migration, and an opaque wire in a project that
+debugs live sessions daily.
+
+**Its bandwidth win is also smaller here than it looks**, which is the part most likely to be
+forgotten: a state is mostly strings and `extras`, and `extras` is **free-form by contract** -- the
+core and relay may not know what is inside it. A binary format cannot compress data it is forbidden
+a schema for, so it would end up carrying embedded JSON inside binary framing: most of the
+complexity, a fraction of the saving. Emerald sends 14 `extras` keys per state; Pseudoregalia's
+597-byte lines are extras-heavy.
+
+**And the ranking above still applies to both.** Neither removes a single PACKET, and this file's
+own 2026-08-28 finding is that relay CPU and header overhead scale with packet count rather than
+packet size -- the same reason per-field deltas ranked last. Every win that mattered so far came
+from not sending something (suppression, derivation, area filtering), not from sending it smaller.
+
+### "Can we run both -- one for testing, one for release?" (user's question, 2026-08-28)
+
+Yes for one of them, and the difference is the whole argument.
+
+- **Hand-written encoders: trivially yes, and this is what makes them safe.** Both paths emit the
+  same bytes, so the choice is invisible to everything downstream -- a build tag, a flag, or even a
+  test-only switch works, and the two can be fuzzed against each other continuously. That is not a
+  hypothetical: `FuzzAppendEnvelopeMatchesMarshal` already runs exactly that comparison and caught
+  three real escaping bugs on its first outings.
+- **Binary: yes in principle, no in practice.** Two formats on the wire means negotiating which one
+  a connection speaks and maintaining **both parsers against hostile input, forever** -- the
+  security surface is the union, not the cheaper of the two. A debug-only text mode also decays
+  quietly: it is exercised least exactly when it is needed most, which is when the binary path is
+  behaving strangely. If binary is ever adopted it should REPLACE JSON behind a version bump, not
+  sit beside it.
+
+**If this is picked up, the order is: measure, then hand-written encoders, then re-measure, and
+only then ask whether binary is still worth its risk.** The hand-written step is reversible and
+provable; the binary step is neither.
+
 ## Sweep: rules that live in one code path and are missing from their sibling
 
 **Unscheduled.** Three instances surfaced in a single session (2026-08-22) and each reached the user
