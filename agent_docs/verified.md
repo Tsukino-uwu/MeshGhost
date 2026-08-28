@@ -115,6 +115,7 @@ filed under the right theme, but anything can check that it is listed.
 - RULE CHANGE — the gate on this file tightened (2026-08-21)
 - All four adapters still run end to end after the doc/refactor pass — 2026-08-25
 - A relaunched game could get a DEAD session, and CI caught it once in two runs (2026-08-27)
+- The render-knob sweep: damped prediction wins on a jittery link, and two bugs fell out first (2026-08-28)
 
 
 ## Split per game — 2026-08-25
@@ -1211,3 +1212,37 @@ watched each game and said so.
   Racing for the real interleaving would have been the flaky test that hid the bug: the window is
   between the departing connection releasing the admission slot and its relay `Close` landing, and
   25 local `-race` runs of the e2e test never hit it.
+
+## The render-knob sweep: damped prediction wins on a jittery link, and two bugs fell out first (2026-08-28)
+
+- Confirmed by: the user, on screen, across thirteen configurations in one session -- TEVI, the
+  loopback ghost 160px beside the player, driven through `meshghost-netsim` at 60ms latency,
+  ±25ms jitter, 2% loss, 2% reordering. One variable per run, tabulated as it went; the flags are
+  ADR 0040 (`curve`, `extrapolate`, `predict`) and ADR 0039 (`keepalive`).
+- **The winner for that link: `interp 100ms`, `predict damped`, `extrapolate 100-150ms`, `curve
+  linear`** -- the user's read on the final re-confirmation run: long left/right *"looks fine"*,
+  spam *"looks fine i think ?"*, jumping *"looks fine, but feels a bit slow/delayed"* plus a tiny
+  ground sink. **Those two residuals are OPEN, not accepted** (the bar is 1:1): the sink's real fix
+  is adapter-side -- the game knows where its floors are and can be asked, the core cannot -- and
+  the jump lag is the damped/accelerated trade with neither side good enough yet. `status.md`.
+- **`interp` below the link's jitter CAUSES chop, confirmed by A/B**: 50ms interp under ±25ms
+  jitter turned steady walking and jumping choppy; returning to 100ms cured it. The render time
+  crossing between interpolation and prediction every frame is the mechanism.
+- **Two variants were tried and made things visibly worse, and are kept only as options**:
+  `accelerated` prediction (*"left/right looks snappy/bad, same for jumping"* -- a second
+  derivative of jittery samples) and cross-frame confidence smoothing (steady walking turned
+  choppy; reverted outright after a clean A/B against the identical unsmoothed run).
+- **Two shipped bugs were found by the network alone, before any knob could be judged**: datagram
+  REORDERING broke `remoteBuffer`'s ordering assumption and every ghost snapped/teleported
+  (*"no more snap/teleporting"* after the ordered-insert fix, `core/reorder_test.go`, verified
+  failing without the fix); and the animation phase correction's hard re-seek made idle ghosts
+  twitch under jitter (*"idle looks fine now"* after the adapter-side speed-nudge fix --
+  `tevi/VERIFIED.md`). Neither was visible in any clean-loopback session before this one.
+- **Also confirmed live in the same session**: change suppression ran throughout (`unchanged
+  states re-sent every 250ms` in every log) with no visible effect on the ghost, which is its
+  success condition; and the extrapolation meter reported prediction doing real work on the bad
+  link (avg ~32ms ahead, cap hits only after loss) versus ~nothing on clean localhost.
+- **Scope**: one machine, one game, a loopback ghost, simulated faults. Not yet judged: two real
+  machines, the other three games, and any shipped-default change -- deliberately none was made.
+- Source: `core/interp.go`, `core/sending.go`, `core/remotes.go`, `cmd/meshghost/main.go`;
+  regression tests under `core/*_test.go`; the sweep table in `dev-scripts/README.md`.

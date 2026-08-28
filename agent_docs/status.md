@@ -158,6 +158,14 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   slow resume after a rejoin is unknown. `tevi/UNVERIFIED.md`.
 - **TEVI's cold launch is CONFIRMED clean (2026-08-28)** — two instances, no port churn, ghosts on
   screen. Three defects fixed to get there; the runbook is `dev-scripts/README.md`. `tevi/VERIFIED.md`.
+- **The render-knob sweep is DONE and recorded (2026-08-28)** — damped prediction won; acceleration
+  is out twice; two shipped bugs (reordering, phase re-seek) fixed. `verified.md`, ADR 0040.
+- **Change suppression SHIPS with a 250ms keepalive (2026-08-28)** — ran a whole live session with
+  no visible effect, its success condition. Per-field deltas still unbuilt. ADR 0039, `ideas.md`.
+- **OPEN: a predicted ghost sinks into the floor, and jumps land a beat late** — every generic
+  lever exhausted; the named fix is an adapter-side ground query. `tevi/UNVERIFIED.md`, ADR 0040.
+- **OPEN: render values for the other three games, and a real two-machine pass** — the sweep was
+  one machine, one game, simulated faults; shipped defaults deliberately unchanged. ADR 0040.
 - **Pseudoregalia's two unattributed crashes** — a hard crash after the pause menu opened twice, and
   a `Fatal Error!` on exit that recurred 2026-08-27. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI's charged attack, trails and warp wake-up all SHIP and are confirmed (2026-08-28)** —

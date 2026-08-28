@@ -52,6 +52,9 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A probe's sample rate is not a mechanism's sample rate (2026-08-28)
 - Mirroring through SHARED state makes symmetric peers echo each other (2026-08-28)
 - An answer that ARRIVED and was never READ -- a control-plane message parsed behind a gameplay gate (2026-08-28)
+- A second derivative of network samples is visible no matter how you gate it (2026-08-28)
+- An interpolation delay below the link's jitter converts smoothing into chop (2026-08-28)
+- A count-bounded history silently shortens a time-based delay -- "250ms" was 140ms with stutter (2026-08-28)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

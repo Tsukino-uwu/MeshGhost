@@ -417,6 +417,65 @@ ran did.
 started a core. `meshghost.log` in that mod folder says which client it was, and the mod's own log
 prints `started meshghost.exe (pid N)` when it spawned one.
 
+## Three render knobs, and how to compare them per game (2026-08-28)
+
+**They are per-GAME tastes, not settings with a right answer** -- ADR 0040. One interpolation value
+for four games is what prompted them: the user's read is that low interp made Pseudoregalia look
+*"weird/off"* while Pokemon needed a high one *"to look smooth"*, which is exactly what you would
+expect from a game with momentum and a game that moves 2px on a beat.
+
+| Flag | What it decides | Default |
+|---|---|---|
+| `-interp` | how far behind live a ghost is drawn | `250ms` |
+| `-curve` | how it moves BETWEEN two samples: `linear` or `catmull-rom` | `linear` |
+| `-extrapolate` | how far PAST the newest sample it keeps going on its last velocity | `0` (off) |
+| `-predict` | HOW it keeps going: `linear`, `damped` (per-axis trust), `accelerated` | `linear` |
+
+**They compose** -- `curve` fills the space you have samples for, `extrapolate` the space past the
+last one. Every combination is legal, and `CLAUDE.md`'s rule about trying the untested COMBINATION
+applies here more than anywhere: `-interp=0 -extrapolate=100ms` is a different proposition from
+either half alone.
+
+**How to compare without fooling yourself**, which is the part worth writing down:
+
+- **One knob per run, then the combination.** And say which run produced which recording -- the
+  client logs all three on its `meshghost: smoothing:` line for exactly this reason.
+- **`-extrapolate` does nothing at the shipped `-interp`.** At 250ms the render time never reaches
+  the newest sample, so there is nothing to predict. Pair it with a small `-interp` or you are
+  judging an inactive feature.
+- **Judge the CORRECTION, not the smoothness.** Prediction always looks better while the peer keeps
+  doing what they were doing. What it costs shows up when they stop, turn or land, so drive those
+  deliberately rather than walking in a straight line and calling it good.
+- **On a straight path `catmull-rom` and `linear` are numerically identical**, so a run where
+  nothing curved proves nothing about the curve.
+- **The two Pokemon adapters are the ones expected to look WORSE** with either knob on, and that is
+  a real result worth recording rather than a failed experiment.
+
+**The first full sweep was run 2026-08-28** -- TEVI, loopback ghost, through `meshghost-netsim`
+at 60ms/±25ms jitter/2% loss/2% reorder, thirteen configurations, one variable at a time. The
+verdicts, each the user's on-screen read (`agent_docs/verified.md`, "The render-knob sweep"):
+
+- **Winner for a jittery link: `interp 100ms`, `predict damped`, `extrapolate 100-150ms`,
+  `curve linear`.** Spam-taps snappy, steady runs smooth, idle clean.
+- **`interp` below the link's jitter CAUSES chop** -- the render time keeps crossing between
+  interpolating and predicting every frame. 50ms interp under ±25ms jitter looked worse than
+  100ms despite being "faster".
+- **`accelerated` prediction looked worse on every axis** (a second derivative of jittery
+  samples), and **smoothing the damping's confidence across frames also made everything worse**
+  (yesterday's damping applied to today's motion) -- both were A/B'd with everything else held
+  equal, and both are the reason `damped` is the recommended mode instead.
+- **Two real bugs fell out before any knob could be judged**: reordered datagrams snapping every
+  ghost (fixed in the buffer), and the phase correction's re-seek making idle ghosts twitch
+  (fixed adapter-side as a speed nudge). Neither was visible on a clean loopback.
+- **Residual, inherent, not a settings problem**: a jumping ghost lands a beat late and can sink
+  into the floor a little -- the core cannot know floors exist. An adapter-side ground clamp is
+  the only real fix and is deliberately not built yet.
+
+**Per game, the settings live in that game's own client `config.json`** -- the file its mod's
+launcher reads (`packaging/release/games/client-config-template.json` is the template, and the keys
+are `interp`, `curve`, `extrapolate`). Nothing new was needed to make them per-game; what is
+missing is somebody sitting in front of each game and picking.
+
 ## Running the TEVI two-instance rig, start to finish (2026-08-28)
 
 **This is the whole procedure**, written after a session lost half an hour to three separate

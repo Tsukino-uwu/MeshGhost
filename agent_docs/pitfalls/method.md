@@ -692,6 +692,79 @@ reach" above (a refusal that never released the cursor) and the misattributed re
 the log line now names the port the CONNECTION was on.
 
 
+## A second derivative of network samples is visible no matter how you gate it (2026-08-28)
+
+**Symptom.** Ghost prediction that included acceleration produced visible chop -- twice, in two
+different forms. Raw acceleration made every axis snap ("left/right looks snappy/bad"). A second
+attempt gated the acceleration by its own cross-window consistency, passed a clean-parabola test
+beautifully, and on screen produced jump chop AND a new snap at the end of a steady run.
+
+**Cause.** The size of the acceleration term fluctuates frame to frame under sample-timing jitter,
+whatever gates it -- consistency, damping, thresholds. A prediction whose DIRECTION is right but
+whose SIZE wobbles is still visible, because the eye reads the wobble as motion. Velocity has the
+same problem one derivative down, where it is small enough to damp; differentiating jittery data
+twice amplifies the jitter past what any gate can hide.
+
+**Fix.** Velocity-only prediction, damped per axis by consistency with a 40% floor
+(`core/interp.go`, `PredictDamped`). The jump's residual lag is the accepted price, written down
+as such. Both failed variants are pinned by tests that a future re-attempt will trip
+(`core/extrapolate_test.go`).
+
+**Transferable.** Two differently-shaped fixes failing with the SAME visible symptom is the stop
+signal (CLAUDE.md) -- the shared ingredient is the cause. And a unit test on clean synthetic data
+cannot clear a mechanism whose failure mode IS noise: the gated version passed its parabola test
+and failed the screen within minutes.
+
+
+## An interpolation delay below the link's jitter converts smoothing into chop (2026-08-28)
+
+**Symptom.** Lowering `interp` from 100ms to 50ms -- "more responsive" on paper -- made steady
+walking and jumping choppy, "feels like low frame rate". Raising it back cured it. A confidence-
+smoothing change was blamed first and A/B'd innocent; the interp value was the variable.
+
+**Cause.** With the render delay below the link's jitter (±25ms simulated), the render time
+oscillates across the newest-sample boundary every few frames: one frame interpolates between two
+real samples, the next predicts past the newest, the next interpolates again. The two regimes
+place the ghost by different rules, and crossing between them at frame rate is the chop.
+
+**Fix.** Keep `interp` at or above the link's jitter and let prediction cover the immediacy
+(`interp 100ms` + `extrapolate` won the sweep). The rule of thumb is now in the shipped config
+template's comment: never set interp below your connection's jitter.
+
+**Transferable.** "Lower delay = more responsive" has a floor, and the floor is a property of the
+LINK, not the renderer. Judged on a clean loopback the floor is invisible -- every render-timing
+change needs a netsim pass before its verdict counts.
+
+
+## A count-bounded history silently shortens a time-based delay -- "250ms" was 140ms with stutter (2026-08-28)
+
+**Symptom.** On the netsim rig, the 250ms-interp baseline looked "a bit stuttery when just doing a
+long left/right walk" (user) -- while a jump from standing still looked correctly quarter-second
+late. The stutter read as a network artifact; it was the renderer's own history.
+
+**Cause.** `remoteBuffer` kept the last 8 SAMPLES -- a count -- while the interpolation delay is
+TIME. At the dev rigs' 100Hz send rate, 8 samples span ~80ms during sustained movement, so a 250ms
+render time fell off the buffer's old edge and edge-held, which is both stutter and a silently
+shorter delay. Change suppression made it intermittent: idle samples arrive 250ms apart, so a
+jump from standing had a deep-enough window and honestly showed 250ms -- one rig, two behaviours,
+depending on what the player had just been doing.
+
+**Fix.** Trim by time (600ms of the newest sample's clock) with the count kept only as an
+adversarial cap (`core/interp.go`, pinned by `TestRemoteBufferEvictsOldSnapshots`).
+
+**Which past readings this poisons, audited rather than waved at:** any run with interp >= ~100ms
+on a 100Hz rig during sustained movement -- both of 2026-08-28's 250ms baselines, and the
+`run-core-emerald-trail.bat` rig (200ms at 100Hz), whose smoothness judgements should be re-made.
+Unaffected: every `-interp=0` dev run, the 20Hz shipped-rate rigs (8 x 50ms = 350ms of cover), and
+the sweep's 100ms netsim runs (netsim's 60ms latency happened to keep the render time inside the
+window) -- so the sweep's winner stands.
+
+**Transferable.** When one knob is a TIME and the resource behind it is a COUNT, the knob's range
+is silently bounded by rate x count, and it fails only at one end of the rate range -- check which
+unit every buffer behind a duration setting actually trims on. And the tell was the SPLIT symptom:
+correct in one motion pattern, wrong in another, on the same settings.
+
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
