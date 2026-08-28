@@ -161,9 +161,10 @@ rather than by a gap in our understanding -- but it is still a compensation and 
 - **It reproduces the trigger's ENTER/EXIT semantics** with `OverlapPoint` against the device's own
   trigger collider. The shape is the game's, but the *decision to test it* is ours, and any
   condition the real handler applies that we have not noticed is simply absent.
-- **The close is unconditional.** If the local player is inside a device when a ghost leaves it,
-  this asks it to close; the game re-opens it from its own trigger every frame, so it should be
-  invisible. Unwatched -- `UNVERIFIED.md`.
+- **It mirrors `OnTriggerStay2D`, per frame, not Enter/Exit.** The first version mirrored the
+  transitions and shut a portal with a ghost still standing in it whenever the local player walked
+  off (found and fixed 2026-08-28, `VERIFIED.md`). The EXIT is still a transition on purpose. Both
+  directions are now confirmed on screen.
 
 **What would retire it:** a way to let a ghost's collider fire only the visual half -- a layer the
 warp's trigger does not filter on, or a game build where the animation is driven separately from

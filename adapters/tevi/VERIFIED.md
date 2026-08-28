@@ -637,8 +637,24 @@ filed under the right theme, but anything can check that it is listed.
   frame, so `Update`'s own clearing of them is not fought.
 - Source: `MeshGhostTevi/Plugin.cs`, `UpdateWarpDevicesForGhosts`. Field and method names read from
   this machine's `Assembly-CSharp.dll` with `ilspycmd` (`agent_docs/licensing.md`).
+- **Corrected the same day, after the user found a real bug in the first version.** It mirrored the
+  game's ENTER/EXIT handlers, setting the flags only on the ghost's transition IN. So with a ghost
+  standing in a portal, the LOCAL player walking over it and away fired the game's own
+  `OnTriggerExit2D`, which set `readyclose` -- and nothing re-asserted the ghost that had never
+  left, so the portal shut with someone still on it. User: *"it basically becomes inactive, if the
+  player walks on top of it and then away. even if another ghost is making the portal 'active'"*.
+- **The fix is to mirror `OnTriggerStay2D` instead, which is what the game itself does** -- it
+  zeroes `readyclosetimer` on EVERY frame the player is inside rather than acting once on entry.
+  **A transition cannot answer "is anyone still here"; only a per-frame test can.** Re-asserting is
+  safe rather than a fight with `Update`: `readyopen` is a one-shot request Update clears once it
+  has opened the gate, and its branch only fires while the portal is closed. The EXIT stays a
+  transition, because asserting *close* every frame would override the game opening it for its own
+  reasons.
+- **RE-CONFIRMED ON SCREEN after the fix, in both directions:** *"yee works now, it only goes
+  inactive/collapse if both players leave the area"* -- so neither the player leaving alone nor the
+  ghost leaving alone closes it, which is exactly the behaviour a second real player would produce.
 - Notes: registered as `BANDAGES.md` entry 7 -- the proper mechanism is the collider the game
-  already uses, and it is unusable precisely because it is wired to a save. **Not separately
-  watched:** whether a portal flickers if the local player is standing in one while a ghost walks
-  out of it. The close is unconditional; the game re-opens it every frame the player is inside, so
-  it should be invisible, but nobody has looked. `UNVERIFIED.md`.
+  already uses, and it is unusable precisely because it is wired to a save. Trigger colliders are
+  cached per scan rather than fetched per frame: `GetComponentsInChildren` allocates, and the
+  per-frame test would otherwise have made that a per-frame allocation per portal
+  (`../CLAUDE.md`'s cost rule).

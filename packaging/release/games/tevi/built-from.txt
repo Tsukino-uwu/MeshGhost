@@ -1,8 +1,8 @@
 # Written by dev-scripts\build-tevi.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit. Kept outside the MeshGhost\ drag-and-drop tree on
 # purpose so it never lands in a user's BepInEx\plugins\ folder.
-commit: 8ce0a44083bbd55c35eb7f9b8cb1f150c7e38f7b
-Plugin.cs: 84a7b4b29336f5c98fffb592c97a23886d00540c65d712cc3a848aaef28cb2ab
+commit: d5aeef5c75159a90aa033df923edcbb81ece8aaa
+Plugin.cs: e42cea0a829e80c6f61e5bec6778054e2cbfbbdfdbf75870f7588d67a46300b4
 BridgeClient.cs: d60456c238ace50db7e60e56aad0d519c78a0b318c3f9512901f67f3d22b2b9e
 CoreLauncher.cs: d2df7fe4a5fb5f13956550e70b857376b5f27768798a94b4afe3c2a4cfcec1e7
 MeshGhostTevi.csproj: 6f20a142aca9ff684b4804b2ce99666343c3ba075f3082f2db06126dad38a8f6

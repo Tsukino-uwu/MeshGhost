@@ -761,6 +761,18 @@ namespace MeshGhostTevi
             typeof(WarpDevice).GetField("readyopen", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo WarpReadyCloseField =
             typeof(WarpDevice).GetField("readyclose", BindingFlags.NonPublic | BindingFlags.Instance);
+        // Zeroed every frame a ghost is inside, mirroring what OnTriggerStay2D does for the player.
+        // Optional: if this one field is ever renamed the portal still stays open (readyclose is
+        // held false), it just loses the belt-and-braces half, so it is null-checked rather than
+        // treated as required.
+        private static readonly FieldInfo WarpReadyCloseTimerField =
+            typeof(WarpDevice).GetField("readyclosetimer", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // Trigger colliders per device, resolved at SCAN time rather than per frame.
+        // GetComponentsInChildren allocates an array on every call, and this now runs every frame
+        // for every device -- which is the per-frame allocation adapters/CLAUDE.md's cost rule
+        // exists to prevent. The set only changes when the devices do, so it is cached with them.
+        private Collider2D[][] warpTriggers = new Collider2D[0][];
 
         private void UpdateWarpDevicesForGhosts()
         {
@@ -776,14 +788,28 @@ namespace MeshGhostTevi
             {
                 lastWarpScanTime = Time.time;
                 warpDevices = FindObjectsOfType<WarpDevice>();
+                warpTriggers = new Collider2D[warpDevices.Length][];
+                for (int i = 0; i < warpDevices.Length; i++)
+                {
+                    var triggers = new List<Collider2D>();
+                    foreach (Collider2D col in warpDevices[i].GetComponentsInChildren<Collider2D>())
+                    {
+                        if (col != null && col.isTrigger)
+                        {
+                            triggers.Add(col);
+                        }
+                    }
+                    warpTriggers[i] = triggers.ToArray();
+                }
             }
             if (warpDevices.Length == 0)
             {
                 return;
             }
 
-            foreach (WarpDevice device in warpDevices)
+            for (int i = 0; i < warpDevices.Length; i++)
             {
+                WarpDevice device = warpDevices[i];
                 // OnBecameInvisible disables the component off-camera, and a disabled Update will
                 // not act on the flag anyway -- so skip rather than set something nothing reads.
                 if (device == null || !device.isActiveAndEnabled)
@@ -799,9 +825,9 @@ namespace MeshGhostTevi
                         continue;
                     }
                     Vector3 p = kv.Value.Go.transform.position;
-                    foreach (Collider2D col in device.GetComponentsInChildren<Collider2D>())
+                    foreach (Collider2D col in warpTriggers[i])
                     {
-                        if (col != null && col.isTrigger && col.OverlapPoint(p))
+                        if (col != null && col.OverlapPoint(p))
                         {
                             ghostInside = true;
                             break;
@@ -814,19 +840,41 @@ namespace MeshGhostTevi
                 }
 
                 bool wasInside = warpsWithGhostInside.Contains(id);
-                if (ghostInside && !wasInside)
+                if (ghostInside)
                 {
                     warpsWithGhostInside.Add(id);
-                    WarpReadyOpenField.SetValue(device, true);
+                    // EVERY FRAME, not just on the way in. This mirrors `OnTriggerStay2D`, which is
+                    // what the game itself does: it resets `readyclosetimer` on every frame the
+                    // player is inside rather than acting once on entry.
+                    //
+                    // Doing it on the transition only was a real bug, found by the user
+                    // 2026-08-28: with a ghost standing in a portal, the LOCAL player walking out
+                    // fires the game's own `OnTriggerExit2D`, which sets `readyclose`. Nothing then
+                    // re-asserted the ghost that had never left, so the portal shut with someone
+                    // still on it. **A transition cannot answer "is anyone still here" -- only a
+                    // per-frame test can**, and the game's own code says so by being written that
+                    // way.
+                    //
+                    // Re-asserting is safe rather than a fight with `Update`: `readyopen` is a
+                    // one-shot REQUEST that Update clears once it has opened the gate, and its
+                    // branch only fires when the animation is `deactivated`/`inert`. Setting it
+                    // continuously means "stay wanting to be open" and does nothing while open.
                     WarpReadyCloseField.SetValue(device, false);
+                    if (WarpReadyCloseTimerField != null)
+                    {
+                        WarpReadyCloseTimerField.SetValue(device, 0f);
+                    }
+                    WarpReadyOpenField.SetValue(device, true);
                 }
-                else if (!ghostInside && wasInside)
+                else if (wasInside)
                 {
                     warpsWithGhostInside.Remove(id);
-                    // Only ask it to close if the LOCAL player is not standing in it too --
-                    // otherwise a ghost leaving would shut a portal the player is still using.
-                    // The game re-opens it from its own trigger every frame the player is inside,
-                    // so this is belt-and-braces rather than the only guard.
+                    // The last ghost left. Ask it to close -- and this stays a transition, because
+                    // asserting it every frame would override the game closing or opening it for
+                    // its own reasons. If the LOCAL player is still inside, the game's own
+                    // `OnTriggerStay2D` zeroes `readyclosetimer` every frame and the close branch
+                    // never reaches its 0.5s threshold, so this cannot shut a portal out from
+                    // under the player.
                     WarpReadyCloseField.SetValue(device, true);
                     WarpReadyOpenField.SetValue(device, false);
                 }

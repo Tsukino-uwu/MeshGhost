@@ -36,21 +36,6 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending -- a warp device may flicker if a ghost leaves one the local player is standing in (2026-08-28)
-
-The warp wake-up is confirmed (`VERIFIED.md`), but one case in it was reasoned rather than watched.
-`UpdateWarpDevicesForGhosts` asks a device to close when the last ghost leaves it, and does **not**
-first check whether the local player is still inside. The game re-opens it from its own
-`OnTriggerStay2D` every frame the player is there, so the close should be overwritten before it is
-ever drawn.
-
-**What to look at.** Stand in a warp device yourself while a peer walks into it and back out.
-**What correct looks like:** the portal stays awake throughout, with no flicker at the moment the
-peer leaves. **If it does flicker**, the fix is to make the close conditional on the local player
-being absent, which is a two-line change already identified.
-
-Detail and why the close is unconditional today: [BANDAGES.md](BANDAGES.md) entry 7.
-
 ## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 
 **The defect was observed, not theorised.** Both instances sat logging

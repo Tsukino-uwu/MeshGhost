@@ -549,6 +549,37 @@ diagnosed from.
 **Cross-reference:** `adapters/tevi/BridgeClient.cs` (`RefusalsBeforeWalking`, `portRefusals`),
 `adapters/tevi/UNVERIFIED.md` -- the fix's own recovery path is reasoned, not reproduced.
 
+
+## Mirror the handler the game actually uses — Stay, not Enter/Exit (2026-08-28)
+
+**Symptom.** TEVI's warp devices were made to wake for a peer ghost, and did. Then: a ghost stands
+in a portal, the LOCAL player walks over it and away, and the portal shuts — with the ghost still
+standing on it. User: *"it basically becomes inactive, if the player walks on top of it and then
+away. even if another ghost is making the portal 'active'"*.
+
+**Cause.** The adapter mirrored the game's `OnTriggerEnter2D`/`OnTriggerExit2D` and set its flags on
+the ghost's TRANSITION in. The game does not work that way: its `OnTriggerStay2D` re-zeroes the
+close timer on **every frame** the player is inside. So when the player's exit fired the game's own
+Exit handler, nothing re-asserted the ghost that had never left.
+
+**The rule.** **A transition cannot answer "is anyone still here" — only a per-frame test can.**
+Two independent occupants make that concrete: any edge-triggered scheme silently assumes one. When
+mirroring a game's own reaction, **check WHICH handler carries the state you care about** rather
+than assuming Enter/Exit; a Stay handler that looks like mere bookkeeping is often where the
+liveness actually lives.
+
+**The asymmetry is real and worth keeping.** The fix re-asserts "keep open" every frame but leaves
+"close" on the transition. Asserting both continuously would override the game opening the thing for
+its own reasons — so the direction that ADDS a reason is continuous, and the direction that
+REMOVES one is edge-triggered.
+
+**And the cost it drags in.** Moving from transition to per-frame turned a once-per-entry lookup
+into a per-frame one, and `GetComponentsInChildren` allocates an array on every call — a per-frame
+allocation per object, which `adapters/CLAUDE.md`'s cost rule forbids. **Changing a check's
+FREQUENCY changes its cost class**; cache whatever it reads at the same time.
+
+**Cross-reference:** `adapters/tevi/VERIFIED.md`, warp devices; `adapters/tevi/BANDAGES.md` 7.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:
