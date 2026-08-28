@@ -3107,6 +3107,19 @@ to weigh hardest -- **the relay would have to hold per-peer state to reconstruct
 weakening the property the ACE audit leaned on: today it keeps nothing and re-encodes every message
 from a parsed, validated struct.
 
+**THE LINE THAT DECIDES WHETHER A SAVING IS FREE (user's synthesis, 2026-08-28): suppressing a
+value the receiver can DERIVE EXACTLY is free; suppressing one it can only GUESS is extrapolation
+under another name, and costs exactly what extrapolation costs.**
+
+A looping idle's phase is derivable: the ghost plays the same clip at the same rate, so recovering
+it means running the animation it was already running -- zero error, indefinitely. A running
+player's POSITION is a guess: the receiver must assume the velocity holds, and every stop or turn
+is that assumption being wrong and having to be repaid. Dead reckoning with an error threshold
+would buy bandwidth during sustained movement in exactly that currency -- the lag on direction
+changes, the overshoot and the floor-sink measured in the same session's render sweep, which is
+why TEVI's shipped pick turned prediction OFF. The threshold would also be in GAME UNITS, so the
+core could not own it.
+
 **The rule to generalise instead: do not send what the receiver can derive for itself.** Pokemon
 already gets the full benefit (a standing player's states are byte-identical); Pseudoregalia's
 per-frame values go constant when idle and should too, **unmeasured -- the one piece of this left
