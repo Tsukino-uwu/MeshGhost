@@ -143,6 +143,27 @@ namespace MeshGhostTevi
         private static readonly TimeSpan HelloAnswerTimeout = TimeSpan.FromSeconds(1.5);
         private DateTime helloSentAt = DateTime.MinValue;
 
+        // ...AND SILENCE IS NOT SILENCE IF NOBODY IS LISTENING. Found live 2026-08-28, with two
+        // TEVI instances and two cores already running and healthy: both adapters walked the whole
+        // 7778-7785 range spawning a core per port, reporting that every one of them "accepted a
+        // connection but never answered hello", while the cores' own logs showed each hello
+        // ACCEPTED (`core: ghost collision enabled -- told the adapter`) at exactly that moment.
+        //
+        // The answer had arrived and had not been READ. `bridge_ready` is parsed in DrainInto,
+        // which runs on the main thread -- and Plugin.Update called DrainInto only BELOW its
+        // play-session gate, so at the main menu, on the loading screen, and through every scene
+        // load, nothing consumed it. The deadline meanwhile ran on wall clock. TEVI always starts
+        // at a main menu, so the walk churned on every launch until the player reached play.
+        //
+        // The wall clock alone cannot express what this bound means. The Lua adapters' equivalent
+        // is 90 FRAMES, which cannot expire while the emulator is paused; the equivalent here is to
+        // require that the main thread has actually had its chances to see an answer. So both must
+        // be true: the time has passed AND the drain has run this many times since the hello went
+        // out. Plugin.Update now drains every frame, discarding remote state while out of play, so
+        // in a healthy session this count climbs immediately.
+        private const int MinDrainsBeforeHelloTimeout = 20;
+        private int drainsSinceHello;
+
         // Set when the core answers our hello with bridge_ready; the gate SendLocalState waits on.
         // MUST be cleared on every fresh connection, or a reconnect that misses the ready silences
         // the adapter completely -- which is the hazard the old code's own comment named as the
@@ -221,7 +242,8 @@ namespace MeshGhostTevi
                 // this port and let the walk move on rather than sitting here forever with no
                 // ghosts and nothing in the log saying why.
                 if (!bridgeReady && helloSentAt != DateTime.MinValue &&
-                    now - helloSentAt >= HelloAnswerTimeout)
+                    now - helloSentAt >= HelloAnswerTimeout &&
+                    drainsSinceHello >= MinDrainsBeforeHelloTimeout)
                 {
                     int silent = connectedPort;
                     Log($"MeshGhost: bridge port {silent} accepted a connection but never answered " +
@@ -329,6 +351,7 @@ namespace MeshGhostTevi
                 // this gate was left open until now.
                 bridgeReady = false;
                 helloSentAt = DateTime.MinValue;
+                drainsSinceHello = 0;
                 connectedPort = dialPort;
                 Log($"MeshGhost: connected to bridge at {host}:{dialPort}.");
 
@@ -445,6 +468,7 @@ namespace MeshGhostTevi
                 // not on the connect: a core slow to accept is fine, one that never answers
                 // is not.
                 helloSentAt = DateTime.UtcNow;
+                drainsSinceHello = 0;
             }
             catch (Exception e)
             {
@@ -551,6 +575,14 @@ namespace MeshGhostTevi
         // skipped, never thrown -- a single bad line must not take down the plugin.
         public void DrainInto(Action<string, RemoteState> onRenderRemote, Action<string> onDespawnRemote)
         {
+            // Counted whether or not anything was queued: this is "the main thread had a chance to
+            // read an answer", which is exactly what the hello-answer deadline needs and what it
+            // was missing (see MinDrainsBeforeHelloTimeout).
+            if (drainsSinceHello < int.MaxValue)
+            {
+                drainsSinceHello++;
+            }
+
             while (incoming.TryDequeue(out string line))
             {
                 try

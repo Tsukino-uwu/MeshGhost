@@ -132,6 +132,23 @@ function Write-ScriptEngineConfig {
         '## Written by MeshGhost dev-scripts\tevi-hotreload.ps1 -- a DEVELOPER machine setting.',
         '## ScriptEngine is not a MeshGhost dependency and nothing here ships.',
         '',
+        '[General]',
+        '',
+        '## LOAD THE SCRIPTS FOLDER AT STARTUP. Without this the adapter sits in BepInEx\scripts',
+        '## unloaded on every launch -- no ghost, no error, looking exactly like a broken mod --',
+        '## until somebody presses F6. This file is REWRITTEN WHOLE by -On, and the first version',
+        '## of it omitted this section entirely: BepInEx then regenerated [General] with the',
+        '## shipped default of false, so -On silently disarmed the very loop it had just armed.',
+        '## Found live 2026-08-28, with two instances launched into a title screen and no adapter.',
+        '# Setting type: Boolean',
+        '# Default value: false',
+        'LoadOnStart = true',
+        '',
+        '## The manual trigger, kept as a fallback for when the watcher below misses a write.',
+        '# Setting type: KeyboardShortcut',
+        '# Default value: F6',
+        'ReloadKey = F6',
+        '',
         '[AutoReload]',
         '',
         '## Watches the scripts directory and reloads all plugins when a file changes.',
@@ -167,6 +184,22 @@ if ($On) {
         if (-not (Test-Path $staged)) { Write-Output "tevi-hotreload: no DLL in plugins\ and nothing staged -- run build-tevi.bat first."; exit 1 }
         Copy-Item $staged $scriptDll -Force
     }
+    # THE SYMBOLS MOVE WITH THE DLL, and leaving them behind is fatal rather than untidy.
+    # ScriptEngine reads the assembly through Mono.Cecil WITH symbols, so a DLL in scripts\ with
+    # no .pdb beside it throws SymbolsNotFoundException out of ScriptEngine.Awake -- which kills
+    # the whole component, so LoadOnStart loads nothing AND the file watcher is never armed. The
+    # game then runs with no adapter and no MeshGhost line in the log, looking exactly like a
+    # broken mod. -Deploy already knew this (see its own comment below); -On did not, and moved
+    # only the DLL. Found live 2026-08-28, immediately after LoadOnStart was fixed.
+    $pluginPdb = Join-Path $pluginDir 'MeshGhostTevi.pdb'
+    $scriptPdb = Join-Path $scriptDir 'MeshGhostTevi.pdb'
+    if (Test-Path $pluginPdb) { Move-Item $pluginPdb $scriptPdb -Force }
+    elseif (-not (Test-Path $scriptPdb)) {
+        $builtPdb = Join-Path $repoRoot 'adapters	evi\MeshGhostTeviin\Release\MeshGhostTevi.pdb'
+        if (Test-Path $builtPdb) { Copy-Item $builtPdb $scriptPdb -Force }
+        else { Write-Output "tevi-hotreload: WARNING -- no MeshGhostTevi.pdb anywhere; ScriptEngine will refuse to load this." }
+    }
+
     # The core has to be beside the DLL that is actually loaded, not the folder it came from.
     $srcExe = Join-Path $pluginDir 'meshghost.exe'
     if (Test-Path $srcExe) { Copy-Item $srcExe (Join-Path $scriptDir 'meshghost.exe') -Force }
@@ -180,6 +213,10 @@ if ($On) {
 if ($Off) {
     if (-not (Test-Path $pluginDir)) { New-Item -ItemType Directory $pluginDir | Out-Null }
     if (Test-Path $scriptDll) { Move-Item $scriptDll $pluginDll -Force }
+    # Back with its DLL. Harmless in plugins\ (BepInEx does not read symbols there), and leaving
+    # it in scripts\ would make the next -On think symbols were already handled.
+    $scriptPdb = Join-Path $scriptDir 'MeshGhostTevi.pdb'
+    if (Test-Path $scriptPdb) { Move-Item $scriptPdb (Join-Path $pluginDir 'MeshGhostTevi.pdb') -Force }
     Remove-Item (Join-Path $scriptDir 'meshghost.exe') -Force -ErrorAction SilentlyContinue
     Write-Output "tevi-hotreload: OFF -- adapter is back in BepInEx\plugins (the shipping layout)."
     Write-Output "  This is the layout a cold start tests, and the only one a release resembles."

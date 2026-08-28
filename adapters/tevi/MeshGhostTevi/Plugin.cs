@@ -579,6 +579,18 @@ namespace MeshGhostTevi
             return false;
         }
 
+        // Deliberately empty. Out of play there is nothing to render a peer ONTO, and the state
+        // plane is latest-wins, so dropping these costs nothing: the next state after the player
+        // exists rebuilds everything. They exist so DrainInto can run out of play for the control
+        // plane's sake without the remote callbacks being reachable from there.
+        private void DiscardRemoteWhileOutOfPlay(string playerId, BridgeClient.RemoteState state)
+        {
+        }
+
+        private void DiscardDespawnWhileOutOfPlay(string playerId)
+        {
+        }
+
         private void UpsertRemoteGhost(string playerId, BridgeClient.RemoteState state)
         {
             // FIRST, above every early return below. The map marker is a separate feature from
@@ -1748,14 +1760,28 @@ namespace MeshGhostTevi
                     // ghost mid-session and must be removed -- it is the first thing to suspect.
                     DespawnAllRemoteGhosts();
                 }
+                // DRAINED HERE TOO, and this is not a nicety. `bridge_ready` and `reject` are
+                // parsed inside DrainInto, so while this branch returned early -- the main menu,
+                // the title, every loading screen -- nothing consumed the core's answer to our
+                // hello, and the hello-answer deadline expired against a core that had already
+                // accepted us. The adapter then walked the whole port range spawning a core per
+                // port on every launch. Found live 2026-08-28 with two instances; the cores' own
+                // logs showed each hello accepted at the moment the adapter called it unanswered.
+                //
+                // Remote state is DISCARDED rather than rendered, which keeps the invariant this
+                // gate exists for: no ghost may be built while there is no local player. Only the
+                // control plane gets through, which is exactly what was being starved.
+                bridge.DrainInto(DiscardRemoteWhileOutOfPlay, DiscardDespawnWhileOutOfPlay);
+
                 // PROTOCOL.md: send local_state every frame even when there's nothing to send.
                 bridge.SendLocalState(null);
                 return;
             }
 
-            // Drained only now, below the gate. Above it, a remote's state could create a ghost
-            // while the local player did not exist -- the very thing the gate is for -- and it
-            // would then be destroyed again on the same frame by the branch above.
+            // The in-play drain: the same call as the one above the gate, differing only in that
+            // remote state is RENDERED here rather than discarded. Above the gate a remote's state
+            // could create a ghost while the local player did not exist -- the very thing the gate
+            // is for -- and it would be destroyed again on the same frame by that branch.
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
             // Marker refresh, every frame, from what DrainInto just recorded. Not inside
