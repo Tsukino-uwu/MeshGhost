@@ -4015,6 +4015,37 @@ reconnect never leaves a peer permanently invisible.
 (20s) and `DefaultHelloTimeout` (10s) configurable the way the other four already are. Until then a
 long-outage test costs real seconds, because the backoff cap cannot be shrunk.
 
+### BUILT, 2026-08-29 -- and it found three bugs on its first campaign
+
+`Core.ReconnectInitialBackoff`/`ReconnectMaxBackoff` shipped (`core/backoff_test.go`;
+`HeartbeatInterval` and the relay's `HelloTimeout` were already fields), and the fast tier exists as
+`core.FuzzSchedule` in `core/schedule_convergence_fuzz_test.go` -- two cores, two adapters, one
+relay, a seed-chosen order of attach/detach/relay-drop/send with seed-chosen delays, and the
+invariant "once both are attached and sending, each renders exactly the other, under the other's
+name". A second, narrower target on the same idea (`FuzzNameDeliverySurvivesAnyConnectOrdering`)
+covers the connect-ordering half.
+
+**Three bugs, all the predicted family** -- a game left permanently invisible by a drop landing on
+the wrong tick. The evidence and the regression tests are in `verified.md` (2026-08-29): a drop
+inside the join handshake, the same hole in the ownership-transfer path added the day before, and a
+mid-handshake hangup that nothing was watching for. Every one of them had an attached adapter, a
+`bridge_ready` already sent, no error in the log, and nothing retrying -- which is why no amount of
+staring at a live session would have produced them.
+
+**Two lessons about the method itself, both paid for:**
+
+- **A compressed clock is only honest while it stays longer than the machine's scheduling noise.**
+  At 50x (a 60ms stale window) twelve fuzz workers on one desktop starved each other into failing
+  two perfectly healthy cores. 15x is the setting that stopped lying.
+- **A test knob that is too tight HIDES bugs as well as inventing them.** The 2s dial timeout the
+  other tests use was concealing the third finding completely; raising it to a realistic ten
+  seconds made that bug reproduce on every single run.
+
+**Still open here:** the target is not in CI, because the rig leaks a `Core` per iteration (there is
+no `Core.Close`) and a long single-process campaign exhausts Windows' ephemeral ports and kills the
+worker. Giving `Core` a real shutdown is the prerequisite, and it is worth having for its own sake.
+The slow tier (`internal/e2e`, fixed shapes, not fuzzed) is unchanged.
+
 **What does NOT compress at any price**, so the e2e tier keeps a floor: quic-go's own ~17s idle
 timeout, OS socket behaviour, and process startup.
 

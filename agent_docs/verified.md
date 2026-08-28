@@ -117,6 +117,7 @@ filed under the right theme, but anything can check that it is listed.
 - A relaunched game could get a DEAD session, and CI caught it once in two runs (2026-08-27)
 - The render-knob sweep: damped prediction wins on a jittery link, and two bugs fell out first (2026-08-28)
 - TEVI's render pick on a bad link: 175ms linear, no prediction -- and the delay floor is a rule about links (2026-08-28)
+- Fuzzing the SCHEDULE found three ways a live game goes permanently invisible (2026-08-29)
 
 
 ## Split per game — 2026-08-25
@@ -1269,3 +1270,42 @@ watched each game and said so.
 - **Scope:** one machine, loopback ghost, simulated faults, TEVI only. Shipped defaults unchanged
   (250ms) pending real-network and other-game passes.
 - Source: the sweep entry above; the pick is written into the dev install's own `config.json`.
+
+
+## Fuzzing the SCHEDULE found three ways a live game goes permanently invisible (2026-08-29)
+
+- Confirmed by: the tools, on the Go side, which is where CLAUDE.md puts the burden -- no game,
+  no watching. `core.FuzzSchedule` (`core/schedule_convergence_fuzz_test.go`) drives two real
+  cores, two real fake adapters and a real relay through a seed-chosen ORDER of
+  attach/detach/relay-drop/send events with seed-chosen delays, then requires one invariant:
+  **once both games are attached and sending, each renders exactly the other, under the other's
+  name.** Each of the three fixes below has its own regression test in
+  `core/handshakedrop_test.go`, and each was watched failing with the fix disabled and passing
+  with it restored.
+- **1. A relay drop INSIDE the join handshake left the core permanently disconnected.** The
+  connection died between `ConnectRelay` returning and `ConnectRelayOnAdapterHello` arming
+  auto-retry, so the teardown found nothing armed and started nothing -- and nothing else ever
+  would, because a redial is only triggered by a connection dropping. Adapter attached,
+  `bridge_ready` sent, no error logged, player invisible until the game is relaunched.
+- **2. The same hole in the OWNERSHIP-TRANSFER path**, the branch added 2026-08-27 to fix the
+  relaunch bug CI found. A session dying as ownership passed from a departing adapter to its
+  replacement produced the identical dead session. Both are fixed by checking, under the same
+  lock the teardown takes, whether the session is still alive at the moment auto-retry is armed:
+  whichever of the two gets the lock second sees the other's decision, so exactly one retry runs.
+- **3. A relay that hung up mid-handshake was not noticed at all** -- the wait for `Welcome` had
+  only two ends, the welcome and the dial timeout, so a dead socket blocked the caller for the
+  whole timeout (30s in the test, and on the bridge path that caller is a launching game's
+  Hello). Now the disconnect ends the wait.
+- **What the fuzzer canNOT be trusted about, measured rather than assumed**: at a 50x-compressed
+  clock (60ms stale window) twelve fuzz workers on one desktop starved each other enough to fail
+  two perfectly healthy cores, and a 2s dial timeout hid finding 3 entirely. The clock is now
+  compressed 15x with a realistic dial timeout. **A compressed clock is only honest while it stays
+  longer than the scheduling noise of the machine it runs on.**
+- **Not wired into CI**, deliberately: the rig leaks a `Core` per iteration (there is no
+  `Core.Close`), and a long single-process campaign exhausts Windows' ephemeral ports and kills
+  the worker -- a flaky red job is worse than none. The seed corpus runs as an ordinary test on
+  every `go test`; longer campaigns are run by hand with
+  `go test ./core -run 'FuzzSchedule$' -fuzz 'FuzzSchedule$' -fuzztime 3m`.
+- Source: `core/relaysession.go`, `core/handshakedrop_test.go`,
+  `core/schedule_convergence_fuzz_test.go`, `core/testdata/fuzz/FuzzSchedule/`; the plan is in
+  `agent_docs/ideas.md`, "Fuzz the SCHEDULE, not just the bytes".

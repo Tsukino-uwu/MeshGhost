@@ -98,7 +98,7 @@ func TestARelayDropInsideTheHandshakeStillReconnects(t *testing.T) {
 // auto-retry between "this session is up" and "arm auto-retry for the new
 // adapter", and what is left is a core with an attached, bridge_ready adapter,
 // no relay connection, no error, and a retry armed that nothing will ever run.
-// FuzzSchedule reached it on the schedule "attach, detach, attach".
+// FuzzSchedule reached it on the schedule "attach, detach, attach" (2026-08-29).
 //
 // Called directly rather than through a second bridge connection, because
 // which of the two paths a real relaunch takes is exactly the race in
@@ -186,7 +186,7 @@ func TestASessionDyingDuringOwnershipTransferStillReconnects(t *testing.T) {
 // "timed out waiting for welcome", which describes the clock rather than what
 // happened.
 //
-// Found 2026-08-28 by FuzzSchedule: the schedule "attach, then kill the relay
+// Found 2026-08-29 by FuzzSchedule: the schedule "attach, then kill the relay
 // socket" produced it every single run once the target stopped using an
 // unrealistically short dial timeout to hide it.
 func TestARelayThatHangsUpMidHandshakeIsNoticedImmediately(t *testing.T) {

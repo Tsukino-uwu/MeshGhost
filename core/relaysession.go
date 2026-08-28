@@ -127,7 +127,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 	// layer, or simply dropped -- left the caller blocked for the whole
 	// timeout, and on the bridge path that caller is an adapter's Hello: the
 	// game sat there waiting on a connection that was already gone. Found
-	// 2026-08-28 by the schedule fuzzer, which could produce it on demand once
+	// 2026-08-29 by the schedule fuzzer, which could produce it on demand once
 	// the dial timeout was set to a realistic ten seconds.
 	gone := make(chan struct{})
 	var goneOnce sync.Once
@@ -410,7 +410,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 				c.autoRetryAdapterGameVersion = adapterGameVersion
 				c.autoRetryBridgeConn = bridgeConn
 				// The SECOND door into the dead session this branch was written
-				// to close, found by the schedule fuzzer 2026-08-28 on
+				// to close, found by the schedule fuzzer 2026-08-29 on
 				// "attach, detach, attach". The session we decided to transfer
 				// can die between that decision and this arming: the departing
 				// adapter's OnDisconnect closes the relay and empties
@@ -533,7 +533,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	// retry.gameID was empty and this starts the loop; if this armed first, it
 	// sees a live c.relay and starts nothing, because OnDisconnect will.
 	//
-	// Found 2026-08-28 by core/schedule_fuzz_test.go, on the schedule
+	// Found 2026-08-28 by core/schedule_convergence_fuzz_test.go, on the schedule
 	// "both attach, both send, alice's relay socket dies" -- roughly one run
 	// in twenty, which is exactly the shape a fixed-sequence test cannot see.
 	lostDuringHandshake := c.relay == nil
