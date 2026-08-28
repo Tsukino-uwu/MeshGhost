@@ -211,6 +211,11 @@ namespace MeshGhostTevi
             // shows whether a ghost's actual position/active-state drifts wrong sometime after
             // creation, not just what it looked like at the moment it was made.
             public float LastDiagLogTime = float.NegativeInfinity;
+
+            // Names this peer sent that no local controller has, so each is complained about once
+            // instead of every frame. Lazily created (a well-behaved peer never allocates one) and
+            // capped -- see MaxRejectedAnimNamesPerPeer.
+            public HashSet<string> RejectedAnims;
         }
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
@@ -521,6 +526,59 @@ namespace MeshGhostTevi
             return clone;
         }
 
+        // A peer's clip name, checked against the GHOST'S OWN Animator controller rather than
+        // against a list written here. That is deliberate: the names are the game's vocabulary and
+        // this project does not invent one (contract.md -- `anim` is opaque outside the adapter
+        // that produced it), so the only honest allowlist is "a state this controller actually
+        // has". `HasState` performs the same name -> state lookup `Play` does, which is what makes
+        // this exact rather than an approximation of it: anything rejected here is something Play
+        // could not have found either. Every layer is asked, because Play with no layer argument
+        // searches all of them and checking only layer 0 would refuse a state that legitimately
+        // lives higher up.
+        //
+        // The length bound sits in front of the hash purely so an adversarially long name costs
+        // nothing to reject; the wire cap (protocol.MaxAnimLen, 256) is the outer bound, and a real
+        // TEVI clip name is far shorter than this.
+        private const int MaxAnimNameLength = 96;
+
+        // A rejection is logged ONCE per name per peer, and only for the first few: the whole
+        // defect being fixed is a per-frame log line driven by remote input, so an unthrottled
+        // "rejected an unknown animation" would reproduce it in our own logger. The set is capped
+        // for the same reason a peer-keyed map would be -- a peer sending endless distinct names
+        // must not grow anything without bound.
+        private const int MaxRejectedAnimNamesPerPeer = 4;
+
+        private bool IsPlayableAnimName(RemoteGhostVisual visual, string anim)
+        {
+            if (visual == null || visual.Pc == null || visual.Pc.anim == null)
+            {
+                return false;
+            }
+            if (string.IsNullOrEmpty(anim) || anim.Length > MaxAnimNameLength)
+            {
+                return false;
+            }
+            int hash = Animator.StringToHash(anim);
+            Animator animator = visual.Pc.anim;
+            for (int layer = 0; layer < animator.layerCount; layer++)
+            {
+                if (animator.HasState(layer, hash))
+                {
+                    return true;
+                }
+            }
+            if (visual.RejectedAnims == null)
+            {
+                visual.RejectedAnims = new HashSet<string>();
+            }
+            if (visual.RejectedAnims.Count < MaxRejectedAnimNamesPerPeer && visual.RejectedAnims.Add(anim))
+            {
+                Logger.LogWarning($"MeshGhost: ignored an animation name no local controller has "
+                    + $"(peer-controlled input, see the ACE audit): length={anim.Length}");
+            }
+            return false;
+        }
+
         private void UpsertRemoteGhost(string playerId, BridgeClient.RemoteState state)
         {
             // FIRST, above every early return below. The map marker is a separate feature from
@@ -627,16 +685,24 @@ namespace MeshGhostTevi
                 if (visual.Pc.supportsprite != null) visual.Pc.supportsprite.flipX = flip;
             }
 
+            // The clip name is PEER-CONTROLLED (../_template/PROTOCOL.md), and until this check it
+            // went straight into Unity's animator bounded only by the wire protocol's 256-byte cap.
+            // Not ACE -- managed and memory-safe, an unknown state is a no-op with a warning -- but
+            // a peer alternating two nonexistent names defeats the LastAnim dedupe below and
+            // produces that warning EVERY FRAME, which is disk and CPU on the RECIPIENT'S machine
+            // driven entirely by remote input. That is the one thing the 2026-08-27 audit found
+            // crossing the user's stated line (`../../agent_docs/ideas.md`, "The ACE audit", gap 2).
+            bool animPlayable = IsPlayableAnimName(visual, state.Anim);
+
             // Only call Play() on an actual change -- calling it every frame would restart the
             // clip from time 0 every frame and the animation would never visibly progress.
-            if (visual.Pc != null && visual.Pc.anim != null
-                && !string.IsNullOrEmpty(state.Anim) && state.Anim != visual.LastAnim)
+            if (animPlayable && state.Anim != visual.LastAnim)
             {
                 visual.Pc.anim.Play(state.Anim);
                 visual.LastAnim = state.Anim;
                 visual.LastAnimTime = state.AnimTime ?? 0f;
             }
-            else if (state.AnimTime.HasValue && visual.Pc != null && visual.Pc.anim != null)
+            else if (animPlayable && state.AnimTime.HasValue)
             {
                 // PHASE CORRECTION, deliberately not every frame. Re-seeking an Animator that is
                 // already close enough is what makes a remote character stutter, so this acts only

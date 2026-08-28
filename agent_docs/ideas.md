@@ -1345,16 +1345,31 @@ the warning line on a miss tells them whether an arbitrary object name exists �
 object-enumeration oracle driven entirely by remote input. **The fix is an allowlist of the montage
 names the adapter actually mirrors**, which is a fixed, tiny set.
 
-### Gap 2 — a peer names a Unity animation state, unbounded (TEVI)
+### Gap 2 — a peer names a Unity animation state — CLOSED IN CODE 2026-08-28, unwatched
 
-`Plugin.cs:506` — `visual.Pc.anim.Play(state.Anim)` — hands a peer string straight to Unity's
-animator. Bounded only by `protocol.MaxAnimLen` (256) and UTF-8 validity.
+`Plugin.cs` — `visual.Pc.anim.Play(state.Anim)` — handed a peer string straight to Unity's animator,
+bounded only by `protocol.MaxAnimLen` (256) and UTF-8 validity.
 
-**Not ACE** (managed, memory-safe; an unknown state is a no-op or a warning). But it is unvalidated
-against anything, so a peer can put their ghost into any state the controller defines, and a peer
-alternating two bogus names defeats the `!= visual.LastAnim` guard and produces a Unity warning
-**every frame** — log flood rather than a crash. Same fix: an allowlist, or at minimum a length and
-character bound plus the existing dedupe.
+**Not ACE** (managed, memory-safe; an unknown state is a no-op or a warning). But it was unvalidated
+against anything, so a peer could put their ghost into any state the controller defines, and a peer
+alternating two bogus names defeated the `!= visual.LastAnim` guard and produced a Unity warning
+**every frame** — log flood rather than a crash. It is the one row in the table below that crossed
+the user's stated line.
+
+**The fix, built 2026-08-28: `IsPlayableAnimName`, checked against the ghost's OWN Animator
+controller rather than a list written in the adapter.** `Animator.HasState` performs the same
+name → state lookup `Play` does, over every layer, so anything rejected is something `Play` could
+not have found either — an exact bound rather than an approximation, and one that invents no
+animation vocabulary (`contract.md`: `anim` is opaque outside the adapter that produced it). A
+length bound sits in front of the hash, and a rejection is logged **once per name per peer, first
+four only**, because an unthrottled complaint would reproduce the very per-frame log line being
+fixed. Both `Play` call sites — the name change and the phase correction — are gated on it.
+
+**Unwatched.** The regression it could cause is visible rather than subtle: if the controller's
+state names did not match the clip names `GetAnimationTrueName()` reports, real animations would be
+refused and every ghost would hold one pose. That cannot be true of the current build — the
+animation and phase sync are confirmed on screen, which means `Play` is resolving these names today
+— but it is what to look at. `adapters/tevi/UNVERIFIED.md`.
 
 ### Gap 3 — the systemic one, and the reason this keeps being per-adapter work
 
@@ -1382,7 +1397,7 @@ Audited against exactly that, and every one of these was traced rather than assu
 | **File write / path traversal** | **No peer data reaches any file path.** Adapter log names are built from pid + date + bridge port (`crystal:572`, `emerald:564`); Emerald's cache path is the literal `logs/xmap_cache.txt`. There is no attacker-influenced filename anywhere. |
 | **Unbounded memory growth** | Every per-peer map is keyed by the RELAY-ASSIGNED `player_id`, bounded by `MaxClients` (8) — not by a peer-chosen string. The one map keyed by `AreaID` (`relay/introspect.go:241`) is built per-snapshot from live membership and discarded, so its size is member count, not key space. |
 | **Loop-bound abuse** | No `for` loop anywhere is bounded by a peer value; the counts are edge-triggered comparisons. |
-| **Disk growth** | **The one thing that crosses the line.** TEVI's `anim.Play(state.Anim)` (`Plugin.cs:506`) is unvalidated, and a peer alternating two bogus names defeats the `LastAnim` dedupe to produce a Unity warning **every frame** — disk and CPU on the recipient, driven entirely by remote input. Cheap to fix and it should be. |
+| **Disk growth** | **The one thing that crossed the line, and it is now fixed in code (2026-08-28, unwatched).** TEVI's `anim.Play(state.Anim)` was unvalidated, and a peer alternating two bogus names defeated the `LastAnim` dedupe to produce a Unity warning **every frame** — disk and CPU on the recipient, driven entirely by remote input. `IsPlayableAnimName` now refuses any name the ghost's own controller does not have, and logs at most four rejections per peer. See gap 2 above. |
 | **Relay/core process integrity** | Bounded by the per-field caps in `protocol/limits.go` and covered by 13 fuzz targets. |
 
 **So on the stated line, the answer today appears to be: nothing a peer sends can harm your

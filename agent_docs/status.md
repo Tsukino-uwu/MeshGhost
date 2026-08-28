@@ -172,9 +172,9 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   default transports encrypt; nothing proves a relay is who it says. `docs/security.md`.
 - **PEER-DATA SAFETY is a stated project commitment, logged not designed (2026-08-27)** — seven
   requirements for every adapter, enforcement sketched only; the user: *"not being sloppy with"*. `ideas.md`.
-- **TWO unbounded peer-controlled name lookups, found by audit 2026-08-27** — Pseudoregalia plays
-  any montage a peer names (type-checked, so not ACE); TEVI's `anim.Play(state.Anim)` is unbounded.
-  Allowlist both. No ACE found anywhere. `ideas.md`, "The ACE audit".
+- **ONE unbounded peer-controlled name lookup left** — Pseudoregalia plays any montage a peer names
+  (type-checked, so not ACE). TEVI's was bounded 2026-08-28 against its own controller, unwatched.
+  `ideas.md`, "The ACE audit"; `tevi/UNVERIFIED.md`.
 - **Relay-safety follow-ups**: TEVI's `game_version` isn't real; adapter parsing audited 2026-08-27
   for ACE sinks (`ideas.md`);
   no per-IP cap, which TLS handshakes make more interesting. `docs/security.md`.
