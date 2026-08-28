@@ -922,3 +922,29 @@ Misleading symptoms that mean something other than their surface reading:
 | A property write succeeds and reads back correctly, but nothing changes on screen | Direct UPROPERTY writes can "stick" (readback confirms) without the engine acting on them if the underlying mechanism (e.g. render state, mobility) needs a separate trigger. |
 | A read is `(0,0,0)` or otherwise implausible right after a spawn/level load | Reading a transform before the engine has placed it — guard with a plausibility check, don't trust the first read after spawn/load. |
 
+
+## NOTHING THAT CAN BLOCK GOES BEFORE A HANDSHAKE COMPLETES — and a change with no proven benefit is not free (2026-08-29)
+
+**What happened.** A nametag failed to appear for a peer already in the room, and a plausible cause
+was found by reading: the roster's names were stored in a `defer`, which runs at FUNCTION exit and
+therefore AFTER the line that hands the Welcome to the waiting handshake. The handshake's caller
+then pushes the adapter everything already known — so the push would read an empty map. Airtight,
+and moving the store earlier was an obvious tightening.
+
+**It was wrong twice.** The race was tested before shipping the fix: with the store deliberately
+left late, the delivery test passed 60 runs out of 60, so it decides nothing. The change was kept
+anyway, on the reasoning that deterministic beats timing-dependent — and that reasoning is what
+cost, because `storeRemoteName` writes to the adapter's bridge socket, that write can BLOCK, and
+blocking before the Welcome send delays the very handshake it is waiting on. The pre-existing
+`FuzzSchedule` caught it as `alice ... timed out waiting for welcome`.
+
+**Two rules out of it.** Nothing that can block — a socket write, a lock somebody else may hold, an
+unbounded callback — belongs on the path before a handshake completes; move it after, or make it
+asynchronous. And **a change with no demonstrated benefit still has a cost**: "it cannot hurt" is a
+claim about code nobody has measured. Having measured that this one did not help, the honest move
+was to revert it, not to keep it for tidiness.
+
+**And the reason it was caught at all:** a schedule fuzzer that already existed and was not
+believed to. It had been described, in this repo's own planning notes, as absent — from listing
+target names and reading their categories rather than reading what they do. **An inventory taken by
+name is a guess.**

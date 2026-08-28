@@ -86,9 +86,23 @@ type fakeAdapter struct {
 
 func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 	t.Helper()
-	conn, err := transport.Dial(bridgeAddr)
+	fa, err := dialFakeAdapterErr(t, bridgeAddr)
 	if err != nil {
 		t.Fatalf("dial bridge: %v", err)
+	}
+	return fa
+}
+
+// dialFakeAdapterErr is dialFakeAdapter for a caller that dials repeatedly and
+// must not treat a refused dial as a failed test: a fuzz target attaching and
+// detaching across many workers runs Windows out of ephemeral ports long
+// before it runs out of schedules, and "the OS would not give us a socket" is
+// not a fact about the code under test.
+func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
+	t.Helper()
+	conn, err := transport.Dial(bridgeAddr)
+	if err != nil {
+		return nil, err
 	}
 	fa := &fakeAdapter{
 		t:        t,
@@ -169,7 +183,7 @@ func dialFakeAdapter(t *testing.T, bridgeAddr string) *fakeAdapter {
 			}
 		}
 	})
-	return fa
+	return fa, nil
 }
 
 // hello sends a bridge.Hello declaring gameID -- must be the first message

@@ -3976,11 +3976,15 @@ as well in the tests? we have had a lot of 'ohh this only happens after 8-15sec'
 happens early/late?"* and *"basically fuzz everything?, even how long/short times are between
 things?"*
 
-**The gap, measured rather than felt.** There are 17 fuzz targets and roughly 20
-reconnect/restart/disconnect tests. **Every fuzzer targets DATA** — never panics, stable across the
-wire, matches `json.Marshal`. Not one targets ORDER or TIMING, and each reconnect test runs one
-fixed sequence with fixed sleeps. So the suite is structurally blind to the exact family that keeps
-reaching the user live.
+**The gap, and a correction to how it was first stated (2026-08-29).** The original claim here was
+"not one fuzzer targets ORDER or TIMING". That was wrong, and wrong in the way worth recording:
+`core/schedule_convergence_fuzz_test.go`'s `FuzzSchedule` has fuzzed SCHEDULES all along — attach,
+frame and drop events in a generated order, asserting convergence. The claim came from listing
+target names and reading their categories rather than reading what they do.
+
+What IS true is narrower: no target fuzzes DURATIONS, the reconnect tests each run one fixed
+sequence, and `FuzzSchedule` cannot reach outage-length behaviour because the cadence it would have
+to wait out was a constant until 2026-08-29.
 
 **2026-08-28 is the case in point, twice in one evening.** A nametag failed depending purely on
 WHICH SIDE CONNECTED FIRST — a peer already in the room took a different code path from one that
@@ -4022,3 +4026,28 @@ tested by seeding the counter near its limit, not by waiting.
 of the other half. `RegisterComponent` not being a reflected UFunction is a fact about a shipped
 game's reflection data; no amount of Go fuzzing can see it. The live failures split into those two
 families and this addresses one.
+
+### Follow-up (2026-08-29): the first schedule fuzzer exists, and it is SOCKET-bound
+
+`core/schedule_fuzz_test.go` implements the fast tier for one invariant — a peer's name reaches
+another adapter however the session was assembled. Its seeds are the two orderings that mattered
+live, and they run green in every `go test` in about a second.
+
+**What building it taught, which changes the plan above.** Compressing the CLOCK was the easy half
+and it worked. The binding constraint is sockets: every input stands up two cores and a bridge, so
+`-fuzz` at full tilt (550 execs/sec, 12 workers) exhausts Windows' ephemeral ports in seconds.
+
+**Four harness limits were hit before that was clear, and every single "failing input" was one of
+them rather than a product bug:** ephemeral-port exhaustion, leftover peers from previous inputs
+sharing a relay, relay capacity (`server full`) because cores never hung up, and TIME_WAIT
+accumulation that persists even at `-parallel 2`.
+
+**So the tier split in the entry above needs a third line.** A schedule fuzzer over REAL sockets is
+not a continuous CI fuzzer; it is a table of orderings that happens to be fuzzable in short,
+deliberate, low-parallelism bursts. To explore deeply it would have to drive the core over an
+in-memory transport — a bigger change than it sounds, because part of what is being varied IS the
+ordering of real dials.
+
+**Unchanged and still worth doing:** the invariant framing, and making the remaining constants
+configurable. `MaxReconnectBackoff` and `InitialReconnectBackoff` are Core fields as of 2026-08-29
+(commit f25b38c); `DefaultHeartbeatInterval` and relay's `DefaultHelloTimeout` are not yet.

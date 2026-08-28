@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -120,9 +121,20 @@ func (c *Core) ConnectRelay(gameID string) error {
 
 	welcome := make(chan protocol.Welcome, 1)
 	reject := make(chan protocol.Reject, 1)
+	// Closed when this connection dies, so the wait for Welcome below ends the
+	// moment the socket does instead of running out the dial timeout. Without
+	// it a relay that hangs up mid-handshake -- restarting, refusing at the TCP
+	// layer, or simply dropped -- left the caller blocked for the whole
+	// timeout, and on the bridge path that caller is an adapter's Hello: the
+	// game sat there waiting on a connection that was already gone. Found
+	// 2026-08-28 by the schedule fuzzer, which could produce it on demand once
+	// the dial timeout was set to a realistic ten seconds.
+	gone := make(chan struct{})
+	var goneOnce sync.Once
 	conn.OnError(func(err error) { log.Printf("core: relay connection error: %v", err) })
 	conn.OnDisconnect(func(err error) {
 		log.Printf("core: relay disconnected: %v", err)
+		goneOnce.Do(func() { close(gone) })
 		// Without this, a remote's last known snapshot sits in c.remotes
 		// forever: remoteBuffer.at() holds the newest sample with no
 		// extrapolation once renderTime passes it, so nothing about the
@@ -238,6 +250,14 @@ func (c *Core) ConnectRelay(gameID string) error {
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
 		return &RejectError{Reason: r.Reason}
+	case <-gone:
+		// Deliberately the same shape as the timeout below -- an error, not a
+		// retry from in here. Whoever asked for this connection decides what
+		// to do about it, and both callers already know how: cmd/meshghost's
+		// startup loop and reconnectWithBackoff both back off and try again.
+		_ = conn.Close()
+		c.clearRelayIfCurrent(conn)
+		return fmt.Errorf("core: the relay connection dropped before the welcome arrived")
 	case <-time.After(timeout):
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
@@ -381,12 +401,33 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			// now pointing at the LIVE bridge connection rather than the dead
 			// one -- is what reconnects it.
 			if bridgeConn != nil {
+				if beforeArmingAutoRetryHook != nil {
+					beforeArmingAutoRetryHook()
+				}
 				c.mu.Lock()
 				c.relayOwner = bridgeConn
 				c.autoRetryGameID = gameID
 				c.autoRetryAdapterGameVersion = adapterGameVersion
 				c.autoRetryBridgeConn = bridgeConn
+				// The SECOND door into the dead session this branch was written
+				// to close, found by the schedule fuzzer 2026-08-28 on
+				// "attach, detach, attach". The session we decided to transfer
+				// can die between that decision and this arming: the departing
+				// adapter's OnDisconnect closes the relay and empties
+				// auto-retry, and if the teardown reaches clearRelaySession
+				// first it finds nothing armed and starts nothing -- and then
+				// this arms a retry that no future event will ever run,
+				// because a redial is only triggered by a connection dropping
+				// and the connection is already gone. The core sits there with
+				// an attached, bridge_ready adapter, no relay connection, no
+				// error and nothing retrying, which is precisely the state the
+				// ownership transfer above exists to prevent.
+				lost := c.relay == nil
 				c.mu.Unlock()
+				if lost {
+					log.Printf("core: the relay session died as ownership passed to the new adapter — reconnecting in the background")
+					go c.reconnectWithBackoff(gameID, adapterGameVersion, bridgeConn)
+				}
 			}
 			return nil
 		}
@@ -463,6 +504,10 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		return err
 	}
 
+	if beforeArmingAutoRetryHook != nil {
+		beforeArmingAutoRetryHook()
+	}
+
 	c.mu.Lock()
 	c.relayGame = gameID
 	c.relayOwner = bridgeConn
@@ -474,13 +519,46 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	c.autoRetryGameID = gameID
 	c.autoRetryAdapterGameVersion = adapterGameVersion
 	c.autoRetryBridgeConn = bridgeConn
+	// The drop that lands INSIDE this handshake, between ConnectRelay
+	// returning and auto-retry being armed here. OnDisconnect ran while
+	// autoRetryGameID was still empty, so it cleared the session and started
+	// nothing -- and nothing else ever would, because a redial is only ever
+	// triggered by a connection dropping and there is no longer a connection
+	// to drop. The game keeps running, the adapter was told bridge_ready, and
+	// the player is invisible to the room until they relaunch it.
+	//
+	// Read under the same lock clearRelaySession takes, which is what makes
+	// "exactly one retry loop" true rather than likely: whichever of the two
+	// gets the lock second sees the other's decision. If it cleared first, its
+	// retry.gameID was empty and this starts the loop; if this armed first, it
+	// sees a live c.relay and starts nothing, because OnDisconnect will.
+	//
+	// Found 2026-08-28 by core/schedule_fuzz_test.go, on the schedule
+	// "both attach, both send, alice's relay socket dies" -- roughly one run
+	// in twenty, which is exactly the shape a fixed-sequence test cannot see.
+	lostDuringHandshake := c.relay == nil
 	c.mu.Unlock()
+
+	if lostDuringHandshake {
+		log.Printf("core: the relay connection dropped while this session was still being set up — reconnecting in the background")
+		go c.reconnectWithBackoff(gameID, adapterGameVersion, bridgeConn)
+	}
 
 	if c.OnRelayConnected != nil {
 		c.OnRelayConnected(gameID)
 	}
 	return nil
 }
+
+// beforeArmingAutoRetryHook, if set, runs at the point where
+// ConnectRelayOnAdapterHello is about to arm auto-retry -- on BOTH paths there,
+// the one that dialled and the one that transferred ownership of a session
+// that was already up. Nil in every shipped path and set only by
+// handshakedrop_test.go, which needs the relay connection to die inside that
+// window: the window is real (a fuzzed schedule hits it about one run in
+// twenty) but nothing outside this package can aim at it, so without the seam
+// both regression tests for it would be probabilistic ones.
+var beforeArmingAutoRetryHook func()
 
 // reconnectWithBackoff keeps calling ConnectRelayOnAdapterHello for
 // (gameID, adapterGameVersion, bridgeConn) until it succeeds or is
@@ -600,29 +678,29 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			c.pushSessionPolicy()
 			logResumeOutcome(w, hadToken)
 
-			// THE NAMETAGS OF EVERYONE ALREADY IN THE ROOM, AND THIS MUST HAPPEN BEFORE THE
-			// SEND BELOW.
-			//
-			// The send is what completes the handshake: ConnectRelay returns on it, and its
-			// caller then marks the adapter ready and pushes it everything already known --
-			// including these names, via pushRemoteNames. Storing them after that send means
-			// the push reads an empty map and the adapter is never told, which is a race with
-			// a completely reliable outcome rather than an occasional one.
-			//
-			// This was written as a `defer` first, which looked equivalent and is not: a defer
-			// runs at FUNCTION exit, so it landed after the send rather than before it. Found
-			// live 2026-08-28 -- a peer already in the room rendered with no label for the whole
-			// session, while a peer who joined later got one immediately, because the later peer
-			// arrives on the Join path where the adapter is already ready.
-			//
-			// Outside the lock above deliberately: storeRemoteName takes c.mu itself and may
-			// write to the bridge, neither of which belongs in that critical section.
-			c.storeRosterNames(w.Nametags)
-
 			select {
 			case welcome <- w:
 			default:
 			}
+
+			// THE NAMETAGS OF EVERYONE ALREADY IN THE ROOM, AND THIS MUST HAPPEN AFTER THE SEND
+			// ABOVE -- which is the opposite of what a plausible-sounding argument said.
+			//
+			// The argument was: the send completes the handshake, whose caller then pushes the
+			// adapter everything already known, so storing names after it means that push reads an
+			// empty map. It sounds airtight and it is wrong twice over. First, it was tested: with
+			// the store deliberately left late, the delivery test passed 60 runs out of 60, so the
+			// race it describes does not decide anything. Second, moving it EARLIER caused a real
+			// regression -- storeRemoteName writes to the adapter's bridge socket, that write can
+			// block, and blocking here delays the Welcome the handshake is waiting on. The
+			// pre-existing FuzzSchedule caught it as "alice ... timed out waiting for welcome".
+			//
+			// So: nothing that can block belongs before the handshake completes. The adapter still
+			// learns these names, from pushRemoteNames when it attaches -- which is a different
+			// mechanism from this one and is what actually carries them (see remotenames.go).
+			//
+			// Outside the lock above deliberately: storeRemoteName takes c.mu itself.
+			c.storeRosterNames(w.Nametags)
 		}
 	case protocol.TypeReject:
 		var r protocol.Reject
