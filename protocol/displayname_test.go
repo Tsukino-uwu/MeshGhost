@@ -214,3 +214,71 @@ func FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog(f *testing.F) {
 		}
 	})
 }
+
+// A colour cannot really be "malicious", but it is handed to a game engine's
+// text renderer, and the set of things an engine does with an unexpected string
+// is open-ended. So the shape is the strictest one that still lets somebody pick
+// exactly the colour they want: a '#' and six hex digits, nothing else.
+func TestSanitizeNameColor(t *testing.T) {
+	cases := []struct{ in, want, why string }{
+		{"#F54927", "#F54927", "the ordinary case: a full hex colour passes untouched"},
+		{"#f54927", "#F54927", "normalized to uppercase so one colour is one string everywhere"},
+		{"#F00", "#FF0000", "three-digit shorthand is what people type, and expands unambiguously"},
+		{"#abc", "#AABBCC", "shorthand expands each digit to a doubled pair"},
+		{"#000000", "#000000", "black is a legitimate choice; legibility is the adapter's problem"},
+		{"#FFFFFF", "#FFFFFF", "so is white"},
+
+		{"", "", "no colour is the default and means 'use the adapter's own'"},
+		{"F54927", "", "without the # it is not the shape we accept"},
+		{"#F5492", "", "five digits is neither shorthand nor full"},
+		{"#F549277", "", "seven digits is not a colour we accept"},
+		{"#F5492G", "", "G is not a hex digit"},
+		{"#FF0000AA", "", "no alpha channel: eight digits is a different format"},
+		{"red", "", "named colours are a renderer-specific vocabulary, not a wire format"},
+		{"rgb(255,0,0)", "", "function syntax is a parser we are not writing"},
+		{"javascript:alert(1)", "", "whatever this is, it is not going to a text renderer"},
+		{"#F54927\n#000000", "", "a newline cannot smuggle a second value through"},
+	}
+	for _, tc := range cases {
+		if got := SanitizeNameColor(tc.in); got != tc.want {
+			t.Errorf("SanitizeNameColor(%q) = %q, want %q\n  why: %s", tc.in, got, tc.want, tc.why)
+		}
+	}
+}
+
+// Same reasoning as the name: the relay sanitizes and every client sanitizes
+// again, so a second pass must never change the answer.
+func TestSanitizeNameColorIsIdempotent(t *testing.T) {
+	for _, in := range []string{"#F54927", "#f00", "", "nonsense", "#FFF", "#12345G"} {
+		once := SanitizeNameColor(in)
+		if twice := SanitizeNameColor(once); once != twice {
+			t.Fatalf("not idempotent for %q: %q then %q", in, once, twice)
+		}
+	}
+}
+
+// Whatever comes out is either empty or exactly seven characters an adapter can
+// read as three bytes with no parser and no failure case.
+func FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing(f *testing.F) {
+	for _, s := range []string{"#F54927", "#f00", "", "red", "#12345678", "#GGGGGG"} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, in string) {
+		got := SanitizeNameColor(in)
+		if got == "" {
+			return
+		}
+		if len(got) != 7 || got[0] != '#' {
+			t.Fatalf("produced %q from %q, which is not #RRGGBB", got, in)
+		}
+		for i := 1; i < len(got); i++ {
+			c := got[i]
+			if !(c >= '0' && c <= '9') && !(c >= 'A' && c <= 'F') {
+				t.Fatalf("produced %q from %q, containing non-uppercase-hex %q", got, in, c)
+			}
+		}
+		if got != SanitizeNameColor(got) {
+			t.Fatalf("not idempotent for %q", in)
+		}
+	})
+}

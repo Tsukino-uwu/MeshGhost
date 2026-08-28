@@ -59,6 +59,13 @@ const (
 	TypeLocalState    MessageType = "local_state"
 	TypeRenderRemote  MessageType = "render_remote"
 	TypeDespawnRemote MessageType = "despawn_remote"
+	// TypeRemoteName carries a peer's nametag, and is DELIBERATELY NOT a field
+	// on render_remote. A name changes at most once in a session while
+	// render_remote is sent every frame per peer, so putting it there would
+	// ship the same string tens of thousands of times, and cost every adapter
+	// a string allocation per peer per frame to parse a value that did not
+	// change. This arrives once, when the name is learned.
+	TypeRemoteName MessageType = "remote_name"
 	// TypeBridgeReady and TypeReject are the core's two possible answers to a
 	// Hello, added 2026-08-16 so an adapter can tell whether a core is actually
 	// available to it -- see BridgeReady's doc comment for why silence was not
@@ -312,6 +319,34 @@ type LocalState struct {
 type RenderRemote struct {
 	PlayerID string         `json:"player_id"`
 	State    protocol.State `json:"state"`
+}
+
+// RemoteName is sent core -> adapter when a peer's nametag becomes known: on
+// join, and for everyone already present when this adapter attaches (an adapter
+// can attach long after the core connected, so it must be told what it missed --
+// the same reason pushAreaPreference exists).
+//
+// DISPLAYNAME IS EMPTY FOR A PLAYER WITH NO NAME, which is the shipped default,
+// and an adapter MUST then draw no nametag at all rather than an empty box.
+// The user's rule, 2026-08-28: "if its blank it should not display/do anything,
+// it should only have a text box/show something if a custom name is put in".
+//
+// Sanitized twice before it reaches here -- once by the relay and once by this
+// core, which does not trust the relay to have done it (protocol.
+// SanitizeDisplayName is idempotent precisely so the second pass is free and
+// cannot disagree with the first). An adapter may render it as PLAIN TEXT and
+// nothing else: never through a rich-text or markup-capable path, where a name
+// would become markup injection.
+//
+// NEVER AN IDENTITY. PlayerID is; two peers may carry the same DisplayName.
+type RemoteName struct {
+	PlayerID    string `json:"player_id"`
+	DisplayName string `json:"display_name"`
+	// Color is "#RRGGBB", or empty for "use your own default". An adapter that
+	// cannot colour text ignores it and still draws the name; one that can may
+	// read it as three bytes with no parser, which is exactly why the wire shape
+	// is six hex digits and nothing else.
+	Color string `json:"color,omitempty"`
 }
 
 // DespawnRemote is sent core -> adapter to remove an entry from that set,

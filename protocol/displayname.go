@@ -147,6 +147,61 @@ func SanitizeDisplayName(s string) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
+// SanitizeNameColor returns a nametag colour as "#RRGGBB", or "" for anything
+// it does not recognise -- which means "no colour of my own, use the adapter's
+// default" rather than an error. Nobody is refused a session over a colour.
+//
+// Deliberately the STRICTEST possible shape: exactly a '#' and six hex digits,
+// normalized to uppercase so the same colour is the same string everywhere.
+// Three-digit shorthand ("#F00") is accepted and expanded, because it is what
+// people type and expanding it is unambiguous. Everything else -- named colours,
+// rgb(), alpha channels, anything with a length this does not expect -- is
+// dropped rather than guessed at.
+//
+// WHY SO STRICT, when a colour cannot really be malicious: because this string
+// is handed to a game engine's text renderer, and the set of things that happen
+// when an engine is passed an unexpected string is open-ended. Six hex digits
+// can be parsed into three bytes by the adapter with no parser and no doubt.
+// Legibility is NOT clamped -- a player may pick a colour that is hard to read
+// against their friend's background, and that is their business. The adapter's
+// answer to legibility is an outline or shadow behind the text, not a narrower
+// palette (the user asked for exactly this: "it also allows people to pick
+// really specific colors if they want to").
+func SanitizeNameColor(s string) string {
+	if len(s) != 4 && len(s) != 7 {
+		return ""
+	}
+	if s[0] != '#' {
+		return ""
+	}
+	digits := make([]byte, 0, 6)
+	for i := 1; i < len(s); i++ {
+		d, ok := hexDigit(s[i])
+		if !ok {
+			return ""
+		}
+		digits = append(digits, d)
+		if len(s) == 4 {
+			// Shorthand: each digit stands for a doubled pair, so #F00 is #FF0000.
+			digits = append(digits, d)
+		}
+	}
+	return "#" + string(digits)
+}
+
+// hexDigit reports the uppercase form of one hex digit.
+func hexDigit(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b, true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 'A', true
+	case b >= 'A' && b <= 'F':
+		return b, true
+	}
+	return 0, false
+}
+
 // isDisallowedInDisplayName reports characters that never belong in a name,
 // whatever else is true of them.
 func isDisallowedInDisplayName(r rune) bool {

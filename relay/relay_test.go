@@ -1092,12 +1092,12 @@ func TestGameVersionMismatchRejected(t *testing.T) {
 func TestTryAddAndSnapshotRosterIsAtomic(t *testing.T) {
 	r := newRoom("emerald", "", "room1", nil)
 
-	roster1 := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	roster1, _ := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p1", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
 	if len(roster1) != 0 {
 		t.Fatalf("first join: roster=%v, want []", roster1)
 	}
 
-	roster2 := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
+	roster2, _ := r.tryAddAndSnapshotRoster(&Client{PlayerID: "p2", Conn: &fakeStallingTransport{unblock: make(chan struct{})}})
 	if len(roster2) != 1 || roster2[0] != "p1" {
 		t.Fatalf("second join: roster=%v, want [p1]", roster2)
 	}

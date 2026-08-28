@@ -193,6 +193,13 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// relay's view matches the adapter's regardless of which order
 			// the two arrived in.
 			c.pushAreaPreference()
+			// And every nametag already known, for the same reason: the Joins
+			// that carried them may have gone past long before this game
+			// launched. Without this, peers who were already in the room stay
+			// nameless for the whole session while later arrivals get labels --
+			// which reads as the nametags being broken rather than as a missed
+			// handover.
+			c.pushRemoteNames(nd)
 		case bridge.TypeLocalState:
 			var msg bridge.LocalState
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {

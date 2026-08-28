@@ -141,6 +141,11 @@ type Hello struct {
 	GameID          string `json:"game_id"`
 	Room            string `json:"room"`
 	DisplayName     string `json:"display_name"`
+	// NameColor is the colour this client would like its own nametag drawn in,
+	// as "#RRGGBB" (see SanitizeNameColor). Empty means no preference, which is
+	// the default and leaves the choice to whatever renders it. Ignored entirely
+	// when DisplayName is empty, because there is then no tag to colour.
+	NameColor string `json:"name_color,omitempty"`
 	// RoomCode is a shared secret the relay compares (constant-time)
 	// against its own configured code before allowing a join. An empty
 	// configured code on the relay means auth is off — the pre-existing,
@@ -262,6 +267,19 @@ type Transports struct {
 type Welcome struct {
 	PlayerID string   `json:"player_id"`
 	Roster   []string `json:"roster"`
+	// Nametags carries the labels of the players already in the room, keyed
+	// by the player_id they appear under in Roster. Sanitized by the relay.
+	//
+	// It exists because Join cannot serve a NEWCOMER: a Join is only sent for
+	// somebody arriving, so without this a player who joined a room where three
+	// people were already standing would learn three ids and no names, and would
+	// keep it that way until each of them happened to reconnect. Names are not in
+	// the state stream either -- deliberately, since a per-frame string is pure
+	// waste for a value that changes at most once a session.
+	//
+	// Ids with no name are OMITTED rather than mapped to "": the map is empty on
+	// the wire for a room where nobody named themselves, which is the default.
+	Nametags map[string]Nametag `json:"nametags,omitempty"`
 	// SendHz is the room-wide state send rate this relay is configured for,
 	// in updates per second. A client adopts it as its actual send rate
 	// unless it has deliberately configured a slower one of its own (see
@@ -375,6 +393,32 @@ const (
 type Join struct {
 	PlayerID string `json:"player_id"`
 	State    *State `json:"state,omitempty"`
+	// Nametag is this peer's label, ALREADY SANITIZED by the relay. Nil means
+	// the player set no name and nothing should be drawn for them at all --
+	// which is the shipped default, so nil is the common case rather than an
+	// edge one, and a room where nobody named themselves puts this field on the
+	// wire zero times.
+	//
+	// NEVER AN IDENTITY. PlayerID above is the identity; two players may hold
+	// the same Nametag and nothing may key off one. A receiver sanitizes it
+	// AGAIN before showing it, because a relay is not trusted to have done so.
+	Nametag *Nametag `json:"nametag,omitempty"`
+}
+
+// Nametag is what a peer chose to be labelled as: a name, and optionally a
+// colour to draw it in.
+//
+// One struct rather than two parallel fields because the two travel together
+// everywhere and a colour without a name means nothing -- there is no tag to
+// colour. Both halves are sanitized (SanitizeDisplayName, SanitizeNameColor)
+// before they are ever stored or forwarded.
+type Nametag struct {
+	// Name is the sanitized display name. A Nametag with an empty Name should
+	// not exist: the relay stores no tag at all in that case.
+	Name string `json:"name"`
+	// Color is "#RRGGBB", or empty for "the adapter's default colour". An
+	// adapter that cannot colour text ignores this and still draws the name.
+	Color string `json:"color,omitempty"`
 }
 
 // Leave announces a peer leaving the room. This is what drives

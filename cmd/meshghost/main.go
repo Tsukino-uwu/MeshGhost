@@ -67,13 +67,14 @@ func logRunBanner(autostarted bool) {
 // "local_game_bridge" (not "bridge") makes clear that socket never leaves
 // the machine -- see packaging/release/config.json and its README.txt.
 type fileConfig struct {
-	Relay   *string `json:"connect_to"`
-	Bridge  *string `json:"local_game_bridge"`
-	Game    *string `json:"game"`
-	Room    *string `json:"room"`
-	Name    *string `json:"name"`
-	Interp  *string `json:"interp"`
-	MinSend *string `json:"min_send"`
+	Relay     *string `json:"connect_to"`
+	Bridge    *string `json:"local_game_bridge"`
+	Game      *string `json:"game"`
+	Room      *string `json:"room"`
+	Name      *string `json:"name"`
+	NameColor *string `json:"name_color"`
+	Interp    *string `json:"interp"`
+	MinSend   *string `json:"min_send"`
 	// Keepalive is how often an UNCHANGED state is re-sent (core.IdleKeepalive).
 	// "0" disables change suppression and sends every frame.
 	Keepalive *string `json:"keepalive"`
@@ -174,6 +175,7 @@ type configTargets struct {
 	gameID         *string
 	room           *string
 	name           *string
+	nameColor      *string
 	interp         *time.Duration
 	minSend        *time.Duration
 	keepalive      *time.Duration
@@ -234,6 +236,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	cfg.Override(explicit, "game", t.gameID, fc.Game)
 	cfg.Override(explicit, "room", t.room, fc.Room)
 	cfg.Override(explicit, "name", t.name, fc.Name)
+	cfg.Override(explicit, "name-color", t.nameColor, fc.NameColor)
 	cfg.OverrideDuration(explicit, "interp", t.interp, fc.Interp, shown, "meshghost", "interp")
 	cfg.OverrideDuration(explicit, "min-send", t.minSend, fc.MinSend, shown, "meshghost", "min_send")
 	cfg.OverrideDuration(explicit, "keepalive", t.keepalive, fc.Keepalive, shown, "meshghost", "keepalive")
@@ -402,6 +405,7 @@ func main() {
 	// User's call, 2026-08-28: "if its blank it should not display/do anything, it should
 	// only have a text box/show something if a custom name is put in".
 	name := flag.String("name", "", "display name to show above your ghost for other players. Empty (the default) means no nametag is drawn for you at all; set it only if you want to be labelled. Sanitized by the relay before anyone sees it -- see protocol.SanitizeDisplayName")
+	nameColor := flag.String("name-color", "", "colour to draw your nametag in, as a hex code like \"#F54927\" (\"#F00\" shorthand works too). Ignored unless -name is set, since with no name there is no tag to colour. Anything that is not a hex colour is dropped and the game's own default is used -- a bad colour never stops you connecting")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
@@ -528,6 +532,7 @@ func main() {
 		gameID:         gameID,
 		room:           room,
 		name:           name,
+		nameColor:      nameColor,
 		interp:         interp,
 		minSend:        minSend,
 		keepalive:      keepalive,
@@ -670,6 +675,7 @@ func main() {
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name
+	c.NameColor = *nameColor
 	c.RoomCode = *roomCode
 	c.GameVersion = *gameVersion
 	c.DialTimeout = 5 * time.Second

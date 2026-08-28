@@ -279,10 +279,21 @@ var frozenProtocolFields = map[string][]string{
 	// learns nothing about what an area is, exactly as it learns nothing from area_id itself --
 	// which is the field it makes the relay act on. It mirrors bridge.Hello.render_all_areas
 	// below, already frozen on the same reasoning.
-	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
-	"Welcome": {"features", "ghost_collision", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
+	//
+	// name_color, nametags and nametag (2026-08-28) qualify under BOTH tests. A label above a
+	// character is not knowledge about any particular game -- every game that can draw a ghost
+	// can draw a label over it, which is the "serves two unrelated games" test -- and the core
+	// treats both halves as opaque: it sanitizes them for SAFETY and never reads them for
+	// meaning, never compares them, never branches on them. Nothing anywhere keys off a name;
+	// player_id remains the only identity, which is the property that keeps this cosmetic.
+	//
+	// The colour is a bare "#RRGGBB" for the same reason area_id is an opaque string: the core
+	// can validate its SHAPE without knowing what any game does with it.
+	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "name_color", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
+	"Welcome": {"features", "ghost_collision", "nametags", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
 	"Reject":  {"reason"},
-	"Join":    {"player_id", "state"},
+	"Join":    {"nametag", "player_id", "state"},
+	"Nametag": {"color", "name"},
 	"Leave":   {"player_id"},
 	"Event":   {"corr_id", "from", "payload", "seq", "to"},
 	"Ping":    {"nonce"},
@@ -340,7 +351,8 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 	protocolSamples := map[string]any{
 		"State": protocol.State{}, "Envelope": protocol.Envelope{}, "Hello": protocol.Hello{},
 		"Welcome": protocol.Welcome{}, "Reject": protocol.Reject{}, "Join": protocol.Join{},
-		"Leave": protocol.Leave{}, "Event": protocol.Event{}, "Ping": protocol.Ping{},
+		"Nametag": protocol.Nametag{},
+		"Leave":   protocol.Leave{}, "Event": protocol.Event{}, "Ping": protocol.Ping{},
 		"Pong": protocol.Pong{}, "Prefs": protocol.Prefs{},
 		"TransportOffer": protocol.TransportOffer{},
 		"Transports":     protocol.Transports{}, "Lease": protocol.Lease{},

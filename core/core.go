@@ -292,6 +292,11 @@ type Core struct {
 	RelayAddr   string
 	Room        string
 	DisplayName string
+	// NameColor is the colour this player wants their own nametag drawn in, as
+	// "#RRGGBB" (protocol.SanitizeNameColor). Empty means no preference, which
+	// is the default. Ignored when DisplayName is empty -- no name, no tag, so
+	// nothing to colour.
+	NameColor string
 	// RoomCode is sent as Hello.RoomCode — the shared secret a room-code
 	// auth-enabled relay checks before accepting a join. Empty is fine
 	// against a relay running with no configured code (the default). See
@@ -620,6 +625,18 @@ type Core struct {
 	//
 	// Guarded by mu; keyed by netx.Kind.String().
 	unusableTransports map[string]bool
+
+	// remoteNames maps a peer's player_id to its sanitized nametag, for peers
+	// that set one. An id absent from this map has no nametag and must not be
+	// drawn one -- there is no entry with an empty Name.
+	//
+	// Held here rather than on the interpolation buffer because a name is not
+	// part of a peer's motion: it arrives once with a Join (or in the Welcome
+	// roster for peers already present), survives every state in between, and
+	// must still be available to an adapter that attaches minutes later.
+	//
+	// Guarded by mu.
+	remoteNames map[string]protocol.Nametag
 
 	// transportDialFailures counts CONSECUTIVE dial failures per transport, because one
 	// failure is not evidence that a transport cannot work here.

@@ -203,6 +203,23 @@ type Client struct {
 	// test, 2026-08-16.
 	transport string
 
+	// nametag is this client's label as OTHER PLAYERS will see it: already
+	// run through protocol.SanitizeDisplayName, so it carries no control
+	// characters, no bidi overrides and no unbounded combining runs, and is
+	// within both length caps. Empty means this player set no name and no
+	// nametag is drawn for them -- the shipped default.
+	//
+	// Sanitized HERE, at the edge, and stored rather than re-derived, so there is
+	// exactly one string per client and no path that can forward the raw one. The
+	// relay's own log lines use this too: the raw value could forge log lines.
+	//
+	// Written once at construction, before this Client is published into
+	// Room.members, so like transport and maxReceiveHz above it needs no lock.
+	//
+	// nil means no nametag: either no name was set, or nothing survived
+	// sanitizing. Both must end with nothing drawn, so they are one case.
+	nametag *protocol.Nametag
+
 	// features is this client's own full advertised capability set, normalized.
 	// The room already agreed on the room-scoped half (Room.features); this is
 	// kept per client for the CLIENT-scoped half — whether to hold this
@@ -582,16 +599,55 @@ func (r *Room) markWelcomedAndFlush(playerID string) {
 // peer, since a State for an unrostered id is dropped outright. Found in a
 // review pass. Like tryAdd, capacity is already reserved server-wide by
 // the caller, so this cannot fail.
-func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string) {
+// namesBeforeJoin is the nametags of the members captured in the same critical
+// section as rosterBeforeJoin, for Welcome.RosterNames. Captured together on
+// purpose: a roster and a name map assembled under two different acquisitions
+// could disagree about who is in the room, and the newcomer would then be told a
+// name for somebody its roster does not list. nil when nobody in the room has a
+// name, which is the default case and puts nothing on the wire.
+func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string, namesBeforeJoin map[string]protocol.Nametag) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	rosterBeforeJoin = make([]string, 0, len(r.members))
-	for id := range r.members {
+	for id, m := range r.members {
 		rosterBeforeJoin = append(rosterBeforeJoin, id)
+		if m.nametag != nil {
+			if namesBeforeJoin == nil {
+				namesBeforeJoin = make(map[string]protocol.Nametag, len(r.members))
+			}
+			namesBeforeJoin[id] = *m.nametag
+		}
 	}
 	r.seedLastAreaLocked(c)
 	r.members[c.PlayerID] = c
-	return rosterBeforeJoin
+	return rosterBeforeJoin, namesBeforeJoin
+}
+
+// sanitizedNametag builds the label other players will see, from a Hello.
+//
+// Returns nil for "no nametag", which covers BOTH the player who set no name
+// and the player whose name was entirely characters we strip -- the same thing
+// on screen, and deliberately not distinguished here.
+//
+// A colour without a name is dropped with the name: there is no tag to colour,
+// and keeping one would invite a renderer to draw an empty coloured box.
+func sanitizedNametag(hello protocol.Hello) *protocol.Nametag {
+	name := protocol.SanitizeDisplayName(hello.DisplayName)
+	if name == "" {
+		return nil
+	}
+	return &protocol.Nametag{
+		Name:  name,
+		Color: protocol.SanitizeNameColor(hello.NameColor),
+	}
+}
+
+// nametagName is the name for a log line, and "" for a player without one.
+func nametagName(n *protocol.Nametag) string {
+	if n == nil {
+		return ""
+	}
+	return n.Name
 }
 
 // seedLastAreaLocked gives a Client its area from whatever this room already
@@ -992,7 +1048,11 @@ func sendEnvelope(conn transport.Transport, t protocol.MessageType, payload any)
 // connect" from "someone's trying and failing." One line per rejection —
 // this only fires at handshake, never per state message, so it can't spam.
 func rejectAndClose(conn transport.Transport, hello protocol.Hello, reason string) {
-	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q", reason, hello.GameID, hello.Room, hello.DisplayName)
+	// Sanitized before logging, for the same reason the join line is: a refused
+	// hello is still attacker-controlled, and refusing it does not make its
+	// display_name safe to write into the host's log unaltered.
+	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q",
+		reason, hello.GameID, hello.Room, protocol.SanitizeDisplayName(hello.DisplayName))
 	sendEnvelope(conn, protocol.TypeReject, protocol.Reject{Reason: reason})
 	_ = conn.Close()
 }
@@ -1400,7 +1460,11 @@ func (s *Server) handleConn(conn net.Conn) {
 				maxReceiveHz: protocol.ClampReceiveHz(hello.MaxReceiveHz),
 				ownAreaOnly:  hello.OwnAreaOnly,
 				transport:    transportName(conn),
-				features:     protocol.NormalizeFeatures(hello.Features),
+				// SANITIZED ONCE, HERE. Every later use -- the log line below, the
+				// Welcome roster, the Join broadcast -- reads this field, so no path
+				// exists that can hand anybody the raw string from the Hello.
+				nametag:  sanitizedNametag(hello),
+				features: protocol.NormalizeFeatures(hello.Features),
 				// Set BEFORE the add below, so there is no instant at which
 				// this client is reachable by Room.forward without the hold
 				// in place. Cleared by markWelcomedAndFlush once its Welcome
@@ -1410,7 +1474,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// Started before the add, so this client is never reachable by a
 			// fan-out without a writer to hand the line to.
 			newClient.out = newOutbox(newID, nd)
-			rosterBeforeJoin := joined.tryAddAndSnapshotRoster(newClient)
+			rosterBeforeJoin, rosterNames := joined.tryAddAndSnapshotRoster(newClient)
 
 			// A resume token is minted only for a room that asked for
 			// resumption, so nothing is issued — and no identity is ever held
@@ -1442,12 +1506,17 @@ func (s *Server) handleConn(conn net.Conn) {
 			// log recorded nothing at all for a connect/join, only its own
 			// startup line, leaving a host with no way to tell "nobody's
 			// connecting" from "someone's connecting and I can't see it."
+			// newClient.displayName, NOT hello.DisplayName: the raw value can contain
+			// newlines, and this is a log line. A player could otherwise write their
+			// own entries into the host's log -- a hole that existed here before any
+			// nametag did.
 			log.Printf("relay: %s (%q) joined room %q as game %q over %s",
-				newID, hello.DisplayName, hello.Room, hello.GameID, transportName(conn))
+				newID, nametagName(newClient.nametag), hello.Room, hello.GameID, transportName(conn))
 
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
 				PlayerID:       newID,
 				Roster:         rosterBeforeJoin,
+				Nametags:       rosterNames,
 				SendHz:         sendHz,
 				GhostCollision: s.resolveGhostCollision(),
 				// The room's agreed set PLUS whatever client-scoped
@@ -1473,7 +1542,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			// connection, since nobody else needs it.
 			joined.joinSnapshot(newID)
 
-			join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: newID})
+			join, err := envelope(protocol.TypeJoin, protocol.Join{
+				PlayerID: newID,
+				Nametag:  newClient.nametag,
+			})
 			if err == nil {
 				// rosterBeforeJoin, NOT allExcept(newID): the recipient set must be
 				// the one captured atomically with the add above, not whoever happens

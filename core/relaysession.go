@@ -188,6 +188,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		GameID:          gameID,
 		Room:            room,
 		DisplayName:     displayName,
+		NameColor:       c.NameColor,
 		RoomCode:        roomCode,
 		GameVersion:     gameVersion,
 		MaxReceiveHz:    c.MaxReceiveHz,
@@ -544,6 +545,11 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 		}
 		var w protocol.Welcome
 		if err := json.Unmarshal(env.Payload, &w); err == nil {
+			// The nametags of everyone already in the room. Stored outside the
+			// lock below because storeRemoteName takes c.mu itself, and it may
+			// also write to the bridge -- neither belongs inside this critical
+			// section.
+			defer c.storeRosterNames(w.Nametags)
 			c.mu.Lock()
 			// MERGED into the roster, not assigned over it. The relay adds a
 			// joining client to the room before it sends that client's
@@ -628,6 +634,7 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 			c.mu.Lock()
 			c.roster[j.PlayerID] = struct{}{}
 			c.mu.Unlock()
+			c.storeRemoteName(j.PlayerID, j.Nametag)
 			if j.State != nil {
 				c.storeRemoteState(*j.State)
 			}
@@ -637,6 +644,10 @@ func (c *Core) handleRelayMessage(payload []byte, welcome chan<- protocol.Welcom
 		if err := json.Unmarshal(env.Payload, &l); err == nil {
 			c.mu.Lock()
 			delete(c.roster, l.PlayerID)
+			// Dropped with the roster entry, not left behind: player ids are
+			// reused by a relay across a session, so a stale name here would
+			// eventually be shown over somebody else's ghost.
+			delete(c.remoteNames, l.PlayerID)
 			c.mu.Unlock()
 			c.dropRemote(l.PlayerID)
 		}
