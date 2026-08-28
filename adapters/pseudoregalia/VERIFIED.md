@@ -151,6 +151,7 @@ filed under the right theme, but anything can check that it is listed.
 - Pseudoregalia: a held slide re-triggers every ~600ms, and the capsule really does stand up between repeats
 - Pseudoregalia: a hard crash mid-session, and the discovery that we ship six unnecessary UE4SS mods enabled
 - CONFIRMED ON SCREEN 2026-08-28 — relay-side area filtering is invisible in Pseudoregalia, both halves
+- CONFIRMED ON SCREEN 2026-08-28 — two real Pseudoregalia instances, and the three bugs that were between them
 - The loopback offset manufactures positions real multiplayer never produces
 - 2026-08-17 — The double pause menu recurred, and this time did NOT crash
 - 2026-08-17 — A relay that dies leaves every ghost frozen in place, for up to 60 seconds
@@ -4187,7 +4188,23 @@ applies to exactly two adapters — TEVI and Pseudoregalia — because the other
   late. "Starts moving in a circle directly" is the seed landing: the state is already there, so it
   renders in motion rather than after a wait.
 
-**Setup, stated because it is not a two-instance test.** Pseudoregalia cannot run two copies on this
+**CORRECTION 2026-08-28, same day:** the claim below that this game cannot run two copies is
+FALSE. A Pseudoregalia speedrunner told the user that the game has no Steam single-instance
+integration, so launching pseudoregalia-Win64-Shipping.exe directly -- outside Steam -- starts as
+many copies as you like. It was believed otherwise when this entry was written, which is why the run used
+a synthetic peer; two real instances have been possible the whole time.
+
+**Where the wrong belief came from, because it is the reusable part:** TEVI really does refuse a
+second copy, which is why a separate standalone TEVI install exists on this machine purely for
+two-instance testing. That per-game constraint was then carried over to Pseudoregalia without
+being checked. **A launcher restriction is a fact about one GAME, not about games** -- Steam
+single-instance behaviour, a mutex, or a save-file lock differ per title, and the cost of assuming
+is a whole class of test quietly written off as impossible. Check it per adapter; it is one launch. **The confirmation
+below still stands** -- the peer was a real relay client speaking the real protocol -- but it is
+the weaker version of a test that can now be done properly, and a false limitation left in a
+VERIFIED file would send the next person looking for a workaround they do not need.
+
+**Setup, stated because it is not a two-instance test.** Pseudoregalia was believed unable to run two copies on this
 machine, so the peer was `meshghost-fakeadapter` — a synthetic client that is nonetheless a REAL
 relay client speaking the real protocol, circling radius 250 at the user's own `area_id` and
 position, with `-churn-every 20s -churn-for 8s` moving it to a second area and back. The relay,
@@ -4204,4 +4221,57 @@ ghost in a 3D platformer can stand in a doorway or on a ledge and block the play
 than one you walk through. It rides the per-game config override, and
 `protocol.ResolveGhostCollision` returns disabled if EITHER side asks — so this holds even in a room
 whose relay advertises collision enabled, and a room can never force it back on.
+
+## CONFIRMED ON SCREEN 2026-08-28 — two real Pseudoregalia instances, and the three bugs that were between them
+
+**User, after launching the game twice directly from the exe:** *"Think pseudo is working now, got in
+game on both clients and they saw each other"*. First time this game has ever been tested with two
+genuine peers.
+
+**The chain, from the adapter's own log, every line of it new:**
+
+```
+bridge port range moved to 6672-6679 by configuration.
+bridge connected on port 6672.
+core on port 6672 refused us ({"reason":"busy: this core already has a game attached"}) -- trying another port.
+bridge connected on port 6673.
+```
+
+with the two cores reporting `bridge listening on 127.0.0.1:6672` and `...:6673`, joining the relay
+as p10 and p11, and the relay holding `members=2`.
+
+**Three separate defects had to be fixed to get that, and each hid the next.**
+
+1. **The rejection was destroyed on arrival.** `close_socket()` cleared `recv_buffer`, and a core
+   that refuses writes its reject and then closes -- so `poll_lines` read the reject into the
+   buffer, saw the close on the next `recv`, and wiped the buffer before the parse loop two lines
+   below could read it. Measured before the fix: the second instance reported
+   `connect_attempts=127, send_ok=127, lines_received=0` while the first core's log showed **202
+   refusals sent**. The buffer is now cleared when a connection is ESTABLISHED, not when it closes.
+2. **The rejection could not be attributed to a port.** `close_socket()` also zeroes
+   `current_port`, and it still ran before the parse loop -- so the reject was read but logged as
+   `core on port 0 refused us`, and the busy-marking guarded by `current_port >= base_port` could
+   never fire. The port is now captured at the top of `poll_lines`, before anything can close.
+3. **Which is why autostart reported "NO free port to start a core on".** The sweep RETURNS as
+   soon as a port answers, so it only ever examined 6672; it reaches the free port beyond only if
+   6672 is cooled down first. One cause, two symptoms -- and the same "no free port" line the
+   0.9.9 Linux user reported.
+
+**Why only this adapter.** The other three parse as they read: TEVI handles complete lines inside
+its read loop, and the two Lua adapters take LuaSocket's `partial` data before acting on a "closed"
+error, so a rejection is never sitting unparsed when cleanup runs. Pseudoregalia reads all available
+data first and parses afterwards, which is the one shape where a cleanup step can slip between the
+two. Confirmed by Emerald and Crystal logging real rejections with real ports the same evening.
+
+**Defect 2 is not unique, though.** TEVI had the same FAILURE -- a reject attributed to the wrong
+port, so the genuinely busy port was never cooled -- fixed on 2026-08-27 via a different cause (it
+used the walk cursor instead of the connected port). Two adapters, two mechanisms, one symptom:
+reject attribution belongs on a bridge conformance checklist rather than being rediscovered per
+adapter.
+
+**The test that found all of it existed only because an assumption was corrected.** Pseudoregalia
+was believed unable to run two copies, inferred from TEVI needing a standalone build; a
+Pseudoregalia speedrunner pointed out the game has no Steam single-instance integration and the exe
+can simply be launched twice. That one correction turned a whole class of test from impossible to
+routine, and it found three real bugs in the first run.
 

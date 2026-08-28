@@ -65,7 +65,23 @@ namespace MeshGhostPseudo
         core_answered_ready = false;
         hello_sent_at = {};
         current_port = 0;
-        recv_buffer.clear();
+        // recv_buffer is DELIBERATELY NOT CLEARED HERE, and clearing it was a real bug.
+        //
+        // A core that refuses us writes its reject and then closes. poll_lines reads the reject
+        // into recv_buffer, the next recv returns 0 for the close, and this function used to run
+        // and wipe the buffer -- so the parse loop immediately below the recv loop found nothing.
+        // The refusal arrived and was destroyed on the same call, every time.
+        //
+        // What that cost: the mod never saw ANY rejection, so it never marked a busy port, never
+        // distinguished a downed relay, and re-dialled the same core every two seconds forever.
+        // Measured 2026-08-28 with two real instances -- the second reported
+        // connect_attempts=127, send_ok=127, lines_received=0 while the first core's log showed
+        // 202 refusals sent. It also means every "never answered our hello" this mod has ever
+        // logged may have been a refusal it threw away rather than a silent port.
+        //
+        // The buffer is cleared when a connection is ESTABLISHED instead (see the sweep), which is
+        // the correct lifecycle: leftovers from a previous connection must not contaminate a new
+        // one, but data already delivered by the old one must still be readable.
     }
 
     auto BridgeClient::mark_hello_sent() -> void
@@ -155,6 +171,9 @@ namespace MeshGhostPseudo
                 connected = true;
                 hello_sent_this_connection = false;
                 core_answered_ready = false;
+                // A fresh connection starts with a fresh buffer. This is where the clearing that
+                // used to live in close_socket belongs -- see the comment there for what it cost.
+                recv_buffer.clear();
                 Output::send(STR("[MeshGhostPseudo] bridge connected on port {}.\n"), candidate);
                 return;
             }
@@ -361,6 +380,20 @@ namespace MeshGhostPseudo
             return lines;
         }
 
+        // The port these bytes came from, captured before anything can close the socket.
+        //
+        // close_socket() sets current_port to 0, and the EOF that follows a core's rejection runs
+        // it BEFORE the parse loop below sees that rejection -- so reading current_port down there
+        // gave 0, the "core on port 0 refused us" line, and a busy-marking guarded by
+        // current_port >= base_port that could never fire. The port was never cooled, the sweep
+        // re-dialled the same core every two seconds, and because the sweep RETURNS as soon as a
+        // port answers it never reached the free port beyond it -- so autostart also reported "NO
+        // free port to start a core on" forever. One cause, both symptoms.
+        //
+        // Found 2026-08-28 with two real Pseudoregalia instances, immediately after the fix that
+        // stopped close_socket() destroying the rejection itself.
+        const uint16_t source_port = current_port;
+
         char buf[4096];
         for (;;)
         {
@@ -414,7 +447,7 @@ namespace MeshGhostPseudo
                 if (line.find("\"bridge_ready\"") != std::string::npos)
                 {
                     core_answered_ready = true;
-                    Output::send(STR("[MeshGhostPseudo] core on port {} accepted us.\n"), current_port);
+                    Output::send(STR("[MeshGhostPseudo] core on port {} accepted us.\n"), source_port);
                     start = newline_pos + 1;
                     continue;
                 }
@@ -436,7 +469,7 @@ namespace MeshGhostPseudo
                         relay_down_until = std::chrono::steady_clock::now() + RELAY_DOWN_BACKOFF;
                         Output::send(STR("[MeshGhostPseudo] core on port {} cannot reach the relay ({}) -- "
                                          "waiting on this core rather than walking; it retries by itself.\n"),
-                                     current_port,
+                                     source_port,
                                      to_wide_ascii(line));
                         close_socket();
                         recv_buffer.clear();
@@ -445,12 +478,12 @@ namespace MeshGhostPseudo
                     // Somebody else's core. Skip this port for a while and let the next sweep
                     // find another -- without the cooldown we would reconnect immediately, make
                     // it log another refusal, and hang up, forever.
-                    if (current_port >= base_port && current_port < base_port + BRIDGE_PORT_COUNT)
+                    if (source_port >= base_port && source_port < base_port + BRIDGE_PORT_COUNT)
                     {
-                        busy_until[current_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                        busy_until[source_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
                     }
                     Output::send(STR("[MeshGhostPseudo] core on port {} refused us ({}) -- trying another port.\n"),
-                                 current_port,
+                                 source_port,
                                  to_wide_ascii(line));
                     close_socket();
                     recv_buffer.clear();
