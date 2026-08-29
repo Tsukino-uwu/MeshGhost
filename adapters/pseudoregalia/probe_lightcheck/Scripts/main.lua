@@ -295,7 +295,7 @@ end
 --
 -- What is left is something ATTACHED. This adapter mirrors peer effects onto ghosts, one of them
 -- is a recall GLOW that mirrors presence, and the dust fix moved several one-shot rows to counters
--- days ago -- an effect that gets turned on for a ghost and never turned off would look exactly
+-- earlier on 2026-08-29 -- an effect turned on for a ghost and never turned off would look exactly
 -- like this, and would be ours rather than the game's.
 --
 -- Lists every Niagara/Cascade component in the world with the character it hangs off, printed on

@@ -279,6 +279,51 @@ foreach ($exe in @("meshghost.exe", "meshghost-relay.exe", "meshghost-fakeadapte
 }
 
 # ---------------------------------------------------------------------------
+Section "Probe scripts: blind reflection walks"
+
+# **The gate behind the rule, added after the rule alone failed to hold (2026-08-29).**
+#
+# A probe crashed a live game three times in one day, twice by calling a UFunction on everything
+# FindAllOf returned, then once more by walking ForEachProperty and stringifying every property it
+# named -- an object-valued one hands back a pointer, and touching it dereferences whatever that
+# was. A Lua pcall does not catch an access violation in native code, so the probe cannot defend
+# itself and neither can the reviewer who reads it afterwards. The user's call after the third:
+# make it so new probes cannot do this again.
+#
+# So this refuses the enumerators themselves in any probe script. Reading a NAMED property is fine
+# and is what every probe here actually needs; enumerating what an object happens to HOLD is what
+# is banned. Grow a written list between runs instead -- adapters/pseudoregalia/CLAUDE.md.
+$blindWalkers = @('ForEachProperty', 'ForEachFunction', 'ForEachFunctionInChain', 'ForEachPropertyInChain')
+$probeScripts = @(Get-ChildItem -Path 'adapters' -Recurse -Filter '*.lua' -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -like '*probe*' })
+# **Armed is the line, not merely present.** UE4SS loads a probe folder because it carries an
+# enabled.txt, so a disarmed probe cannot reach a running game whatever it contains -- and a
+# finished probe that keeps its enabled.txt is a probe that logs through somebody else's test.
+# An armed offender FAILS; a disarmed one is named as a warning so nobody arms it by accident.
+$offenders = @()
+$disarmed = @()
+foreach ($script in $probeScripts) {
+    $armed = Test-Path (Join-Path $script.Directory.Parent.FullName 'enabled.txt')
+    foreach ($walker in $blindWalkers) {
+        # Commented lines are how the withdrawn stage documents itself, and a warning about a
+        # comment would train everyone to ignore this check.
+        $hits = @(Get-Content $script.FullName | Where-Object { $_ -match [regex]::Escape($walker) -and $_ -notmatch '^\s*--' })
+        if ($hits.Count -gt 0) {
+            $rel = $script.FullName -replace [regex]::Escape($PWD.Path + [IO.Path]::DirectorySeparatorChar), ''
+            if ($armed) { $offenders += "$rel uses $walker" } else { $disarmed += "$rel uses $walker" }
+        }
+    }
+}
+if ($offenders.Count -gt 0) {
+    Report-Fail ("ARMED probe script(s) walk reflection blindly -- this crashes a live game: " + ($offenders -join '; '))
+} else {
+    Report-Pass "no armed probe walks reflection blindly ($($probeScripts.Count) script(s) checked)"
+}
+if ($disarmed.Count -gt 0) {
+    Report-Warn ("disarmed probe(s) carry a blind reflection walk -- do not arm one without cutting it: " + ($disarmed -join '; '))
+}
+
+# ---------------------------------------------------------------------------
 Section "Committed mod DLLs vs their source"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
