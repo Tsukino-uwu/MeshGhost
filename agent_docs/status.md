@@ -63,8 +63,8 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's ghost LIGHT is measured: ghost `PointLight` Intensity 5000, player's 0** — a
-  class default nothing turns down, not a copied value. Unfixed. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost LIGHT: hold BUILT, FIRED on two ghosts live 2026-08-29, never watched** —
+  the readback (does it stay 0?) waits on the next game start. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on
@@ -161,8 +161,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   ~40s apart; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
-- **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
-  below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
+- **Pseudoregalia's port walk WAS watched live 2026-08-29 and FAILED** — a second instance says
+  "NO free port" with 6673-6679 all free, so it never gets a core. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI: a portal keeps its awake VISUAL after the LAST ghost leaves (user, 2026-08-29)** — the
   scan is guarded by `remoteVisuals.Count > 0`, so nothing ever closes it. `tevi/UNVERIFIED.md`.
 - **TEVI's FullMap marker refresh is now FRAME-DRIVEN, unwatched (2026-08-28)** — a stale marker

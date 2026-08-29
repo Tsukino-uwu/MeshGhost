@@ -1781,6 +1781,38 @@ namespace MeshGhostPseudo
     // stays fast and only the runtime-attached case pays the sweep.
     constexpr uint64_t OUTLINE_SWEEP_INTERVAL_TICKS = 5;
 
+    // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
+    //
+    // The user, on a two-instance session: the ascendant light *"should always be off for a ghost
+    // similar to the blue outline things"*, and it *"makes the game look a bit too bright when
+    // nearby other ghosts/players"* -- additive, because each ghost carries its own copy.
+    //
+    // **Measured before writing this** (`UNVERIFIED.md`, 2026-08-29): the local player's
+    // `PointLight` child actor reads `Intensity=0`, the ghost's reads `5000`, same class, same
+    // component name, both attached to `WeaponMesh`. So nothing is being copied FROM the player --
+    // 5000 is the Blueprint's own default, which the game drives to 0 on a real player through
+    // logic a ghost never runs. The fix is to write it down, not to stop mirroring it.
+    //
+    // **`Intensity` is the only field that separates the two characters**, and that is why this
+    // does not touch visibility: BOTH lights report `bVisible=false` and `bIsActive=false`,
+    // including the one demonstrably lighting the room, so toggling either flag would read as
+    // correct in a log while changing nothing on screen.
+    //
+    // A HOLD rather than a spawn-time write, for the reason `GHOST_HOLD_OUTLINE_OFF` records above:
+    // three spawn-time writes in this adapter turned out to be the bug. Whether the game actually
+    // puts this one back is UNMEASURED -- the hold is the cheap way to not care.
+    constexpr bool GHOST_HOLD_LIGHT_OFF = true;
+
+    // How often the light sweep runs, in ticks. Slower than the outline's 5 because a light is not
+    // a per-swing effect: it is born bright at spawn and, as far as anything measured says, stays
+    // put. ~5 samples/sec at this build's ~150Hz.
+    //
+    // The sweep is class-scoped `FindAllOf` plus an attach-chain walk, and it calls an engine
+    // function ONLY on a component it has attributed to one of our own ghosts. That restriction is
+    // load-bearing: `FindAllOf` hands back class-default and half-torn-down objects, and calling a
+    // UFunction on one crashed a live session twice on 2026-08-29 (`../../agent_docs/pitfalls.md`).
+    constexpr uint64_t LIGHT_SWEEP_INTERVAL_TICKS = 30;
+
     // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
     //
     // The user, after the respawn fade shipped: *"its not doing the dying/falling into the pit
@@ -3701,6 +3733,67 @@ namespace MeshGhostPseudo
             if (!written)
             {
                 Output::send(STR("[MeshGhostPseudo] WARNING: SetRenderCustomDepth reflected no parameters -- refusing to call it.\n"));
+                return;
+            }
+            component->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Drives one light component's brightness. Used to hold a ghost's ascendant light at 0 --
+        // see GHOST_HOLD_LIGHT_OFF for the measurement that says 0 is what a real player reads.
+        //
+        // Calls `SetIntensity` rather than writing `Intensity`, for the same reason
+        // call_set_render_custom_depth exists: brightness is render-thread state, and assigning
+        // the float on the game thread can leave an already-created render state untouched -- the
+        // property would read 0 while the room stayed lit. The engine's own setter marks the render
+        // state dirty.
+        //
+        // Buffer sized from the function's reflected PropertiesSize, value written at the reflected
+        // offset -- never a hand-rolled struct.
+        auto call_set_light_intensity(UObject* component, float value) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetIntensity"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetIntensity not reflected on {} -- a ghost's light cannot be turned down.\n"),
+                                 component->GetFullName());
+                }
+                return;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(float)))
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetIntensity has an implausibly small PropertiesSize ({}) -- refusing to call it.\n"),
+                             parms_size);
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool written = false;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (property && !written)
+                {
+                    const int32_t offset = property->GetOffset_Internal();
+                    if (offset < 0 || offset + static_cast<int32_t>(sizeof(float)) > parms_size)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: SetIntensity's parameter sits at offset {} in a {}-byte frame -- refusing to call it.\n"),
+                                     offset, parms_size);
+                        return;
+                    }
+                    std::memcpy(params_buffer.data() + static_cast<size_t>(offset), &value, sizeof(float));
+                    written = true;
+                }
+            }
+            if (!written)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: SetIntensity reflected no parameters -- refusing to call it.\n"));
                 return;
             }
             component->ProcessEvent(function, params_buffer.data());
@@ -15186,6 +15279,74 @@ namespace MeshGhostPseudo
                                          to_wide_ascii(full_name));
                         }
                         call_set_render_custom_depth(mesh, false);
+                    }
+                }
+            }
+
+            // See GHOST_HOLD_LIGHT_OFF: a ghost is born holding the pawn Blueprint's default
+            // ascendant-light brightness, because it never runs the logic that drives a real
+            // player's down to 0. Held rather than written at spawn, and cheap by construction --
+            // a light already at 0 costs one property read and no engine call.
+            if constexpr (GHOST_HOLD_LIGHT_OFF)
+            {
+                if (remote.ghost && tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0)
+                {
+                    const std::string ghost_name = to_utf8(remote.ghost->GetName());
+                    std::vector<UObject*> lights;
+                    UObjectGlobals::FindAllOf(STR("PointLightComponent"), lights);
+                    {
+                        // Appended via its own vector, for the reason the outline sweep above
+                        // gives: whether FindAllOf clears its out-parameter is not something to
+                        // assume.
+                        std::vector<UObject*> spots;
+                        UObjectGlobals::FindAllOf(STR("SpotLightComponent"), spots);
+                        lights.insert(lights.end(), spots.begin(), spots.end());
+                    }
+                    for (UObject* light : lights)
+                    {
+                        if (!light)
+                        {
+                            continue;
+                        }
+                        float* intensity = light->GetValuePtrByPropertyNameInChain<float>(STR("Intensity"));
+                        if (!intensity || *intensity == 0.0f)
+                        {
+                            continue; // dark already -- every level light in the room lands here
+                        }
+                        // **Attributed up the ATTACH chain, not the outer chain.** This light lives
+                        // inside a ChildActorComponent, and a child actor's outer is the LEVEL --
+                        // so a name test on the component alone reports it as belonging to nobody.
+                        // Measured, not assumed: the census that found it had to walk both.
+                        const std::string full_name = to_utf8(light->GetFullName());
+                        bool ours = full_name.find(ghost_name) != std::string::npos;
+                        UObject* node = light;
+                        for (int hop = 0; !ours && hop < 8 && node; ++hop)
+                        {
+                            UObject** parent = node->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent"));
+                            if (!parent || !*parent)
+                            {
+                                break;
+                            }
+                            node = *parent;
+                            ours = to_utf8(node->GetFullName()).find(ghost_name) != std::string::npos;
+                        }
+                        if (!ours)
+                        {
+                            // Somebody else's: the local player's own light, another peer's ghost
+                            // (its own tick turns that one down), or the level's lighting. **This
+                            // is the guard that keeps the engine call off objects we do not own** --
+                            // FindAllOf hands back class-default and half-torn-down objects, and
+                            // calling a UFunction on one crashed a live session twice on
+                            // 2026-08-29 (`../../agent_docs/pitfalls.md`).
+                            continue;
+                        }
+                        static std::set<std::string> announced_light;
+                        if (announced_light.insert(full_name).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] ghost light: '{}' was at intensity {} -- holding it at 0.\n"),
+                                         to_wide_ascii(full_name), *intensity);
+                        }
+                        call_set_light_intensity(light, 0.0f);
                     }
                 }
             }

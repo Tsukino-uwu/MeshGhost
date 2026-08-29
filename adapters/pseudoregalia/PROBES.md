@@ -106,3 +106,22 @@ stops, so a crash names its own cause. `agent_docs/verified.md` and `phase7.md` 
 - **The timeline is the point, not the catalogue.** The user's report is that the dust fires when
   the *player* lands rather than when the *ghost* does, which is a claim about when — so the run
   is built to catch a dust burst on an instance whose own character never left the ground.
+
+## `probe_lightcheck/` — does the ghost's light STAY off? (2026-08-29)
+
+The readback half of `GHOST_HOLD_LIGHT_OFF`. The shipping mod announces a lit ghost light once
+per component and is silent afterwards, so a light the game re-lights every frame and the hold
+re-darkens is indistinguishable in `UE4SS.log` from one fixed on the first sweep. `../../CLAUDE.md`
+forbids reading back the value you wrote with the thing that wrote it; this is the separate
+instrument.
+
+- **`Scripts/main.lua`** (~70) — once a second, one line per `PointLightComponent`: full name and
+  `Intensity`. Stops itself after 60 samples. A ghost steady at 0 means the write took and nothing
+  fights it; a ghost flickering 0 ↔ 5000 means the hold is earning its per-tick cost.
+- **It is deliberately the smallest instrument that answers the question**, and that is the whole
+  lesson its ancestor above paid for: no UFunction call on anything, one property read, one class
+  enumerated. `FindAllOf` still returns class-default objects — reading a property off one is
+  survivable, and calling into one is the line `probe_dustlight/` crossed.
+- **A new mod folder cannot be hot-reloaded in.** `probe_reloader/` calls `RestartMod`, which
+  answers *"Could not find mod to reinstall"* for anything UE4SS did not load at launch (measured
+  2026-08-29). It carries an `enabled.txt`, so it arms itself on the NEXT game start.

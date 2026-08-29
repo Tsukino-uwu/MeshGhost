@@ -361,6 +361,59 @@ before reaching the `ChildActorComponent` census.
 with `GHOST_HOLD_OUTLINE_OFF`. Nothing here tested it. Write it once, then watch whether the game
 puts it back the next time it touches the weapon.
 
+## BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
+
+`GHOST_HOLD_LIGHT_OFF` in `Plugin.cpp`, built straight off the measurement above and deployed to
+the Steam install. **Nothing about it has been seen on screen.**
+
+**What it does.** Every `LIGHT_SWEEP_INTERVAL_TICKS` (30, ~5Hz) it takes every
+`PointLightComponent` and `SpotLightComponent`, skips any already at `Intensity == 0` without an
+engine call, attributes the rest to a character by walking **`AttachParent` upward** as well as
+testing the component's own name, and calls the engine's `SetIntensity(0)` on the ones belonging to
+one of our ghosts. A HOLD, not a spawn-time write, by analogy with `GHOST_HOLD_OUTLINE_OFF`.
+
+**Three things it deliberately does NOT do**, each from a fact in the entries above:
+
+- It never touches `bVisible` or `bIsActive`. Both characters' lights report both flags false,
+  including the one lighting the room, so either toggle would read correct in a log and change
+  nothing on screen.
+- It never calls a UFunction on a component it has not attributed to a ghost. `FindAllOf` hands
+  back class-default and half-torn-down objects, and calling into one is what crashed the session
+  twice.
+- It does not write `Intensity` directly. Brightness is render-thread state; the engine's own setter
+  is what marks the render state dirty.
+
+**What to watch for, and it is not a screenshot of one ghost.** The reported symptom is ADDITIVE —
+the room gets too bright *near other ghosts* — so the check is a session with at least two peers
+present, comparing how lit the room is against a solo run. A single ghost may never have looked
+obviously wrong.
+
+**FIRED on both ghosts, 2026-08-29, agent-measured.** A two-instance session on the user's own
+machine (relay + a second core on bridge 6673, both instances in `ZONE_Dungeon`, p1 and p2 seeing
+each other) logged it once per ghost:
+
+```
+ghost light: 'PointLightComponent ....BP_PlayerGoatMain_C_2147482039.PointLight' was at intensity 5000 -- holding it at 0.
+ghost light: 'PointLightComponent ....BP_PlayerGoatMain_C_2147482082.PointLight' was at intensity 5000 -- holding it at 0.
+```
+
+So the attach-chain attribution reaches the component, the value it found is exactly the 5000 the
+census measured, and neither the local player's light nor the level's was touched. **That is the
+mechanism working, not the cosmetic fixed** — nobody has looked at the screen, and the additive
+symptom is what the user has to judge.
+
+**The readback is NOT done.** The hold announces once per component and is silent after, so a
+light the game re-lights every frame and the hold re-darkens looks identical in the log to one
+fixed on the first sweep. `probe_lightcheck/` exists for exactly that and is deployed — but
+`RestartMod` cannot introduce a mod UE4SS did not load at launch (*"Could not find mod to
+reinstall"*, measured the same day), so it arms itself on the NEXT game start.
+
+**The log line is the other half.** On the first sweep that finds a lit ghost light it prints
+`ghost light: '<full name>' was at intensity 5000 -- holding it at 0`, once per component. If that
+line never appears, the sweep is not reaching the component and the attach-chain attribution is
+where to look; if it appears repeatedly for the same component across a session, the game IS putting
+the light back and the hold is doing the work the entry above predicted it might have to.
+
 ## THE PROBE CRASHED THE GAME TWICE — `probe_dustlight/` is DISABLED and must not be re-run as-is
 
 **Both crashes were caused by the agent, during the user's session.** `Fatal error!`,
@@ -392,6 +445,42 @@ at what to guard.
 enumeration at once, and it only ever needed the pawn's own components. The light answer above came
 from two lines of its output. A version that enumerates a CHARACTER's components rather than the
 WORLD's would have produced the same answer without ever touching an object it does not own.
+
+## WATCHED LIVE 2026-08-29 and it FAILED — a second instance never starts its own core
+
+**This is the first live look at Pseudoregalia's bridge port walk** (`status.md` had it as "built
+but not yet watched"). Two instances of the game, one install, the shipped `config.json`
+(`local_game_bridge` 127.0.0.1:6672). **Instance 2 never got a core**, and a human would have
+called that "the second window just doesn't work".
+
+The sequence, from `UE4SS.log`, all of it instance 2:
+
+1. `14:09:08` — `using a MeshGhost core that was already running`, then
+   `core on port 6672 cannot reach the relay (...) -- waiting on this core rather than walking; it
+   retries by itself`. **Correct by design**: a core that cannot reach the relay is not a busy core.
+2. `14:10:39` — the relay came up, instance 1's adapter attached first, and 6672 answered
+   `busy: this core already has a game attached` — so instance 2 walked, as designed.
+3. `14:10:40` onward, once a second, forever:
+   `bridge not connected and the sweep found NO free port to start a core on -- every port in the
+   range either answered or never refused. Autostart is idle, not broken-silently.`
+
+**Ports 6673–6679 were free the whole time.** Nothing was listening on any of them; the second core
+that eventually made the session work was started BY HAND on 6673 and bound it without complaint.
+
+**So `spawnable_port()` said no while a free port sat one number up**, and the branch that prints
+this is the one `Plugin.cpp` already calls out as having cost a session once. The 2026-08-27 fix
+replaced "did the connect get refused" with "can we BIND it" for exactly this reason, and the
+symptom is back in a different shape.
+
+**Not diagnosed — and one structural detail is worth having before anyone guesses.** `BridgeClient`'s
+sweep computes `have_spawnable_port` inside the same loop that connects, and **returns the moment
+`try_port` succeeds**, so any sweep that finds a core leaves the spawnable answer false. That alone
+does not explain step 3, where the busy port is skipped by its cooldown and the loop should reach
+6673 — which is why this is written as a symptom, not a cause.
+
+**The next measurement, and it is one line of logging, not a theory**: print per candidate port what
+the sweep decided — index, port, `try_port` result, `refused`, `port_is_bindable`. Two instances
+reproduce it in under a minute, so this is cheap. Do that before changing anything.
 
 ## Pending — `bb`, `hw` and `hew` got the one-shot counter treatment and were never watched (2026-08-29)
 
