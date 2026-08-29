@@ -1944,3 +1944,30 @@ Not after it fails. Without one, "never created", "created and invisible" and "c
 the wrong value" are one symptom with three fixes — 2026-08-28 spent a live session separating
 each. Log what RESOLVED too: "no warning" only means "not missing", never "did something".
 Two logs that disagree beat either alone. Full case: `agent_docs/pitfalls/method.md`.
+
+## Label each experiment with the variable it tests, and let the SCREEN name the answer (Pseudoregalia, 2026-08-29)
+
+When a run can try many candidates at once — materials, parameter names, colours — spawn one
+visible thing per candidate and make its ON-SCREEN LABEL the candidate itself. Pseudoregalia's
+nametag-colour hunt ran a row of world-text tags, each drawn through a different material and
+each displaying that material's nickname; the round that had to find which of twelve parameter
+names coloured a material gave every tag exactly one name to set — **the tag that turned cyan
+was labelled "Color", and that label WAS the answer.** No cross-referencing a log against a
+position, no off-by-one, and position genuinely lied once: a "which one is cyan" answered by
+row position pointed at the wrong candidate that the label then corrected.
+
+Three rules that made the rows work, all paid for that day:
+
+- **Keep controls whose answer is known in the lineup** (the default material's known-black, a
+  material's known white box) — they validate the method inside the same picture.
+- **Anchor the row to where the PREVIOUS row stood, not to the player** — a row that follows the
+  viewer around is unreadable, and re-anchoring by measured actor spacing broke the moment one
+  "actor" was a two-part pair; derive direction from stored facing, spacing from the constant.
+- **A run gated on "a pawn exists" fires on the TITLE SCREEN** — this game's title menu has a
+  pawn and a world. Gate on the map name, not the pawn.
+
+The loop that made ~7 rounds fit in one game session: probes are LUA mods, and a resident
+reloader mod (`adapters/pseudoregalia/probe_reloader/`) restarts a named mod whenever a trigger
+file changes — no rebuild, no relaunch, no window focus. The UE4SS Ctrl+R keybind needs the game
+focused and silently missed three times while the user was typing elsewhere; confirm every
+reload in the log, never from the send.

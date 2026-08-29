@@ -212,8 +212,10 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   deliberately different clocks. `dev-scripts/run-core-pseudoregalia-online.bat` step 3.
 - **quic's drop detection (~17s) dominates any resume grace** — `quicConfig` sets no
   `MaxIdleTimeout`. `verified.md` 2026-08-17, `architecture.md` ADR.
-- **Nametags ship on Pseudoregalia; their COLOUR does not** — text renders black, every route this
-  engine build offers is exhausted. Evidence: `adapters/pseudoregalia/UNVERIFIED.md` (2026-08-28).
+- **Pseudoregalia nametag colour is BUILT as a colour plate, unwatched in shipped form** — black
+  text over a per-peer emissive plate; blank colour = text only. `pseudoregalia/UNVERIFIED.md` (2026-08-29).
+- **Pseudoregalia probing now defaults to Lua + a resident reloader mod** — `probe_reloader/`
+  restarts a named mod from a trigger file; rule in `adapters/pseudoregalia/CLAUDE.md` (2026-08-29).
 - **Nametags are unimplemented on Emerald, Crystal and TEVI** — all three receive `remote_name` and
   ignore it, which is harmless. Per-adapter rendering work. `pseudoregalia/VERIFIED.md` for the shape.
 - **Ordering/timing fuzzing now EXISTS and found FIVE ways a live game goes invisible (2026-08-29)**

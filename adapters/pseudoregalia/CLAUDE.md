@@ -18,6 +18,24 @@ adding: what comes out? **It never restates the root `CLAUDE.md` or `../CLAUDE.m
 Each rule below is the imperative; the symptom→diagnosis→cause→fix evidence stays in
 `agent_docs/pitfalls.md`, which is its one home.
 
+## Probe in LUA, iterate by hot reload — the C++ mod is for SHIPPING only
+
+**The default way to ask this game a question is a Lua mod under `adapters/pseudoregalia/`
+(`probe_nametag/` is the worked example), deployed as its own folder in the install's
+`ue4ss\Mods\`, and reloaded INTO THE RUNNING GAME.** A C++ change costs a rebuild and a full
+game relaunch per attempt; a Lua reload costs seconds. The 2026-08-28 nametag session iterated
+the C++ adapter and paid a relaunch per experiment; 2026-08-29 re-ran the same investigation in
+Lua at ~5 rounds in one game session. User: make this the default (2026-08-29).
+
+**Reload without touching the game window:** deploy `probe_reloader/` (once), then write
+`<ModName> <nonce>` to `ue4ss\Mods\MeshGhostProbeReloader\reload_request.txt` — it calls
+`RestartMod` from a resident watcher, so a broken probe can't kill the loop. The Ctrl+R
+keybind (`dev-scripts\pseudo-hotreload.ps1`) is the fallback and MISSES whenever the game
+lacks focus — three sent reloads landed nowhere on 2026-08-29 while the user was typing chat.
+Confirm every reload in `UE4SS.log`, never from the send. UE4SS Lua has the full reflection
+surface (FindAllOf, StaticFindObject, ForEachProperty, LoadAsset, UFunction calls) — C++ is
+only needed for hooks/perf-critical paths, i.e. the shipping adapter.
+
 ## `on_update()` is NOT the game thread
 
 `CppUserModBase::on_update()` runs on UE4SS's own thread. Anything touching actor state from

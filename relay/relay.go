@@ -1598,7 +1598,21 @@ func (s *Server) handleConn(conn net.Conn) {
 					// (not broadcast — no other real peer should ever learn
 					// about another client's own loopback ghost), before
 					// the first echoed state.
-					if join, err := envelope(protocol.TypeJoin, protocol.Join{PlayerID: ghostID}); err == nil {
+					// The ghost inherits the sender's own nametag with a "-ghost"
+					// suffix (and the same colour), so nametag rendering -- colour
+					// plate included -- is testable on one machine. Without this the
+					// synthetic peer had no name and the tag never drew, which made
+					// loopback silently useless for the whole nametag feature
+					// (found 2026-08-29, building Pseudoregalia's colour plate).
+					// client.nametag is immutable after the hello, same goroutine.
+					ghostJoin := protocol.Join{PlayerID: ghostID}
+					if client != nil && client.nametag != nil && client.nametag.Name != "" {
+						ghostJoin.Nametag = &protocol.Nametag{
+							Name:  client.nametag.Name + "-ghost",
+							Color: client.nametag.Color,
+						}
+					}
+					if join, err := envelope(protocol.TypeJoin, ghostJoin); err == nil {
 						r.Forward(join, []string{id})
 					}
 					loopbackGhostSent = true

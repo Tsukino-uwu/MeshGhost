@@ -1976,6 +1976,25 @@ namespace MeshGhostPseudo
     constexpr double NAMETAG_HEIGHT_ABOVE_GHOST = 110.0;
     constexpr float NAMETAG_WORLD_SIZE = 18.0f;
 
+    // The colour PLATE: a second text component behind the name, rendering the same string
+    // through a MaterialInstanceDynamic of EmissiveMeshMaterial with its "Color" parameter set
+    // to the peer's colour -- solid glyph-shaped blocks, so the plate sizes itself to the name.
+    // Crisp default-material text sits in front of it, deliberately left BLACK for contrast.
+    //
+    // This is the answer to the 2026-08-28 dead end above: coloured TEXT is impossible on this
+    // build (TEXTMID proved the default text material ignores every parameter; the translucent
+    // text material is not cooked; vertex colour reaches nothing), but a colour PARAMETER on an
+    // emissive MID works and stays evenly lit in a dark room. Measured via the Lua probe
+    // -- everything below is from adapters/pseudoregalia/probe_nametag, judged on screen by the
+    // user 2026-08-29, and "Color" is the one parameter name of twelve that took (narrowed with
+    // one-name-per-tag, the tag's own label naming the parameter under test).
+    //
+    // Known open edge: the game's black room-divider planes can draw over the plate
+    // (translucent sort order). If it bites on the real tag, TranslucencySortPriority on the
+    // plate component is the lever -- not yet needed, not yet set.
+    constexpr bool NAMETAG_COLOR_PLATE = true;
+    constexpr double NAMETAG_PLATE_BEHIND = 4.0; // units behind the text, along the facing
+
 
     constexpr bool SHADOW_COMPONENT_PROBE = false;
 
@@ -6223,6 +6242,195 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
+        // Creates a MaterialInstanceDynamic of EmissiveMeshMaterial on `component` and makes it
+        // the component's text material. Returns the MID so its "Color" parameter can be driven,
+        // or nullptr with a one-shot warning naming which half failed.
+        //
+        // CreateDynamicMaterialInstance was confirmed present on this build by the 2026-08-28
+        // census, and the whole route confirmed working on screen through the Lua probe
+        // (probe_nametag) on 2026-08-29. Parameters resolved by name, never by assumed layout.
+        auto create_plate_material(UObject* component) -> UObject*
+        {
+            if (!component)
+            {
+                return nullptr;
+            }
+            static UObject* master = UObjectGlobals::StaticFindObject<UObject*>(
+                nullptr, nullptr, STR("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+            UFunction* create_fn = component->GetFunctionByNameInChain(STR("CreateDynamicMaterialInstance"));
+            UFunction* set_fn = component->GetFunctionByNameInChain(STR("SetTextMaterial"));
+            if (!master || !create_fn || !set_fn)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: plate material unavailable (master={} "
+                                     "CreateDynamicMaterialInstance={} SetTextMaterial={}) -- nametag plates off.\n"),
+                                 master ? STR("found") : STR("MISSING"),
+                                 create_fn ? STR("found") : STR("MISSING"),
+                                 set_fn ? STR("found") : STR("MISSING"));
+                }
+                return nullptr;
+            }
+
+            FProperty* element_param = create_fn->FindProperty(FName(STR("ElementIndex"), FNAME_Find));
+            FProperty* source_param = create_fn->FindProperty(FName(STR("SourceMaterial"), FNAME_Find));
+            FProperty* return_param = create_fn->FindProperty(FName(STR("ReturnValue"), FNAME_Find));
+            if (!source_param || !return_param)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: CreateDynamicMaterialInstance is missing an expected "
+                                     "parameter (SourceMaterial={} ReturnValue={}) -- nametag plates off.\n"),
+                                 source_param ? STR("ok") : STR("MISSING"),
+                                 return_param ? STR("ok") : STR("MISSING"));
+                }
+                return nullptr;
+            }
+            const int32_t create_size = create_fn->GetPropertiesSize();
+            if (create_size < 1)
+            {
+                return nullptr;
+            }
+            std::vector<uint8_t> create_buffer(static_cast<size_t>(create_size), 0);
+            if (element_param)
+            {
+                *reinterpret_cast<int32_t*>(create_buffer.data() + element_param->GetOffset_Internal()) = 0;
+            }
+            *reinterpret_cast<UObject**>(create_buffer.data() + source_param->GetOffset_Internal()) = master;
+            component->ProcessEvent(create_fn, create_buffer.data());
+            UObject* mid = *reinterpret_cast<UObject**>(create_buffer.data() + return_param->GetOffset_Internal());
+            if (!mid)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: CreateDynamicMaterialInstance returned null -- "
+                                     "nametag plates off.\n"));
+                }
+                return nullptr;
+            }
+
+            // Same call shape the NAMETAG_MATERIAL_OVERRIDE path uses.
+            if (FProperty* value = set_fn->FindProperty(FName(STR("Material"), FNAME_Find));
+                value && set_fn->GetPropertiesSize() >=
+                             static_cast<int32_t>(value->GetOffset_Internal() + sizeof(UObject*)))
+            {
+                std::vector<uint8_t> buf(static_cast<size_t>(set_fn->GetPropertiesSize()), 0);
+                *reinterpret_cast<UObject**>(buf.data() + value->GetOffset_Internal()) = mid;
+                component->ProcessEvent(set_fn, buf.data());
+            }
+            else
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetTextMaterial has no usable 'Material' "
+                                     "parameter -- nametag plates off.\n"));
+                }
+                return nullptr;
+            }
+            return mid;
+        }
+
+        // Sets the plate MID's "Color" parameter from "#RRGGBB". "Color" is the ONE name of
+        // twelve that colours EmissiveMeshMaterial on this build -- narrowed on screen
+        // 2026-08-29, one-name-per-tag, each tag labeled with the name it tested. The value is
+        // an FLinearColor (floats), written field by field by name like every struct in this
+        // file; bytes/255 matched the requested colour exactly on screen.
+        //
+        // Returns whether a colour was actually applied. The caller SHOWS the plate only on
+        // true: a peer with no colour gets plain text and no plate, because an unset parameter
+        // leaves EmissiveMeshMaterial at its default -- a white box (user's rule 2026-08-29:
+        // blank colour means text only).
+        auto set_plate_color(UObject* mid, const std::string& hex) -> bool
+        {
+            if (!mid || hex.size() != 7 || hex[0] != '#')
+            {
+                return false;
+            }
+            auto nibble = [](char c) -> int {
+                if (c >= '0' && c <= '9') return c - '0';
+                if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+                if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+                return -1;
+            };
+            float rgb[3]{};
+            for (int i = 0; i < 3; ++i)
+            {
+                const int hi = nibble(hex[1 + i * 2]);
+                const int lo = nibble(hex[2 + i * 2]);
+                if (hi < 0 || lo < 0)
+                {
+                    return false;
+                }
+                rgb[i] = static_cast<float>(hi * 16 + lo) / 255.0f;
+            }
+
+            UFunction* fn = mid->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
+            if (!fn)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetVectorParameterValue not found on the plate "
+                                     "MID -- plates stay the material default.\n"));
+                }
+                return false;
+            }
+            FProperty* name_param = fn->FindProperty(FName(STR("ParameterName"), FNAME_Find));
+            FProperty* value_param = fn->FindProperty(FName(STR("Value"), FNAME_Find));
+            FStructProperty* value_struct = CastField<FStructProperty>(value_param);
+            if (!name_param || !value_struct || !value_struct->GetStruct())
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetVectorParameterValue is missing ParameterName "
+                                     "or Value -- plates stay the material default.\n"));
+                }
+                return false;
+            }
+            const int32_t parms_size = fn->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(value_param->GetOffset_Internal() + value_param->GetSize()) ||
+                static_cast<size_t>(name_param->GetSize()) > sizeof(FName))
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            FName color_name{STR("Color"), FNAME_Add};
+            std::memcpy(params_buffer.data() + name_param->GetOffset_Internal(), &color_name, name_param->GetSize());
+            uint8_t* value_base = params_buffer.data() + value_param->GetOffset_Internal();
+            const std::pair<const wchar_t*, float> fields[4] = {
+                {STR("R"), rgb[0]}, {STR("G"), rgb[1]}, {STR("B"), rgb[2]}, {STR("A"), 1.0f},
+            };
+            for (const auto& [field_name, field_value] : fields)
+            {
+                FProperty* field = value_struct->GetStruct()->FindProperty(FName(field_name, FNAME_Find));
+                if (!field || field->GetSize() != sizeof(float))
+                {
+                    static bool warned = false;
+                    if (!warned)
+                    {
+                        warned = true;
+                        Output::send(STR("[MeshGhostPseudo] WARNING: FLinearColor has no float '{}' field -- "
+                                         "plate colour not set.\n"), field_name);
+                    }
+                    return false;
+                }
+                *reinterpret_cast<float*>(value_base + field->GetOffset_Internal()) = field_value;
+            }
+            mid->ProcessEvent(fn, params_buffer.data());
+            return true;
+        }
+
         // Forces the component's render state to be rebuilt, WITHOUT MarkRenderStateDirty.
         //
         // That function does not exist on this build (measured 2026-08-28: "MarkRenderStateDirty =
@@ -9686,6 +9894,10 @@ namespace MeshGhostPseudo
             if (entry.nametag_component && !entry.nametag_applied_name.empty())
             {
                 set_text_render_string(entry.nametag_component, STR(""));
+                if (entry.nametag_plate)
+                {
+                    set_text_render_string(entry.nametag_plate, STR(""));
+                }
                 entry.nametag_applied_name.clear();
             }
             return;
@@ -9699,6 +9911,24 @@ namespace MeshGhostPseudo
                 entry.nametag_create_failed = true;
                 return;
             }
+            // The colour plate rides behind the text. BEST EFFORT: a build where the material
+            // route fails ships a plain tag rather than no tag, and the helpers have already
+            // logged which half failed, once.
+            if constexpr (NAMETAG_COLOR_PLATE)
+            {
+                entry.nametag_plate = create_text_render_on(entry.ghost);
+                if (entry.nametag_plate)
+                {
+                    entry.nametag_plate_mid = create_plate_material(entry.nametag_plate);
+                    if (!entry.nametag_plate_mid)
+                    {
+                        // A plate with no colour material would be a white box duplicating the
+                        // text -- worse than none. Blank it and forget it.
+                        set_text_render_string(entry.nametag_plate, STR(""));
+                        entry.nametag_plate = nullptr;
+                    }
+                }
+            }
         }
 
         // COLOUR FIRST, THEN THE TEXT. The order is the fix, not a preference.
@@ -9711,7 +9941,26 @@ namespace MeshGhostPseudo
         //
         // Doing colour first means the rebuild that follows picks it up. set_text_render_string
         // ends by dirtying the state, so it is also the last word either way.
-        if (entry.nametag_applied_color != wanted_color)
+        if constexpr (NAMETAG_COLOR_PLATE)
+        {
+            // The PLATE carries the peer's colour; the text stays deliberately black on top of
+            // it. A material parameter applies live -- no mesh rebuild, so no rebuild dance.
+            // NO VALID COLOUR MEANS NO PLATE: the string below only goes on when a colour
+            // took, and comes off when one goes away, because an uncoloured plate renders as
+            // the material's default white box.
+            if (entry.nametag_plate_mid && entry.nametag_plate_applied_color != wanted_color)
+            {
+                entry.nametag_plate_has_color = set_plate_color(entry.nametag_plate_mid, wanted_color);
+                entry.nametag_plate_applied_color = wanted_color;
+                if (entry.nametag_plate)
+                {
+                    set_text_render_string(entry.nametag_plate,
+                                           entry.nametag_plate_has_color ? to_wide_ascii(wanted_name).c_str()
+                                                                         : STR(""));
+                }
+            }
+        }
+        else if (entry.nametag_applied_color != wanted_color)
         {
             set_text_render_color(entry.nametag_component, wanted_color);
             entry.nametag_applied_color = wanted_color;
@@ -9720,9 +9969,13 @@ namespace MeshGhostPseudo
         if (first_application)
         {
             set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
+            if (entry.nametag_plate && entry.nametag_plate_has_color)
+            {
+                set_text_render_string(entry.nametag_plate, to_wide_ascii(wanted_name).c_str());
+            }
             entry.nametag_applied_name = wanted_name;
         }
-        else if (entry.nametag_applied_color != wanted_color)
+        else if (!NAMETAG_COLOR_PLATE && entry.nametag_applied_color != wanted_color)
         {
             // A colour that changed without the name changing still needs the rebuild.
             set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
@@ -9738,25 +9991,44 @@ namespace MeshGhostPseudo
         const double gz = ghost_loc.Z();
         // Default the viewer a little to the side so the yaw below is defined even with no pawn
         // in hand; a tag facing an arbitrary direction is better than one facing NaN.
-        double px = gx, py = gy + 1.0;
+        const double tag_z = gz + NAMETAG_HEIGHT_ABOVE_GHOST;
+        double px = gx, py = gy + 1.0, pz = tag_z;
         if (local_pawn)
         {
             const FVector viewer_loc = static_cast<AActor*>(local_pawn)->K2_GetActorLocation();
             px = viewer_loc.X();
             py = viewer_loc.Y();
+            pz = viewer_loc.Z();
         }
-        // Yaw only: the text stays upright, and turns to face the viewer around the vertical
-        // axis. Pitching it toward the camera would make a tag above a ghost on a ledge lean
-        // backwards, which reads as broken rather than as three-dimensional.
-        const double yaw_to_viewer = std::atan2(py - gy, px - gx) * 180.0 / 3.14159265358979323846;
+        // FULL facing, pitch included -- the user's request 2026-08-29: the tag should face the
+        // player even from above or below, not only turn around the vertical axis. (An earlier
+        // version kept yaw-only out of a worry that a pitched tag "reads as broken"; that was
+        // reasoning, not a screen judgment, and the user asked for the opposite.)
+        constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+        const double yaw_to_viewer = std::atan2(py - gy, px - gx) * RAD_TO_DEG;
+        const double horizontal = std::sqrt((px - gx) * (px - gx) + (py - gy) * (py - gy));
+        const double pitch_to_viewer = std::atan2(pz - tag_z, horizontal) * RAD_TO_DEG;
         // NO +180 HERE, and the 180 that used to be is a prime suspect for the first build
         // showing nothing at all. Text renders on a PLANE with a facing direction: pointing that
         // plane's forward axis AT the viewer is what makes it readable, and adding 180 points it
         // directly away -- which is invisible or mirrored, while every value in the readback still
         // looks perfectly correct. Judged on screen, not from this comment.
         set_text_render_transform(entry.nametag_component,
-                                  gx, gy, gz + NAMETAG_HEIGHT_ABOVE_GHOST,
-                                  0.0, yaw_to_viewer, 0.0);
+                                  gx, gy, tag_z,
+                                  pitch_to_viewer, yaw_to_viewer, 0.0);
+        if (entry.nametag_plate)
+        {
+            // Behind the text along the FULL 3D facing: the tag's forward points AT the viewer,
+            // so "behind" is minus that direction. The text, being nearer, depth-sorts in front.
+            const double yaw_rad = yaw_to_viewer / RAD_TO_DEG;
+            const double pitch_rad = pitch_to_viewer / RAD_TO_DEG;
+            const double flat = std::cos(pitch_rad) * NAMETAG_PLATE_BEHIND;
+            set_text_render_transform(entry.nametag_plate,
+                                      gx - std::cos(yaw_rad) * flat,
+                                      gy - std::sin(yaw_rad) * flat,
+                                      tag_z - std::sin(pitch_rad) * NAMETAG_PLATE_BEHIND,
+                                      pitch_to_viewer, yaw_to_viewer, 0.0);
+        }
 
         // Once per name change, AFTER everything is applied and positioned, so what it reports is
         // the finished component rather than one caught mid-setup.
@@ -9766,6 +10038,10 @@ namespace MeshGhostPseudo
             // it does not on this build, and see NAMETAG_MATERIAL_OVERRIDE for how far that was
             // chased. Kept because it is the correct thing to do and costs one call per nametag.
             force_render_refresh(entry.nametag_component);
+            if (entry.nametag_plate)
+            {
+                force_render_refresh(entry.nametag_plate);
+            }
             if constexpr (NAMETAG_STATE_READBACK)
             {
                 report_text_render_state(entry.nametag_component, player_id);

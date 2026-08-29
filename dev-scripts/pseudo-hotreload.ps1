@@ -24,7 +24,10 @@ param(
     [switch]$Watch,
     # Where the Lua probes live, for -Watch. Defaults to this repo's own copies.
     [string]$WatchPath,
-    [string]$ProcessName = 'pseudoregalia'
+    # Wildcard, because the WINDOW belongs to 'pseudoregalia-Win64-Shipping' while a plain
+    # 'pseudoregalia' launcher stub also exists with no window at all -- the exact-name default
+    # matched only the stub and reported "no window" with the game running (2026-08-29).
+    [string]$ProcessName = 'pseudoregalia*'
 )
 
 $ErrorActionPreference = 'Stop'

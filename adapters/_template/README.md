@@ -310,7 +310,7 @@ and became the fastest adapters to work on; TEVI relaunched for every change fro
 |---|---|---|
 | BizHawk (Lua) | yes | this repo's dev loader: attach, swap, drop scripts |
 | Unity + BepInEx | yes | ScriptEngine (BepInEx.Debug) from `BepInEx/scripts`, file-watcher armed |
-| UE4SS (Lua mods) | yes | `EnableHotReloadSystem`, Ctrl+R — already on in the shipped config |
+| UE4SS (Lua mods) | yes | a resident reloader mod calling `RestartMod` off a trigger file (`pseudoregalia/probe_reloader/`) — the Ctrl+R keybind needs game FOCUS and silently misses (2026-08-29) |
 | UE4SS (C++ mod) | **no** | native; rebuild and relaunch. Put logic in a Lua probe while iterating |
 
 **Also turn on the runtime inspector the host already has**, before writing a probe to answer

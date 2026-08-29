@@ -323,6 +323,16 @@ func TestLoopbackEchoesGhost(t *testing.T) {
 	if join.PlayerID != wantGhost {
 		t.Fatalf("ghost join player_id = %q, want %q", join.PlayerID, wantGhost)
 	}
+	// The ghost's Join carries the sender's own nametag back with a "-ghost"
+	// suffix (added 2026-08-29), so nametag rendering is testable in loopback.
+	// Without it the synthetic peer is nameless and an adapter draws no tag at
+	// all -- which made loopback useless for the whole nametag feature.
+	if join.Nametag == nil {
+		t.Fatalf("ghost join carried no nametag; want the sender's own with a -ghost suffix")
+	}
+	if join.Nametag.Name != "alice-ghost" {
+		t.Fatalf("ghost join nametag = %q, want %q", join.Nametag.Name, "alice-ghost")
+	}
 
 	env := c1.next(timeout)
 	if env.Type != protocol.TypeState {

@@ -70,6 +70,16 @@ namespace MeshGhostPseudo
         // nothing changed -- a name changes at most once a session and this runs every frame.
         std::string nametag_applied_name;
         std::string nametag_applied_color;
+        // The colour plate behind the name: a second text component rendering the same string
+        // as solid glyph blocks through an EmissiveMeshMaterial MID, coloured per peer via its
+        // "Color" parameter (NAMETAG_COLOR_PLATE; measured 2026-08-29). The text above stays
+        // black -- coloured TEXT is impossible on this build, see the flag's comment.
+        RC::Unreal::UObject* nametag_plate{nullptr};
+        RC::Unreal::UObject* nametag_plate_mid{nullptr};
+        std::string nametag_plate_applied_color;
+        // Whether the plate currently holds a VALID colour. False means the plate is blanked:
+        // an unset "Color" parameter is a white box, and a peer with no colour gets text only.
+        bool nametag_plate_has_color{false};
         // Latches a failed creation so a build where this cannot work logs once rather than
         // once per frame per ghost.
         bool nametag_create_failed{false};

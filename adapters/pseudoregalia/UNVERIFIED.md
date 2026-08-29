@@ -340,3 +340,46 @@ listed (35 loaded, all logged under `NAMETAGCENSUS`) and none was inspected for 
 **What ships meanwhile:** black text, which the user's own screenshot shows reading clearly. The
 colour plumbing is complete and correct end to end — relay, core, bridge, adapter — so this is one
 rendering detail away from working, on this engine build.
+
+## Nametag colour SOLVED as a colour PLATE — built, working in probe form, the SHIPPED tag unwatched (2026-08-29)
+
+**The design, picked by the user on screen from a probe lineup:** crisp default-material text
+(deliberately black) floating ~4 units in front of a **plate** — a second TextRenderComponent
+rendering the same string as solid glyph blocks through a `MaterialInstanceDynamic` of
+`EmissiveMeshMaterial` with its **`Color`** parameter set to the peer's colour. The plate sizes
+itself to the name (it *is* the name, in blocks), and being emissive it stays evenly lit in a dark
+room — judged against `M_Cracks` and `M_AnimatedSPrite` plates, which lost.
+
+**Why a plate and not coloured text — every direct route measured dead on this build:**
+
+- The default text material ignores every parameter: a MID of it with 11 texture + 12 vector +
+  2 scalar names forced in still rendered black (`TEXTMID`, on screen).
+- `DefaultTextMaterialTranslucent` is not cooked into this build — `LoadAsset` with both path
+  shapes, then `StaticFindObject`: absent.
+- Vertex colour reaches no material tried (sprite materials rendered white, not the set cyan).
+- The font atlas stores its distance field in the RED channel: every material that samples it as
+  base colour renders RED mush; the colour-through materials (`M_Cracks`) apply their own pattern.
+- `"Color"` is the ONE of twelve vector-parameter names that colours `EmissiveMeshMaterial` —
+  narrowed one-name-per-tag, each tag's on-screen label naming the parameter it tested.
+
+**What is in the C++ mod now (built, never watched):** `NAMETAG_COLOR_PLATE` in `Plugin.cpp`;
+plate created best-effort beside the text component; blank/invalid colour = **no plate, text
+only** (an uncoloured plate is a white box, the material default); full-facing billboard —
+**pitch now included** (user request, replacing the yaw-only guess) — with the plate offset along
+the 3D facing. Plus a relay change: **the loopback ghost's Join now carries the sender's own
+nametag** (`name-ghost`, same colour), so this is testable on one machine; regression-asserted in
+`TestLoopbackEchoesGhost`.
+
+**What to look at:** loopback rig, own ghost beside you — a black name on a plate in your
+`name_color` (the install config says `Tsukino` / `#F54927`, so an orange-red plate reading
+"Tsukino-ghost"). Correct is: plate exactly the name's width, black text readable on it, tag
+facing you from above and below as well as sideways, and no white box anywhere. **Known risks to
+watch:** the black room-divider planes may draw over the plate (translucent sort; the lever is
+`TranslucencySortPriority`, unset), and the plate's own back is visible from behind only until
+the billboard turns it — it should never actually present its back.
+
+**The probe kit this came from** (all dev-only, in the repo): `probe_nametag/` — census +
+labeled-experiment rows; `probe_reloader/` — resident mod that restarts a named mod when
+`reload_request.txt` changes, making Lua iteration automatic (the Ctrl+R route misses whenever
+the game lacks focus). Method notes went to `_template/probes.md`; the default-to-Lua rule to
+`adapters/pseudoregalia/CLAUDE.md`.
