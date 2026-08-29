@@ -402,6 +402,18 @@ census measured, and neither the local player's light nor the level's was touche
 mechanism working, not the cosmetic fixed** — nobody has looked at the screen, and the additive
 symptom is what the user has to judge.
 
+**The user looked and could NOT tell, 2026-08-29** — *"unsure, its pretty hard to visually tell
+where im at right now. i can go to another darker area later and test"*. So this is neither
+confirmed nor refuted, and the reason is the test conditions, not the fix: the area the session
+happened to be in was lit enough to swallow the difference. **The judgement is deferred to a dark
+area, and until it happens this stays here.**
+
+**A straight A/B is not available while the hold runs**, which is worth knowing before anyone tries
+to build one. Anything that writes 5000 back for comparison is fighting a per-tick sweep that
+re-zeroes it, so the two would just race. The honest A/B is two runs of the DLL — one built with
+`GHOST_HOLD_LIGHT_OFF` false — and it costs a relaunch, so ask before assuming the dark-area look
+alone is inconclusive.
+
 **The readback is NOT done.** The hold announces once per component and is silent after, so a
 light the game re-lights every frame and the hold re-darkens looks identical in the log to one
 fixed on the first sweep. `probe_lightcheck/` exists for exactly that and is deployed — but

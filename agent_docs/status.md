@@ -63,8 +63,8 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's ghost LIGHT: hold BUILT, FIRED on two ghosts live 2026-08-29, never watched** —
-  the readback (does it stay 0?) waits on the next game start. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost LIGHT: hold BUILT and FIRED live 2026-08-29; the user could not TELL** —
+  judgement deferred to a dark area, readback waits on a relaunch. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on
