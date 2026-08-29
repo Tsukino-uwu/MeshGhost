@@ -83,6 +83,16 @@ namespace MeshGhostPseudo
         return module_directory_impl();
     }
 
+    auto dev_toggle_present(const wchar_t* file_name) -> bool
+    {
+        const std::wstring dir = module_directory_impl();
+        if (dir.empty() || file_name == nullptr)
+        {
+            return false;
+        }
+        return file_exists(dir + L"\\" + file_name);
+    }
+
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t
     {
         // 1. The environment wins. Same variable name as the two Lua adapters, so one launcher

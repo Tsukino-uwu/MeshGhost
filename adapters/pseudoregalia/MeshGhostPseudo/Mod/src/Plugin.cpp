@@ -1781,6 +1781,43 @@ namespace MeshGhostPseudo
     // stays fast and only the runtime-attached case pays the sweep.
     constexpr uint64_t OUTLINE_SWEEP_INTERVAL_TICKS = 5;
 
+    // **A live A/B on the custom-depth strip. Diagnostic, 2026-08-29 -- and it is the subtraction
+    // `../../CLAUDE.md` demands rather than a third guess.**
+    //
+    // The measurement that produced it: with the ghost's `PointLight` confirmed at 0 by an
+    // independent probe, the user was still looking at a ghost blazing white in a pitch-dark room.
+    // A full property dump of a player and a ghost standing in that room came back IDENTICAL --
+    // same mesh assets, same material parents (`MI_n64_Playergoat`, `MI_n64_PlayergoatFace`), same
+    // lighting channels, same shadow flags -- except for exactly one field:
+    //
+    //     PLAYER  bRenderCustomDepth=true          GHOST  bRenderCustomDepth=false
+    //
+    // and that one is OURS. So the hypothesis is that this game shades characters in a pass keyed
+    // on custom depth, which would make stripping it invisible in a lit room and blinding in a dark
+    // one -- exactly the history of this bug, including the run where the user could not tell.
+    //
+    // **A hypothesis with one suspect gets subtracted, not reasoned about**, so this makes the
+    // strip removable while the game runs: create `keep_custom_depth.txt` beside the DLL and every
+    // ghost keeps its custom depth (and any ghost already spawned has it restored); delete the file
+    // and the strip resumes. No relaunch, which matters because the user is standing in the dark
+    // room while this is measured.
+    //
+    // **This is a diagnostic and must ship OFF.** It costs one `GetFileAttributesW` every
+    // `DEV_TOGGLE_POLL_TICKS`, and a probe left armed is a suspect in every report after it
+    // (`../../CLAUDE.md`). Flip it false once the question is answered -- the answer belongs in a
+    // real fix, not in a file somebody has to remember to delete.
+    constexpr bool GHOST_CUSTOM_DEPTH_DEV_TOGGLE = true;
+
+    // ~5 checks a second at this build's ~150Hz. The file is created by hand between two looks at
+    // the same room, so anything faster is measuring nothing.
+    constexpr uint64_t DEV_TOGGLE_POLL_TICKS = 30;
+
+    // Read by the spawn path and the hold alike, refreshed once per poll interval by the tick.
+    // Not atomic on purpose: everything that touches it runs on the game thread
+    // (`game_thread_tick`), and this adapter's own rule is that actor state is only ever touched
+    // there.
+    bool g_ghost_keeps_custom_depth = false;
+
     // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
     //
     // The user, on a two-instance session: the ascendant light *"should always be off for a ghost
@@ -10024,11 +10061,18 @@ namespace MeshGhostPseudo
         // geometry is information, and this project's line is visual-only with no gameplay effect
         // -- for a speedrunner especially, that is a real advantage and not a cosmetic one. The
         // local player keeps its own outline untouched; only the ghost loses it.
-        for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+        // Skipped entirely while the dev toggle is on -- see GHOST_CUSTOM_DEPTH_DEV_TOGGLE. A
+        // subtraction that leaves the spawn-time write in place would not be a subtraction: this
+        // is the write that put the ghost's flag at false in the first place, and the per-tick
+        // hold below has never once found it on.
+        if (!g_ghost_keeps_custom_depth)
         {
-            if (UObject** mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+            for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
             {
-                call_set_render_custom_depth(*mesh, false);
+                if (UObject** mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+                {
+                    call_set_render_custom_depth(*mesh, false);
+                }
             }
         }
 
@@ -15187,7 +15231,25 @@ namespace MeshGhostPseudo
             // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
             // game turns custom depth back on during an attack and a spawn-time write cannot
             // survive that.
-            if constexpr (GHOST_HOLD_OUTLINE_OFF)
+            // The live A/B, ahead of the hold: while the toggle file is present the ghost KEEPS its
+            // custom depth, and one already on screen has it put back so the flip is visible without
+            // a respawn. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE.
+            if (g_ghost_keeps_custom_depth)
+            {
+                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+                {
+                    if (UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                        mesh && *mesh)
+                    {
+                        bool* on = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        if (on && !*on)
+                        {
+                            call_set_render_custom_depth(*mesh, true);
+                        }
+                    }
+                }
+            }
+            else if constexpr (GHOST_HOLD_OUTLINE_OFF)
             {
                 // Everything the ghost owns, plus the props we spawn for it. Walked rather than
                 // named: a fixed list is a list somebody has to remember to extend, and the rule is
@@ -16546,6 +16608,24 @@ namespace MeshGhostPseudo
 
         ++tick_count;
         ++ticks_since_ready;
+
+        // The dev A/B's one poll -- see GHOST_CUSTOM_DEPTH_DEV_TOGGLE. Announced on CHANGE only,
+        // because which state a measurement was taken in is the fact worth having in the log, and
+        // a per-tick line saying "still off" is the fact worth not having.
+        if constexpr (GHOST_CUSTOM_DEPTH_DEV_TOGGLE)
+        {
+            if (tick_count % DEV_TOGGLE_POLL_TICKS == 0)
+            {
+                const bool present = dev_toggle_present(STR("keep_custom_depth.txt"));
+                if (present != g_ghost_keeps_custom_depth)
+                {
+                    g_ghost_keeps_custom_depth = present;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghosts now {} custom depth (keep_custom_depth.txt {}).\n"),
+                                 present ? STR("KEEP") : STR("lose"),
+                                 present ? STR("present") : STR("gone"));
+                }
+            }
+        }
 
         if (POSSESS_TRACE && tick_count <= possess_watch_until_tick)
         {

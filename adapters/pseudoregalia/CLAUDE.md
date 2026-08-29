@@ -116,9 +116,14 @@ Afterimage outline case, 2026-08-27; `pitfalls.md`.
 ## Never call a UFunction on something `FindAllOf` handed you without owning it
 
 `FindAllOf` returns every object of a class in memory, class-default objects and half-torn-down
-ones included. Reading a property off one is usually survivable; **calling a UFunction on one
-dereferences state that may not be there, and a Lua `pcall` does not catch an access violation in
-native code** — so wrapping the call buys nothing. Crashed a live session twice on 2026-08-29.
+ones included. Reading a NAMED property off one is usually survivable; **calling a UFunction on
+one dereferences state that may not be there, and a Lua `pcall` does not catch an access violation
+in native code** — so wrapping the call buys nothing. Crashed a live session twice on 2026-08-29.
+
+**"Named" is load-bearing, and it cost a third crash the same day.** `ForEachProperty` plus a read
+of every property it names is not a named read: an object-valued one hands you a pointer, and
+stringifying it dereferences whatever that was. **Enumerate what you can name, never what an object
+happens to hold** — grow a written list between runs instead.
 
 **Scope the enumeration to the object you are asking about.** `FindAllOf` answers "does this build
 have any of these"; it is the wrong tool for "what does this actor have", and reaching for it there

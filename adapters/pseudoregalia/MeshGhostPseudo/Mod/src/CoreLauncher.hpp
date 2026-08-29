@@ -58,6 +58,16 @@ namespace MeshGhostPseudo
     // setting must not stop a game's mod from loading.
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t;
 
+    // "Is there a file of this name sitting beside this DLL?" -- the dev-toggle question, answered
+    // without a second copy of the module-directory dance that resolve_bridge_base_port already
+    // needs. A running game cannot be given a new compile-time flag, and this repo's Pseudoregalia
+    // rule is to iterate in-session rather than pay a relaunch per experiment
+    // (adapters/pseudoregalia/CLAUDE.md), so a diagnostic that has to be flipped WHILE the user
+    // stands in the room being measured is flipped by creating and deleting a file.
+    //
+    // Names a file, never a path: a path belongs to one machine and this is a public repo.
+    auto dev_toggle_present(const wchar_t* file_name) -> bool;
+
     class CoreLauncher
     {
       public:
