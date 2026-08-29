@@ -44,7 +44,18 @@ local TAG = "[MeshGhostLightCheck]"
 
 -- OFF means print nothing at all. A probe still logging through somebody else's test is a suspect
 -- in every report that follows -- see probe_nametag's own note.
-local PROBE_ENABLED = true
+-- **OFF, and it was left on too long (2026-08-29).** The user reported mouse stutter while this
+-- was running, and the cost audit says they are right: by stage 7 one sample was ELEVEN
+-- whole-world `FindAllOf` enumerations a second -- including every `StaticMeshComponent` in the
+-- level, each one paying a `GetFullName` and an attach walk of up to eight more, all on the GAME
+-- THREAD. That is the shape `../../CLAUDE.md` warns about: a diagnostic can break the thing it
+-- measures, and its cost has to be audited before its output is trusted.
+--
+-- The structural answers it gave (which components exist on a ghost and not on a player) do not
+-- depend on timing and stand. Anything about smoothness measured while it ran does not.
+--
+-- Turn it back on for one question at a time, and cut the class list to that question first.
+local PROBE_ENABLED = false
 
 -- Stage 1's budget, counted only where there was a world with lights in it -- the first run armed
 -- at the main menu and would have spent its whole budget printing "nothing here" before the level
@@ -383,6 +394,57 @@ end
 -- Named classes only, one property read each: the enumeration is scoped to a class this build is
 -- known to have, and nothing here follows a pointer the object handed back.
 local last_meshes = nil
+local last_attached = nil
+
+-- Stage 7 -- everything ELSE hanging off a character.
+--
+-- The subtraction that produced it (2026-08-29): with the ghost's `PointLight` at 0 AND its
+-- VisualMesh and WeaponMesh hidden, the user still sees light coming from where the ghost is. So
+-- the emitter is neither the light nor the model, and every census so far has covered skeletal
+-- meshes, Niagara and lights -- never a STATIC mesh, text, widget or decal.
+--
+-- Which matters because the nametag this adapter draws above a ghost is exactly that shape, and
+-- `probe_nametag/` recorded on 2026-08-28 that the emissive candidate material renders as a solid
+-- WHITE BOX. An emissive plate floating over a ghost in a pitch-dark room is indistinguishable
+-- from the ghost emitting light -- and it would be OURS, not the game's.
+local ATTACHED_CLASSES = {
+    "StaticMeshComponent", "TextRenderComponent", "WidgetComponent", "DecalComponent",
+}
+
+local function dumpAttached()
+    local entries = {}
+    for _, className in ipairs(ATTACHED_CLASSES) do
+        local found = FindAllOf(className)
+        if found then
+            for _, comp in pairs(found) do
+                local name = shortName(comp)
+                if name ~= "<unnamed>" then
+                    -- Attach-chain attribution again: only things belonging to a character are of
+                    -- interest, and the level is full of static meshes that are not.
+                    local owner, node = nil, comp
+                    for _ = 1, 8 do
+                        local n = shortName(node)
+                        local goat = n:match("(BP_PlayerGoatMain_C_%d+)")
+                        if goat then owner = goat; break end
+                        local parent = prop(node, "AttachParent")
+                        if not parent then break end
+                        node = parent
+                    end
+                    if owner then
+                        entries[#entries + 1] = string.format("%s[%s]@%s(vis=%s)",
+                            name, className, owner, tostring(prop(comp, "bVisible")))
+                    end
+                end
+            end
+        end
+    end
+    table.sort(entries)
+    local line = string.format("%s ATTACHED n=%d %s", TAG, #entries, table.concat(entries, " "))
+    if line ~= last_attached then
+        last_attached = line
+        print(line .. "\n")
+    end
+end
 
 local function dumpExtraMeshes()
     local found = FindAllOf("SkeletalMeshComponent")
@@ -419,6 +481,7 @@ LoopAsync(1000, function()
         dumpParams()
         dumpEffects()
         dumpExtraMeshes()
+        dumpAttached()
         if not dumped_stage2 then
             -- Held until a second character exists: a dump of the local player alone has no control
             -- to compare against, and it is the DIFFERENCE that is the finding.
