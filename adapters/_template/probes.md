@@ -225,6 +225,12 @@ So, when instrumenting an effect:
   a probe that *spawns* the effect enabled while judging that effect.
 - **Prefer edge-triggered logging** to per-tick, and treat any figure gathered while a heavy probe
   was live as suspect afterwards.
+- **A multi-stage probe must LOSE stages as they answer.** 2026-08-29: a census grew from one
+  question to seven across a live session and nothing was ever removed, ending at ~11 whole-world
+  `FindAllOf` calls a second — every static mesh in the level, each paying a name lookup and an
+  attach walk, on the game thread. The user reported mouse stutter before any metric did.
+  **The cost is what the player FEELS, not what the log says**, so ask them, and cut the earlier
+  stages in the same edit that adds the next one.
 - **If a human keeps reporting a difference your metrics deny, suspect the metrics.** Agreement
   between two sides measured by one instrument is not correctness — a shared blind spot makes them
   agree and describes neither.
