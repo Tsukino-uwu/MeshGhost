@@ -15693,13 +15693,24 @@ namespace MeshGhostPseudo
                 // one-shot effect can spawn a new component at any time.
                 if (g_ghost_fx_hidden || tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
                 {
+                    const std::string fx_ghost_name = to_utf8(remote.ghost->GetName());
+                    int fx_touched = 0;
+                    int fx_seen = 0;
                     for (const wchar_t* fx_class : {STR("NiagaraComponent"), STR("ParticleSystemComponent")})
                     {
                         std::vector<UObject*> effects;
                         UObjectGlobals::FindAllOf(fx_class, effects);
                         for (UObject* fx : effects)
                         {
-                            if (!fx || fx->GetOuterPrivate() != static_cast<UObject*>(remote.ghost))
+                            // Same correction as the nametag's: the outer test silently matched
+                            // nothing, and this branch reported no count at all -- so "particles
+                            // are off" was claimed on the strength of a toggle flag and never
+                            // measured. It is measured now.
+                            if (!fx)
+                            {
+                                continue;
+                            }
+                            if (to_utf8(fx->GetFullName()).find(fx_ghost_name) == std::string::npos)
                             {
                                 continue;
                             }
@@ -15708,59 +15719,79 @@ namespace MeshGhostPseudo
                             if (visible && *visible != want_visible)
                             {
                                 call_set_visibility(fx, want_visible);
+                                ++fx_touched;
                             }
                         }
+                        fx_seen += static_cast<int>(effects.size());
+                    }
+                    static std::pair<bool, int> fx_announced{false, -1};
+                    if (fx_announced.first != g_ghost_fx_hidden || fx_announced.second != fx_touched)
+                    {
+                        fx_announced = {g_ghost_fx_hidden, fx_touched};
+                        Output::send(STR("[MeshGhostPseudo] DEV: particle subtraction {} -- {} component(s) of {} in the world belonged to this ghost and were switched.") STR("\n"),
+                                     g_ghost_fx_hidden ? STR("ON") : STR("off"), fx_touched, fx_seen);
                     }
                 }
 
                 // The blob shadow and the nametag, each on its own toggle so an answer names ONE
-                // of them rather than "something in that group". Same read-then-write shape as the
-                // meshes below: no engine call once a component is already where we want it.
+                // of them rather than "something in that group".
+                //
+                // **Found by CLASS, not by stored pointer or property name** -- the version that
+                // used `remote.nametag_component` and a `BlobShadow` property lookup silently found
+                // nothing and reported HIDDEN anyway, while the user watched both stay on screen.
+                // Enumerating a class and attributing by outer is the method that has actually
+                // worked all session, and every branch here logs, including "found none".
                 {
-                    UObject* shadow = nullptr;
-                    if (UObject** found = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("BlobShadow")))
+                    struct Subtraction
                     {
-                        shadow = *found;
-                    }
-                    const std::pair<UObject*, bool> extras[] = {
-                        {shadow, g_ghost_shadow_hidden},
-                        {remote.nametag_component, g_ghost_nametag_hidden},
-                        {remote.nametag_plate, g_ghost_nametag_hidden},
+                        const wchar_t* component_class;
+                        bool hidden;
+                        const wchar_t* label;
                     };
-                    for (const auto& [component, hidden] : extras)
+                    const Subtraction subtractions[] = {
+                        {STR("StaticMeshComponent"), g_ghost_shadow_hidden, STR("blob shadow")},
+                        {STR("TextRenderComponent"), g_ghost_nametag_hidden, STR("nametag")},
+                    };
+                    const std::string ghost_own_name = to_utf8(remote.ghost->GetName());
+                    for (const auto& sub : subtractions)
                     {
-                        if (!component)
+                        std::vector<UObject*> found;
+                        UObjectGlobals::FindAllOf(sub.component_class, found);
+                        int touched = 0;
+                        for (UObject* component : found)
                         {
-                            continue;
-                        }
-                        bool* visible = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
-                        if (!visible)
-                        {
-                            // **Every branch reports, including "could not read it".** The silent
-                            // version of this claimed success for two components that never moved.
-                            static std::set<std::string> announced_unreadable;
-                            const std::string n = to_utf8(component->GetName());
-                            if (announced_unreadable.insert(n).second)
+                            // **Attributed by NAME, not by outer.** The outer test reported
+                            // `0 component(s) of 12` while the user watched the nametag stay on
+                            // screen -- these components do not outer to the pawn the way the
+                            // property-held meshes do. A component's full name carries its owning
+                            // chain, which is the test `GHOST_HOLD_OUTLINE_OFF` has used all along
+                            // and the only one that has never failed here.
+                            if (!component)
                             {
-                                Output::send(STR("[MeshGhostPseudo] DEV: '{}' has no readable bVisible -- the subtraction cannot touch it.") STR("\n"),
-                                             to_wide_ascii(n));
+                                continue;
                             }
-                            continue;
-                        }
-                        if (*visible == hidden)
-                        {
-                            call_set_visibility(component, !hidden);
-                            // Read back independently, after the call: what the toggle INTENDED is
-                            // not evidence, and reporting the intent is what made the last run's
-                            // negative worthless.
-                            static std::set<std::string> announced_result;
-                            const std::string n = to_utf8(component->GetName());
-                            if (announced_result.insert(n).second)
+                            if (to_utf8(component->GetFullName()).find(ghost_own_name) == std::string::npos)
                             {
-                                bool* now = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
-                                Output::send(STR("[MeshGhostPseudo] DEV: '{}' asked for visible={}, reads back {}.") STR("\n"),
-                                             to_wide_ascii(n), !hidden, (now && *now) ? STR("true") : STR("false"));
+                                continue;
                             }
+                            bool* visible = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                            if (!visible || *visible != sub.hidden)
+                            {
+                                continue;
+                            }
+                            call_set_visibility(component, !sub.hidden);
+                            ++touched;
+                        }
+                        // Reported once per state change, with what was actually reached -- "0 of N"
+                        // is the line that would have caught the last version in one run.
+                        static std::map<StringType, std::pair<bool, int>> announced;
+                        auto& entry_state = announced[sub.label];
+                        if (entry_state.first != sub.hidden || entry_state.second != touched)
+                        {
+                            entry_state = {sub.hidden, touched};
+                            Output::send(STR("[MeshGhostPseudo] DEV: {} subtraction {} -- {} component(s) of {} in the world belonged to this ghost and were switched.") STR("\n"),
+                                         sub.label, sub.hidden ? STR("ON") : STR("off"),
+                                         touched, static_cast<int>(found.size()));
                         }
                     }
                 }
