@@ -91,6 +91,11 @@ stops, so a crash names its own cause. `agent_docs/verified.md` and `phase7.md` 
 > copy. It DID deliver the light answer before dying — two output lines — which is exactly why the
 > world-wide enumeration was never needed. Full account: `UNVERIFIED.md`,
 > `../../agent_docs/pitfalls/by-lesson.md`.
+>
+> **It deliberately ships WITHOUT an `enabled.txt`**, unlike every other probe here. That file
+> is what makes UE4SS load a mod, so a probe known to crash the game must not carry one --
+> copying this folder into an install would otherwise arm it. Create one by hand once the
+> class list has been cut down.
 
 - **`Scripts/main.lua`** — the two cosmetics the user watched and called wrong, both open in
   `UNVERIFIED.md` with nothing measured. One run answers both: a **light census** naming every

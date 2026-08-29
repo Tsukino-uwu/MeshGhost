@@ -910,6 +910,26 @@ and it is what finally made the two separable.
 restarts. Twice a "the ghost vanished" report was the rig quietly dying rather than anything about
 the code under test. Check the peer is still connected before believing a disappearance.
 
+**RECURRED 2026-08-29, in the opposite direction and worse.** Here both instances DID reach one
+`UE4SS.log`, interleaved — and that is the more dangerous shape, because the file looks complete.
+Two `MIRRORVFX local: '' -> 'dl'` lines 280ms apart were read as two players landing independently,
+and a whole diagnosis ("single jumps work, fast repeats do not") was built on top of it and reported
+as a clean pattern. Both lines were one player: the second was the feedback loop echoing. **The user
+corrected the premise, not the analysis** — *"its not supposed to show your own 'dust' on a ghost"* —
+and the same log then read unambiguously.
+
+**The tell was present and unused:** the interleaved tick counters ran in two clearly separate
+series (≈39841/41335 against ≈44855/47105). A field that should advance monotonically and instead
+jumps between two bands IS the "this file has two writers" signal. Check for it before attributing
+any line, and prefer the lines that name a peer (`ghost p4: started`) over the ones that do not
+(`local: ...`), because only the former carry whose stream they belong to.
+
+**And the general form, which outlives the log detail:** an agent reading a log decides which
+process each line came from, usually without noticing it decided. Say the attribution out loud
+before building on it. Two of this session's three diagnoses were wrong, both because of an
+unstated assumption about who produced a line — and both were corrected by the user describing
+what they SAW, which no amount of further log analysis would have produced.
+
 ## Failure signatures
 
 Misleading symptoms that mean something other than their surface reading:

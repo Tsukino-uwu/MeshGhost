@@ -112,3 +112,21 @@ rewriting the argument buffer — the same shape as the camera/fade/damage guard
 you attribute by is not yet written at that moment (measured: `copyActor` is set AFTER the
 custom-depth enable), refuse-then-restore in the direction whose failure is invisible.
 Afterimage outline case, 2026-08-27; `pitfalls.md`.
+
+## Never call a UFunction on something `FindAllOf` handed you without owning it
+
+`FindAllOf` returns every object of a class in memory, class-default objects and half-torn-down
+ones included. Reading a property off one is usually survivable; **calling a UFunction on one
+dereferences state that may not be there, and a Lua `pcall` does not catch an access violation in
+native code** — so wrapping the call buys nothing. Crashed a live session twice on 2026-08-29.
+
+**Scope the enumeration to the object you are asking about.** `FindAllOf` answers "does this build
+have any of these"; it is the wrong tool for "what does this actor have", and reaching for it there
+is what put a whole-world walk in a probe that only ever needed two pawns' components.
+
+## Attribute a component to a character up BOTH the outer and the attach chain
+
+A component's `GetOuter()` reaches its owning actor — but a `ChildActorComponent` spawns a separate
+actor whose own outer is the LEVEL, so anything living inside one is invisible to an outer walk and
+reports as belonging to nobody. Follow `AttachParent` as well. This is not hypothetical: the
+player's light is exactly that shape.

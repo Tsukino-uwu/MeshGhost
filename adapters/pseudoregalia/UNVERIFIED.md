@@ -413,3 +413,38 @@ show on all four.
 **Also unwatched: the first-of-session baseline for these three.** Counters are now sent always, so
 the first heal/death after joining should fire like any other. That was a real bug for `dl` and is
 fixed by the same mechanism, but only `dl` was confirmed.
+
+## LOGGED, NOT BEING FIXED — a ghost may be stiffer than the game's own model ("model wiggle", 2026-08-29)
+
+**The user's own framing, and the reason this is filed as a question rather than a defect:** *"ik
+we are doing all animations & vfx, but unsure if a model 'draggin itself out/wiggling a bit'
+visually is due to low hz/interp. or actually something we are not syncing. not really visually
+noticable as its minor but we might have a more 'static/stiff' model than what the game itself
+does"* — and explicitly: *"this is not an issue i currently plan to fix if it is a thing, but just
+something i want to log."*
+
+**So the open question is not "how do we fix the wiggle" but "is there one".** Two candidate
+readings, and nothing here distinguishes them:
+
+1. **A sampling artifact.** The ghost is drawn from interpolated samples at the send rate, so any
+   secondary motion the game produces per-frame is being resampled. That would make the ghost look
+   *smoother or stiffer* than the player without anything being unsynced — the renderer's, not the
+   adapter's.
+2. **Something genuinely not mirrored.** This game's characters carry stock bone-physics dangle
+   (`documentation.md` records `AnimGraphNode_Trail` as exactly that — cloth-style secondary motion,
+   NOT the afterimage trail). Secondary physics is usually simulated locally per-actor and would
+   need the ghost's own simulation running, not a synced value. If it is disabled or never ticks on
+   a ghost, the ghost would be stiff while the player is not.
+
+**Reading 2 is the one with a concrete first check**, and it is cheap: compare the player's and a
+ghost's bone-physics/anim-dynamics components side by side — do they exist on the ghost, and are
+they simulating? That is a census of two actors, which is precisely the scoped-enumeration shape
+`probe_dustlight/` should have used and did not.
+
+**Do not chase this by eye.** The user calls it *"not really visually noticable"* and *"minor"*,
+which is the regime where a watcher confirms whatever they expect. If it is ever picked up, get the
+two models' bone transforms logged over the same motion before forming a theory.
+
+**Deliberately NOT scheduled.** Recorded so it is not rediscovered from scratch, and so that if a
+future stiffness report arrives there is a dated note saying it was noticed on 2026-08-29 and left
+alone on purpose.

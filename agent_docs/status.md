@@ -69,6 +69,8 @@ has never been looked at. `verified.md`.
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on
   screen. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia "model wiggle": logged, deliberately NOT scheduled (user, 2026-08-29)** — a ghost
+  may be stiffer than the game's own model; unknown if real. `pseudoregalia/UNVERIFIED.md`.
 - **`probe_dustlight/` CRASHED the game twice and is disabled** — whole-world `ChildActorComponent`
   walk; cut the class list before reloading it. `pseudoregalia/PROBES.md`, `pitfalls/by-lesson.md`.
 - **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
