@@ -1,9 +1,9 @@
 # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
 # on purpose so it never lands in a user's game folder.
-commit: 69f0d857141645d029ba714d55ca966516be099d
-Plugin.cpp: c05e3f4d3ee30cea1974f4f6a8761b81f91b5bf845bfd89fd3195ff540e1db9a
-Plugin.hpp: e20269adea41d0dddb24a42a0f7e8c411b0ebfa8f103d722d210cfd81560895c
+commit: ca95ab818d57bc3f16ded885c680368acf2a6ecb
+Plugin.cpp: 0f9dce2b2a87fb07afbfd6e1b88b8780d0041e8ec337c88975eacf191ec4a89f
+Plugin.hpp: b83723a5ec72a880829aa5bb5dcc7079688e7910c64a9ee7f54a08e8c7e3f34e
 BridgeClient.cpp: 728f0a1c40261a4c3e39b60b578c72feba1d7969057acaa5e5f4f69121da3bef
 BridgeClient.hpp: ddb9318c52b894d76fd900d1bed573f54117a2075cab209119bb03b4694057f0
 dllmain.cpp: 2a4cb8328001507fb5d3d7d5a50c03439731867700654b39c5aba6b36a85637c

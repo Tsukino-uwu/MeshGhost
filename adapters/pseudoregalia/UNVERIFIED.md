@@ -265,6 +265,58 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
+## THE SCENE LATCH IS FIXED, watched on screen 2026-08-30 — post-spawn `BP_LightManager_C::FixAllLights`, and this supersedes the latch half of everything below
+
+**The fix**: after every ghost spawn, the adapter calls the level's own
+`BP_LightManager_C::FixAllLights` — the same repair a `BP_LightTransition_C` performs when the
+player walks through it. User, on the armed build, client 1 in the dark, client 2 connecting:
+*"client1 didn't glow up this time"*. One clean run; still behind `ghost_fix_lights.txt` (armed in
+BOTH installs), NOT yet a shipped default, and its side effects on ordinary lighting are unwatched.
+
+**What the latch actually was, measured down to refuting everything else first.** The glow
+FOLLOWS the local player (user walked it: *"yes, even if client2 disconnect it still follows"*),
+survives the peer leaving, and lives in NO reflected scalar — a clean latched-vs-baseline diff of
+401 fields over the four transitions, the ambience actor, the manager (including its 32-slot
+`IlluminatedComponents` count) and every vertex-light actor found ZERO differences. What remains:
+the ghost's `BP_DynamicVertexLight_C` **registers with the light manager during `SpawnActor`**
+(vocabulary: `Register`, and each light's `LightIndex` — player 0, ghost 1) and NOTHING
+unregisters it; the stale registration (Intensity 0.5 / Radius 600, the exact values the destroyed
+actor still holds) keeps being rendered at the player's own position, stacked on the player's dim
+0.05. A registered-but-dead light is invisible to every actor-level read, which is why eleven
+suspects and three whole-state diffs came back clean.
+
+**The subtraction table, because five fixes failed before the one that worked:**
+
+| Attempt | Result |
+| --- | --- |
+| Destroy ghost's light per-tick / in spawn tick | Ghost goes dark (bug 2 fixed); latch stays |
+| Suppress via CDO `PlayerLight` template | NO-OP — `PlayerLight` is null on the CDO (2026-08-29's "latch fired through template suppression" was never a real test) |
+| Suppress via `*_GEN_VARIABLE` archetype | NO-OP — no such archetype findable |
+| MPC PlayerLocation guard / capsule overlap suppression / far spawn (+5000) | Latch stays through all three |
+| Zero Intensity+Radius, push `InitializePrameters`, then destroy | Latch stays — the slot copies its values at Register time, inside `SpawnActor` |
+| `FixDynamicLights` post-spawn / live on latched scene | NO visible change |
+| **`FixAllLights` live on a latched scene** | **Glow vanished with the user watching, same second** |
+
+**How it was found — the method, worth more than the fix**: when every scalar diff is clean,
+stop diffing and dump the class's FUNCTION vocabulary (`LIGHTVOCAB`), then try the game's own
+verbs one at a time on the live symptom via an edge-triggered toggle file whose CONTENT names the
+function (`call_light_fn.txt`). The night's other permanent wins: `snapshot_scalar_properties`
+now reads bitfield bools correctly through `FBoolProperty` (the old byte read printed ~30 manager
+bools as uniformly true — the same wrong read suspected behind the two lying subtraction
+toggles), and the user cloned the install (`Pseudoregalia - Copy`) so each instance has its OWN
+`UE4SS.log`/toggles — simultaneous dumps from one shared log interleave line-by-line and
+corrupted a whole sample before that.
+
+**Still open after this fix:**
+- Promote to shipped defaults (user not yet asked): post-spawn `FixAllLights`, the vertex-light
+  kill, the LightMesh hide — and drop the toggles per the instruments-ship-off rule.
+- The parity question (unchanged): a peer who legitimately has the ascendant light can never
+  glow; proper fix is light state on the wire.
+- `FixAllLights` side effects on ordinary lighting: unwatched (one run, one dark room).
+- `guard_playerlocation` and `ghost_no_overlap` were armed through every latch reproduction, so
+  neither is proven necessary NOR innocent; unarm and retest before shipping either.
+- The pickup cross-wire (below) is untouched by all of this.
+
 ## CAUSE FOUND 2026-08-29 (evening session) — BOTH light bugs are the ghost's `BP_DynamicVertexLight_C`, and this supersedes the whole section below it
 
 **The two bugs the section below separates have ONE cause, watched live by the user through a

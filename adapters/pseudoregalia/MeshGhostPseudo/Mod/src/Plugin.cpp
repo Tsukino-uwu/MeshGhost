@@ -453,6 +453,11 @@ namespace MeshGhostPseudo
     // real location.
     constexpr double MIN_PLAUSIBLE_DISTANCE = 100.0;
 
+    // How far above the player a ghost is born while g_ghost_spawn_far is on -- far enough that
+    // its vertex light cannot paint the floor the player is standing on, close enough that the
+    // ghost is pulled back in by the next state rather than being treated as out of the world.
+    constexpr double GHOST_FAR_SPAWN_Z_OFFSET = 5000.0;
+
     // Used by release_ghost to park a despawned ghost far out of the playable area, added in a
     // review pass. NEVER destroy the actor -- K2_DestroyActor is confirmed to silently no-op on
     // this build (see the "no working destroy mechanism" comment on ensure_ghost_hijacked), and
@@ -1889,6 +1894,25 @@ namespace MeshGhostPseudo
     // latch is a ghost spawning inside a BP_LightTransition_C volume and transitioning the local
     // scene's lighting; more generally, a cosmetic ghost must never fire world triggers.
     bool g_ghost_no_overlap = false;
+    // **Spawn a ghost far away from the player instead of on top of it (2026-08-30).**
+    //
+    // A discriminator, not a fix. ensure_ghost_spawned spawns every ghost at the LOCAL player's
+    // exact location and rotation, because the peer's real position only arrives on the next
+    // state. That puts a pawn carrying a live BP_DynamicVertexLight_C directly on the player for
+    // the frames before the spawn-tick destroy lands -- and this game's light PAINTS brightness
+    // into the level's vertex data rather than casting it, so the paint survives the light that
+    // made it and only a BP_LightTransition_C repaints it. That is the whole shape of the symptom
+    // the user reports: the local player lights up when a peer connects, stays lit with every
+    // ghost dark, and is repaired permanently by walking out of the dark area and back in.
+    //
+    // While this toggle is on the ghost is born high above the map instead, and the per-tick
+    // position update brings it in on the next state. If the player stops lighting up, the paint
+    // is the mechanism and the proper fix is that the light must never be constructed.
+    bool g_ghost_spawn_far = false;
+    // Call BP_LightManager_C::FixDynamicLights after every ghost spawn -- the game's own repair,
+    // the same one a BP_LightTransition_C runs, replacing "walk out and back in". See
+    // call_fix_lights.
+    bool g_ghost_fix_lights = false;
     // Hide only the ghost's WeaponMesh -- the blade-shimmer split, see the mesh loop.
     bool g_ghost_weapon_hidden = false;
     // Hide only the ghost's LightMesh -- the ascendant-light blade aura, see the mesh loop.
@@ -3585,10 +3609,14 @@ namespace MeshGhostPseudo
 
                 if (prop_type == STR("BoolProperty"))
                 {
-                    if (bool* v = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str()))
-                    {
-                        out[key] = *v ? "true" : "false";
-                    }
+                    // Bitfield-aware, 2026-08-30: the byte-pointer read this used before returns
+                    // the whole bitfield byte, so ANY set bit in it read as "true" -- a manager
+                    // dump printed every one of ~30 bools as true, which is the same wrong read
+                    // UNVERIFIED.md already suspects behind the two lying subtraction toggles.
+                    // FBoolProperty knows its own byte offset and mask; ask it.
+                    out[key] = static_cast<FBoolProperty*>(property)->GetPropertyValueInContainer(obj)
+                                   ? "true"
+                                   : "false";
                 }
                 else if (prop_type == STR("FloatProperty"))
                 {
@@ -3666,6 +3694,55 @@ namespace MeshGhostPseudo
             return out;
         }
 
+        // The LOCAL player's own light trio, for the ghost-spawn diff. The 2026-08-30 measurement
+        // moved the target: with every ghost confirmed dark, the user watched client 1's OWN
+        // CHARACTER light up the moment client 2's ghost spawned -- *"the client1 player itself is
+        // getting affected by something when client2 joins, something is not just mimicing the
+        // 'ghost' things, its applying directly to the player"*. So what flips is on the player,
+        // not on the ghost and not on the scene, and the earlier "scene latch" reading was the
+        // player's own vertex light painting the room it stands in.
+        //
+        // These three are the components documentation.md names as carrying light on a character.
+        // The vertex light itself rides one level down inside PlayerLight's ChildActor, so that
+        // object's IDENTITY is recorded too: a light that was destroyed and respawned shows up as
+        // a changed name, which no scalar field on it would reveal.
+        auto snapshot_local_light_state(UObject* pawn) -> std::map<std::string, std::string>
+        {
+            std::map<std::string, std::string> out;
+            if (!pawn)
+            {
+                return out;
+            }
+            for (const wchar_t* comp_name : {STR("PlayerLight"), STR("LightMesh"), STR("PointLight")})
+            {
+                const std::string prefix = to_utf8(StringType{comp_name}) + ".";
+                UObject** comp = pawn->GetValuePtrByPropertyNameInChain<UObject*>(comp_name);
+                if (!comp || !*comp)
+                {
+                    out[prefix + "__present"] = "no";
+                    continue;
+                }
+                out[prefix + "__present"] = "yes";
+                for (const auto& [k, v] : snapshot_scalar_properties(*comp, true))
+                {
+                    out[prefix + k] = v;
+                }
+
+                // Only PlayerLight has one; the other two return nothing and cost a named read.
+                if (UObject** child = (*comp)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor"));
+                    child && *child)
+                {
+                    const std::string child_prefix = prefix + "ChildActor.";
+                    out[child_prefix + "__name"] = to_utf8((*child)->GetFullName());
+                    for (const auto& [k, v] : snapshot_scalar_properties(*child, true))
+                    {
+                        out[child_prefix + k] = v;
+                    }
+                }
+            }
+            return out;
+        }
+
         // Prints every key whose value moved between two snapshots, plus keys that appeared or
         // vanished. Silence here is itself the answer -- "nothing scalar on this object changed" --
         // so it says so rather than printing nothing at all.
@@ -3699,8 +3776,11 @@ namespace MeshGhostPseudo
                     ++changes;
                 }
             }
-            Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: {} scalar field(s) changed across the ghost spawn.\n"),
-                         label, changes);
+            // The key counts are part of the finding, not decoration: "0 changed" out of 0 fields
+            // read is an instrument that measured nothing, and this file's own record has two
+            // subtractions that matched 0 of 0 and were believed. ../../CLAUDE.md's rule.
+            Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: {} scalar field(s) changed across the ghost spawn ({} field(s) read before, {} after).\n"),
+                         label, changes, static_cast<int>(before.size()), static_cast<int>(after.size()));
         }
 
         auto dump_object_property_values(UObject* obj, const wchar_t* label) -> void
@@ -5205,6 +5285,198 @@ namespace MeshGhostPseudo
             }
         }
 
+        // **The game's own scene-light repair, invoked on demand (2026-08-30).** The LIGHTVOCAB
+        // dump gave BP_LightManager_C exactly three verbs -- FixAllLights, FixDynamicLights,
+        // FixStaticLights -- plus Register and an IlluminatedComponents map. Every vertex light
+        // Registers at birth, and a ghost's light dies WITHOUT unregistering, which is a latch by
+        // construction; the reason walking out of a dark area and back in repairs the scene is
+        // that BP_LightTransition_C's toDark/toLight handlers run this same fix. So after a ghost
+        // spawn we ask the manager to repair, instead of asking the player to walk.
+        //
+        // Params are a zeroed 256-byte buffer rather than nullptr because these functions'
+        // signatures are unknown -- a zeroed buffer is safe for both "no params" and "params with
+        // sensible zero defaults", while nullptr crashes on the first read if params exist.
+        auto call_fix_lights(const wchar_t* which) -> bool
+        {
+            UObject* manager = UObjectGlobals::FindFirstOf(STR("BP_LightManager_C"));
+            if (!manager)
+            {
+                Output::send(STR("[MeshGhostPseudo] DEV: no BP_LightManager_C in this level -- nothing to fix.\n"));
+                return false;
+            }
+            UFunction* function = manager->GetFunctionByNameInChain(which);
+            if (!function)
+            {
+                Output::send(STR("[MeshGhostPseudo] DEV: BP_LightManager_C has no reflected '{}'.\n"), which);
+                return false;
+            }
+            uint8_t params[256] = {};
+            manager->ProcessEvent(function, params);
+            Output::send(STR("[MeshGhostPseudo] DEV: called BP_LightManager_C::{} .\n"), which);
+            return true;
+        }
+
+        // Reads a TArray<float>'s contents through a named property, layout {data ptr, num, max}
+        // -- the one struct layout this file already trusts elsewhere. Returns at most `cap`
+        // values so a corrupt num cannot flood the log.
+        auto read_float_array_property(UObject* obj, const wchar_t* prop_name, size_t cap)
+            -> std::vector<float>
+        {
+            std::vector<float> out;
+            if (!obj)
+            {
+                return out;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                return out;
+            }
+            for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::IncludeSuper))
+            {
+                if (!property || property->GetName() != prop_name)
+                {
+                    continue;
+                }
+                uint8_t* base = reinterpret_cast<uint8_t*>(obj) + property->GetOffset_Internal();
+                // CustomPrimitiveData is FCustomPrimitiveData { TArray<float> Data } -- the TArray
+                // sits at offset 0 of the struct, so this read serves both a bare array property
+                // and that struct.
+                float* data = *reinterpret_cast<float**>(base);
+                int32_t num = *reinterpret_cast<int32_t*>(base + 8);
+                if (data && num > 0)
+                {
+                    for (int32_t i = 0; i < num && static_cast<size_t>(i) < cap; ++i)
+                    {
+                        out.push_back(data[i]);
+                    }
+                }
+                break;
+            }
+            return out;
+        }
+
+        // Dumps every dynamic vertex light in the world -- name, owner, and all scalar state.
+        // The three-way comparison the user asked for (2026-08-30): latched-after-connect vs
+        // repaired-by-walking vs outside-darkness. Driven by dump_lights_now.txt so the agent can
+        // sample without anyone relaunching or walking anywhere.
+        //
+        // v2, same day: the v1 three-state comparison came back IDENTICAL in every state on both
+        // clients -- the vertex-light actors carry none of the latch. So this now also reads the
+        // two homes left: BP_LightManager_C (its scalars, and IlluminatedComponents' element
+        // count) and the local player's mesh CustomPrimitiveData, plus the local player position
+        // so the two instances' dumps in the shared log can be told apart at all.
+        auto dump_light_state() -> void
+        {
+            if (auto [dc, dp] = find_local_controller_and_pawn(); dp)
+            {
+                FVector where = static_cast<AActor*>(dp)->K2_GetActorLocation();
+                Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: local player at ({}, {}, {})\n"),
+                             where.X(), where.Y(), where.Z());
+                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("LightMesh"), STR("WeaponMesh")})
+                {
+                    if (UObject** mesh = dp->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+                    {
+                        const auto cpd = read_float_array_property(*mesh, STR("CustomPrimitiveData"), 16);
+                        StringType line;
+                        for (float v : cpd)
+                        {
+                            line += std::to_wstring(v) + STR(" ");
+                        }
+                        Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: player {} CustomPrimitiveData [{}]: {}\n"),
+                                     mesh_name, cpd.size(), line);
+                    }
+                }
+            }
+
+            // The two homes v2 could not see into (2026-08-30, after client 1 alone -- glowing, in
+            // the dark -- read 0.05, the correct dark intensity): the transition volumes' own
+            // state (isLightOut / isDarkZone? / timeline positions), and the ambience each
+            // transition drives through ambienceRef. A stuck transition is exactly a scene that
+            // will not darken until it is walked through again.
+            for (const wchar_t* class_name : {STR("BP_LightTransition_C"), STR("BP_Ambience_C")})
+            {
+                std::vector<UObject*> actors;
+                UObjectGlobals::FindAllOf(class_name, actors);
+                for (UObject* actor : actors)
+                {
+                    if (!actor)
+                    {
+                        continue;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: == {}\n"), actor->GetFullName());
+                    for (const auto& [k, v] : snapshot_scalar_properties(actor, true))
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"),
+                                     to_wide_ascii(k), to_wide_ascii(v));
+                    }
+                }
+            }
+
+            if (UObject* manager = UObjectGlobals::FindFirstOf(STR("BP_LightManager_C")))
+            {
+                for (const auto& [k, v] : snapshot_scalar_properties(manager, true))
+                {
+                    Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: manager {} = {}\n"),
+                                 to_wide_ascii(k), to_wide_ascii(v));
+                }
+                // The map's element count, read as TArray-num at the sparse array's head. An
+                // upper bound (holes included), which is fine for a fingerprint across states.
+                if (UClass* mgr_class = manager->GetClassPrivate())
+                {
+                    for (FProperty* property : TFieldRange<FProperty>(mgr_class, EFieldIterationFlags::IncludeSuper))
+                    {
+                        if (property && property->GetName() == STR("IlluminatedComponents"))
+                        {
+                            uint8_t* base = reinterpret_cast<uint8_t*>(manager) + property->GetOffset_Internal();
+                            int32_t num = *reinterpret_cast<int32_t*>(base + 8);
+                            Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: manager IlluminatedComponents element slots = {}\n"), num);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            std::vector<UObject*> lights;
+            UObjectGlobals::FindAllOf(STR("BP_DynamicVertexLight_C"), lights);
+            Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: {} BP_DynamicVertexLight_C instance(s):\n"), lights.size());
+            for (UObject* light : lights)
+            {
+                if (!light)
+                {
+                    continue;
+                }
+                Output::send(STR("[MeshGhostPseudo] LIGHTSTATE: == {}\n"), light->GetFullName());
+                for (const wchar_t* key : {STR("Enabled"), STR("Intensity"), STR("LightIndex"), STR("Radius"), STR("Angle"), STR("Time"), STR("DebugEnabled"), STR("VertexNormalInfluence")})
+                {
+                    // Two reads per key because the dump has no type table: LightIndex is a byte,
+                    // the rest are bools/doubles; whichever pointer resolves is printed.
+                    if (bool* b = light->GetValuePtrByPropertyNameInChain<bool>(key); b && (StringType(key) == STR("Enabled") || StringType(key) == STR("DebugEnabled")))
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *b ? STR("true") : STR("false"));
+                    }
+                    else if (StringType(key) == STR("LightIndex"))
+                    {
+                        if (uint8_t* v = light->GetValuePtrByPropertyNameInChain<uint8_t>(key))
+                        {
+                            Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, static_cast<int>(*v));
+                        }
+                    }
+                    else if (StringType(key) == STR("Time"))
+                    {
+                        if (int32_t* v = light->GetValuePtrByPropertyNameInChain<int32_t>(key))
+                        {
+                            Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *v);
+                        }
+                    }
+                    else if (double* d = light->GetValuePtrByPropertyNameInChain<double>(key))
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *d);
+                    }
+                }
+            }
+        }
+
         auto call_destroy_actor(AActor* actor) -> bool
         {
             if (!actor)
@@ -6183,6 +6455,68 @@ namespace MeshGhostPseudo
                 }
             }
             Output::send(STR("[MeshGhostPseudo] NAMETAGFUNCS: {} had {} matching function(s).\n"), class_path, shown);
+        }
+
+        // The light vocabulary, dumped once per session (2026-08-30). Every lever aimed at the
+        // connect-time player glow has now been pulled and the player still glows -- see the
+        // subtraction table in ../../UNVERIFIED.md -- so the next move is not another guess, it is
+        // reading what the game's own light classes can actually be ASKED to do: cancel the
+        // ghost light's startup, or invoke the same repair a BP_LightTransition_C performs.
+        // Names only, no property following -- the whole-world walk that crashed the game twice
+        // (probe_dustlight) followed object values; this reads none.
+        auto dump_light_vocabulary() -> void
+        {
+            // 1. What ChildActorComponent objects exist at all? The CDO has no 'PlayerLight' and
+            // no *_GEN_VARIABLE archetype was found under the pawn class, so the template that
+            // constructs each pawn's light is called something else -- this names it.
+            std::vector<UObject*> cacs;
+            UObjectGlobals::FindAllOf(STR("ChildActorComponent"), cacs);
+            Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB: {} ChildActorComponent object(s) exist:\n"), cacs.size());
+            for (UObject* cac : cacs)
+            {
+                if (cac)
+                {
+                    Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB:   CAC {}\n"), cac->GetFullName());
+                }
+            }
+
+            // 2. Every function and property NAME on the three classes that run this game's
+            // lighting. An instance of each lives in the level, so the class comes from there.
+            for (const wchar_t* class_name : {STR("BP_DynamicVertexLight_C"), STR("BP_LightManager_C"), STR("BP_LightTransition_C")})
+            {
+                UObject* instance = UObjectGlobals::FindFirstOf(class_name);
+                if (!instance)
+                {
+                    Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB: no instance of {} in the world.\n"), class_name);
+                    continue;
+                }
+                UClass* klass = instance->GetClassPrivate();
+                if (!klass)
+                {
+                    continue;
+                }
+                size_t fn_count = 0;
+                for (UFunction* fn : klass->ForEachFunctionInChain())
+                {
+                    if (fn)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB: {} fn  {}\n"), class_name, fn->GetName());
+                        ++fn_count;
+                    }
+                }
+                size_t prop_count = 0;
+                for (FProperty* property : TFieldRange<FProperty>(klass, EFieldIterationFlags::IncludeSuper))
+                {
+                    if (property)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB: {} prop {} ({})\n"),
+                                     class_name, property->GetName(), property->GetClass().GetName());
+                        ++prop_count;
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] LIGHTVOCAB: {} -> {} function(s), {} propert(ies).\n"),
+                             class_name, fn_count, prop_count);
+            }
         }
 
         // Creates a text component on `owner`, already registered and attached.
@@ -9955,6 +10289,19 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // See g_ghost_spawn_far. The distance check above has already passed on the real location,
+        // so this only moves where the clone is BORN; remote.target_* below still gets the real
+        // one, and the next state pulls the ghost in.
+        if (g_ghost_spawn_far)
+        {
+            const FVector real_loc = spawn_loc;
+            spawn_loc = FVector(spawn_loc.X(), spawn_loc.Y(), spawn_loc.Z() + GHOST_FAR_SPAWN_Z_OFFSET);
+            Output::send(STR("[MeshGhostPseudo] DEV: ghost for remote {} born {} units above the player ({},{},{} instead of {},{},{}) -- vertex-light paint test.\n"),
+                         to_wide_ascii(player_id), static_cast<int>(GHOST_FAR_SPAWN_Z_OFFSET),
+                         spawn_loc.X(), spawn_loc.Y(), spawn_loc.Z(),
+                         real_loc.X(), real_loc.Y(), real_loc.Z());
+        }
+
         // Stop the clone taking the controller in the first place, rather than taking it back
         // afterwards.
         //
@@ -10003,16 +10350,86 @@ namespace MeshGhostPseudo
         UObject* vl_saved_child_class = nullptr;
         if (g_ghost_vertexlight_killed && pawn_class)
         {
-            if (UObject* cdo = pawn_class->GetClassDefaultObject())
+            // **Say which step failed, out loud.** Measured 2026-08-30: this block has never once
+            // acted -- the "ghost spawned with PlayerLight's ChildActorClass suppressed" line below
+            // appears zero times in a session with the toggle armed and the per-instance destroy
+            // firing on the same spawn. `PlayerLight` resolves on a ghost INSTANCE and does not
+            // resolve on the CDO, which is what a Blueprint-added component looks like: it lives in
+            // the class's construction script, not as a default subobject pointer. Silence read as
+            // "suppression tried and the symptom survived it" for a whole session, which is the
+            // subtraction-that-subtracts-nothing trap in ../../CLAUDE.md.
+            UObject* cdo = pawn_class->GetClassDefaultObject();
+            UObject** tmpl = cdo ? cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")) : nullptr;
+
+            // **The CDO route is a measured dead end on this build** (2026-08-30: "'PlayerLight' on
+            // the CDO is null", printed live). A Blueprint-added component's archetype is not a CDO
+            // property -- it is a template object OWNED BY THE CLASS, conventionally named
+            // `<VarName>_GEN_VARIABLE`, which SpawnActor's construction script copies per instance.
+            // So when the CDO gives nothing, find that archetype: every ChildActorComponent whose
+            // name says PlayerLight and whose outer chain reaches the pawn class. Nulling ITS
+            // ChildActorClass around our one SpawnActor is the same trick, one level deeper.
+            UObject* gen_variable_tmpl = nullptr;
+            if (!tmpl || !*tmpl)
             {
-                if (UObject** tmpl = cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")); tmpl && *tmpl)
+                std::vector<UObject*> cacs;
+                UObjectGlobals::FindAllOf(STR("ChildActorComponent"), cacs);
+                for (UObject* cac : cacs)
                 {
-                    if (UObject** child_class = (*tmpl)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass")))
+                    if (!cac)
                     {
-                        vl_template_cac = *tmpl;
-                        vl_saved_child_class = *child_class;
-                        *child_class = nullptr;
+                        continue;
                     }
+                    const std::string cac_name = to_utf8(cac->GetName());
+                    if (cac_name.find("PlayerLight") == std::string::npos ||
+                        cac_name.find("GEN_VARIABLE") == std::string::npos)
+                    {
+                        continue;
+                    }
+                    for (UObject* outer = cac->GetOuterPrivate(); outer; outer = outer->GetOuterPrivate())
+                    {
+                        if (outer == pawn_class)
+                        {
+                            gen_variable_tmpl = cac;
+                            break;
+                        }
+                    }
+                    if (gen_variable_tmpl)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            UObject** child_class = (tmpl && *tmpl)
+                                        ? (*tmpl)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass"))
+                                    : gen_variable_tmpl
+                                        ? gen_variable_tmpl->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass"))
+                                        : nullptr;
+            if (gen_variable_tmpl && child_class)
+            {
+                tmpl = &gen_variable_tmpl; // reuse the save/restore below unchanged
+                Output::send(STR("[MeshGhostPseudo] DEV: PlayerLight archetype found as '{}' -- suppressing its ChildActorClass for this spawn.\n"),
+                             gen_variable_tmpl->GetFullName());
+            }
+            if (child_class)
+            {
+                vl_template_cac = *tmpl;
+                vl_saved_child_class = *child_class;
+                *child_class = nullptr;
+            }
+            else
+            {
+                static bool reported = false;
+                if (!reported)
+                {
+                    reported = true;
+                    Output::send(STR("[MeshGhostPseudo] DEV: PlayerLight template suppression DID NOTHING -- {} (so the ghost's vertex light IS created and only destroyed afterwards).\n"),
+                                 !cdo               ? STR("the ghost class has no class default object")
+                                 : (!tmpl || !*tmpl) ? (gen_variable_tmpl
+                                                            ? STR("the archetype was found but 'ChildActorClass' does not resolve on it")
+                                                            : STR("CDO gave nothing AND no PlayerLight GEN_VARIABLE archetype was found under the pawn class"))
+                                                     : STR("'ChildActorClass' does not resolve on the template component"));
+                    dump_light_vocabulary();
                 }
             }
         }
@@ -10084,9 +10501,34 @@ namespace MeshGhostPseudo
             {
                 if (UObject** vl_child = (*vl_cac)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor")); vl_child && *vl_child)
                 {
+                    // **Zero the light BEFORE destroying it (2026-08-30).** The night's diffs
+                    // established that destroying this actor does not un-register whatever it
+                    // wrote at BeginPlay: the latch follows the local player, survives the peer
+                    // leaving, and reads back in NO reflected scalar (401 fields identical latched
+                    // vs clean), while the destroyed light still holds Intensity 0.5 / Radius 600
+                    // -- the exact stale contribution stacked onto the player's own dim 0.05. So
+                    // make the registered slot WORTHLESS instead of merely orphaned: write both
+                    // values to zero and push them through the light's own InitializePrameters
+                    // (the game's name, typo included), then destroy as before.
+                    if (double* vl_int = (*vl_child)->GetValuePtrByPropertyNameInChain<double>(STR("Intensity")))
+                    {
+                        *vl_int = 0.0;
+                    }
+                    if (double* vl_rad = (*vl_child)->GetValuePtrByPropertyNameInChain<double>(STR("Radius")))
+                    {
+                        *vl_rad = 0.0;
+                    }
+                    bool vl_reinit = false;
+                    if (UFunction* init_fn = (*vl_child)->GetFunctionByNameInChain(STR("InitializePrameters")))
+                    {
+                        uint8_t init_params[256] = {};
+                        (*vl_child)->ProcessEvent(init_fn, init_params);
+                        vl_reinit = true;
+                    }
                     const bool vl_destroyed = call_destroy_actor(reinterpret_cast<AActor*>(*vl_child));
-                    Output::send(STR("[MeshGhostPseudo] DEV: spawn-tick vertex-light kill for remote {} -- destroy {}.\n"),
+                    Output::send(STR("[MeshGhostPseudo] DEV: spawn-tick vertex-light kill for remote {} -- zeroed intensity/radius, InitializePrameters {}, destroy {}.\n"),
                                  to_wide_ascii(player_id),
+                                 vl_reinit ? STR("called") : STR("NOT REFLECTED"),
                                  vl_destroyed ? STR("was called") : STR("NOT REFLECTED, nothing happened"));
                 }
                 else
@@ -10095,6 +10537,14 @@ namespace MeshGhostPseudo
                                  to_wide_ascii(player_id));
                 }
             }
+        }
+
+        // The ghost's light lived long enough during SpawnActor to Register with the light
+        // manager, and dying does not unregister it -- so run the manager's own repair, the same
+        // call a light-transition volume makes. See call_fix_lights.
+        if (g_ghost_fix_lights)
+        {
+            call_fix_lights(STR("FixAllLights")); // FixDynamicLights alone: measured no-op on a latched scene; FixAllLights: watched clearing it live, 2026-08-30
         }
 
         // Facing-direction investigation, 2026-08-13: bisecting whether the ghost's
@@ -10555,7 +11005,9 @@ namespace MeshGhostPseudo
         remote.owning_world = world;
         remote.target_x = spawn_loc.X();
         remote.target_y = spawn_loc.Y();
-        remote.target_z = spawn_loc.Z();
+        // The ghost's TARGET is always the real spot, even when g_ghost_spawn_far moved where it
+        // was born -- otherwise a peer who sends no further state would be left hanging in the air.
+        remote.target_z = g_ghost_spawn_far ? spawn_loc.Z() - GHOST_FAR_SPAWN_Z_OFFSET : spawn_loc.Z();
         Output::send(STR("[MeshGhostPseudo] spawned ghost for remote {} in world_ptr={} ({})\n"),
                      to_wide_ascii(player_id),
                      static_cast<void*>(world),
@@ -10581,6 +11033,11 @@ namespace MeshGhostPseudo
                 // scene census named it: one unbound `PostProcessComponent` on `BP_Ambience_C_1`,
                 // blending at weight 1 over the whole level. Its knobs live inside a struct, hence
                 // include_structs.
+                // The player's own light trio -- the 2026-08-30 target. Taken here, before the
+                // ghost exists at all, so a one-shot write during the spawn lands between the two
+                // halves of this diff.
+                pre_spawn_light_state = snapshot_local_light_state(diag_pawn);
+
                 pre_spawn_scene_state.clear();
                 std::vector<UObject*> post_processes;
                 UObjectGlobals::FindAllOf(STR("PostProcessComponent"), post_processes);
@@ -11431,6 +11888,8 @@ namespace MeshGhostPseudo
                         }
                     }
                     diff_scalar_snapshots(pre_spawn_scene_state, scene_now, STR("scene"));
+                    diff_scalar_snapshots(pre_spawn_light_state, snapshot_local_light_state(pawn_obj),
+                                          STR("playerlight"));
                 }
             }
 
@@ -17568,6 +18027,69 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost capsule overlap events now {} (ghost_no_overlap.txt {}). Applies to ghosts spawned AFTER the flip.\n"),
                                  no_overlap ? STR("SUPPRESSED") : STR("normal"),
                                  no_overlap ? STR("present") : STR("gone"));
+                }
+
+                // Edge-triggered like the dump below: each appearance calls ONE manager function,
+                // NAMED BY THE FILE'S FIRST LINE -- so FixAllLights / FixStaticLights / anything
+                // the LIGHTVOCAB dump named can be tried live on a latched scene without a
+                // rebuild. FixDynamicLights via this path is already a measured negative.
+                static bool light_fn_seen = false;
+                const bool light_fn_now = dev_toggle_present(STR("call_light_fn.txt"));
+                if (light_fn_now && !light_fn_seen)
+                {
+                    std::wstring fn_name;
+                    if (FILE* f = _wfopen((module_directory() + L"\\call_light_fn.txt").c_str(), L"rt"))
+                    {
+                        wchar_t buf[128] = {};
+                        if (fgetws(buf, 127, f))
+                        {
+                            fn_name = buf;
+                            while (!fn_name.empty() && (fn_name.back() == L'\n' || fn_name.back() == L'\r' || fn_name.back() == L' '))
+                            {
+                                fn_name.pop_back();
+                            }
+                        }
+                        fclose(f);
+                    }
+                    if (!fn_name.empty())
+                    {
+                        call_fix_lights(fn_name.c_str());
+                    }
+                }
+                light_fn_seen = light_fn_now;
+
+                // Edge-triggered: each APPEARANCE of the file is one snapshot, so the agent can
+                // sample latched/repaired/outside states by touching and deleting it externally.
+                static bool lights_dump_seen = false;
+                const bool lights_dump_now = dev_toggle_present(STR("dump_lights_now.txt"));
+                if (lights_dump_now && !lights_dump_seen)
+                {
+                    dump_light_state();
+                }
+                lights_dump_seen = lights_dump_now;
+
+                const bool fix_lights = dev_toggle_present(STR("ghost_fix_lights.txt"));
+                if (fix_lights != g_ghost_fix_lights)
+                {
+                    g_ghost_fix_lights = fix_lights;
+                    Output::send(STR("[MeshGhostPseudo] DEV: post-spawn FixAllLights now {} (ghost_fix_lights.txt {}).\n"),
+                                 fix_lights ? STR("ARMED") : STR("off"),
+                                 fix_lights ? STR("present") : STR("gone"));
+                    // Flipping it on mid-session also repairs NOW, so a latched scene does not
+                    // need a fresh connect to judge the call itself.
+                    if (fix_lights)
+                    {
+                        call_fix_lights(STR("FixAllLights")); // FixDynamicLights alone: measured no-op on a latched scene; FixAllLights: watched clearing it live, 2026-08-30
+                    }
+                }
+
+                const bool spawn_far = dev_toggle_present(STR("ghost_spawn_far.txt"));
+                if (spawn_far != g_ghost_spawn_far)
+                {
+                    g_ghost_spawn_far = spawn_far;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghosts are now born {} (ghost_spawn_far.txt {}). Applies to ghosts spawned AFTER the flip.\n"),
+                                 spawn_far ? STR("HIGH ABOVE the player, not on top of it") : STR("at the player's own location"),
+                                 spawn_far ? STR("present") : STR("gone"));
                 }
 
                 const bool guard_ploc = dev_toggle_present(STR("guard_playerlocation.txt"));

@@ -191,8 +191,12 @@ build and must go `false` (with the toggles removed) before release.
 | --- | --- |
 | `hide_ghost_playerlight.txt` | Destroys each ghost's `BP_DynamicVertexLight_C`, and suppresses it at spawn via the class template. **The ghost-glow fix.** |
 | `hide_ghost_lightmesh.txt` | Hides each ghost's `LightMesh` (`M_SpiritAura`). **The blade-aura fix.** |
-| `ghost_no_overlap.txt` | Spawns ghosts with capsule overlap events suppressed, so they cannot fire world triggers. **The scene-latch fix, unwatched.** |
-| `guard_playerlocation.txt` | Native pre-hook redirecting every `MPC_PlayerRelated.PlayerLocation` write to the local player's position. |
+| `ghost_no_overlap.txt` | Spawns ghosts with capsule overlap events suppressed, so they cannot fire world triggers. Was armed through every 2026-08-30 latch reproduction, so it neither fixes the latch nor is proven necessary. |
+| `guard_playerlocation.txt` | Native pre-hook redirecting every `MPC_PlayerRelated.PlayerLocation` write to the local player's position. Same caveat: armed throughout, owns no measured visual. |
+| `ghost_fix_lights.txt` | Calls `BP_LightManager_C::FixAllLights` after every ghost spawn (and once on arming). **THE scene-latch fix, watched working 2026-08-30** — the ghost's vertex light registers with the light manager inside `SpawnActor` and nothing unregisters it; this runs the level's own repair. `FixDynamicLights` measured insufficient. |
+| `ghost_spawn_far.txt` | Births ghosts 5000 units above the player (next state pulls them in). A discriminator for the latch hunt — refuted the paint-at-spawn theory; keep OFF. |
+| `dump_lights_now.txt` | Edge-triggered instrument: each appearance dumps player light components, the four transitions, the ambience, the manager and every vertex light. |
+| `call_light_fn.txt` | Edge-triggered instrument: each appearance calls the manager function named by the file's FIRST LINE. How `FixAllLights` was proven live on a latched scene. |
 | `skip_ghost_equip_call.txt` | Skips `changeEquippedWeapon` on ghosts. Split test only — **it breaks the ghost's sword throw.** |
 | `skip_ghost_equip_anim.txt` | Skips `updateWeaponEquip` on ghosts. Same, same regression. |
 | `hide_ghost_mesh.txt`, `hide_ghost_weapon.txt`, `hide_ghost_fx.txt`, `hide_ghost_shadow.txt`, `hide_ghost_nametag.txt`, `keep_custom_depth.txt`, `ghost_light_on.txt` | Subtraction instruments, one component class each. |

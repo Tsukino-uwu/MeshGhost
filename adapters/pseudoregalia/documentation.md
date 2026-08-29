@@ -525,6 +525,28 @@ components in a map and transitions them. Walking through a volume is what chang
 lighting state — which is why walking out of a dark area and back in repairs a scene whose lighting
 has ended up in the wrong state.
 
+**How the pieces talk to each other — measured 2026-08-30, function census plus live calls on a
+running copy:**
+
+- **Every `BP_DynamicVertexLight_C` registers with the light manager when it begins play** —
+  the manager exposes `Register`, each light carries a `LightIndex` (the player's own light is
+  index 0; the next light to appear takes 1), and registration happens inside actor spawn,
+  before the spawner regains control. **Destroying a light does not unregister it**: the
+  manager keeps rendering the registered entry — at the player's position — with the intensity
+  and radius the light had when it registered. A destroyed-but-registered light is invisible to
+  every actor-level read, because the actor's own properties no longer participate.
+- **The manager's repair verbs are `FixAllLights`, `FixDynamicLights` and `FixStaticLights`** —
+  what a `BP_LightTransition_C` runs when crossed, and callable directly. `FixAllLights` clears a
+  stale dynamic registration; `FixDynamicLights` alone does not (both watched live on a scene
+  carrying exactly that fault).
+- **Each transition volume is a `toDark`/`toLight` overlap pair** with two timelines, an
+  `ambienceRef`, and per-volume targets (`2Target`, `2targetWithLight`, `actualDarkTarget`,
+  `standardIntensity` 0.6) plus `isDarkZone?`/`isLightOut` state. The ambience actor it drives
+  carries the fog and shade knobs (`FogColor`, `FogDensity`, `ShadeColor`, `Intensity`).
+- **The player's own vertex light dims by zone**: Intensity reads 0.05 standing in a dark area
+  and 0.2 in a lit one, radius 300 either way. The manager's illuminated-components map holds 32
+  entries in that level — one per wall-sconce fixture.
+
 **The player does not normally glow.** In ordinary play a character in a dark area is dark. The
 three sources of light on or near a character, per a player who knows the game (2026-08-29):
 

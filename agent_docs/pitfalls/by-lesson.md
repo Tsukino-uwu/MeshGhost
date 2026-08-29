@@ -5169,3 +5169,50 @@ about the bug.
 
 **Still open.** Next suspect is the thrown prop itself — a real `BP_looseWeapon_C` that the
 adapter destroys on the pickup edge, whose own logic may hand the sword back to "the player".
+
+## WHEN EVERY SCALAR DIFF IS CLEAN, DUMP THE FUNCTION VOCABULARY AND DRIVE THE GAME'S OWN VERBS LIVE (Pseudoregalia, 2026-08-30)
+
+**Symptom:** the connect-time scene latch — the local player glows in a dark area the moment a
+peer's ghost spawns, until a light-transition volume is walked through. Five built fixes failed
+(the table: `pseudoregalia/UNVERIFIED.md`, 2026-08-30 section), and the decisive negative was a
+401-field latched-vs-clean diff over the transitions, ambience, manager and every vertex light:
+**zero differences**. The latch lived in no reflected scalar at all.
+
+**Cause:** the ghost's `BP_DynamicVertexLight_C` **registers with `BP_LightManager_C` during
+`SpawnActor`** (its `Register`, each light's `LightIndex`) and nothing ever unregisters it — a
+stale registration is rendered at the player's position (it FOLLOWS the player; the user walked
+it), survives the peer leaving, and is invisible to every actor-level read. Even zeroing the
+light's Intensity/Radius before destroying it changed nothing: the slot copies its values at
+registration, inside `SpawnActor`, before adapter code gets a say.
+
+**Fix, watched working live:** call the manager's own repair after every ghost spawn —
+`BP_LightManager_C::FixAllLights`, the same thing a `BP_LightTransition_C` does. Note the
+near-miss: `FixDynamicLights` alone was a measured no-op on a latched scene.
+
+**The method, which outlasts the fix:** (1) when state diffs come back clean, stop diffing state —
+dump the suspect classes' FUNCTION lists (`LIGHTVOCAB`) and read what the game can be ASKED to do;
+(2) drive those verbs on the live symptom with an edge-triggered toggle file whose CONTENT names
+the function (`call_light_fn.txt`) — every candidate repair then costs two seconds, not a
+build-deploy-relaunch cycle. `FixAllLights` was proven by the user watching the glow vanish the
+same second the file appeared.
+
+**Also corrected here:** 2026-08-29's "the latch fired through template suppression" was never a
+real test — the CDO has no `PlayerLight` (Blueprint SCS component), so that suppression silently
+did nothing; and the overlap-suppression theory of the latch is refuted (armed through every
+reproduction, latch fired anyway). The overlap toggle's "never fire world triggers" rationale
+stands on its own merits, unproven either way.
+
+## A BITFIELD BOOL READ THROUGH A PLAIN BYTE POINTER SAYS TRUE FOR THE WHOLE BYTE (Pseudoregalia, 2026-08-30)
+
+**Symptom:** a manager dump printed ~30 stock actor bools as uniformly `true` — including pairs
+that cannot both be true. The same wrong read (`GetValuePtrByPropertyNameInChain<bool>` then
+dereference) is what the 2026-08-29 "two subtraction toggles LIE" entry suspected: UE packs many
+UPROPERTY bools as bitfields sharing bytes, so a byte read reports ANY set neighbour as true.
+
+**Fix:** ask the property itself — `static_cast<FBoolProperty*>(prop)->
+GetPropertyValueInContainer(obj)` applies the field mask. `snapshot_scalar_properties` now does
+this; every OTHER `<bool>` read in the adapter (the `bVisible` sweeps above all) is still the old
+read and still suspect until converted.
+
+**The rule:** a reflected bool is not a byte. Any diff or census whose bools all agree is not
+measuring them.

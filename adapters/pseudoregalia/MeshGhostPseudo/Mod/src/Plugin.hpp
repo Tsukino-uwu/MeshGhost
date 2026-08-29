@@ -1068,6 +1068,12 @@ namespace MeshGhostPseudo
         // The level's own post-process, struct fields included -- where a scene-wide brightness
         // change would actually live.
         std::map<std::string, std::string> pre_spawn_scene_state;
+
+        // The local player's OWN PlayerLight/LightMesh/PointLight, added 2026-08-30 once the user
+        // pinned the symptom to the player rather than the scene: with every ghost dark, client 1's
+        // own character lights up when client 2's ghost spawns, and stays lit until an area
+        // transition. See snapshot_local_light_state.
+        std::map<std::string, std::string> pre_spawn_light_state;
         uint64_t state_diff_due_tick{0};
         bool state_diff_pending{false};
         uint64_t ticks_since_ready{0};

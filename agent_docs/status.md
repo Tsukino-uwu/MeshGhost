@@ -63,10 +63,9 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's ghost GLOW: cause FOUND (2026-08-29 evening) — `BP_DynamicVertexLight_C` plus
-  `LightMesh`; ghost glow + blade aura confirmed fixed on screen via toggles.** `pseudoregalia/UNVERIFIED.md`.
-- **The connect-time scene LATCH survives even a same-tick destroy** — a template-suppression
-  build is deployed and UNWATCHED; the next connect-in-darkness run answers it. Same section.
+- **Pseudoregalia's THREE light bugs are all fixed on screen (glow + blade 08-29, scene latch
+  2026-08-30 via post-spawn `FixAllLights`)** — every fix still behind dev toggles, promotion to
+  shipped defaults not yet asked. `pseudoregalia/UNVERIFIED.md`, the 08-30 section.
 - **NEW: a peer's sword pickup drives the LOCAL player's animation** — both single-call skips
   negative, the both-skipped combination is armed and untested. `pseudoregalia/UNVERIFIED.md`.
 - **Two subtraction toggles still lie (nametag mid-session, blob shadow)** — the `bVisible` byte
