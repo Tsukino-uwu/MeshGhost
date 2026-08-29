@@ -61,6 +61,14 @@ namespace MeshGhostPseudo
         // brightening the instant a peer connected, from across the level, and staying that way.
         bool light_zeroed{false};
 
+        // How many times the game has put this ghost's light BACK after we turned it down. Zero
+        // means it was a birth default and nothing fights us; anything large means the pawn's own
+        // logic re-lights it every frame and the hold is the only reason it is ever dark.
+        //
+        // It exists because the announce-once log could not tell those two apart, and the user was
+        // reporting a ghost that still glowed while every readback said 0.
+        uint64_t light_relit_count{0};
+
         RC::Unreal::AActor* ghost{nullptr};
         RC::Unreal::UWorld* owning_world{nullptr}; // which UWorld `ghost` belongs to (spawned into, or hijacked from)
 
@@ -1042,6 +1050,25 @@ namespace MeshGhostPseudo
 
         bool unreal_ready{false};
         uint64_t tick_count{0};
+
+        // **What changed on the LOCAL player when a ghost spawned.** Dev diagnostic, 2026-08-29.
+        //
+        // The glow is now known to be a ONE-SHOT flip at ghost spawn -- the user confirmed that
+        // walking out of the dark area and back in repairs it permanently even while the peer stays
+        // connected. So something is written once, to the local player or to the state it shares,
+        // at the moment a clone of its pawn appears. This snapshots the scalar properties before
+        // the spawn and again a moment after, and prints only what MOVED.
+        //
+        // Scalars only, deliberately: reading an object-valued property and following it is what
+        // crashed this game from a Lua probe the same day.
+        std::map<std::string, std::string> pre_spawn_player_state;
+        std::map<std::string, std::string> pre_spawn_shared_state;
+
+        // The level's own post-process, struct fields included -- where a scene-wide brightness
+        // change would actually live.
+        std::map<std::string, std::string> pre_spawn_scene_state;
+        uint64_t state_diff_due_tick{0};
+        bool state_diff_pending{false};
         uint64_t ticks_since_ready{0};
         // Ticks since the local pawn most recently became valid -- resets to 0 whenever it's not
         // (e.g. at the title screen). Gates SPAWN_DELAY_TICKS in ensure_ghost_spawned, mirroring

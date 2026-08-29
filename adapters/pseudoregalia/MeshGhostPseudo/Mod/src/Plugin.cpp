@@ -1913,6 +1913,20 @@ namespace MeshGhostPseudo
     // adapter has already crashed on once (see release_ghost's note), and a blend weight of 0 makes
     // the rig contribute nothing whether or not anything still points at it. Re-asserted on a sweep
     // rather than written once, because an ORPHANED rig has no owner left to catch it at spawn.
+    // **What changed on the local player when a ghost spawned? Dev diagnostic, 2026-08-29.**
+    //
+    // Everything about the glow is now known except WHICH field: it is written once, at ghost
+    // spawn, to the local player or the state it shares, and the game repairs it on the next area
+    // transition. Rather than guess a fifth time, this snapshots every scalar property on the local
+    // pawn and on its `As MV Game Instance Ref` singleton before the spawn and again a third of a
+    // second later, and prints only what MOVED.
+    //
+    // Scalars only -- bools, ints, floats, bytes. Following an object-valued property is what
+    // crashed this game from Lua the same day, and no object pointer can be diffed usefully anyway.
+    //
+    // Two spawns' worth of output and it should be off again: this is an instrument, not behaviour.
+    constexpr bool PLAYER_STATE_DIFF_ON_GHOST_SPAWN = true;
+
     constexpr bool GHOST_NEUTRALISE_CAMERA_RIGS = true;
 
     // ~5 sweeps a second at this build's ~150Hz. A rig appears once per peer level-load, so this is
@@ -3502,6 +3516,155 @@ namespace MeshGhostPseudo
         // TArray, etc.) -- those need their own per-type marshaling (see the FRotator marshaling
         // bug elsewhere in this file for why guessing a struct layout is dangerous) and aren't
         // needed to find a simple "which flag/reference differs" answer first.
+        // Reads every SCALAR property on an object into a name -> text map. Object, struct and
+        // array properties are skipped on purpose: following what an object holds is what crashed
+        // this game from a Lua probe on 2026-08-29, and none of them can be diffed usefully anyway.
+        //
+        // Paired with diff_scalar_snapshots below to answer one question: what changed on the local
+        // player at the moment a ghost spawned?
+        auto snapshot_scalar_properties(UObject* obj, bool include_structs = false)
+            -> std::map<std::string, std::string>
+        {
+            std::map<std::string, std::string> out;
+            if (!obj)
+            {
+                return out;
+            }
+            UClass* obj_class = obj->GetClassPrivate();
+            if (!obj_class)
+            {
+                return out;
+            }
+            for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::Default))
+            {
+                if (!property)
+                {
+                    continue;
+                }
+                const StringType prop_name = property->GetName();
+                const StringType prop_type = property->GetClass().GetName();
+                const std::string key = to_utf8(prop_name);
+
+                if (prop_type == STR("BoolProperty"))
+                {
+                    if (bool* v = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str()))
+                    {
+                        out[key] = *v ? "true" : "false";
+                    }
+                }
+                else if (prop_type == STR("FloatProperty"))
+                {
+                    if (float* v = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str()))
+                    {
+                        out[key] = std::to_string(*v);
+                    }
+                }
+                else if (prop_type == STR("DoubleProperty"))
+                {
+                    if (double* v = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str()))
+                    {
+                        out[key] = std::to_string(*v);
+                    }
+                }
+                else if (prop_type == STR("IntProperty"))
+                {
+                    if (int32_t* v = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str()))
+                    {
+                        out[key] = std::to_string(*v);
+                    }
+                }
+                else if (prop_type == STR("ByteProperty") || prop_type == STR("EnumProperty"))
+                {
+                    if (uint8_t* v = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str()))
+                    {
+                        out[key] = std::to_string(static_cast<int>(*v));
+                    }
+                }
+                else if (include_structs && prop_type == STR("StructProperty"))
+                {
+                    // **One level into a struct, numeric fields only.** The first version of this
+                    // diff skipped structs entirely and came back with nothing but two uptime
+                    // timers -- which is a real answer for the pawn, and useless for the thing that
+                    // actually carries scene brightness: a `PostProcessComponent` keeps every
+                    // exposure and colour knob inside its `Settings` struct, invisible to a
+                    // top-level walk.
+                    //
+                    // Numeric only, and no recursion past one level: a struct's bitfield bools do
+                    // not read correctly through a plain byte offset, and printing a wrong value is
+                    // worse than printing none. The brightness knobs are all floats.
+                    UScriptStruct* inner_struct = static_cast<FStructProperty*>(property)->GetStruct();
+                    uint8_t* base = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    if (inner_struct && base)
+                    {
+                        for (FProperty* inner : TFieldRange<FProperty>(inner_struct, EFieldIterationFlags::Default))
+                        {
+                            if (!inner)
+                            {
+                                continue;
+                            }
+                            const StringType inner_type = inner->GetClass().GetName();
+                            const int32_t offset = inner->GetOffset_Internal();
+                            if (offset < 0)
+                            {
+                                continue;
+                            }
+                            const std::string inner_key = key + "." + to_utf8(inner->GetName());
+                            if (inner_type == STR("FloatProperty"))
+                            {
+                                out[inner_key] = std::to_string(*reinterpret_cast<float*>(base + offset));
+                            }
+                            else if (inner_type == STR("DoubleProperty"))
+                            {
+                                out[inner_key] = std::to_string(*reinterpret_cast<double*>(base + offset));
+                            }
+                            else if (inner_type == STR("IntProperty"))
+                            {
+                                out[inner_key] = std::to_string(*reinterpret_cast<int32_t*>(base + offset));
+                            }
+                        }
+                    }
+                }
+            }
+            return out;
+        }
+
+        // Prints every key whose value moved between two snapshots, plus keys that appeared or
+        // vanished. Silence here is itself the answer -- "nothing scalar on this object changed" --
+        // so it says so rather than printing nothing at all.
+        auto diff_scalar_snapshots(const std::map<std::string, std::string>& before,
+                                   const std::map<std::string, std::string>& after,
+                                   const wchar_t* label) -> void
+        {
+            int changes = 0;
+            for (const auto& [key, was] : before)
+            {
+                auto it = after.find(key);
+                if (it == after.end())
+                {
+                    Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: '{}' disappeared (was {})\n"),
+                                 label, to_wide_ascii(key), to_wide_ascii(was));
+                    ++changes;
+                }
+                else if (it->second != was)
+                {
+                    Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: '{}' {} -> {}\n"),
+                                 label, to_wide_ascii(key), to_wide_ascii(was), to_wide_ascii(it->second));
+                    ++changes;
+                }
+            }
+            for (const auto& [key, now] : after)
+            {
+                if (before.find(key) == before.end())
+                {
+                    Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: '{}' appeared as {}\n"),
+                                 label, to_wide_ascii(key), to_wide_ascii(now));
+                    ++changes;
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] SPAWNDIFF {}: {} scalar field(s) changed across the ghost spawn.\n"),
+                         label, changes);
+        }
+
         auto dump_object_property_values(UObject* obj, const wchar_t* label) -> void
         {
             if (!obj)
@@ -10179,6 +10342,49 @@ namespace MeshGhostPseudo
                      static_cast<void*>(world),
                      ghost->GetFullName());
 
+        // **Snapshot the local player before this ghost exists.** See the SPAWNDIFF helpers: the
+        // glow is a ONE-SHOT flip at ghost spawn (user-confirmed 2026-08-29 -- walking out of the
+        // dark area and back in repairs it permanently, even with the peer still connected), so
+        // whatever is written is written right here, and a before/after diff names it without
+        // anyone having to guess which field it is.
+        if constexpr (PLAYER_STATE_DIFF_ON_GHOST_SPAWN)
+        {
+            if (auto [diag_controller, diag_pawn] = find_local_controller_and_pawn(); diag_pawn)
+            {
+                pre_spawn_player_state = snapshot_scalar_properties(diag_pawn);
+                UObject** shared = diag_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+                pre_spawn_shared_state = (shared && *shared) ? snapshot_scalar_properties(*shared)
+                                                             : std::map<std::string, std::string>{};
+
+                // **And the objects that actually carry scene brightness.** The pawn and the shared
+                // singleton both came back with nothing but uptime timers, which is a real negative
+                // -- so the next place to look is whatever holds the level's own post-process. The
+                // scene census named it: one unbound `PostProcessComponent` on `BP_Ambience_C_1`,
+                // blending at weight 1 over the whole level. Its knobs live inside a struct, hence
+                // include_structs.
+                pre_spawn_scene_state.clear();
+                std::vector<UObject*> post_processes;
+                UObjectGlobals::FindAllOf(STR("PostProcessComponent"), post_processes);
+                for (UObject* pp : post_processes)
+                {
+                    if (!pp)
+                    {
+                        continue;
+                    }
+                    const std::string prefix = to_utf8(pp->GetName()) + ".";
+                    for (const auto& [k, v] : snapshot_scalar_properties(pp, true))
+                    {
+                        pre_spawn_scene_state[prefix + k] = v;
+                    }
+                }
+                // Far enough after the spawn for the pawn's own BeginPlay to have finished, close
+                // enough that ordinary play has not moved much: at ~150Hz this is a third of a
+                // second.
+                state_diff_due_tick = tick_count + 50;
+                state_diff_pending = true;
+            }
+        }
+
         // Stop the ghost being drawn through walls. Knowing where another player is behind
         // geometry is information, and this project's line is visual-only with no gameplay effect
         // -- for a speedrunner especially, that is a real advantage and not a cosmetic one. The
@@ -10977,6 +11183,38 @@ namespace MeshGhostPseudo
             // meant the delay had already elapsed by the time real gameplay began, confirmed by
             // the log ("local world changed: pawn=BP_PlayerGoatMain_C" and "spawned ghost" firing
             // at the same timestamp, not ~5s apart).
+            // The AFTER half of the ghost-spawn diff. See snapshot_scalar_properties.
+            if constexpr (PLAYER_STATE_DIFF_ON_GHOST_SPAWN)
+            {
+                if (state_diff_pending && tick_count >= state_diff_due_tick)
+                {
+                    state_diff_pending = false;
+                    diff_scalar_snapshots(pre_spawn_player_state, snapshot_scalar_properties(pawn_obj), STR("pawn"));
+                    UObject** shared = pawn_obj->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+                    if (shared && *shared)
+                    {
+                        diff_scalar_snapshots(pre_spawn_shared_state, snapshot_scalar_properties(*shared), STR("shared"));
+                    }
+
+                    std::map<std::string, std::string> scene_now;
+                    std::vector<UObject*> post_processes;
+                    UObjectGlobals::FindAllOf(STR("PostProcessComponent"), post_processes);
+                    for (UObject* pp : post_processes)
+                    {
+                        if (!pp)
+                        {
+                            continue;
+                        }
+                        const std::string prefix = to_utf8(pp->GetName()) + ".";
+                        for (const auto& [k, v] : snapshot_scalar_properties(pp, true))
+                        {
+                            scene_now[prefix + k] = v;
+                        }
+                    }
+                    diff_scalar_snapshots(pre_spawn_scene_state, scene_now, STR("scene"));
+                }
+            }
+
             // **Take every camera rig that is not YOURS out of the post-process blend.**
             // See GHOST_NEUTRALISE_CAMERA_RIGS for the measurement; the short version is that a
             // ghost brings its own `BP_PlayerCam_C`, the rig is never destroyed when the ghost goes,
@@ -15607,7 +15845,17 @@ namespace MeshGhostPseudo
                 // per tick and only until the light is found -- the light lives in a
                 // ChildActorComponent that does not exist at spawn, which is why a spawn-time write
                 // cannot replace this.
-                const bool hunting_light = !remote.light_zeroed && !g_ghost_light_forced_on;
+                // **Per tick, always -- `light_zeroed` no longer buys an interval.** It used to
+                // mean "found it once, slow down", which assumed the game writes 5000 exactly once
+                // at birth. If instead the ghost's own logic re-lights it every frame, a 30-tick
+                // sweep leaves it LIT for 29 of every 30 -- and the log stays silent, because the
+                // announce fires once per component. The user reporting a ghost that still glows
+                // while every readback says 0 is precisely that shape (2026-08-29).
+                //
+                // The flag now drives the COUNTER instead: the first zero is the announcement, and
+                // any later one means the game put the light back, which is a fact about this game
+                // worth having rather than something to quietly undo.
+                const bool hunting_light = !g_ghost_light_forced_on;
                 if (remote.ghost && (hunting_light || tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0))
                 {
                     const std::string ghost_name = to_utf8(remote.ghost->GetName());
@@ -15672,9 +15920,19 @@ namespace MeshGhostPseudo
                         call_set_light_intensity(light, target);
                         if (!g_ghost_light_forced_on)
                         {
-                            // Found and darkened: the per-tick hunt can stop. Left false while the
-                            // dev toggle forces the light on, so clearing the toggle resumes the
-                            // hunt instead of waiting out an interval.
+                            // Already darkened once and lit again: the game is re-lighting it, and
+                            // that is the finding. Logged on a widening scale so a per-frame
+                            // re-light says so loudly at first and then stops filling the log.
+                            if (remote.light_zeroed)
+                            {
+                                ++remote.light_relit_count;
+                                const uint64_t n = remote.light_relit_count;
+                                if (n == 1 || n == 10 || n == 100 || n == 1000 || n % 5000 == 0)
+                                {
+                                    Output::send(STR("[MeshGhostPseudo] ghost light: the game has re-lit this ghost {} time(s) since it was first turned down -- the hold is per-tick and it is earning it.\n"),
+                                                 n);
+                                }
+                            }
                             remote.light_zeroed = true;
                         }
                     }
