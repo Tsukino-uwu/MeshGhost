@@ -293,12 +293,29 @@ pawn's `PointLightComponent` at 0 the entire time — the wrong object.
   user watched exactly that go missing). The proper fix is syncing the peer's actual light state,
   the observation-mirror shape the recall glow uses.
 - **OPEN — the pickup CROSS-WIRE: a peer picking up their thrown sword drives the LOCAL player's
-  pickup animation (and, pre-kill, the temp light) on the other machine.** Watched three rounds:
-  with `changeEquippedWeapon` skipped, with `updateWeaponEquip` skipped — cross-wire survived
-  BOTH single skips, so it is neither alone or each independently; the BOTH-skipped combination
-  is armed and untested. **Regression while split-testing: with EITHER call skipped the ghost's
-  sword no longer leaves its hand on a throw** — the pair is load-bearing together (2026-08-15
-  confirmed them working as a pair).
+  pickup animation (and, pre-kill, the temp light) on the other machine.** Watched FOUR rounds:
+  `changeEquippedWeapon` skipped, `updateWeaponEquip` skipped, and BOTH skipped — the cross-wire
+  survived every combination, so **neither adapter call is the carrier**. Next suspect: the
+  thrown-weapon PROP (a real `BP_looseWeapon_C`) being destroyed on the pickup edge — its own
+  destruction/pickup logic reaching "the player". Untested. **Regression while split-testing:
+  with EITHER call skipped the ghost's sword no longer leaves its hand on a throw** — the pair is
+  load-bearing together (2026-08-15 confirmed them working as a pair); both restored.
+- **THE LATCH'S REAL MECHANISM (measured down to the actor, 2026-08-29 late):** destruction at
+  any speed failed (per-tick, same-tick, and template-suppressing the vertex light entirely — the
+  latch fired through all three), and the MPC theory died the same way: `probe_namecensus` stage
+  10 measured the live `MPC_PlayerRelated.PlayerLocation` holding the GHOST's position on both
+  instances, a real theft — but a native pre-hook redirecting every write to the local player's
+  position (`guard_playerlocation.txt`, watched rewriting 100+ times) did not stop the latch
+  either. What is left, and what the stage-12/13 census supports: the level's lighting is run by
+  **`BP_LightManager_C`** (an `IlluminatedComponents` map) fed by **`BP_LightTransition_C`
+  trigger volumes**, and a pawn fires BeginOverlap for the volume it SPAWNS inside — the ghost
+  spawns in the lit zone and transitions the whole scene. **Fix built and deployed, UNWATCHED:**
+  `ghost_no_overlap.txt` flips the capsule template's `bGenerateOverlapEvents` off around our
+  `SpawnActor` (the same CDO trick as the vertex light, because spawn-time overlaps fire inside
+  `SpawnActor`). If confirmed, ghosts also stop firing encounters/hazards/save-point triggers —
+  the same singleplayer assumption, everywhere.
+- **The MPC PlayerLocation THEFT is real regardless of the latch** — the guard stays armed; what
+  visual it owns (if any, now that the vertex light is dead) is unmeasured.
 - **OPEN, new observation while testing: the ghost's thrown sword was never seen in the AIR** —
   it appeared only on the ground (glowing there, which matches the real one). May predate today.
 - **Method note for the next subtraction that "matches 0":** the nametag toggle armed from BOOT
@@ -312,6 +329,29 @@ The census that found all of this is `probe_namecensus/` (deployed as `MeshGhost
 the reloader can re-run it any time — it prints world inventories by class, `MPC_PlayerRelated`
 (one parameter: `PlayerLocation`), per-mesh materials/flags, and the `PlayerLight`/`LightMesh`
 pair. `PROBES.md` has the entry.
+
+### WHERE THE NEXT SESSION STARTS
+
+**The rig is deployed and armed; nothing needs rebuilding to run the next test.** Toggle files
+present beside the DLL: `ghost_no_overlap.txt` (**the untested fix**), `guard_playerlocation.txt`,
+`hide_ghost_lightmesh.txt`, `hide_ghost_playerlight.txt`.
+
+1. **Run the latch test.** Relay + two instances, client 1 into the dark area, client 2 connects.
+   If client 1 stays dark, the overlap suppression is the answer and the three light bugs are one
+   story: **a ghost is a player-class pawn, so the game treats it as the player everywhere** — it
+   paints light, it carries the save's upgrades, and it trips the world's triggers.
+2. **If the latch still fires**, the remaining doors are `BP_LightManager_C`'s
+   `IlluminatedComponents` map (read it on both instances, latched vs clean — it is a
+   `MapProperty` and needs a targeted read the census does not yet do) and `BP_SafeZones_C` /
+   `BP_MapVolume_C`, which were never dumped.
+3. **Then the pickup cross-wire**, which is independent of all of the above and is the last open
+   defect: suspect the thrown prop's own destruction path.
+4. **Then promote the toggles to shipped defaults** (`FLAGS.md` entries, dev toggles removed) and
+   answer the parity question the user has not been asked yet: whether a peer who legitimately
+   has the ascendant light should glow to others, which needs the light state on the wire.
+
+**Every fix in this session is behind a dev toggle and none of it ships yet** — `CLAUDE.md`'s rule
+that instruments ship off applies to all six toggle files listed above.
 
 ## SUPERSEDED by the section above — kept for its measurements (2026-08-29, long session)
 

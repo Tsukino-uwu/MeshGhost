@@ -674,6 +674,7 @@ namespace MeshGhostPseudo
         // native-function RegisterPreHook shape as the camera and fade guards (a BLUEPRINT
         // UFunction hook crashes this build -- see the warning above load_map_pre_callback_id).
         auto register_afterimage_outline_guard() -> void;
+        auto register_playerlocation_guard() -> void;
 
         // Spawns / drives / destroys the prop that stands in for a peer's ranged projectile.
         auto tick_remote_projectile(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
@@ -1159,6 +1160,17 @@ namespace MeshGhostPseudo
         int32_t fade_hook_id{-1};
         RC::Unreal::UFunction* srcd_function{nullptr}; // cached "SetRenderCustomDepth", found once
         int32_t afterimage_outline_hook_id{-1};
+
+        // MPC PlayerLocation guard (2026-08-29): KismetMaterialLibrary::SetVectorParameterValue
+        // pre-hook plus the objects it needs. guard_local_* is the local player's position, cached
+        // by game_thread_tick each tick; hook and tick share the game thread, so no lock.
+        RC::Unreal::UFunction* svpv_function{nullptr}; // cached "SetVectorParameterValue", found once
+        int32_t svpv_hook_id{-1};
+        RC::Unreal::UObject* mpc_player_related{nullptr}; // cached MPC asset, found lazily
+        double guard_local_x{0.0};
+        double guard_local_y{0.0};
+        double guard_local_z{0.0};
+        bool guard_local_valid{false};
 
         // Afterimage attribution, shared between the SetRenderCustomDepth pre-hook and the
         // per-tick sweep in game_thread_tick (both run on the game thread). Keyed by actor

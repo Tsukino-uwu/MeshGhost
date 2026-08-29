@@ -274,3 +274,6 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A billboard faces the CAMERA, not the player pawn (Pseudoregalia, 2026-08-29)
 - A whole-world enumeration crashed the game, and the probe's own question never needed one (Pseudoregalia, 2026-08-29)
 - A fix that depends on an object being REACHABLE breaks when you change that object's LIFETIME (Pseudoregalia, 2026-08-29)
+- A census of what EXISTS beats eleven targeted eliminations (Pseudoregalia, 2026-08-29)
+- A cosmetic ghost fires the world's triggers, and spawn-time overlaps fire inside SpawnActor (Pseudoregalia, 2026-08-29)
+- The game's own pickup path can reach the local player from a ghost (Pseudoregalia, 2026-08-29, OPEN)

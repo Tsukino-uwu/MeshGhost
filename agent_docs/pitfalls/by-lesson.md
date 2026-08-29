@@ -5080,3 +5080,92 @@ reads the place this used to live?* Here the answer was one function 6,000 lines
 measured (a `local` transition within ~100ms of a ghost spawn). Re-running that check against the
 new build before handing it over would have caught the regression without a live session. A
 confirmed defect with a known signature is a free regression test; use it as one.
+
+## A CENSUS OF WHAT EXISTS BEATS ELEVEN TARGETED ELIMINATIONS (Pseudoregalia, 2026-08-29)
+
+**Symptom:** a ghost glowed in a dark area and lit the wall around it, and a second bug brightened
+a whole scene the moment any ghost spawned. Two sessions of elimination killed eleven suspects by
+measurement — the ghost's `PointLight` (held at 0 within 4ms and never re-lit), its model, its
+materials, its lighting channels, `bRenderCustomDepth`, every camera's post-process blend, the
+level's post-process, the shared GameInstance, a census of `LightComponent` **and every subclass**
+finding only the two players' lights — and the glow was still on screen.
+
+**Cause:** the mechanism was never a light. Every pawn carries a `PlayerLight`
+`ChildActorComponent` holding a **`BP_DynamicVertexLight_C`**, retro vertex lighting that paints
+brightness into level geometry with no light component anywhere, plus a **`LightMesh`**
+(`StaticMeshComponent`, `M_SpiritAura`) for the blade aura. A ghost constructs from the LOCAL
+save, which owns the ascendant-light upgrade, so it is born wearing the whole kit while the real
+player's is driven off gameplay state.
+
+**What actually found it:** a probe that dumped **what EXISTS**, unfiltered — every class in the
+world, every component on both pawns, every material and its parameters — instead of testing the
+next hypothesis. It named `BP_DynamicVertexLight_C` in one run, and the subtraction that followed
+turned every ghost dark with the user watching. `probes.md`'s rule 3 ("a filter applied before you
+look is a guess about the answer") applies to SUSPECT LISTS, not just log filters: eleven
+eliminations were eleven filters, each correct and each blind to a class nobody had named.
+
+**And a name from a human beat every instrument:** `LightMesh` came from a speedrunner the user
+asked, after the census had matched materials and particles as identical. Ask someone who plays
+the game.
+
+**The rules that fall out:**
+
+- **When N targeted subtractions all come back clean and the symptom is still there, stop
+  subtracting and enumerate.** Cheap, one run, and it cannot be wrong about what exists.
+- **A ghost built by cloning the player is born with everything the SAVE owns**, not what the
+  player currently displays — upgrades, auras, lights. Enumerate the clone against the original.
+- **A visual with no light component is a real mechanism, not an impossibility.** Vertex painting,
+  emissive meshes and Niagara light renderers all light a scene while every light census reads 0.
+
+## A COSMETIC GHOST FIRES THE WORLD'S TRIGGERS, AND SPAWN-TIME OVERLAPS FIRE INSIDE SpawnActor (Pseudoregalia, 2026-08-29)
+
+**Symptom:** the whole scene on client 1 flipped to a lit state the instant client 2 connected,
+from across the level, before the peer was anywhere near — and it survived the peer leaving,
+clearing only when the player walked out of the dark area and back in.
+
+**Three fixes that all failed, in escalating order** — each one worth recording because each
+looked certain:
+
+1. Destroying the ghost's vertex-light child actor per tick. 2. Destroying it in the same tick as
+`SpawnActor`, logged as called. 3. Nulling the class template's `ChildActorClass` so the light
+actor is never created at all. **The latch fired through all three**, which is what finally
+separated the PAINTER from the WRITER.
+
+4. A fourth theory died the same way, with a real measurement behind it: `MPC_PlayerRelated`'s one
+parameter, `PlayerLocation`, was measured holding the GHOST's position on both instances — a
+genuine theft, since a ghost is a player-class pawn writing the shared slot every tick. A native
+`SetVectorParameterValue` pre-hook redirecting every write to the local player's position was
+watched rewriting 100+ times, and the latch fired anyway. **A confirmed wrong value is not
+automatically the cause of the symptom you are chasing.**
+
+**Cause (built, not yet confirmed):** this level's lighting is `BP_LightManager_C` driven by
+`BP_LightTransition_C` **trigger volumes**. A pawn fires BeginOverlap for whatever volume it
+spawns inside, and that happens **during `SpawnActor`** — so a ghost spawning in a lit zone
+transitions the local scene's lighting before any of our code gets a tick. The same class of
+assumption sits under every trigger in a singleplayer game: encounters, hazards, save points.
+
+**The fix shape, and it generalises:** suppress the behaviour on the CLASS TEMPLATE around your
+own spawn call, then restore it — the ghost is born without it. `bGenerateOverlapEvents` off on
+the capsule template here; the same trick nulls `ChildActorClass` two lines above.
+
+**The rule:** **a cosmetic ghost must never fire the world's triggers.** Ask what a second copy of
+the player pawn will TOUCH on arrival, not just what it looks like.
+
+## THE GAME'S OWN PICKUP PATH CAN REACH THE LOCAL PLAYER FROM A GHOST (Pseudoregalia, 2026-08-29, OPEN)
+
+**Symptom:** a peer picking up their thrown sword makes YOUR character play the pickup animation
+on your machine — a peer's action puppeteering the local player, which is worse than any cosmetic
+defect this project has had.
+
+**What has been eliminated:** the two adapter calls on that edge, `changeEquippedWeapon` and
+`updateWeaponEquip`, skipped individually and together across four live rounds. The cross-wire
+survived every combination. **Recorded because the "try the combination" rule normally pays off
+here and this time it did not** — the answer was that neither call is the carrier.
+
+**Side finding, and a warning for the next split test:** with EITHER call skipped, the ghost's
+sword stopped leaving its hand on a throw. The pair is load-bearing together (they were confirmed
+as a pair in 2026-08-15), so a single-call A/B breaks a working feature while proving nothing
+about the bug.
+
+**Still open.** Next suspect is the thrown prop itself — a real `BP_looseWeapon_C` that the
+adapter destroys on the pickup edge, whose own logic may hand the sword back to "the player".

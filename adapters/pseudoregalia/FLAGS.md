@@ -175,6 +175,37 @@ confirmed the current one, purely to remove a log line.
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS` is derived, not set: it is true whenever either montage
 probe is on, and exists so a probe run does not fight the adapter's own montage stops.
 
+## RUNTIME dev toggles — files beside the DLL, and NONE of them may ship (2026-08-29)
+
+**A different mechanism from every flag above, and the register has to name it or an audit that
+counts `constexpr bool` will report the build clean while six switches are live.** These are read
+from the filesystem at runtime: a file's mere PRESENCE next to `main.dll` flips behaviour, polled
+every `DEV_TOGGLE_POLL_TICKS`. That is what makes them worth having — a peer's ghost can be
+changed mid-session without a rebuild or a relaunch, which is how the light hunt ran a dozen
+subtractions in one game session — and exactly what makes them dangerous: **a shipped build with
+these compiled in behaves differently for anyone who happens to create a file with the right
+name.** They are gated behind `GHOST_CUSTOM_DEPTH_DEV_TOGGLE`, which is `true` in the committed
+build and must go `false` (with the toggles removed) before release.
+
+| File | What it does |
+| --- | --- |
+| `hide_ghost_playerlight.txt` | Destroys each ghost's `BP_DynamicVertexLight_C`, and suppresses it at spawn via the class template. **The ghost-glow fix.** |
+| `hide_ghost_lightmesh.txt` | Hides each ghost's `LightMesh` (`M_SpiritAura`). **The blade-aura fix.** |
+| `ghost_no_overlap.txt` | Spawns ghosts with capsule overlap events suppressed, so they cannot fire world triggers. **The scene-latch fix, unwatched.** |
+| `guard_playerlocation.txt` | Native pre-hook redirecting every `MPC_PlayerRelated.PlayerLocation` write to the local player's position. |
+| `skip_ghost_equip_call.txt` | Skips `changeEquippedWeapon` on ghosts. Split test only — **it breaks the ghost's sword throw.** |
+| `skip_ghost_equip_anim.txt` | Skips `updateWeaponEquip` on ghosts. Same, same regression. |
+| `hide_ghost_mesh.txt`, `hide_ghost_weapon.txt`, `hide_ghost_fx.txt`, `hide_ghost_shadow.txt`, `hide_ghost_nametag.txt`, `keep_custom_depth.txt`, `ghost_light_on.txt` | Subtraction instruments, one component class each. |
+
+**Two of these subtractions LIE and are not to be trusted** (measured 2026-08-29): the nametag and
+blob-shadow sweeps report `0 of N` switched while the components are on screen. The nametag was
+eventually eliminated only because the toggle armed from BOOT works by a different path — the
+updater never runs, so the components are never created. The `bVisible` byte read is the suspect;
+until that is fixed, **only a subtraction printing a NON-ZERO count is evidence.**
+
+The first four are fixes wearing an instrument's clothes and are the next promotion job:
+`pseudoregalia/UNVERIFIED.md`, "WHERE THE NEXT SESSION STARTS".
+
 ## Dormant — recorded negatives and retired approaches
 
 | Flag | Why it is kept |

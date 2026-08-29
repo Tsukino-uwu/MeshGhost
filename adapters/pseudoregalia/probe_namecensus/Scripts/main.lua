@@ -274,6 +274,145 @@ local function census()
             end
         end
 
+        -- Stage 10: the LIVE value of MPC_PlayerRelated.PlayerLocation, beside every pawn's
+        -- actual position. One slot, two pawns writing -- whichever position the slot tracks is
+        -- the writer. KismetMaterialLibrary is reached by exact path (not FindAllOf) and
+        -- GetVectorParameterValue is a static pure read; pawn positions come from named property
+        -- reads only.
+        pcall(function()
+            local kml = StaticFindObject("/Script/Engine.Default__KismetMaterialLibrary")
+            local mpc2 = StaticFindObject("/Game/MatTex/Materials/MPC_PlayerRelated.MPC_PlayerRelated")
+            local pawns2 = FindAllOf("BP_PlayerGoatMain_C") or {}
+            if kml and kml:IsValid() and mpc2 and mpc2:IsValid() and pawns2[1] then
+                local v = kml:GetVectorParameterValue(pawns2[1], mpc2, FName("PlayerLocation"))
+                if v then
+                    print(string.format("%s MPC PlayerLocation LIVE = (%.1f, %.1f, %.1f)\n",
+                                        TAG, v.R, v.G, v.B))
+                end
+                for i, pawn in ipairs(pawns2) do
+                    pcall(function()
+                        local root = pawn.RootComponent
+                        local loc = root.RelativeLocation
+                        print(string.format("%s pawn %d (%s) at (%.1f, %.1f, %.1f)\n", TAG, i,
+                                            pawn:GetFName():ToString(), loc.X, loc.Y, loc.Z))
+                    end)
+                end
+            else
+                print(string.format("%s stage 10: KML/MPC/pawn unavailable, nothing read.\n", TAG))
+            end
+        end)
+
+        -- Stage 11: the LEVEL SCRIPT ACTOR's bool/number state. One instance of this game is
+        -- latched bright and the other is correctly dark in the same level right now -- any
+        -- level-BP variable that differs between the two printouts is the darkness flag. Property
+        -- NAMES are enumerated but values are read ONLY for bool/float/int/byte-classed
+        -- properties -- object-valued properties are never touched, which is the side of the
+        -- crash line probes stay on.
+        for _, klass in ipairs({"ZONE_Dungeon_C", "LevelScriptActor"}) do
+            for i, lsa in ipairs(FindAllOf(klass) or {}) do
+                if lsa and lsa:IsValid() then
+                    pcall(function()
+                        print(string.format("%s levelscript %s %d full=%s\n", TAG, klass, i, lsa:GetFullName()))
+                        -- ForEachProperty lives on the CLASS; called on the instance it silently
+                        -- iterates nothing (measured: zero lines, no error). Coverage is counted
+                        -- and printed so an empty result and a broken walk can never be confused.
+                        local seen, printed = 0, 0
+                        local c = lsa:GetClass()
+                        while c and c:IsValid() do
+                            c:ForEachProperty(function(prop)
+                                seen = seen + 1
+                                pcall(function()
+                                    local pclass = prop:GetClass():GetFName():ToString()
+                                    if pclass == "BoolProperty" or pclass == "FloatProperty"
+                                       or pclass == "DoubleProperty" or pclass == "IntProperty"
+                                       or pclass == "ByteProperty" then
+                                        local pname = prop:GetFName():ToString()
+                                        local v = lsa[pname]
+                                        printed = printed + 1
+                                        print(string.format("%s   %s (%s) = %s\n", TAG, pname, pclass, tostring(v)))
+                                    end
+                                end)
+                            end)
+                            local sup = nil
+                            pcall(function() sup = c:GetSuperStruct() end)
+                            if sup and sup ~= c and sup:IsValid() and sup:GetFName():ToString():find("ZONE") then
+                                c = sup
+                            else
+                                c = nil
+                            end
+                        end
+                        print(string.format("%s   levelscript coverage: %d properties walked, %d value(s) printed.\n",
+                                            TAG, seen, printed))
+                    end)
+                end
+            end
+        end
+
+        -- Stage 13: BP_LightManager_C and BP_LightTransition_C state -- the scene-darkness
+        -- suspects the stage-12 inventory named. Values read only for bool/number-classed
+        -- properties, same crash-line discipline as stage 11.
+        for _, klass in ipairs({"BP_LightManager_C", "BP_LightTransition_C"}) do
+            for i, mgr in ipairs(FindAllOf(klass) or {}) do
+                if mgr and mgr:IsValid() then
+                    pcall(function()
+                        print(string.format("%s %s %d full=%s\n", TAG, klass, i, mgr:GetFullName()))
+                        local seen, printed = 0, 0
+                        local c = mgr:GetClass()
+                        local hops = 0
+                        while c and c:IsValid() and hops < 4 do
+                            c:ForEachProperty(function(prop)
+                                seen = seen + 1
+                                pcall(function()
+                                    local pclass = prop:GetClass():GetFName():ToString()
+                                    if pclass == "BoolProperty" or pclass == "FloatProperty"
+                                       or pclass == "DoubleProperty" or pclass == "IntProperty"
+                                       or pclass == "ByteProperty" then
+                                        local pname = prop:GetFName():ToString()
+                                        local v = mgr[pname]
+                                        printed = printed + 1
+                                        print(string.format("%s   %s (%s) = %s\n", TAG, pname, pclass, tostring(v)))
+                                    else
+                                        -- Name and type only for everything else -- the class's
+                                        -- OWN variables are mostly struct/object typed and their
+                                        -- NAMES are what the next targeted read needs.
+                                        print(string.format("%s   %s (%s) = <unread>\n", TAG,
+                                                            prop:GetFName():ToString(), pclass))
+                                    end
+                                end)
+                            end)
+                            local sup = nil
+                            pcall(function() sup = c:GetSuperStruct() end)
+                            if sup and sup ~= c and sup:IsValid() then c = sup; hops = hops + 1 else c = nil end
+                        end
+                        print(string.format("%s   %s coverage: %d walked, %d printed.\n", TAG, klass, seen, printed))
+                    end)
+                end
+            end
+        end
+
+        -- Stage 12: unique ACTOR CLASS inventory. The darkness state is not in the level script
+        -- (5 properties, none printable), so it lives in some actor nobody has named yet. One
+        -- FindAllOf over Actor, names only, aggregated to unique class names -- the log gets one
+        -- line per class, not per instance.
+        pcall(function()
+            local classes = {}
+            for _, a in ipairs(FindAllOf("Actor") or {}) do
+                if a and a:IsValid() then
+                    pcall(function()
+                        local cn = a:GetClass():GetFName():ToString()
+                        classes[cn] = (classes[cn] or 0) + 1
+                    end)
+                end
+            end
+            local sorted = {}
+            for cn, n in pairs(classes) do table.insert(sorted, string.format("%s x%d", cn, n)) end
+            table.sort(sorted)
+            print(string.format("%s actor class inventory (%d unique):\n", TAG, #sorted))
+            for _, line in ipairs(sorted) do
+                print(string.format("%s   %s\n", TAG, line))
+            end
+        end)
+
         print(string.format("%s census ends.\n", TAG))
     end)
     if not ok then

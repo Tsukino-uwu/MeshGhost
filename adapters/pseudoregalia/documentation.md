@@ -496,6 +496,62 @@ every sort priority tried, up to 32760, while opaque geometry in the same spot w
 practical consequence for any future world-space visual — marker, label, outline — is that "must
 stay visible" means "must be opaque". Full evidence: `agent_docs/pitfalls/by-host.md`, 2026-08-29.
 
+## Light and darkness: painted into the geometry, not cast by lights
+
+**Fields:** none on the pawn drive it. **Components:** `PlayerLight` (a `ChildActorComponent`
+holding a `BP_DynamicVertexLight_C`), `LightMesh` (a `StaticMeshComponent`), `PointLight`.
+**Where we read it:** engine reflection against two running instances, 2026-08-29.
+
+**The dark areas are not lit by light components.** A census of `LightComponent` and every subclass
+in a dark dungeon map finds exactly two lights in the whole level — one per character — and the
+walls are still lit. What actually lights the room is **vertex lighting painted into the level
+geometry**: the world holds a `BP_StaticVertexLight_C` per fixture (32 of them in that map, one per
+wall sconce) and every character carries a **`BP_DynamicVertexLight_C`** inside its `PlayerLight`
+child actor component, which paints brightness onto nearby geometry as the character moves.
+
+The practical consequence is that **the usual way of asking "what is lighting this?" returns
+nothing** — no light, no material parameter on the surface, no post-process. The brightness is in
+the geometry's own vertex data, put there by an actor whose class name is the only thing that says
+so. Anything chasing a lighting question in this game should enumerate actors, not lights.
+
+A second collection sits alongside it: **`MPC_PlayerRelated`**, a material parameter collection
+with exactly one parameter, `PlayerLocation`, updated every tick with the player's world position.
+Materials that need to know where the player is read it from there — one global slot, written by
+the character, which makes it a singleplayer assumption the same way the trigger volumes below are.
+
+**Room lighting is driven by trigger volumes, not by where you are.** `BP_LightTransition_C`
+volumes (four in that map) feed a single `BP_LightManager_C`, which holds the level's illuminated
+components in a map and transitions them. Walking through a volume is what changes the scene's
+lighting state — which is why walking out of a dark area and back in repairs a scene whose lighting
+has ended up in the wrong state.
+
+**The player does not normally glow.** In ordinary play a character in a dark area is dark. The
+three sources of light on or near a character, per a player who knows the game (2026-08-29):
+
+- **The ascendant light upgrade**, which is a save flag (`havelight?`) — once obtained, the
+  character carries light with them.
+- **A temporary light after throwing the sword and picking it back up**, which also appears when
+  collecting light while unarmed. It is temporary and gameplay-driven.
+- **The pickup orbs in the world**, which emit light of their own.
+
+## The blade aura is a separate mesh, not a material or an effect
+
+**Components:** `LightMesh` on the pawn. **Material:** `M_SpiritAura_Inst1`, whose parent is
+`M_SpiritAura` — a gold colour, roughly `(0.88, 0.81, 0.27)`, at half opacity. **Where we read it:**
+component and material census on two running instances, 2026-08-29.
+
+The golden shimmer along the sword when the ascendant light is active is **its own mesh component**,
+drawn over the weapon. It is not a material swap on the weapon (`mainWeapon`'s material is
+`MI_PlayerWepon` with or without the aura), not an overlay material (that field is empty on every
+mesh), not a Niagara or particle effect (the only particle system on a character is
+`NE_Particles_System`, and hiding it changes nothing about the aura), and not custom depth — which
+is the through-walls outline and a visibly different look.
+
+**This matters because it is the third component in the same family**, and all three answer to the
+save rather than to what the character is currently doing: `PlayerLight`'s vertex light, `LightMesh`
+for the blade, and the pawn's own `PointLight`. Anything reasoning about "is this character lit"
+has to ask all three, and none of them is visible to a search for lights.
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:

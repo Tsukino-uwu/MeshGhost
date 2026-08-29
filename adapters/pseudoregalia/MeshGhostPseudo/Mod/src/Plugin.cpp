@@ -1880,6 +1880,15 @@ namespace MeshGhostPseudo
     // Skip updateWeaponEquip on the ghost's anim instance -- the second half of the pickup
     // cross-wire split, see the call site.
     bool g_ghost_equip_anim_skipped = false;
+    // Guard MPC_PlayerRelated.PlayerLocation against ghost writes -- see
+    // register_playerlocation_guard. Measured 2026-08-29 (probe_namecensus stage 10): the live
+    // slot held the GHOST's position on both instances, so the ghost's own tick is winning the
+    // one shared slot the dark-zone materials reference. This is bug 1's writer.
+    bool g_playerlocation_guarded = false;
+    // Suppress overlap events on ghost capsules -- see the spawn-site template flip. The scene
+    // latch is a ghost spawning inside a BP_LightTransition_C volume and transitioning the local
+    // scene's lighting; more generally, a cosmetic ghost must never fire world triggers.
+    bool g_ghost_no_overlap = false;
     // Hide only the ghost's WeaponMesh -- the blade-shimmer split, see the mesh loop.
     bool g_ghost_weapon_hidden = false;
     // Hide only the ghost's LightMesh -- the ascendant-light blade aura, see the mesh loop.
@@ -7182,6 +7191,10 @@ namespace MeshGhostPseudo
         {
             srcd_function->UnregisterHook(afterimage_outline_hook_id);
         }
+        if (svpv_function && svpv_hook_id != -1)
+        {
+            svpv_function->UnregisterHook(svpv_hook_id);
+        }
     }
 
     // Kept from the "Fatal world leaks detected" investigation: dumps every remote's ghost
@@ -9177,6 +9190,90 @@ namespace MeshGhostPseudo
         register_damage_guard_hooks();
         register_fade_guard_hook();
         register_afterimage_outline_guard();
+        register_playerlocation_guard();
+    }
+
+    // The MPC PlayerLocation guard, 2026-08-29. MPC_PlayerRelated holds exactly one parameter,
+    // PlayerLocation, and it is the reference every dark-zone material shades against. A ghost is
+    // a player-class pawn, so its Blueprint tick writes its OWN position into that one shared slot
+    // and wins -- measured live by probe_namecensus stage 10: the slot held the ghost's position,
+    // to the decimal, on both instances of a two-player session. A wrong reference at connect time
+    // is the scene latch (bug 1 of the glow hunt); suppressing the ghost's vertex-light ACTOR did
+    // not touch it, which is how the writer was finally separated from the painter.
+    //
+    // Same shape as register_camera_fightback_hook: a native-function RegisterPreHook rewriting
+    // the argument buffer in place. Every write to THIS collection's PlayerLocation gets its value
+    // replaced with the local player's live position -- the player's own writes are unchanged by
+    // construction, and a ghost's write becomes a no-op refresh of the correct value. No caller
+    // attribution needed, which is what makes this safe against however many pawns exist.
+    auto Plugin::register_playerlocation_guard() -> void
+    {
+        svpv_function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/Engine.KismetMaterialLibrary:SetVectorParameterValue"));
+        if (!svpv_function)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: could not find KismetMaterialLibrary:SetVectorParameterValue -- PlayerLocation guard unavailable this session.\n"));
+            return;
+        }
+
+        struct SetVectorParameterValueLocals
+        {
+            UObject* WorldContextObject;
+            UObject* Collection;
+            FName ParameterName;
+            float R;
+            float G;
+            float B;
+            float A;
+        };
+
+        svpv_hook_id = svpv_function->RegisterPreHook(
+            [this](UnrealScriptFunctionCallableContext& ctx, void*) {
+                if (!g_playerlocation_guarded || !guard_local_valid)
+                {
+                    return;
+                }
+                auto& locals = ctx.GetParams<SetVectorParameterValueLocals>();
+                if (!locals.Collection)
+                {
+                    return;
+                }
+                // Lazy-cache the MPC asset; pointer compare is the cheap filter that keeps this
+                // hook free for every other collection write in the game.
+                if (!mpc_player_related)
+                {
+                    mpc_player_related = UObjectGlobals::StaticFindObject<UObject*>(
+                        nullptr, nullptr, STR("/Game/MatTex/Materials/MPC_PlayerRelated.MPC_PlayerRelated"));
+                }
+                if (locals.Collection != mpc_player_related)
+                {
+                    return;
+                }
+                if (locals.ParameterName.ToString() != STR("PlayerLocation"))
+                {
+                    return;
+                }
+                const bool was_ours = std::abs(static_cast<double>(locals.R) - guard_local_x) < 1.0 &&
+                                      std::abs(static_cast<double>(locals.G) - guard_local_y) < 1.0 &&
+                                      std::abs(static_cast<double>(locals.B) - guard_local_z) < 1.0;
+                locals.R = static_cast<float>(guard_local_x);
+                locals.G = static_cast<float>(guard_local_y);
+                locals.B = static_cast<float>(guard_local_z);
+                if (!was_ours)
+                {
+                    // A write that was NOT the local player's position -- the theft this guard
+                    // exists for. Logged on a widening scale, per-tick writes being the norm.
+                    static uint64_t rewrites = 0;
+                    ++rewrites;
+                    if (rewrites == 1 || rewrites == 10 || rewrites == 100 || rewrites % 5000 == 0)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] PLAYERLOC guard: rewrite #{} -- a non-player write to MPC PlayerLocation was redirected to the local player's position.\n"),
+                                     rewrites);
+                    }
+                }
+            },
+            nullptr);
+        Output::send(STR("[MeshGhostPseudo] PlayerLocation guard registered (acts only while guard_playerlocation.txt is present).\n"));
     }
 
     // Phase 7.6, third attempt. Root cause of why the first two attempts never even fired: this
@@ -9920,7 +10017,40 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Same trick for OVERLAP EVENTS, 2026-08-29 (the scene-latch endgame): a pawn fires
+        // BeginOverlap for whatever volume it spawns inside, DURING SpawnActor -- and this level's
+        // lighting is driven by BP_LightTransition_C trigger volumes feeding BP_LightManager_C, so
+        // a ghost spawning in a lit zone transitions the WHOLE SCENE on this machine. A cosmetic
+        // ghost should never fire the world's triggers at all (encounters, hazards and save points
+        // carry the same singleplayer assumption). Template off, spawn, restore.
+        UObject* ov_template_capsule = nullptr;
+        bool ov_saved_generate = false;
+        if (g_ghost_no_overlap && pawn_class)
+        {
+            if (UObject* cdo = pawn_class->GetClassDefaultObject())
+            {
+                if (UObject** cap = cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap && *cap)
+                {
+                    if (bool* gen = (*cap)->GetValuePtrByPropertyNameInChain<bool>(STR("bGenerateOverlapEvents")))
+                    {
+                        ov_template_capsule = *cap;
+                        ov_saved_generate = *gen;
+                        *gen = false;
+                    }
+                }
+            }
+        }
+
         AActor* ghost = world->SpawnActor(pawn_class, &spawn_loc, &spawn_rot);
+
+        if (ov_template_capsule)
+        {
+            if (bool* gen = ov_template_capsule->GetValuePtrByPropertyNameInChain<bool>(STR("bGenerateOverlapEvents")))
+            {
+                *gen = ov_saved_generate;
+            }
+            Output::send(STR("[MeshGhostPseudo] DEV: ghost spawned with capsule overlap events suppressed (template flipped for the spawn, restored after).\n"));
+        }
 
         if (vl_template_cac)
         {
@@ -11389,6 +11519,11 @@ namespace MeshGhostPseudo
             auto* pawn = static_cast<AActor*>(pawn_obj);
             FVector location = pawn->K2_GetActorLocation();
             FRotator rotation = pawn->K2_GetActorRotation();
+            // Feed the PlayerLocation guard -- same thread as the hook, no lock needed.
+            guard_local_x = location.X();
+            guard_local_y = location.Y();
+            guard_local_z = location.Z();
+            guard_local_valid = true;
             current_world = static_cast<UWorld*>(pawn->GetWorld());
             if (current_world != last_logged_world)
             {
@@ -17424,6 +17559,24 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost meshes now {} (hide_ghost_mesh.txt {}).\n"),
                                  hide_mesh ? STR("HIDDEN") : STR("shown"),
                                  hide_mesh ? STR("present") : STR("gone"));
+                }
+
+                const bool no_overlap = dev_toggle_present(STR("ghost_no_overlap.txt"));
+                if (no_overlap != g_ghost_no_overlap)
+                {
+                    g_ghost_no_overlap = no_overlap;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost capsule overlap events now {} (ghost_no_overlap.txt {}). Applies to ghosts spawned AFTER the flip.\n"),
+                                 no_overlap ? STR("SUPPRESSED") : STR("normal"),
+                                 no_overlap ? STR("present") : STR("gone"));
+                }
+
+                const bool guard_ploc = dev_toggle_present(STR("guard_playerlocation.txt"));
+                if (guard_ploc != g_playerlocation_guarded)
+                {
+                    g_playerlocation_guarded = guard_ploc;
+                    Output::send(STR("[MeshGhostPseudo] DEV: MPC PlayerLocation guard now {} (guard_playerlocation.txt {}).\n"),
+                                 guard_ploc ? STR("ACTIVE") : STR("off"),
+                                 guard_ploc ? STR("present") : STR("gone"));
                 }
 
                 const bool hide_lightmesh = dev_toggle_present(STR("hide_ghost_lightmesh.txt"));
