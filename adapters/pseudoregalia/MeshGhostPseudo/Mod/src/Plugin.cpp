@@ -1853,6 +1853,17 @@ namespace MeshGhostPseudo
     // second source that looks the same), but it does mean the blob shadow must be tested on its
     // own rather than lumped in -- and this adapter has already had one bug where a ghost's blob
     // shadow differed from the player's (`GHOST_BLOB_SHADOW_ARM_MIRROR`).
+    // **The last thing attached to a ghost, 2026-08-29.** With the scene state repaired by an area
+    // transition AND the ghost's model, blob shadow and nametag all hidden, the user still sees a
+    // glow where the ghost stands. The level holds exactly two light components (a census of
+    // `LightComponent` and every subclass says so) and the ghost's reads 0 -- so the emitter is not
+    // a light at all.
+    //
+    // What is left is the pawn's `NE_Particles_System` Niagara component, active on every
+    // character. **A Niagara emitter can carry a LIGHT RENDERER**, which puts real light into the
+    // scene without ever being a light component -- invisible to every census run today, and the
+    // only remaining shape that fits.
+    bool g_ghost_fx_hidden = false;
     bool g_ghost_shadow_hidden = false;
     bool g_ghost_nametag_hidden = false;
 
@@ -14786,7 +14797,14 @@ namespace MeshGhostPseudo
             }
             // The nametag rides along with the redraw: the ghost has just been confirmed alive,
             // and the tag has to follow it every frame or it lags behind a moving peer.
-            update_ghost_nametag(remote, pawn_obj, id, have_camera ? &camera_location : nullptr);
+            // Skipped while the nametag subtraction is on. Hiding the components was not enough:
+            // this runs every tick and puts them back, so the toggle logged HIDDEN while the user
+            // still saw the tag -- the exact "never log the value you just wrote" trap, caught by
+            // the user looking rather than by the log.
+            if (!g_ghost_nametag_hidden)
+            {
+                update_ghost_nametag(remote, pawn_obj, id, have_camera ? &camera_location : nullptr);
+            }
 
             // Cheaper secondary check: only meaningful once current_world has actually resolved
             // this tick (it's null on ticks where the local pawn/controller aren't found, e.g.
@@ -15670,6 +15688,31 @@ namespace MeshGhostPseudo
             // left hidden when the file goes away.
             if constexpr (GHOST_CUSTOM_DEPTH_DEV_TOGGLE)
             {
+                // Every particle system this ghost owns. Attributed by OUTER, which for a component
+                // is its actor -- no attach walk needed. Swept rather than written once because a
+                // one-shot effect can spawn a new component at any time.
+                if (g_ghost_fx_hidden || tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
+                {
+                    for (const wchar_t* fx_class : {STR("NiagaraComponent"), STR("ParticleSystemComponent")})
+                    {
+                        std::vector<UObject*> effects;
+                        UObjectGlobals::FindAllOf(fx_class, effects);
+                        for (UObject* fx : effects)
+                        {
+                            if (!fx || fx->GetOuterPrivate() != static_cast<UObject*>(remote.ghost))
+                            {
+                                continue;
+                            }
+                            const bool want_visible = !g_ghost_fx_hidden;
+                            bool* visible = fx->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                            if (visible && *visible != want_visible)
+                            {
+                                call_set_visibility(fx, want_visible);
+                            }
+                        }
+                    }
+                }
+
                 // The blob shadow and the nametag, each on its own toggle so an answer names ONE
                 // of them rather than "something in that group". Same read-then-write shape as the
                 // meshes below: no engine call once a component is already where we want it.
@@ -15691,9 +15734,33 @@ namespace MeshGhostPseudo
                             continue;
                         }
                         bool* visible = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
-                        if (visible && *visible == hidden)
+                        if (!visible)
+                        {
+                            // **Every branch reports, including "could not read it".** The silent
+                            // version of this claimed success for two components that never moved.
+                            static std::set<std::string> announced_unreadable;
+                            const std::string n = to_utf8(component->GetName());
+                            if (announced_unreadable.insert(n).second)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] DEV: '{}' has no readable bVisible -- the subtraction cannot touch it.") STR("\n"),
+                                             to_wide_ascii(n));
+                            }
+                            continue;
+                        }
+                        if (*visible == hidden)
                         {
                             call_set_visibility(component, !hidden);
+                            // Read back independently, after the call: what the toggle INTENDED is
+                            // not evidence, and reporting the intent is what made the last run's
+                            // negative worthless.
+                            static std::set<std::string> announced_result;
+                            const std::string n = to_utf8(component->GetName());
+                            if (announced_result.insert(n).second)
+                            {
+                                bool* now = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                                Output::send(STR("[MeshGhostPseudo] DEV: '{}' asked for visible={}, reads back {}.") STR("\n"),
+                                             to_wide_ascii(n), !hidden, (now && *now) ? STR("true") : STR("false"));
+                            }
                         }
                     }
                 }
@@ -17158,6 +17225,15 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost light forced {} (ghost_light_on.txt {}).\n"),
                                  light_on ? STR("ON at 5000") : STR("off at 0"),
                                  light_on ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_fx = dev_toggle_present(STR("hide_ghost_fx.txt"));
+                if (hide_fx != g_ghost_fx_hidden)
+                {
+                    g_ghost_fx_hidden = hide_fx;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost particle systems now {} (hide_ghost_fx.txt {}).\n"),
+                                 hide_fx ? STR("HIDDEN") : STR("shown"),
+                                 hide_fx ? STR("present") : STR("gone"));
                 }
 
                 const bool hide_shadow = dev_toggle_present(STR("hide_ghost_shadow.txt"));
