@@ -1888,6 +1888,39 @@ namespace MeshGhostPseudo
     // UFunction on one crashed a live session twice on 2026-08-29 (`../../agent_docs/pitfalls.md`).
     constexpr uint64_t LIGHT_SWEEP_INTERVAL_TICKS = 30;
 
+    // **A ghost's CAMERA RIG blends its own post-process into your view, and the rig OUTLIVES the
+    // ghost. Measured 2026-08-29, and it is what the whole light hunt was actually chasing.**
+    //
+    // The count is the proof: one instance sat on THREE `BP_PlayerCam_C` rigs while the level held
+    // ONE character -- two orphans left by ghosts that no longer existed -- and every one of them
+    // reported `PostProcessBlendWeight=1.0` with `bIsActive=true`. A second active camera's
+    // post-process brightens the whole screen from any distance, which is the one shape that
+    // explains what the user reported: the room lighting up the instant a peer connected even
+    // across the level, staying lit after that peer went back to the main menu, and going away
+    // only when they walked out of the dark area and back in.
+    //
+    // It also retires every earlier theory in one go. The ghost's `PointLight` really is 0 within
+    // 4ms of spawn, its model can be hidden entirely, its materials and effects match the
+    // player's, and custom depth was subtracted live -- none of which mattered, because the ghost
+    // was never what was lighting the room.
+    //
+    // **Third time this exact frame has solved a bug here**: a ghost is a clone of the player pawn,
+    // so it brings its own copy of everything the player owns. It took the camera (2026-08-16), it
+    // drew its own HUD over the real one (2026-08-27), and now its camera rig is blending its
+    // post-process over the real view. `VERIFIED.md` has both.
+    //
+    // Neutralised rather than destroyed: `call_destroy_actor` on a camera rig is a dereference this
+    // adapter has already crashed on once (see release_ghost's note), and a blend weight of 0 makes
+    // the rig contribute nothing whether or not anything still points at it. Re-asserted on a sweep
+    // rather than written once, because an ORPHANED rig has no owner left to catch it at spawn.
+    constexpr bool GHOST_NEUTRALISE_CAMERA_RIGS = true;
+
+    // ~5 sweeps a second at this build's ~150Hz. A rig appears once per peer level-load, so this is
+    // about catching it within a frame or two of existing, not about per-frame work: the sweep is
+    // one class-scoped FindAllOf plus a pointer compare, and it writes only to a rig that is both
+    // not the local player's and not already at 0.
+    constexpr uint64_t CAMERA_RIG_SWEEP_INTERVAL_TICKS = 30;
+
     // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
     //
     // The user, after the respawn fade shipped: *"its not doing the dying/falling into the pit
@@ -10944,6 +10977,80 @@ namespace MeshGhostPseudo
             // meant the delay had already elapsed by the time real gameplay began, confirmed by
             // the log ("local world changed: pawn=BP_PlayerGoatMain_C" and "spawned ghost" firing
             // at the same timestamp, not ~5s apart).
+            // **Take every camera rig that is not YOURS out of the post-process blend.**
+            // See GHOST_NEUTRALISE_CAMERA_RIGS for the measurement; the short version is that a
+            // ghost brings its own `BP_PlayerCam_C`, the rig is never destroyed when the ghost goes,
+            // and each surviving one blends its post-process over the local view.
+            //
+            // The test is ownership, not "is it a ghost's": an ORPHANED rig has no owner left, so a
+            // ghost-list check would miss exactly the rigs that accumulate. Anything that is not
+            // serving the local pawn contributes nothing to what this player sees, so zeroing its
+            // weight is correct for the leaked ones and for the live ones alike.
+            if constexpr (GHOST_NEUTRALISE_CAMERA_RIGS)
+            {
+                if (tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
+                {
+                    std::vector<UObject*> cameras;
+                    UObjectGlobals::FindAllOf(STR("CameraComponent"), cameras);
+                    for (UObject* camera : cameras)
+                    {
+                        if (!camera)
+                        {
+                            continue;
+                        }
+                        float* weight = camera->GetValuePtrByPropertyNameInChain<float>(STR("PostProcessBlendWeight"));
+                        if (!weight || *weight == 0.0f)
+                        {
+                            continue; // already contributing nothing -- the settled case, no work
+                        }
+
+                        // A component's outer IS its actor, so no attach walk is needed here (the
+                        // light census needed one only because that light lives in a child actor).
+                        UObject* rig = camera->GetOuterPrivate();
+                        if (!rig)
+                        {
+                            continue;
+                        }
+                        const std::string rig_class = to_utf8(rig->GetClassPrivate() ? rig->GetClassPrivate()->GetName() : StringType{});
+
+                        // Only this game's player camera rigs and the pawns' own cameras. The
+                        // level's cinematic cameras are none of our business and are left alone --
+                        // they were in the census too, and a sweep that took their blend weight
+                        // would break the game's own cutscenes.
+                        const bool is_player_rig = rig_class.find("BP_PlayerCam_C") != std::string::npos;
+                        const bool is_character = class_looks_like_player(rig);
+                        if (!is_player_rig && !is_character)
+                        {
+                            continue;
+                        }
+
+                        // Whose rig is it? `OwningActor` is the Blueprint property this game sets
+                        // (the engine's `Owner` reads (none) on these -- measured 2026-08-16), and
+                        // for a pawn's own camera the rig IS the character.
+                        UObject* serves = rig;
+                        if (is_player_rig)
+                        {
+                            UObject** owning = rig->GetValuePtrByPropertyNameInChain<UObject*>(STR("OwningActor"));
+                            serves = (owning && *owning) ? *owning : nullptr;
+                        }
+                        if (serves == pawn_obj)
+                        {
+                            continue; // the local player's own camera -- the one view that should blend
+                        }
+
+                        static std::set<std::string> announced_rigs;
+                        const std::string rig_name = to_utf8(rig->GetName());
+                        if (announced_rigs.insert(rig_name).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] ghost camera: '{}' was blending post-process at {} and does not serve the local player{} -- holding it at 0.\n"),
+                                         to_wide_ascii(rig_name), *weight,
+                                         serves ? STR("") : STR(" (ORPHANED -- its owner is gone)"));
+                        }
+                        *weight = 0.0f;
+                    }
+                }
+            }
+
             if (class_looks_like_player(pawn_obj))
             {
                 ++ticks_since_pawn_valid;

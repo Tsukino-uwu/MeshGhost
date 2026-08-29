@@ -49,6 +49,14 @@ local WATCH = {
     {class = "PostProcessComponent",      props = {"bEnabled", "BlendWeight", "Priority", "bUnbound"}},
     {class = "DirectionalLightComponent", props = {"Intensity", "bAffectsWorld", "bVisible"}},
     {class = "PointLightComponent",       props = {"Intensity"}},
+    -- **The candidate the pattern points at.** A pawn clone brings its own copy of everything the
+    -- player owns -- this adapter has already had to take away a ghost's camera rig and its HUD
+    -- widget (`VERIFIED.md`, 2026-08-16 and 2026-08-27). A camera carries its OWN post-process and
+    -- a blend weight, and a second one blending into the view would brighten the whole screen from
+    -- any distance -- which is the symptom, and the only kind of thing that can do it from across
+    -- the level.
+    {class = "CameraComponent",
+     props = {"PostProcessBlendWeight", "bIsActive", "bAutoActivate", "FieldOfView"}},
 }
 
 local last = nil
