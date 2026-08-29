@@ -5008,3 +5008,75 @@ cannot tell the two apart and a chain lookup can.
 resolved — not only which ones did not. "No warning" only ever means "not missing"; it never means
 "did something". Both the empty string and the black text were read as success for exactly that
 reason.
+
+## A whole-world enumeration crashed the game, and the probe's own question never needed one (Pseudoregalia, 2026-08-29)
+
+**Symptom.** Pseudoregalia died with `Fatal error!` — `EXCEPTION_ACCESS_VIOLATION` reading `0x20`,
+a callstack roughly fifteen frames deep inside UE4SS's own Lua/reflection machinery, and no game or
+adapter frame anywhere in it. Twice, both times during the user's live session, both times caused
+by the agent.
+
+**Attribution, by subtraction rather than by argument.** Three runs settled it: probe loaded →
+crash at LoadMap; probe removed, same actions → clean; probe hot-reloaded mid-session → crash within
+a second. That third run also localises it, because the probe printed a summary line per class as it
+went and the log stops on the class *before* `ChildActorComponent` — so the crash is in the pass that
+walks every child-actor component in the world reading `ChildActor` and calling
+`K2_GetComponentLocation` on each.
+
+**Cause.** `FindAllOf` returns every object of a class in memory, including class-default objects and
+objects the engine is midway through tearing down. Reading a property off one of those is usually
+survivable; **calling a UFunction on one dereferences a transform that is not there.** And a Lua
+`pcall` does not catch an access violation in native code — it catches Lua errors. So every call in
+that probe was wrapped, and the wrapping bought nothing.
+
+**The fix is not a better guard, and that is the lesson.** One hardening attempt was spent first — a
+`usable()` helper skipping `Default__` objects and revalidating `IsValid` — and the game crashed
+again with it in place. What was actually wrong is that **the probe enumerated the WORLD to answer a
+question about a CHARACTER.** It wanted the lights on the player and on each ghost; it walked every
+light and every child actor in the level to find them. Enumerating the two pawns' own components
+touches nothing the probe does not own, and would have produced the identical answer — the finding
+it did deliver came from exactly two of its output lines.
+
+**So the rule: scope an enumeration to the object you are asking about.** `FindAllOf` over a class is
+the right tool for "does this build have any of these at all" and the wrong one for "what does this
+actor have". Reach for the world only when the question is genuinely about the world, and never call
+functions on what comes back without owning it.
+
+**The related trap, same session, cheaper.** The hot-reload trigger file was written with Windows
+PowerShell 5.1's `Set-Content -Encoding utf8`, which emits a BOM. `probe_reloader` matched
+`^(%S+)` against the line and captured the BOM as part of the name, so UE4SS reported
+`Could not find mod to reinstall` for a mod sitting in its own Mods folder. Fixed in the reloader by
+stripping the BOM rather than by writing down a rule about which encoding to use — the next person
+to write that file will use whatever their shell does by default.
+
+## A fix that depends on an object being REACHABLE breaks when you change that object's LIFETIME (Pseudoregalia, 2026-08-29)
+
+**Symptom.** A confirmed-fixed feedback loop came back within a minute of the next build, worse than
+before — *"its echoing onto the ghost again + spamming it"*, and *"even from a single jump"*.
+
+**Cause.** The echo fix excluded, by identity, every Niagara component this mod had spawned onto a
+ghost. It built that exclusion set by walking what the remotes were HOLDING. The next change made
+one-shot bursts fire-and-forget — correct in itself, since a burst destroys itself and a retained
+pointer to it is the recycled-handle hazard — but those components were then held nowhere, so they
+silently dropped out of the exclusion set. The loop returned, and the newly-added counter amplified
+it: every echo also incremented the counter, so a single jump ran away.
+
+**The invariant was real, load-bearing, and unwritten**: *every component we create stays reachable
+from a remote*. The fix in one function depended on it; the change in another function broke it;
+nothing connected the two. Both changes were individually correct.
+
+**Fix.** A bounded ring of recent burst pointers per ghost, walked alongside the retained map when
+building the exclusion — keeping the bursts fire-and-forget while restoring reachability. A ring
+rather than one slot because overlapping bursts are the case being fixed; bounded because these
+components destroy themselves and never report it.
+
+**The general lesson, which is about review rather than about VFX.** When a fix works by consulting
+a COLLECTION, the collection's membership rule is part of the fix. Changing where something is
+stored, how long it lives, or whether it is stored at all is therefore a change to every fix that
+reads that collection — even when the diff does not touch them. Ask, of any lifetime change: *what
+reads the place this used to live?* Here the answer was one function 6,000 lines away.
+
+**Corollary that would have caught it cheaply:** the echo had a machine-checkable signature already
+measured (a `local` transition within ~100ms of a ghost spawn). Re-running that check against the
+new build before handing it over would have caught the regression without a live session. A
+confirmed defect with a known signature is a free regression test; use it as one.

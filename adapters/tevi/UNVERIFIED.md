@@ -313,3 +313,57 @@ at **Emerald running at 5fps while a relay was full**.
 carry the guard -- Crystal since 2026-08-19, the other two added 2026-08-28 -- and on Pseudoregalia
 it could not have worked before that day's separate fix, because the rejection it branches on was
 being discarded before anything could read it.
+
+## OPEN, user-reported 2026-08-29 — a portal keeps its awake VISUAL after the last ghost leaves
+
+**The user watched this and it is wrong; nothing below is measured.** A ghost disconnecting while
+standing on a portal leaves the portal awake — the *visual* you get standing next to one, the
+"assembling" glow the device plays while somebody is on it. It then **stays on until another ghost
+or the player walks onto it and off again**, at which point it finally settles. In the user's
+words: the stay-near-zone thing *"basically stays enabled until it gets triggered and detriggered
+again"*.
+
+**Cosmetic only, and that part is by construction.** The adapter never touches the portal's
+trigger — it sets the private `readyopen`/`readyclose` flags and nothing else, precisely so a ghost
+cannot save, heal or mark the minimap (the reasoning is in `Plugin.cs` above
+`UpdateWarpDevicesForGhosts`). So a portal stuck awake is a stuck ANIMATION, not a stuck game
+state, and it cannot have written anything.
+
+**A named suspect, from reading the code — NOT a diagnosis, and not watched.** `Plugin.cs`'s call
+site guards the whole scan:
+
+```csharp
+if (remoteVisuals.Count > 0)
+{
+    UpdateWarpDevicesForGhosts();
+}
+```
+
+The only code that ever closes a portal is the `else if (wasInside)` branch INSIDE that method —
+it fires on the frame a device that had a ghost in it no longer does. When the last ghost
+disconnects, `remoteVisuals.Count` becomes 0, so the method stops being called at all, and that
+branch never gets its chance to run. The flags stay exactly as the departing ghost left them, which
+is what the user is looking at. It also predicts the recovery they describe: only a real
+enter/exit by the player or another ghost drives the game's own `OnTrigger*` handlers, and those
+overwrite the stale flags.
+
+**If that is the cause, the shape of the fix is to let the scan run once more with zero ghosts**,
+so the close branch can drain `warpsWithGhostInside`, rather than to widen the guard and pay the
+per-frame scan forever. Two details a fix must not miss:
+
+- **It is not specific to disconnecting.** Any way of losing the last ghost reaches the same place
+  — a despawn, an area change that filters the peer out, a relay drop. Disconnect is just how the
+  user hit it.
+- **`warpsWithGhostInside` is keyed by `GetInstanceID()` and is never cleared on a room change**,
+  while `warpDevices` is re-scanned every 0.5s. That is a second, independent way for a stale entry
+  to survive, and it wants checking in the same pass rather than being found later.
+
+**This is the same shape as the bug fixed on 2026-08-28 one method away** — the local player walking
+out of a portal closed it under a ghost that had never left — and the lesson recorded there applies
+again: *a transition cannot answer "is anyone still here"*. Here the transition is not missed, it is
+never reached.
+
+**What to watch, once something is built:** two instances, a peer standing on a portal, then close
+that peer's game outright. The portal should settle on its own within about a second, with nobody
+touching it. **The control that makes it meaningful** is the same run with the peer walking off the
+portal normally before disconnecting — that path already works today, and must still work after.

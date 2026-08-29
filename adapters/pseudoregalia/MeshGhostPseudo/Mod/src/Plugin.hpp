@@ -317,6 +317,53 @@ namespace MeshGhostPseudo
         // ghost from scratch.
         std::unordered_map<std::string, RC::Unreal::UObject*> vfx_components;
 
+        // ONE-SHOT rows (`world_spawned` in MIRRORED_EFFECTS) are latched to a COUNTER instead of
+        // to the presence of their key, and this holds the last count seen per key.
+        //
+        // Why, measured 2026-08-29 on a two-instance session the user drove: a landing dust is a
+        // BURST, and a level cannot represent a repeat. Hop rapidly and the game spawns a fresh
+        // `NS_DustLand` per hop; they overlap, so "is any active" never falls back to false, the
+        // key never leaves the set, there is no second rising edge, and the ghost receives exactly
+        // ONE dust for the whole spree. The user saw precisely that -- *"from client1's pov only
+        // the first jump gets the dust, not all the short/fast jumps afterwards"* -- against
+        // windows of 3.5s, 5.3s, 6.9s and 8.1s of continuously-set `dl` in the adapter's own log.
+        //
+        // A counter cannot alias however fast the hops come, and it is still STATE in the sense
+        // target_vfx's comment cares about: a dropped datagram costs at most one burst and the
+        // next update carries the current total, rather than desynchronising permanently the way
+        // a fire-and-forget event would. Same shape as target_land_count and target_montage_count
+        // above, which is the established answer here for one-shots
+        // (`adapters/_template/README.md`, "latch payloads to their counter").
+        //
+        // A pulse-with-hold on the sender was considered and rejected: it has to be long enough
+        // for the send to sample it and short enough to fall back between hops, and those two
+        // constraints collide exactly when hops are fastest -- which is the case being fixed.
+        std::unordered_map<std::string, double> vfx_counts;
+
+        // Every one-shot burst we have recently spawned onto this ghost, newest last.
+        //
+        // **This exists solely to keep the echo fix working, and it was learned by breaking it.**
+        // Local detection excludes components this mod created by IDENTITY, and it builds that
+        // exclusion set from what the remotes are holding. Retained effects live in
+        // `vfx_components`; when one-shots moved to fire-and-forget they stopped being held
+        // anywhere, so they vanished from the exclusion set and the feedback loop came straight
+        // back -- with the counter now amplifying it, since every echo also incremented it. Seen
+        // on screen within a minute of that build: *"its echoing onto the ghost again + spamming
+        // it"* (2026-08-29).
+        //
+        // A ring rather than a single slot because rapid hops keep SEVERAL bursts alive at once,
+        // and one slot would leave all but the newest echoing. Bounded because these destroy
+        // themselves and we are never told: a stale pointer here is harmless (at worst it
+        // suppresses one unrelated component that reused the address) while an unbounded list
+        // would grow for the life of the session.
+        std::vector<RC::Unreal::UObject*> recent_one_shot_components;
+
+        // False until the first update from this peer has been absorbed. The first sample BASELINES
+        // every counter without firing anything, so a ghost joining mid-session does not replay the
+        // peer's entire history of landings at once. Same first-sample rule as
+        // last_seen_montage_count's.
+        bool vfx_counts_baselined{false};
+
         std::string target_montage;
         double target_montage_count{0};
         double last_seen_montage_count{0};

@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdio>
 #include <set>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <cwctype>
@@ -7216,7 +7217,14 @@ namespace MeshGhostPseudo
         // false POSITIVE of a brief particle burst near a character who was in a fight, which is a
         // much smaller wrong than a death with no burst at all -- but if it reads as noise on
         // screen, this row is the one to pull.
-        {"dl", STR("/Game/VFX/Systems/NS_DustLand.NS_DustLand"), STR("RootComponent"), nullptr, true, 0.0},
+        // Offset is the FEET, not zero. Landing dust belongs on the floor, and zero is the actor
+        // ORIGIN -- which is mid-body, because this game's characters stand with their origin
+        // GHOST_STANDING_CAPSULE_HALF above their feet. The observed value from the local player's
+        // own dust still wins when there is one; this is the fallback, and the fallback is what a
+        // watcher who has not jumped recently actually uses. The user, watching a peer land while
+        // not having jumped themselves (2026-08-29): *"it appears like in the 'middle of the body'
+        // instead of at the floor"* -- which is this constant, exactly.
+        {"dl", STR("/Game/VFX/Systems/NS_DustLand.NS_DustLand"), STR("RootComponent"), nullptr, true, -GHOST_STANDING_CAPSULE_HALF},
         {"bb", STR("/Game/VFX/Systems/NS_BasicBurst.NS_BasicBurst"), STR("RootComponent"), nullptr, true, 0.0},
     };
 
@@ -7226,6 +7234,13 @@ namespace MeshGhostPseudo
     // the effect in this game, not of who performed it.
     double observed_world_offset_z[sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0])]{};
     bool have_observed_world_offset[sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0])]{};
+
+    // How many distinct bursts of each ONE-SHOT (`world_spawned`) row this player has produced,
+    // counted once per component the game creates. Monotonic for the life of the process, and the
+    // only thing sent for these rows -- see RemoteGhost::vfx_counts for why a level cannot work
+    // here and a counter can. Never reset: a peer baselines against whatever value it first sees,
+    // so the absolute number is meaningless and only the differences matter.
+    uint64_t world_vfx_start_count[sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0])]{};
 
     // How close a world-spawned effect must be to the local player to be treated as the player's
     // own. Derived, not tuned: the capture run logged both waves at 130-260 units from the
@@ -7740,15 +7755,34 @@ namespace MeshGhostPseudo
 
             // Substring matching would let "chg" match a hypothetical "chgfoo", so the list is
             // walked comma-separated instead. Cheap: the list has at most a couple of entries.
+            // A token is `key` for a sustained row and `key:count` for a one-shot one, so the
+            // colon is split off before comparing -- otherwise "dl:7" matches nothing and every
+            // one-shot silently stops working.
             bool wanted = false;
+            bool have_count = false;
+            double wire_count = 0.0;
             size_t pos = 0;
             while (pos <= remote.target_vfx.size())
             {
                 const size_t comma = remote.target_vfx.find(',', pos);
                 const size_t end = (comma == std::string::npos) ? remote.target_vfx.size() : comma;
-                if (remote.target_vfx.compare(pos, end - pos, key) == 0)
+                const size_t colon = remote.target_vfx.find(':', pos);
+                const size_t key_end = (colon != std::string::npos && colon < end) ? colon : end;
+                if (remote.target_vfx.compare(pos, key_end - pos, key) == 0)
                 {
                     wanted = true;
+                    if (key_end != end)
+                    {
+                        // Peer-supplied text: parsed with a bounded, exception-free read and
+                        // simply ignored if it is not a number. A peer controls this string, so
+                        // it is treated as data and never trusted to be well-formed.
+                        const std::string number = remote.target_vfx.substr(key_end + 1, end - key_end - 1);
+                        if (!number.empty() && number.find_first_not_of("0123456789") == std::string::npos)
+                        {
+                            wire_count = std::strtod(number.c_str(), nullptr);
+                            have_count = true;
+                        }
+                    }
                     break;
                 }
                 if (comma == std::string::npos)
@@ -7756,6 +7790,68 @@ namespace MeshGhostPseudo
                     break;
                 }
                 pos = comma + 1;
+            }
+
+            // **ONE-SHOT ROWS ARE DRIVEN BY THE COUNT, NOT BY PRESENCE.** See
+            // RemoteGhost::vfx_counts: two overlapping bursts share one active window, so the key
+            // never leaves the set between them and a presence test can only ever fire once for a
+            // whole spree. The count separates them.
+            //
+            // Nothing is retained for these: a burst is fire-and-forget and destroys itself, so
+            // there is no falling edge to act on and no handle to go stale -- which also retires
+            // the recycled-pointer hazard the retained path carries.
+            if (effect.world_spawned)
+            {
+                if (!wanted || !have_count)
+                {
+                    continue;
+                }
+                auto seen = remote.vfx_counts.find(key);
+                const bool first_sight = !remote.vfx_counts_baselined || (seen == remote.vfx_counts.end());
+                if (first_sight)
+                {
+                    // Baseline without firing, so a ghost joining mid-session does not replay
+                    // every landing the peer has ever made.
+                    remote.vfx_counts[key] = wire_count;
+                    continue;
+                }
+                if (wire_count <= seen->second)
+                {
+                    continue;
+                }
+                remote.vfx_counts[key] = wire_count;
+
+                UObject* burst_asset = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, effect.asset);
+                if (!burst_asset)
+                {
+                    static std::set<std::string> warned_burst_assets;
+                    if (warned_burst_assets.insert(key).second)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] WARNING: one-shot effect '{}' did not resolve -- not played on any ghost.\n"),
+                                     to_wide_ascii(key));
+                    }
+                    continue;
+                }
+                const FVector burst_ghost_loc = static_cast<AActor*>(remote.ghost)->K2_GetActorLocation();
+                const double burst_offset_z = have_observed_world_offset[i] ? observed_world_offset_z[i]
+                                                                            : effect.world_offset_z;
+                const FVector burst_at(burst_ghost_loc.X(), burst_ghost_loc.Y(), burst_ghost_loc.Z() + burst_offset_z);
+                UObject* burst_component = spawn_niagara_at_location(remote.ghost, burst_asset, burst_at);
+                // **Registered so local detection can exclude it.** Not doing this is what
+                // reinstated the echo the moment one-shots stopped being retained -- see
+                // RemoteGhost::recent_one_shot_components. Nothing else reads this list.
+                if (burst_component)
+                {
+                    constexpr size_t MAX_TRACKED_ONE_SHOTS = 32;
+                    remote.recent_one_shot_components.push_back(burst_component);
+                    if (remote.recent_one_shot_components.size() > MAX_TRACKED_ONE_SHOTS)
+                    {
+                        remote.recent_one_shot_components.erase(remote.recent_one_shot_components.begin());
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: burst '{}' (count={})\n"),
+                             to_wide_ascii(player_id), to_wide_ascii(key), static_cast<int64_t>(wire_count));
+                continue;
             }
 
             auto existing = remote.vfx_components.find(key);
@@ -7853,6 +7949,11 @@ namespace MeshGhostPseudo
                              to_wide_ascii(player_id), to_wide_ascii(key));
             }
         }
+
+        // Set only after a full pass, so every one-shot row present in that first update gets
+        // baselined rather than firing. A row that turns up for the first time LATER is handled by
+        // the per-key `first_sight` check above, which is why both conditions exist.
+        remote.vfx_counts_baselined = true;
     }
 
     auto Plugin::tick_remote_recall_glow(const std::string& player_id, RemoteGhost& remote) -> void
@@ -13487,9 +13588,69 @@ namespace MeshGhostPseudo
                     live.reserve(components.size());
                     bool active[MIRRORED_EFFECT_COUNT] = {};
 
+                    // **Components WE spawned onto ghosts, excluded by IDENTITY.** Without this
+                    // the mirror feeds itself, and the user watched it do so on 2026-08-29:
+                    // *"player jump, player get its own dust, a small delay, someone elses ghost
+                    // trigger that same dust even if they shouldn't ... that other player never
+                    // jumped"*.
+                    //
+                    // The loop, start to finish: you land, so `NS_DustLand` appears next to you
+                    // and `dl` goes on the wire. The peer spawns that dust on YOUR ghost, which
+                    // is correct and is the whole feature. But their ghost is standing near their
+                    // own player, so the component we just created lands inside
+                    // MIRROR_WORLD_VFX_RADIUS of THEIR pawn -- and this pass, which attributes a
+                    // world-spawned effect purely by distance, reads it as their player's own
+                    // dust and sends it straight back. It then plays on their ghost, on your
+                    // screen, with nobody having jumped at that end.
+                    //
+                    // Measured in the adapter's own log before it was understood: a `local` dust
+                    // transition appearing 14ms, 37ms and 75ms after this mod spawned one on a
+                    // ghost -- one sample interval, three times, which no human jumping produces.
+                    //
+                    // **Only the `world_spawned` rows can echo**, because the attached rows
+                    // attribute by matching the LOCAL pawn's name and a ghost-attached component
+                    // never matches it. The exclusion is applied to every row regardless: identity
+                    // is exact and costs nothing, whereas remembering this distinction the next
+                    // time a row is added is exactly what fails.
+                    //
+                    // Proximity cannot fix this -- a ghost standing next to you is the normal case
+                    // and the whole point of the feature. `agent_docs/pitfalls.md`, "Mirroring
+                    // through SHARED state makes symmetric peers echo each other" (2026-08-28), is
+                    // the same trap in another subsystem.
+                    std::unordered_set<UObject*> ours;
+                    for (const auto& remote_entry : remotes)
+                    {
+                        for (const auto& mirrored : remote_entry.second.vfx_components)
+                        {
+                            if (mirrored.second)
+                            {
+                                ours.insert(mirrored.second);
+                            }
+                        }
+                        // The one-shot bursts, which are NOT in vfx_components because they are
+                        // fire-and-forget. Both collections have to be walked or the exclusion is
+                        // only half applied -- exactly the regression that put the echo back on
+                        // screen once one-shots stopped being retained.
+                        for (UObject* burst : remote_entry.second.recent_one_shot_components)
+                        {
+                            if (burst)
+                            {
+                                ours.insert(burst);
+                            }
+                        }
+                    }
+
                     for (UObject* component : components)
                     {
                         if (!component)
+                        {
+                            continue;
+                        }
+                        // Ours, spawned onto a ghost -- never evidence of what the LOCAL player is
+                        // doing. Skipped before identity caching too: it needs no identity, and
+                        // leaving it out of `live` keeps the cache to components we might ask
+                        // about again.
+                        if (ours.find(component) != ours.end())
                         {
                             continue;
                         }
@@ -13533,6 +13694,17 @@ namespace MeshGhostPseudo
                                 }
                             }
                         }
+                        // **A component we have not seen before, for a one-shot row, is a NEW
+                        // BURST.** This is the whole event source for the counter -- taken before
+                        // `live.emplace` overwrites what "seen before" means. `vfx_identity` holds
+                        // the PREVIOUS sample's components, so absence from it is exactly "this
+                        // did not exist last sample".
+                        //
+                        // Counting components rather than counting rising edges of "any active"
+                        // is the fix: overlapping bursts each get their own component, which is
+                        // the one signal that still separates them once their active windows have
+                        // merged into one.
+                        const bool newly_seen = (vfx_identity.find(component) == vfx_identity.end());
                         live.emplace(component, which);
                         if (which < 0 || !component_is_active(component))
                         {
@@ -13575,15 +13747,37 @@ namespace MeshGhostPseudo
                             // instead of centred on the character.
                             observed_world_offset_z[which] = dz;
                             have_observed_world_offset[which] = true;
+
+                            // Counted here rather than at first sight, deliberately: a
+                            // world-spawned component is only OURS once it has passed the
+                            // proximity test, and somebody else's dust across the room must not
+                            // advance this player's counter.
+                            if (newly_seen)
+                            {
+                                ++world_vfx_start_count[which];
+                            }
                         }
                         active[which] = true;
                     }
                     vfx_identity = std::move(live);
 
                     std::string keys;
+                    // **A one-shot row is sent ALWAYS, active or not; a sustained row only while
+                    // it is active.** The counter is state and has to be readable before anything
+                    // happens, because a peer BASELINES against the first value it sees and does
+                    // not fire on it. Emitting these only while active made the counter's first
+                    // appearance coincide with the first burst, so the baseline ate exactly one --
+                    // the user, 2026-08-29: *"the 'first' jump after getting in game does
+                    // nothing"*. Sent from the start, the baseline lands on a quiet value and the
+                    // first real landing is an increment like every other.
+                    //
+                    // Costs a fixed ~20 bytes in extras (four rows, `key:count`), against a
+                    // MaxExtrasBytes budget of 1024. It does not add traffic: the string only
+                    // changes when a count does, so change suppression still drops every
+                    // unchanged update.
                     for (size_t i = 0; i < MIRRORED_EFFECT_COUNT; ++i)
                     {
-                        if (!active[i])
+                        if (!active[i] && !MIRRORED_EFFECTS[i].world_spawned)
                         {
                             continue;
                         }
@@ -13592,6 +13786,21 @@ namespace MeshGhostPseudo
                             keys += ",";
                         }
                         keys += MIRRORED_EFFECTS[i].key;
+                        // (see the always-sent rule above the loop)
+                        // One-shot rows carry `key:count`. The key's PRESENCE still means "active
+                        // right now" and is what a sustained row is read by; for these rows the
+                        // receiver ignores presence entirely and acts on the count, so a burst is
+                        // never lost to two overlapping ones sharing a single active window.
+                        //
+                        // The format stays inside this adapter -- both the writer above and the
+                        // reader in apply_mirrored_vfx are this file, and the wire carries the
+                        // string opaquely -- so this is not a contract change. `PLAYER_FIELDS.md`
+                        // documents the shape.
+                        if (MIRRORED_EFFECTS[i].world_spawned)
+                        {
+                            keys += ":";
+                            keys += std::to_string(world_vfx_start_count[i]);
+                        }
                     }
                     if (keys != mirrored_vfx_keys)
                     {

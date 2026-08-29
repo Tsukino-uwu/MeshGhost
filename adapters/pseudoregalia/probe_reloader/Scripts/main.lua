@@ -39,6 +39,14 @@ local function readTrigger()
     if f == nil then return nil end
     local line = f:read("*l")
     f:close()
+    if line == nil then return nil end
+    -- Strip a UTF-8 BOM. Windows PowerShell 5.1's `Set-Content -Encoding utf8` writes one, so a
+    -- trigger written the obvious way arrives as "<BOM>MeshGhostDustLightProbe" -- the `%S+`
+    -- match below happily captures the BOM as part of the name, and UE4SS answers "Could not
+    -- find mod to reinstall" for a mod that is sitting right there. Cost a live iteration on
+    -- 2026-08-29. Fixed here rather than written down as a rule about how to write the file,
+    -- because the next person to write it will use whatever their shell does by default.
+    line = line:gsub("^\239\187\191", "")
     return line
 end
 

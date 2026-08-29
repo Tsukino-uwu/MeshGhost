@@ -176,6 +176,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 (late session) — The ghost flinched on every save-file swap; and the carried-over health is the GAME's, proven by the user's control run (user-confirmed)
 - Nametags: a peer's name renders above their ghost, both join orderings (2026-08-28)
 - Nametag COLOUR, as a plate the name stands on — three peers, three cases (2026-08-29)
+- Landing dust on a ghost: the echo loop, the swallowed repeats and the mid-body height, all three fixed (2026-08-29)
 
 ## Confirmed facts
 
@@ -4366,3 +4367,104 @@ colour would have a renderer draw an empty coloured box.
 **So the shipped default is deliberately NO TAG** (`name: ""` in `packaging/release/config.json`
 and the client template), with the parchment `name_color` sitting ready for the moment a player
 types a name. The user's call: *"guess we keep the default name in the config as blank"*.
+
+## Landing dust on a ghost: the echo loop, the swallowed repeats and the mid-body height, all three fixed (2026-08-29)
+
+**User-confirmed on screen**, two instances, after each fix in turn: *"works correctly/as intended
+now"* for the echo, then *"yes both work perfect now, for single and multiple hops"*, and finally
+*"yes it works now, first jump, normal jump, short/fast jumps — confirmed"*.
+
+**Four separate defects sat on top of each other**, and each was only visible once the one above it
+was gone. That is the entry's real content: the first diagnosis was wrong twice, and both times the
+correction came from the user describing what they saw rather than from more analysis.
+
+**1. The mirror fed itself (the echo)**
+
+**Symptom, the user's:** *"player jump, player get its own dust, a small delay, someone elses ghost
+trigger that same dust even if they shouldn't ... that other player never jumped"*.
+
+**Cause.** Local detection enumerates every `NiagaraComponent` in the world and attributes a
+`world_spawned` effect purely by distance to the local player (`MIRROR_WORLD_VFX_RADIUS`, 600). It
+never excluded the components this mod had itself spawned onto ghosts. So: you land, `dl` goes on
+the wire, the peer spawns the dust on YOUR ghost — correct so far — but that ghost stands near
+THEIR player, so their detector reads our component as their own dust and sends it straight back.
+
+**The measurement that named it**, from the adapter's own log: a `local: '' -> 'dl'` transition
+appearing **14ms, 37ms and 75ms** after this mod spawned a dust on a ghost. One sample interval,
+three times running; no human jumping produces that correlation.
+
+**Fix:** an exclusion set built by IDENTITY from what the remotes hold, consulted before
+attribution. Proximity cannot fix this — a ghost standing next to you is the normal case.
+
+**2. A one-shot event was being carried as a level, so repeats were lost**
+
+**Symptom, the user's:** *"from client1's pov only the first jump gets the dust, not all the
+short/fast jumps afterwards"*.
+
+**Cause.** `dl` was mirrored as STATE and the receiver acted on the rising edge of the key's
+presence. Each hop spawns a fresh `NS_DustLand`; they overlap, so "is any active" never falls back
+to false, the key never leaves the set, and there is no second edge. Measured windows of **3.5s,
+5.3s, 6.9s and 8.1s** of continuously-set `dl`, each delivering exactly one dust to the ghost.
+
+**Fix:** one-shot rows are latched to a COUNTER (`key:count` on the wire), incremented once per
+distinct component the game creates. Counting components is what separates bursts whose active
+windows have merged. A counter is still state — a dropped datagram costs at most one burst and the
+next update carries the running total.
+
+**A pulse-with-hold was considered and rejected**: it must be long enough for the send to sample it
+and short enough to fall back between hops, and those constraints collide exactly when hops are
+fastest, which is the case being fixed.
+
+**3. The echo came back, because the fix in §1 rested on an invariant §2 broke**
+
+**Symptom, within a minute of that build:** *"its echoing onto the ghost again + spamming it"*, and
+then *"even from a single jump"*.
+
+**Cause, and it is the lesson of the whole session.** §1's exclusion set is built from the
+components the remotes are HOLDING. §2 made one-shots fire-and-forget, so they were no longer held
+anywhere — and silently dropped out of the exclusion. The loop returned with the counter now
+amplifying it, since every echo also incremented it, which is why one jump was enough to run away.
+
+**The invariant was never written down**: *every component we create must stay reachable from a
+remote*. A change to one class of component's LIFETIME broke a fix that depended on its REACHABILITY,
+in a different function, with nothing to catch it.
+
+**Fix:** a bounded ring of recent burst components per ghost (32), walked alongside `vfx_components`
+when building the exclusion. A ring rather than one slot because fast hops keep several bursts alive
+at once; bounded because these destroy themselves and never tell us.
+
+**4. The dust appeared at mid-body, not on the floor**
+
+**Symptom, the user's:** *"it appears like in the 'middle of the body' instead of at the floor"* —
+seen from the client that had NOT jumped.
+
+**Cause.** The spawn height prefers a value observed from the local player's own dust and falls back
+to the row's constant, which was `0.0`. Zero is the actor ORIGIN, and this game's characters stand
+with their origin `GHOST_STANDING_CAPSULE_HALF` (65) above their feet. A watcher who has not jumped
+has observed nothing, so it always used the fallback.
+
+**Fix:** the row's fallback is the feet (`-GHOST_STANDING_CAPSULE_HALF`). The observed value still
+wins when there is one. Anchoring to the ghost's feet also satisfies what the user described of the
+real effect — *"it can appear higher/lower depending on where the player is jumping ... its tied to
+the player/always where they land"* — because it follows the ghost's own Z rather than a fixed height.
+
+**5. The first jump after loading in did nothing**
+
+**Cause.** A peer BASELINES against the first counter value it sees and deliberately does not fire
+on it, so a ghost joining mid-session does not replay every landing the peer has ever made. But the
+counter was only sent while its effect was ACTIVE, so its first appearance on the wire WAS the first
+burst, and the baseline consumed exactly that one.
+
+**Fix:** one-shot counters are sent always, active or not. The baseline then lands on a quiet value
+before anyone jumps. Costs a fixed ~20 bytes against a 1024-byte extras budget and adds no traffic,
+since the string only changes when a count does.
+
+**Notes**
+
+- **The ~270ms between a player's own dust and their ghost's is NOT a defect** and was deliberately
+  left alone: the dust is applied from the same render-time line as the ghost's position, so it
+  fires in sync with the ghost's DRAWN landing. The gap is `interp: 250ms` doing its job.
+- **`bb`, `hw` and `hew` are also `world_spawned`** and went through the same change, so they gain
+  the same repeat-correctness. Only `dl` was watched on screen; the other three are unwatched and
+  are noted as such in `UNVERIFIED.md`.
+- Scope: Steam build, `ZONE_Dungeon`, two instances on one machine over quic, loopback relay.

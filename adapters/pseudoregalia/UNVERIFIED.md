@@ -265,15 +265,27 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
-## Two ghost cosmetics the user saw wrong on screen (2026-08-28) — reported, not yet diagnosed
+## ONE ghost cosmetic the user saw wrong on screen (2026-08-28) — the LIGHT half only
+
+> **The DUST half of this entry is DONE and user-confirmed (2026-08-29)** — four stacked defects,
+> all fixed and watched on screen. It has moved to `VERIFIED.md`, "Landing dust on a ghost".
+> Only the light half below is still open.
 
 **These run the opposite way to everything else in this file.** The rest is "the agent believes it
 works, the user has not looked yet". These two the user HAS looked at, and they are wrong. They are
 here because they are open work with nothing measured yet, and nothing below is established.
 
-**1. Jumping dust is not handled by the ghost.** The player kicks up dust on a jump; the ghost does
-not. Unexamined so far: whether the ghost never spawns it, spawns it somewhere invisible, or spawns
-it and something strips it.
+**1. Landing dust fires on the wrong character's landing.** SHARPENED BY THE USER 2026-08-29, and
+it changes the question: the dust fires *"whenever you land after jumping"*, the ghost *"doesn't
+handle it on its own"*, so it *"just happens whenever the player does it, and gets replicated onto
+the ghost at wrong times"*. First noticed on a TWO-INSTANCE session.
+
+**So this is not a missing effect — it is an effect fired by the wrong character's landing**, and
+the earlier framing here (never spawns it / spawns it invisibly / something strips it) was aimed at
+the wrong three possibilities. The shipped `dl` row mirrors `NS_DustLand` as part of the `vfx`
+STATE set, attributed to the SENDER by proximity; a one-shot burst delivered as resent state can
+only fire when the receiver next reads it, which is not when the ghost is drawn landing (`interp`
+is 250ms). Whether that alone accounts for it is the measurement, not the conclusion.
 
 This is the shape `../CLAUDE.md` names outright — *reproduce the WHOLE effect, the animation and its
 extras*. A jump is not just a pose, and Emerald's surf blob is the worked precedent: the state
@@ -284,6 +296,12 @@ count what appears**, rather than reading the ghost's spawn path and reasoning a
 
 **2. Light / "ascendant light" level is being COPIED onto the ghost, and never should be.** User:
 these *"should always be off for a ghost similar to the blue outline things"*.
+
+Located further by the user 2026-08-29: it *"emits from the player itself, or maybe from the
+ascendant light upgrade"*, and *"makes the game look a bit too bright when nearby other
+ghosts/players"* — so the visible symptom is ADDITIVE. Each ghost carries its own copy of the
+emitter and they sum, which means the brightness scales with how many peers are in the room and a
+one-peer session understates it.
 
 So this is not a value to mirror more accurately — it is a value to force off, in the same class as
 the blue outline, and the outline's own history says how. `GHOST_HOLD_OUTLINE_OFF` in `Plugin.cpp`
@@ -298,3 +316,100 @@ spawn, watch it come back the moment the game touches the level again.
 
 **Neither is diagnosed and neither has a fix.** No probe has been run for either, so there is no
 number here to be wrong about later — which is the only good thing about the state of this entry.
+
+**A probe now exists for both and has not yet been run** (2026-08-29): `probe_dustlight/`, indexed
+in `PROBES.md`. It answers the light half by census — every light component and child actor on the
+player and on each ghost, walked up BOTH the outer and the attach chain — and the dust half by
+timeline, putting every Niagara/Cascade component's first appearance on one clock with every
+character's `MovementMode` transition. The run is built around the user's own report: one instance
+jumps, the other stands still, and a dust burst logged on the still instance is the defect caught
+next to the landing that did not happen. Nothing here is measured until that log exists.
+
+## MEASURED 2026-08-29 — the ghost's PointLight is at 5000 while the player's is at 0
+
+**This is an agent measurement, so it lives here and not in `VERIFIED.md`.** It was read out of a
+live two-instance session in `ZONE_Dungeon` by `probe_dustlight/`, one census line per character:
+
+```
+PointLightComponent ... BP_PlayerGoatMain_C_2147482274.PointLight owner=PLAYER
+  Intensity=0.0     AttenuationRadius=1000.0 bAffectsWorld=true bVisible=false bIsActive=false
+  attach=SkeletalMeshComponent ....WeaponMesh
+PointLightComponent ... BP_PlayerGoatMain_C_2147482218.PointLight owner=GHOST1
+  Intensity=5000.0  AttenuationRadius=1000.0 bAffectsWorld=true bVisible=false bIsActive=false
+  attach=SkeletalMeshComponent ....WeaponMesh
+```
+
+**Same class, same component name, same attach point — the local player's is 0 and the ghost's is
+5000.** The component is a `PointLight` child actor hanging off `WeaponMesh`, not off the capsule
+or the body, which fits Ascendant Light being a property of the weapon.
+
+**This reframes the entry above it.** The value is not being *copied from the player* — if it were,
+the ghost would read 0 too, because that is what the player reads. It is the Blueprint's own
+DEFAULT, which the ghost is born holding and which nothing ever turns down, while the real player's
+gets driven to 0 by the game's own logic. A ghost is spawned from the player's pawn class and then
+never runs that logic. **So the fix is not to stop copying something; it is to write the light down
+on a ghost that was born bright.**
+
+**One trap visible in the same two lines**, and it is why this is not yet a fix: BOTH report
+`bVisible=false` and `bIsActive=false`, including the one that is demonstrably lighting the room.
+So neither flag is what makes this light visible, and an implementation that toggles either of them
+will read as correct in a log while changing nothing on screen. `Intensity` is the only field that
+separates the two characters, and the `ChildActor` beneath it was never inspected — the run died
+before reaching the `ChildActorComponent` census.
+
+**Also unmeasured: whether it must be a per-tick HOLD.** The entry above predicts one, by analogy
+with `GHOST_HOLD_OUTLINE_OFF`. Nothing here tested it. Write it once, then watch whether the game
+puts it back the next time it touches the weapon.
+
+## THE PROBE CRASHED THE GAME TWICE — `probe_dustlight/` is DISABLED and must not be re-run as-is
+
+**Both crashes were caused by the agent, during the user's session.** `Fatal error!`,
+`EXCEPTION_ACCESS_VIOLATION` reading `0x20`, with a callstack ~15 frames deep inside UE4SS's own
+Lua/reflection machinery and no game or `MeshGhostPseudo` frame in it.
+
+**The subtraction is what makes it attribution rather than suspicion**, and it is three runs:
+
+| Run | Probe loaded | Result |
+| --- | --- | --- |
+| 1 — start a new game | yes | crash at LoadMap |
+| 2 — same, control | **no** | clean, played fine |
+| 3 — hot-reloaded mid-session | yes (hardened) | crash within a second of the census |
+
+**Run 3 localises it precisely.** The census prints one summary line per class in `LIGHT_CLASSES`,
+and the log ends on the `LightComponent` summary having never printed a `ChildActorComponent` line
+or any `LIGHTPROP` line. The next thing it would have done is walk every `ChildActorComponent` in
+the world — reading `ChildActor`/`ChildActorClass` and calling `K2_GetComponentLocation` on each.
+**That pass is the suspect, and `ChildActorComponent` should come out of the class list before this
+probe is ever loaded again.**
+
+**A guess that failed, recorded so it is not retried.** Between runs 1 and 3 the probe gained a
+`usable()` guard that skips class-default objects and revalidates `IsValid`. It did not help. That
+is one hardening attempt spent; `../../CLAUDE.md`'s rule applies — the next move is subtraction
+(cut the class list down to the two rows that actually answered the question) and not a third guess
+at what to guard.
+
+**What the probe must give up to run again**: it went after two questions and a whole-world
+enumeration at once, and it only ever needed the pawn's own components. The light answer above came
+from two lines of its output. A version that enumerates a CHARACTER's components rather than the
+WORLD's would have produced the same answer without ever touching an object it does not own.
+
+## Pending — `bb`, `hw` and `hew` got the one-shot counter treatment and were never watched (2026-08-29)
+
+The dust fix moved every `world_spawned` row in `MIRRORED_EFFECTS` from presence-mirroring to a
+counter, because they are all one-shot bursts and all lost repeats the same way. **Only `dl` was
+watched on screen.** The other three changed behaviour in the same build and nobody has looked:
+
+| Row | Effect | What to watch |
+| --- | --- | --- |
+| `bb` | `NS_BasicBurst`, the death burst | A peer dying twice in quick succession should burst twice. Note this row's standing risk: the record has it firing ~14x in ordinary combat, so proximity attribution can occasionally put somebody else's hit on a ghost. |
+| `hw` | `NS_HealWave` | A peer healing twice in a row. Height is observed from the local player's own heal, so a watcher who has never healed uses the row's fallback (+100). |
+| `hew` | `NS_HealEndwave` | Same, fallback +10. |
+
+**What correct looks like:** each repeat produces its own burst, at the same height as before the
+change, with no burst appearing on a ghost whose peer did nothing. **What a regression looks like:**
+the echo returning on any of these — they share the exclusion set with `dl`, so a fault there would
+show on all four.
+
+**Also unwatched: the first-of-session baseline for these three.** Counters are now sent always, so
+the first heal/death after joining should fire like any other. That was a real bug for `dl` and is
+fixed by the same mechanism, but only `dl` was confirmed.

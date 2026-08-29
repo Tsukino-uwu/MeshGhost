@@ -272,3 +272,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - If it must never be occluded, it must be OPAQUE — no translucency priority beats a level's own planes (Pseudoregalia, 2026-08-29)
 - A runtime-created component carries its CLASS DEFAULT until you overwrite it (Pseudoregalia, 2026-08-29)
 - A billboard faces the CAMERA, not the player pawn (Pseudoregalia, 2026-08-29)
+- A whole-world enumeration crashed the game, and the probe's own question never needed one (Pseudoregalia, 2026-08-29)
+- A fix that depends on an object being REACHABLE breaks when you change that object's LIFETIME (Pseudoregalia, 2026-08-29)

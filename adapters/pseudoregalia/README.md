@@ -77,9 +77,7 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 - Trail (afterimage) colour, including modded colours — the colour is read live off the real
   player and sent, rather than hardcoded, so a peer running a colour mod shows up with their own
   trail colour on your screen.
-
-Both work for the same reason: nothing hardcodes the list of outfits or colours, so anything a mod
-changes about them syncs for free between two peers who both have that mod.
+- Custom nametags above players
 
 ## How this adapter was built
 

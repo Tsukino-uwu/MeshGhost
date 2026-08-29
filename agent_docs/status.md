@@ -63,6 +63,14 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost LIGHT is measured: ghost `PointLight` Intensity 5000, player's 0** — a
+  class default nothing turns down, not a copied value. Unfixed. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
+  echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
+- **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on
+  screen. `pseudoregalia/UNVERIFIED.md`.
+- **`probe_dustlight/` CRASHED the game twice and is disabled** — whole-world `ChildActorComponent`
+  walk; cut the class list before reloading it. `pseudoregalia/PROBES.md`, `pitfalls/by-lesson.md`.
 - **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
   child gets a bare port number that can be taken first; unfixed. `testing.md`, Traps.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
@@ -153,6 +161,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
 - **Two different games at once: half fixed** — the user-visible symptom of the bridge-shape gap
   below. Pseudoregalia's port walk is built but **not yet watched live**. `ideas.md`.
+- **TEVI: a portal keeps its awake VISUAL after the LAST ghost leaves (user, 2026-08-29)** — the
+  scan is guarded by `remoteVisuals.Count > 0`, so nothing ever closes it. `tevi/UNVERIFIED.md`.
 - **TEVI's FullMap marker refresh is now FRAME-DRIVEN, unwatched (2026-08-28)** — a stale marker
   hides after 1s instead of freezing until the core despawns the peer. Whether it also fixes the
   slow resume after a rejoin is unknown. `tevi/UNVERIFIED.md`.
