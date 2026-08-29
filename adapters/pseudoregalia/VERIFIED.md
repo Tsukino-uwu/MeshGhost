@@ -4354,3 +4354,15 @@ the client template. A blank colour still means no plate, on the user's rule.
 **How it was found:** ~12 rounds of labeled experiment rows in ONE game session, via a Lua probe
 (`probe_nametag/`) hot-reloaded by a resident watcher mod (`probe_reloader/`) off a trigger file.
 Method: `../_template/probes.md`, "Label each experiment with the variable it tests".
+
+**Fourth case, confirmed the same day: a blank name with a colour SET draws nothing at all** —
+user: *"yee it works"*, on a two-instance session where one peer had `name: ""` and
+`name_color: "#F54927"`. A blank name beats a colour at every layer, each independently: the
+relay's `sanitizedNametag` returns nil and drops the colour with the name, `core.storeRemoteName`
+stores an empty name as an ABSENCE rather than as `""`, and the adapter returns before creating
+any component. All three carry the same reasoning in their comments — a colour with nothing to
+colour would have a renderer draw an empty coloured box.
+
+**So the shipped default is deliberately NO TAG** (`name: ""` in `packaging/release/config.json`
+and the client template), with the parchment `name_color` sitting ready for the moment a player
+types a name. The user's call: *"guess we keep the default name in the config as blank"*.
