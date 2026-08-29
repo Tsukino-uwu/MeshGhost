@@ -15492,7 +15492,16 @@ namespace MeshGhostPseudo
             // a light already at 0 costs one property read and no engine call.
             if constexpr (GHOST_HOLD_LIGHT_OFF)
             {
-                if (remote.ghost && tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0)
+                // **Every tick until this ghost's light has actually been turned down, then back
+                // to the interval.** The interval alone left a ~1.5s window at 5000 (measured), and
+                // the window is the bug rather than a cosmetic delay: the game latches its dark-area
+                // state off the light level, so one bright second lights the room until the player
+                // leaves the area and returns. The fast path costs one small class-scoped FindAllOf
+                // per tick and only until the light is found -- the light lives in a
+                // ChildActorComponent that does not exist at spawn, which is why a spawn-time write
+                // cannot replace this.
+                const bool hunting_light = !remote.light_zeroed && !g_ghost_light_forced_on;
+                if (remote.ghost && (hunting_light || tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0))
                 {
                     const std::string ghost_name = to_utf8(remote.ghost->GetName());
                     std::vector<UObject*> lights;
@@ -15554,6 +15563,13 @@ namespace MeshGhostPseudo
                                          to_wide_ascii(full_name), *intensity, target);
                         }
                         call_set_light_intensity(light, target);
+                        if (!g_ghost_light_forced_on)
+                        {
+                            // Found and darkened: the per-tick hunt can stop. Left false while the
+                            // dev toggle forces the light on, so clearing the toggle resumes the
+                            // hunt instead of waiting out an interval.
+                            remote.light_zeroed = true;
+                        }
                     }
                 }
             }

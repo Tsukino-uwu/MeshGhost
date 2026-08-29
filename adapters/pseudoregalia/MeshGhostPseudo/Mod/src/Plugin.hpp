@@ -49,6 +49,18 @@ namespace MeshGhostPseudo
         // session: a respawned ghost needs its own entry and its own line saying so.
         bool prehit_logged{false};
 
+        // **Has this ghost's ascendant light been turned down yet?** Per ghost, and it gates a FAST
+        // path rather than a log line: until it is true the light sweep runs every tick instead of
+        // every LIGHT_SWEEP_INTERVAL_TICKS.
+        //
+        // Measured 2026-08-29, and it is the whole bug: a ghost is born at Intensity 5000 and the
+        // interval sweep took ~1.5s to find it, because the light lives in a ChildActorComponent
+        // that does not exist at spawn. **A flash is enough.** The game latches its own dark-area
+        // state from the light level, so a second of 5000 leaves the room lit until the player
+        // walks out of the area and back in -- which is exactly what the user reported: the room
+        // brightening the instant a peer connected, from across the level, and staying that way.
+        bool light_zeroed{false};
+
         RC::Unreal::AActor* ghost{nullptr};
         RC::Unreal::UWorld* owning_world{nullptr}; // which UWorld `ghost` belongs to (spawned into, or hijacked from)
 
