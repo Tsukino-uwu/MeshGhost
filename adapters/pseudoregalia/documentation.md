@@ -484,6 +484,18 @@ name** — see Known unknowns.
 
 ---
 
+## The black planes between rooms are translucent, and they out-draw anything translucent
+
+The game separates rooms with flat black planes you walk through — no loading, no area change, and
+the player crosses them freely. **They are translucent geometry**, which matters to anything this
+adapter draws in the world: a translucent surface in front of one can still be drawn *behind* it,
+because translucents are sorted per object rather than depth-tested against each other.
+
+Measured 2026-08-29 while building nametags: a translucent plate disappeared behind these planes at
+every sort priority tried, up to 32760, while opaque geometry in the same spot was unaffected. The
+practical consequence for any future world-space visual — marker, label, outline — is that "must
+stay visible" means "must be opaque". Full evidence: `agent_docs/pitfalls/by-host.md`, 2026-08-29.
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:

@@ -1069,3 +1069,67 @@ swore nothing was wrong: the frames were on time, the WINDOW was not.
   CANNOT see this cost.
 - The user called the class from memory (*"probes have lagged things before"*) before any
   instrument did. The person watching the screen is upstream of every probe.
+## If it must never be occluded, it must be OPAQUE — no translucency priority beats a level's own planes (Pseudoregalia, 2026-08-29)
+
+**Symptom.** A world-space nametag drawn on an `EmissiveMeshMaterial` plate vanished whenever it
+passed in front of the game's black room-divider planes -- the coloured plate cut out while the
+BLACK TEXT in front of it kept drawing. The user found the trigger by moving, not by theory:
+*"all the cutting out/going invisible things seems to be when its placed on my screen right
+infront of the 'door' seperation thing"*.
+
+**What the asymmetry told us, and it is the whole lesson.** Text and plate sat four units apart
+and only one of them lost. The text used an opaque material; the plate a translucent one. In UE,
+translucents do not depth-test against each other -- they are SORTED, per object -- so a divider
+plane can be drawn over something in front of it, while an opaque surface simply wins on depth.
+
+**The fix that did not work, so nobody repeats it:** `TranslucencySortPriority` on the plate
+component. Tried at 100, then at **32760** -- read back off the component both times to prove the
+write landed -- and the plate still disappeared at a divider. Priority reorders translucents
+against each other; it does not lift one out of the translucent pass.
+
+**The fix.** Give the thing an opaque material. Then the second problem appears and is worth
+knowing in advance: **most opaque materials in a game are LIT**, so a flat coloured plate came out
+banded and checkered under the game's stylized shading (`M_PawnMaster` and kin), and killing the
+suspected cause -- the near-camera dither fade, `UseFade`/`FadeLength` forced to 0 -- changed
+nothing. What a HUD-like surface needs is opaque AND unlit AND parameter-driven, and the engine's
+own debug materials are exactly that intersection: `DebugMeshMaterial` takes a `Color` parameter,
+`GizmoMaterial` takes `GizmoColor`, and both are cooked into a shipped game.
+
+**Generalises past nametags** to any always-visible overlay drawn as world geometry: a marker, a
+waypoint, an outline. Decide opaque-vs-translucent from "may this ever be hidden by scenery?",
+not from whether it needs to look emissive.
+
+## A runtime-created component carries its CLASS DEFAULT until you overwrite it (Pseudoregalia, 2026-08-29)
+
+**Symptom.** A peer who set a name but no colour showed a white box behind their nametag, in a
+build that had explicitly been written to draw NO plate for a colourless peer -- and the code
+path for that was correct: it only ever set the plate's string when a colour had applied.
+
+**Cause.** `UTextRenderComponent`'s class default string is the word `"Text"`. A component created
+at runtime is born holding it, so a plate that was never given a name was not empty -- it was
+drawing `"Text"` in its material's own default colour. The plate had also never been given a
+colour, so what appeared was a white-ish box exactly the width of that word.
+
+**Fix.** Blank it at CREATION, not at the point you would normally write it. The general rule:
+after `AddComponentByClass` (or `NewObject`), a component is a fully populated CDO copy, not a
+blank -- every field you care about is already set to something, and "I never wrote it" is not the
+same as "it is empty". Enumerate what the default carries before assuming.
+
+**Why it survived a whole day of probe rounds:** every probe row set a string on every component
+it made, so the default never showed. It took a real peer with a real blank field to expose it,
+which is the standing argument for testing the EMPTY case as its own case.
+
+## A billboard faces the CAMERA, not the player pawn (Pseudoregalia, 2026-08-29)
+
+**Symptom.** Nametags leaned and skewed depending on where the viewer stood -- readable, but
+visibly wrong from above or below. User: *"can we make it face the camera instead of the player?"*
+
+**Cause.** The tag was aimed at the local pawn's location. In a third-person game the camera sits
+behind and above the player, so the two directions differ constantly; the code even carried a
+comment arguing the pawn was "close enough and cheaper", which was reasoning rather than a screen
+judgment, and was wrong on both counts.
+
+**Fix.** `PlayerController.PlayerCameraManager` → `GetCameraLocation`, resolved ONCE PER TICK by
+the caller and handed to every tag, so the reflected call does not multiply by ghost count. Pitch
+as well as yaw, or it still leans in the axis the user was complaining about. Do not cache the
+camera manager across ticks -- it is exactly the kind of reference a level transition invalidates.

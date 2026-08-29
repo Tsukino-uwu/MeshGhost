@@ -269,3 +269,6 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Reacting to an actor that spawns visible is too late by construction — refuse at the setter, and invert an unattributable failure (Pseudoregalia, 2026-08-27)
 - A readiness flag sampled before the call that sets it drops everything arriving with the handshake (Pseudoregalia, 2026-08-28)
 - A hardcoded /Script path finds nothing and says nothing — resolve UFunctions through the class chain (Pseudoregalia, 2026-08-28)
+- If it must never be occluded, it must be OPAQUE — no translucency priority beats a level's own planes (Pseudoregalia, 2026-08-29)
+- A runtime-created component carries its CLASS DEFAULT until you overwrite it (Pseudoregalia, 2026-08-29)
+- A billboard faces the CAMERA, not the player pawn (Pseudoregalia, 2026-08-29)
