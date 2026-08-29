@@ -1842,6 +1842,20 @@ namespace MeshGhostPseudo
     bool g_ghost_light_forced_on = false;
     bool g_ghost_mesh_hidden = false;
 
+    // **The third subtraction, and it is aimed at what SURVIVED the second (2026-08-29).** With the
+    // ghost's light at 0 and its VisualMesh and WeaponMesh hidden, the user still saw light coming
+    // from where the ghost stood. A component census says only three things are still drawn on a
+    // ghost at that point -- its `BlobShadow` and the nametag's two text components -- and the
+    // nametag is the ONLY component a ghost carries that the local player does not.
+    //
+    // The user's constraint is what makes this worth two toggles rather than one: *"we had this
+    // light issue before we added nameplates"*. That does not clear the nametag (it could be a
+    // second source that looks the same), but it does mean the blob shadow must be tested on its
+    // own rather than lumped in -- and this adapter has already had one bug where a ghost's blob
+    // shadow differed from the player's (`GHOST_BLOB_SHADOW_ARM_MIRROR`).
+    bool g_ghost_shadow_hidden = false;
+    bool g_ghost_nametag_hidden = false;
+
     // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
     //
     // The user, on a two-instance session: the ascendant light *"should always be off for a ghost
@@ -15311,6 +15325,34 @@ namespace MeshGhostPseudo
             // left hidden when the file goes away.
             if constexpr (GHOST_CUSTOM_DEPTH_DEV_TOGGLE)
             {
+                // The blob shadow and the nametag, each on its own toggle so an answer names ONE
+                // of them rather than "something in that group". Same read-then-write shape as the
+                // meshes below: no engine call once a component is already where we want it.
+                {
+                    UObject* shadow = nullptr;
+                    if (UObject** found = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("BlobShadow")))
+                    {
+                        shadow = *found;
+                    }
+                    const std::pair<UObject*, bool> extras[] = {
+                        {shadow, g_ghost_shadow_hidden},
+                        {remote.nametag_component, g_ghost_nametag_hidden},
+                        {remote.nametag_plate, g_ghost_nametag_hidden},
+                    };
+                    for (const auto& [component, hidden] : extras)
+                    {
+                        if (!component)
+                        {
+                            continue;
+                        }
+                        bool* visible = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                        if (visible && *visible == hidden)
+                        {
+                            call_set_visibility(component, !hidden);
+                        }
+                    }
+                }
+
                 // Per-MESH rather than a remembered flag: a static "already applied" bool is shared
                 // by every ghost in the room, so the first one to tick would consume the flip and
                 // the rest would stay as they were. Reading each mesh's own bVisible keeps the flip
@@ -16735,6 +16777,24 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost light forced {} (ghost_light_on.txt {}).\n"),
                                  light_on ? STR("ON at 5000") : STR("off at 0"),
                                  light_on ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_shadow = dev_toggle_present(STR("hide_ghost_shadow.txt"));
+                if (hide_shadow != g_ghost_shadow_hidden)
+                {
+                    g_ghost_shadow_hidden = hide_shadow;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost blob shadows now {} (hide_ghost_shadow.txt {}).\n"),
+                                 hide_shadow ? STR("HIDDEN") : STR("shown"),
+                                 hide_shadow ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_tag = dev_toggle_present(STR("hide_ghost_nametag.txt"));
+                if (hide_tag != g_ghost_nametag_hidden)
+                {
+                    g_ghost_nametag_hidden = hide_tag;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost nametags now {} (hide_ghost_nametag.txt {}).\n"),
+                                 hide_tag ? STR("HIDDEN") : STR("shown"),
+                                 hide_tag ? STR("present") : STR("gone"));
                 }
 
                 const bool hide_mesh = dev_toggle_present(STR("hide_ghost_mesh.txt"));
