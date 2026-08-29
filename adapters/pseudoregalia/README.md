@@ -349,6 +349,14 @@ Roughly in order:
     out for free: health carrying over between save files is the base game's own behaviour, proven
     by the user's no-ghost control run.
 
+55. Gave each peer a nametag, then gave it a colour — as a plate, not as coloured text. Text
+    itself cannot be coloured on this build (the default text material ignores every parameter,
+    the translucent one is not cooked, vertex colour reaches nothing), so the name is drawn twice:
+    black glyphs in front, and behind them the same string through a colourable opaque material,
+    which renders as solid blocks the exact width of the name. Opaque matters — the game's black
+    room dividers draw over anything translucent, at any sort priority. Confirmed with three
+    instances at once, one per case: name with colour, name without, and neither.
+
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:

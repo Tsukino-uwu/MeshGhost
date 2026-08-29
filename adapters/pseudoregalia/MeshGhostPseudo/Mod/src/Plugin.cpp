@@ -6494,6 +6494,84 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Where the VIEW actually is, which is not where the player is.
+        //
+        // A nametag faced at the local pawn leans and skews as soon as the camera is not level
+        // with it -- this is a third-person game whose camera sits behind and above the player,
+        // so the two directions differ constantly, and the user saw exactly that (2026-08-29:
+        // "can we make it face the camera instead of the player"). An earlier comment here
+        // argued the pawn was "close enough" and cheaper; it was neither.
+        //
+        // Cost is one reflected call per TICK, not per ghost: game_thread_tick resolves this
+        // once and hands the result to every nametag. Nothing is cached across ticks, because a
+        // cached camera-manager pointer is exactly the sort of reference a level transition
+        // invalidates (this file's own hard rule).
+        auto camera_world_location(UObject* controller, FVector& out) -> bool
+        {
+            if (!controller)
+            {
+                return false;
+            }
+            UObject* camera_manager = nullptr;
+            if (UObject** m = controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerCameraManager")); m)
+            {
+                camera_manager = *m;
+            }
+            if (!camera_manager)
+            {
+                return false;
+            }
+            // The engine's own answer, rather than deriving a camera position from the pawn:
+            // GetCameraLocation accounts for the whole camera rig this game drives.
+            UFunction* fn = camera_manager->GetFunctionByNameInChain(STR("GetCameraLocation"));
+            if (!fn)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: GetCameraLocation not found -- nametags "
+                                     "will face the local pawn instead of the camera.\n"));
+                }
+                return false;
+            }
+            FProperty* return_param = fn->FindProperty(FName(STR("ReturnValue"), FNAME_Find));
+            if (!return_param)
+            {
+                return false;
+            }
+            const int32_t parms_size = fn->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(return_param->GetOffset_Internal() + return_param->GetSize()))
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            camera_manager->ProcessEvent(fn, params_buffer.data());
+            // Read back by NAME off the returned struct, the same standard write_vector_param
+            // holds -- an FVector is float or double depending on the engine build.
+            FStructProperty* as_struct = CastField<FStructProperty>(return_param);
+            if (!as_struct || !as_struct->GetStruct())
+            {
+                return false;
+            }
+            uint8_t* base = params_buffer.data() + return_param->GetOffset_Internal();
+            double values[3]{};
+            const wchar_t* axes[3] = {STR("X"), STR("Y"), STR("Z")};
+            for (int i = 0; i < 3; ++i)
+            {
+                FProperty* field = as_struct->GetStruct()->FindProperty(FName(axes[i], FNAME_Find));
+                if (!field)
+                {
+                    return false;
+                }
+                uint8_t* at = base + field->GetOffset_Internal();
+                values[i] = field->GetSize() == sizeof(double) ? *reinterpret_cast<double*>(at)
+                                                               : static_cast<double>(*reinterpret_cast<float*>(at));
+            }
+            out = FVector{values[0], values[1], values[2]};
+            return true;
+        }
+
         // Places the component in the world and turns it to face the viewer.
         auto set_text_render_transform(UObject* component,
                                        double x, double y, double z,
@@ -9880,7 +9958,8 @@ namespace MeshGhostPseudo
     // FAILURE IS LATCHED AND LOGGED ONCE. If this build cannot make a text component, saying so
     // every frame per ghost would be its own performance bug -- exactly the shape
     // adapters/emulator/CLAUDE.md prices at four to five frames per log line elsewhere.
-    auto Plugin::update_ghost_nametag(RemoteGhost& entry, UObject* local_pawn, const std::string& player_id) -> void
+    auto Plugin::update_ghost_nametag(RemoteGhost& entry, UObject* local_pawn, const std::string& player_id,
+                                      const FVector* viewer_override) -> void
     {
         if constexpr (!GHOST_NAMETAGS)
         {
@@ -9928,12 +10007,19 @@ namespace MeshGhostPseudo
                 entry.nametag_plate = create_text_render_on(entry.ghost);
                 if (entry.nametag_plate)
                 {
+                    // BLANK IT IMMEDIATELY. A fresh TextRenderComponent is born holding the
+                    // class-default string "Text", so a plate that never gets a name still
+                    // draws that word in the material's own colour -- which is precisely the
+                    // white box seen behind a colourless peer's tag (2026-08-29, live: a peer
+                    // named "Blank" with no colour showed one). Nothing below sets the plate's
+                    // string unless a colour actually applied, so this is the only place that
+                    // default can be cleared.
+                    set_text_render_string(entry.nametag_plate, STR(""));
                     entry.nametag_plate_mid = create_plate_material(entry.nametag_plate);
                     if (!entry.nametag_plate_mid)
                     {
-                        // A plate with no colour material would be a white box duplicating the
-                        // text -- worse than none. Blank it and forget it.
-                        set_text_render_string(entry.nametag_plate, STR(""));
+                        // A plate with no colour material would be a box duplicating the text
+                        // -- worse than none. Already blank above; just forget it.
                         entry.nametag_plate = nullptr;
                     }
                 }
@@ -10003,7 +10089,14 @@ namespace MeshGhostPseudo
         // in hand; a tag facing an arbitrary direction is better than one facing NaN.
         const double tag_z = gz + NAMETAG_HEIGHT_ABOVE_GHOST;
         double px = gx, py = gy + 1.0, pz = tag_z;
-        if (local_pawn)
+        if (viewer_override)
+        {
+            // The camera, which is where the tag is actually SEEN from.
+            px = viewer_override->X();
+            py = viewer_override->Y();
+            pz = viewer_override->Z();
+        }
+        else if (local_pawn)
         {
             const FVector viewer_loc = static_cast<AActor*>(local_pawn)->K2_GetActorLocation();
             px = viewer_loc.X();
@@ -13844,6 +13937,12 @@ namespace MeshGhostPseudo
         sweep_afterimage_outlines();
 
 
+        // The camera, resolved ONCE for every nametag this tick rather than per ghost -- see
+        // camera_world_location. Nametags face this; a failure leaves it null and they fall
+        // back to facing the local pawn.
+        FVector camera_location{};
+        const bool have_camera = camera_world_location(controller, camera_location);
+
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
         // not only on ticks where new network data arrived.
         for (auto& [id, remote] : remotes)
@@ -13907,7 +14006,7 @@ namespace MeshGhostPseudo
             }
             // The nametag rides along with the redraw: the ghost has just been confirmed alive,
             // and the tag has to follow it every frame or it lags behind a moving peer.
-            update_ghost_nametag(remote, pawn_obj, id);
+            update_ghost_nametag(remote, pawn_obj, id, have_camera ? &camera_location : nullptr);
 
             // Cheaper secondary check: only meaningful once current_world has actually resolved
             // this tick (it's null on ticks where the local pawn/controller aren't found, e.g.

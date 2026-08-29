@@ -47,6 +47,15 @@ local UEHelpers = require("UEHelpers")
 
 local TAG = "[MeshGhostNametagProbe]"
 
+-- OFF means: destroy every row this probe ever spawned, spawn nothing, and stay quiet. Set it
+-- false whenever the question of the hour is not a nametag material -- a probe left spawning
+-- rows during someone else's test is a suspect in every report that follows (2026-08-29: a row
+-- was still appearing during the real two-instance nametag session).
+--
+-- Flipping this false and triggering a reload CLEANS A RUNNING GAME, both instances at once,
+-- without closing anything -- which is the only way to un-spawn actors mid-session.
+local PROBE_ENABLED = false
+
 -- The target colour: the same cyan (#33CCFF) the 2026-08-28 session drove, so results compare.
 local COLOR_BYTES = { R = 51, G = 204, B = 255, A = 255 }   -- FColor, for SetTextRenderColor
 -- PARCHMENT since round 9: the user's picked default plate colour, so every candidate is
@@ -675,6 +684,10 @@ local function runProbe()
     local ok, err = pcall(function()
         print(TAG .. " ===== run start =====\n")
         local anchor = destroyPreviousRow()
+        if not PROBE_ENABLED then
+            print(TAG .. " PROBE_ENABLED=false -- previous row destroyed, spawning nothing.\n")
+            return
+        end
         -- Set false for ONE deploy when the inherited spot has ended up inside geometry (it
         -- happened 2026-08-29); flip back to true in the next deploy so rows stay put again.
         local ANCHOR_TO_PREVIOUS_ROW = false

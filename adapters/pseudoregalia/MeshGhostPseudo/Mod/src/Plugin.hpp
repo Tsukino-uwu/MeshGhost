@@ -503,7 +503,11 @@ namespace MeshGhostPseudo
         // Creates, updates and positions the nametag above one ghost. Called every tick from the
         // redraw loop, and cheap when nothing changed: it compares against what it last applied
         // and makes no engine call when the name and colour are unchanged.
-        auto update_ghost_nametag(RemoteGhost& entry, RC::Unreal::UObject* local_pawn, const std::string& player_id) -> void;
+        // viewer_override is the CAMERA's location, resolved once per tick by the caller; null
+        // falls back to the local pawn, which leans the tag whenever the camera is not level
+        // with the player (2026-08-29).
+        auto update_ghost_nametag(RemoteGhost& entry, RC::Unreal::UObject* local_pawn, const std::string& player_id,
+                                  const RC::Unreal::FVector* viewer_override) -> void;
 
         // Phase 7.6: spawns a clone of the local player's own pawn class (ported field-for-field
         // from the Lua adapter's trySpawnRemoteGhost, probe_ghost/Scripts/main.lua:596-650), then

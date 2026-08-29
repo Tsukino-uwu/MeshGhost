@@ -175,6 +175,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-27 (late session) — A hard crash on starting a NEW SAVE: the camera fallback pointer, never cleared, dereferenced two levels later (user-confirmed)
 - 2026-08-27 (late session) — The ghost flinched on every save-file swap; and the carried-over health is the GAME's, proven by the user's control run (user-confirmed)
 - Nametags: a peer's name renders above their ghost, both join orderings (2026-08-28)
+- Nametag COLOUR, as a plate the name stands on — three peers, three cases (2026-08-29)
 
 ## Confirmed facts
 
@@ -4305,3 +4306,51 @@ are in `UNVERIFIED.md`'s entry for the same date.
 **A peer with no name draws nothing at all** — the shipped default is an empty name, on the user's
 call: *"if its blank it should not display/do anything, it should only have a text box/show
 something if a custom name is put in"*.
+
+## Nametag COLOUR, as a plate the name stands on — three peers, three cases (2026-08-29)
+
+**User-confirmed on screen**, closing what `UNVERIFIED.md` had recorded as exhausted the day
+before: *"yee it works/looks fine"*, *"confirmed name/nametag stuffs are done now"*. Judged in a
+real three-instance session (three games, one relay, quic), each instance a different case:
+
+| Peer | Config | On screen |
+|---|---|---|
+| `Tsukino` | name + `#F54927` | black name on a flat orange plate, sized to the name |
+| `Blank` | name, no colour | black text, nothing behind it |
+| (third) | no name, no colour | no tag at all |
+
+**What is drawn:** a SECOND `UTextRenderComponent` four units behind the name, rendering the same
+string through a `MaterialInstanceDynamic` of `/Engine/EngineDebugMaterials/DebugMeshMaterial`
+with its **`Color`** parameter set to the peer's colour. The glyphs come out as solid blocks, so
+the plate *is* the name and sizes itself; the text in front keeps the default material and stays
+black for contrast.
+
+**Why that material, out of everything tried:** the plate must be OPAQUE, UNLIT and colourable.
+The game's black room-divider planes out-draw every TRANSLUCENT plate — `EmissiveMeshMaterial`
+still vanished behind one at `TranslucencySortPriority` 32760 — while opaque materials depth-test
+and survive, as the opaque text always did. The game's own opaque masters (`M_PawnMaster` and
+kin) survive but carry stylized lit banding that no scalar flattened. `GizmoMaterial` with
+`"GizmoColor"` looked identical and is the runner-up.
+
+**Coloured TEXT is impossible on this build** and that is now measured, not assumed: the default
+text material ignores every parameter forced into a dynamic instance of it,
+`DefaultTextMaterialTranslucent` is not cooked, vertex colour reaches nothing, and the font atlas
+carries its distance field in the red channel so anything sampling it as base colour renders red.
+
+**Facing: the CAMERA, and pitch included.** The tag aims at `PlayerCameraManager`'s location
+(resolved once per tick, not per ghost), so it stays square-on from above and below. Facing the
+local pawn instead — the first shipped guess — visibly leaned the tag, since this game's camera
+sits behind and above the player.
+
+**Two defects found live and fixed inside the same session:** a fresh `UTextRenderComponent` is
+born holding the class-default string `"Text"`, so a colourless peer's plate drew that word in
+the material's default colour (the white box the user saw behind `Blank`); and the tag's facing,
+above.
+
+**The default for a player who never edits their config is `name_color: "#A89975"`** — the
+parchment the user picked from a probe lineup — shipped in `packaging/release/config.json` and
+the client template. A blank colour still means no plate, on the user's rule.
+
+**How it was found:** ~12 rounds of labeled experiment rows in ONE game session, via a Lua probe
+(`probe_nametag/`) hot-reloaded by a resident watcher mod (`probe_reloader/`) off a trigger file.
+Method: `../_template/probes.md`, "Label each experiment with the variable it tests".
