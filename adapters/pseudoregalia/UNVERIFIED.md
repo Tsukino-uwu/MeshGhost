@@ -265,6 +265,84 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
+## OPEN, and this section supersedes the three light entries below it (2026-08-29, long session)
+
+**Read this before touching the ghost-light problem again.** The entries further down were written
+while the cause was still believed to be the ghost's `PointLight`; that belief is now refuted, and
+each is kept only for the measurements it records.
+
+### There are TWO bugs wearing the same clothes, and separating them is the session's main result
+
+The user's own words, and the thing that finally made the reports consistent:
+
+1. **A per-client SCENE LATCH.** When a peer's ghost spawns, the local client's whole scene flips
+   to a lit state -- *"it got bright around client1 even before i could walk over there"*, from
+   across the level. It **survives the peer leaving** and clears only when the player walks out of
+   the dark area and back in. Solo play never shows it. The user's constraint: this **predates
+   nametags entirely**.
+2. **A glow that belongs to each GHOST.** With the local scene repaired by an area transition, each
+   ghost is still lit and still lights the wall around it. It **travels with the ghost and dies
+   with it** -- *"whenever a ghost disconnect, their glow goes away"* -- so nothing is left behind
+   in the world.
+
+Every earlier run confused these, because a subtraction judged while the scene was latched cannot
+say anything about the ghost. **The clean setup is: both clients walk out of the dark area and back
+in first.** Only then is a ghost-side subtraction worth anything.
+
+### Ruled out by measurement, not by argument
+
+| Suspect | How it was killed |
+| --- | --- |
+| The ghost's `PointLight` | Held at 0 within **4ms** of spawn (log-timed). `SetIntensity` resolved -- no warning ever printed. Forcing it back to 5000 changed nothing on screen. |
+| The game re-lighting it | A per-tick hold with a re-light counter: **never once incremented**. |
+| The ghost's model | Hidden entirely, in the clean setup. Walls still lit. |
+| Materials / lighting flags | Player and ghost carry the same assets and parents (`MI_n64_Playergoat`, `MI_n64_PlayergoatFace`), same lighting channels, same shadow flags. |
+| Material parameters | The only ones the game drives are `DieAmount` and `UVOffset`. |
+| `bRenderCustomDepth` (the shading pass) | The single field that DID differ. Subtracted live via a toggle; no visible change. |
+| Any other light in the level | A census of `LightComponent` **and every subclass** finds exactly two lights in the map: the two players'. The ghost's reads 0. |
+| Camera post-process blend | Every rig not serving the local pawn zeroed, confirmed by log. Still glows. |
+| Scalars on the local pawn | Diffed across the spawn: **two uptime timers**, nothing else. |
+| Scalars on the shared GameInstance | Diffed across the spawn: **zero fields changed**. |
+| The level's own post-process | Diffed across the spawn, struct interior included: **zero fields changed**. |
+
+### NOT eliminated -- and two of them were REPORTED as eliminated when they were not
+
+**This is the part to distrust in the older entries.** Two subtractions logged success and did
+nothing, because they attributed components to a ghost by `GetOuterPrivate()`:
+
+- **The nametag** -- reported `0 component(s) of 12` once a count was finally printed, while the
+  user watched the tag stay on screen. An earlier version *also* had the nametag updater put the
+  components straight back every tick.
+- **The ghost's Niagara systems** -- same broken owner test, and that branch printed **no count at
+  all**, so "particles are off" was said on the strength of a toggle flag and never measured.
+- **The blob shadow** -- same, never actually switched.
+
+`TextRenderComponent` and `NiagaraComponent` do **not** outer to the pawn the way the
+property-held meshes do. **Name containment is the attribution that works here**, which is what
+`GHOST_HOLD_OUTLINE_OFF` has used since it was written. The build committed at the end of the
+session uses it and prints `N of M switched` for every subtraction.
+
+**So the three live suspects are the nametag, the blob shadow and the ghost's particle systems**,
+in that order -- the nametag being the brightest thing on a ghost, and the user's own early guess.
+Note it cannot explain bug 1, which predates nametags; expect two causes, not one.
+
+### The rig, and how to reproduce in one run
+
+Relay + two instances; the mod starts its own core per instance (the port walk **did** work here --
+6672 and 6673, unaided, which contradicts the "NO free port" entry further down). Then:
+
+1. Client 1 into the dark area, client 2 connects and loads in -> bug 1 fires.
+2. **Both** clients walk out of the dark and back in -> scene repaired, only bug 2 left.
+3. Flip one toggle at a time and read the `N of M switched` line before believing anything.
+
+### Dev toggles that MUST come out before this ships
+
+`GHOST_CUSTOM_DEPTH_DEV_TOGGLE` and `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` are both `true` in the
+committed build. They gate `keep_custom_depth.txt`, `ghost_light_on.txt`, `hide_ghost_mesh.txt`,
+`hide_ghost_shadow.txt`, `hide_ghost_nametag.txt` and `hide_ghost_fx.txt`, all read from beside the
+DLL, plus a property diff on every ghost spawn. Harmless to a player (the files never exist) but
+they are instruments, and `../../CLAUDE.md` says instruments ship off.
+
 ## ONE ghost cosmetic the user saw wrong on screen (2026-08-28) — the LIGHT half only
 
 > **The DUST half of this entry is DONE and user-confirmed (2026-08-29)** — four stacked defects,

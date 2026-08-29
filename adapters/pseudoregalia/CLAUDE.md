@@ -135,3 +135,9 @@ A component's `GetOuter()` reaches its owning actor — but a `ChildActorCompone
 actor whose own outer is the LEVEL, so anything living inside one is invisible to an outer walk and
 reports as belonging to nobody. Follow `AttachParent` as well. This is not hypothetical: the
 player's light is exactly that shape.
+
+**And when in doubt use NAME CONTAINMENT, which is the one test that has never failed here.** A
+component's full name carries its owning chain. Measured 2026-08-29: `TextRenderComponent` and
+`NiagaraComponent` on a ghost matched **0 of 12** by outer while the user watched them on screen;
+`GHOST_HOLD_OUTLINE_OFF` has used name containment since it was written and has always found its
+targets.

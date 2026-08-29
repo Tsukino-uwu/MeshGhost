@@ -63,8 +63,10 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's ghost LIGHT: hold BUILT and FIRED live 2026-08-29; the user could not TELL** —
-  judgement deferred to a dark area, readback waits on a relaunch. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost GLOW is TWO bugs and neither is the light** (2026-08-29) — a per-client
+  scene latch on ghost spawn, plus a glow that travels with each ghost. `pseudoregalia/UNVERIFIED.md`.
+- **Three suspects there were reported eliminated and were NOT** — nametag, blob shadow and the
+  ghost's particles; the subtractions matched 0 components. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on
@@ -161,8 +163,8 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
   ~40s apart; moving to tcp stopped it. Go side. `verified.md` 2026-08-18.
 - **Duplicate ghost spawn on every level load** — two ghosts per peer, the `remotes` entry going
   present -> absent within three ticks, leaving an orphaned pawn nobody tracks. `verified.md`.
-- **Pseudoregalia's port walk WAS watched live 2026-08-29 and FAILED** — a second instance says
-  "NO free port" with 6673-6679 all free, so it never gets a core. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's port walk fails only SOMETIMES (2026-08-29)** — one session it never found a
+  free port, later sessions started 6672 and 6673 unaided. `pseudoregalia/UNVERIFIED.md`.
 - **TEVI: a portal keeps its awake VISUAL after the LAST ghost leaves (user, 2026-08-29)** — the
   scan is guarded by `remoteVisuals.Count > 0`, so nothing ever closes it. `tevi/UNVERIFIED.md`.
 - **TEVI's FullMap marker refresh is now FRAME-DRIVEN, unwatched (2026-08-28)** — a stale marker

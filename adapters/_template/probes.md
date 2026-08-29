@@ -231,6 +231,13 @@ So, when instrumenting an effect:
   attach walk, on the game thread. The user reported mouse stutter before any metric did.
   **The cost is what the player FEELS, not what the log says**, so ask them, and cut the earlier
   stages in the same edit that adds the next one.
+- **A SUBTRACTION MUST REPORT WHAT IT REACHED, not what it intended.** 2026-08-29, twice in one
+  session: a toggle logged `HIDDEN` for a ghost's nametag and particles while the user watched both
+  stay on screen, because the code that matched components to the ghost matched none and skipped
+  out silently. Two "the glow survived it" negatives were reported to the user and were worthless.
+  **Print `N of M switched` — the count, from the enumeration, every time the state changes.** A
+  subtraction that cannot say how many objects it touched is a subtraction that has not been run,
+  and "0 of 12" is the line that ends the whole class of false negative in one look.
 - **If a human keeps reporting a difference your metrics deny, suspect the metrics.** Agreement
   between two sides measured by one instrument is not correctness — a shared blind spot makes them
   agree and describes neither.
