@@ -49,7 +49,9 @@ local TAG = "[MeshGhostNametagProbe]"
 
 -- The target colour: the same cyan (#33CCFF) the 2026-08-28 session drove, so results compare.
 local COLOR_BYTES = { R = 51, G = 204, B = 255, A = 255 }   -- FColor, for SetTextRenderColor
-local COLOR_LINEAR = { R = 0.2, G = 0.8, B = 1.0, A = 1.0 } -- FLinearColor, for vector params
+-- PARCHMENT since round 9: the user's picked default plate colour, so every candidate is
+-- judged in the colour it would actually ship in.
+local COLOR_LINEAR = { R = 0.66, G = 0.60, B = 0.46, A = 1.0 } -- FLinearColor, for vector params
 
 -- Candidate materials, all from the 2026-08-28 census of what is LOADED on this build.
 -- label doubles as the on-screen text, so a screenshot needs no legend.
@@ -84,11 +86,39 @@ local COLOR_LINEAR = { R = 0.2, G = 0.8, B = 1.0, A = 1.0 } -- FLinearColor, for
 -- it, it must not glare like white, and it should sit well against this game's muted castle
 -- palette. Dimmer values also glow less (the plate is emissive).
 local EMISSIVE_PATH = "/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"
+-- ROUND 8 (2026-08-29): the user shortlisted PARCHMENT and DIMWHITE. Each now also runs a
+-- variant with TranslucencySortPriority raised on the plate component -- the lever for the
+-- confirmed "cut out in front of a door divider" defect (translucent draw order; the divider
+-- planes win by default). Judge at a divider: whichever PRIO variant stays visible there names
+-- the fix. Property is on the component, plain int32, read back after the write.
+-- ROUND 9 (2026-08-29): parchment is the chosen default. The divider defect survives
+-- prio=100 -- ALL translucent plates lose their background in front of a door divider while
+-- the OPAQUE text keeps drawing. That asymmetry is the diagnosis: the divider out-draws
+-- translucents but loses the depth test to opaques. So: one emissive at essentially maximum
+-- priority (does ANY priority beat the divider?), two plates built from the game's own OPAQUE
+-- masters (full-param mode: texture params forced to T_White, every colour name to parchment),
+-- and the plain emissive as the control that is KNOWN to lose there.
+-- ROUND 10 (2026-08-29): the opaque plates SURVIVE the divider (user-confirmed) but render as
+-- a checkerboard, not flat colour. Diagnosis to test: M_PawnMaster carries the game's
+-- near-camera DITHER FADE (its instances say UseFade=1, FadeLength=50), and a dither is
+-- exactly a checkerboard. `scalars` on a candidate force named scalar parameters after the
+-- full-param pass; PAWNMST stays plain as the known-checkered reference.
+-- ROUND 11 (2026-08-29): killing the fade did not flatten the PawnMaster plates -- the banding
+-- is the game's own stylized LIT shading, and chasing its knobs is a losing hunt. What a plate
+-- wants is OPAQUE + UNLIT + a colour parameter, which is precisely what the engine's debug
+-- materials are. EMISMAX rides again because the round-9 question was never answered and it
+-- decides everything: if a max-priority EMISSIVE survives the divider, the shipped plate stays
+-- emissive (flat, already proven pretty) and no opaque material is needed at all.
+-- ROUND 12 (2026-08-29): user verdict on 11 -- EMISMAX is the only one that still vanishes at
+-- a divider (no translucency priority beats it), INVALID looks wrong, GIZMO and DEBUGMSH look
+-- best: flat, divider-proof. This round narrows WHICH vector parameter colours each finalist,
+-- one name per tag as before -- the parchment tags name the winning (material, parameter) pair
+-- for the shipped C++.
 local CANDIDATES = {
-    { label = "PARCHMENT", plate = EMISSIVE_PATH, vecName = "Color", rgb = { 0.66, 0.60, 0.46 } }, -- ~#CFC6AE
-    { label = "LAVENDER",  plate = EMISSIVE_PATH, vecName = "Color", rgb = { 0.38, 0.34, 0.59 } }, -- ~#9C94C4
-    { label = "SLATE",     plate = EMISSIVE_PATH, vecName = "Color", rgb = { 0.45, 0.50, 0.55 } }, -- cool grey
-    { label = "DIMWHITE",  plate = EMISSIVE_PATH, vecName = "Color", rgb = { 0.55, 0.55, 0.52 } }, -- white at ~55%
+    { label = "GIZMO-GC",  plate = "/Engine/EngineMaterials/GizmoMaterial.GizmoMaterial", vecName = "GizmoColor" },
+    { label = "GIZMO-COL", plate = "/Engine/EngineMaterials/GizmoMaterial.GizmoMaterial", vecName = "Color" },
+    { label = "DBG-COL",   plate = "/Engine/EngineDebugMaterials/DebugMeshMaterial.DebugMeshMaterial", vecName = "Color" },
+    { label = "DBG-GC",    plate = "/Engine/EngineDebugMaterials/DebugMeshMaterial.DebugMeshMaterial", vecName = "GizmoColor" },
 }
 
 local WHITE_TEX_PATH = "/Game/RetroGraphics/Textures/T_White.T_White" -- census 2026-08-29
@@ -116,7 +146,9 @@ local SCALAR_PARAMS = { { name = "Opacity", value = 1.0 }, { name = "Cutoff", va
 local VEC_PARAM_GUESSES = { "Color", "Colour", "Tint", "TintColor", "BaseColor", "SpriteColor",
                             "EmissiveColor", "Emissive", "MainColor", "GlowColor",
                             -- Seen in the 2026-08-29 census of this game's own instances:
-                            "DieColor", "InnerColor" }
+                            "DieColor", "InnerColor",
+                            -- The engine gizmo material's conventional parameter name:
+                            "GizmoColor" }
 
 local ROW_DISTANCE = 400.0   -- units ahead of the player
 local ROW_SPACING = 160.0    -- lateral spacing between actors
@@ -559,6 +591,15 @@ local function spawnOne(world, pawn, index, candidate, fontTex, anchor, whiteTex
                 applyText(plateComponent, candidate.label)
                 pcall(function() plateComponent.WorldSize = TEXT_WORLD_SIZE end)
                 pcall(function() plateComponent:SetTextRenderColor(COLOR_BYTES) end)
+                if candidate.prio ~= nil then
+                    local applied = "<unread>"
+                    pcall(function()
+                        plateComponent.TranslucencySortPriority = candidate.prio
+                        applied = tostring(plateComponent.TranslucencySortPriority) -- independent readback
+                    end)
+                    print(string.format("%s   plate: TranslucencySortPriority -> %s (wanted %d)\n",
+                        TAG, applied, candidate.prio))
+                end
                 local plateMaster = StaticFindObject(candidate.plate)
                 if plateMaster ~= nil and plateMaster:IsValid() then
                     local plateMid = nil
@@ -582,6 +623,15 @@ local function spawnOne(world, pawn, index, candidate, fontTex, anchor, whiteTex
                             setParamsFromLists(plateMid, plateMaster:GetFullName(), whiteTex)
                             print(string.format("%s   plate: MID of %s, white tex %s.\n",
                                 TAG, candidate.plate, whiteTex ~= nil and "set" or "MISSING"))
+                        end
+                        if candidate.scalars ~= nil then
+                            for scalarName, scalarValue in pairs(candidate.scalars) do
+                                local sOk = pcall(function()
+                                    plateMid:SetScalarParameterValue(FName(scalarName), scalarValue)
+                                end)
+                                print(string.format("%s   plate: scalar %s=%.2f set %s.\n",
+                                    TAG, scalarName, scalarValue, sOk and "ok" or "FAILED"))
+                            end
                         end
                         pcall(function() plateComponent:SetTextMaterial(plateMid) end)
                     else
@@ -625,6 +675,10 @@ local function runProbe()
     local ok, err = pcall(function()
         print(TAG .. " ===== run start =====\n")
         local anchor = destroyPreviousRow()
+        -- Set false for ONE deploy when the inherited spot has ended up inside geometry (it
+        -- happened 2026-08-29); flip back to true in the next deploy so rows stay put again.
+        local ANCHOR_TO_PREVIOUS_ROW = false
+        if not ANCHOR_TO_PREVIOUS_ROW then anchor = nil end
         censusOneClass("MaterialInstanceConstant")
         censusOneClass("MaterialInstanceDynamic")
         local fontTex = findFontTexture()

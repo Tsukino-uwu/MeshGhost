@@ -364,19 +364,30 @@ room — judged against `M_Cracks` and `M_AnimatedSPrite` plates, which lost.
 
 **What is in the C++ mod now (built, never watched):** `NAMETAG_COLOR_PLATE` in `Plugin.cpp`;
 plate created best-effort beside the text component; blank/invalid colour = **no plate, text
-only** (an uncoloured plate is a white box, the material default); full-facing billboard —
-**pitch now included** (user request, replacing the yaw-only guess) — with the plate offset along
-the 3D facing. Plus a relay change: **the loopback ghost's Join now carries the sender's own
-nametag** (`name-ghost`, same colour), so this is testable on one machine; regression-asserted in
-`TestLoopbackEchoesGhost`.
+only** (the user's rule, restated after a mid-day misread briefly made blank fall back to a
+default); full-facing billboard — **pitch now included** (user request, replacing the yaw-only
+guess) — with the plate offset along the 3D facing. Plus a relay change: **the loopback ghost's
+Join now carries the sender's own nametag** (`name-ghost`, same colour), so this is testable on
+one machine; regression-asserted in `TestLoopbackEchoesGhost`.
+
+**The plate material is `DebugMeshMaterial` + `"Color"`, and the door-divider defect is
+designed out** (2026-08-29 rounds 9–12, all judged on screen by the user): the game's black
+room-divider planes out-draw every TRANSLUCENT plate — `EmissiveMeshMaterial` still vanished at
+`TranslucencySortPriority` 32760, so no priority wins — while OPAQUE materials depth-test and
+survive, exactly as the opaque text always did. The game's own opaque masters (`M_PawnMaster`,
+`M_PawnMasterRimTest`) survived but render the stylized lit banding (first read as the dither
+fade; forcing `UseFade`/`FadeLength` to 0 changed nothing). The engine's unlit-opaque debug
+materials are the intersection: `DebugMeshMaterial`/`"Color"` shipped, `GizmoMaterial`/
+`"GizmoColor"` the equal-looking runner-up. **Default for a peer who never edits their config:
+`name_color` now ships as `#A89975`** (parchment — the user's pick over lavender, slate and
+dim-white) in `packaging/release/config.json` and the client template; blank still means text
+only.
 
 **What to look at:** loopback rig, own ghost beside you — a black name on a plate in your
 `name_color` (the install config says `Tsukino` / `#F54927`, so an orange-red plate reading
-"Tsukino-ghost"). Correct is: plate exactly the name's width, black text readable on it, tag
-facing you from above and below as well as sideways, and no white box anywhere. **Known risks to
-watch:** the black room-divider planes may draw over the plate (translucent sort; the lever is
-`TranslucencySortPriority`, unset), and the plate's own back is visible from behind only until
-the billboard turns it — it should never actually present its back.
+"Tsukino-ghost"). Correct is: plate exactly the name's width, flat colour with no banding, black
+text readable on it, tag facing you from above and below as well as sideways, surviving in front
+of a door divider, and no white box anywhere.
 
 **The probe kit this came from** (all dev-only, in the repo): `probe_nametag/` — census +
 labeled-experiment rows; `probe_reloader/` — resident mod that restarts a named mod when

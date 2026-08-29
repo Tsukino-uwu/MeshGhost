@@ -1977,23 +1977,31 @@ namespace MeshGhostPseudo
     constexpr float NAMETAG_WORLD_SIZE = 18.0f;
 
     // The colour PLATE: a second text component behind the name, rendering the same string
-    // through a MaterialInstanceDynamic of EmissiveMeshMaterial with its "Color" parameter set
-    // to the peer's colour -- solid glyph-shaped blocks, so the plate sizes itself to the name.
-    // Crisp default-material text sits in front of it, deliberately left BLACK for contrast.
+    // through a MaterialInstanceDynamic of the engine's DebugMeshMaterial with its "Color"
+    // parameter set to the peer's colour -- solid glyph-shaped blocks, so the plate sizes
+    // itself to the name. Crisp default-material text sits in front, deliberately BLACK.
     //
     // This is the answer to the 2026-08-28 dead end above: coloured TEXT is impossible on this
     // build (TEXTMID proved the default text material ignores every parameter; the translucent
-    // text material is not cooked; vertex colour reaches nothing), but a colour PARAMETER on an
-    // emissive MID works and stays evenly lit in a dark room. Measured via the Lua probe
-    // -- everything below is from adapters/pseudoregalia/probe_nametag, judged on screen by the
-    // user 2026-08-29, and "Color" is the one parameter name of twelve that took (narrowed with
-    // one-name-per-tag, the tag's own label naming the parameter under test).
+    // text material is not cooked; vertex colour reaches nothing), but a colour PARAMETER on a
+    // swapped-in material works. All measured via the Lua probe (probe_nametag), judged on
+    // screen by the user across ~12 rounds on 2026-08-29.
     //
-    // Known open edge: the game's black room-divider planes can draw over the plate
-    // (translucent sort order). If it bites on the real tag, TranslucencySortPriority on the
-    // plate component is the lever -- not yet needed, not yet set.
+    // WHY THIS MATERIAL, of everything tried that day: the plate must be OPAQUE and UNLIT as
+    // well as colourable. The game's black room-divider planes out-draw every TRANSLUCENT
+    // plate (EmissiveMeshMaterial vanished in front of them at TranslucencySortPriority 32760,
+    // so no priority wins), while opaque materials depth-test and survive -- but the game's own
+    // opaque masters (M_PawnMaster and kin) are LIT with stylized banding and a dither fade
+    // that no scalar we set flattened. The engine's debug materials are the opaque+unlit+
+    // parameter intersection: DebugMeshMaterial takes "Color" (GizmoMaterial/"GizmoColor" was
+    // the equal-looking runner-up), and both were confirmed loaded from the title screen on.
     constexpr bool NAMETAG_COLOR_PLATE = true;
     constexpr double NAMETAG_PLATE_BEHIND = 4.0; // units behind the text, along the facing
+    // A peer with NO colour gets NO plate -- text only. That is the user's rule (restated
+    // 2026-08-29: blank means no nametag box), and the DEFAULT for people who never touch
+    // their config lives in the shipped config.json instead: name_color "#A89975", the
+    // parchment the user picked from a probe lineup as reading well against this game's
+    // palette without white's glare (the same 0.66/0.60/0.46 the winning tags wore, as bytes).
 
 
     constexpr bool SHADOW_COMPONENT_PROBE = false;
@@ -6242,13 +6250,15 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
-        // Creates a MaterialInstanceDynamic of EmissiveMeshMaterial on `component` and makes it
-        // the component's text material. Returns the MID so its "Color" parameter can be driven,
-        // or nullptr with a one-shot warning naming which half failed.
+        // Creates a MaterialInstanceDynamic of the engine's DebugMeshMaterial on `component` and
+        // makes it the component's text material. Returns the MID so its "Color" parameter can
+        // be driven, or nullptr with a one-shot warning naming which half failed.
         //
-        // CreateDynamicMaterialInstance was confirmed present on this build by the 2026-08-28
-        // census, and the whole route confirmed working on screen through the Lua probe
-        // (probe_nametag) on 2026-08-29. Parameters resolved by name, never by assumed layout.
+        // DebugMeshMaterial and not EmissiveMeshMaterial because the plate must be OPAQUE --
+        // see NAMETAG_COLOR_PLATE's comment for the divider evidence. CreateDynamicMaterial-
+        // Instance was confirmed present by the 2026-08-28 census, and the whole route confirmed
+        // on screen through the Lua probe (probe_nametag) 2026-08-29. Parameters resolved by
+        // name, never by assumed layout.
         auto create_plate_material(UObject* component) -> UObject*
         {
             if (!component)
@@ -6256,7 +6266,7 @@ namespace MeshGhostPseudo
                 return nullptr;
             }
             static UObject* master = UObjectGlobals::StaticFindObject<UObject*>(
-                nullptr, nullptr, STR("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+                nullptr, nullptr, STR("/Engine/EngineDebugMaterials/DebugMeshMaterial.DebugMeshMaterial"));
             UFunction* create_fn = component->GetFunctionByNameInChain(STR("CreateDynamicMaterialInstance"));
             UFunction* set_fn = component->GetFunctionByNameInChain(STR("SetTextMaterial"));
             if (!master || !create_fn || !set_fn)
@@ -6338,16 +6348,15 @@ namespace MeshGhostPseudo
             return mid;
         }
 
-        // Sets the plate MID's "Color" parameter from "#RRGGBB". "Color" is the ONE name of
-        // twelve that colours EmissiveMeshMaterial on this build -- narrowed on screen
-        // 2026-08-29, one-name-per-tag, each tag labeled with the name it tested. The value is
-        // an FLinearColor (floats), written field by field by name like every struct in this
-        // file; bytes/255 matched the requested colour exactly on screen.
+        // Sets the plate MID's "Color" parameter from "#RRGGBB". "Color" is DebugMeshMaterial's
+        // colour parameter, narrowed on screen 2026-08-29 one-name-per-tag (each tag labeled
+        // with the name it tested; GizmoMaterial's equivalent is "GizmoColor"). The value is an
+        // FLinearColor (floats), written field by field by name like every struct in this file;
+        // bytes/255 matched the requested colour exactly on screen.
         //
         // Returns whether a colour was actually applied. The caller SHOWS the plate only on
-        // true: a peer with no colour gets plain text and no plate, because an unset parameter
-        // leaves EmissiveMeshMaterial at its default -- a white box (user's rule 2026-08-29:
-        // blank colour means text only).
+        // true: a peer with a blank or unparsable colour gets plain text and no plate, because
+        // an unset parameter is the material's own white-ish default, which nobody chose.
         auto set_plate_color(UObject* mid, const std::string& hex) -> bool
         {
             if (!mid || hex.size() != 7 || hex[0] != '#')
@@ -9945,9 +9954,10 @@ namespace MeshGhostPseudo
         {
             // The PLATE carries the peer's colour; the text stays deliberately black on top of
             // it. A material parameter applies live -- no mesh rebuild, so no rebuild dance.
-            // NO VALID COLOUR MEANS NO PLATE: the string below only goes on when a colour
-            // took, and comes off when one goes away, because an uncoloured plate renders as
-            // the material's default white box.
+            // NO VALID COLOUR MEANS NO PLATE (user's rule, restated 2026-08-29): the string
+            // below only goes on when a colour took, and comes off when one goes away. The
+            // parchment DEFAULT for peers who never edited their config is the shipped
+            // config.json's name_color, not anything applied here.
             if (entry.nametag_plate_mid && entry.nametag_plate_applied_color != wanted_color)
             {
                 entry.nametag_plate_has_color = set_plate_color(entry.nametag_plate_mid, wanted_color);
