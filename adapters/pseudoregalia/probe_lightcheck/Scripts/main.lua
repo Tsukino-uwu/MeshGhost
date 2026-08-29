@@ -328,8 +328,19 @@ local function dumpEffects()
                     end
                     local active = prop(comp, "bIsActive")
                     local visible = prop(comp, "bVisible")
-                    entries[#entries + 1] = string.format("%s@%s(active=%s,vis=%s)",
-                        name, owner, tostring(active), tostring(visible))
+                    -- **The asset, which the first version of this census did not print -- and that
+                    -- omission cost a round.** A Niagara component's NAME is auto-generated
+                    -- (`NiagaraComponent_2147482189`), so "player has one, ghost has one" looked
+                    -- symmetric while the two could be entirely different systems. A Niagara
+                    -- emitter can carry a LIGHT RENDERER, which emits real light into the scene
+                    -- without ever being a PointLightComponent -- exactly the shape that survives a
+                    -- light census reading `lit=0` while the user watches a ghost light up a wall.
+                    -- `Asset` is a named property this adapter already reads on this build
+                    -- (`PLAYER_FIELDS.md`, the thrown sword's `idleGlowVFX`).
+                    local asset = prop(comp, "Asset")
+                    entries[#entries + 1] = string.format("%s@%s(asset=%s,active=%s,vis=%s)",
+                        name, owner, asset and shortName(asset) or "<none>",
+                        tostring(active), tostring(visible))
                 end
             end
         end
@@ -358,6 +369,41 @@ end
 -- MESH_FLAGS above is a named list -- read one at a time, with the list grown between runs. That
 -- is slower and it is the only version of this that is allowed to run again.
 
+-- Stage 6 -- character-shaped meshes that are NOT a character.
+--
+-- The effect census asked about Niagara and Cascade only, which assumes the brightness is a
+-- particle system. This adapter also spawns AFTERIMAGES -- pooled skeletal-mesh actors with the
+-- player's own model -- and one parked on top of a ghost and never released would read on screen
+-- as "the ghost is bright", not as "there is a second character here", because it is the same
+-- model in the same pose in the same place.
+--
+-- Lists every visible SkeletalMeshComponent whose owner is NOT a `BP_PlayerGoatMain_C`, printed on
+-- CHANGE. One line, and the interesting outcome is any entry at all near the characters.
+--
+-- Named classes only, one property read each: the enumeration is scoped to a class this build is
+-- known to have, and nothing here follows a pointer the object handed back.
+local last_meshes = nil
+
+local function dumpExtraMeshes()
+    local found = FindAllOf("SkeletalMeshComponent")
+    if not found then return end
+    local entries = {}
+    for _, comp in pairs(found) do
+        local name = shortName(comp)
+        if name ~= "<unnamed>" and not name:match("^BP_PlayerGoatMain_C_%d+%.") then
+            if prop(comp, "bVisible") ~= false then
+                entries[#entries + 1] = name
+            end
+        end
+    end
+    table.sort(entries)
+    local line = string.format("%s MESHES notPawn=%d %s", TAG, #entries, table.concat(entries, " "))
+    if line ~= last_meshes then
+        last_meshes = line
+        print(line .. "\n")
+    end
+end
+
 LoopAsync(1000, function()
     if not PROBE_ENABLED then
         return true    -- stop the loop entirely
@@ -372,6 +418,7 @@ LoopAsync(1000, function()
         end
         dumpParams()
         dumpEffects()
+        dumpExtraMeshes()
         if not dumped_stage2 then
             -- Held until a second character exists: a dump of the local player alone has no control
             -- to compare against, and it is the DIFFERENCE that is the finding.

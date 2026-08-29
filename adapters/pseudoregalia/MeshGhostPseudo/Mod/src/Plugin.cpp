@@ -1818,6 +1818,30 @@ namespace MeshGhostPseudo
     // there.
     bool g_ghost_keeps_custom_depth = false;
 
+    // **Two more subtractions, 2026-08-29, and they exist because six clean instruments in a row
+    // did not move the symptom.** The ghost's light reads 0 (independent probe, both instances),
+    // `SetIntensity` resolved with no warning, no other light class in the level is lit, the
+    // meshes/materials/parameters/effects all match the player's, and the user is still watching a
+    // ghost light up a wall while their own character in the same room leaves it dark.
+    //
+    // `../../CLAUDE.md`: two guessed fixes failing the same way means isolate by subtraction, not a
+    // third guess. So instead of another census, remove one thing at a time from the ghost and let
+    // the user say what happened to the glow:
+    //
+    //   `ghost_light_on.txt`   -- hold the ghost's light at its birth 5000 INSTEAD of 0. If the
+    //                             room gets brighter, the light works and 0 is genuinely off, so
+    //                             the glow is something else. If nothing changes, the light was
+    //                             never what lit that wall in either direction.
+    //   `hide_ghost_mesh.txt`  -- hide the ghost's meshes. If the glow goes with them, it is the
+    //                             MODEL (an unlit-looking model plus bloom reads exactly like an
+    //                             emitter in a dark room). If the glow stays with the model gone,
+    //                             something attached is emitting and we have never named it.
+    //
+    // Both are diagnostics on the same footing as GHOST_CUSTOM_DEPTH_DEV_TOGGLE: gated on that same
+    // flag, driven by a file that never exists on a player's machine, and due to come out with it.
+    bool g_ghost_light_forced_on = false;
+    bool g_ghost_mesh_hidden = false;
+
     // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
     //
     // The user, on a two-instance session: the ascendant light *"should always be off for a ghost
@@ -3831,6 +3855,57 @@ namespace MeshGhostPseudo
             if (!written)
             {
                 Output::send(STR("[MeshGhostPseudo] WARNING: SetIntensity reflected no parameters -- refusing to call it.\n"));
+                return;
+            }
+            component->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Shows or hides one component. Used only by the dev mesh-hide subtraction -- see
+        // GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block for what question it answers.
+        //
+        // `SetVisibility(bool bNewVisibility, bool bPropagateToChildren)` -- two parameters, and
+        // both are written at their own reflected offsets rather than assumed adjacent. Propagate
+        // is true because a character's meshes carry attached children, and hiding the parent while
+        // a child stays drawn would make the subtraction incomplete and its answer meaningless.
+        auto call_set_visibility(UObject* component, bool visible) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            UFunction* function = component->GetFunctionByNameInChain(STR("SetVisibility"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: SetVisibility not reflected -- the dev mesh-hide toggle cannot work.\n"));
+                }
+                return;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            int written = 0;
+            for (FProperty* property : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!property || written >= 2)
+                {
+                    continue;
+                }
+                const int32_t offset = property->GetOffset_Internal();
+                if (offset >= 0 && offset < parms_size)
+                {
+                    params_buffer[static_cast<size_t>(offset)] = (written == 0) ? (visible ? 1 : 0) : 1;
+                }
+                ++written;
+            }
+            if (written == 0)
+            {
                 return;
             }
             component->ProcessEvent(function, params_buffer.data());
@@ -15231,6 +15306,30 @@ namespace MeshGhostPseudo
             // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
             // game turns custom depth back on during an attack and a spawn-time write cannot
             // survive that.
+            // The mesh-hide subtraction -- see GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block. Driven every
+            // tick in BOTH directions so the flip is visible without a respawn, and so nothing is
+            // left hidden when the file goes away.
+            if constexpr (GHOST_CUSTOM_DEPTH_DEV_TOGGLE)
+            {
+                // Per-MESH rather than a remembered flag: a static "already applied" bool is shared
+                // by every ghost in the room, so the first one to tick would consume the flip and
+                // the rest would stay as they were. Reading each mesh's own bVisible keeps the flip
+                // correct for any number of ghosts and still costs no engine call once settled.
+                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+                {
+                    if (UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                        mesh && *mesh)
+                    {
+                        const bool want_visible = !g_ghost_mesh_hidden;
+                        bool* visible = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                        if (visible && *visible != want_visible)
+                        {
+                            call_set_visibility(*mesh, want_visible);
+                        }
+                    }
+                }
+            }
+
             // The live A/B, ahead of the hold: while the toggle file is present the ghost KEEPS its
             // custom depth, and one already on screen has it put back so the flip is visible without
             // a respawn. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE.
@@ -15370,10 +15469,14 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
+                        // The target is 0 in every shipping configuration; the dev toggle raises it
+                        // to the birth value so the A/B can ask what this light looks like when it
+                        // is genuinely ON. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block.
+                        const float target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
                         float* intensity = light->GetValuePtrByPropertyNameInChain<float>(STR("Intensity"));
-                        if (!intensity || *intensity == 0.0f)
+                        if (!intensity || *intensity == target)
                         {
-                            continue; // dark already -- every level light in the room lands here
+                            continue; // already where we want it -- every level light lands here too
                         }
                         // **Attributed up the ATTACH chain, not the outer chain.** This light lives
                         // inside a ChildActorComponent, and a child actor's outer is the LEVEL --
@@ -15405,10 +15508,10 @@ namespace MeshGhostPseudo
                         static std::set<std::string> announced_light;
                         if (announced_light.insert(full_name).second)
                         {
-                            Output::send(STR("[MeshGhostPseudo] ghost light: '{}' was at intensity {} -- holding it at 0.\n"),
-                                         to_wide_ascii(full_name), *intensity);
+                            Output::send(STR("[MeshGhostPseudo] ghost light: '{}' was at intensity {} -- holding it at {}.\n"),
+                                         to_wide_ascii(full_name), *intensity, target);
                         }
-                        call_set_light_intensity(light, 0.0f);
+                        call_set_light_intensity(light, target);
                     }
                 }
             }
@@ -16623,6 +16726,24 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghosts now {} custom depth (keep_custom_depth.txt {}).\n"),
                                  present ? STR("KEEP") : STR("lose"),
                                  present ? STR("present") : STR("gone"));
+                }
+
+                const bool light_on = dev_toggle_present(STR("ghost_light_on.txt"));
+                if (light_on != g_ghost_light_forced_on)
+                {
+                    g_ghost_light_forced_on = light_on;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost light forced {} (ghost_light_on.txt {}).\n"),
+                                 light_on ? STR("ON at 5000") : STR("off at 0"),
+                                 light_on ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_mesh = dev_toggle_present(STR("hide_ghost_mesh.txt"));
+                if (hide_mesh != g_ghost_mesh_hidden)
+                {
+                    g_ghost_mesh_hidden = hide_mesh;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost meshes now {} (hide_ghost_mesh.txt {}).\n"),
+                                 hide_mesh ? STR("HIDDEN") : STR("shown"),
+                                 hide_mesh ? STR("present") : STR("gone"));
                 }
             }
         }
