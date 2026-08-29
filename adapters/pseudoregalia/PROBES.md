@@ -125,3 +125,23 @@ instrument.
 - **A new mod folder cannot be hot-reloaded in.** `probe_reloader/` calls `RestartMod`, which
   answers *"Could not find mod to reinstall"* for anything UE4SS did not load at launch (measured
   2026-08-29). It carries an `enabled.txt`, so it arms itself on the NEXT game start.
+
+## `probe_namecensus/` — the census that ended the glow hunt (2026-08-29, evening)
+
+Grew stage by stage through the session that found `BP_DynamicVertexLight_C` and `LightMesh`
+(`UNVERIFIED.md`, the CAUSE FOUND section). Read-only, named reads and `GetFullName()` only —
+never a UFunction — so it has been reloaded into a live two-instance session dozens of times
+without incident. One census 3s after each (re)load; write the reloader trigger to re-run it.
+
+- **`Scripts/main.lua`** — world inventories by class (`TextRenderComponent`, `NiagaraComponent`
+  with each `Asset`, lights, decals, `ChildActorComponent`, `MaterialParameterCollection`), the
+  `MPC_PlayerRelated` parameter list, and for every pawn: `PlayerLight` → its `ChildActor`, and
+  `WeaponMesh`/`VisualMesh`/`LightMesh` with materials, MID parents, MID parameters, visibility
+  flags, `CustomPrimitiveData` and `OverlayMaterial`.
+- **The lesson it proved:** the glow was invisible to every light/material/post-process read
+  because the mechanism was a vertex-painting ACTOR and a separate aura MESH — a census of what
+  EXISTS, dumped unfiltered, found in one evening what eleven targeted eliminations could not.
+- **Never trigger a full UE4SS hot reload (Ctrl+R) to pick up a new probe in a live multiplayer
+  rig** — it reinstalls every Lua mod, orphans the adapter's spawned ghosts, and broke the session
+  it was tried in (camera stolen, duplicate ghosts). Deploy the folder, relaunch the game once,
+  and use `probe_reloader/` from then on.

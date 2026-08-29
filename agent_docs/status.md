@@ -63,10 +63,14 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's ghost GLOW is TWO bugs and neither is the light** (2026-08-29) — a per-client
-  scene latch on ghost spawn, plus a glow that travels with each ghost. `pseudoregalia/UNVERIFIED.md`.
-- **Three suspects there were reported eliminated and were NOT** — nametag, blob shadow and the
-  ghost's particles; the subtractions matched 0 components. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's ghost GLOW: cause FOUND (2026-08-29 evening) — `BP_DynamicVertexLight_C` plus
+  `LightMesh`; ghost glow + blade aura confirmed fixed on screen via toggles.** `pseudoregalia/UNVERIFIED.md`.
+- **The connect-time scene LATCH survives even a same-tick destroy** — a template-suppression
+  build is deployed and UNWATCHED; the next connect-in-darkness run answers it. Same section.
+- **NEW: a peer's sword pickup drives the LOCAL player's animation** — both single-call skips
+  negative, the both-skipped combination is armed and untested. `pseudoregalia/UNVERIFIED.md`.
+- **Two subtraction toggles still lie (nametag mid-session, blob shadow)** — the `bVisible` byte
+  read is the suspect; do not trust either until fixed. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on

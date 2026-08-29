@@ -1866,6 +1866,24 @@ namespace MeshGhostPseudo
     bool g_ghost_fx_hidden = false;
     bool g_ghost_shadow_hidden = false;
     bool g_ghost_nametag_hidden = false;
+    // The 2026-08-29 census finding: every pawn's `PlayerLight` ChildActorComponent holds a
+    // `BP_DynamicVertexLight_C` -- this game's retro lighting paints brightness into level
+    // geometry near the actor, with NO light component involved, which is why every light census
+    // came back clean while the user watched walls glow around a ghost. This toggle destroys the
+    // ghost's copy. ONE-WAY per ghost: removing the file stops future kills but does not rebuild
+    // a destroyed child actor -- an area transition respawns the ghost and restores it.
+    bool g_ghost_vertexlight_killed = false;
+    // Skip the game's changeEquippedWeapon call on ghosts -- see the call site. The suspicion it
+    // isolates: that Blueprint is the game's own pickup path and reaches the LOCAL player for the
+    // pickup montage and the temp light (both watched landing on the local pawn, 2026-08-29).
+    bool g_ghost_equip_call_skipped = false;
+    // Skip updateWeaponEquip on the ghost's anim instance -- the second half of the pickup
+    // cross-wire split, see the call site.
+    bool g_ghost_equip_anim_skipped = false;
+    // Hide only the ghost's WeaponMesh -- the blade-shimmer split, see the mesh loop.
+    bool g_ghost_weapon_hidden = false;
+    // Hide only the ghost's LightMesh -- the ascendant-light blade aura, see the mesh loop.
+    bool g_ghost_lightmesh_hidden = false;
 
     // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
     //
@@ -9877,7 +9895,41 @@ namespace MeshGhostPseudo
                          auto_possess ? std::to_wstring(saved_auto_possess) : STR("<not reflected>"));
         }
 
+        // Suppress the DynamicVertexLight for the duration of THIS SpawnActor call. The
+        // spawn-tick destroy below runs too late by construction (measured 2026-08-29: destroy
+        // was called in the same tick and client 1's scene still latched bright) -- the child
+        // actor's BeginPlay runs INSIDE SpawnActor, and whatever it does to the scene survives
+        // its destruction. So the child actor must never exist: null the class template's
+        // ChildActorClass, spawn, restore. The restore happens before anything else on this
+        // thread can spawn a pawn, so a real player's own template is never affected.
+        UObject* vl_template_cac = nullptr;
+        UObject* vl_saved_child_class = nullptr;
+        if (g_ghost_vertexlight_killed && pawn_class)
+        {
+            if (UObject* cdo = pawn_class->GetClassDefaultObject())
+            {
+                if (UObject** tmpl = cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")); tmpl && *tmpl)
+                {
+                    if (UObject** child_class = (*tmpl)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass")))
+                    {
+                        vl_template_cac = *tmpl;
+                        vl_saved_child_class = *child_class;
+                        *child_class = nullptr;
+                    }
+                }
+            }
+        }
+
         AActor* ghost = world->SpawnActor(pawn_class, &spawn_loc, &spawn_rot);
+
+        if (vl_template_cac)
+        {
+            if (UObject** child_class = vl_template_cac->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass")))
+            {
+                *child_class = vl_saved_child_class;
+            }
+            Output::send(STR("[MeshGhostPseudo] DEV: ghost spawned with PlayerLight's ChildActorClass suppressed (template nulled for the spawn, restored after).\n"));
+        }
 
         if (auto_possess)
         {
@@ -9887,6 +9939,32 @@ namespace MeshGhostPseudo
         {
             Output::send(STR("[MeshGhostPseudo] SpawnActor returned nullptr for remote {}.\n"), to_wide_ascii(player_id));
             return;
+        }
+
+        // Kill the ghost's DynamicVertexLight IN THE SPAWN TICK, before this frame renders --
+        // the per-tick sweep alone lost the race on the connect-time spawn (2026-08-29: the scene
+        // latched bright on client 1 the moment client 2 connected, with the sweep armed from
+        // boot). One rendered frame with the light on paints the level geometry, and only an area
+        // transition repaints it -- the host rule's "an actor that spawns with a visual already ON
+        // cannot be fixed reactively", except we ARE the spawner, so this is the interception
+        // point. The CAC's child actor exists by now (created during SpawnActor registration).
+        if (g_ghost_vertexlight_killed)
+        {
+            if (UObject** vl_cac = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")); vl_cac && *vl_cac)
+            {
+                if (UObject** vl_child = (*vl_cac)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor")); vl_child && *vl_child)
+                {
+                    const bool vl_destroyed = call_destroy_actor(reinterpret_cast<AActor*>(*vl_child));
+                    Output::send(STR("[MeshGhostPseudo] DEV: spawn-tick vertex-light kill for remote {} -- destroy {}.\n"),
+                                 to_wide_ascii(player_id),
+                                 vl_destroyed ? STR("was called") : STR("NOT REFLECTED, nothing happened"));
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] DEV: spawn-tick vertex-light kill for remote {} -- CAC has no child actor yet, the sweep must catch it.\n"),
+                                 to_wide_ascii(player_id));
+                }
+            }
         }
 
         // Facing-direction investigation, 2026-08-13: bisecting whether the ghost's
@@ -15800,16 +15878,52 @@ namespace MeshGhostPseudo
                 // by every ghost in the room, so the first one to tick would consume the flip and
                 // the rest would stay as they were. Reading each mesh's own bVisible keeps the flip
                 // correct for any number of ghosts and still costs no engine call once settled.
-                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
+                // hide_ghost_weapon.txt narrows the subtraction to the WeaponMesh alone -- added
+                // 2026-08-29 to split the blade shimmer from the body (hiding both removed it;
+                // which mesh renders it is the open question).
+                for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh"), STR("LightMesh")})
                 {
                     if (UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
                         mesh && *mesh)
                     {
-                        const bool want_visible = !g_ghost_mesh_hidden;
+                        const bool weapon_only_hidden = g_ghost_weapon_hidden && std::wcscmp(mesh_name, STR("WeaponMesh")) == 0;
+                        // LightMesh is the ascendant-light blade aura (M_SpiritAura, census
+                        // 2026-08-29). The ghost's is stuck visible because the ghost constructs
+                        // from the LOCAL save, which owns the upgrade -- the game drives the real
+                        // player's from havelight?/weapon state and nothing drives the ghost's.
+                        const bool lightmesh_hidden = g_ghost_lightmesh_hidden && std::wcscmp(mesh_name, STR("LightMesh")) == 0;
+                        const bool want_visible = !g_ghost_mesh_hidden && !weapon_only_hidden && !lightmesh_hidden;
                         bool* visible = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
                         if (visible && *visible != want_visible)
                         {
                             call_set_visibility(*mesh, want_visible);
+                        }
+                    }
+                }
+
+                // The vertex-light kill -- see g_ghost_vertexlight_killed. Both reads are NAMED
+                // properties off the ghost we own (PlayerLight -> ChildActor); no world scan, no
+                // FindAllOf. Swept per tick while armed: if the CAC respawns its child, the
+                // re-kill is counted and the count is the finding, same shape as the re-lit
+                // counter in GHOST_HOLD_LIGHT_OFF.
+                if (g_ghost_vertexlight_killed)
+                {
+                    if (UObject** cac = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight"));
+                        cac && *cac)
+                    {
+                        if (UObject** child = (*cac)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor"));
+                            child && *child)
+                        {
+                            const std::string child_name = to_utf8((*child)->GetFullName());
+                            const bool destroyed = call_destroy_actor(reinterpret_cast<AActor*>(*child));
+                            static std::map<std::string, int> vl_kills;
+                            const int n = ++vl_kills[child_name];
+                            if (n == 1 || n == 10 || n == 100 || n % 1000 == 0)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] DEV: vertex-light kill #{} on '{}' -- destroy {}.\n"),
+                                             n, to_wide_ascii(child_name),
+                                             destroyed ? STR("was called") : STR("NOT REFLECTED, nothing happened"));
+                            }
                         }
                     }
                 }
@@ -16319,10 +16433,28 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] TRACE weapon ghost {}: calling changeEquippedWeapon/updateWeaponEquip({}) -- armed={} prev={}\n"),
                                  to_wide_ascii(id), remote.target_weapon_equipped, remote.weapon_equip_call_armed, remote.last_synced_weapon_equipped);
                 }
-                call_change_equipped_weapon(remote.ghost, remote.target_weapon_equipped);
-                if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                // Skippable via dev toggle since 2026-08-29: a peer's PICKUP drove the LOCAL
+                // player's pickup animation AND the temp light, watched live in the dark area.
+                // changeEquippedWeapon is the game's own pickup path, and this game is written
+                // single-player -- its graph is free to reach "the player" directly for parts of
+                // the job, so calling it on a ghost sprays side effects onto the local pawn. The
+                // toggle isolates that: with the call skipped, the property writes below still
+                // flip the ghost's sword, and whether the cross-wire vanishes is the measurement.
+                if (!g_ghost_equip_call_skipped)
                 {
-                    call_update_weapon_equip(*g_abp_ptr, remote.target_weapon_equipped);
+                    call_change_equipped_weapon(remote.ghost, remote.target_weapon_equipped);
+                }
+                // Measured 2026-08-29: skipping changeEquippedWeapon left the ghost's thrown
+                // sword in its hand AND did not stop the peer pickup driving the LOCAL player's
+                // pickup animation -- so that call is load-bearing for the ghost's visuals and
+                // innocent of the cross-wire. This second skip isolates the remaining call on
+                // the same edge.
+                if (!g_ghost_equip_anim_skipped)
+                {
+                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    {
+                        call_update_weapon_equip(*g_abp_ptr, remote.target_weapon_equipped);
+                    }
                 }
 
                 // call_manage_recall_idle_fx(remote.ghost) was wired in here on this same edge and
@@ -17292,6 +17424,51 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost meshes now {} (hide_ghost_mesh.txt {}).\n"),
                                  hide_mesh ? STR("HIDDEN") : STR("shown"),
                                  hide_mesh ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_lightmesh = dev_toggle_present(STR("hide_ghost_lightmesh.txt"));
+                if (hide_lightmesh != g_ghost_lightmesh_hidden)
+                {
+                    g_ghost_lightmesh_hidden = hide_lightmesh;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost LightMesh now {} (hide_ghost_lightmesh.txt {}).\n"),
+                                 hide_lightmesh ? STR("HIDDEN") : STR("shown"),
+                                 hide_lightmesh ? STR("present") : STR("gone"));
+                }
+
+                const bool hide_weapon = dev_toggle_present(STR("hide_ghost_weapon.txt"));
+                if (hide_weapon != g_ghost_weapon_hidden)
+                {
+                    g_ghost_weapon_hidden = hide_weapon;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost WeaponMesh now {} (hide_ghost_weapon.txt {}).\n"),
+                                 hide_weapon ? STR("HIDDEN") : STR("shown"),
+                                 hide_weapon ? STR("present") : STR("gone"));
+                }
+
+                const bool skip_equip_anim = dev_toggle_present(STR("skip_ghost_equip_anim.txt"));
+                if (skip_equip_anim != g_ghost_equip_anim_skipped)
+                {
+                    g_ghost_equip_anim_skipped = skip_equip_anim;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost updateWeaponEquip call now {} (skip_ghost_equip_anim.txt {}).\n"),
+                                 skip_equip_anim ? STR("SKIPPED") : STR("made"),
+                                 skip_equip_anim ? STR("present") : STR("gone"));
+                }
+
+                const bool skip_equip = dev_toggle_present(STR("skip_ghost_equip_call.txt"));
+                if (skip_equip != g_ghost_equip_call_skipped)
+                {
+                    g_ghost_equip_call_skipped = skip_equip;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost changeEquippedWeapon call now {} (skip_ghost_equip_call.txt {}).\n"),
+                                 skip_equip ? STR("SKIPPED") : STR("made"),
+                                 skip_equip ? STR("present") : STR("gone"));
+                }
+
+                const bool kill_vl = dev_toggle_present(STR("hide_ghost_playerlight.txt"));
+                if (kill_vl != g_ghost_vertexlight_killed)
+                {
+                    g_ghost_vertexlight_killed = kill_vl;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost DynamicVertexLight kill now {} (hide_ghost_playerlight.txt {}). One-way per ghost -- an area transition respawns it.\n"),
+                                 kill_vl ? STR("ARMED") : STR("off"),
+                                 kill_vl ? STR("present") : STR("gone"));
                 }
             }
         }

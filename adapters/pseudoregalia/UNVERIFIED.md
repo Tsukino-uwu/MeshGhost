@@ -265,11 +265,59 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
-## OPEN, and this section supersedes the three light entries below it (2026-08-29, long session)
+## CAUSE FOUND 2026-08-29 (evening session) — BOTH light bugs are the ghost's `BP_DynamicVertexLight_C`, and this supersedes the whole section below it
 
-**Read this before touching the ghost-light problem again.** The entries further down were written
-while the cause was still believed to be the ghost's `PointLight`; that belief is now refuted, and
-each is kept only for the measurements it records.
+**The two bugs the section below separates have ONE cause, watched live by the user through a
+subtraction toggle.** This game's dark-area lighting is not lights at all: every pawn's
+`PlayerLight` ChildActorComponent holds a **`BP_DynamicVertexLight_C`** — retro vertex lighting
+that paints brightness into level geometry, invisible to every light/material/post-process census
+(which is why eleven suspects died clean). The ghost constructs from the LOCAL save, which owns
+the ascendant-light upgrade, so it is born with the whole kit ON. `GHOST_HOLD_LIGHT_OFF` held the
+pawn's `PointLightComponent` at 0 the entire time — the wrong object.
+
+- **Bug 2 (glow travels with the ghost): CONFIRMED FIXED on screen** — destroying each ghost's
+  vertex-light child actor (`hide_ghost_playerlight.txt`) turned every ghost dark the moment it
+  fired, both instances, user watching. Still toggle-gated, not shipped default.
+- **Bug 1 (per-client scene latch on connect): the same actor, but destruction is TOO LATE by
+  construction.** Measured escalation: per-tick sweep → latch fires; destroy in the SAME TICK as
+  `SpawnActor` → latch still fires. The child actor's BeginPlay runs INSIDE `SpawnActor` and the
+  scene keeps whatever it did. Current build (deployed, UNWATCHED) nulls the class template's
+  `ChildActorClass` around our one `SpawnActor` call and restores it after, so the light actor is
+  never created for a ghost. **The next connect-in-darkness run answers it.**
+- **The blade shimmer is a THIRD component: `LightMesh`** (`StaticMeshComponent`, `M_SpiritAura`,
+  gold 0.88/0.81/0.27) — the ascendant-light blade aura, named by the user's speedrunner contact,
+  stuck visible on ghosts for the same born-from-local-save reason. **CONFIRMED gone on screen**
+  with `hide_ghost_lightmesh.txt`. Also toggle-gated, not shipped.
+- **OPEN — parity gap, user's call pending:** with the kill and the hide armed, a ghost can NEVER
+  glow, including a peer who legitimately has the light (item, or post-pickup temp light — the
+  user watched exactly that go missing). The proper fix is syncing the peer's actual light state,
+  the observation-mirror shape the recall glow uses.
+- **OPEN — the pickup CROSS-WIRE: a peer picking up their thrown sword drives the LOCAL player's
+  pickup animation (and, pre-kill, the temp light) on the other machine.** Watched three rounds:
+  with `changeEquippedWeapon` skipped, with `updateWeaponEquip` skipped — cross-wire survived
+  BOTH single skips, so it is neither alone or each independently; the BOTH-skipped combination
+  is armed and untested. **Regression while split-testing: with EITHER call skipped the ghost's
+  sword no longer leaves its hand on a throw** — the pair is load-bearing together (2026-08-15
+  confirmed them working as a pair).
+- **OPEN, new observation while testing: the ghost's thrown sword was never seen in the AIR** —
+  it appeared only on the ground (glowing there, which matches the real one). May predate today.
+- **Method note for the next subtraction that "matches 0":** the nametag toggle armed from BOOT
+  works by never CREATING the tags (the updater is skipped), which is how it was finally
+  eliminated by absence — while the same toggle flipped mid-session still matches 0 components,
+  and the blob-shadow sweep matched 0 of 879 while `LightMesh` (name-containing, visible) sat in
+  that class list. The `bVisible` byte read in those sweeps is the suspect. Two subtraction
+  toggles still lie; do not trust either until this is fixed.
+
+The census that found all of this is `probe_namecensus/` (deployed as `MeshGhostNameCensus`), and
+the reloader can re-run it any time — it prints world inventories by class, `MPC_PlayerRelated`
+(one parameter: `PlayerLocation`), per-mesh materials/flags, and the `PlayerLight`/`LightMesh`
+pair. `PROBES.md` has the entry.
+
+## SUPERSEDED by the section above — kept for its measurements (2026-08-29, long session)
+
+**Read the section above before touching the ghost-light problem again.** The entries further down
+were written while the cause was still believed to be the ghost's `PointLight`; that belief is now
+refuted, and each is kept only for the measurements it records.
 
 ### There are TWO bugs wearing the same clothes, and separating them is the session's main result
 
