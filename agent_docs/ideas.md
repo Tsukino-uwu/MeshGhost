@@ -3020,7 +3020,9 @@ Three levels, each strictly cheaper than the last:
   12-player room is usually 12 people in 12 places — and still equality-only.
 - **Nobody within N tiles.** Needs distance, which is a game-shaped question; **out of scope for
   the core** under the game-agnostic rule unless the relay does it from coordinates it already
-  relays. Note it and leave it.
+  relays. Note it and leave it. The DOWNLINK mirror of exactly this — the relay declining to send
+  a peer who is in your area but far away — is worked out in "Distance culling the DOWNLINK" at
+  the end of this file (2026-08-30).
 
 **The hard part is not the culling, it is coming back.** A player who has been silent for a minute
 and then walks into someone must appear *immediately and correctly*, not on the next heartbeat and
@@ -4101,3 +4103,65 @@ painting rooms bright around it is why "too bright near other players" was the o
 any implementation should cap or skip the room-painting half and keep only the character-visible
 part. Filed on the user's ask: *"log it somewhere if we ever do want to give ghosts real
 synced/mimiced light in the future"*.
+
+## Distance culling the DOWNLINK: `own_area_only` with a declared radius (filed 2026-08-30)
+
+**Origin:** the user, reading v1.0.0's release notes, asked why "culling" wasn't already
+screen-distance based — *"tought culling was actually being done outside of the screen ... its
+kinda what i intended when asking for culling to begin with"*. Three different culls exist, and
+they were being read as one, so this entry starts by separating them.
+
+**What already exists today**
+
+- **Drawing is screen-culled.** `meshghost_emerald.lua`'s draw path skips any peer whose sprite
+  falls outside 240x160, and the walk-cycle timer is inside that check rather than beside it, so
+  an off-screen peer costs nothing to draw AND nothing to animate. The spawned tier gets the same
+  for free from the engine's own object culling.
+- **The adapter culls by MAP ADJACENCY, not distance.** Emerald renders peers on its own map plus
+  maps in its connection list and hides everyone else; that one rule is simultaneously the
+  houses-hidden rule and the distance cull, because two maps away is not in the list.
+- **The relay culls by `area_id` EQUALITY** (shipped 2026-08-28, ADR in `architecture.md`). A
+  client that declares `own_area_only` stops being sent the rest. 16 peers over 8 areas suppress
+  93% of offered state bytes; 16 in one area suppress 0%, which is the control.
+
+**The gap:** inside a single area, nothing is culled on the wire. A peer 900px away on a large map
+is sent, received, buffered and then discarded by the draw check above — the work is done at every
+stage except the last one. A single-area room is the shipped filter's worst case by construction,
+so this is the case worth attacking next.
+
+**The shape, if built:** a new optional field beside `OwnAreaOnly`, NOT anything in `extras` —
+`extras` is opaque to the core by contract (`protocol.go:49`), so the relay may never read it. The
+adapter declares a radius in its own units (a game-specific number that stays adapter-side, exactly
+as `RenderAllAreas` does today), the core forwards it as a declaration, and the relay applies pure
+game-blind arithmetic to coordinates it already relays. Absent means send everything, for the same
+load-bearing reason `own_area_only`'s absence does.
+
+**It only works WITHIN an area.** Coordinates are in the sender's own map frame, so the distance
+between peers with different `area_id`s is not a number the relay can compute; translating them
+needs the connection offsets, which are game knowledge that must stay in the adapter. So this
+composes with the area filter rather than replacing it: equality first, then distance inside the
+match.
+
+**The hard part is the edges, and it is harder here than for areas.** A map boundary is a discrete
+crossing event; a radius is continuous. Both non-optional rules the area filter needed come back in
+continuous form:
+
+- **Hysteresis, not a threshold.** Send within R, stop beyond R + margin, or a peer pacing the
+  boundary flickers. The area filter got this free from map geometry.
+- **Seed on entry, before anything is visible.** The area filter had to deliver the crossing state
+  and seed an arriving client precisely because change suppression means a motionless peer only
+  re-states every keepalive — walk into a radius with no seed and the room looks empty for up to
+  250ms. Emerald's 7-tile margin exists to prevent exactly this pop-in on the draw side.
+
+**Measure before building, with the method that sized the area filter.** Shadow counters shipped
+2026-08-18 where the real filter would later run, so 93% was known before a line of filtering
+existed. Same move: count what share of forwarded states are already outside a plausible R in a
+real single-area room. If a Pokemon town or a TEVI screen is small enough that everyone in the area
+is usually on screen anyway, the answer is near zero and the edge cases above are not worth buying.
+Emerald and Crystal would not benefit regardless while cross-map rendering is on — they decline the
+area filter for the same reason.
+
+**Related:** the uplink half of this question is "Stop sending when nobody can see you" above,
+whose third rung ("Nobody within N tiles") deferred distance for this same reason. This entry is
+the downlink mirror and answers the "unless the relay does it from coordinates it already relays"
+carve-out that entry left open.
