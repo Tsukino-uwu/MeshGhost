@@ -4338,6 +4338,31 @@ top-down each tick.
 - **What it buys over tiers:** the room cap becomes a bandwidth number rather than a player count,
   and degradation is gradual — far peers get choppier before anyone disconnects.
 
+**THE SCALE GOAL, stated by the user 2026-08-30, and it reframes this whole section:** the design
+target is **100-1000+ people in a session**, Archipelago-community-lobby shaped — *"plan for the
+worst and hope for the best ... so that it actually scales properly for the future"* — not the
+2-10 friends everything above implicitly assumed. Consequences, recorded so the ranking is read at
+the right scale: at n=1000, n x (n-1) is ~a million messages per tick — not slow, DOES NOT RUN —
+so the WHO axis is existential rather than an optimization, and the area filter's shape ("the
+limit is how many people stand in the same place") is the only one that survives.
+Priority-under-budget stops being "if a room ever needs 30" and becomes real roadmap material.
+The scale goal is also the strongest future argument for revisiting the wire-format entry: 58%
+JSON CPU is a curiosity at 8 states/tick and the bill at thousands. And honestly: other things
+break first — the shipped max-clients default is 8, per-client goroutines and TLS handshakes have
+never been counted at that size, and nothing has been benchmarked past 16 peers. A 100+ target
+needs its own measurement pass before any of the above is re-ranked by it.
+
+**Ghost/replay games are prior art for PRESENTATION, not the wire** (user's read, 2026-08-30, and
+it is correct): Trackmania and kart ghosts are mostly replay files — downloaded or local, no live
+netcode — so they say little about networking and a lot about how many translucent ghosts stay
+readable on one screen without occluding the game. That question arrives the day a big room works.
+
+**The generalized let-the-game-do-the-work rule for culling, in one line:** every game already
+maintains an active set — loaded maps, streamed levels, object pools — because it must answer
+"what exists right now" every frame to run at all. **A future adapter's `area_id` granularity
+should be the game's own load/unload boundary**, which is what Emerald's connection list, TEVI's
+rooms and Pseudoregalia's UE levels each already are. Ask the game, not the genre.
+
 **BUILD ORDER, revised by the 2026-08-30 conversation:** (1) rate scaling by distance — no protocol
 change, needs only the `lastPos` cache and the two safety rules; (2) the declared SET of `area_id`s,
 which unblocks Emerald and Crystal; (3) the reduced tier; (4) priority-under-budget, only if a room
