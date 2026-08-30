@@ -638,6 +638,7 @@ namespace MeshGhostPseudo
         // object the ghost leaves behind shows up as a count that never comes back down.
         auto census_object_counts(const wchar_t* label) -> void;
         std::map<std::string, int> last_object_census;
+        std::map<std::string, std::string> last_object_refs;
         std::map<std::string, int> last_array_census;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 

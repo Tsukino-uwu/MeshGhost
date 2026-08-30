@@ -1840,6 +1840,11 @@ namespace MeshGhostPseudo
     // so it only ever runs long if the reset does not complete.
     constexpr uint64_t RESET_SPAWN_SUPPRESS_TICKS = 900;
 
+    // How long ghost spawning stays suppressed after a new world reports its game state.
+    // ~2s at this game's frame rate: the level is up by then, and a ghost missing for two
+    // seconds after a zone change is not something a player would notice.
+    constexpr uint64_t POST_WORLD_SPAWN_SUPPRESS_TICKS = 300;
+
     // Ceiling on the attach-tree walk that replaced the sweep's world scan. A player pawn
     // carries a couple of dozen components; 256 is far above anything real and exists so a
     // cycle cannot hang the game thread.
@@ -9715,6 +9720,61 @@ namespace MeshGhostPseudo
         // unregisters it; the game instance because it outlives every level.
         static const wchar_t* const CLASSES[] = {STR("MV_GameInstance_C"), STR("BP_LightManager_C")};
 
+        // **OBJECT properties, not just arrays.** The crash stack (`PCallStack` in the crash
+        // context) puts the null dereference inside the Blueprint VM while the reset button's
+        // graph runs. A ghost is a clone of the player pawn, so its construction can overwrite an
+        // object REFERENCE on a singleton that outlives it -- the GameInstance persists across
+        // levels, which is the one scope that matches every measurement: needs a ghost to have
+        // existed, survives its destruction, survives a zone change, impossible with the mod off.
+        // An ArrayProperty census cannot see that; this can.
+        for (const wchar_t* class_name : CLASSES)
+        {
+            std::vector<UObject*> found;
+            UObjectGlobals::FindAllOf(class_name, found);
+            for (UObject* obj : found)
+            {
+                if (!obj || obj->HasAnyFlags(RF_ClassDefaultObject))
+                {
+                    continue;
+                }
+                UClass* c = obj->GetClassPrivate();
+                if (!c)
+                {
+                    continue;
+                }
+                for (FProperty* property : TFieldRange<FProperty>(c, EFieldIterationFlags::Default))
+                {
+                    if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
+                    {
+                        continue;
+                    }
+                    const StringType pname = property->GetName();
+                    UObject** slot = obj->GetValuePtrByPropertyNameInChain<UObject*>(pname.c_str());
+                    const std::string key = to_utf8(class_name) + "." + to_utf8(pname);
+                    std::string val = "<null>";
+                    if (slot && *slot)
+                    {
+                        val = to_utf8((*slot)->GetName());
+                    }
+                    auto prev = last_object_refs.find(key);
+                    if (prev == last_object_refs.end())
+                    {
+                        last_object_refs[key] = val;
+                    }
+                    else if (prev->second != val)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] REFCENSUS [{}] {} : {} -> {}\n"),
+                                     label,
+                                     to_wide_ascii(key),
+                                     to_wide_ascii(prev->second),
+                                     to_wide_ascii(val));
+                        prev->second = val;
+                    }
+                }
+                break;
+            }
+        }
+
         std::map<std::string, int> now;
         for (const wchar_t* class_name : CLASSES)
         {
@@ -9798,6 +9858,17 @@ namespace MeshGhostPseudo
             }
             pause_reset_hook_id = reset_fn->RegisterPreHook(
                 [this](UnrealScriptFunctionCallableContext&, void*) {
+                    // **`guard_off.txt` makes this observe-only.** Every trace so far has had the
+                    // guard destroying ghosts at the click, so the game's UNASSISTED reset has
+                    // never actually been recorded -- the tail we keep reading is our own teardown.
+                    // With this present the hook still logs, and nothing is destroyed or
+                    // suppressed, which is the control the investigation is missing.
+                    if (dev_toggle_present(STR("guard_off.txt")))
+                    {
+                        Output::send(STR("[MeshGhostPseudo] RESET GUARD: OBSERVE-ONLY (guard_off.txt) -- not destroying ghosts, not suppressing spawns.\n"));
+                        return;
+                    }
+
                     // **Spawning stops FIRST.** Destroying the ghosts alone was measured
                     // insufficient on 2026-08-30: the next tick simply spawned them again, into the
                     // world the reset was already tearing down.
@@ -9860,6 +9931,33 @@ namespace MeshGhostPseudo
                     // lights at exactly that moment can only make this worse. The game's own reset
                     // still walks them, which is why removing this does not fix the crash -- but
                     // it removes us from the list of suspects.
+                    // **`force_gc.txt` asks the engine to collect NOW, before the reset walks the
+                    // world.** The crash is a null read inside BP_LightManager_C::FixAllLights
+                    // immediately after a ghost died (five dumps, one instruction, plus an
+                    // all-calls trace). A destroyed UE actor is not collected for up to a GC
+                    // interval, so the window where a dead ghost-owned light is still reachable is
+                    // exactly the window the reset walks. Collecting closes it.
+                    //
+                    // KismetSystemLibrary::CollectGarbage is the game-visible verb; UE defers the
+                    // actual sweep to a safe point, so this is a request rather than a stall.
+                    if (dev_toggle_present(STR("force_gc.txt")))
+                    {
+                        UFunction* gc_fn = UObjectGlobals::StaticFindObject<UFunction*>(
+                            nullptr, nullptr, STR("/Script/Engine.KismetSystemLibrary:CollectGarbage"));
+                        UObject* ksl = gc_fn && gc_fn->GetOuterPrivate()
+                                           ? static_cast<UClass*>(gc_fn->GetOuterPrivate())->GetClassDefaultObject()
+                                           : nullptr;
+                        if (gc_fn && ksl)
+                        {
+                            ksl->ProcessEvent(gc_fn, nullptr);
+                            Output::send(STR("[MeshGhostPseudo] RESET GUARD: forced a garbage collection before the reset.\n"));
+                        }
+                        else
+                        {
+                            Output::send(STR("[MeshGhostPseudo] WARNING: force_gc.txt is present but CollectGarbage did not resolve -- nothing was collected.\n"));
+                        }
+                    }
+
                     census_singleton_arrays(STR("after-reset-destroy"));
                     census_object_counts(STR("after-reset-destroy"));
                 });
@@ -10119,7 +10217,48 @@ namespace MeshGhostPseudo
             [this](Hook::TCallbackIterationData<bool>&, UEngine*, FWorldContext&, FURL, UPendingNetGame*, FString&) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: LoadMap PRE fired.\n"));
                 log_remote_state(STR("LoadMap PRE, before release"));
+
+                // **DESTROY the ghosts here, do not merely forget them (2026-08-31).**
+                //
+                // Measured that day: a world teardown with a ghost ALIVE crashes the game --
+                // EXCEPTION_ACCESS_VIOLATION reading address 0x0, inside the Blueprint VM -- while
+                // the same teardown with no ghost present is fine. A zone change crashes exactly
+                // like a save reset does, which is what showed this is about TEARDOWN rather than
+                // about the reset button.
+                //
+                // release_all_ghosts drops references and destroys nothing, by design: the level's
+                // own teardown was assumed to reclaim the actors. It does -- and that is the
+                // problem. It reclaims a player-pawn clone the game never expected to exist, on
+                // its own schedule and in its own order. This is the one moment before that which
+                // we control.
+                {
+                    std::vector<std::string> alive;
+                    for (auto& [ghost_id, ghost_remote] : remotes)
+                    {
+                        if (ghost_remote.ghost)
+                        {
+                            alive.push_back(ghost_id);
+                        }
+                    }
+                    if (!alive.empty())
+                    {
+                        Output::send(STR("[MeshGhostPseudo] LoadMap PRE: destroying {} live ghost(s) before the level tears down.\n"),
+                                     static_cast<int>(alive.size()));
+                        for (const std::string& ghost_id : alive)
+                        {
+                            release_ghost(ghost_id);
+                        }
+                    }
+                }
                 release_all_ghosts(STR("LoadMap PRE"));
+
+                // **And no ghost may be spawned into the world that is coming up.** Measured
+                // 2026-08-31: with the destruction above working, the log shows both ghosts
+                // respawned 0.26s later into the new level, and the crash follows THAT rather than
+                // the teardown. A reset click already suppresses spawning for a window; a level
+                // load never did, so the tick puts player-pawn clones into a world still building
+                // itself. The window is cleared by InitGameState when the new world is actually up.
+                suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
                 // Crash fix, found live 2026-08-13: entering a new area crashed with
                 // EXCEPTION_ACCESS_VIOLATION inside the camera fight-back hook. last_known_good_
@@ -10279,8 +10418,16 @@ namespace MeshGhostPseudo
             [this](Hook::TCallbackIterationData<void>&, AGameModeBase*) {
                 Output::send(STR("[MeshGhostPseudo] HOOK: InitGameState PRE fired -- releasing ghosts (covers a same-level save reload).\n"));
                 release_all_ghosts(STR("InitGameState PRE"));
-                // The new world is up, so the post-Reset spawn freeze has done its job.
-                suppress_ghost_spawn_until_tick = 0;
+                // **Do NOT clear the freeze here -- hold a shorter one instead.** This used to set
+                // it to 0 on the reasoning that "the new world is up". Measured 2026-08-31: this
+                // hook fires ~180ms into a level load, and the log then shows ghosts spawned 95ms
+                // later into a world still building itself, with the crash immediately after. The
+                // clear was defeating the suppression it was meant to end politely.
+                //
+                // A shorter window from here is the compromise: long enough that the new level
+                // finishes coming up, short enough that ghosts are not missing for noticeably long
+                // after a legitimate transition.
+                suppress_ghost_spawn_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("InitGameStatePre")});
     }
@@ -11690,8 +11837,25 @@ namespace MeshGhostPseudo
             // `BP_HpHitable` and `LastHitBy` are the health-specific pair; the first two are the
             // shared singletons. All four are ObjectProperties on the pawn, confirmed present in
             // this build's own reflection dump rather than assumed.
-            for (const wchar_t* shared_ref : {STR("As MV Game Instance Ref"), STR("UI_HudRef"),
-                                              STR("BP_HpHitable"), STR("LastHitBy")})
+            // **`decouple_off.txt` containing `refs` skips this whole block.**
+            //
+            // Why it is suspect (2026-08-31): the crash is `EXCEPTION_ACCESS_VIOLATION reading
+            // address 0x0` inside the Blueprint VM -- and these four writes are the only place
+            // this mod deliberately sets a game pointer to zero. The call trace's last frames are
+            // a ghost's teardown reaching `BP_HpHitable_C`'s EndPlay, which is one of the four.
+            // The crash needs a ghost to have existed, happens on ANY world teardown while one is
+            // alive (a zone change crashes too, not just a save reset), and cannot happen with the
+            // mod off -- all of which this fits.
+            const bool skip_ref_decouple = dev_toggle_contains(STR("decouple_off.txt"), "refs");
+            if (skip_ref_decouple)
+            {
+                Output::send(STR("[MeshGhostPseudo] DEV: shared-reference decouple SKIPPED (decouple_off.txt names 'refs').\n"));
+            }
+            for (const wchar_t* shared_ref : skip_ref_decouple
+                                                 ? std::initializer_list<const wchar_t*>{}
+                                                 : std::initializer_list<const wchar_t*>{
+                                                       STR("As MV Game Instance Ref"), STR("UI_HudRef"),
+                                                       STR("BP_HpHitable"), STR("LastHitBy")})
             {
                 if (UObject** ref_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(shared_ref))
                 {
