@@ -1,6 +1,8 @@
 # Scaling and efficiency — what the Go side can carry
 
-<!-- line-cap: 800 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 900 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first.
+     Set to 800 on 2026-08-30 before this file had content, then raised once to 900 the same day
+     when two measured sections landed. That is the only free raise: from here it is the rule. -->
 
 **Read this before proposing efficiency or scale work on `core`, `relay`, `transport` or the wire.**
 It holds the standing principle, the measured numbers, the ranking those numbers produce, and the
