@@ -519,6 +519,20 @@ and position on different clocks, and they would visibly disagree during fast mo
 where the peer was an interp-delay ago, the head turning toward where they are now. **Slerp between
 the same two brackets keeps them in lockstep**, which is the only version that can reach 1:1.
 
+**ROTATION GETS NO KNOBS OF ITS OWN — it follows the position ones** (asked 2026-08-30: should
+nlerp/squad/damped ship as options the way `curve`/`extrapolate` did?). No, and the lockstep
+argument above is why, generalised: every position knob must apply to rotation too, or the two
+fields run on different clocks and disagree exactly when movement is fastest. So `interp` covers
+both, `curve: linear` means slerp, and **`extrapolate: 300ms` must extrapolate rotation by angular
+velocity for the same 300ms** — otherwise the body predicts while the head lags, during precisely
+the motion extrapolation exists for. **Zero new config keys.** On the individual candidates:
+`nlerp` takes the same path as slerp at slightly uneven speed and buys only CPU, which is not the
+constraint here (one rotation per ghost per frame, and at most ~18 degrees between samples even on
+a fast spin); `squad` is rotation's `catmull-rom`, and `catmull-rom` has never earned its own place
+— shipped as an option in ADR 0040, and TEVI chose `linear` anyway — so building the four-sample
+version for a field that is not interpolated AT ALL yet is two speculative steps at once. Pair
+`squad` with `catmull-rom` if that day ever comes.
+
 **Slerp is not a fourth option beside `linear`/`catmull-rom`/`extrapolate` — it is the first rung
 of a DIFFERENT ladder** (asked 2026-08-30, worth pinning because the names invite the confusion).
 Those three all interpolate POSITION, component-wise in a flat space. Slerp interpolates ROTATION,
