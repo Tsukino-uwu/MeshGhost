@@ -503,6 +503,18 @@ rather than snapping to it. No protocol change, no Hz change, no config. **Try t
 concluding Pseudoregalia needs a higher rate** — raising Hz would only make the steps smaller and
 would pay bandwidth forever to hide a step that should not be there.
 
+**Slerp is not a fourth option beside `linear`/`catmull-rom`/`extrapolate` — it is the first rung
+of a DIFFERENT ladder** (asked 2026-08-30, worth pinning because the names invite the confusion).
+Those three all interpolate POSITION, component-wise in a flat space. Slerp interpolates ROTATION,
+which needs its own math: straight-line-between-two-samples is `linear` for position and `slerp`
+for rotation, the four-sample smooth version is `catmull-rom` and `squad`, and each has its own
+extrapolation. **This project has never interpolated rotation at all** — the core is forbidden to,
+since orientation is opaque and it cannot parse it — so there is no knob, no config key, and
+`curve: linear` describes position only. Why rotation cannot simply reuse lerp: yaw 350 -> 10
+lerps BACKWARDS through 340 degrees instead of forward through 20, and component-wise quaternion
+lerp gives uneven angular speed that slows in the middle. Slerp takes the shortest path at a
+constant rate.
+
 **The arithmetic, which makes the fix testable.** Each step is 1/Hz — 50ms at 20Hz — so the visible
 error is ANGULAR VELOCITY / Hz. A fast spin of ~360 deg/s is ~18 deg per step and unmistakable; a
 slow pan of ~45 deg/s is ~2.3 deg per step and invisible. Identical step COUNT in both cases, which
