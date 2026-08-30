@@ -4344,3 +4344,63 @@ which unblocks Emerald and Crystal; (3) the reduced tier; (4) priority-under-bud
 ever needs to hold 30 people. Shadow counters before each, the way the area filter's 93% was known
 before the filter existed — and note that (1)'s `lastPos` cache is the prerequisite for MEASURING
 any of it, since the relay cannot compute a distance today.
+
+## Efficiency, standing: the four axes, and three additions from the 2026-08-30 pass
+
+**Filed 2026-08-30, prompted by the user:** the server/client will never be finished — it will keep
+taking changes forever — so efficiency work needs a standing map, not another one-off list. This
+entry is that map, plus the three ideas from this pass that were not already filed elsewhere.
+
+**Every efficiency idea in this file attacks one of four axes.** Place a new idea on its axis
+first, and it inherits that axis's measurements and its ranking instead of re-deriving them:
+
+- **WHO receives it** — area filter (shipped), declared sets, distance culling, priority budget.
+- **WHEN it is sent** — change suppression (shipped), rate scaling by distance, keepalive floor.
+- **WHAT fields it carries** — reduced tier / presence packet, per-field suppression.
+- **HOW the bytes encode it** — hand-written encoders, quantization, short keys.
+
+**The standing ranking, measured 2026-08-28 and worth restating once here:** packet COUNT beats
+packet SIZE — relay CPU and header overhead scale with how many messages exist, not how big they
+are. So WHO and WHEN beat WHAT and HOW, and every win that has mattered so far came from not
+sending something. HOW-axis work is still taken when cheap (small wins count — the user's standing
+rule), it just never outranks removing a send.
+
+**One idea died on inspection and is recorded so it stays dead:** "stop the relay ticking when
+rooms are empty." The relay is event-driven — forwarding runs on the sending client's read path;
+there is no tick loop. An idle relay already costs nothing.
+
+### Quantize BEFORE suppressing — the multiplier hiding in shipped work
+
+Change suppression compares states for EQUALITY, so a position that jitters in its fourth decimal
+defeats it exactly the way TEVI's `anim_t` did: never equal, always sent. TEVI's measured 70%
+proves its idle position is bit-stable. **Pseudoregalia's suppression share is filed above as
+unmeasured, and it is a 3D physics game whose capsule may micro-jitter at rest — if it does, its
+share could be near ZERO today.** The fix would be adapter-side rounding to sub-visible precision
+before the state is handed to the bridge: no protocol change, fewer JSON bytes as a side effect,
+and suppression turns ON for that adapter. This is a hypothesis with a named measurement, not a
+claim: measure Pseudoregalia's suppression share first (the netsim counters that measured TEVI's
+apply unchanged), and if it is already high, this entry closes with no code. Rounding must stay
+below what interpolation can show on screen — a visible grid-snap would violate 1:1 and the user
+judges that, not the numbers.
+
+### Allocation-count regression tests — the durable half of every win in v1.0.0
+
+If the server changes forever, every efficiency win can be silently lost by a later change, and
+`ns/op` in CI is too noisy to gate on. **allocs/op is deterministic.** `testing.AllocsPerRun` (or
+`b.ReportAllocs` asserted in a plain test) can pin "the fan-out path allocates N per state" as a
+regression test that fails the exact commit that adds an allocation — the same shape as the race
+detector failing the exact commit that races. The per-recipient buffer removed in v1.0.0
+(`WriteUnreliable`) is precisely the regression it would catch coming back. Start with the two
+paths already benchmarked: `forward_bench_test.go`'s fan-out, and `ValidateState`. Pin the number
+the day it is measured, with a comment saying what each allocation IS, so a legitimate increase is
+a considered edit rather than a mystery failure.
+
+### Short `extras` keys — adapter-side, legal today, ranked last on purpose
+
+Emerald sends 14 `extras` keys on every state and the key STRINGS repeat in every message. `extras`
+is opaque by contract, so key naming is entirely the adapter's business — renaming `runningState`
+to a short key is a bandwidth trim with no protocol change and no Go-side involvement. It is
+HOW-axis and bytes-only, so it never outranks a removed send; filed because the user's standing
+rule is that small wins count when they cost nothing. The cost that must stay zero: the keys are
+read by humans in `-introspect` and netsim dumps daily, so any shortening keeps a legend in the
+adapter's documentation.md, or is not worth its confusion.
