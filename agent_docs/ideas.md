@@ -3248,6 +3248,31 @@ Yes for one of them, and the difference is the whole argument.
   behaving strangely. If binary is ever adopted it should REPLACE JSON behind a version bump, not
   sit beside it.
 
+### Does binary LOCK US IN permanently? (user's question, 2026-08-30 — checked, not assumed)
+
+**No, and the distinction matters.** `protocol.Version = 1` is carried in Hello and a mismatch is
+refused with `ReasonProtocolVersionMismatch`, so a v2 binary protocol REFUSES a v1 client rather
+than misparsing it, and a v3 could go anywhere. Nothing is architecturally welded.
+
+**The real lock-in is the installed base.** Once players run released v1 JSON binaries, a v2 binary
+relay refuses all of them — a hard cutover where everyone updates or nobody plays. With releases
+distributed as a downloadable zip and no auto-update, that cost grows with every release. It is a
+RELEASE problem, not an architecture one, and it is the honest reason to decide early rather than
+late.
+
+**What WOULD be permanent is supporting both wires**, which is the union security surface
+maintained against hostile input forever — the reason the section above concludes "replace behind a
+version bump, never sit beside".
+
+**THE MIDDLE PATH NOT PREVIOUSLY CONSIDERED: binary on the STATE PLANE ONLY.** State carries
+essentially all the volume (20-100Hz per peer); event, world and control are low-rate and are
+exactly where a live session gets debugged by reading a socket. Binary the state plane, keep JSON
+everywhere else and you get nearly the whole bandwidth win, a far smaller parser surface, and text
+handshakes forever. It also concentrates the win where binary is actually strong: the state's
+non-`extras` fields are schema'd (floats to 4 bytes instead of ~8-12 characters, varint seq and
+timestamp), while `extras` is the part binary cannot compress anyway. Note it composes with the
+plane split this project already has, rather than adding a new axis.
+
 **If this is picked up, the order is: measure, then hand-written encoders, then re-measure, and
 only then ask whether binary is still worth its risk.** The hand-written step is reversible and
 provable; the binary step is neither.
