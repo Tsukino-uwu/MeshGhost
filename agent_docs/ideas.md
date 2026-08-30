@@ -4363,7 +4363,13 @@ first, and it inherits that axis's measurements and its ranking instead of re-de
 packet SIZE — relay CPU and header overhead scale with how many messages exist, not how big they
 are. So WHO and WHEN beat WHAT and HOW, and every win that has mattered so far came from not
 sending something. HOW-axis work is still taken when cheap (small wins count — the user's standing
-rule), it just never outranks removing a send.
+rule), it just never outranks removing a send. **The user's reasoning behind that rule, stated
+2026-08-30 and worth keeping with it:** some decisions are effectively permanent — staying JSON
+rather than going binary is likely one, per the wire-format entry above — and a permanent
+decision's cost is paid forever. Small reversible wins elsewhere are the compensation account for
+the losses locked in by the choices we keep: *"we might endup with something we can't change ...
+so we have to try and make up for those loses somewhere else instead."* The only bar a small win
+must clear is its KEEP cost — maintenance, an extra code path, reader confusion — never its size.
 
 **One idea died on inspection and is recorded so it stays dead:** "stop the relay ticking when
 rooms are empty." The relay is event-driven — forwarding runs on the sending client's read path;
