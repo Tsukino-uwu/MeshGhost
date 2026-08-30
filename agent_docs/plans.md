@@ -802,6 +802,27 @@ check below.
    undone by a doc sweep: every key a shipped config exposes must be referenced by the adapter that
    ships it, and every bridge message type must be handled or explicitly declared unhandled.
 
+**Three preflight checks, filed 2026-08-30 on the user's observation that "preflight seems to catch
+things way better than what rules do"** — Rule 0's own argument as tooling: rules degrade as they
+accumulate, a check fires identically every time. Build with the config work above; ranked by
+whether they would have caught something real:
+
+- **A. Deliberate-absence guard — would have caught the `show_console` regression the day it
+  happened.** If a `_comment_<key>` in a shipped config says the key is deliberately absent, assert
+  `<key>` IS absent from that section. Cheap, exact, and aimed at the precise failure mode: a doc
+  sweep undoing a behavioural decision.
+- **B. Config key vs Go struct.** Every non-`_comment` key must exist as a `json:"..."` tag in
+  `cmd/meshghost` or `cmd/meshghost-relay`. **Measured green 2026-08-30** — insurance, not a
+  discovery, against the class that bit twice (the bridge port setting, and this). **Failing
+  direction only:** the reverse had 10 hits, mostly deliberate absences, so it needs an allowlist
+  and that is maintenance for little gain.
+- **C. `FLAGS.md` register coverage** — every compile-time flag appears in its adapter's `FLAGS.md`,
+  which `CLAUDE.md` calls the register while nothing checks it. **Warning:** detection differs across
+  Lua/C#/C++, and **a noisy check gets forced past, which is worse than none.** Build only if quiet.
+
+**The limit:** preflight checks CORRESPONDENCE (does X appear in Y), never CORRECTNESS. Prose going
+quietly wrong stays a periodic human pass — which is how `_template/PROTOCOL.md` was found lagging.
+
 **Explicitly NOT doing:** a key registry, per-game manifests, or removal support in the staging
 script. All of that was machinery for expressing "this game does not do that" — and once every
 adapter honours every shared setting, no key needs filtering at all. Of 22 client keys only three
