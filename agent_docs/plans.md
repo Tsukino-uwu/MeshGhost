@@ -90,6 +90,13 @@ not worth it" threshold for relay-side area filtering, and the user rejected the
 **Do not gate an optimization on how big the win is.** Gate it on risk and on the one constraint
 below.
 
+**The full policy in one sentence (composed 2026-08-30, both halves the user's):** SIZE NEVER
+DECIDES, in either direction — a win is taken however small, and refused however large when it
+carries a standing flaw; the only test that runs is the KEEP cost (maintenance, an extra code
+path, a permanent risk, reader confusion). The small-wins rule and the JSON-over-binary refusal
+(ideas.md, ratified 2026-08-30) are this one policy applied in opposite directions: *"we won't
+take something that is 0.2% performance with flaws vs something that is 0.1% and zero flaws."*
+
 **The one hard constraint: it must not make the adapters or the games run worse.** The point is to
 make everything better overall, not to move cost from the network onto the game thread. A
 compression scheme that costs frame time, a filter that adds per-tick work in an adapter, a diff
