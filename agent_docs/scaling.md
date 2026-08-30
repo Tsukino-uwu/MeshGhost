@@ -384,24 +384,20 @@ forward 1 in N, so a 20Hz sender yields 20, 10, 6.7, 5, 4, 3.3 Hz and nothing be
 are still the right CONFIG surface (a host thinks in "half rate", not "every 2nd"), they just round
 to the nearest divisor. Say so in the config's own documentation or the setting will look broken.
 
-**IS ADAPTIVE HZ SAFE ONCE A GAME SYNCS ENEMIES OR PLAYER INTERACTIONS?** (asked 2026-08-30.)
-**The question answers itself, and the answer is not "disable it for those games."** Adaptive Hz is
-a modifier on the STATE plane, which `contract.md` already defines as lossy, latest-wins and
-carried on unreliable datagrams. Dropping 3 of every 4 samples is not a new risk there — it is the
-plane behaving as specified, and the only cost is fidelity nobody can see at distance.
+**IS ADAPTIVE HZ SAFE ONCE A GAME SYNCS ENEMIES OR PLAYERS?** (asked 2026-08-30.) **The question
+dissolves, and the answer is not "disable it for those games."** Adaptive Hz modifies the STATE
+plane, which `contract.md` defines as lossy, latest-wins, on unreliable datagrams — dropping 3 in 4
+samples there is the plane behaving as specified. **Anything that must be RIGHT was never allowed
+on it:** outcomes travel the reliable ordered planes (event, lease, escrow, world), which adaptive
+Hz does not and must not touch. A game syncing enemies does not want a fixed rate; it wants its
+authority traffic off the sampled plane, which is what those planes are for.
 
-**Anything that must be RIGHT was never allowed on that plane in the first place.** Outcomes travel
-on the reliable, ordered planes — event, lease, escrow, world — which adaptive Hz does not touch
-and must never touch. So a game that syncs enemies does not want a fixed rate; it wants its
-authority traffic off the sampled plane, which is what those planes exist for.
-
-**The trap this DOES create, and it is worth stating before anyone hits it: never put a fact that
-must ARRIVE into `extras`.** `extras` rides the state plane, so it is already lossy — adaptive Hz
-merely makes the loss frequent enough to notice. This is the complement of `_template/README.md`'s
-"anything a renderer must draw smoothly rides in `position`, not `extras`": **anything that must
-arrive rides an EVENT, not a state.** A hit that registers, an item that changes hands, a door that
-opens once — none of those is a sample of a continuous value, and putting one in `extras` is a bug
-that hides at 20Hz and shows up the moment a rate drops.
+**The trap it DOES create: never put a fact that must ARRIVE into `extras`.** `extras` rides the
+state plane and is already lossy; adaptive Hz only makes the loss frequent enough to notice.
+Complement of `_template/README.md`'s "draw smoothly -> `position`, not `extras`": **must arrive ->
+an EVENT, not a state.** A hit registering or an item changing hands is not a sample of a
+continuous value, and putting one in `extras` is a bug that hides at 20Hz and appears when a rate
+drops.
 
 **Two knobs, and they belong to different owners** — the same split the rest of this file uses:
 - **The adapter declares what near and far MEAN**, in its own units, because 8 tiles and 800
@@ -457,46 +453,52 @@ user to judge it, not the counters.
 
 ## What Hz could Go actually carry? Measured 2026-08-30 — and CPU is not the answer
 
-**Asked directly: is 100 a technical limit, and could someone run 144-480Hz to match a game's fps?**
-`MaxSendHz` is **100**, and the constant's own comment already says it is *"a bandwidth bound, not a
-technical one"*. That is correct, and the numbers say the CPU end is not close.
+**Asked: is 100 a technical limit, could someone run 144-480Hz to match a game's fps?** `MaxSendHz`
+is **100** and its own comment says *"a bandwidth bound, not a technical one"* — correct, and the
+CPU end is not close. **It also has a SECURITY half**: a client adopts the room's rate from
+`Welcome.SendHz`, so the cap bounds what a hostile relay can talk YOUR client into sending, which
+is why it lives in `protocol/` and both sides clamp (`core/relaysession.go`).
 
-**Relay CPU, from `relay/forward_bench_test.go` on the dev machine:** one state fanned out to a
-room of 8 costs **6.36us** (Emerald shape, 14 extras keys; TEVI's 3-key shape is 3.4us). So 8
-players at 480Hz is 3,840 fanouts/sec, about **24ms of CPU per second — 2.4% of one core**. At the
-shipped 20Hz it is 0.1%. **Nobody will ever hit a Go ceiling here**, which is the principle at the
-top of this file holding up.
+**Relay CPU** (`relay/forward_bench_test.go`): one state fanned out to a room of 8 costs **6.36us**
+(Emerald's 14-key shape; TEVI's 3-key is 3.4us), so 8 players at 480Hz = **2.4% of one core**; at
+20Hz, 0.1%. **Nobody will hit a Go ceiling here.** **Bandwidth arrives long before that**: at ~288
+bytes per state line an 8-seat room fans out 56 streams — **1.2 GB/h** at 20Hz, **5.8 GB/h** at
+100Hz, **28 GB/h** (~62 Mbit/s) at 480Hz, carried by the host. Change suppression (ADR 0039) cuts
+the idle share hard (70% on TEVI), but a room where everyone moves pays close to full price.
 
-**Bandwidth is the real wall, and it arrives long before that.** At ~288 bytes per serialized state
-line, a full 8-seat room fans out 56 streams:
+**THE ONE HARD BREAK IS `maxSnapshots = 64`, AND IT IS SILENT.** The buffer holds at most 64
+samples, so it spans 64/Hz seconds; interpolation works while that covers the interpolation delay,
+and past it `at()` falls off the old edge and edge-holds — no error, just stutter. **Exactly the
+2026-08-28 bug at a higher rate**: the count was 8 then and broke at the dev rig's 100Hz; the fix
+added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derived**, and pinned by
+`core/hzceiling_test.go`:
 
-| room send rate | per stream | relay/host uplink |
+| interp | last rate still interpolating | first rate that edge-holds |
 |---|---|---|
-| 20Hz (shipped) | 21 MB/h | **1.2 GB/h** (~2.6 Mbit/s) |
-| 100Hz (`MaxSendHz`) | 104 MB/h | **5.8 GB/h** (~13 Mbit/s) |
-| 480Hz | 497 MB/h | **28 GB/h** (~62 Mbit/s sustained) |
+| 175ms (TEVI) | 300Hz | 480Hz |
+| **250ms (shipped)** | **200Hz** | **256Hz** |
+| 400ms | 144Hz | 200Hz |
 
-Change suppression (ADR 0039) cuts the idle share hard — 70% on TEVI — but a room where everyone is
-moving pays close to full price, and the host carries it.
+**A LARGER interp delay breaks at a LOWER rate** — the counter-intuitive half, and the one that
+would bite someone raising `interp` to smooth a bad link while also raising Hz.
 
-**TWO THINGS IN OUR OWN CODE BREAK BEFORE THE BANDWIDTH DOES, and both are silent:**
+**Nothing else has a cliff.** `protocol.State.Timestamp` is MILLISECONDS, so the sample interval
+quantizes — ~5% error at 100Hz, ~7% at 144Hz, ~24% at 480Hz — but it decays smoothly rather than
+breaking, and it is why raising the ceiling far would mean changing the wire's time unit first. The
+flood cap scales 6x with the rate automatically.
 
-1. **`protocol.State.Timestamp` IS MILLISECONDS.** At 480Hz the sample interval is 2.08ms, so
-   whole-ms stamps quantize it to 2/2/2/3 — a **~24% error in the interval itself**, introduced by
-   us, feeding straight into every interpolation fraction. At 144Hz (6.94ms) it is ~7%; at 100Hz
-   (10ms) ~5%. **This alone justifies the 100 ceiling on accuracy grounds, independently of
-   bandwidth**, and going higher means changing the wire's time unit first.
-2. **`maxSnapshots = 64` re-breaks above ~256Hz.** The buffer must span the interpolation delay or
-   `at()` falls off the old edge and edge-holds. 64 samples span 64/Hz seconds, so a 250ms delay
-   needs **Hz <= 256**; at 480Hz they span 133ms and every render time is past the edge. **This is
-   exactly the 2026-08-28 bug returning at a higher rate** — the count was 8 then, which broke at
-   the dev rig's 100Hz, and the fix added a time bound (`maxSnapshotAgeMs`) but kept a count.
+**THE CEILING THAT BINDS FIRST IS THE GAME'S OWN FRAME RATE.** An adapter samples on the game's
+frame and cannot produce a DISTINCT sample faster than the game renders — Pseudoregalia ticks
+~180Hz here, so a 256Hz room yields ~180 real samples plus duplicates, paying full bandwidth for
+repeats change suppression then discards. **This is the one true thing in the "align your tick rate
+to the engine" advice: the game's rate is a CEILING on useful Hz, not a target to match.**
 
-**So the honest ceiling is ~100-250Hz on our current wire, not a Go limit**, and above 100 the
-gains are small for a reason worth stating plainly: **raising Hz buys SAMPLING ACCURACY, never
-FRESHNESS.** A ghost at 480Hz with a 250ms interpolation delay is still drawn 250ms in the past.
-Lateness is `interp`'s to fix; Hz only decides how well the path between two samples is known.
-Anyone reaching for a higher rate to cure a "delayed" look is turning the wrong knob.
+**So, in the order the limits arrive:** the game's frame rate, then `64 / interp` (silent), then
+bandwidth (linear, the host's), then the ms timestamps (decay, no cliff), then Go's CPU (never).
+**Between 100 and 200Hz at shipped settings, nothing degrades at all** — which is why "100 to be
+safe" is a policy choice, not a technical boundary. **Raising Hz buys SAMPLING ACCURACY, never
+FRESHNESS:** a ghost at 480Hz with a 250ms delay is still drawn 250ms in the past. Lateness is
+`interp`'s to fix, and anyone raising the rate to cure a "delayed" look is turning the wrong knob.
 
 ## Per-game tested settings: the Hz x interp sweep every game still needs (filed 2026-08-30)
 
