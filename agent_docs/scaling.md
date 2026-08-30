@@ -504,6 +504,21 @@ rather than snapping to it. No protocol change, no Hz change, no config. **Try t
 concluding Pseudoregalia needs a higher rate** — raising Hz would only make the steps smaller and
 would pay bandwidth forever to hide a step that should not be there.
 
+**The names, expanded once, because the file used them as jargon:** `lerp` is LINEAR
+INTERPOLATION; `slerp` is SPHERICAL LINEAR INTERPOLATION — the same idea on a sphere rather than a
+flat line. The rotation ladder has more rungs than the two named below: **slerp** (shortest arc,
+constant angular speed — the correct default), **nlerp** (lerp the quaternion components then
+renormalize; cheaper, speed varies slightly mid-arc, invisible at small angles), **squad**
+(rotation's `catmull-rom`, four samples, rarely worth it), and **damped/spring** (chase the newest
+rotation at a maximum rate, no brackets at all).
+
+**That last one is a real fork for the Pseudoregalia fix, and the easy option is the wrong one.**
+A damper is much simpler to write, but position is already interpolated BETWEEN THE TWO BRACKETING
+SAMPLES at the interpolation delay — so a damped rotation chasing the newest value would put facing
+and position on different clocks, and they would visibly disagree during fast movement: the body
+where the peer was an interp-delay ago, the head turning toward where they are now. **Slerp between
+the same two brackets keeps them in lockstep**, which is the only version that can reach 1:1.
+
 **Slerp is not a fourth option beside `linear`/`catmull-rom`/`extrapolate` — it is the first rung
 of a DIFFERENT ladder** (asked 2026-08-30, worth pinning because the names invite the confusion).
 Those three all interpolate POSITION, component-wise in a flat space. Slerp interpolates ROTATION,
