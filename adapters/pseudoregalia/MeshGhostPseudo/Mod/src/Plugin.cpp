@@ -590,7 +590,13 @@ namespace MeshGhostPseudo
     // investigation is finished, so the cost stops being worth paying. The constant stays so
     // the next investigation can raise it again; the technique is written up in
     // adapters/_template/README.md ("Delay your own change...") so it survives this reaching 0.
-    constexpr uint64_t SPAWN_DELAY_TICKS = 0;
+    // **Back to 120 on 2026-08-31 (~0.8s), as BEHAVIOUR rather than as the diagnostic it once was.**
+    // Its own comment says what it is for: hold off spawning until the player's own camera has had
+    // time to settle after a level load. The reset crash's surviving pattern is a ghost spawning
+    // 1-2s after a reload with the fault ~2s later, so "wait for the local pawn to be stable" is
+    // exactly the missing precondition, and this is the game-side half of it -- the suppression
+    // window is the transition-side half.
+    constexpr uint64_t SPAWN_DELAY_TICKS = 120;
 
     // User-requested toggle, 2026-08-13: try re-enabling ghost collision as a real fix for the
     // stuck-falling-pose and can't-grab-ledges bugs (both plausibly need a real physics trace to
@@ -1843,7 +1849,23 @@ namespace MeshGhostPseudo
     // How long ghost spawning stays suppressed after a new world reports its game state.
     // ~2s at this game's frame rate: the level is up by then, and a ghost missing for two
     // seconds after a zone change is not something a player would notice.
-    constexpr uint64_t POST_WORLD_SPAWN_SUPPRESS_TICKS = 300;
+    // Raised 300 -> 900 on 2026-08-31. At 300 (~2s) the log shows ghosts respawning 1-2 seconds
+    // after a reset's reload and the crash landing ~2s after THAT: the world was still settling.
+    // ~6s is long enough to be clearly outside the reload, and a ghost that is missing for six
+    // seconds after a save reload is not something a player would file a bug about.
+    // **4500 (~30s) as an EXPERIMENT, 2026-08-31 -- this is a causal test, not a setting.**
+    // Twice in a row now the crash has landed ~2s after ghosts respawn following a reset's reload,
+    // and lengthening the hold from ~2s to ~6s moved the respawn out by the same amount and the
+    // crash with it. If the fault tracks the SPAWN rather than the reload, holding for 30s should
+    // push the crash out to ~32s -- which would name spawning-a-ghost-after-a-reset as the trigger
+    // beyond argument. If instead it crashes at the usual few seconds with no ghost in sight, the
+    // link is coincidence and the spawn is exonerated.
+    //
+    // Either answer is worth one run. Put this back to something playable afterwards.
+    // Back to ~6s after the 30s causal test did its job (2026-08-31): the crash tracked the SPAWN
+    // across 2s, 6s and 14s holds, landing within the same second the ghosts came back, so a reset
+    // is not what kills the game -- spawning a ghost into a post-reset world is.
+    constexpr uint64_t POST_WORLD_SPAWN_SUPPRESS_TICKS = 900;
 
     // Ceiling on the attach-tree walk that replaced the sweep's world scan. A player pawn
     // carries a couple of dozen components; 256 is far above anything real and exists so a
@@ -11429,6 +11451,27 @@ namespace MeshGhostPseudo
         }
 
         AActor* ghost = world->SpawnActor(pawn_class, &spawn_loc, &spawn_rot);
+
+        // **`bare_ghost.txt` stops here: the actor exists and NOTHING is done to it.**
+        // Proven 2026-08-31: the crash follows the ghost SPAWN after a reset, not the reset. This
+        // splits that in two -- is it `SpawnActor` itself (and therefore the game's own reaction to
+        // a second player pawn), or is it the several hundred lines of setup we run on the clone
+        // afterwards? A bare ghost that survives puts the fault in our setup and turns the rest
+        // into a bisect; a bare ghost that crashes puts it in the spawn, which is a different and
+        // much harder problem.
+        //
+        // The ghost will look wrong while this is on -- no decouple, no lights, no nametag, no
+        // mirrors. That is expected and it is not what is being judged.
+        if (ghost && dev_toggle_present(STR("bare_ghost.txt")))
+        {
+            RemoteGhost& bare = remotes[player_id];
+            bare.ghost = ghost;
+            bare.owning_world = world;
+            hijacked_actors.insert(ghost);
+            Output::send(STR("[MeshGhostPseudo] BARE GHOST for {} -- spawned and left completely untouched.\n"),
+                         to_wide_ascii(player_id));
+            return;
+        }
 
         if (ov_template_capsule)
         {

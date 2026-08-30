@@ -268,6 +268,41 @@ reset button: **a world teardown while a player-pawn clone is alive kills the ga
 `InitGameState` hook set the spawn freeze to zero on the reasoning that "the new world is up". It
 fires ~180ms into a load, and ghosts were spawning 95ms after that. It holds a shorter window now.
 
+### PROVEN: spawning a ghost into a POST-RESET world is the trigger (2026-08-31)
+
+**Not the reset. Not our setup. The spawn.** Established by moving the spawn and watching the crash
+follow it, three times, then by stripping the spawn to nothing:
+
+| ghost respawn held for | ghosts returned | crash |
+| --- | --- | --- |
+| ~2s | 1-2s after the reload | ~2s after the respawn |
+| ~6s | 3s after the reload | ~2s after the respawn |
+| ~30s (causal test) | 14s after the reload | **the same second they returned**, after 14 quiet seconds |
+
+**Fourteen seconds with no ghost and no crash, then the crash lands the instant one spawns.** That
+is a causal link, not a correlation: the crash tracked the spawn every time it was moved.
+
+**And it is the SpawnActor itself, not anything we do afterwards.** `bare_ghost.txt` spawns the
+clone and leaves it completely untouched -- no decouple, no vertex-light kill, no custom depth, no
+nametag, no mirrors, no hijack setup. The log shows two bare ghosts at 01:34:49 and the process
+gone at 01:34:50. **Every line of our post-spawn code is exonerated**, which retires a large part
+of the search space in one run.
+
+**The world matters, not the timing.** The same spawn after a ZONE CHANGE is fine -- confirmed
+repeatedly the same night, including transitions with ghosts alive. Only a world produced by
+*reset to last save* is hostile, and it stays hostile for at least 14 seconds.
+
+**So the question is now precise and small: what is different about a world reloaded by a save
+reset, compared with one reached by a zone change, that makes spawning a second player pawn fatal?**
+That is a state comparison, and it needs no theory: snapshot the same handful of things in both
+worlds -- the local pawn and controller, the game state, whether level streaming is still in
+flight, the pause flag, the game mode -- and diff. A Lua probe can do it and reload without a
+restart.
+
+**A mitigation exists if the cause proves expensive to reach**: refuse to spawn ghosts in a world
+produced by a reset, until the next real level load. It costs a player their ghosts after every
+reset until they change zone, which is a real loss, so it is a fallback rather than the answer.
+
 ### THE CRASH IS INTERMITTENT, so single-run A/Bs proved nothing (2026-08-31)
 
 **User, late in the session:** *"client1 did some pretty cool things right now, it managed to go
