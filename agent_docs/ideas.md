@@ -3185,6 +3185,53 @@ own 2026-08-28 finding is that relay CPU and header overhead scale with packet c
 packet size -- the same reason per-field deltas ranked last. Every win that mattered so far came
 from not sending something (suppression, derivation, area filtering), not from sending it smaller.
 
+### AT SCALE THE RANKING ABOVE INVERTS (estimated 2026-08-30)
+
+**Everything above was reasoned at 8-peer scale, where CPU is the point. Under the no-ceiling
+principle it must also be read at 1000.** Ran `go test ./relay/ -bench StateFanout -benchtime 2s`
+on 2026-08-30 (Ryzen 5 9600X, emerald shape) and fitted the two terms:
+
+| peers | ns/op | allocs/op |
+|---|---|---|
+| 2 | 6075 | 83 |
+| 8 | 6262 | 84 |
+| 32 | 6862 | 84 |
+| 128 | 10085 | 84 |
+
+**Fixed cost ~6.0us per inbound state (parse + marshal once, JSON-dominated); per-recipient cost
+~32ns (framing + queue, barely JSON at all).** Allocations stay flat as the room grows, which is
+v1.0.0's per-recipient allocation removal showing up as a straight line.
+
+That split is the whole finding: **JSON's share of relay CPU SHRINKS as the room grows**, because
+fan-out overtakes parsing — ~58% at 8 peers (the measured figure above), ~25% at 128, **~9% at
+1000**. So hand-written encoders save ~40-48% of relay CPU at 8 peers and only ~6-8% at 1000.
+
+Extrapolated 1000-peer room, unfiltered, all sending and receiving:
+
+| rate | relay CPU | relay uplink (~350B states) |
+|---|---|---|
+| 10 Hz | ~0.4 cores | ~3.5 GB/s |
+| 20 Hz | ~0.8 cores | **~7 GB/s — does not run** |
+| 100 Hz | ~3.8 cores | ~35 GB/s |
+
+Area-filtered to ~8 visible peers at 20Hz it becomes ~56 MB/s (450 Mbps) of uplink — a real
+server, not a home host — and binary's ~30% would make it ~39 MB/s.
+
+**CONCLUSIONS, and two of them reverse what is written above.**
+
+1. **CPU is not what breaks at scale; bandwidth is.** The CPU table is survivable at every rate;
+   the uplink table is not.
+2. **Binary's case gets STRONGER with scale and hand-written encoders' gets WEAKER** — the exact
+   opposite of the 8-peer ranking. Binary buys bytes, and bytes are what bind at 1000.
+3. **But no wire format saves you at 1000: filtering is not optional.** 30% off an impossible
+   number is still impossible. This is the same conclusion the culling entries reach, arrived at
+   from the other direction.
+
+**Caveats, so nobody treats these as measurements.** The per-recipient term is fitted from 8->128
+and extrapolated 8x past the largest room ever benchmarked; it likely UNDERCOUNTS real network
+writes, since the outbox is async and the benchmark does not cross a NIC. Binary's ~30% is capped
+by `extras` being opaque by contract. Re-measure at real scale before any of this is acted on.
+
 ### "Can we run both -- one for testing, one for release?" (user's question, 2026-08-28)
 
 Yes for one of them, and the difference is the whole argument.
