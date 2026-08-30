@@ -9534,6 +9534,245 @@ namespace MeshGhostPseudo
     // They cost nothing to lose -- the next `render_remote` for that peer spawns a fresh one, the
     // same path a level transition already uses -- and a ghost that does not exist cannot be
     // walked by whatever the reset does.
+    // **What does spawning a ghost leave behind in the game's own state?**
+    //
+    // The question this exists to answer, established by seven runs on 2026-08-30: "reset to last
+    // save" crashes if and only if a ghost has EVER existed this session. Not "exists now" -- the
+    // ghosts were destroyed, respawning was suppressed, the peer was disconnected and the room
+    // emptied, and it still crashed. So a spawn writes something into the game that outlives both
+    // the actor and the peer, and a reset walks it.
+    //
+    // Four theories were refuted by measurement before this was written (the ghost actor existing,
+    // the respawn, the camera fallback pointer, all five UFunction hooks), which is the whole
+    // reason this is a CENSUS rather than a fifth theory: look at what actually changes.
+    //
+    // **Lengths, not element identities, and deliberately so.** A `TArray`'s length can be read
+    // the same way whatever its element type is, while dereferencing elements requires knowing
+    // that type -- and this file has a case file on reading a property as the wrong type. A
+    // registration leak shows up as a length that GROWS on spawn and does not shrink on destroy,
+    // which lengths alone answer.
+    // **Does a destroyed ghost actually go away?**
+    //
+    // `release_ghost` has logged "K2_DestroyActor was reflected and called -- watch whether the
+    // ghost actually disappears" since it was written; nobody has ever counted. This does, and it
+    // counts the things a ghost brings with it as well, because the reset crash needs only that a
+    // ghost ONCE existed (seven runs, 2026-08-30) -- which is the signature of something left
+    // behind rather than something present.
+    //
+    // Counts, per class, captured immediately before and after a spawn and after a destroy. An
+    // orphan is a count that goes up on spawn and does not come back down: **that is the whole
+    // read**, and it needs no assumption about what the class is for.
+    // Reads a dev toggle whose CONTENT names which parts to switch off, the same shape as
+    // `hooks_off.txt` and `call_light_fn.txt`. Keeps a bisect to "edit a line, relaunch".
+    namespace
+    {
+        auto dev_toggle_contains(const wchar_t* file_name, const char* needle) -> bool
+        {
+            std::string body;
+            if (FILE* f = _wfopen((module_directory() + L"\\" + file_name).c_str(), L"rt"))
+            {
+                char buffer[256] = {};
+                while (fgets(buffer, sizeof(buffer), f))
+                {
+                    body += buffer;
+                }
+                fclose(f);
+            }
+            for (char& c : body)
+            {
+                c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+            }
+            return body.find("all") != std::string::npos || body.find(needle) != std::string::npos;
+        }
+    }
+
+    auto Plugin::census_object_counts(const wchar_t* label) -> void
+    {
+        if (!dev_toggle_present(STR("dump_arrays.txt")))
+        {
+            return;
+        }
+
+        // The pawn clone itself, the light it is documented to register, and the component classes
+        // a ghost is known to own. BP_PlayerGoatMain_C is the important one: the local player is
+        // always one of them, so "baseline 1, spawn 2, destroy back to 1" is what correct looks
+        // like, and anything else is the finding.
+        static const wchar_t* const CLASSES[] = {
+            STR("BP_PlayerGoatMain_C"), STR("BP_DynamicVertexLight_C"), STR("BP_LightManager_C"),
+            STR("PointLightComponent"), STR("SpotLightComponent"), STR("ChildActorComponent"),
+            STR("TextRenderComponent"), STR("BP_AfterImage_C"), STR("NiagaraComponent")};
+
+        std::map<std::string, int> now;
+        for (const wchar_t* class_name : CLASSES)
+        {
+            std::vector<UObject*> found;
+            UObjectGlobals::FindAllOf(class_name, found);
+            int live = 0;
+            for (UObject* obj : found)
+            {
+                // The class default object is always in this list and is not an instance.
+                if (obj && !obj->HasAnyFlags(RF_ClassDefaultObject))
+                {
+                    ++live;
+                }
+            }
+            now[to_utf8(class_name)] = live;
+
+            // **Identities for the pawn class only.** A count says something lingers; the name and
+            // address say WHICH, and `IsUnreachable` says whether it is merely awaiting garbage
+            // collection rather than genuinely still alive. Pawns only, because that list is two
+            // entries long and every other class here runs to dozens.
+            if (std::wcscmp(class_name, STR("BP_PlayerGoatMain_C")) == 0)
+            {
+                for (UObject* obj : found)
+                {
+                    if (!obj || obj->HasAnyFlags(RF_ClassDefaultObject))
+                    {
+                        continue;
+                    }
+                    // **bActorIsBeingDestroyed decides the last ambiguity.** `unreachable` only
+                    // flips at garbage collection, so a destroyed-but-uncollected actor looks
+                    // identical to a live orphan. This flag is set by Destroy() itself. Read
+                    // through FBoolProperty because it is a bitfield -- a plain byte read reports
+                    // any set neighbour as true, which cost this adapter a day once.
+                    StringType destroying = STR("?");
+                    if (UClass* pawn_cls = obj->GetClassPrivate())
+                    {
+                        for (FProperty* p : TFieldRange<FProperty>(pawn_cls, EFieldIterationFlags::Default))
+                        {
+                            if (p && p->GetName() == STR("bActorIsBeingDestroyed") &&
+                                p->GetClass().GetName() == STR("BoolProperty"))
+                            {
+                                destroying = static_cast<FBoolProperty*>(p)->GetPropertyValueInContainer(obj)
+                                                 ? STR("YES")
+                                                 : STR("no");
+                            }
+                        }
+                    }
+                    Output::send(STR("[MeshGhostPseudo] ORPHANCENSUS [{}]   pawn {} at {} being_destroyed={} unreachable={}\n"),
+                                 label,
+                                 obj->GetFullName(),
+                                 static_cast<void*>(obj),
+                                 destroying,
+                                 obj->IsUnreachable() ? STR("YES") : STR("no"));
+                }
+            }
+        }
+
+        // **The pawn class's CDO, which is the one piece of state that matches the crash's scope.**
+        // The spawn path disables AutoPossessPlayer on the CLASS DEFAULT OBJECT for the duration of
+        // one SpawnActor call and restores it immediately after. If it were ever left at Disabled,
+        // every later pawn of that class -- including the one "reset to last save" spawns for the
+        // PLAYER -- would come up unpossessed, which is a crash the mod would cause without ever
+        // touching an instance. That profile is exactly what was measured on 2026-08-30: needs a
+        // ghost to have spawned once, survives the ghost's destruction, survives the peer leaving,
+        // and survives two level loads.
+        //
+        // 0 is EAutoReceiveInput::Disabled. Anything else is the game's own value.
+        {
+            std::vector<UObject*> pawns;
+            UObjectGlobals::FindAllOf(STR("BP_PlayerGoatMain_C"), pawns);
+            for (UObject* p : pawns)
+            {
+                UClass* cls = p ? p->GetClassPrivate() : nullptr;
+                UObject* cdo = cls ? cls->GetClassDefaultObject() : nullptr;
+                uint8_t* ap = cdo ? cdo->GetValuePtrByPropertyNameInChain<uint8_t>(STR("AutoPossessPlayer")) : nullptr;
+                if (ap)
+                {
+                    Output::send(STR("[MeshGhostPseudo] ORPHANCENSUS [{}]   CDO AutoPossessPlayer = {}{}\n"),
+                                 label,
+                                 static_cast<int>(*ap),
+                                 (*ap == 0) ? STR("   <== DISABLED, the game's own player spawn depends on this")
+                                            : STR(""));
+                }
+                break;
+            }
+        }
+
+        for (const auto& [key, count] : now)
+        {
+            auto before = last_object_census.find(key);
+            const int was = (before == last_object_census.end()) ? -1 : before->second;
+            Output::send(STR("[MeshGhostPseudo] ORPHANCENSUS [{}] {} : {} -> {}{}\n"),
+                         label,
+                         to_wide_ascii(key),
+                         was,
+                         count,
+                         (was >= 0 && count != was) ? STR("   <== CHANGED") : STR(""));
+        }
+        last_object_census = now;
+    }
+
+    auto Plugin::census_singleton_arrays(const wchar_t* label) -> void
+    {
+        if (!dev_toggle_present(STR("dump_arrays.txt")))
+        {
+            return;
+        }
+
+        // The singletons a ghost could plausibly register with. The light manager is here because
+        // the spawn path's own comment says the ghost's vertex light registers with it and nothing
+        // unregisters it; the game instance because it outlives every level.
+        static const wchar_t* const CLASSES[] = {STR("MV_GameInstance_C"), STR("BP_LightManager_C")};
+
+        std::map<std::string, int> now;
+        for (const wchar_t* class_name : CLASSES)
+        {
+            std::vector<UObject*> found;
+            UObjectGlobals::FindAllOf(class_name, found);
+            for (UObject* obj : found)
+            {
+                if (!obj || obj->HasAnyFlags(RF_ClassDefaultObject))
+                {
+                    continue;
+                }
+                UClass* obj_class = obj->GetClassPrivate();
+                if (!obj_class)
+                {
+                    continue;
+                }
+                for (FProperty* property : TFieldRange<FProperty>(obj_class, EFieldIterationFlags::Default))
+                {
+                    if (!property || property->GetClass().GetName() != STR("ArrayProperty"))
+                    {
+                        continue;
+                    }
+                    const StringType prop_name = property->GetName();
+                    auto* arr = obj->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(prop_name.c_str());
+                    if (!arr)
+                    {
+                        continue;
+                    }
+                    const std::string key = to_utf8(class_name) + "." + to_utf8(prop_name);
+                    now[key] = static_cast<int>(arr->Num());
+                }
+                break; // one live instance of each is the singleton
+            }
+        }
+
+        int changed = 0;
+        for (const auto& [key, len] : now)
+        {
+            auto before = last_array_census.find(key);
+            const int was = (before == last_array_census.end()) ? -1 : before->second;
+            if (was == len)
+            {
+                continue;
+            }
+            ++changed;
+            Output::send(STR("[MeshGhostPseudo] ARRAYCENSUS [{}] {} : {} -> {}\n"),
+                         label,
+                         to_wide_ascii(key),
+                         was,
+                         len);
+        }
+        Output::send(STR("[MeshGhostPseudo] ARRAYCENSUS [{}] {} array(s) tracked, {} changed.\n"),
+                     label,
+                     static_cast<int>(now.size()),
+                     changed);
+        last_array_census = now;
+    }
+
     auto Plugin::try_hook_pause_reset() -> void
     {
         if (pause_reset_hook_id != 0)
@@ -9615,6 +9854,8 @@ namespace MeshGhostPseudo
                     // We already call this after every ghost SPAWN. Never after a destroy, which is
                     // the gap.
                     call_fix_lights(STR("FixAllLights"));
+                    census_singleton_arrays(STR("after-reset-destroy"));
+                    census_object_counts(STR("after-reset-destroy"));
                 });
             Output::send(STR("[MeshGhostPseudo] RESET GUARD armed on the pause menu's Reset button.\n"));
             return;
@@ -10796,6 +11037,9 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // Immediately before SpawnActor, so the delta belongs to the spawn and nothing else.
+        census_object_counts(STR("pre-spawn"));
+
         // See g_ghost_spawn_far. The distance check above has already passed on the real location,
         // so this only moves where the clone is BORN; remote.target_* below still gets the real
         // one, and the next state pulls the ghost in.
@@ -11283,7 +11527,21 @@ namespace MeshGhostPseudo
             // RemoveFromParent is stock UUserWidget, not this game's own data. Order matters:
             // this must run BEFORE the reference is nulled below, or there is nothing left to
             // reach the widget through.
-            if (UObject** ghost_hud = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef")); ghost_hud && *ghost_hud)
+            // **`decouple_off.txt` containing `hud` skips this.** The reset crash (2026-08-30) is a
+            // NULL dereference inside the GAME's own code -- five dumps, identical instruction,
+            // `bad_ptr=0x0` -- which means the game reads a pointer we cleared rather than one we
+            // corrupted. This is the only step in the whole spawn path that REMOVES something from
+            // the game's own UI, and the ghost's HUD reference has been entangled with the
+            // player's before (`VERIFIED.md`, 2026-08-27).
+            const bool skip_hud_decouple = dev_toggle_contains(STR("decouple_off.txt"), "hud");
+            if (skip_hud_decouple)
+            {
+                Output::send(STR("[MeshGhostPseudo] DEV: HUD decouple SKIPPED (decouple_off.txt names 'hud').\n"));
+            }
+            if (UObject** ghost_hud = skip_hud_decouple
+                                          ? nullptr
+                                          : ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef"));
+                ghost_hud && *ghost_hud)
             {
                 if (UFunction* remove_fn = (*ghost_hud)->GetFunctionByNameInChain(STR("RemoveFromParent")))
                 {
@@ -11515,6 +11773,8 @@ namespace MeshGhostPseudo
         // The ghost's TARGET is always the real spot, even when g_ghost_spawn_far moved where it
         // was born -- otherwise a peer who sends no further state would be left hanging in the air.
         remote.target_z = g_ghost_spawn_far ? spawn_loc.Z() - GHOST_FAR_SPAWN_Z_OFFSET : spawn_loc.Z();
+        census_singleton_arrays(STR("after-spawn"));
+        census_object_counts(STR("post-spawn"));
         Output::send(STR("[MeshGhostPseudo] spawned ghost for remote {} in world_ptr={} ({})\n"),
                      to_wide_ascii(player_id),
                      static_cast<void*>(world),
@@ -12377,6 +12637,23 @@ namespace MeshGhostPseudo
         // so a subsystem that does not show up in it is not on this thread and is not this cost.
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         perf_report_if_due();
+
+        // **A periodic census, so a count can be watched SETTLING.** UE destruction is deferred:
+        // a count taken in the same frame as K2_DestroyActor cannot tell an orphan from an actor
+        // that is merely pending kill. This one runs regardless of whether ghosts exist, so the
+        // question "does it come back down a second later" has an answer. Free unless armed.
+        if (tick_count % 300 == 0)
+        {
+            census_object_counts(STR("periodic"));
+        }
+
+        // A baseline every ~4s while no ghost exists, so "what did the spawn add" has something
+        // to be measured against. Cheap: the census returns immediately unless dump_arrays.txt is
+        // present.
+        if (remotes.empty() && tick_count % 600 == 0)
+        {
+            census_singleton_arrays(STR("baseline-no-ghost"));
+        }
 
         // **Every 10 ticks until it lands, then never again.** The widget only exists while the
         // pause menu is OPEN, so this is a race against the user clicking Reset: at 60 ticks

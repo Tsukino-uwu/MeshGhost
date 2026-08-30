@@ -242,6 +242,14 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   runs `-introspect`, which is the only way to see that a player is SUSPENDED rather than simply
   frozen. Read the scripts' own headers before the session: they record what resumption does and
   does not cover, measured rather than assumed.
+- `read-minidump.py` — **reads a UE crash dump with no debugger installed.** Prints the exception
+  code, the faulting address, the access kind and bad pointer, and **which loaded module the
+  faulting instruction is in**. That last fact decides whether a crash is the adapter's or the
+  game's before any hypothesis is formed, and on 2026-08-30 it was reached only after six refuted
+  guesses and about ten of the user's game relaunches. Dumps live in
+  `%LOCALAPPDATA%\<game>\Saved\Crashes\`; the `CrashContext.runtime-xml` beside them usually has
+  an EMPTY `<CallStack>`, which is not a reason to skip the `.dmp`. See
+  `adapters/_template/probes.md`, "READ THE CRASH DUMP FIRST".
 - `run-netsim.bat` — **the adverse-network rig** (`cmd/meshghost-netsim`): a fault-injecting proxy
   between clients and a relay, adding loss, latency, jitter, reordering, duplication and
   partitions. Everything else here runs over a perfect loopback, which is the gap this closes —

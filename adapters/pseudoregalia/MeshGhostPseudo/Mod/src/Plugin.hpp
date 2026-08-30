@@ -629,6 +629,16 @@ namespace MeshGhostPseudo
         // Resolves and hooks the pause menu's Reset button; retried cheaply until it lands,
         // because the widget class need not exist at boot. See pause_reset_hook_id.
         auto try_hook_pause_reset() -> void;
+
+        // ARRAY CENSUS. Logs every ARRAY property length on the game's singletons, and what
+        // changed since the previous capture. Armed by `dump_arrays.txt`; see the definition.
+        auto census_singleton_arrays(const wchar_t* label) -> void;
+
+        // ORPHAN CENSUS. Counts live objects per class around a spawn/destroy pair, so an
+        // object the ghost leaves behind shows up as a count that never comes back down.
+        auto census_object_counts(const wchar_t* label) -> void;
+        std::map<std::string, int> last_object_census;
+        std::map<std::string, int> last_array_census;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
         // Found live 2026-08-14: closing the core process (meshghost.exe) drops the bridge

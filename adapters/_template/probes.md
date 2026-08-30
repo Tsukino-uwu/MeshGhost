@@ -2045,3 +2045,33 @@ innocent and every "draw the ghost more cheaply" idea can be dropped before it c
 `UObjectGlobals::FindAllOf` whole-world scans running per tick -- for the local pawn, a ghost's
 light, the dev-toggle subtractions (which swept whether or not they were armed), and two
 belt-and-braces outline sweeps. `agent_docs/pitfalls/method.md` has the table and the fixes.
+
+## READ THE CRASH DUMP FIRST. Before the second guess, never after the sixth (2026-08-30)
+
+**The user's correction, and it is the most expensive lesson of that session:** *"why didn't we do
+this from the start, after the first crash? makes more sense to debug and find the issue, than
+testing like 5-10+ things"*. It cost hours and something like ten of their game relaunches.
+
+**A UE game writes a minidump for every crash**, next to a `CrashContext.runtime-xml`. The XML's
+`<CallStack>` is often EMPTY -- which is exactly what makes it a trap: it looks like the dump has
+nothing to say, and the temptation is to start theorising. **The `.dmp` beside it is a different
+file and it is not empty.**
+
+**`dev-scripts/read-minidump.py` reads it with no debugger installed** (pure `struct`, the
+documented MINIDUMP layout) and answers the two questions that constrain everything else:
+
+- **Which MODULE is the faulting instruction in?** The adapter's DLL, or the game's own
+  executable? That decides whose bug it is before a single hypothesis is formed.
+- **What KIND of fault, and on what address?** `bad_ptr=0x0` is a null dereference -- the game
+  read a pointer that should have been set, which is a *removal* problem. A wild pointer is a
+  *lifetime* problem. Those two send an investigation in opposite directions.
+
+**Run it across SEVERAL dumps.** Five Pseudoregalia crashes all faulted at exactly
+`pseudoregalia-Win64-Shipping.exe + 0x1CD9A60` with `bad_ptr=0x0` -- identical every time, which
+says the crash is deterministic and single-cause, and retires "maybe it is a race" for free.
+
+**What the offset is NOT for:** disassembling the game. Recording an address as a fact is fine
+(`../../agent_docs/licensing.md`); shipping decompiled or disassembled expression is not.
+
+**The rule:** the moment a crash is reproducible, read the dump. Every guess made before that is
+made blind, and this project has the receipts.

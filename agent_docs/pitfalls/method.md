@@ -1140,3 +1140,33 @@ mechanism that was never involved.
 The generalisable half of the original note stands anyway: **before gating a sweep, ask what it
 writes on the path where nothing is armed.** A subtraction instrument that also restores is two
 mechanisms wearing one name.
+
+## Six hypotheses before opening the crash dump (Pseudoregalia, 2026-08-30)
+
+**What happened.** "Reset to last save" crashed reproducibly whenever a ghost had been spawned. Over
+several hours the agent proposed and tested six mechanisms -- the ghost actor existing at reset, the
+tick respawning into a tearing-down world, a stale camera pointer, all five UFunction hooks, a
+leaked light registration, an orphaned pawn -- each needing a build, a deploy and a game relaunch by
+the user. **All six were refuted by measurement.**
+
+**Then the dump was read, and took ten minutes.** It gave two facts no amount of code-reading had
+produced: the faulting instruction is **inside the game's own executable**, and the fault is a
+**null dereference at one fixed offset, identical across five crashes**. That immediately retires
+every "we corrupted/leaked a pointer" theory -- a null read means the game wanted a pointer that
+something CLEARED -- and it says the crash is deterministic and single-cause.
+
+**The user's own words, and they are the rule now:** *"why didn't we do this from the start, after
+the first crash? makes more sense to debug and find the issue, than testing like 5-10+ things"*.
+
+**Why it was skipped, so the next agent recognises the trap:** `CrashContext.runtime-xml` was
+opened early, its `<CallStack>` element was EMPTY, and that was read as "the dump tells us
+nothing". The `.dmp` file sitting beside it is a different artifact entirely. No debugger is
+installed on this machine, which made "read the dump" feel unavailable -- but the MINIDUMP format
+is documented and a 100-line `struct` parser gets the module and the fault kind
+(`dev-scripts/read-minidump.py`).
+
+**The generalisation, beyond crashes:** when an artifact of the failure ALREADY EXISTS -- a dump, a
+core file, a log the game wrote itself -- read it before generating hypotheses. Guess-and-test costs
+the user a relaunch per guess; reading costs nothing and often ends the search. This is the same
+instinct as "if a game has a cleared decompilation, READ IT FIRST" in CLAUDE.md, applied to runtime
+evidence instead of source.

@@ -1075,3 +1075,25 @@ All done on this machine — kept as the checklist a fresh setup should still fo
     `-exit-with-pid=<EmuHawk's pid>` and get auto-close for free, the same way TEVI and
     Pseudoregalia do.
   - Probe: `dev-scripts/bizhawk-spawn-probe.lua`.
+
+## Crash dumps: where they are, and the tool that reads them without a debugger (2026-08-30)
+
+**Pseudoregalia writes every crash to** `%LOCALAPPDATA%\pseudoregalia\Saved\Crashes\UECC-Windows-*\`
+(a `UEMinidump.dmp` plus a `CrashContext.runtime-xml`). Newest first:
+`ls -t "$LOCALAPPDATA/pseudoregalia/Saved/Crashes" | head`.
+
+**No debugger is installed on this machine** -- no `cdb.exe`, no WinDbg, no Visual Studio -- so
+`dev-scripts/read-minidump.py` parses the dump directly:
+
+```
+python dev-scripts/read-minidump.py "<...>/UECC-Windows-XXXX_0000/UEMinidump.dmp"
+```
+
+It prints the exception code, the faulting address, the access kind and bad pointer, and **which
+loaded module contains the faulting address**, with the offset inside it. That last line is the
+one that matters: it says whether the adapter's `main.dll` or the game's own executable was
+executing.
+
+**The `CrashContext.runtime-xml`'s `<CallStack>` is usually EMPTY on this game.** Do not read that
+as "the dump has nothing" -- it is the reason a whole investigation went guess-first on 2026-08-30.
+Method and the cost: `adapters/_template/probes.md`, "READ THE CRASH DUMP FIRST".
