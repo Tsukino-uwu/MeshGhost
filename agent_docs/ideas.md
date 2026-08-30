@@ -4239,3 +4239,88 @@ game knowledge and stays in the adapter, which is free to simply not render what
 and costs no new concepts; (2) the reduced tier, reusing the presence packet; (3) distance with
 hysteresis, for Pseudoregalia's big rooms — see "Distance culling the DOWNLINK" above. Each step
 gets shadow counters before code, the way the area filter's 93% was known before the filter existed.
+
+### Prior art, and the build order it revised (2026-08-30)
+
+The discipline has a name — **interest management** / **area of interest** — and its framing is
+wider than culling: for each observer, every entity gets a RELEVANCE, and relevance decides not
+only whether you hear about it but how OFTEN and in how much DETAIL. Four levers, as used across
+the industry:
+
+- **Relevance / culling** — grid-cell subscription (your cell plus its neighbours, which is exactly
+  the declared-set idea above) or a distance radius with hysteresis. MMOs also hard-cap it
+  ("the 50 nearest players") so a capital city cannot melt.
+- **Frequency scaling** — send it, but rarely: near entities every tick, far ones every 5th or 10th.
+- **Precision reduction** — quantized positions, dropped axes, no animation phase for something four
+  pixels tall.
+- **Prediction / dead reckoning** — send rarely AND extrapolate on the receiver, so a low rate does
+  not look like one. Quake-derived engines pair this with delta compression against the last
+  acknowledged snapshot.
+
+**Why MMOs cap visible players is not purely bandwidth** (asked 2026-08-30): the binding constraint
+is usually the CLIENT's CPU — skinning and animating hundreds of characters — then the server's
+fan-out, which is our own n x (n-1) term, with bandwidth the most graceful of the three. Culling
+looks like a network feature because it is the one lever that fixes all three at once. For us the
+middle term is the one that matters.
+
+**Monster Hunter World's distant monsters animating at ~5fps** is the same principle applied to
+animation rather than networking, and it is standard enough that Unreal ships it by default
+(skinned-mesh update-rate optimization: evaluate less often with distance, interpolate between).
+The principle behind every lever: SPEND DETAIL WHERE ATTENTION IS.
+
+**Unreal's networking is the reference design** — a cull distance beyond which an actor is not
+replicated, a per-actor update frequency, and a priority score used to spend a fixed per-connection
+bandwidth budget each tick. **We cannot use it and should not try.** It needs the game running as a
+net session with a netdriver and connection-owned replicated actors; more decisively, an adapter
+may never send bytes off-machine (CLAUDE.md), and UE replication IS an off-machine transport. It is
+also not a fast path, it is a featureful one — and those features can be built in the relay we own,
+where they then serve BizHawk and Unity too.
+
+**RATE SCALING IS THE CHEAPEST ITEM ON THIS WHOLE LIST, and it was mis-ranked above.** It needs no
+protocol change and no second encoding: the relay already decides per recipient whether to forward,
+so "forward every Nth state to peers beyond R" is a DROP RULE. Two safety rules, both already
+learned in another form:
+
+- **Never drop the last state before a peer goes still**, or the ghost freezes mid-stride in the
+  wrong pose. Same shape as the area filter's crossing-state rule.
+- **Thin change-driven states, never the keepalive floor.** Change suppression already made states
+  rare; a quiet peer at one keepalive per 250ms, thinned to every 4th, is one update per second
+  against a 3s stale timer — which is how ghosts disappear.
+
+**Extrapolation belongs WITH rate scaling, not on its own.** `-extrapolate` already exists as a
+global opt-in. Its failure mode is overshoot-and-snap, which is least visible on someone far away —
+so "thin the rate for distant peers, extrapolate to cover the gap" is safe precisely because it is
+applied where mistakes do not show. Global is the setting that makes it risky.
+
+**Occlusion is never the relay's.** A peer behind a wall in your own area is sent, and always will
+be: geometry is game knowledge. The adapter is free to receive and not draw, which is what the
+Emerald draw path already does.
+
+### Priority under a budget — the shape, if the tiers ever outgrow themselves
+
+Instead of discrete full/reduced/none, each peer gets a score and the sender spends a byte budget
+top-down each tick.
+
+- **Where:** the relay, per recipient, per tick. It is the only party that knows everyone, and the
+  state plane is explicitly allowed to lose messages, so dropping is legal there in a way it is not
+  on the reliable plane.
+- **Scoreable without game knowledge:** same-area (equality, already cached), distance (arithmetic;
+  needs a `lastPos` cache mirroring the `lastArea` cache added in v1.0.0), staleness (ticks since
+  this recipient last heard about this peer), and whether the sender is moving.
+- **Staleness MUST be a term in the score**, rising each tick a peer is skipped. That is what turns
+  "starved" into "merely delayed" and guarantees eventual delivery.
+- **Three things exempt from the budget**, all learned by the area filter: the state carrying a NEW
+  area (it triggers despawn — drop it and the ghost stands frozen at the doorway for the full 3s
+  stale timeout), the seed an arriving client gets, and the keepalive floor.
+- **The cost trap:** ranking per recipient per tick is n^2 log n across a room, which at 4 players
+  costs more than it saves. It must be a NO-OP until the budget is actually exceeded, so the cheap
+  path stays exactly as cheap as today. Precedent: the relay's existing per-client 120/sec cap.
+- **What it buys over tiers:** the room cap becomes a bandwidth number rather than a player count,
+  and degradation is gradual — far peers get choppier before anyone disconnects.
+
+**BUILD ORDER, revised by the 2026-08-30 conversation:** (1) rate scaling by distance — no protocol
+change, needs only the `lastPos` cache and the two safety rules; (2) the declared SET of `area_id`s,
+which unblocks Emerald and Crystal; (3) the reduced tier; (4) priority-under-budget, only if a room
+ever needs to hold 30 people. Shadow counters before each, the way the area filter's 93% was known
+before the filter existed — and note that (1)'s `lastPos` cache is the prerequisite for MEASURING
+any of it, since the relay cannot compute a distance today.
