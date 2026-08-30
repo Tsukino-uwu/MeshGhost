@@ -4312,9 +4312,20 @@ top-down each tick.
 - **Three things exempt from the budget**, all learned by the area filter: the state carrying a NEW
   area (it triggers despawn — drop it and the ghost stands frozen at the doorway for the full 3s
   stale timeout), the seed an arriving client gets, and the keepalive floor.
-- **The cost trap:** ranking per recipient per tick is n^2 log n across a room, which at 4 players
-  costs more than it saves. It must be a NO-OP until the budget is actually exceeded, so the cheap
-  path stays exactly as cheap as today. Precedent: the relay's existing per-client 120/sec cap.
+- **The cost trap, and the distinction it turns on (sharpened by the user, 2026-08-30 — "wouldn't
+  it make sense to save cpu/bandwidth whenever its possible?").** THE SAVINGS ARE ALWAYS ON; only
+  the ORDERING is conditional, and the two must not be conflated:
+  - A **threshold** — "beyond R? send every 4th" — is O(1) per peer, needs no global view, and
+    should always run. Culling and rate scaling are thresholds. They save at 2 players exactly as
+    at 30, and on the common setup the host is also PLAYING, so relay CPU competes with their own
+    frame time. There is no "we are not busy enough to bother".
+  - An **ordering** — rank every peer, spend a budget top-down — is n^2 log n across a room and
+    produces a different answer ONLY when demand exceeds supply. Below the budget it is arithmetic
+    with no consequence, so the sort is skipped; the cheap path stays exactly as cheap as today.
+    Precedent: the relay's existing per-client 120/sec cap.
+
+  So priority is not a better rate scaling, it is TRIAGE on top of it: policy always on, ranking
+  only for what policy could not fit in the pipe.
 - **What it buys over tiers:** the room cap becomes a bandwidth number rather than a player count,
   and degradation is gradual — far peers get choppier before anyone disconnects.
 
