@@ -586,7 +586,15 @@ is why the rate never feels like the problem until the player spins quickly.
 local character's facing is drawn at frame rate, the ghost's at 20 steps a second. A working slerp
 makes them indistinguishable at EVERY spin speed — that is the bar, not "better than before".
 
-**Status, 2026-08-30: BUILT, SHIPPED AND UNWATCHED.** The Go side is confirmed with the tools
+**Status, 2026-08-30: BUILT, SHIPPED, AND CONFIRMED BETTER ON SCREEN — not yet confirmed 1:1.** A
+three-launch A/B (on, off, on, nothing else changed) got *"it looked a bit choppy/low fps in
+comparison"* with the flag off and *"its noticable and visually better with slerp on"* with it on,
+so the causal link below is now a RESULT rather than a hypothesis. What remains is the bar itself:
+indistinguishable at every spin speed, which nobody has asserted. **And the symptom swapped —
+choppy became "delayed", which is the interpolation delay becoming legible once the chop stopped
+masking it, not a new defect.** `pseudoregalia/VERIFIED.md`. Superseded status line follows.
+
+**Superseded 2026-08-30: BUILT, SHIPPED AND UNWATCHED.** The Go side is confirmed with the tools
 (full suite twice, `-race`, `internal/e2e`, `core/orientbracket_test.go`) — that says the right two
 samples and the right fraction reach the adapter, and nothing about how it looks. The causal link
 is still a strong hypothesis, not a result: nobody has watched a slerped ghost. The user judges it

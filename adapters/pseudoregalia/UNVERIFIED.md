@@ -72,6 +72,35 @@ field, byte-for-byte the old behaviour.
 `core/orientbracket_test.go`) — that says the right two samples and the right fraction reach the
 adapter, and says nothing at all about how it looks.
 
+**A/B RUN 2026-08-30 — POSITIVE, AND DELIBERATELY NOT PROMOTED YET.** Three launches on the
+loopback rig (relay `-loopback -send-hz=20 -ghost-collision=disabled`, install config 250ms /
+linear / no extrapolation), flag on, off, on, nothing else changed between them. The user, on the
+ON run first: *"it actually looks smooth now i think ?"*; then on the OFF run: *"it looked a bit
+choppy/low fps in comparison"*; then back ON: *"now when im testing slerp again it just looks
+'delayed' not bad/choppy"*, and *"so slerp is for sure doing 'something' better"*.
+
+**Why that stays here rather than moving to `VERIFIED.md`:** every one of those is hedged — *"i
+think ?"*, *"something"* in the user's own scare quotes. The bar is 1:1, judged as
+indistinguishable from the local character at every spin speed, and *"doing something better"* is
+not that. It sits here until the user says it plainly.
+
+**THE FINDING THAT MATTERS MOST IS THE SYMPTOM SWAPPING, and it is not a new defect.** Choppy
+became *delayed*. Those are different complaints about different mechanisms: the chop was the
+facing STEPPING, which this fixed; the lateness is the 250ms interpolation delay doing exactly its
+job, on both runs equally. **Slerp does not add delay — it very slightly REDUCES it.** With the
+step, facing showed the older bracket until render time crossed the newer sample, so it was on
+average about half a sample interval (~25ms at 20Hz) staler than the interpolated version is. What
+changed is that the lateness became LEGIBLE: a choppy motion masks a smooth lag, and removing the
+chop is what let the delay be seen at all. Expect this shape again on any future adapter — fixing
+a stutter routinely "reveals" a delay that was there the whole time, and treating that as a
+regression is how a good fix gets reverted.
+
+**So the next question is a KNOB, not a bug**, and it is the one ADR 0040 shipped for exactly this:
+`interp` (250ms here, never swept for this game — TEVI measured 175ms on 2026-08-28) and
+`extrapolate`, which is off. Both are config-only in the install's `config.json`, needing a
+relaunch and no rebuild. **`extrapolate` now covers rotation too** (`interp_t` above 1, ADR 0043)
+and that half has never been on screen in any form.
+
 ---
 
 ## DRAINED 2026-08-27 — the health bar, and the ghost that could damage the player

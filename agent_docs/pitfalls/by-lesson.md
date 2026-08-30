@@ -5216,3 +5216,54 @@ read and still suspect until converted.
 
 **The rule:** a reflected bool is not a byte. Any diff or census whose bools all agree is not
 measuring them.
+
+## THE CODE ALREADY SAID WHICH FIELD WAS BROKEN — READING IT BEAT EVERY PLANNED MEASUREMENT (Pseudoregalia, 2026-08-30)
+
+**Symptom.** The user, watching a ghost: *"a bit choppy/low fps at 20hz and 250ms when turning
+around fast but super smooth when turning around slow"*.
+
+**The wrong theory, and why it looked right.** The report names a rate and an interpolation delay,
+so it reads as a POSITION smoothness problem, and the file recording it duly filed it under a
+Hz-by-interp sweep — a two-dimensional grid where every point costs the user a real game launch.
+That reading survived a first pass and was wrong about **which field was stepping**.
+
+**What settled it, before any measurement: `core/interp.go`'s own comment.** It says outright that
+orientation is never interpolated — it is opaque by contract, so the interpolator takes it from the
+older of the two bracketing snapshots and holds it. **Orientation is a step function, and the
+interpolation delay cannot smooth a step; it can only delay it.** From there the arithmetic
+matches the report exactly: the visible error is angular velocity divided by Hz, so at 20Hz a
+45 deg/s pan steps ~2.3 degrees and is invisible while a 360 deg/s spin steps ~18 and is not —
+identical step COUNT in both, which is precisely why the rate never feels like the cause until you
+spin fast.
+
+**The one-line test that separates the two theories, and costs nothing: STAND STILL AND SPIN.**
+Position never changes, so `curve`, `extrapolate` and the whole Hz-by-interp grid are out of play
+by construction. Whatever is still choppy is orientation. A test that removes a variable outright
+beats one that varies it.
+
+**Cause.** The core may never parse an orientation (a compass string here, a degrees triple there,
+a quaternion next) so it can never interpolate one. **Fix:** it hands over what it CAN know from
+timestamps it already owns — which two samples, and the fraction between them — and the adapter,
+which knows what its own orientation means, does the maths. ADR 0043.
+
+**THE TRANSFERABLE RULES, in the order they earned their place:**
+
+1. **When a symptom names a knob, check whether the knob is even connected to the field that is
+   misbehaving.** "Choppy at 20Hz and 250ms" names two position knobs for a defect in neither.
+2. **A report about SMOOTHNESS does not name its field.** Ask which one moves — or design a test
+   that holds every other one still, which is cheaper than asking and more reliable than guessing.
+3. **`CLAUDE.md` already says to read a cleared decompilation before probing a game. This is the
+   same rule pointed inward: read OUR OWN code before measuring OUR OWN behaviour.** The answer was
+   in a comment written by this project, and the plan of record was a live-cycle grid.
+4. **FIXING A STUTTER REVEALS A DELAY, AND THAT IS NOT A REGRESSION.** Confirmed on the A/B: with
+   the fix on, *"it just looks 'delayed' not bad/choppy"*. Choppy and late are different mechanisms
+   — the lateness is the interpolation delay, identical on both runs — and the fix very slightly
+   REDUCES it, since the step showed the older bracket until render time crossed the newer sample.
+   A choppy motion MASKS a smooth lag; removing the chop is what let the lag be seen. Expect a
+   "new" delay complaint after every stutter fix, and check the mechanism before reverting a good
+   change.
+5. **A three-launch A/B is on-off-ON, not on-off.** The third launch is what separates "the fix
+   works" from "the second run felt different", and it is the run that produced the plain
+   confirmation here after two hedged ones.
+
+**Evidence:** `adapters/pseudoregalia/VERIFIED.md` 2026-08-30, `agent_docs/scaling.md`, ADR 0043.

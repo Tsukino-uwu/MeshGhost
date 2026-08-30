@@ -59,8 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **Pseudoregalia's stepped FACING is BUILT, SHIPPED and UNWATCHED (2026-08-30)** — the core now
-  names its bracket, the mod interpolates it shortest-arc. ADR 0043, `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's stepped FACING is FIXED and user-confirmed BETTER, not yet 1:1 (2026-08-30)** —
+  three-launch A/B; the residual "delayed" read is the interp knob. ADR 0043, `pseudoregalia/VERIFIED.md`.
+- **OPEN: Pseudoregalia's `interp` has never been swept, and rotation extrapolation is unwatched** —
+  250ms is a placeholder (TEVI measured 175ms); config-only. `pseudoregalia/UNVERIFIED.md`.
 - **HIGH PRIORITY: two shipped settings do nothing, and the config work around them is planned
   (2026-08-30)** — `ghost_collision` reaches no adapter in any game, nametags reach one of four;
   plan, ordering and the two `stage-release.ps1` bugs: `plans.md`, "Settings: defined once".

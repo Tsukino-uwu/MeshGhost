@@ -1516,8 +1516,12 @@ nobody was testing. Measured when it was finally looked at: of 1911 messages at 
 
 **So, for a new adapter:**
 
-- **Sub-tile position, sub-pixel position, orientation angles — anything continuous — goes in
-  `position`.** Add components; that is what variable length is for. Send absolute quantities, not
+- **Sub-tile position, sub-pixel position — anything continuous — goes in `position`.** Add
+  components; that is what variable length is for. **Orientation is the ONE exception, since
+  2026-08-30 (ADR 0043): it stays in `orientation` and the ADAPTER interpolates it** — see the next
+  section. It was listed here before that existed, and smuggling angles into `position` would have
+  been the wrong fix anyway, because lerping an angle component-wise sends yaw 350 to 10 the long
+  way round. Send absolute quantities, not
   offsets: a tile index plus an offset-from-destination cancel at a boundary when interpolated
   independently, because the tile rises by one exactly as the offset falls by a tile's width.
 - **`extras` is for facts that are already discrete** — a sprite id, an action byte, a stride index.
@@ -1525,6 +1529,54 @@ nobody was testing. Measured when it was finally looked at: of 1911 messages at 
 - **Do not ask the core to interpolate `extras` instead.** That would make the core inspect
   game-specific payload, which is the exact thing the adapter/core split exists to prevent, and it
   would change every game to fix one.
+
+## Three families of value, and only ONE of them lerps — decide which yours is before smoothing it
+
+**Added 2026-08-30, from the Pseudoregalia facing fix (ADR 0043), and it generalises to every
+adapter.** Before smoothing anything, ask which of these it is. Getting the family wrong produces a
+defect that looks like a rendering bug and is arithmetic.
+
+1. **Vector quantities — lerp works directly.** Position, velocity, scale, a camera offset. The
+   space is flat, so a straight line between two samples is correct. This is what the core does.
+2. **Cyclic quantities — need a WRAP-AWARE lerp.** Rotation, a compass heading, a hue, and
+   **animation phase**, which runs 0->1 and restarts: phase 0.95 -> 0.05 lerps backwards through the
+   whole clip exactly as yaw 350 -> 10 lerps the long way round. **Wrap-aware just means lerp plus a
+   shortest-arc correction**: fold `target - current` into the short half of the range (+/-180 for
+   degrees, +/-0.5 for a 0..1 phase) before interpolating, so 350 -> 10 travels +20 rather than
+   -340. For quaternions the same check is negating one of the pair when their dot product is
+   negative; a scalar angle gets it far more cheaply.
+3. **Discrete quantities — never interpolated, only TIMED.** `anim` tags, `area_id`, booleans. There
+   is no midpoint between "walking" and "idle"; the only choice is WHEN the switch lands, which is
+   what holding the older sample already does. Its failure mode is a pop at the wrong instant — and
+   the related trap this repo hit is believing a discrete tag over a continuous fact (Emerald's
+   drawn tier believed the anim tag and slid, when movement is a position fact).
+
+**Where the core stands, so you know what is yours to do.** Position has all three render knobs
+(ADR 0040). **Orientation is family 2 and the core cannot touch it** — it is opaque by contract, so
+it holds the older bracket's value and facing STEPS at the send rate. That is CORRECT for a game
+with four discrete facings (Pokemon, and TEVI flipping a sprite) and WRONG for one with continuous
+rotation, where a fast turn reads as choppy and a slow one looks fine. **If your game rotates
+continuously, you inherit this defect on day one.** The fix is already built for you: `render_remote`
+carries `orientation_from`, `orientation_to` and `interp_t`, and you interpolate them in whatever
+shape your orientation actually is. All three are absent when there is no honest pair, and ignoring
+them is the pre-2026-08-30 behaviour.
+
+**Two rules that came out of doing it, both non-obvious:**
+
+- **Use the SAME bracket position used, never a chase toward the newest sample.** A damper is much
+  simpler and disagrees with the body during fast movement, because position renders an
+  interpolation delay in the past. Same bracket, same fraction, one clock.
+- **`interp_t` can exceed 1** under prediction, on purpose — rotation is extrapolated over the same
+  window position is. Clamp it defensively, do not clamp it to 1.
+
+**Animation phase needs no smoothing at all, for a reason worth keeping: THE RECEIVING GAME
+ADVANCES THE CLIP ITSELF.** A phase sample is a correction, not a value to hold, and the game
+extrapolates it for free — the same let-the-game-do-the-work pattern behind every other win here.
+Anything else continuous lives in `extras`, which the core may not smooth by contract, so that
+adapter owns its own smoothing.
+
+**And when you fix a stutter, expect a "new" delay complaint.** Removing chop makes an existing lag
+legible; it does not create one. `agent_docs/pitfalls/by-lesson.md`, 2026-08-30.
 
 ## Judge a renderer at the SHIPPED settings, not only at the dev rig's
 

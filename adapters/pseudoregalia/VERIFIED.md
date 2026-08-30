@@ -178,6 +178,7 @@ filed under the right theme, but anything can check that it is listed.
 - Nametag COLOUR, as a plate the name stands on — three peers, three cases (2026-08-29)
 - Landing dust on a ghost: the echo loop, the swallowed repeats and the mid-body height, all three fixed (2026-08-29)
 - 2026-08-30 — the three ghost-light bugs are fixed, and the fixes ship as defaults
+- 2026-08-30 — a ghost's FACING is interpolated, and the choppy fast spin is gone
 
 ## Confirmed facts
 
@@ -4505,3 +4506,53 @@ similar to how we did with the blue outlines"*. Mirroring a peer's real light st
   run had ZERO toggle files beside either DLL.
 - Method and failed-fix table: `UNVERIFIED.md`'s 2026-08-30 section and
   `agent_docs/pitfalls/by-lesson.md`'s two 2026-08-30 entries.
+
+## 2026-08-30 — a ghost's FACING is interpolated, and the choppy fast spin is gone
+
+**Confirmed by the user on a three-launch A/B**, flag on, off, on, with nothing else changed
+between the runs: *"its noticable and visually better with slerp on"*.
+
+The run-by-run reads, in order, because the SEQUENCE is the evidence and no single line is:
+
+1. **ON:** *"it actually looks smooth now i think ?"*
+2. **OFF** (`GHOST_ROTATION_SLERP = false`, a real revert — the flag compiles the work out, not
+   just the decision): *"it looked a bit choppy/low fps in comparison"*.
+3. **ON again:** *"now when im testing slerp again it just looks 'delayed' not bad/choppy"*, and
+   *"so slerp is for sure doing 'something' better"*, then plainly: *"its noticable and visually
+   better with slerp on"*.
+
+**What the defect was.** Orientation is opaque to the core by contract, so `core/interp.go` never
+interpolated it — it held the older bracketing snapshot's value until render time crossed the
+newer one, making facing a step function at the send rate. The visible error is angular velocity
+divided by Hz: at 20Hz a slow pan steps ~2 degrees and is invisible, a fast spin steps ~18 and is
+not. That is the user's original report exactly (*"choppy/low fps at 20hz and 250ms when turning
+around fast but super smooth when turning around slow"*), and it is why the rate never felt like
+the problem until they spun quickly.
+
+**What ships.** The core now names the pair it interpolated position between and the fraction it
+rendered at (`orientation_from`/`orientation_to`/`interp_t` on `render_remote` — bridge only, zero
+bandwidth, ADR 0043); this adapter interpolates its degrees triple shortest-arc per component.
+`GHOST_ROTATION_SLERP`, `true`.
+
+**STILL OPEN, and stated here so the entry is not read as more than it is: this is confirmed
+BETTER, not confirmed 1:1.** The bar is indistinguishable from the local character at every spin
+speed, and nobody has asserted that. `UNVERIFIED.md` carries the gap.
+
+**The finding worth carrying to the next adapter: the symptom SWAPPED, and that is not a
+regression.** Choppy became *delayed*. Different complaints about different mechanisms — the chop
+was the stepping, the lateness is the 250ms interpolation delay doing its job on both runs
+equally. Slerp does not add delay; it very slightly REDUCES it, since the step showed the older
+bracket until render time crossed the newer sample, about half a sample interval (~25ms at 20Hz)
+staler than the interpolated value. What changed is that the lateness became LEGIBLE: a choppy
+motion masks a smooth lag. **Expect this on any future adapter — fixing a stutter routinely
+"reveals" a delay that was always there, and mistaking that for a regression is how a good fix
+gets reverted.**
+
+- Scope: Steam install, loopback rig — relay `-loopback -send-hz=20 -ghost-collision=disabled`,
+  install config 250ms interp / linear / no extrapolation, the ghost offset 150 units to the side
+  so the two facings are side by side. Spin-in-place test, so position never changed and the read
+  is on facing alone. One machine, one instance; a real two-peer session has not been tried.
+- The extrapolation half of ADR 0043 (`interp_t` above 1, rotation predicted over the same window
+  as position) was OFF in every run here and has never been on screen.
+- Method, the hedged reads, and the interp/extrapolate question the "delayed" observation opens:
+  `UNVERIFIED.md`, 2026-08-30. Reasoning: ADR 0043. Flag: `FLAGS.md`.
