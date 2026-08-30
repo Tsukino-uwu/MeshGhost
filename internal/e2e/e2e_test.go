@@ -177,20 +177,29 @@ var observedNames struct {
 	byPlayer map[string]bridge.RemoteName
 }
 
-// nameToldTo waits for the adapter to be told a nametag for any peer, and returns it.
-func awaitAnyRemoteName(t *testing.T, what string) bridge.RemoteName {
+// awaitRemoteNameCalled waits for an adapter to be told a nametag with exactly
+// this display name, and returns it.
+//
+// Named rather than "any name", because "any" cannot tell the peer's own
+// nametag apart from one the same rig invented -- a loopback ghost's
+// "<name>-ghost", or the other adapter in the same process being told about
+// this one. Either satisfies "a name arrived" while proving nothing about the
+// name the test is actually asking after.
+func awaitRemoteNameCalled(t *testing.T, want, what string) bridge.RemoteName {
 	t.Helper()
 	deadline := time.Now().Add(testTimeout)
 	for time.Now().Before(deadline) {
 		observedNames.Lock()
 		for _, rn := range observedNames.byPlayer {
-			observedNames.Unlock()
-			return rn
+			if rn.DisplayName == want {
+				observedNames.Unlock()
+				return rn
+			}
 		}
 		observedNames.Unlock()
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("no remote_name ever reached the adapter (%s)", what)
+	t.Fatalf("no remote_name %q ever reached the adapter (%s)", want, what)
 	return bridge.RemoteName{}
 }
 
@@ -1023,7 +1032,10 @@ func TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere(t *testing.T) {
 
 	base := newRig(t)
 	r := base.withFreshPorts(t)
-	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+	// Not -loopback: two real named clients is the whole point, and a loopback
+	// echo would add a third nametag ("Alice-ghost") that races the real one.
+	start(t, r.dir, r.relayBin, "-addr", r.relayAddr)
+	waitForListener(t, r.relayAddr)
 
 	// The peer who is already here, with a name.
 	firstBridge := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
@@ -1037,8 +1049,5 @@ func TestAnAdapterJoiningARoomIsToldTheNamesAlreadyThere(t *testing.T) {
 	defer stop()
 	awaitFreshRender(t, renders, "the two-client session")
 
-	got := awaitAnyRemoteName(t, "a peer named Alice was in the room before this adapter attached")
-	if got.DisplayName != "Alice" && got.DisplayName != "Bob" {
-		t.Fatalf("adapter was told nametag %q, want one of the two names in the room", got.DisplayName)
-	}
+	awaitRemoteNameCalled(t, "Alice", "a peer named Alice was in the room before this adapter attached")
 }
