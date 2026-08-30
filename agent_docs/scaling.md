@@ -384,6 +384,25 @@ forward 1 in N, so a 20Hz sender yields 20, 10, 6.7, 5, 4, 3.3 Hz and nothing be
 are still the right CONFIG surface (a host thinks in "half rate", not "every 2nd"), they just round
 to the nearest divisor. Say so in the config's own documentation or the setting will look broken.
 
+**IS ADAPTIVE HZ SAFE ONCE A GAME SYNCS ENEMIES OR PLAYER INTERACTIONS?** (asked 2026-08-30.)
+**The question answers itself, and the answer is not "disable it for those games."** Adaptive Hz is
+a modifier on the STATE plane, which `contract.md` already defines as lossy, latest-wins and
+carried on unreliable datagrams. Dropping 3 of every 4 samples is not a new risk there — it is the
+plane behaving as specified, and the only cost is fidelity nobody can see at distance.
+
+**Anything that must be RIGHT was never allowed on that plane in the first place.** Outcomes travel
+on the reliable, ordered planes — event, lease, escrow, world — which adaptive Hz does not touch
+and must never touch. So a game that syncs enemies does not want a fixed rate; it wants its
+authority traffic off the sampled plane, which is what those planes exist for.
+
+**The trap this DOES create, and it is worth stating before anyone hits it: never put a fact that
+must ARRIVE into `extras`.** `extras` rides the state plane, so it is already lossy — adaptive Hz
+merely makes the loss frequent enough to notice. This is the complement of `_template/README.md`'s
+"anything a renderer must draw smoothly rides in `position`, not `extras`": **anything that must
+arrive rides an EVENT, not a state.** A hit that registers, an item that changes hands, a door that
+opens once — none of those is a sample of a continuous value, and putting one in `extras` is a bug
+that hides at 20Hz and shows up the moment a rate drops.
+
 **Two knobs, and they belong to different owners** — the same split the rest of this file uses:
 - **The adapter declares what near and far MEAN**, in its own units, because 8 tiles and 800
   Unreal centimetres are unrelated numbers. Same shape as the per-adapter interpolation idea in
@@ -435,6 +454,49 @@ with perspective in 3D. So a band tuned in Emerald tiles transfers to Crystal an
 Pseudoregalia, and a 3D game may need the band expressed in screen terms by the adapter rather
 than in world units. Expect the netsim rig plus an A/B with one variable per run, and expect the
 user to judge it, not the counters.
+
+## What Hz could Go actually carry? Measured 2026-08-30 — and CPU is not the answer
+
+**Asked directly: is 100 a technical limit, and could someone run 144-480Hz to match a game's fps?**
+`MaxSendHz` is **100**, and the constant's own comment already says it is *"a bandwidth bound, not a
+technical one"*. That is correct, and the numbers say the CPU end is not close.
+
+**Relay CPU, from `relay/forward_bench_test.go` on the dev machine:** one state fanned out to a
+room of 8 costs **6.36us** (Emerald shape, 14 extras keys; TEVI's 3-key shape is 3.4us). So 8
+players at 480Hz is 3,840 fanouts/sec, about **24ms of CPU per second — 2.4% of one core**. At the
+shipped 20Hz it is 0.1%. **Nobody will ever hit a Go ceiling here**, which is the principle at the
+top of this file holding up.
+
+**Bandwidth is the real wall, and it arrives long before that.** At ~288 bytes per serialized state
+line, a full 8-seat room fans out 56 streams:
+
+| room send rate | per stream | relay/host uplink |
+|---|---|---|
+| 20Hz (shipped) | 21 MB/h | **1.2 GB/h** (~2.6 Mbit/s) |
+| 100Hz (`MaxSendHz`) | 104 MB/h | **5.8 GB/h** (~13 Mbit/s) |
+| 480Hz | 497 MB/h | **28 GB/h** (~62 Mbit/s sustained) |
+
+Change suppression (ADR 0039) cuts the idle share hard — 70% on TEVI — but a room where everyone is
+moving pays close to full price, and the host carries it.
+
+**TWO THINGS IN OUR OWN CODE BREAK BEFORE THE BANDWIDTH DOES, and both are silent:**
+
+1. **`protocol.State.Timestamp` IS MILLISECONDS.** At 480Hz the sample interval is 2.08ms, so
+   whole-ms stamps quantize it to 2/2/2/3 — a **~24% error in the interval itself**, introduced by
+   us, feeding straight into every interpolation fraction. At 144Hz (6.94ms) it is ~7%; at 100Hz
+   (10ms) ~5%. **This alone justifies the 100 ceiling on accuracy grounds, independently of
+   bandwidth**, and going higher means changing the wire's time unit first.
+2. **`maxSnapshots = 64` re-breaks above ~256Hz.** The buffer must span the interpolation delay or
+   `at()` falls off the old edge and edge-holds. 64 samples span 64/Hz seconds, so a 250ms delay
+   needs **Hz <= 256**; at 480Hz they span 133ms and every render time is past the edge. **This is
+   exactly the 2026-08-28 bug returning at a higher rate** — the count was 8 then, which broke at
+   the dev rig's 100Hz, and the fix added a time bound (`maxSnapshotAgeMs`) but kept a count.
+
+**So the honest ceiling is ~100-250Hz on our current wire, not a Go limit**, and above 100 the
+gains are small for a reason worth stating plainly: **raising Hz buys SAMPLING ACCURACY, never
+FRESHNESS.** A ghost at 480Hz with a 250ms interpolation delay is still drawn 250ms in the past.
+Lateness is `interp`'s to fix; Hz only decides how well the path between two samples is known.
+Anyone reaching for a higher rate to cure a "delayed" look is turning the wrong knob.
 
 ## Per-game tested settings: the Hz x interp sweep every game still needs (filed 2026-08-30)
 
@@ -592,14 +654,9 @@ comparison"* with the flag off and *"its noticable and visually better with sler
 so the causal link below is now a RESULT rather than a hypothesis. What remains is the bar itself:
 indistinguishable at every spin speed, which nobody has asserted. **And the symptom swapped —
 choppy became "delayed", which is the interpolation delay becoming legible once the chop stopped
-masking it, not a new defect.** `pseudoregalia/VERIFIED.md`. Superseded status line follows.
-
-**Superseded 2026-08-30: BUILT, SHIPPED AND UNWATCHED.** The Go side is confirmed with the tools
-(full suite twice, `-race`, `internal/e2e`, `core/orientbracket_test.go`) — that says the right two
-samples and the right fraction reach the adapter, and nothing about how it looks. The causal link
-is still a strong hypothesis, not a result: nobody has watched a slerped ghost. The user judges it
-on screen, per the standing rule. `pseudoregalia/UNVERIFIED.md` carries what to look at; ADR 0043
-carries the reasoning. **Only then does the three-family rule below go into `_template/`.**
+masking it, not a new defect.** `pseudoregalia/VERIFIED.md` carries the run-by-run reads; `pseudoregalia/UNVERIFIED.md` carries the
+remaining gap and the re-check the later opt-in change owes. ADR 0043 carries the reasoning. The
+three-family rule below is now back-ported to `_template/README.md`.
 
 **The end state:** every game ships a measured overrides file, and the template's values stop being
 "what everyone gets" and become "what a game that has not been measured yet gets". That reframing
