@@ -39,6 +39,7 @@ needs its own measurement pass before any of the above is re-ranked by it.
 - **The culling model** — one model for every adapter, and the display-vs-draw rule it turns on.
 - **Distance culling the downlink**, and the uplink entry it mirrors.
 - **Adaptive Hz** — per-recipient send rate banded by distance, and the interpolation bound on it.
+- **Per-game tested settings** — the Hz x interp sweep each game still needs, and what already ships.
 - **The wire format** — JSON vs binary, ratified 2026-08-30, with the tripwire that reopens it.
 - **Coalescing writes** — deferred, with the measurement it would need.
 
@@ -431,6 +432,59 @@ with perspective in 3D. So a band tuned in Emerald tiles transfers to Crystal an
 Pseudoregalia, and a 3D game may need the band expressed in screen terms by the adapter rather
 than in world units. Expect the netsim rig plus an A/B with one variable per run, and expect the
 user to judge it, not the counters.
+
+## Per-game tested settings: the Hz x interp sweep every game still needs (filed 2026-08-30)
+
+**The user's goal:** every game ships values that were actually measured on that game, not one
+global number — *"i think 'tested settings' per game would be the best end user experience
+possible afterwards"*, accepted as more work than shipping one setting and worth it because
+adapters are per-game anyway. **The mechanism for this ALREADY SHIPPED; what is missing is the
+measurements.**
+
+**What exists today (do not rebuild it).** ADR 0040 made the render model three per-game knobs, and
+`packaging/release/games/<game>/client-config-overrides.json` is applied onto the shared
+`client-config-template.json` when the release is staged. TEVI already ships `interp: 175ms` this
+way, with the sweep quotes recorded in the file itself. Pseudoregalia ships `ghost_collision:
+disabled`. **Emerald and Crystal have no overrides file at all** and silently keep the template's
+250ms, never netsim-tested.
+
+**The two real gaps:**
+- **`min_send` is a config key (`cmd/meshghost/main.go`) that is NOT in the shipped template**, so
+  a per-game SEND rate is expressible and undiscoverable. Adding it with a comment is the small
+  concrete task that makes an Hz sweep shippable at all. `max_receive_hz_per_player` IS in the
+  template but defaults to 0 (off), and the room's forward rate is server-side (ADR 0017), so of
+  the three Hz knobs one is hidden, one is unused, one is not the client's to set.
+- **Three of four games have never been measured for interp, and none for Hz.**
+
+**The sweep is 2D, and a full grid is unaffordable in live cycles.** Hz x interp is a plane, and
+every point costs the user a real game launch — the standing rule after ~3 failed iterations is to
+tabulate and try the COMBINATION, not to grind one variable. So anchor on what is already known
+and test the coordinates that the shape of each game predicts, rather than sweeping blind:
+
+| game | starting hypothesis (2026-08-30, from the user watching) |
+|---|---|
+| Emerald / Crystal | *"probly looks perfect already at 20hz and 250ms"* — a tile game moves on a beat, so confirm rather than explore; the win here would be finding it survives LOWER Hz, which is free bandwidth. |
+| TEVI | 175ms measured 2026-08-28 and shipped. Hz never varied. |
+| Pseudoregalia | *"a bit choppy/low fps at 20hz and 250ms when turning around fast but super smooth when turning around slow"* |
+
+**Pseudoregalia's symptom names its own cause, and it is probably NOT the rate.** Choppy on fast
+turns and smooth on slow ones is the signature of LINEAR interpolation across a direction change: a
+straight line between two samples interpolates a straight path perfectly at any rate, and cuts the
+corner exactly when the path bends. That is what `curve: catmull-rom` was added for in ADR 0040,
+and **it has never been tried on Pseudoregalia**. It is free, already shipped, and costs no
+bandwidth — so it must be A/B'd BEFORE any conclusion that this game needs a higher Hz, or the
+project will pay bandwidth forever for a fix that a spline gives away. Same logic for
+`extrapolate`, which hides lateness at the cost of a correction when the guess is wrong — a
+momentum game is where it is most likely to earn its keep.
+
+**The end state:** every game ships a measured overrides file, and the template's values stop being
+"what everyone gets" and become "what a game that has not been measured yet gets". That reframing
+is worth stating in the template's own comment, because it changes 250ms from a recommendation into
+a placeholder — which is what it has always actually been for three of the four games.
+
+**Judged on screen by the user, never by the counters** — the netsim rig produces the bad link, the
+counters say what it cost, and only the user says whether it looks right. That split is ADR 0040's
+own status line: the Go side is confirmed, *"nothing about how any of it LOOKS is confirmed."*
 
 ## Stop sending when nobody can see you — cull an isolated player's uploads
 
