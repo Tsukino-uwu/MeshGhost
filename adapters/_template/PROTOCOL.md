@@ -61,7 +61,24 @@ cannot. It is adapter-local and deliberately **not** a room feature — it chang
 sends you and nothing on the wire, so it cannot fragment room compatibility. Absent means false,
 which is the core's own cross-area filter as before.
 
-`features` is the fourth optional field, and the only way an adapter opts into anything past cosmetic
+`interpolate_orientation` is a fourth optional field, added 2026-08-30 (`bridge`'s
+`Hello.InterpolateOrientation`, ADR 0043). Set it and every `render_remote` also carries
+`orientation_from`, `orientation_to` and `interp_t` — the two opaque orientation blobs the core
+interpolated POSITION between, and how far between them it rendered — so your adapter can
+interpolate the facing itself. **The core cannot do this for you:** orientation is opaque to it by
+contract, so it holds the older bracket's value and facing STEPS at the send rate.
+
+**Only set it if your game's rotation is CONTINUOUS.** A stepped facing is *correct* for four
+compass directions or a flipped sprite — there is no midpoint between "west" and "north" — and
+asking for the bracket there pays two blobs per peer per frame you cannot use. Emerald, Crystal and
+TEVI ask for nothing; Pseudoregalia asks. All three fields are ABSENT whenever there is no honest
+pair (one sample, a seam position refused to cross, or the peer simply did not rotate, which the
+core suppresses), so **always fall back to the raw `orientation` field** — that is the pre-2026-08-30
+behaviour and always correct. `interp_t` can exceed 1 under prediction, on purpose; clamp it
+defensively but never to 1. The maths per orientation shape, and the reference implementation:
+`adapters/_template/README.md`, "Three families of value".
+
+`features` is the fifth optional field, and the only way an adapter opts into anything past cosmetic
 ghosts (`bridge`'s `Hello.Features`, merged into whatever the core itself was configured
 with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's
 feature set is matched *exactly* and is sticky for that room's life, so advertising a capability you

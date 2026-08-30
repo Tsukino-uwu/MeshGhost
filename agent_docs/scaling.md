@@ -459,9 +459,9 @@ user to judge it, not the counters.
 
 1. **The game's own frame rate**, a hard ceiling on USEFUL rate (Pseudoregalia ticks ~180Hz here).
    The one true thing in "align your tick rate to the engine": a ceiling, not a target.
-2. **`64 / interp` — a SILENT edge-hold**, and a CLIFF rather than a gradient: past it a higher rate
-   is WORSE than a lower one. Measured at 200Hz safe / 256Hz broken at the shipped 250ms delay, and
-   it is **per-client**, since `interp` is.
+2. ~~`64 / interp` — a silent edge-hold~~ **FIXED 2026-08-30**: the window now derives from the
+   render settings, so nothing edge-holds below 2000Hz. **The wall is now the MILLISECOND
+   TIMESTAMPS at 1000Hz**, above which samples share a millisecond and carry no new information.
 3. **Bandwidth**, linear and the host's: 1.2 GB/h at 20Hz for a full 8-seat room, 28 GB/h at 480Hz.
 4. **Millisecond timestamps** — zero error at rates dividing 1000, up to ±0.5ms otherwise. Bounded
    jitter, never a break.

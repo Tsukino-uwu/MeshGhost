@@ -26,7 +26,14 @@ bytes per state line an 8-seat room fans out 56 streams — **1.2 GB/h** at 20Hz
 100Hz, **28 GB/h** (~62 Mbit/s) at 480Hz, carried by the host. Change suppression (ADR 0039) cuts
 the idle share hard (70% on TEVI), but a room where everyone moves pays close to full price.
 
-**THE ONE HARD BREAK IS `maxSnapshots = 64`, AND IT IS SILENT.** The buffer holds at most 64
+**THE HARD BREAK BELOW WAS FIXED THE SAME DAY — this section is the BEFORE picture, kept because it
+is the regression `core/hzceiling_test.go` now defends against.** The window is derived from the
+render settings and the count is memory-only, so **nothing edge-holds at any rate up to 2000Hz**
+(measured after the fix: at 250ms interp, 480Hz keeps a full 600ms of history, and 2000Hz still
+keeps 511ms against a 250ms delay). Skip to "Where the ceiling actually is now" for the current
+answer.
+
+**THE ONE HARD BREAK WAS `maxSnapshots = 64`, AND IT WAS SILENT.** The buffer holds at most 64
 samples, so it spans 64/Hz seconds; interpolation works while that covers the interpolation delay,
 and past it `at()` falls off the old edge and edge-holds — no error, just stutter. **Exactly the
 2026-08-28 bug at a higher rate**: the count was 8 then and broke at the dev rig's 100Hz; the fix
@@ -39,8 +46,41 @@ added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derive
 | **250ms (shipped)** | **200Hz** | **256Hz** |
 | 400ms | 144Hz | 200Hz |
 
-**A LARGER interp delay breaks at a LOWER rate** — the counter-intuitive half, and the one that
-would bite someone raising `interp` to smooth a bad link while also raising Hz.
+**A LARGER interp delay broke at a LOWER rate** — the counter-intuitive half, and the one that would
+have bitten someone raising `interp` to smooth a bad link while also raising Hz. **A second bug hid
+behind the same constant and needed no high rate at all:** a fixed 600ms window meant any
+interpolation delay above 600ms edge-held at EVERY rate, including the shipped 20Hz. Nobody had
+configured one that large, which is the only reason it never showed.
+
+## Where the ceiling actually is now (post-fix, 2026-08-30)
+
+**The buffer is no longer a limit at any usable rate.** Measured to 2000Hz with no edge-hold. What
+remains, in the order it arrives:
+
+| # | limit | value | kind |
+|---|---|---|---|
+| 1 | **the game's own frame rate** | ~180Hz Pseudoregalia, 60 for GB/GBA | hard, per game, and the one that binds first |
+| 2 | **millisecond timestamps** | **1000Hz** | hard protocol wall — one sample per ms is all `timestamp` can express |
+| 3 | bandwidth | 1.2 GB/h at 20Hz, 28 GB/h at 480Hz (8-seat room) | linear, the host's |
+| 4 | the snapshot count | ~1700Hz at a 600ms window | memory bound, past the wall above |
+| 5 | Go's CPU | 2.4% of one core at 480Hz x 8 players | never |
+
+**1000Hz is the real technical answer**, and it is the wire's time unit rather than anything about
+Go: above it, samples share a millisecond, `lerp` sees a zero span and holds instead of
+interpolating, so the extra samples carry no information. Measured: at 1200Hz only 600 of 720
+sample gaps are distinct. Raising it would mean changing `protocol.State.Timestamp`'s unit.
+
+**And below 1000Hz, PICK A RATE THAT DIVIDES 1000** — 20/25/50/100/125/200/250/500 quantize exactly,
+anything else jitters by up to half a millisecond per interval (120Hz 6.0%, 144Hz 7.2%, 256Hz
+12.8%). That makes **144Hz a worse choice than 125 or 200**, which is the opposite of picking a
+number off a monitor's refresh rate.
+
+**None of which changes the shipped policy:** `MaxSendHz` stays 100. It is a bandwidth and
+trust-boundary decision (a client adopts the room's rate, so the cap bounds what a hostile relay
+can make YOUR machine send), and above ~180Hz no shipped game can even produce distinct samples.
+The open design question for ever raising it is in `plans.md` step 3 — the safe rate depends on
+each CLIENT's `interp`, which the relay cannot see, so an opt-in wants a negotiated ceiling rather
+than a raised constant.
 
 **Nothing else has a cliff, and the second axis is NOT a gradient** (corrected 2026-08-30 — an
 earlier version of this section said "~5% at 100Hz", which is wrong). `protocol.State.Timestamp` is
@@ -64,17 +104,15 @@ to the engine" advice: the game's rate is a CEILING on useful Hz, not a target t
 
 **WHICH LAYER OWNS WHAT**, because the cliff is not where anyone expects: the **game** sets the
 ceiling on USEFUL rate (its frame rate); the **relay** sets the room's rate (`send_hz`, one number,
-it pays the fan-out); the **client** sets `interp` — and since the cliff is `64 / interp`, **the
-safe rate is a PER-CLIENT property, not a room one.** Two peers in a 200Hz room, one at 250ms and
-one at 400ms interp: the first is fine and the second edge-holds, with nothing on either side able
-to detect it. That is the strongest argument for keeping the room rate conservative by default.
+it pays the fan-out); the **client** sets `interp`. **Pre-fix that made the safe rate a PER-CLIENT
+property**, since the cliff was `64 / interp`: two peers in a 200Hz room, one at 250ms and one at
+400ms, and the second edge-held with nothing on either side able to detect it. **The fix removed
+that particular asymmetry** — no client edge-holds now below 2000Hz — but the LAYERING is the
+lasting point, and it is why an opt-in past 100 wants a NEGOTIATED ceiling rather than a raised
+constant: the relay still cannot see a client's render settings, so it cannot know what it is
+promising. `plans.md`, step 3.
 
-**So, in the order the limits arrive:** the game's frame rate, then `64 / interp` (silent,
-per-client), then bandwidth (linear, the host's), then the ms timestamps (bounded jitter, no
-cliff), then Go's CPU (never). **Between 100 and 200Hz at shipped settings nothing degrades at
-all**, so "100 to be safe" is a policy choice, not a technical boundary. **And past the cliff a
-HIGHER rate is WORSE than a lower one** — more samples span less time, so 480Hz edge-holds where
-20Hz interpolates. It is a break, not a gradient. **Raising Hz buys SAMPLING ACCURACY, never
-FRESHNESS:** a ghost at 480Hz with a 250ms delay is still drawn 250ms in the past. Lateness is
-`interp`'s to fix, and anyone raising the rate to cure a "delayed" look is turning the wrong knob.
+**Raising Hz buys SAMPLING ACCURACY, never FRESHNESS.** A ghost at 480Hz with a 250ms delay is
+still drawn 250ms in the past. Lateness is `interp`'s to fix, and anyone raising the rate to cure a
+"delayed" look is turning the wrong knob. That is the single most useful line in this file.
 

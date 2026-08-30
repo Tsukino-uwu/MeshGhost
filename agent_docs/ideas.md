@@ -3876,3 +3876,25 @@ painting rooms bright around it is why "too bright near other players" was the o
 any implementation should cap or skip the room-painting half and keep only the character-visible
 part. Filed on the user's ask: *"log it somewhere if we ever do want to give ghosts real
 synced/mimiced light in the future"*.
+
+## Two Ori randomizer clients, parked for later (filed 2026-08-30, NOTHING CHECKED)
+
+**Filed verbatim on the user's request, and deliberately un-researched** — *"put both of these in
+ideas.md for now, don't check anything about them"*. Recorded so the pointers are not lost:
+
+- `https://github.com/ori-community/wotw-rando-client` — Ori and the Will of the Wisps randomizer
+- `https://github.com/sparkle-preference/OriDERandomizer` — Ori and the Blind Forest randomizer
+
+**NOTHING HERE IS CLEARED FOR USE, and this entry is not a step toward it.** No license has been
+read, no source has been opened, nothing has been fetched. Per `CLAUDE.md`: a project not listed in
+`licensing.md` has not been checked, and its license is read BEFORE its source — so the first
+action on either of these is a `licensing.md` entry, not a clone. Naming a public repo in a tracked
+file is fine; deriving anything from one that has not been cleared is not.
+
+**Why they would be interesting** (inference from the names alone, not from the repos): a rando
+client for a game is the same shape as every adapter here — it already hooks the game, already
+tracks player state, and its existence is evidence the game is instrumentable at all. Both Ori
+games are also 2.5D with continuous movement, so the rotation/interpolation work of 2026-08-30
+would apply rather than the tile-game path. **Read `/new-adapter` before any of that becomes a
+plan**, and `agent_docs/access-models.md` first, since "a randomizer exists" says nothing about
+whether OUR access model is legitimate.
