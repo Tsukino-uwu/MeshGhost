@@ -38,6 +38,7 @@ needs its own measurement pass before any of the above is re-ranked by it.
 - **The four axes** — the map every efficiency idea is placed on, and the measured ranking.
 - **The culling model** — one model for every adapter, and the display-vs-draw rule it turns on.
 - **Distance culling the downlink**, and the uplink entry it mirrors.
+- **Adaptive Hz** — per-recipient send rate banded by distance, and the interpolation bound on it.
 - **The wire format** — JSON vs binary, ratified 2026-08-30, with the tripwire that reopens it.
 - **Coalescing writes** — deferred, with the measurement it would need.
 
@@ -360,6 +361,55 @@ area filter for the same reason.
 whose third rung ("Nobody within N tiles") deferred distance for this same reason. This entry is
 the downlink mirror and answers the "unless the relay does it from coordinates it already relays"
 carve-out that entry left open.
+
+## Adaptive Hz: rate as a percentage of the room's rate, banded by distance (filed 2026-08-30)
+
+**The user's proposal**, extending the Monster Hunter World observation in the prior-art section:
+a server setting that scales a PERCENTAGE of the room's configured Hz by how far a peer is —
+*"20hz if someone is right next to you, 0-1hz if they are the room next over, 5-10hz if they are
+in the same room but like really far away on the other side of it where it won't be noticable"* —
+with the expectation that it needs per-game visual tuning the way interpolation delay does.
+
+**"Can the server send at multiple Hz at the same time?" Yes, and it is the cheapest form of any
+of this, because THE RELAY HAS NO CLOCK.** It is event-driven: clients send, it forwards on the
+sender's own read path. So per-recipient Hz is not multiple timers — it is a counter per
+(recipient, sender) pair and a modulo test. Nothing new is scheduled, nothing new is encoded.
+
+**Achievable rates are DIVISORS of the source rate, not arbitrary numbers.** A drop rule can only
+forward 1 in N, so a 20Hz sender yields 20, 10, 6.7, 5, 4, 3.3 Hz and nothing between. Percentages
+are still the right CONFIG surface (a host thinks in "half rate", not "every 2nd"), they just round
+to the nearest divisor. Say so in the config's own documentation or the setting will look broken.
+
+**Two knobs, and they belong to different owners** — the same split the rest of this file uses:
+- **The adapter declares what near and far MEAN**, in its own units, because 8 tiles and 800
+  Unreal centimetres are unrelated numbers. Same shape as the per-adapter interpolation idea in
+  `ideas.md`, and the same reason `own_area_only` is adapter-declared.
+- **The host declares how aggressive to be** — the percentages per band — because that is a
+  bandwidth/quality trade belonging to whoever pays for the uplink.
+
+**THE HARD BOUND IS INTERPOLATION DELAY, and it is what will actually limit the bands.** A peer
+thinned to 5Hz has 200ms between samples; if the interpolation delay is shorter than the gap, the
+receiver's buffer runs dry and edge-holds — the ghost does not move slowly and smoothly, it
+FREEZES AND JUMPS, which fails the 1:1 bar outright. So either the receiver adapts its delay per
+peer from the observed interval, or the maximum thinning is capped at the delay. This couples
+directly to "interpolation delay should be PER ADAPTER" and should be designed with it, not after.
+
+**The "room next over" band is already solved and should not be rebuilt here:** a different
+`area_id` is culled entirely today for clients that opt in, and the case where you still want to
+KNOW about them (a map marker, a room list) is the reduced tier / presence packet described above,
+not a 1Hz full state.
+
+**The two safety rules from the prior-art section apply unchanged:** never drop the last state
+before a peer goes still (a frozen mid-stride pose is worse than a lower rate), and thin
+change-driven states rather than the keepalive floor.
+
+**Testing is per-game and on screen, like the render knobs (ADR 0040), and the variable is not
+world distance.** What decides whether thinning is visible is APPARENT motion — pixels per second
+across the screen — which is constant with world distance in a fixed-zoom top-down game and varies
+with perspective in 3D. So a band tuned in Emerald tiles transfers to Crystal and not at all to
+Pseudoregalia, and a 3D game may need the band expressed in screen terms by the adapter rather
+than in world units. Expect the netsim rig plus an A/B with one variable per run, and expect the
+user to judge it, not the counters.
 
 ## Stop sending when nobody can see you — cull an isolated player's uploads
 
