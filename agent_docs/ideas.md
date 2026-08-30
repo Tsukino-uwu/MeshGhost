@@ -3147,6 +3147,14 @@ under-weigh: the contract's "unknown fields are ignored" rule gives FREE forward
 0039's and 0041's fields shipped without breaking any older client — and a binary format must
 rebuild that with tagged fields or turn every contract revision into a version cutover.
 
+**RATIFIED BY THE USER 2026-08-30, with the full ranking and the scale tables below in hand:**
+JSON's benefits outweigh binary's ~30% bytes and single-digit CPU — *"think this probly actually
+decided that byte gets burried forever?"* — amended only from "forever" to ADR 0002's tripwire,
+because burying it outright would let the server/client cap the very sessions the no-ceiling
+principle protects. Practical meaning: nobody spends a line of code on binary unless a real
+session's bandwidth demonstrably limits, and if that day comes the state-plane-only path below is
+the shape it takes. **Do not re-open this casually; re-open it with a saturation measurement.**
+
 **Filed, not scheduled.** Recorded because the number is much higher than anyone had assumed, and
 because the obvious conclusion drawn from it -- "go binary" -- is the wrong one for reasons that
 are easy to forget and expensive to re-derive.
