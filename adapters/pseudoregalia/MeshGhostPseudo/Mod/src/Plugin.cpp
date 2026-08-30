@@ -1835,6 +1835,11 @@ namespace MeshGhostPseudo
     // -- and the SetRenderCustomDepth pre-hook is what actually has to be immediate.
     constexpr uint64_t AFTERIMAGE_SWEEP_INTERVAL_TICKS = 5;
 
+    // How long ghost spawning stays suppressed after the pause menu's Reset button is clicked.
+    // ~6s at this game's frame rate, and cut short the moment LoadMap or InitGameState fires,
+    // so it only ever runs long if the reset does not complete.
+    constexpr uint64_t RESET_SPAWN_SUPPRESS_TICKS = 900;
+
     // Ceiling on the attach-tree walk that replaced the sweep's world scan. A player pawn
     // carries a couple of dozen components; 256 is far above anything real and exists so a
     // cycle cannot hang the game thread.
@@ -9511,6 +9516,111 @@ namespace MeshGhostPseudo
     //
     // Keeps the map entry so the next ensure_ghost_spawned/ensure_ghost_hijacked call can produce
     // a fresh ghost once render_remote resumes in whatever world comes next.
+    // **Destroys every ghost the instant the pause menu's Reset button is clicked.**
+    //
+    // Why this exists: "reset to last save" crashes with `EXCEPTION_ACCESS_VIOLATION` and an empty
+    // Fatal Error dialog **whenever a ghost is present** -- established by subtraction on
+    // 2026-08-30, not by theory: mod off survives, mod on with no peer survives, mod on with a
+    // ghost dies, four times, on whichever client happened to have the peer. The crash also
+    // predates every change made that day (bisected against commit b74a1d1).
+    //
+    // Why a BUTTON hook rather than a teardown hook: nothing else fires in time. `LoadMap PRE`
+    // does not fire on a same-level reload at all, and `InitGameState PRE` fires 30+ seconds
+    // later on the crashing run -- the process is already gone. This event is the only thing
+    // observed to precede the reset, and it was found by dumping the game's own save/reset
+    // function vocabulary (RESET_FN_PROBE, `log_reset_fns.txt`).
+    //
+    // What it does is deliberately blunt: destroy the ghost actors, exactly as a despawn would.
+    // They cost nothing to lose -- the next `render_remote` for that peer spawns a fresh one, the
+    // same path a level transition already uses -- and a ghost that does not exist cannot be
+    // walked by whatever the reset does.
+    auto Plugin::try_hook_pause_reset() -> void
+    {
+        if (pause_reset_hook_id != 0)
+        {
+            return;
+        }
+
+        // The Blueprint widget need not exist at boot, so this is retried; it stops the moment it
+        // lands. The name is the full delegate signature the probe logged, on UI_PauseMenu_C.
+        std::vector<UObject*> menus;
+        UObjectGlobals::FindAllOf(STR("UI_PauseMenu_C"), menus);
+        for (UObject* menu : menus)
+        {
+            if (!menu || menu->HasAnyFlags(RF_ClassDefaultObject))
+            {
+                continue;
+            }
+            UFunction* reset_fn = menu->GetFunctionByNameInChain(
+                STR("BndEvt__UI_PauseMenu_ResetButton_K2Node_ComponentBoundEvent_2_CommonButtonBaseClicked__DelegateSignature"));
+            if (!reset_fn)
+            {
+                continue;
+            }
+            pause_reset_hook_id = reset_fn->RegisterPreHook(
+                [this](UnrealScriptFunctionCallableContext&, void*) {
+                    // **Spawning stops FIRST.** Destroying the ghosts alone was measured
+                    // insufficient on 2026-08-30: the next tick simply spawned them again, into the
+                    // world the reset was already tearing down.
+                    suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+
+                    std::vector<std::string> to_release;
+                    for (auto& [id, remote] : remotes)
+                    {
+                        if (remote.ghost)
+                        {
+                            to_release.push_back(id);
+                        }
+                    }
+                    // Logged on EVERY press, including with nothing to destroy: a silent hook is
+                    // indistinguishable from a hook that never armed, and one run was read wrongly
+                    // that way already.
+                    Output::send(STR("[MeshGhostPseudo] RESET GUARD: pause-menu Reset clicked -- {} ghost(s) to destroy, spawning suppressed for {} ticks.\n"),
+                                 static_cast<int>(to_release.size()),
+                                 static_cast<int>(RESET_SPAWN_SUPPRESS_TICKS));
+                    if (to_release.empty())
+                    {
+                        return;
+                    }
+                    for (const std::string& id : to_release)
+                    {
+                        release_ghost(id);
+                    }
+
+                    // **And the FULL teardown, not just the pawns.** release_ghost destroys a
+                    // ghost and its prop; release_all_ghosts drops everything else this file holds
+                    // that belongs to the level -- including `last_non_ghost_view_target`, the
+                    // camera fallback pointer that was cleared there on 2026-08-27 to fix "a hard
+                    // crash on starting a NEW SAVE". That is the same shape as this crash: it
+                    // needs a ghost to have existed (the camera fight-back only engages then), it
+                    // fires on a save transition, and it dies inside the engine with an empty
+                    // dialog. Destroying the ghosts alone left that pointer untouched.
+                    release_all_ghosts(STR("pause menu reset"));
+
+                    // **And the game's own repair, because a destroyed ghost leaves a REGISTRATION
+                    // behind.** `Plugin.cpp`'s own note on the spawn path says it plainly: "the
+                    // ghost's vertex light registers with the manager inside SpawnActor and nothing
+                    // unregisters it". `documentation.md` records the counterpart, watched live on
+                    // 2026-08-29: **FixAllLights clears a stale dynamic registration** (FixDynamicLights
+                    // alone does not).
+                    //
+                    // That is the last mechanism standing for the reset crash, and it is the only one
+                    // that fits every measurement made on 2026-08-30: it needs a ghost to have EXISTED
+                    // (registration happens at spawn), it does NOT need one to exist now (the crash
+                    // reproduced with every ghost destroyed and the room empty), it cannot happen with
+                    // the mod off, and a reset is exactly when the level's lighting is rebuilt --
+                    // walking a registration whose owner was destroyed reads as
+                    // EXCEPTION_ACCESS_VIOLATION with an empty call stack, which is the dump we have.
+                    //
+                    // We already call this after every ghost SPAWN. Never after a destroy, which is
+                    // the gap.
+                    call_fix_lights(STR("FixAllLights"));
+                });
+            Output::send(STR("[MeshGhostPseudo] RESET GUARD armed on the pause menu's Reset button.\n"));
+            return;
+        }
+    }
+
     auto Plugin::release_ghost(const std::string& player_id) -> void
     {
         auto it = remotes.find(player_id);
@@ -9787,11 +9897,133 @@ namespace MeshGhostPseudo
 
         // Third attempt, using UFunction::RegisterPreHook instead of a ProcessEvent filter -- see
         // this function's own comment for why the first two never even fired.
-        register_camera_fightback_hook();
-        register_damage_guard_hooks();
-        register_fade_guard_hook();
-        register_afterimage_outline_guard();
-        register_playerlocation_guard();
+        // **HOOK BISECT (`hooks_off.txt`).** Each line of that file names one hook to SKIP
+        // registering: `camera`, `damage`, `fade`, `afterimage`, `playerlocation`, or `all`.
+        //
+        // Why by file rather than by compile flag: "reset to last save" crashes this game whenever
+        // a ghost is present, three theories have been refuted by measurement (the ghost actor
+        // existing, the respawn, the camera fallback pointer), and each rebuild-deploy-relaunch
+        // cycle costs the user minutes. Naming the hooks in a file turns the bisect into "edit a
+        // line, relaunch", which is the difference between a bisect that gets finished and one
+        // that gets abandoned. `agent_docs/pitfalls/method.md`.
+        std::string hooks_off;
+        if (FILE* f = _wfopen((module_directory() + L"\\hooks_off.txt").c_str(), L"rt"))
+        {
+            char buffer[256] = {};
+            while (fgets(buffer, sizeof(buffer), f))
+            {
+                hooks_off += buffer;
+            }
+            fclose(f);
+            for (char& c : hooks_off)
+            {
+                c = static_cast<char>(::tolower(static_cast<unsigned char>(c)));
+            }
+        }
+        const auto hook_disabled = [&hooks_off](const char* name) -> bool {
+            return hooks_off.find("all") != std::string::npos || hooks_off.find(name) != std::string::npos;
+        };
+        if (!hooks_off.empty())
+        {
+            Output::send(STR("[MeshGhostPseudo] HOOK BISECT: hooks_off.txt present -- skipping: {}\n"),
+                         to_wide_ascii(hooks_off));
+        }
+
+        if (!hook_disabled("camera"))
+        {
+            register_camera_fightback_hook();
+        }
+        if (!hook_disabled("damage"))
+        {
+            register_damage_guard_hooks();
+        }
+        if (!hook_disabled("fade"))
+        {
+            register_fade_guard_hook();
+        }
+        if (!hook_disabled("afterimage"))
+        {
+            register_afterimage_outline_guard();
+        }
+        if (!hook_disabled("playerlocation"))
+        {
+            register_playerlocation_guard();
+        }
+
+        // **Teardown on a SAME-LEVEL reload, which LoadMap PRE never sees.** Reloading a save into
+        // the current level destroys the level's actors without firing LoadMap PRE -- confirmed
+        // from the adapter's own log on 2026-08-30, where a crash on "reset to last save" had no
+        // `LoadMap PRE fired` line anywhere near it. Everything this file drops at teardown (ghost
+        // actors, weapon actors, mirrored VFX components, the camera fallback pointer) was
+        // therefore still pointing into the destroyed level on that one path, which is the same
+        // shape as the three access violations already fixed here.
+        //
+        // InitGameState fires when the new world builds its game state, i.e. after the old one is
+        // gone and before play resumes. release_all_ghosts is idempotent -- it drops references and
+        // destroys nothing -- so firing on both hooks is safe by construction.
+        // **RESET_FN_PROBE -- what does "reset to last save" actually CALL?** (2026-08-30)
+        //
+        // The question it exists to answer: resetting to the last save crashes this game whenever
+        // a ghost exists, and NO teardown hook fires first -- not LoadMap PRE, not InitGameState
+        // PRE -- so the process dies inside the reset itself. The fix has to be to let the ghosts
+        // go BEFORE the reset does its work, and that needs a hook at the start of it. This names
+        // the function to hook.
+        //
+        // Method borrowed from the light hunt (`../../agent_docs/pitfalls/method.md`): when the
+        // state you can read says nothing, dump the game's own FUNCTION vocabulary and watch which
+        // verbs it uses. Filtered to save/reset/load-ish names and logged once per distinct name,
+        // so the log stays readable and the cost stays near zero even while armed.
+        //
+        // ProcessEvent fires for every Blueprint call in the game, so this is armed ONLY by a
+        // toggle file and must never be left on -- CLAUDE.md, "a diagnostic can break the thing it
+        // measures".
+        if (dev_toggle_present(STR("log_reset_fns.txt")))
+        {
+            Output::send(STR("[MeshGhostPseudo] RESET_FN_PROBE armed -- logging save/reset-ish UFunction calls.\n"));
+            reset_fn_probe_callback_id = Hook::RegisterProcessEventPreCallback(
+                [](Hook::TCallbackIterationData<void>&, UObject* context, UFunction* function, void*) {
+                    if (!function)
+                    {
+                        return;
+                    }
+                    static std::set<std::wstring> announced;
+                    const std::wstring name = function->GetName();
+                    std::wstring lowered = name;
+                    for (wchar_t& c : lowered)
+                    {
+                        c = static_cast<wchar_t>(::towlower(c));
+                    }
+                    static const wchar_t* const WANTED[] = {STR("save"), STR("reset"), STR("retry"),
+                                                            STR("restart"), STR("respawn"), STR("reload"),
+                                                            STR("death"), STR("die")};
+                    bool interesting = false;
+                    for (const wchar_t* needle : WANTED)
+                    {
+                        if (lowered.find(needle) != std::wstring::npos)
+                        {
+                            interesting = true;
+                            break;
+                        }
+                    }
+                    if (!interesting || !announced.insert(name).second)
+                    {
+                        return;
+                    }
+                    Output::send(STR("[MeshGhostPseudo] RESET_FN_PROBE: {} on '{}'\n"),
+                                 name,
+                                 context ? context->GetFullName() : StringType(STR("<null>")));
+                },
+                Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ResetFnProbe")});
+        }
+
+        init_game_state_pre_callback_id = Hook::RegisterInitGameStatePreCallback(
+            [this](Hook::TCallbackIterationData<void>&, AGameModeBase*) {
+                Output::send(STR("[MeshGhostPseudo] HOOK: InitGameState PRE fired -- releasing ghosts (covers a same-level save reload).\n"));
+                release_all_ghosts(STR("InitGameState PRE"));
+                // The new world is up, so the post-Reset spawn freeze has done its job.
+                suppress_ghost_spawn_until_tick = 0;
+            },
+            Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("InitGameStatePre")});
     }
 
     // The MPC PlayerLocation guard, 2026-08-29. MPC_PlayerRelated holds exactly one parameter,
@@ -10500,6 +10732,14 @@ namespace MeshGhostPseudo
             return;
         }
         if (!local_pawn || !local_controller)
+        {
+            return;
+        }
+
+        // **Nothing is spawned while a reset is in flight** -- see suppress_ghost_spawn_until_tick.
+        // The window is cleared early by the LoadMap/InitGameState hooks when they fire, so a reset
+        // that completes normally costs at most a few frames of ghostlessness.
+        if (tick_count < suppress_ghost_spawn_until_tick)
         {
             return;
         }
@@ -12137,6 +12377,18 @@ namespace MeshGhostPseudo
         // so a subsystem that does not show up in it is not on this thread and is not this cost.
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         perf_report_if_due();
+
+        // **Every 10 ticks until it lands, then never again.** The widget only exists while the
+        // pause menu is OPEN, so this is a race against the user clicking Reset: at 60 ticks
+        // (~0.4s) it armed on one instance and missed on the other, which then crashed exactly as
+        // before -- measured 2026-08-30. ~70ms closes that gap. The scan is a whole-world
+        // FindAllOf and would be unacceptable as a steady cost; it is bounded because it stops the
+        // moment the hook is registered, and the hook lives on the CLASS's UFunction, so arming
+        // once covers every pause menu the session ever opens.
+        if (pause_reset_hook_id == 0 && tick_count % 10 == 0)
+        {
+            try_hook_pause_reset();
+        }
 
         // Nametag capability census: ONCE per session, on the first tick the engine is ready.
         //
@@ -16736,7 +16988,17 @@ namespace MeshGhostPseudo
                 //
                 // The latch is what keeps DISARMING correct: when the file goes away the sweep has
                 // to run once more to restore what it hid, and only then stop.
-                if (g_ghost_fx_hidden || tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
+                // **Only while ARMED, or once more to put things back.** Ungated, this swept the
+                // world on an interval in every shipped session -- part of ~3300 us/frame measured
+                // 2026-08-30 for instruments that are off in all normal play. The latch is what
+                // keeps DISARMING correct: when the file goes away the sweep runs once more to
+                // restore what it hid, and only then stops.
+                static bool fx_sweep_pending = false;
+                if (g_ghost_fx_hidden)
+                {
+                    fx_sweep_pending = true;
+                }
+                if (fx_sweep_pending)
                 {
                     const std::string fx_ghost_name = to_utf8(remote.ghost->GetName());
                     int fx_touched = 0;
@@ -16778,6 +17040,11 @@ namespace MeshGhostPseudo
                     }
                 }
 
+                if (!g_ghost_fx_hidden)
+                {
+                    fx_sweep_pending = false;
+                }
+
                 // The blob shadow and the nametag, each on its own toggle so an answer names ONE
                 // of them rather than "something in that group".
                 //
@@ -16817,6 +17084,10 @@ namespace MeshGhostPseudo
                     const std::string ghost_own_name = to_utf8(remote.ghost->GetName());
                     for (const auto& sub : subtractions)
                     {
+                        if (!*sub.pending)
+                        {
+                            continue; // never armed -- nothing hidden, nothing to restore
+                        }
                         std::vector<UObject*> found;
                         UObjectGlobals::FindAllOf(sub.component_class, found);
                         int touched = 0;
@@ -16846,6 +17117,10 @@ namespace MeshGhostPseudo
                         }
                         // Reported once per state change, with what was actually reached -- "0 of N"
                         // is the line that would have caught the last version in one run.
+                        if (!sub.hidden)
+                        {
+                            *sub.pending = false; // restored on this pass
+                        }
                         static std::map<StringType, std::pair<bool, int>> announced;
                         auto& entry_state = announced[sub.label];
                         if (entry_state.first != sub.hidden || entry_state.second != touched)

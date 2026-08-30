@@ -625,6 +625,10 @@ namespace MeshGhostPseudo
         auto tick_afterimage_discovery(RC::Unreal::AActor* ghost) -> void;
 
         auto release_ghost(const std::string& player_id) -> void;
+
+        // Resolves and hooks the pause menu's Reset button; retried cheaply until it lands,
+        // because the widget class need not exist at boot. See pause_reset_hook_id.
+        auto try_hook_pause_reset() -> void;
         auto release_all_ghosts(const wchar_t* reason) -> void;
 
         // Found live 2026-08-14: closing the core process (meshghost.exe) drops the bridge
@@ -1168,6 +1172,31 @@ namespace MeshGhostPseudo
         // UFunction hook, whose own ID counter starts elsewhere and would not plausibly land on
         // a negative value.
         uint64_t load_map_pre_callback_id{0};
+
+        // **The same-level reload signal.** LoadMap PRE does NOT fire when the game reloads a
+        // save into the level it is already in -- established from the logs on 2026-08-30,
+        // while chasing a crash on "reset to last save". InitGameState does, because the new
+        // world builds a new game state, so this is where the teardown that LoadMap PRE would
+        // have done gets a second chance.
+        uint64_t init_game_state_pre_callback_id{0};
+
+        // RESET_FN_PROBE. Off unless `log_reset_fns.txt` is present.
+        uint64_t reset_fn_probe_callback_id{0};
+
+        // **The pause menu's Reset button, hooked so ghosts can be destroyed BEFORE the reset
+        // runs.** Resetting to the last save crashes this game whenever a ghost exists
+        // (measured by subtraction 2026-08-30: no ghost, no crash; mod off, no crash), and no
+        // teardown hook fires first -- the process dies inside the reset. So the ghosts have to
+        // be gone before it starts, and this button event is the only signal that precedes it.
+        // Found with RESET_FN_PROBE.
+        uint64_t pause_reset_hook_id{0};
+
+        // **No ghost may be spawned until this tick.** Set when the pause menu's Reset button
+        // is clicked, because a reset tears the world down and SpawnActor into a world that is
+        // going away is the leading explanation for the crash: with a peer connected the tick
+        // respawns a missing ghost immediately, which is why destroying the ghosts at the click
+        // was not enough on its own, and why a session with NO peer never crashed.
+        uint64_t suppress_ghost_spawn_until_tick{0};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};

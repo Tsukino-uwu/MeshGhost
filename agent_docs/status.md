@@ -61,7 +61,9 @@ has never been looked at. `verified.md`.
 
 - **Pseudoregalia PERF: ~20x per-ghost win landed, one fix crashed the game and was reverted**
   (2026-08-30). Results, reverts and what is unwatched: `adapters/pseudoregalia/UNVERIFIED.md`.
-- **OPEN: ghosts freeze/vanish for ONE client while the other is fine** — a one-sided stream
+- **OPEN: "reset to last save" crashes a client that has a peer** — bisected to BEFORE
+  2026-08-30's work; next step is testing with the mod off. `adapters/pseudoregalia/UNVERIFIED.md`.
+- **RESOLVED: ghosts freeze/vanish for ONE client — it was the agent's own rig** — a one-sided stream
   stall, unexplained. `adapters/pseudoregalia/UNVERIFIED.md`.
 - **The Pseudoregalia render sweep is PAUSED mid-flight (2026-08-30)** — interp laddered on the
   two-instance netsim rig, `curve`/`extrapolate` unjudged. Ladder, verdicts and the crash that

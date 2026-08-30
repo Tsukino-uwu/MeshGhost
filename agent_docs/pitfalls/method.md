@@ -1086,6 +1086,14 @@ crashed the user's game within the hour.
 **Symptom:** the empty `Fatal error!` dialog on the second client, when the user chose **reload
 save**. The adapter's log has no `LoadMap PRE fired` line anywhere near it.
 
+**IMPORTANT, and the reason this entry nearly recorded a falsehood: THAT CRASH WAS NOT CAUSED BY
+THE CACHES.** It was attributed to them for three exchanges on the strength of the reasoning below,
+and then a bisect -- deploy the pre-session DLL, ask the same question -- showed the same crash on a
+build with none of this in it. **The lifetime defect described here is still real and the caches
+still had to go**, but the crash that exposed the argument belongs to a separate, older bug
+(`adapters/pseudoregalia/UNVERIFIED.md`). CLAUDE.md already says to bisect real commits early; the
+cost of not doing it here was three rounds of confident wrong attribution to the user.
+
 **Cause:** a same-level save reload frees the level's actors **without firing the LoadMap PRE
 hook**, which is where this adapter drops every other level-owned pointer. Three caches added that
 day -- the local PlayerController, a ghost's light components, the pooled projectile actors -- were
@@ -1118,6 +1126,17 @@ session reported ghosts going invisible. The unexamined half: while nothing was 
 still ran and called `call_set_visibility(component, true)` on anything of the ghost's it found
 hidden. **It may have been an accidental per-tick RE-SHOW that other code depended on.**
 
-Unproven -- the gating was reverted as one variable in an A/B and the result is not in yet. Kept
-here because the shape generalises: **before gating a sweep, ask what it writes on the path where
-nothing is armed.** A subtraction instrument that also restores is two mechanisms wearing one name.
+**ANSWERED the same evening: the gating was innocent.** A clean-rig A/B -- gating off, then on,
+nothing else changed -- kept the ghosts visible both times (0 and 1 spawn/despawn cycles, against 44
+during the bad session). The vanishing was a polluted rig: a fault-injecting proxy left in the path
+and dead cores still counted as room members.
+
+**The lesson that survives is about the A/B, not the sweep.** The suspicion was reasonable, the code
+reading was plausible, and it was still wrong. What settled it in one run was **cleaning the rig and
+changing one thing** -- not more code reading. When a symptom appears during a session whose rig has
+been restarted repeatedly, REBUILD THE RIG BEFORE THEORISING: three exchanges went into a visibility
+mechanism that was never involved.
+
+The generalisable half of the original note stands anyway: **before gating a sweep, ask what it
+writes on the path where nothing is armed.** A subtraction instrument that also restores is two
+mechanisms wearing one name.

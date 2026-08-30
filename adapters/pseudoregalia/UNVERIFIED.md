@@ -181,15 +181,22 @@ present. Two ghosts measured 606 us total, i.e. linear.
 | Light hold walks the attach tree | was two whole-world light scans **per ghost per tick** | ~6357 us/frame |
 | Afterimage sweep on an interval | was `FindAllOf("BP_AfterImage_C")` every tick | ~1200 us/frame |
 
-**The gating is REVERTED again as of the end of the session** — not because it was wrong, but as
-one variable in an A/B for the invisibility below. It is worth ~3300 us/frame and should go back
-in once that is settled.
+**The gating was reverted for one A/B run and then restored**, because the invisibility it was
+suspected of turned out to be the rig. It is worth ~3300 us/frame and is IN.
 
 ### What was REVERTED, and why it must not be retried naively
 
-**A crash, and it was ours.** The user reloaded a save on the second client and the game died with
-the empty `Fatal error!` dialog. Three fixes had cached raw pointers to level-owned objects
-between ticks: the local controller, the ghost's light components, the pooled projectile actors.
+**A crash appeared, it was attributed to these fixes, AND THAT ATTRIBUTION WAS WRONG.** The user
+reloaded a save on the second client and the game died with the empty `Fatal error!` dialog. The
+caches were the obvious suspect and the reasoning below is sound in itself -- but **bisecting
+settled it the other way**: with the pre-session DLL deployed (commit `b74a1d1`, confirmed live by
+zero `PERF` lines in the log), *"reset to last save"* **still crashed client2**. So the crash is
+PRE-EXISTING and predates every change made on 2026-08-30. It is filed on its own below.
+
+The caches were reverted anyway, and should stay reverted, because the lifetime defect described
+here is real whether or not it caused this particular crash. Three fixes had cached raw pointers to
+level-owned objects between ticks: the local controller, the ghost's light components, the pooled
+projectile actors.
 
 - **RELOADING A SAVE INTO THE SAME LEVEL DOES NOT FIRE THE `LoadMap PRE` HOOK** -- the one place
   this file drops every other level-owned pointer. Confirmed from the log: no `LoadMap PRE fired`
@@ -202,6 +209,104 @@ between ticks: the local controller, the ghost's light components, the pooled pr
   hook that fires on a same-level reload.** Not a cleverer guard.
 - The light fix was KEPT but rebuilt to walk `remote.ghost`'s own attach tree -- same saving, no
   pointers held, and the ghost's lifetime is already managed by this file.
+
+### The OPEN defect: "reset to last save" crashes a client that has a peer (2026-08-30)
+
+**Reproduced twice, and BISECTED to before this session's work.** The user chooses *reset to last
+save* on client2 while a peer is present; the game dies with the empty `Fatal error!` dialog. It
+does the same on the **pre-session build** (`b74a1d1`), which is how we know none of 2026-08-30's
+changes introduced it.
+
+**What the dump says: almost nothing, and that is a fact about the crash.**
+`EXCEPTION_ACCESS_VIOLATION reading address 0xffffffffffffffff`, an EMPTY call stack, and neither
+`MeshGhost` nor `main.dll` appears anywhere in `CrashContext.runtime-xml`. It dies inside the
+engine rather than in our frame -- the same signature as this adapter's other empty-dialog crashes.
+
+**Related history, which is where to start rather than from scratch:** `retry last save` is the
+exact case that crashed on 2026-08-27 with a poisoned `vfx_components` pointer, fixed by dropping
+those references at teardown; and `agent_docs/pitfalls.md` records that reloading the SAME level
+behaves differently from loading a new one. **The `LoadMap PRE` hook does not fire on a same-level
+reload** -- established this session from the logs -- so every "cleared at teardown" guarantee in
+this file is simply absent on this path. That is the strongest lead: something the adapter holds
+across a same-level reload is being touched afterwards.
+
+**NARROWED BY SUBTRACTION THE SAME EVENING -- A GHOST IS THE TRIGGER:**
+
+| mod | ghost present | reset to last save |
+| --- | --- | --- |
+| **off** (`enabled.txt` renamed) | no | **survives** |
+| on | **yes** | **crashes** -- four times |
+| on | no (alone in the room) | **survives** |
+
+So it is not the game on its own, and not the mod's always-on hooks either: **the crash needs a
+ghost actor to exist.** That also explains why it only ever hit the client that had a peer -- the
+user hit it on client2 three times and then on client1 the moment client1 was the one with the
+fake peer, which retired the "client2 is special" reading.
+
+**And NO teardown hook fires before it dies.** On the crashing run the last `LoadMap PRE` and
+`InitGameState PRE` were 35 seconds earlier -- the process goes down inside the reset itself,
+before either. That is why the `InitGameState` teardown added on 2026-08-30 did not help: it is
+correct, and it is aimed at a path this crash never reaches. **It was kept anyway** -- a same-level
+reload really does bypass `LoadMap PRE`, and every "cleared at teardown" guarantee in this file
+was simply absent there.
+
+### What is ESTABLISHED, after seven runs (2026-08-30)
+
+**The trigger is that a ghost has EVER EXISTED this session -- not that one exists now.**
+Measured, in this order:
+
+| Configuration | Reset to last save |
+| --- | --- |
+| Mod disabled (`enabled.txt` renamed) | **survives** |
+| Mod on, no peer ever connected | **survives** |
+| Mod on, ghost on screen | **crashes** |
+| Mod on, ghosts destroyed at the click by a guard | **crashes** |
+| Mod on, ghost destroyed + spawning suppressed for 900 ticks | **crashes** |
+| Mod on, every UFunction hook skipped (`hooks_off.txt=all`) | **crashes** |
+| Mod on, peer gone, room empty, no ghost anywhere | **crashes** |
+
+**Four theories REFUTED by those runs, each of which looked good on paper:**
+
+1. *The ghost actor exists during the reset* -- no: destroyed at the click, still crashes.
+2. *The tick respawns a ghost into a tearing-down world* -- no: spawning suppressed, still crashes.
+3. *The camera fallback pointer* (`last_non_ghost_view_target`, a documented 2026-08-27 crash) --
+   no: the guard now runs the full `release_all_ghosts`, still crashes.
+4. *One of the five UFunction hooks* (camera fight-back, damage guards, fade guard, afterimage
+   outline guard, playerlocation guard) -- no: all five skipped, still crashes. **The run also
+   confirmed the toggle worked**, because the camera immediately got stuck on the ghost's rig,
+   which is exactly what the fight-back hook prevents.
+
+**Also tried and not the fix:** `FixAllLights` on the destroy path. The spawn path's own comment
+says "the ghost's vertex light registers with the manager inside SpawnActor and nothing
+unregisters it", and `documentation.md` records that `FixAllLights` clears a stale dynamic
+registration -- so calling it when a ghost is destroyed was well-founded. It still crashed.
+
+### The next MEASUREMENT, not another theory
+
+Something a ghost SPAWN leaves in the game's own state outlives both the ghost and the peer. The
+way to find it is to look, not to guess: **diff the state of the game's singletons across a ghost
+spawn** -- the GameInstance, the light manager, and any array-valued property on them -- then diff
+again after the ghost is destroyed, and look for what does not go back. `snapshot_scalar_properties`
+already exists for the scalar half and reads bitfield bools correctly; what is missing is the
+OBJECT-ARRAY half, which is where a registration would live.
+
+That is the same method that solved the light latch (dump the vocabulary / census what exists,
+rather than reasoning about mechanism), and it is the only honest next step after four refutations.
+
+**Kept from the failed attempts, because each is correct in itself and costs nothing:** the
+`InitGameState` teardown (a same-level reload really does bypass `LoadMap PRE`), the reset guard
+plus spawn suppression (a ghost really should not be spawned into a reset), and `hooks_off.txt`,
+which turns the next hook bisect into "edit a line, relaunch".
+
+**So the next step is a hook that fires at the START of the reset**, before the game tears
+anything down, so the ghosts can be released while they are still safe to touch. The mod already
+pre-hooks UFunctions by name (the camera fight-back, the damage guards, the afterimage outline
+guard), so the work is finding the reset's own function -- a function-vocabulary dump on the game
+mode or the save subsystem, the same method that found `FixAllLights`.
+
+**What NOT to do:** guess at a guard inside the tick. There is no safe validity test for a freed
+actor here (`IsUnreachable()` is itself a dereference -- see the entry above), so the fix has to be
+"let go before the teardown", not "survive touching freed memory".
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
@@ -229,9 +334,17 @@ of it that night came from the agent killing cores, so it is a CANDIDATE, not th
 **What was NOT the cause, ruled out:** the cross-area filter (both sides reported byte-identical
 `area_id`), and the relay dropping either client (both stayed joined throughout the observation).
 
-**Next step, on the clean rig:** reproduce with relay `-introspect=10s` running, and read the
-per-member queue state rather than inferring from symptoms. If client2's adapter logs zero
-spawn/despawn cycles on a clean rig, the flicker belonged to the polluted session below.
+**RESOLVED THE SAME EVENING, and it was the rig.** Reproduced on a clean rig -- shipped 20Hz relay,
+no netsim, no stale cores, one synthetic peer, then both clients -- and it did not happen: the user
+confirmed *"the ghosts didn't disappear for client1 this time"*, the adapters logged **0 and 1**
+spawn/despawn cycles against 44 before, and the relay logged no stall. Run twice, once with the
+dev-sweep gating off and once with it back on, so the gating is EXONERATED too.
+
+**So the cause was the polluted session, not the code**: `meshghost-netsim` still in the path with
+2% loss, and dead cores left in the room by the agent's own restarts (four members at one point,
+two of them dead, rendering as frozen ghosts). Both are recorded under RIG HYGIENE below. The
+mechanism note above still stands and is worth keeping -- a stalling stream really does read as
+spawn/despawn churn -- but nothing here is a live defect.
 
 ### RIG HYGIENE -- three ways the agent's own rig corrupted the evidence
 
