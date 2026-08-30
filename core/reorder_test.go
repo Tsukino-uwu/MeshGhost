@@ -86,10 +86,14 @@ func TestInOrderSamplesAreUnaffected(t *testing.T) {
 	for i := 0; i < n; i++ {
 		b.add(ts(1000+int64(i)*5, float64(i)))
 	}
-	// Dense enough that the count cap governs (5ms spacing keeps the whole
-	// window well inside maxSnapshotAgeMs).
-	if len(b.snapshots) != maxSnapshots {
-		t.Fatalf("buffer holds %d snapshots, want the %d-sample cap", len(b.snapshots), maxSnapshots)
+	// The WINDOW governs here, not the count. This assertion used to read
+	// maxSnapshots: at 5ms spacing (200Hz) the old 64-sample cap trimmed to 64
+	// and hid the fact that it was cutting the history window short -- the
+	// silent edge-hold fixed 2026-08-30 (core/hzceiling_test.go). With the
+	// count now a memory bound only, 5ms spacing keeps a full 600ms instead.
+	if want := 1 + defaultSnapshotAgeMs/5; len(b.snapshots) != want {
+		t.Fatalf("buffer holds %d snapshots, want %d (a %dms window at 5ms spacing)",
+			len(b.snapshots), want, defaultSnapshotAgeMs)
 	}
 	for i := 1; i < len(b.snapshots); i++ {
 		if b.snapshots[i].Timestamp <= b.snapshots[i-1].Timestamp {

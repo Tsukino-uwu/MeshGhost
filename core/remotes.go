@@ -48,7 +48,45 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		b = &remoteBuffer{}
 		c.remotes[st.PlayerID] = b
 	}
+	// Set on every sample, not just at creation: InterpolationDelay and
+	// Extrapolate are public fields a caller may change while running, and a
+	// window derived once would then be wrong for the rest of the session.
+	b.historyMs = c.requiredHistoryMsLocked()
 	b.add(st)
+}
+
+// requiredHistoryMsLocked is how far back a remote's buffer must reach for the
+// CURRENT render settings to work -- the fix for the two silent edge-hold bugs
+// described on maxSnapshots.
+//
+// Three terms, each earning its place:
+//   - THE INTERPOLATION DELAY, because the render time is exactly that far in
+//     the past and the buffer must still bracket it. This is the term that was
+//     missing: a fixed 600ms window meant any delay above it edge-held at every
+//     rate, and at high rates the COUNT cut the window shorter still.
+//   - THE PREDICTION WINDOW (Extrapolate), because a render time may run that
+//     much PAST the newest sample, and extrapolate still measures velocity over
+//     a pair behind it.
+//   - maxVelocitySpanMs, the longest baseline extrapolate will measure over,
+//     plus historyMarginMs of slack for arrival jitter and for CurveCatmullRom,
+//     which needs a sample on either side of the bracket rather than just the
+//     bracket itself.
+//
+// Floored at defaultSnapshotAgeMs so nothing that works today gets a SHORTER
+// window than it had -- this must not be able to regress a shipped
+// configuration -- and ceilinged so a hostile or fat-fingered setting cannot
+// turn the buffer into unbounded memory by another route.
+//
+// Caller must hold c.mu.
+func (c *Core) requiredHistoryMsLocked() int64 {
+	need := c.InterpolationDelay.Milliseconds() + c.Extrapolate.Milliseconds() + maxVelocitySpanMs + historyMarginMs
+	if need < defaultSnapshotAgeMs {
+		need = defaultSnapshotAgeMs
+	}
+	if need > maxHistoryMs {
+		need = maxHistoryMs
+	}
+	return need
 }
 
 func (c *Core) dropRemote(playerID string) {

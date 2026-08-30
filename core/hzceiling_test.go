@@ -2,91 +2,133 @@ package core
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
-// THE ACTUAL HIGH-RATE CEILING, MEASURED 2026-08-30 rather than derived.
+// THE HIGH-RATE CEILING. Measured 2026-08-30, then FIXED the same day.
 //
 // The question that produced this: "did anything degrade past 100Hz, or what is
-// the safe limit?" Nothing above protocol.MaxSendHz (100) has ever been RUN --
+// the safe limit?" Nothing above protocol.MaxSendHz (100) had ever been RUN --
 // ClampSendHz prevents it -- so every claim about 144/256/480Hz was arithmetic
-// from constants until this test existed.
+// until this test existed. Measuring it found a real cliff, and the cliff was
+// ours rather than a law of nature: maxSnapshots was a functional bound wearing
+// a memory bound's clothes. See interp.go's comment above maxSnapshots.
 //
-// What it measures: fill the buffer at a rate, ask for a render time one
-// interpolation delay in the past (the shipped render model), and check whether
-// remoteBuffer.at() is interpolating or has fallen off the buffer's OLD EDGE and
-// is edge-holding. Edge-holding is the silent failure -- no error anywhere, just
-// a ghost that stutters, which is exactly how the 2026-08-28 bug presented when
-// maxSnapshots was 8 and the dev rig ran 100Hz.
+// BEFORE THE FIX (kept because it is the regression this defends against):
 //
-// THE RULE IT PINS: the buffer holds at most maxSnapshots (64) samples, so it
-// spans 64/Hz seconds. Interpolation works while that span covers the
-// interpolation delay -- so the ceiling is roughly 64/delay, and a LARGER delay
-// breaks at a LOWER rate. maxSnapshotAgeMs (600) is the other bound and is what
-// keeps the low rates honest.
+//	interp 175ms: interpolated to 300Hz, EDGE-HELD at 480Hz
+//	interp 250ms: interpolated to 200Hz, EDGE-HELD at 256Hz   <- shipped setting
+//	interp 400ms: interpolated to 144Hz, EDGE-HELD at 200Hz
 //
-// If maxSnapshots or maxSnapshotAgeMs changes, this test tells you the new
-// ceiling instead of letting a silent stutter ship. Full write-up, including the
-// bandwidth and timestamp axes: agent_docs/hz-ceiling.md.
-func TestHighRateCeilingIsSetByTheSnapshotCount(t *testing.T) {
-	cases := []struct {
-		delayMs int64
-		hz      int
-		wantOK  bool // true = still interpolating, false = edge-held
-	}{
-		// The shipped delay. Clean well past MaxSendHz; breaks just under 256.
-		{250, 20, true}, {250, 100, true}, {250, 144, true}, {250, 200, true},
-		{250, 256, false}, {250, 480, false},
-		// TEVI's measured delay buys headroom: a smaller delay needs less span.
-		{175, 100, true}, {175, 256, true}, {175, 300, true}, {175, 480, false},
-		// A larger delay breaks EARLIER -- the counter-intuitive half, and the
-		// one that would bite someone raising interp to smooth a bad link.
-		{400, 144, true}, {400, 200, false},
-	}
+// Silent every time -- no error, just a ghost that stutters, exactly how the
+// 2026-08-28 bug presented when the count was 8 and the dev rig ran 100Hz.
+//
+// AFTER THE FIX every one of those interpolates, because the window is derived
+// from the render settings and the count is memory-only. agent_docs/hz-ceiling.md.
 
+// bufferFor fills a buffer at hz for two seconds with the window a Core running
+// at this interpolation delay would give it, and reports whether a render time
+// one delay in the past still falls inside the buffer.
+func bufferFor(t *testing.T, hz int, delay time.Duration) (interpolating bool, samples int, spanMs int64) {
+	t.Helper()
+	c := New()
+	c.InterpolationDelay = delay
+	var b remoteBuffer
+	b.historyMs = c.requiredHistoryMsLocked()
+
+	step := 1000.0 / float64(hz)
+	var last int64
+	for i := 0; i < hz*2; i++ {
+		last = int64(float64(i) * step) // ms quantization, as it really happens
+		b.add(protocol.State{Timestamp: last, AreaID: "a", Position: []float64{float64(i), 0, 0}})
+	}
+	renderTime := last - delay.Milliseconds()
+	if _, ok := b.at(renderTime); !ok {
+		t.Fatalf("hz=%d delay=%v: no state at all", hz, delay)
+	}
+	return renderTime >= b.snapshots[0].Timestamp,
+		len(b.snapshots),
+		b.snapshots[len(b.snapshots)-1].Timestamp - b.snapshots[0].Timestamp
+}
+
+// TestHighRatesNoLongerEdgeHold is the fix, stated as the three cases that
+// failed before it. Every one of these edge-held on 2026-08-30 and must not
+// again: if one comes back, the count has been made functional a second time.
+func TestHighRatesNoLongerEdgeHold(t *testing.T) {
+	cases := []struct {
+		hz    int
+		delay time.Duration
+	}{
+		{256, 250 * time.Millisecond}, // the shipped delay, first rate that broke
+		{300, 250 * time.Millisecond},
+		{480, 250 * time.Millisecond},
+		{480, 175 * time.Millisecond}, // TEVI's measured delay
+		{200, 400 * time.Millisecond}, // a LARGE delay broke EARLIEST -- the counter-intuitive half
+		{256, 400 * time.Millisecond},
+	}
 	for _, tc := range cases {
-		var b remoteBuffer
-		step := 1000.0 / float64(tc.hz)
-		n := tc.hz * 2 // two seconds, so the buffer is in steady state
-		var last int64
-		for i := 0; i < n; i++ {
-			last = int64(float64(i) * step) // ms quantization, as it really happens
-			b.add(protocol.State{
-				Timestamp: last, AreaID: "a",
-				Position: []float64{float64(i), 0, 0},
-			})
-		}
-		renderTime := last - tc.delayMs
-		if _, ok := b.at(renderTime); !ok {
-			t.Fatalf("delay=%dms hz=%d: no state at all", tc.delayMs, tc.hz)
-		}
-		interpolating := renderTime >= b.snapshots[0].Timestamp
-		if interpolating != tc.wantOK {
-			verb := "edge-held"
-			if interpolating {
-				verb = "interpolated"
-			}
-			t.Errorf("delay=%dms hz=%d: %s, want interpolating=%v -- %d samples span %dms against a %dms delay. "+
-				"If this changed deliberately, the high-rate ceiling moved: update this table AND agent_docs/scaling.md.",
-				tc.delayMs, tc.hz, verb, tc.wantOK,
-				len(b.snapshots), b.snapshots[len(b.snapshots)-1].Timestamp-b.snapshots[0].Timestamp, tc.delayMs)
+		ok, n, span := bufferFor(t, tc.hz, tc.delay)
+		if !ok {
+			t.Errorf("hz=%d delay=%v: EDGE-HELD -- %d samples spanning %dms against a %dms delay. "+
+				"The snapshot count has become a functional bound again; interp.go says grow the WINDOW, not the count.",
+				tc.hz, tc.delay, n, span, tc.delay.Milliseconds())
 		}
 	}
 }
 
-// The floor half, for symmetry: maxSnapshotAgeMs (600) is what stops a LOW rate
-// from holding a uselessly long history, and MinSendHz (10) sits inside it.
-func TestLowRatesStayWithinTheAgeBound(t *testing.T) {
+// The second bug the same constant hid, and it needs no high rate at all: a
+// fixed 600ms window meant any interpolation delay above it edge-held at EVERY
+// rate, including the shipped 20Hz.
+func TestALargeInterpolationDelayWorksAtAnyRate(t *testing.T) {
+	for _, hz := range []int{20, 60, 100, 256} {
+		for _, delay := range []time.Duration{700 * time.Millisecond, 1200 * time.Millisecond} {
+			if ok, n, span := bufferFor(t, hz, delay); !ok {
+				t.Errorf("hz=%d delay=%v: EDGE-HELD -- %d samples spanning %dms. The window must follow the delay.",
+					hz, delay, n, span)
+			}
+		}
+	}
+}
+
+// The window must never SHRINK below what shipped, whatever the settings --
+// this fix must not be able to regress a working configuration.
+func TestDerivedWindowNeverShrinksBelowTheOldFixedOne(t *testing.T) {
+	for _, delay := range []time.Duration{0, 50 * time.Millisecond, 250 * time.Millisecond} {
+		c := New()
+		c.InterpolationDelay = delay
+		if got := c.requiredHistoryMsLocked(); got < defaultSnapshotAgeMs {
+			t.Errorf("delay=%v: window %dms is below the old fixed %dms", delay, got, defaultSnapshotAgeMs)
+		}
+	}
+}
+
+// And both bounds still bound. The count is memory-only now, but "only memory"
+// is not "no limit", and the derived window has its own ceiling so a mistyped
+// delay cannot grow the buffer without end.
+func TestBothBoundsStillBound(t *testing.T) {
+	c := New()
+	c.InterpolationDelay = time.Hour
+	c.Extrapolate = time.Hour
+	if got := c.requiredHistoryMsLocked(); got != maxHistoryMs {
+		t.Errorf("an absurd delay produced a %dms window, want it capped at %dms", got, maxHistoryMs)
+	}
+
+	// A sender far faster than anything configurable must still be capped.
 	var b remoteBuffer
-	for i := 0; i < 40; i++ {
-		b.add(protocol.State{Timestamp: int64(i) * 100, AreaID: "a", Position: []float64{float64(i)}}) // 10Hz
+	b.historyMs = maxHistoryMs
+	for i := 0; i < maxSnapshots*3; i++ {
+		b.add(protocol.State{Timestamp: int64(i), AreaID: "a", Position: []float64{float64(i)}}) // 1000Hz
 	}
-	span := b.snapshots[len(b.snapshots)-1].Timestamp - b.snapshots[0].Timestamp
-	if span > maxSnapshotAgeMs {
-		t.Fatalf("buffer spans %dms, above maxSnapshotAgeMs (%d)", span, maxSnapshotAgeMs)
+	if len(b.snapshots) > maxSnapshots {
+		t.Fatalf("buffer grew to %d snapshots, above the memory bound %d", len(b.snapshots), maxSnapshots)
 	}
-	if _, ok := b.at(b.snapshots[len(b.snapshots)-1].Timestamp - 250); !ok {
-		t.Fatal("10Hz with the shipped 250ms delay must still interpolate -- that is MinSendHz")
+}
+
+// The floor: MinSendHz with the shipped delay must still interpolate.
+func TestLowRatesStillInterpolate(t *testing.T) {
+	if ok, n, span := bufferFor(t, 10, 250*time.Millisecond); !ok {
+		t.Fatalf("10Hz (MinSendHz) with the shipped 250ms delay edge-held -- %d samples spanning %dms", n, span)
 	}
 }

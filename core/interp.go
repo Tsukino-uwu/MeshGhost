@@ -17,11 +17,50 @@ import (
 // samples out. The "250ms" runs were silently something else. At the shipped
 // 20Hz the old count covered 350ms and never bit, which is why nothing noticed.
 //
-// maxSnapshotAgeMs comfortably covers the largest delay anyone configures plus
-// prediction's lookback; maxSnapshots now only caps an adversarially fast
-// sender's memory (64 × ~40 bytes is still nothing per peer).
-const maxSnapshots = 64
-const maxSnapshotAgeMs = 600
+// **That comment described the INTENT and the code did not deliver it, fixed
+// 2026-08-30.** The count stayed a functional bound in disguise: 64 samples span
+// 64/Hz seconds, so above ~107Hz it cut into the time window the age bound was
+// supposed to own, and the 2026-08-28 bug simply came back at a higher rate.
+// Measured before the fix (core/hzceiling_test.go): at the shipped 250ms delay
+// a room interpolated correctly to 200Hz and edge-held at 256Hz, and a LARGER
+// delay broke EARLIER -- 400ms edge-held at 200Hz. Silent every time: no error,
+// just a ghost that stutters. agent_docs/hz-ceiling.md has the full table.
+//
+// A SECOND, RATE-INDEPENDENT BUG hid behind the same constant: a fixed 600ms
+// age bound means any interpolation delay above 600ms edge-holds at EVERY rate,
+// including the shipped 20Hz. Nobody has configured one that large, which is
+// the only reason it never showed.
+//
+// So the two bounds are now what they always claimed to be:
+//
+//   - THE WINDOW IS FUNCTIONAL AND DERIVED. remoteBuffer.historyMs is set from
+//     the Core's own render settings (see Core.requiredHistoryMs), so the
+//     buffer keeps exactly as much history as the configured delay and
+//     prediction actually need. Zero means "unset", which uses
+//     defaultSnapshotAgeMs -- the old value, so a bare remoteBuffer (every test
+//     that predates this) behaves exactly as before.
+//   - THE COUNT IS A MEMORY BOUND AND NOTHING ELSE. It exists so an
+//     adversarially fast sender cannot grow a buffer without limit, and is set
+//     high enough that it cannot reach into the window at any rate anyone will
+//     ever configure: 1024 samples cover the default 600ms window up to
+//     ~1700Hz, against a MaxSendHz of 100. Cost is ~40 bytes a snapshot, so the
+//     worst case is tens of KB per peer and only under abuse.
+//
+// **Do not put a functional decision back into the count.** If a window needs
+// to grow, grow the window.
+const maxSnapshots = 1024
+const defaultSnapshotAgeMs = 600
+
+// historyMarginMs is slack on top of the terms requiredHistoryMsLocked adds up:
+// arrival jitter, and CurveCatmullRom needing a sample either side of the
+// bracket rather than only the bracket.
+const historyMarginMs = 100
+
+// maxHistoryMs bounds the derived window itself, so a hostile or mistyped
+// interpolation delay cannot turn the buffer into unbounded memory through the
+// one bound that is allowed to grow. 4s is far past any usable delay -- a ghost
+// rendered four seconds late is not a setting, it is a bug report.
+const maxHistoryMs = 4000
 
 // remoteBuffer holds a short history of a remote player's snapshots,
 // ordered oldest to newest by protocol.State.Timestamp, used to compute an
@@ -29,6 +68,16 @@ const maxSnapshotAgeMs = 600
 // tick model in agent_docs/contract.md.
 type remoteBuffer struct {
 	snapshots []protocol.State
+
+	// historyMs is how far back this buffer must reach, in milliseconds --
+	// the FUNCTIONAL bound, derived from the Core's render settings rather
+	// than fixed, so a large interpolation delay or a long prediction window
+	// keeps the history it needs instead of silently edge-holding. Set by
+	// storeRemoteState on every sample so a settings change takes effect
+	// without rebuilding the buffer. Zero means unset and uses
+	// defaultSnapshotAgeMs, which is what every test constructing a bare
+	// remoteBuffer relies on.
+	historyMs int64
 }
 
 // add inserts a snapshot IN TIMESTAMP ORDER, which is not the order they
@@ -69,8 +118,14 @@ func (b *remoteBuffer) add(s protocol.State) {
 		b.snapshots = b.snapshots[len(b.snapshots)-maxSnapshots:]
 	}
 	// Age out the old edge against the NEWEST sample's clock, keeping at least
-	// two so interpolation always has a pair to work with.
-	cutoff := b.snapshots[len(b.snapshots)-1].Timestamp - maxSnapshotAgeMs
+	// two so interpolation always has a pair to work with. The window is the
+	// derived one (see historyMs) -- this is the bound that decides what the
+	// renderer can still interpolate, and the count above is only memory.
+	window := b.historyMs
+	if window <= 0 {
+		window = defaultSnapshotAgeMs
+	}
+	cutoff := b.snapshots[len(b.snapshots)-1].Timestamp - window
 	drop := 0
 	for drop < len(b.snapshots)-2 && b.snapshots[drop].Timestamp < cutoff {
 		drop++

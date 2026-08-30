@@ -424,7 +424,7 @@ artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` direc
 
 ## Traps
 
-- **A DATA RACE was seen ONCE in `core` and never reproduced (2026-08-30)** — open, unattributed; `pitfalls/method.md`.
+- **A DATA RACE in `core`'s reconnect path was found and FIXED (2026-08-30)** — a test seam read by a goroutine that outlives its test; reproduces ~1 full suite in 5, so capture race output to a FILE before filtering. `pitfalls/method.md`.
 - **`internal/e2e`'s `freePort` is a TOCTOU, and it flakes under `-race` on CI (seen 2026-08-27).**
   It binds a port, **closes it**, and hands the bare number to a child process — so anything can
   claim that number first. The symptom is `nothing listening on 127.0.0.1:NNNNN after 20s` from

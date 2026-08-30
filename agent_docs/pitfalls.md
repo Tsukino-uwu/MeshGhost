@@ -280,4 +280,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - When every scalar diff is clean, dump the FUNCTION vocabulary and drive the game's own verbs live (Pseudoregalia, 2026-08-30)
 - A bitfield bool read through a plain byte pointer says true for the whole byte (Pseudoregalia, 2026-08-30)
 - The code already said which field was broken — reading it beat every planned measurement (Pseudoregalia, 2026-08-30)
-- A data race seen once is real — and filtering the output loses the only part that attributes it (Go side, 2026-08-30, OPEN)
+- A data race seen once is real — and filtering the output loses the only part that attributes it (Go side, 2026-08-30, CLOSED)

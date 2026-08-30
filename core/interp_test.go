@@ -77,28 +77,51 @@ func TestRemoteBufferEvictsOldSnapshots(t *testing.T) {
 	// Eviction is by TIME first (2026-08-28): a bare count starved a large
 	// interpolation delay at a high send rate -- 8 samples at 100Hz is 80ms of
 	// history, so a 250ms render time fell off the old edge and edge-held,
-	// seen on screen as stutter on long walks. History must cover
-	// maxSnapshotAgeMs regardless of rate.
+	// seen on screen as stutter on long walks. History must cover the buffer's
+	// window regardless of rate.
+	//
+	// A bare remoteBuffer has historyMs unset, which means defaultSnapshotAgeMs
+	// -- the same 600ms this test was written against. Since 2026-08-30 a Core
+	// DERIVES the window from its render settings instead (Core.requiredHistoryMsLocked),
+	// because the fixed value hid two silent edge-hold bugs; see
+	// core/hzceiling_test.go. This test still pins the default path.
 	var b remoteBuffer
 	for i := 0; i < 69; i++ {
 		b.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 100), Position: []float64{float64(i)}})
 	}
 	// Newest is t=6800; everything older than 6800-600 is gone.
-	want := 1 + maxSnapshotAgeMs/100
+	want := 1 + defaultSnapshotAgeMs/100
 	if len(b.snapshots) != want {
-		t.Fatalf("buffer length = %d, want %d (a %dms window at 100ms spacing)", len(b.snapshots), want, maxSnapshotAgeMs)
+		t.Fatalf("buffer length = %d, want %d (a %dms window at 100ms spacing)", len(b.snapshots), want, defaultSnapshotAgeMs)
 	}
 	if b.snapshots[0].Position[0] != 62 {
 		t.Fatalf("oldest retained snapshot position = %v, want [62]", b.snapshots[0].Position)
 	}
 
-	// The count cap still exists, for an adversarially fast sender only.
+	// The count cap still exists, and since 2026-08-30 it is reachable ONLY by
+	// an adversarially fast sender -- which is the whole point of the change.
+	// 5ms spacing (200Hz) used to trip it and now does not, because 1024
+	// samples at 200Hz would be five seconds of history and the 600ms window
+	// trims them first. Reaching it takes MORE THAN ONE SAMPLE PER MILLISECOND,
+	// which no configurable rate can produce (MaxSendHz is 100).
 	var dense remoteBuffer
 	for i := 0; i < maxSnapshots+6; i++ {
-		dense.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 5), Position: []float64{float64(i)}})
+		dense.add(protocol.State{PlayerID: "p2", Timestamp: int64(i / 2), Position: []float64{float64(i)}})
 	}
 	if len(dense.snapshots) != maxSnapshots {
 		t.Fatalf("dense buffer length = %d, want the %d count cap", len(dense.snapshots), maxSnapshots)
+	}
+
+	// And at a rate a real relay could actually advertise, the WINDOW governs
+	// and the count never gets a say -- the property the fix exists to give.
+	var fast remoteBuffer
+	for i := 0; i < 2000; i++ {
+		fast.add(protocol.State{PlayerID: "p2", Timestamp: int64(i * 5), Position: []float64{float64(i)}}) // 200Hz
+	}
+	if wantFast := 1 + defaultSnapshotAgeMs/5; len(fast.snapshots) != wantFast {
+		t.Fatalf("200Hz buffer holds %d snapshots, want %d (a %dms window at 5ms spacing) -- "+
+			"if this is %d, the count has become a functional bound again",
+			len(fast.snapshots), wantFast, defaultSnapshotAgeMs, maxSnapshots)
 	}
 }
 

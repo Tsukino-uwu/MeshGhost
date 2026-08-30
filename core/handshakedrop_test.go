@@ -38,7 +38,7 @@ func TestARelayDropInsideTheHandshakeStillReconnects(t *testing.T) {
 	// Fires once, on the FIRST connect only: the reconnect that follows has to
 	// be allowed to succeed, or this would test an unreachable relay instead.
 	var once sync.Once
-	beforeArmingAutoRetryHook = func() {
+	hook := func() {
 		once.Do(func() {
 			c.mu.Lock()
 			conn := c.relay
@@ -64,7 +64,8 @@ func TestARelayDropInsideTheHandshakeStillReconnects(t *testing.T) {
 			t.Error("setup: the dropped connection was never cleared, so the window was not reproduced")
 		})
 	}
-	t.Cleanup(func() { beforeArmingAutoRetryHook = nil })
+	beforeArmingAutoRetryHook.Store(&hook)
+	t.Cleanup(func() { beforeArmingAutoRetryHook.Store(nil) })
 
 	fa := dialFakeAdapter(t, bridgeAddr)
 	t.Cleanup(func() { fa.conn.Close() })
@@ -129,7 +130,7 @@ func TestASessionDyingDuringOwnershipTransferStillReconnects(t *testing.T) {
 	t.Cleanup(func() { replacement.Close() })
 
 	var once sync.Once
-	beforeArmingAutoRetryHook = func() {
+	hook := func() {
 		once.Do(func() {
 			// Exactly what handleBridgeConn's OnDisconnect does for the
 			// departing adapter, in the order it does it: disarm first, then
@@ -158,7 +159,8 @@ func TestASessionDyingDuringOwnershipTransferStillReconnects(t *testing.T) {
 			t.Error("setup: the closed session was never cleared, so the window was not reproduced")
 		})
 	}
-	t.Cleanup(func() { beforeArmingAutoRetryHook = nil })
+	beforeArmingAutoRetryHook.Store(&hook)
+	t.Cleanup(func() { beforeArmingAutoRetryHook.Store(nil) })
 
 	if err := c.ConnectRelayOnAdapterHello("fuzzgame", "", replacement); err != nil {
 		t.Fatalf("ownership transfer: %v", err)

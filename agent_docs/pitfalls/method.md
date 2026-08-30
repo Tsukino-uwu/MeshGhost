@@ -969,7 +969,7 @@ believed to. It had been described, in this repo's own planning notes, as absent
 target names and reading their categories rather than reading what they do. **An inventory taken by
 name is a guess.**
 
-## A DATA RACE SEEN ONCE IS REAL — AND FILTERING THE OUTPUT LOSES THE ONLY PART THAT ATTRIBUTES IT (Go side, 2026-08-30, OPEN)
+## A DATA RACE SEEN ONCE IS REAL — AND FILTERING THE OUTPUT LOSES THE ONLY PART THAT ATTRIBUTES IT (Go side, 2026-08-30, CLOSED)
 
 **Symptom.** One full `-race -count=3` run reported `WARNING: DATA RACE` with
 `--- FAIL: TestARelayDropInsideTheHandshakeStillReconnects`.
@@ -994,4 +994,26 @@ hypothesis, and this entry exists precisely because nobody could check it.
 different scheduling. A red CI run naming this test is a gift to be READ (`gh run view <id>
 --log-failed`), never re-run until it goes green.
 
-**Evidence:** `agent_docs/testing.md`'s Traps list, `agent_docs/status.md`.
+**CLOSED THE SAME DAY, and the method above is what closed it.** The next full race run was captured
+to a FILE first and filtered afterwards — the exact change this entry prescribes — and it
+reproduced with the stacks intact. Reproduction rate was roughly one full suite in five, which is
+why the first four attempts (12x `./core`, 3x the package, a clean full suite) all missed it: the
+earlier "not reproduced" was a sampling failure, not evidence of absence.
+
+**The cause, and it is not what "handshake reconnect test fails" suggests.** The race was on
+`beforeArmingAutoRetryHook`, a plain `func()` package variable that exists only as a test seam. The
+WRITE is the test's own `t.Cleanup` clearing it; the READ is this package's RECONNECT goroutine,
+which outlives the test that started it and is still looping through `ConnectRelayOnAdapterHello`
+when Cleanup runs. Fixed by making the hook an `atomic.Pointer[func()]`.
+
+**Two lessons worth more than the fix:**
+
+- **A TEST SEAM IS PRODUCTION CODE FOR RACE PURPOSES.** The hook is nil in every real session, so
+  nothing shipped was ever at risk — and it failed the suite exactly as hard as a real bug would.
+  "Only tests" is not a reason to leave a race in a package whose `-race` job is the thing standing
+  between this project and the bugs local runs cannot find.
+- **A GOROUTINE THAT OUTLIVES ITS TEST IS THE DEFAULT, NOT THE EXCEPTION.** Anything a test starts
+  that retries, backs off or reconnects is still running during `Cleanup`. Assume it, rather than
+  assuming the test owns the end of its own lifetime.
+
+**Evidence:** `agent_docs/testing.md`'s Traps list, `core/relaysession.go`'s comment above the hook.

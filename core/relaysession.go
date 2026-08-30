@@ -464,9 +464,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			// now pointing at the LIVE bridge connection rather than the dead
 			// one -- is what reconnects it.
 			if bridgeConn != nil {
-				if beforeArmingAutoRetryHook != nil {
-					beforeArmingAutoRetryHook()
-				}
+				runBeforeArmingAutoRetryHook()
 				c.mu.Lock()
 				c.relayOwner = bridgeConn
 				c.autoRetryGameID = gameID
@@ -567,9 +565,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		return err
 	}
 
-	if beforeArmingAutoRetryHook != nil {
-		beforeArmingAutoRetryHook()
-	}
+	runBeforeArmingAutoRetryHook()
 
 	c.mu.Lock()
 	c.relayGame = gameID
@@ -621,7 +617,27 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 // window: the window is real (a fuzzed schedule hits it about one run in
 // twenty) but nothing outside this package can aim at it, so without the seam
 // both regression tests for it would be probabilistic ones.
-var beforeArmingAutoRetryHook func()
+//
+// ATOMIC, AND THAT IS NOT DECORATION -- a plain func() variable here was a real
+// data race that CI's -race job would have caught eventually and that a local
+// run reproduced roughly once in five full suites (2026-08-30). The write is
+// the test's own t.Cleanup clearing the hook; the read is this package's
+// RECONNECT goroutine, which outlives the test that started it and is still
+// looping through ConnectRelayOnAdapterHello when Cleanup runs. So it is a
+// test-infrastructure race rather than a shipped bug -- the hook is nil in
+// every real session -- but it fails the suite just as hard, and "only tests"
+// is not a reason to leave a race in a package whose -race job is the thing
+// standing between this project and the bugs local runs cannot find.
+//
+// The load costs an atomic read on a path that is already dialling a socket.
+var beforeArmingAutoRetryHook atomic.Pointer[func()]
+
+// runBeforeArmingAutoRetryHook loads and runs the hook if one is set.
+func runBeforeArmingAutoRetryHook() {
+	if fn := beforeArmingAutoRetryHook.Load(); fn != nil {
+		(*fn)()
+	}
+}
 
 // reconnectWithBackoff keeps calling ConnectRelayOnAdapterHello for
 // (gameID, adapterGameVersion, bridgeConn) until it succeeds or is

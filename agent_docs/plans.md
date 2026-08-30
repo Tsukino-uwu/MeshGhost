@@ -832,19 +832,19 @@ ever varied by adapter, and all three are things any adapter can do.
 tree by design), diff all five generated configs, then `preflight.ps1`. `README.txt` and
 `docs/networking.md` both document key names and will drift.
 
+## The render sweep: per-game Hz x interp x rotation, on netsim (filed 2026-08-30)
+
+**Step 1 of three is DONE** — `maxSnapshots` no longer cuts into the history window, so the silent
+edge-holds at high rates and above a 600ms delay are gone. Axes, per-game starting points and the
+measured limits: [hz-ceiling.md](hz-ceiling.md). Neither of the next two is started:
+
+- **STEP 2 — a per-game baseline on `meshghost-netsim`, now that slerp exists** (user: *"actually
+  test hz, interp (linear vs extrapolation), slerp etc properly with netsim"*). A clean link hides
+  every setting — how the interp delay hid behind a stutter until 2026-08-28. Judged on screen.
+- **STEP 3 — the 100Hz cap, after step 2 only. The problem is not the constant:** the safe rate
+  depends on each CLIENT's `interp`, invisible to the relay, so an opt-in wants a NEGOTIATED ceiling.
+
 ## Links
 
-- `agent_docs/contract.md` — packet schema, adapter interface, transport, tick model.
-- `agent_docs/brief.md` — original design brief and rationale.
-- `agent_docs/architecture.md` — system shape and the decision log (ADRs).
-- `agent_docs/phases/` — one file per phase; see `agent_docs/status.md` for which is
-  currently live (this list intentionally doesn't name one directly — it goes stale every
-  time a phase opens or closes, and already had at this exact spot before).
-- `agent_docs/risks.md` — assumptions and risk register.
-- `agent_docs/status.md` — current active phase and focus.
-- `agent_docs/verified.md` — append-only verification log.
-- `agent_docs/licensing.md` — third-party license audit.
-- `agent_docs/pitfalls.md` — adapter-specific issues log: symptom, diagnosis, fix.
-- `agent_docs/environment.md` — toolchain/tool/mod versions, filled in as phases need them.
-- `agent_docs/ideas.md` — unscheduled backlog; an idea moves here first, then gets a phase
-  number and moves into this file once actually picked up.
+**[agent_docs/README.md](README.md) is the doc index.** A dozen entries were restated here until
+2026-08-30; a second index drifts against the first.

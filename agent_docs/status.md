@@ -87,8 +87,6 @@ has never been looked at. `verified.md`.
   may be stiffer than the game's own model; unknown if real. `pseudoregalia/UNVERIFIED.md`.
 - **`probe_dustlight/` CRASHED the game twice and is disabled** — whole-world `ChildActorComponent`
   walk; cut the class list before reloading it. `pseudoregalia/PROBES.md`, `pitfalls/by-lesson.md`.
-- **A DATA RACE was seen ONCE in `core`'s `TestARelayDropInsideTheHandshakeStillReconnects`
-  (2026-08-30) and never reproduced** — 12x `./core`, 3x the package, a clean full suite. `testing.md`.
 - **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
   child gets a bare port number that can be taken first; unfixed. `testing.md`, Traps.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
