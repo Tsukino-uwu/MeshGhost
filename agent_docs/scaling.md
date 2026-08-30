@@ -456,6 +456,15 @@ disabled`. **Emerald and Crystal have no overrides file at all** and silently ke
   concrete task that makes an Hz sweep shippable at all. `max_receive_hz_per_player` IS in the
   template but defaults to 0 (off), and the room's forward rate is server-side (ADR 0017), so of
   the three Hz knobs one is hidden, one is unused, one is not the client's to set.
+- **A HARD ASYMMETRY that shapes the whole sweep (checked in `core/core.go`, not assumed):
+  `min_send` is a FLOOR on the interval, never a ceiling — `effectiveSendInterval` takes the SLOWER
+  of it and the relay's advertised rate, so a client may throttle itself below the room and the
+  relay "can never speed this Core up past a rate it deliberately chose".** Therefore **a per-game
+  client config can make a game send SLOWER, never faster.** If the sweep finds a game wants a
+  HIGHER rate, that is not shippable in its config file at all — it needs the host to raise the
+  room rate, which applies to everyone. The shippable per-game rate values are reductions (Emerald
+  confirmed fine at a lower rate would be free bandwidth); a game that needs more would require an
+  adapter-DECLARED preferred rate, the same shape the per-adapter interp idea proposes.
 - **Three of four games have never been measured for interp, and none for Hz.**
 
 **The sweep is 2D, and a full grid is unaffordable in live cycles.** Hz x interp is a plane, and
@@ -469,15 +478,33 @@ and test the coordinates that the shape of each game predicts, rather than sweep
 | TEVI | 175ms measured 2026-08-28 and shipped. Hz never varied. |
 | Pseudoregalia | *"a bit choppy/low fps at 20hz and 250ms when turning around fast but super smooth when turning around slow"* |
 
-**Pseudoregalia's symptom names its own cause, and it is probably NOT the rate.** Choppy on fast
-turns and smooth on slow ones is the signature of LINEAR interpolation across a direction change: a
-straight line between two samples interpolates a straight path perfectly at any rate, and cuts the
-corner exactly when the path bends. That is what `curve: catmull-rom` was added for in ADR 0040,
-and **it has never been tried on Pseudoregalia**. It is free, already shipped, and costs no
-bandwidth — so it must be A/B'd BEFORE any conclusion that this game needs a higher Hz, or the
-project will pay bandwidth forever for a fix that a spline gives away. Same logic for
-`extrapolate`, which hides lateness at the cost of a correction when the guess is wrong — a
-momentum game is where it is most likely to earn its keep.
+**PSEUDOREGALIA'S SYMPTOM IS ORIENTATION, NOT POSITION — corrected 2026-08-30 by the user, and
+the code settles the mechanism.** The observation is specifically about FACING: standing still and
+spinning the character with a gamepad — smooth on a slow pan, choppy on a fast spin. Position never
+changes in that test, so `curve` and `extrapolate` are not in play at all; an earlier reading of
+this entry blamed linear position interpolation and was wrong about which field was stepping.
+
+**`core/interp.go` is explicit: orientation is NEVER interpolated.** It is opaque per `contract.md`
+(a `json.RawMessage` the core cannot parse), so the interpolator takes it from the older of the two
+bracketing snapshots and holds it until the next real sample passes render time. **Orientation is a
+step function**, and interpolation delay does not smooth it — it only delays it. At 20Hz a ghost's
+facing snaps 20 times a second: a slow pan has a tiny angular delta per step and looks smooth, a
+fast spin has a large one and reads as choppy. That is the observation, exactly.
+
+**Why only this game shows it — and the generalisation for every future adapter:** a stepped
+orientation is CORRECT for a discrete-facing game and WRONG for a continuous-rotation one. Pokemon
+has four directions and TEVI flips a sprite, so the step IS the truth there. Pseudoregalia is the
+only adapter with continuous 3D rotation, so it is the only one where the step is an artefact. Any
+future 3D adapter inherits this the day it ships.
+
+**The fix is adapter-side and costs no bandwidth:** the core may never interpolate a field it is
+forbidden to parse, so the Pseudoregalia mod slerps the ghost's rotation toward the newest sample
+rather than snapping to it. No protocol change, no Hz change, no config. **Try this before
+concluding Pseudoregalia needs a higher rate** — raising Hz would only make the steps smaller and
+would pay bandwidth forever to hide a step that should not be there.
+
+**Status: the code fact is confirmed, the causal link is a strong hypothesis.** Nobody has watched a
+slerped ghost yet; the user judges that on screen, per the standing rule.
 
 **The end state:** every game ships a measured overrides file, and the template's values stop being
 "what everyone gets" and become "what a game that has not been measured yet gets". That reframing
