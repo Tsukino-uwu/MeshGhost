@@ -451,54 +451,25 @@ Pseudoregalia, and a 3D game may need the band expressed in screen terms by the 
 than in world units. Expect the netsim rig plus an A/B with one variable per run, and expect the
 user to judge it, not the counters.
 
-## What Hz could Go actually carry? Measured 2026-08-30 — and CPU is not the answer
+## What Hz could Go actually carry? — measured, and it is not a Go limit
 
-**Asked: is 100 a technical limit, could someone run 144-480Hz to match a game's fps?** `MaxSendHz`
-is **100** and its own comment says *"a bandwidth bound, not a technical one"* — correct, and the
-CPU end is not close. **It also has a SECURITY half**: a client adopts the room's rate from
-`Welcome.SendHz`, so the cap bounds what a hostile relay can talk YOUR client into sending, which
-is why it lives in `protocol/` and both sides clamp (`core/relaysession.go`).
+**Short version, measured 2026-08-30; the full investigation is [hz-ceiling.md](hz-ceiling.md).**
+`MaxSendHz` is 100 and that is a bandwidth-and-safety policy, not a technical wall — relay CPU at
+480Hz with 8 players is 2.4% of one core. The real limits, in the order they arrive:
 
-**Relay CPU** (`relay/forward_bench_test.go`): one state fanned out to a room of 8 costs **6.36us**
-(Emerald's 14-key shape; TEVI's 3-key is 3.4us), so 8 players at 480Hz = **2.4% of one core**; at
-20Hz, 0.1%. **Nobody will hit a Go ceiling here.** **Bandwidth arrives long before that**: at ~288
-bytes per state line an 8-seat room fans out 56 streams — **1.2 GB/h** at 20Hz, **5.8 GB/h** at
-100Hz, **28 GB/h** (~62 Mbit/s) at 480Hz, carried by the host. Change suppression (ADR 0039) cuts
-the idle share hard (70% on TEVI), but a room where everyone moves pays close to full price.
+1. **The game's own frame rate**, a hard ceiling on USEFUL rate (Pseudoregalia ticks ~180Hz here).
+   The one true thing in "align your tick rate to the engine": a ceiling, not a target.
+2. **`64 / interp` — a SILENT edge-hold**, and a CLIFF rather than a gradient: past it a higher rate
+   is WORSE than a lower one. Measured at 200Hz safe / 256Hz broken at the shipped 250ms delay, and
+   it is **per-client**, since `interp` is.
+3. **Bandwidth**, linear and the host's: 1.2 GB/h at 20Hz for a full 8-seat room, 28 GB/h at 480Hz.
+4. **Millisecond timestamps** — zero error at rates dividing 1000, up to ±0.5ms otherwise. Bounded
+   jitter, never a break.
+5. **Go's CPU** — never.
 
-**THE ONE HARD BREAK IS `maxSnapshots = 64`, AND IT IS SILENT.** The buffer holds at most 64
-samples, so it spans 64/Hz seconds; interpolation works while that covers the interpolation delay,
-and past it `at()` falls off the old edge and edge-holds — no error, just stutter. **Exactly the
-2026-08-28 bug at a higher rate**: the count was 8 then and broke at the dev rig's 100Hz; the fix
-added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derived**, and pinned by
-`core/hzceiling_test.go`:
-
-| interp | last rate still interpolating | first rate that edge-holds |
-|---|---|---|
-| 175ms (TEVI) | 300Hz | 480Hz |
-| **250ms (shipped)** | **200Hz** | **256Hz** |
-| 400ms | 144Hz | 200Hz |
-
-**A LARGER interp delay breaks at a LOWER rate** — the counter-intuitive half, and the one that
-would bite someone raising `interp` to smooth a bad link while also raising Hz.
-
-**Nothing else has a cliff.** `protocol.State.Timestamp` is MILLISECONDS, so the sample interval
-quantizes — ~5% error at 100Hz, ~7% at 144Hz, ~24% at 480Hz — but it decays smoothly rather than
-breaking, and it is why raising the ceiling far would mean changing the wire's time unit first. The
-flood cap scales 6x with the rate automatically.
-
-**THE CEILING THAT BINDS FIRST IS THE GAME'S OWN FRAME RATE.** An adapter samples on the game's
-frame and cannot produce a DISTINCT sample faster than the game renders — Pseudoregalia ticks
-~180Hz here, so a 256Hz room yields ~180 real samples plus duplicates, paying full bandwidth for
-repeats change suppression then discards. **This is the one true thing in the "align your tick rate
-to the engine" advice: the game's rate is a CEILING on useful Hz, not a target to match.**
-
-**So, in the order the limits arrive:** the game's frame rate, then `64 / interp` (silent), then
-bandwidth (linear, the host's), then the ms timestamps (decay, no cliff), then Go's CPU (never).
-**Between 100 and 200Hz at shipped settings, nothing degrades at all** — which is why "100 to be
-safe" is a policy choice, not a technical boundary. **Raising Hz buys SAMPLING ACCURACY, never
-FRESHNESS:** a ghost at 480Hz with a 250ms delay is still drawn 250ms in the past. Lateness is
-`interp`'s to fix, and anyone raising the rate to cure a "delayed" look is turning the wrong knob.
+**Raising Hz buys SAMPLING ACCURACY, never FRESHNESS.** A ghost at 480Hz with a 250ms delay is
+still drawn 250ms in the past; lateness is `interp`'s to fix. Anyone raising the rate to cure a
+"delayed" look is turning the wrong knob.
 
 ## Per-game tested settings: the Hz x interp sweep every game still needs (filed 2026-08-30)
 

@@ -27,7 +27,8 @@ import (
 // keeps the low rates honest.
 //
 // If maxSnapshots or maxSnapshotAgeMs changes, this test tells you the new
-// ceiling instead of letting a silent stutter ship.
+// ceiling instead of letting a silent stutter ship. Full write-up, including the
+// bandwidth and timestamp axes: agent_docs/hz-ceiling.md.
 func TestHighRateCeilingIsSetByTheSnapshotCount(t *testing.T) {
 	cases := []struct {
 		delayMs int64

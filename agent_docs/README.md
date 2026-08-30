@@ -30,6 +30,11 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   efficiency axes and their measured ranking, the culling model, and the ratified JSON-over-binary
   decision. Read before proposing efficiency or scale work on `core`/`relay`/`transport`/the wire.
   The Go-side pair to `crowd-limits.md`, which is the game-side half. Nothing in it is scheduled.
+- [hz-ceiling.md](hz-ceiling.md) — **how fast a room can actually run**, measured: where the
+  snapshot buffer edge-holds (a silent CLIFF, not a gradient), what the millisecond timestamps cost,
+  the bandwidth per room size, and which layer owns which limit. Read before raising `send_hz`,
+  before touching `maxSnapshots`/`maxSnapshotAgeMs`, or before answering "can we run at 144/480Hz
+  to match the game's fps?". Split out of `scaling.md` 2026-08-30.
 - [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
   act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
 - [doc-history.md](doc-history.md) — the dated record of every doc-restructuring pass: what
