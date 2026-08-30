@@ -36,6 +36,171 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## Pending — BOTH INSTANCES HARD-CRASHED seconds after `curve catmull-rom` was switched on (2026-08-30)
+
+**What happened.** On the two-instance netsim rig (relay 60Hz, both clients interp 250ms,
+`predict damped`, through `meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder), the curve was
+flipped from `linear` to `catmull-rom` with nothing else changed. Both games ran normally for
+~13 seconds and then died within two seconds of each other — 20:28:37 and 20:28:39 — with the
+empty `Fatal error!` dialog this adapter's crash family is known for (it dies inside the engine
+rather than in our frame).
+
+**The logs are clean right up to the last tick**, which is what makes this worth keeping: both
+adapters' bridge counters read `send_fail=0 lines_malformed=0` at 20:28:36.7, and both cores
+logged nothing but a normal `pid ... is gone -- exiting`. Nothing reported a problem before the
+process vanished.
+
+**The curve is the only variable that changed**, and two independent processes dying at the same
+moment points at the data they were both rendering rather than at either machine. That is
+suspicion, not attribution.
+
+**MEASURED GO-SIDE, and it does NOT close the case** (`core/curvespacing_test.go`, written for
+this): `curved()` picks `p0` and `p3` by INDEX and parameterises the spline UNIFORMLY, while a
+real session's spacing is wildly uneven — 60Hz samples ~16ms apart, a `keepalive` re-send 250ms
+after the last change, plus the link's own loss and reordering. On a STRAIGHT constant-velocity
+run, where a straight line should be exact, a 250ms/16ms spacing mismatch throws the rendered
+position **0.45 segment lengths** outside the segment (evenly spaced samples stay under 0.01).
+So the curve really does misbehave on this rig's data — but 0.45 of a segment is a wobble, not a
+teleport, and **it is not a crash mechanism.** The cause is still unknown.
+
+**A CONFOUND that must be stated, because it was my own rig fault.** At crash time the two games
+were CROSS-WIRED: the Copy was attached to the core started for instance 1 (port 6674), while
+instance 1 was attached to a stale mod-spawned core on 6672 that neither launch created. Both
+mods walk 8 ports from the same base, so whichever core answered first won, and the
+kill-all-and-restart loop used for each sweep step reshuffled it every time. **Fixed for the
+future** by giving each install its own far-apart base (6700 and 6800), which the walks cannot
+overlap. Whether a stale core was serving one game settings from an earlier step is not knowable
+after the fact — so this crash sits on a rig that was not clean, and a reproduction attempt has
+to happen on the fixed one before it means anything.
+
+**What to do next, in order:**
+1. Relaunch both games on the fixed rig at `linear` and confirm a normal session — that this is
+   healthy is not currently established.
+2. Only then re-enable `catmull-rom` deliberately, watching for the same ~13-second delay. If it
+   crashes twice, it is the curve and the next step is the crash dump under
+   `pseudoregalia/Saved/Crashes` rather than more theory.
+3. If it does not reproduce, this stays open and unattributed rather than being quietly closed —
+   an unreproduced simultaneous crash is exactly what an intermittent defect looks like early.
+
+**The curve knob is UNJUDGED as a result** — nobody has yet seen whether it fixes the jump chop it
+was enabled to test, because the session ended before either player could look at a jump.
+
+---
+
+## Pending — a NAMETAG SAT TOO LOW on a friend's machine, never reproduced here (2026-08-30)
+
+**Reported second-hand**, which is the most important fact about this entry: *"nametag sitting too
+low, it works fine on my machine. but on a friends machine they had one of the nametags appear
+lower than intended"*. Nobody in this repo has seen it, and the person who did see it is not the
+person reporting it — so both the symptom and the conditions are one retelling away from the
+source.
+
+**What is NOT a plausible cause, and can be ruled out by reading the code.** The tag is placed in
+WORLD space: `tag_z = ghost actor Z + NAMETAG_HEIGHT_ABOVE_GHOST` (110 units, ~88 of which is the
+standing capsule half). It is not a screen-space widget, so **resolution, DPI, UI scale, aspect
+ratio and window mode cannot move it** — the usual "works on my machine" suspects are all
+excluded by construction. That is worth stating up front, because it is exactly where an
+investigation would otherwise start.
+
+**So the height is only ever wrong if the GHOST'S ACTOR Z is wrong**, and this adapter has a fully
+worked precedent for that: the slide, where the engine's own CROUCH path moves the mesh by
+`-(capsuleHalf + 1)`. A ghost in a crouch/slide state, or one whose capsule differs from the
+standing 88, puts the tag exactly this kind of low. A pawn mid-landing is the other shape.
+
+**Questions the report has to answer before anything is measured** — each points at different code,
+and guessing picks the wrong instrument:
+
+1. **Whose tag was low** — the friend's own ghost as seen by them, or another player's?
+2. **Was that character doing something** at the time (sliding, crouching, mid-air, landing), or
+   standing normally? If it tracked a state, this is the slide problem again.
+3. **Was it low permanently or only for a moment**, and did it correct itself?
+4. **How many players were in the room** — "one of the nametags" implies three or more, and whether
+   the others were correct at the same instant is the cheapest discriminator there is.
+
+**Do not fix this with an offset.** A constant nudge to `NAMETAG_HEIGHT_ABOVE_GHOST` would hide a
+wrong actor Z rather than fix it, and this adapter has removed exactly that bandage once already
+(`BANDAGES.md` entry 1). `probe_nametag/` already exists and was what settled the colour work.
+
+### Second report, same friend: RELOADING A SAVE REMOVES A REMOTE'S NAMETAG PERMANENTLY (2026-08-30)
+
+*"after reloading to save it removed the nametag off the remote sybil, movement still replicated
+correctly"* — relayed by the user, who read it as the name being **sent only once** and never
+re-sent when a ghost despawns and respawns.
+
+**The "sent once" half is true and is NOT the bug.** `remote_name` arrives once per peer, and the
+mod stores it in `Plugin::nametags`, keyed by player id and kept deliberately OUTSIDE `remotes`
+so it survives a peer having no ghost. A level reload does not touch that map, and the core
+re-pushes every known name whenever an adapter attaches (`core/remotenames.go`,
+`pushRemoteNames`). So the NAME is still in hand after a reload.
+
+**What is not restored is the COMPONENT, and this is a code read, not a measurement.** The
+LoadMap teardown (`release_ghosts`, the block that runs before a level is torn down) drops
+`weapon_actor`, `vfx_components`, `projectile_component`, `recall_glow_component` and re-arms
+every "already synced" latch — and **never touches `nametag_component`, `nametag_plate`,
+`nametag_plate_mid`, `nametag_applied_name` or `nametag_create_failed`**. Those are raw pointers
+to TextRender components the OLD level owned. After the reload:
+
+- `update_ghost_nametag` opens with `if (!entry.nametag_component) { create... }`. The pointer is
+  non-null — it just names freed memory — so **the branch that would build a tag on the new ghost
+  never runs, and the peer stays unlabelled for the rest of the session** while movement, which
+  goes through the newly spawned ghost, keeps working perfectly. That is exactly the reported
+  shape.
+- Worse, the tick then keeps CALLING through that stale pointer every frame
+  (`set_text_render_string`, the position write). That is the same access-violation family as the
+  three crashes this very block was extended to fix, and the comment there already predicted the
+  next one: *"per-ghost state that outlived its ghost"*. This may be a live crash risk, not only a
+  missing label.
+
+**The fix is the same one-liner family: clear those five fields in that teardown block**, so the
+next ghost builds its own tag from the name still sitting in `nametags`. Not written yet — the
+netsim render sweep is mid-flight and a rebuild would cost the running session.
+
+**How to confirm it on screen** (this is a claim about a running game, so it is not settled until
+watched): two instances, both with names set, reload a save on one of them, and look at whether the
+OTHER player's tag comes back over that instance's fresh ghost. The mod's own log line
+`pid=N remote <id> nametag = "..."` tells you the name is still known, which separates "the name
+was lost" from "the component was lost" without guessing.
+
+**This does not explain the tag sitting LOW above** — different symptom, different mechanism. They
+are filed together only because they are the same reporter and the same feature.
+
+---
+
+## Pending — LANDING DUST is not working properly, user-reported (2026-08-30)
+
+**User-reported, live, on the two-instance netsim rig** (relay 20Hz no `-loopback`, both clients
+through `meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder, both installs at 250ms interp /
+linear / no extrapolation, slerp on): *"landing dust not working properly"*.
+
+**The exact fault is NOT recorded yet** — "not properly" could be absent, late, in the wrong
+place, on the wrong character, or firing when nobody landed, and those point at different code.
+Asked; this entry gets the answer written into it before anything is measured, because guessing
+which one it is would pick the wrong instrument.
+
+**What the row is.** Landing dust is one of the mirrored effect rows: `dl` ->
+`/Game/VFX/Systems/NS_DustLand`, spawned on the ghost's `RootComponent` with a deliberate
+`-GHOST_STANDING_CAPSULE_HALF` Z offset so it sits at the FEET rather than the actor origin
+(`Plugin.cpp`, the mirrored-effect table). It is a **fallback** — a ghost that carries the game's
+own dust keeps that instead.
+
+**The two things already known to bite this exact row**, both worth checking before anything new:
+
+- **The echo loop, fixed 2026-08-29 by excluding components we spawned, BY IDENTITY.** `dl` is a
+  `world_spawned` row, and those are attributed purely by distance, so dust spawned onto a ghost
+  standing near its own player used to be read as that player's own landing and sent straight back
+  — *"that other player never jumped"*. If the symptom this time is dust on a character who did not
+  land, this is the first suspect and the guard is where to look.
+- **The netsim rig itself is new for this game.** Effects coupled to message ARRIVAL look correct
+  on a clean loopback and wrong under jitter — that is the whole reason the two-rig doctrine
+  exists, and this sighting is on the faulted link. So "it looked fine before" is not evidence
+  against it.
+
+**Do NOT start from theory.** `probe_dustlight/` already exists and dumps one census line per
+character in a live two-instance session; the settled method for this class of question is to log
+what actually spawned, on whom, and when, rather than reasoning from the table.
+
+---
+
 ## The ghost's FACING is now interpolated, and nobody has watched it (2026-08-30)
 
 **What changed.** A ghost's facing used to STEP at the send rate. Orientation is opaque to the

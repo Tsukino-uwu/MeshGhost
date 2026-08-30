@@ -496,8 +496,14 @@ either half alone.
 at 60ms/±25ms jitter/2% loss/2% reorder, thirteen configurations, one variable at a time. The
 verdicts, each the user's on-screen read (`agent_docs/verified.md`, "The render-knob sweep"):
 
-- **Winner for a jittery link: `interp 100ms`, `predict damped`, `extrapolate 100-150ms`,
+- **Winner ON THE KNOBS: `interp 100ms`, `predict damped`, `extrapolate 100-150ms`,
   `curve linear`.** Spam-taps snappy, steady runs smooth, idle clean.
+- **AND IT IS NOT WHAT SHIPPED. TEVI's settled pick is `interp 175ms`, `curve linear`,
+  PREDICTION OFF** (`agent_docs/verified.md`, "TEVI's render pick on a bad link"). Prediction
+  hid the delay and pushed a landing ghost through the floor, and the user chose correctness
+  over the smoother-looking wrong picture. Read both lines together before quoting either: the
+  knob winner was quoted on its own during the 2026-08-30 Pseudoregalia sweep and gave exactly
+  the wrong recommendation, which the user caught from memory.
 - **`interp` below the link's jitter CAUSES chop** -- the render time keeps crossing between
   interpolating and predicting every frame. 50ms interp under ±25ms jitter looked worse than
   100ms despite being "faster".

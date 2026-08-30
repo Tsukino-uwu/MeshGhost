@@ -59,6 +59,14 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
+- **The Pseudoregalia render sweep is PAUSED mid-flight (2026-08-30)** — interp laddered on the
+  two-instance netsim rig, `curve`/`extrapolate` unjudged. Ladder, verdicts and the crash that
+  stopped it: `adapters/pseudoregalia/UNVERIFIED.md`.
+- **Both Pseudoregalia instances hard-crashed seconds after `curve catmull-rom` was enabled** —
+  unattributed, and the rig was cross-wired at the time. `adapters/pseudoregalia/UNVERIFIED.md`.
+- **`curve catmull-rom` is measurably wrong on uneven sample spacing** — a straight run bends by
+  0.45 segment lengths. `core/curvespacing_test.go`; the fix is the centripetal variant.
+
 - **Pseudoregalia's stepped FACING is FIXED and user-confirmed BETTER, not yet 1:1 (2026-08-30)** —
   three-launch A/B; the residual "delayed" read is the interp knob. ADR 0043, `pseudoregalia/VERIFIED.md`.
 - **OPEN: Pseudoregalia's `interp` has never been swept, and rotation extrapolation is unwatched** —

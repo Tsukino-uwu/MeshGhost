@@ -1017,3 +1017,62 @@ when Cleanup runs. Fixed by making the hook an `atomic.Pointer[func()]`.
   assuming the test owns the end of its own lifetime.
 
 **Evidence:** `agent_docs/testing.md`'s Traps list, `core/relaysession.go`'s comment above the hook.
+
+## A ghost cost half the frame rate, and every suspect was wrong (Pseudoregalia, 2026-08-30)
+
+**Symptom, user-reported:** one peer took the game from 144fps to 70-80. Two real clients were the
+same, three ~40, four ~30 -- *"the game becomes unplayable with even just 2-3 players"*.
+
+**What made it tractable was the fake peer.** `cmd/meshghost-fakeadapter` puts a synthetic player
+in the room wearing a real `game_id`/`area_id`, so ONE running copy of the game renders a ghost.
+That separates the cost of a ghost from the cost of a second game process on the same machine --
+the user's original numbers could not, and they turned out to be nearly identical, which was itself
+the first finding.
+
+**Then a subtraction settled CPU vs GPU in one run:** `hide_ghost_mesh.txt` keeps the ghost
+ticking and stops it being drawn. The frame rate did not move. Not rendering. That single reading
+retired every "make the ghost cheaper to draw" idea -- LODs, shadow casting, lights -- before any
+of them cost a build.
+
+**Every remaining theory was still wrong.** The per-tick mirrors, the VFX census, the nametag, the
+custom-depth strip: all named as suspects from reading the code, all measured at 0-13 us/frame.
+The instrument that settled it was a **per-subsystem frame-cost timer** -- scoped timers around each
+block, accumulated microseconds printed every ~2s, armed by a file so it costs no rebuild to switch
+on (`adapters/_template/probes.md` has the shape). `tick_total` is the whole game-thread cost, so
+every other slot reads as a share of it and **the unattributed remainder is a finding rather than a
+gap** -- which is exactly how this was cornered: the cost kept living in whatever had not been
+wrapped yet, and three rounds of bisection put it in one place.
+
+**The cause, four times over: WHOLE-WORLD SCANS ON THE TICK.** Every one asked
+`UObjectGlobals::FindAllOf` for a class and then ran a name-chain property lookup, or built a
+`GetFullName()` string, per object returned:
+
+| What | Cost | Why it was there |
+| --- | --- | --- |
+| `find_local_controller_and_pawn` | 1308 us/frame | Re-finding the local pawn every tick. Ran with **zero peers** -- it was slowing single player down. |
+| The ghost-light hold | ~6357 us/frame | Two scans per ghost per tick to re-find a light that had to be held down every frame. |
+| The dev-toggle subtractions | ~3300 us/frame | `hide_ghost_shadow`/`hide_ghost_nametag`/`hide_ghost_fx` swept the world **in normal play, armed or not**. |
+| The outline + afterimage sweeps | ~500 + ~1300 us/frame | Belt-and-braces behind a pre-hook that already refuses the write. |
+
+**The fixes are all the same shape, and none of them trade fidelity:** find the object once and
+hold the pointer (the light components, the controller); walk the ACTOR'S OWN attach tree instead
+of the level (the outline sweep); run a dev instrument only while it is armed, plus one pass to
+restore what it hid; put a belt-and-braces sweep on an interval when the braces cannot be late.
+
+**Result: 9819 -> 2924 us/frame with a ghost, per-ghost cost 6283 -> 309 us (~20x), and the user's
+own reading 70-80fps -> 141-144fps.** That is what decides whether a room scales: at 6.3ms a ghost
+you are unplayable at three players; at 0.3ms, ten ghosts cost 3ms.
+
+**What to carry forward:**
+
+- **`FindAllOf` in anything that runs per tick is a bug, not a style question.** It is O(all
+  objects) and the per-object property lookup on top of it is the expensive half. Resolve once,
+  hold the handle, invalidate where every other raw pointer is already dropped.
+- **A dev instrument that runs when it is not armed is a shipped cost.** CLAUDE.md's "a diagnostic
+  can break the thing it measures" turned up here in the SHIPPED path, not in a probe -- and it was
+  the second-largest cost in the game. When adding a toggle-driven sweep, gate it on the toggle
+  plus a latch for the one restoring pass, never on an interval "so it stays responsive".
+- **Do not theorise about which subsystem is expensive.** Six suspects were named from reading the
+  code and every one measured at ~0. The timer took three rounds and answered it exactly.
+- **Measure the no-peer baseline too.** It was 2269 us/frame before any of this -- proof that a
+  third of the cost had nothing to do with multiplayer at all.

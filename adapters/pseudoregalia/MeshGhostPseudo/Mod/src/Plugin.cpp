@@ -1830,6 +1830,16 @@ namespace MeshGhostPseudo
     // stays fast and only the runtime-attached case pays the sweep.
     constexpr uint64_t OUTLINE_SWEEP_INTERVAL_TICKS = 5;
 
+    // How often the afterimage outline sweep walks the world. 5 ticks is ~35ms at the ~144fps
+    // this game runs at here -- below the point an afterimage is on screen long enough to read
+    // -- and the SetRenderCustomDepth pre-hook is what actually has to be immediate.
+    constexpr uint64_t AFTERIMAGE_SWEEP_INTERVAL_TICKS = 5;
+
+    // Ceiling on the attach-tree walk that replaced the sweep's world scan. A player pawn
+    // carries a couple of dozen components; 256 is far above anything real and exists so a
+    // cycle cannot hang the game thread.
+    constexpr size_t OUTLINE_SWEEP_MAX_COMPONENTS = 256;
+
     // **A live A/B on the custom-depth strip. Diagnostic, 2026-08-29 -- and it is the subtraction
     // `../../CLAUDE.md` demands rather than a third guess.**
     //
@@ -2675,8 +2685,44 @@ namespace MeshGhostPseudo
         // agent_docs/pitfalls.md's "Engine reflection / API availability" section:
         // FindFirstOf returns the CDO (need FindAllOf + RF_ClassDefaultObject filter), and Pawn
         // is an inherited property (need GetValuePtrByPropertyNameInChain, not the plain version).
+        // **The controller is CACHED, and the reason is measured.** `FindAllOf` walks all of
+        // UObject space by class name, and this is called every tick from `game_thread_tick` --
+        // the per-subsystem instrument put it at **1308 us/frame, with no ghost in the room at
+        // all** (2026-08-30), which is 19% of a 144fps frame spent re-finding an object that had
+        // not moved. It cost the same whether the session had zero peers or one, so it was
+        // slowing the game down in single player too.
+        //
+        // What is cached is the CONTROLLER only. The pawn is re-read from it every call, because
+        // re-possession (a respawn, a cutscene) swaps the pawn while the controller stays -- and a
+        // stale pawn pointer is exactly the class of bug this file has crashed on before. The
+        // re-read is one property lookup instead of a whole-space scan.
+        //
+        // Invalidated in `release_all_ghosts`, which runs on the LoadMap PRE hook -- the one
+        // moment guaranteed to be before a level tears its actors down, and already the place
+        // every other raw pointer here is dropped. A controller from a dead level is never
+        // dereferenced: the cache is empty by then.
+        UObject* g_cached_controller = nullptr;
+
+        auto invalidate_local_pawn_cache() -> void
+        {
+            g_cached_controller = nullptr;
+        }
+
         auto find_local_controller_and_pawn() -> std::pair<UObject*, UObject*>
         {
+            if (g_cached_controller != nullptr)
+            {
+                UObject** cached_pawn = g_cached_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                if (cached_pawn && *cached_pawn)
+                {
+                    return {g_cached_controller, *cached_pawn};
+                }
+                // The controller is still here but has no pawn (mid-respawn, or a transition this
+                // cache did not see). Fall through and rescan rather than reporting "no pawn" --
+                // reporting it would be a behaviour change, and this path is rare by definition.
+                g_cached_controller = nullptr;
+            }
+
             std::vector<UObject*> controllers;
             UObjectGlobals::FindAllOf(STR("PlayerController"), controllers);
             for (UObject* candidate : controllers)
@@ -2688,6 +2734,7 @@ namespace MeshGhostPseudo
                 UObject** pawn_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
                 if (pawn_ptr && *pawn_ptr)
                 {
+                    g_cached_controller = candidate;
                     return {candidate, *pawn_ptr};
                 }
             }
@@ -7636,6 +7683,158 @@ namespace MeshGhostPseudo
     // it (which is where the FRotator float/double marshaling fix lives -- a hand-rolled move call
     // here would silently reintroduce that bug), actor_is_alive for staleness, and parking at
     // DESPAWN_PARK_Z instead of destroying.
+    // ---- PER-SUBSYSTEM COST INSTRUMENT (dev only; off unless armed) --------------------
+    //
+    // Why this exists: on 2026-08-30 ONE peer took the user from 144fps to 70-90, and hiding
+    // the ghost's mesh changed nothing -- so the cost is game-thread work, not rendering, and
+    // every candidate for WHICH work was a guess. This turns that into a ranked list:
+    // accumulated microseconds per subsystem per frame, printed every ~2s.
+    //
+    // Armed by `perf_report.txt` in the mod folder, so switching it on costs no rebuild. While
+    // disarmed each scope is a single bool test. NEVER leave it armed while judging anything
+    // visual -- CLAUDE.md, "a diagnostic can break the thing it measures".
+    namespace
+    {
+        enum PerfSlot
+        {
+            PERF_TICK_TOTAL = 0,
+            PERF_NAMETAG,
+            PERF_WEAPON,
+            PERF_PROJECTILE,
+            PERF_RECALL_GLOW,
+            PERF_MIRRORED_VFX,
+            PERF_AFTERIMAGE,
+            PERF_CUSTOM_DEPTH,
+            PERF_FIND_PAWN,
+            PERF_LOCAL_STATE,
+            PERF_AFTERIMAGE_SWEEP,
+            PERF_REMOTES_LOOP,
+            PERF_LOOP_MIRRORS,
+            PERF_LOOP_POSE_XFORM,
+            PERF_LOOP_HEAD,
+            PERF_LOOP_TAIL,
+            PERF_SLOT_COUNT
+        };
+
+        const wchar_t* const PERF_SLOT_NAMES[PERF_SLOT_COUNT] = {
+            STR("tick_total   "), STR("nametag      "), STR("weapon       "), STR("projectile   "),
+            STR("recall_glow  "), STR("mirrored_vfx "), STR("afterimage   "), STR("custom_depth "),
+            STR("find_pawn    "), STR("local_state  "), STR("afterimg_swp "), STR("remotes_loop "),
+            STR("loop_mirrors "), STR("loop_pose_xf "), STR("loop_head    "), STR("loop_tail    ")};
+
+        bool g_perf_armed = false;
+        long long g_perf_qpc[PERF_SLOT_COUNT] = {};
+        long long g_perf_calls[PERF_SLOT_COUNT] = {};
+        long long g_perf_frames = 0;
+        std::chrono::steady_clock::time_point g_perf_since{};
+
+        // Deliberately integer microseconds rather than formatted doubles: Output::send's
+        // formatter is not something to discover the limits of inside an instrument.
+        class PerfScope
+        {
+        public:
+            explicit PerfScope(PerfSlot slot) : slot_(slot)
+            {
+                if (!g_perf_armed)
+                {
+                    return;
+                }
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                start_ = now.QuadPart;
+                active_ = true;
+            }
+
+            ~PerfScope()
+            {
+                if (!active_)
+                {
+                    return;
+                }
+                LARGE_INTEGER now;
+                QueryPerformanceCounter(&now);
+                g_perf_qpc[slot_] += now.QuadPart - start_;
+                ++g_perf_calls[slot_];
+            }
+
+            PerfScope(const PerfScope&) = delete;
+            auto operator=(const PerfScope&) -> PerfScope& = delete;
+
+        private:
+            PerfSlot slot_;
+            long long start_{0};
+            bool active_{false};
+        };
+
+        // Manual pair, for a REGION rather than a scope: the local-player half of the tick is
+        // ~3300 lines between two statements at the same brace depth, and wrapping it in a
+        // block would be a real edit to real code for an instrument's convenience.
+        long long g_perf_open[PERF_SLOT_COUNT] = {};
+
+        auto perf_start(PerfSlot slot) -> void
+        {
+            if (!g_perf_armed)
+            {
+                return;
+            }
+            LARGE_INTEGER now;
+            QueryPerformanceCounter(&now);
+            g_perf_open[slot] = now.QuadPart;
+        }
+
+        auto perf_stop(PerfSlot slot) -> void
+        {
+            if (!g_perf_armed || g_perf_open[slot] == 0)
+            {
+                return;
+            }
+            LARGE_INTEGER now;
+            QueryPerformanceCounter(&now);
+            g_perf_qpc[slot] += now.QuadPart - g_perf_open[slot];
+            ++g_perf_calls[slot];
+            g_perf_open[slot] = 0;
+        }
+
+        auto perf_report_if_due() -> void
+        {
+            if (!g_perf_armed)
+            {
+                return;
+            }
+            ++g_perf_frames;
+            const auto now = std::chrono::steady_clock::now();
+            if (g_perf_since.time_since_epoch().count() == 0)
+            {
+                g_perf_since = now;
+                return;
+            }
+            const auto elapsed_ms =
+                std::chrono::duration_cast<std::chrono::milliseconds>(now - g_perf_since).count();
+            if (elapsed_ms < 2000)
+            {
+                return;
+            }
+            LARGE_INTEGER freq;
+            QueryPerformanceFrequency(&freq);
+            const long long frames = g_perf_frames > 0 ? g_perf_frames : 1;
+            for (int i = 0; i < PERF_SLOT_COUNT; ++i)
+            {
+                const long long total_us =
+                    freq.QuadPart > 0 ? (g_perf_qpc[i] * 1000000LL) / freq.QuadPart : 0;
+                Output::send(STR("[MeshGhostPseudo] PERF {} {} us/frame ({} us total, {} calls, {} frames)\n"),
+                             PERF_SLOT_NAMES[i],
+                             total_us / frames,
+                             total_us,
+                             g_perf_calls[i],
+                             frames);
+                g_perf_qpc[i] = 0;
+                g_perf_calls[i] = 0;
+            }
+            g_perf_frames = 0;
+            g_perf_since = now;
+        }
+    }
+
     auto Plugin::tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, UWorld* current_world) -> void
     {
         // Staleness, both checks the ghost pawn gets and for the same reasons: a level transition
@@ -9373,6 +9572,7 @@ namespace MeshGhostPseudo
         // to the ghost, so destroying the ghost below takes them with it, and a despawn that arrives
         // after a transition must not find this map still naming components the level already freed.
         it->second.vfx_components.clear();
+        it->second.light_components.clear();
         if (it->second.weapon_actor)
         {
             call_destroy_actor(it->second.weapon_actor);
@@ -9416,6 +9616,10 @@ namespace MeshGhostPseudo
 
     auto Plugin::release_all_ghosts(const wchar_t* reason) -> void
     {
+        // With every other raw pointer, and for the same reason: the cached controller
+        // belongs to the level that is about to be destroyed.
+        invalidate_local_pawn_cache();
+
         for (auto& [id, remote] : remotes)
         {
             // **Cleared for EVERY remote, before the no-ghost skip below** -- this is the fix for a
@@ -9447,6 +9651,7 @@ namespace MeshGhostPseudo
             // shipped without ever being added to these lines. Dropping the reference is the whole
             // fix -- the level's teardown destroys the components, exactly as with the weapon glow.
             remote.vfx_components.clear();
+            remote.light_components.clear();
             // Belt and braces: the projectile effect is protected by tick_remote_projectile's own
             // world-staleness check rather than by this hook, so it does not crash today. It is
             // cleared here anyway because "safe as long as one specific tick path runs first" is a
@@ -11151,6 +11356,7 @@ namespace MeshGhostPseudo
         // hold below has never once found it on.
         if (!g_ghost_keeps_custom_depth)
         {
+            PerfScope perf_custom_depth(PERF_CUSTOM_DEPTH);
             for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
             {
                 if (UObject** mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
@@ -11945,6 +12151,11 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // The instrument's own two lines. tick_total is what every other slot is a share OF,
+        // so a subsystem that does not show up in it is not on this thread and is not this cost.
+        PerfScope perf_whole_tick(PERF_TICK_TOTAL);
+        perf_report_if_due();
+
         // Nametag capability census: ONCE per session, on the first tick the engine is ready.
         //
         // Deliberately NOT on the ghost-spawn path where the other one-shot dumps live. This asks
@@ -11969,7 +12180,10 @@ namespace MeshGhostPseudo
         // dereferenced.
         UWorld* current_world = nullptr;
 
+        perf_start(PERF_FIND_PAWN);
         auto [controller, pawn_obj] = find_local_controller_and_pawn();
+        perf_stop(PERF_FIND_PAWN);
+        perf_start(PERF_LOCAL_STATE);
         if (controller && pawn_obj)
         {
             // Bug found live 2026-08-13: this must only count while possessing the REAL player
@@ -15271,6 +15485,8 @@ namespace MeshGhostPseudo
             cached_local_state_json = R"({"type":"local_state","payload":{"state":null}})";
         }
 
+        perf_stop(PERF_LOCAL_STATE);
+
         std::vector<std::string> lines_to_process;
         bool disconnect_cleanup_pending = false;
         {
@@ -15516,7 +15732,24 @@ namespace MeshGhostPseudo
                 it = alive_this_tick.count(it->first) ? std::next(it) : afterimage_owners.erase(it);
             }
         };
-        sweep_afterimage_outlines();
+        // **On an interval, not every tick.** The sweep asks UObjectGlobals for every
+        // BP_AfterImage_C in the world and then reads properties off each one; measured
+        // 2026-08-30 at 1298 us/frame with a single ghost present, which was nearly half of what
+        // the whole tick cost by then.
+        //
+        // Why an interval is honest here rather than a bandage: this sweep is the SECOND of two
+        // mechanisms. `register_afterimage_outline_guard` is a pre-hook on SetRenderCustomDepth
+        // that refuses a ghost afterimage's outline AT THE ENABLE CALL -- it cannot be late,
+        // because it runs instead of the write. The sweep exists to catch anything the hook did
+        // not see, and catching that a few frames later is the whole difference. The restore path
+        // (no ghosts left -> put back what was held off) runs on the same interval and is not
+        // time-critical either.
+        if (tick_count % AFTERIMAGE_SWEEP_INTERVAL_TICKS == 0)
+        {
+            perf_start(PERF_AFTERIMAGE_SWEEP);
+            sweep_afterimage_outlines();
+            perf_stop(PERF_AFTERIMAGE_SWEEP);
+        }
 
 
         // The camera, resolved ONCE for every nametag this tick rather than per ghost -- see
@@ -15529,6 +15762,8 @@ namespace MeshGhostPseudo
         // not only on ticks where new network data arrived.
         for (auto& [id, remote] : remotes)
         {
+            PerfScope perf_remote(PERF_REMOTES_LOOP);
+            perf_start(PERF_LOOP_HEAD);
             if (!remote.ghost)
             {
                 continue;
@@ -15594,6 +15829,7 @@ namespace MeshGhostPseudo
             // the user looking rather than by the log.
             if (!g_ghost_nametag_hidden)
             {
+                PerfScope perf_nametag(PERF_NAMETAG);
                 update_ghost_nametag(remote, pawn_obj, id, have_camera ? &camera_location : nullptr);
             }
 
@@ -15885,6 +16121,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_LOOP_HEAD);
+            perf_start(PERF_LOOP_MIRRORS);
             // **Drive the ghost's blob shadow with the game's own function.** Every tick, because
             // that is how often the player's own Blueprint runs it and the arm has to keep up with
             // a ghost that is moving; the call is one reflected lookup and a ProcessEvent on an
@@ -16280,6 +16518,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_LOOP_MIRRORS);
+            perf_start(PERF_LOOP_POSE_XFORM);
             // **Ordered AFTER the capsule mirror, deliberately.** Running first made the pose
             // one frame stale: the Blueprint's update handler reads the capsule it finds, so with
             // the capsule still last frame's size the mesh and the actor moved on different
@@ -16329,6 +16569,8 @@ namespace MeshGhostPseudo
             // is still true here, matching the local-test path and the "this is a teleport, not a
             // physics move" reasoning below -- just no longer the fix itself.
             call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
+            perf_stop(PERF_LOOP_POSE_XFORM);
+            perf_start(PERF_LOOP_TAIL);
 
             // Per-tick window across a pose transition -- see POSE_WINDOW_TRACE. Placed after the
             // teleport so each line is the FINAL state of that frame, which is what renders.
@@ -16468,8 +16710,14 @@ namespace MeshGhostPseudo
             // Thrown Dream Breaker -- a second, independent actor with its own lifetime. Placed
             // here, after the ghost's own staleness checks have run, so it never spawns a loose
             // sword for a peer whose ghost has just been invalidated by a level transition.
-            tick_remote_weapon(id, remote, current_world);
-            tick_remote_projectile(id, remote, current_world);
+            {
+                PerfScope perf_weapon(PERF_WEAPON);
+                tick_remote_weapon(id, remote, current_world);
+            }
+            {
+                PerfScope perf_projectile(PERF_PROJECTILE);
+                tick_remote_projectile(id, remote, current_world);
+            }
 
             // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
             // game turns custom depth back on during an attack and a spawn-time write cannot
@@ -16482,7 +16730,21 @@ namespace MeshGhostPseudo
                 // Every particle system this ghost owns. Attributed by OUTER, which for a component
                 // is its actor -- no attach walk needed. Swept rather than written once because a
                 // one-shot effect can spawn a new component at any time.
-                if (g_ghost_fx_hidden || tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
+                // **Only while ARMED, or once more to put things back.** This used to run on an
+                // interval unconditionally, which meant a shipped session with no dev toggle in
+                // sight still paid two whole-world FindAllOf scans plus a full-name string per
+                // particle component, per ghost. Measured 2026-08-30: the dev-toggle block was
+                // ~3.3 ms/frame of a 6 ms tick -- CLAUDE.md's "a diagnostic can break the thing it
+                // measures", found in the shipped path rather than in a probe.
+                //
+                // The latch is what keeps DISARMING correct: when the file goes away the sweep has
+                // to run once more to restore what it hid, and only then stop.
+                static bool fx_sweep_pending = false;
+                if (g_ghost_fx_hidden)
+                {
+                    fx_sweep_pending = true;
+                }
+                if (fx_sweep_pending)
                 {
                     const std::string fx_ghost_name = to_utf8(remote.ghost->GetName());
                     int fx_touched = 0;
@@ -16524,6 +16786,12 @@ namespace MeshGhostPseudo
                     }
                 }
 
+                if (!g_ghost_fx_hidden)
+                {
+                    // Restored, so stop sweeping until something is armed again.
+                    fx_sweep_pending = false;
+                }
+
                 // The blob shadow and the nametag, each on its own toggle so an answer names ONE
                 // of them rather than "something in that group".
                 //
@@ -16533,19 +16801,40 @@ namespace MeshGhostPseudo
                 // Enumerating a class and attributing by outer is the method that has actually
                 // worked all session, and every branch here logs, including "found none".
                 {
+                    // `pending` is why this is not simply `if (hidden)`: disarming has to run
+                    // the sweep one more time to put back what it hid. Before this latch existed
+                    // both rows ran EVERY TICK PER GHOST in every session -- two whole-world
+                    // FindAllOf scans and a GetFullName() string per component returned -- for
+                    // instruments that are off in all normal play.
+                    static bool shadow_sweep_pending = false;
+                    static bool nametag_sweep_pending = false;
+                    if (g_ghost_shadow_hidden)
+                    {
+                        shadow_sweep_pending = true;
+                    }
+                    if (g_ghost_nametag_hidden)
+                    {
+                        nametag_sweep_pending = true;
+                    }
+
                     struct Subtraction
                     {
                         const wchar_t* component_class;
                         bool hidden;
                         const wchar_t* label;
+                        bool* pending;
                     };
                     const Subtraction subtractions[] = {
-                        {STR("StaticMeshComponent"), g_ghost_shadow_hidden, STR("blob shadow")},
-                        {STR("TextRenderComponent"), g_ghost_nametag_hidden, STR("nametag")},
+                        {STR("StaticMeshComponent"), g_ghost_shadow_hidden, STR("blob shadow"), &shadow_sweep_pending},
+                        {STR("TextRenderComponent"), g_ghost_nametag_hidden, STR("nametag"), &nametag_sweep_pending},
                     };
                     const std::string ghost_own_name = to_utf8(remote.ghost->GetName());
                     for (const auto& sub : subtractions)
                     {
+                        if (!*sub.pending)
+                        {
+                            continue; // never armed this session -- nothing hidden, nothing to restore
+                        }
                         std::vector<UObject*> found;
                         UObjectGlobals::FindAllOf(sub.component_class, found);
                         int touched = 0;
@@ -16575,6 +16864,11 @@ namespace MeshGhostPseudo
                         }
                         // Reported once per state change, with what was actually reached -- "0 of N"
                         // is the line that would have caught the last version in one run.
+                        if (!sub.hidden)
+                        {
+                            // Restored on this pass; stop sweeping for this row.
+                            *sub.pending = false;
+                        }
                         static std::map<StringType, std::pair<bool, int>> announced;
                         auto& entry_state = announced[sub.label];
                         if (entry_state.first != sub.hidden || entry_state.second != touched)
@@ -16716,20 +17010,64 @@ namespace MeshGhostPseudo
                 // name containment, the same test VFX_WATCH uses -- a component's full name carries
                 // its outer chain, so anything living under this ghost's instance is ours to strip.
                 // This is what covers an attack's own mesh, which no property walk can see.
+                // **Walks THIS GHOST'S attach tree, not the level.** It used to ask
+                // UObjectGlobals for every SkeletalMeshComponent and StaticMeshComponent in the
+                // world and then run a name-chain property lookup plus a full-name string build on
+                // each one, every 5th frame, per ghost. Measured 2026-08-30: ~3.8 ms/frame
+                // amortised, i.e. roughly 19 ms every time it fired, for a sweep that
+                // `../../adapters/pseudoregalia/FLAGS.md` records as having NEVER ONCE found custom
+                // depth on -- it is the belt to the SetRenderCustomDepth pre-hook's braces.
+                //
+                // The attach tree reaches the same components for the same reason the old name
+                // test worked: a runtime-attached mesh (an attack's own mesh, a child actor's
+                // parts) hangs under this actor's root. Attribution is now structural rather than
+                // by string containment, so the name test is gone with the scan -- anything the
+                // walk reaches is ours by construction.
                 if (tick_count % OUTLINE_SWEEP_INTERVAL_TICKS == 0)
                 {
-                    const std::string ghost_name = to_utf8(remote.ghost->GetName());
-                    std::vector<UObject*> meshes;
-                    UObjectGlobals::FindAllOf(STR("SkeletalMeshComponent"), meshes);
+                    std::vector<UObject*> owned;
+                    if (UObject** root = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                        root && *root)
                     {
-                        // Appended via its own vector: whether FindAllOf clears its out-parameter
-                        // is not something to assume, and getting it wrong would silently drop
-                        // every static mesh.
-                        std::vector<UObject*> statics;
-                        UObjectGlobals::FindAllOf(STR("StaticMeshComponent"), statics);
-                        meshes.insert(meshes.end(), statics.begin(), statics.end());
+                        owned.push_back(*root);
+                        // Breadth-first over AttachChildren, bounded: a cycle or a pathological
+                        // hierarchy must not turn a per-tick sweep into an unbounded walk.
+                        for (size_t i = 0; i < owned.size() && owned.size() < OUTLINE_SWEEP_MAX_COMPONENTS; ++i)
+                        {
+                            UObject* node = owned[i];
+                            if (!node)
+                            {
+                                continue;
+                            }
+                            auto* children = node->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("AttachChildren"));
+                            if (!children)
+                            {
+                                continue;
+                            }
+                            const int child_count = static_cast<int>(children->Num());
+                            for (int c = 0; c < child_count && owned.size() < OUTLINE_SWEEP_MAX_COMPONENTS; ++c)
+                            {
+                                if (UObject* child = (*children)[c])
+                                {
+                                    owned.push_back(child);
+                                }
+                            }
+                        }
                     }
-                    for (UObject* mesh : meshes)
+                    else
+                    {
+                        // **Announced rather than silent.** A sweep that reaches nothing looks
+                        // exactly like a sweep that finds nothing, and this file has a case file on
+                        // subtractions that reported success while doing nothing at all.
+                        static bool announced_no_root = false;
+                        if (!announced_no_root)
+                        {
+                            announced_no_root = true;
+                            Output::send(STR("[MeshGhostPseudo] WARNING: ghost outline sweep found no RootComponent -- runtime components are NOT being swept.\n"));
+                        }
+                    }
+
+                    for (UObject* mesh : owned)
                     {
                         if (!mesh)
                         {
@@ -16740,11 +17078,10 @@ namespace MeshGhostPseudo
                         {
                             continue; // off already -- the overwhelmingly common case
                         }
+                        // The full name is built only for something actually found, which by the
+                        // record above is close to never -- it used to be built for every mesh in
+                        // the level.
                         const std::string full_name = to_utf8(mesh->GetFullName());
-                        if (full_name.find(ghost_name) == std::string::npos)
-                        {
-                            continue; // somebody else's, including the local player's own outline
-                        }
                         static std::set<std::string> announced_sweep;
                         if (announced_sweep.insert(full_name).second)
                         {
@@ -16781,7 +17118,49 @@ namespace MeshGhostPseudo
                 // any later one means the game put the light back, which is a fact about this game
                 // worth having rather than something to quietly undo.
                 const bool hunting_light = !g_ghost_light_forced_on;
-                if (remote.ghost && (hunting_light || tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0))
+
+                // **THE HOLD, on components already found.** This is the every-tick half, and
+                // it is now a property read and a write per light this ghost owns -- no scan.
+                // The behaviour it preserves is the one the block below documents: the game
+                // re-lights these, so writing once and trusting it leaves a ghost glowing.
+                if (remote.ghost)
+                {
+                    const float held_target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
+                    for (UObject* light : remote.light_components)
+                    {
+                        // IsUnreachable, because these belong to the level: a component can be
+                        // destroyed under us between the teardown hooks that clear this list.
+                        if (!light || light->IsUnreachable())
+                        {
+                            continue;
+                        }
+                        float* held = light->GetValuePtrByPropertyNameInChain<float>(STR("Intensity"));
+                        if (!held || *held == held_target)
+                        {
+                            continue;
+                        }
+                        call_set_light_intensity(light, held_target);
+                        if (!g_ghost_light_forced_on && remote.light_zeroed)
+                        {
+                            ++remote.light_relit_count;
+                            const uint64_t n = remote.light_relit_count;
+                            if (n == 1 || n == 10 || n == 100 || n == 1000 || n % 5000 == 0)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] ghost light: the game has re-lit this ghost {} time(s) since it was first turned down -- the hold is per-tick and it is earning it.\n"),
+                                             n);
+                            }
+                        }
+                        remote.light_zeroed = true;
+                    }
+                }
+
+                // **DISCOVERY, on an interval.** The scan below is what cost 6357 us/frame when
+                // it ran every tick. It still runs while this ghost has no light yet (the
+                // ChildActorComponent appears after spawn, and the ~1.5s window the original
+                // comment describes is a real bug, not a cosmetic delay), and on the interval
+                // afterwards to catch a component the game recreates.
+                const bool discovering_light = remote.light_components.empty();
+                if (remote.ghost && (discovering_light || tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0))
                 {
                     const std::string ghost_name = to_utf8(remote.ghost->GetName());
                     std::vector<UObject*> lights;
@@ -16841,6 +17220,12 @@ namespace MeshGhostPseudo
                         {
                             Output::send(STR("[MeshGhostPseudo] ghost light: '{}' was at intensity {} -- holding it at {}.\n"),
                                          to_wide_ascii(full_name), *intensity, target);
+                        }
+                        // Remembered, so the per-tick hold above never has to scan for it again.
+                        if (std::find(remote.light_components.begin(), remote.light_components.end(), light) ==
+                            remote.light_components.end())
+                        {
+                            remote.light_components.push_back(light);
                         }
                         call_set_light_intensity(light, target);
                         if (!g_ghost_light_forced_on)
@@ -16941,8 +17326,15 @@ namespace MeshGhostPseudo
 
             // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
             // majority of ticks.
-            tick_remote_recall_glow(id, remote);
-            tick_remote_mirrored_vfx(id, remote);
+            perf_stop(PERF_LOOP_TAIL);
+            {
+                PerfScope perf_recall(PERF_RECALL_GLOW);
+                tick_remote_recall_glow(id, remote);
+            }
+            {
+                PerfScope perf_vfx(PERF_MIRRORED_VFX);
+                tick_remote_mirrored_vfx(id, remote);
+            }
 
             if constexpr (GHOST_SPAWN_WEAPON_TRACE)
             {
@@ -16951,6 +17343,7 @@ namespace MeshGhostPseudo
 
             if constexpr (AFTERIMAGE_DISCOVERY)
             {
+                PerfScope perf_afterimage(PERF_AFTERIMAGE);
                 tick_afterimage_discovery(remote.ghost);
             }
 
@@ -18085,6 +18478,22 @@ namespace MeshGhostPseudo
         {
             if (tick_count % DEV_TOGGLE_POLL_TICKS == 0)
             {
+                const bool perf_on = dev_toggle_present(STR("perf_report.txt"));
+                if (perf_on != g_perf_armed)
+                {
+                    g_perf_armed = perf_on;
+                    for (int i = 0; i < PERF_SLOT_COUNT; ++i)
+                    {
+                        g_perf_qpc[i] = 0;
+                        g_perf_calls[i] = 0;
+                    }
+                    g_perf_frames = 0;
+                    g_perf_since = {};
+                    Output::send(STR("[MeshGhostPseudo] DEV: per-subsystem cost report now {} (perf_report.txt {}).\n"),
+                                 perf_on ? STR("ARMED") : STR("off"),
+                                 perf_on ? STR("present") : STR("gone"));
+                }
+
                 const bool present = dev_toggle_present(STR("keep_custom_depth.txt"));
                 if (present != g_ghost_keeps_custom_depth)
                 {

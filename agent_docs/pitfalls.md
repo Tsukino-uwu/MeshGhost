@@ -281,3 +281,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A bitfield bool read through a plain byte pointer says true for the whole byte (Pseudoregalia, 2026-08-30)
 - The code already said which field was broken — reading it beat every planned measurement (Pseudoregalia, 2026-08-30)
 - A data race seen once is real — and filtering the output loses the only part that attributes it (Go side, 2026-08-30, CLOSED)
+- A ghost cost half the frame rate, and every suspect was wrong (Pseudoregalia, 2026-08-30)

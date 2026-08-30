@@ -61,6 +61,19 @@ namespace MeshGhostPseudo
         // brightening the instant a peer connected, from across the level, and staying that way.
         bool light_zeroed{false};
 
+        // **This ghost's own light components, found once and then held by pointer.** The
+        // hold has to run EVERY tick (the game re-lights them; see the light block in
+        // game_thread_tick), and it used to find them by scanning all of UObject space for
+        // PointLightComponent and SpotLightComponent on every one of those ticks. Measured
+        // 2026-08-30: 6357 us/frame for a single ghost, which was most of the frame.
+        //
+        // Raw pointers to components the LEVEL owns, so they are dropped in exactly the same
+        // places as vfx_components -- see the teardown paths. The scan still runs on an
+        // interval to pick up components that appear later (the light lives in a
+        // ChildActorComponent that does not exist at spawn, which is why discovery cannot
+        // simply happen once).
+        std::vector<RC::Unreal::UObject*> light_components;
+
         // How many times the game has put this ghost's light BACK after we turned it down. Zero
         // means it was a birth default and nothing fights us; anything large means the pawn's own
         // logic re-lights it every frame and the hold is the only reason it is ever dark.

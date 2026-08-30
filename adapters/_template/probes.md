@@ -2012,3 +2012,36 @@ Three rig patterns from that night, all portable:
 And one read to never trust again: a reflected bool through a plain byte pointer. UE packs bools
 as bitfields; the byte read reports any set neighbour as true (thirty bools once printed
 uniformly true). `FBoolProperty::GetPropertyValueInContainer` applies the mask — use it.
+
+## The per-subsystem frame-cost timer (Pseudoregalia, 2026-08-30)
+
+**Reach for this the moment a ghost costs frame rate.** "Something in the adapter is slow" is not
+something to reason about -- six suspects were named from reading the code that day and every one
+measured at ~0 us, while the actual cost was somewhere nobody had proposed.
+
+**The shape**, which is worth copying rather than reinventing:
+
+- A scope guard per subsystem accumulating QPC ticks into a slot, plus a manual `start`/`stop` pair
+  for regions that are not brace-shaped (a 3000-line stretch between two statements should not be
+  wrapped in a block for an instrument's convenience).
+- **A `tick_total` slot around the whole tick.** Every other slot is then a share of it, and the
+  UNATTRIBUTED REMAINDER is the most useful number in the table: it says the cost is in something
+  you have not wrapped yet, and bisecting into it converges in two or three rounds.
+- **Integer microseconds per frame, plus call count and frame count.** Not formatted doubles -- an
+  instrument is not the place to discover a logging formatter's limits.
+- **Armed by a toggle FILE, not a compile flag**, so switching it on costs no rebuild; while
+  disarmed each scope is one bool test. Never leave it armed while judging anything visual.
+
+**Run it as an A/B: no peer, then one peer**, with `cmd/meshghost-fakeadapter` providing the peer
+so only ONE game instance is running. The subtraction is the per-ghost cost, exactly; and the
+no-peer baseline is worth having on its own, because a third of that day's cost turned out to be
+work that ran with nobody connected at all.
+
+**Before any of that, settle CPU vs GPU with the mesh subtraction** (`hide_ghost_mesh.txt` here):
+it keeps the ghost ticking and stops it being drawn. If the frame rate does not move, rendering is
+innocent and every "draw the ghost more cheaply" idea can be dropped before it costs a build.
+
+**What it found, so the next adapter can suspect the same thing first:** four separate
+`UObjectGlobals::FindAllOf` whole-world scans running per tick -- for the local pawn, a ghost's
+light, the dev-toggle subtractions (which swept whether or not they were armed), and two
+belt-and-braces outline sweeps. `agent_docs/pitfalls/method.md` has the table and the fixes.
