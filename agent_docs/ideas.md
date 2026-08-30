@@ -4242,6 +4242,15 @@ gets shadow counters before code, the way the area filter's 93% was known before
 
 ### Prior art, and the build order it revised (2026-08-30)
 
+**PROVENANCE, because this section is unlike the checked one at the top of this file: everything
+below is GENERAL KNOWLEDGE stated from memory on 2026-08-30. No source was read, no documentation
+page was opened, and nothing here was verified.** The Monster Hunter World observation is the
+user's own, from playing. The Unreal and Quake claims are the shape of well-known engine behaviour
+and are good enough to REASON with — they are not good enough to BUILD against. Before any of it
+informs code, check it against a documentation page and re-date it, per CLAUDE.md's rule that
+nothing traceable to nowhere gets used. No licensing question arises: these are concepts and
+published behaviour, not any project's source.
+
 The discipline has a name — **interest management** / **area of interest** — and its framing is
 wider than culling: for each observer, every entity gets a RELEVANCE, and relevance decides not
 only whether you hear about it but how OFTEN and in how much DETAIL. Four levers, as used across
