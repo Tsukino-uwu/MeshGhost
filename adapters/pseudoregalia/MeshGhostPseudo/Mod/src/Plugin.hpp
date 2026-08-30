@@ -1202,6 +1202,13 @@ namespace MeshGhostPseudo
         // Found with RESET_FN_PROBE.
         uint64_t pause_reset_hook_id{0};
 
+        // **The pause menu OPENING, hooked so ghosts die seconds before any reset.** The reset
+        // crash is a race (it does not reproduce while a heavy trace slows the game), and our
+        // destroy currently lands in the same frame as the reset itself. Opening the menu
+        // happens seconds earlier, which decouples the two completely -- if proximity is what
+        // matters, this shows it.
+        uint64_t pause_open_hook_id{0};
+
         // **No ghost may be spawned until this tick.** Set when the pause menu's Reset button
         // is clicked, because a reset tears the world down and SpawnActor into a world that is
         // going away is the leading explanation for the crash: with a peer connected the tick

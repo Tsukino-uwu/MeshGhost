@@ -9856,6 +9856,77 @@ namespace MeshGhostPseudo
             {
                 continue;
             }
+            // **The menu's own function vocabulary, dumped once.** `Construct` was hooked first and
+            // was wrong: it runs when the widget is CREATED, not when the menu opens -- the widget
+            // lives under the GameInstance and is merely shown again, so the hook armed and never
+            // fired while the user watched a ghost stand there in the pause menu. Guessing a second
+            // name would be the same mistake; this lists what actually exists, which is how
+            // FixAllLights was found (`../../agent_docs/pitfalls/method.md`).
+            {
+                static bool dumped_menu_vocab = false;
+                if (!dumped_menu_vocab)
+                {
+                    dumped_menu_vocab = true;
+                    if (UClass* menu_class = menu->GetClassPrivate())
+                    {
+                        for (UFunction* fn : TFieldRange<UFunction>(menu_class, EFieldIterationFlags::Default))
+                        {
+                            if (fn)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] MENUVOCAB: {}\n"), fn->GetName());
+                            }
+                        }
+                    }
+                }
+            }
+
+            // **The menu-open hook, resolved from the same widget.** Several names are tried
+            // because this build's vocabulary is not documented anywhere and a silent miss would
+            // look exactly like a fix that did not work -- so the one that resolves is logged, and
+            // so is the case where none does.
+            if (pause_open_hook_id == 0)
+            {
+                for (const wchar_t* opener : {STR("Construct"), STR("OnActivated"), STR("BP_OnActivated"),
+                                              STR("OnMenuOpened"), STR("NativeConstruct"), STR("OnAdded")})
+                {
+                    UFunction* open_fn = menu->GetFunctionByNameInChain(opener);
+                    if (!open_fn)
+                    {
+                        continue;
+                    }
+                    pause_open_hook_id = open_fn->RegisterPreHook(
+                        [this](UnrealScriptFunctionCallableContext&, void*) {
+                            std::vector<std::string> alive;
+                            for (auto& [gid, gremote] : remotes)
+                            {
+                                if (gremote.ghost)
+                                {
+                                    alive.push_back(gid);
+                                }
+                            }
+                            if (alive.empty())
+                            {
+                                return;
+                            }
+                            Output::send(STR("[MeshGhostPseudo] PAUSE OPEN: destroying {} ghost(s) now, long before any reset.\n"),
+                                         static_cast<int>(alive.size()));
+                            for (const std::string& gid : alive)
+                            {
+                                release_ghost(gid);
+                            }
+                            // Held only briefly: the point is to be clear of the reset, not to keep
+                            // ghosts away while somebody reads the menu.
+                            suppress_ghost_spawn_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
+                        });
+                    Output::send(STR("[MeshGhostPseudo] PAUSE OPEN hook armed on '{}'.\n"), opener);
+                    break;
+                }
+                if (pause_open_hook_id == 0)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: no pause-menu open function resolved -- ghosts are NOT destroyed early.\n"));
+                }
+            }
+
             pause_reset_hook_id = reset_fn->RegisterPreHook(
                 [this](UnrealScriptFunctionCallableContext&, void*) {
                     // **`guard_off.txt` makes this observe-only.** Every trace so far has had the

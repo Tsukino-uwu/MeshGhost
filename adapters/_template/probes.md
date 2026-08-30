@@ -2075,3 +2075,32 @@ says the crash is deterministic and single-cause, and retires "maybe it is a rac
 
 **The rule:** the moment a crash is reproducible, read the dump. Every guess made before that is
 made blind, and this project has the receipts.
+
+## A PROBE IS LUA. A REBUILD IS A LAST RESORT (user's rule, 2026-08-31)
+
+**The loop, in order of preference:**
+
+1. **A Lua probe** (`adapters/<game>/probe_*/Scripts/main.lua`, installed to the game's
+   `ue4ss/Mods/<Name>/`). Finds objects, reads properties, calls functions, destroys actors. No
+   build. With `EnableHotReloadSystem = 1` in `UE4SS-settings.ini`, no relaunch either -- edit the
+   file, reload it in place.
+2. **A dev toggle file** the already-built mod reads (`hooks_off.txt`, `decouple_off.txt`,
+   `log_reset_fns.txt`). Behaviour changes for the cost of one file write, and the CONTENT can name
+   which part to switch off, which turns a bisect into "edit a line, relaunch".
+3. **A C++/C# rebuild** only when the change has to live in the shipped adapter.
+
+**Why this is a rule and not a preference.** On 2026-08-30 every single question -- name a function,
+read a value, test a hypothesis -- was answered by editing the C++ mod, rebuilding for ~4 minutes,
+deploying, and asking the user to relaunch. About twenty times. Pseudoregalia already shipped Lua
+probes, and `EnableHotReloadSystem` had been sitting at 0 the whole time because nobody checked.
+The user's words: *"live reload/hotswap should be the default, hard reset by me manually should
+only be if its absolutely required"*.
+
+**Check hot reload before a session that will iterate.** Enabling it costs one restart and pays for
+itself on the second question.
+
+**A Lua probe can run the EXPERIMENT too, not just the measurement** -- `probe_menuwatch` both
+prints the pause menu's visibility transitions and destroys ghost pawns when it opens, which is a
+hypothesis test that would otherwise have been a build. Identify things by what they ARE rather
+than by mod internals (a ghost is a player pawn with no controller), and the probe stays honest
+about what it knows.

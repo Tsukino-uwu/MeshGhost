@@ -221,6 +221,12 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   **Then close every process you started, and verify they are gone** — leaving relays alive is how a later run silently binds the wrong port. If the
   test is still pending after a long wait, or has just been confirmed, **use `/loop` to re-check
   and close them** rather than trusting that you will remember. User preference, 2026-08-16.
+- **HOT RELOAD IS THE DEFAULT LOOP; a manual game restart is the LAST resort.** Ask a running
+  game questions with a **Lua probe** (`adapters/*/probe_*/`), change behaviour with a **dev toggle
+  file** the built mod already reads, and rebuild the C++/C# adapter only when the change must ship
+  in it. **Check `EnableHotReloadSystem = 1` in each install's `UE4SS-settings.ini` before a session
+  that will iterate.** It sat at 0 through 2026-08-30 and nobody looked: ~20 relaunches, a ~4-minute
+  build each, to answer questions Lua answers in seconds. User's rule, 2026-08-31.
 - **The game process is the session signal — watch it, don't ask.** `EmuHawk`, `TEVI`,
   `pseudoregalia` appearing means the test has started; **it exiting means the user is done or the
   game crashed, and either way the scaffolding above should be shut down.** Poll with
