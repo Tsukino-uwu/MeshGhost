@@ -3944,3 +3944,64 @@ tool (agent-side, dev only) or a shipped feature players see. Those want differe
 first wants completeness, the second wants a file small enough to share and a UI to race against.
 **Nothing about Trackmania here has been checked**; if this is ever picked up, that starts with
 `licensing.md`, not with a download.
+
+### What people actually want from it: controls, scrubbing and SLOW MOTION (added 2026-08-30)
+
+**A friend of the user, quoted:**
+
+> *"I'd very much use it if we could press a button to start/stop recording and another to replay
+> the last recording (maybe add a console command to the UE4SS console to save/load from file?) If
+> we then could scrub the replay or slow it down, that'd be insane to use especially considering it
+> could be reasonably well added to any game as long one puts in the work to get an adapter for it.
+> Doubt it would be much use in like GBA pokemon, but for any 3d platforming game it'd be really
+> nice to see things from other angles when trying stuff"*
+
+**And the user, on speed:** *"being able to replay something like this at a faster/slower speed
+could be cool, like playing against a ghost that does things at half the speed so you can
+see/watch what it does"* — with the caveat that it *"would probly also require some menu/in game
+things to actually feel nice to use"*, which is the honest half.
+
+**SPEED CONTROL IS NEARLY FREE, and that is the surprising part.** Playback is a fake peer feeding
+the interpolation buffer, and the interpolator already renders at an ARBITRARY time between two
+samples — that is its whole job. So "half speed" is advancing the replay clock at half rate and
+nothing else. **The one rule: the render clock must scale with playback, not stay wall-clock**, or
+position and the interpolation delay end up on different clocks — the same lockstep failure the
+rotation work turned on (ADR 0043).
+
+**Fast and slow are NOT symmetric, and the asymmetry is useful:**
+
+- **Slow motion IMPROVES**, because the same samples are spread over more frames — more
+  interpolation between each pair, nothing invented.
+- **Fast forward DEGRADES**, and predictably: 2x playback of a 20Hz recording shows the visual
+  information of 10Hz, because you cannot invent detail nobody sampled. Expect a fast replay to
+  look like a low-rate one, and do not read that as a bug.
+
+**SLOW MOTION IS ALSO A DIAGNOSTIC INSTRUMENT, which may be its strongest argument.** It is a
+magnifying glass on interpolation quality: at 0.25x, a facing that steps, a ghost that snaps at a
+bracket boundary, or a prediction being taken back all become obvious where they are invisible at
+1x. That is precisely the class of defect this project keeps chasing through expensive live cycles
+(the 2026-08-30 facing step took a three-launch A/B), and a scrubbable slow replay would turn some
+of them into something an agent can inspect alone. **Worth weighing when the render sweep in
+`plans.md` needs finer evidence than "looks choppy".**
+
+**SCRUBBING NEEDS THE FILE AS THE SOURCE OF TRUTH, not the buffer.** `remoteBuffer` deliberately
+holds only a short window (derived, ~600ms floor — see `hz-ceiling.md`), so a seek cannot come from
+it. Playback reads the file, so seeking means re-filling the buffer around the new time. Cheap, but
+it is a real design point rather than a free consequence.
+
+**THE LAYERING, so nobody builds this game-aware:** the CORE owns record and playback, because a
+state stream is game-agnostic and that is the entire reason this is small. The ADAPTER owns the
+TRIGGER and the UI — a hotkey, a UE4SS console command, an in-game menu — because a keybind and a
+console are per-host concerns and the core may not know what a keyboard is. Same split as every
+other capability here.
+
+**The friend's read on which games benefit is right, and it generalises: VALUE SCALES WITH CAMERA
+FREEDOM.** A fixed-camera 2D game gains little for a player, because a replay shows the same
+pixels from the same angle; a 3D game with a movable camera gains a lot, because the replay is the
+only way to watch your own run from somewhere else. **The exception is US:** even in GBA Pokemon a
+deterministic replay of a bug would be worth having as a dev tool, which is the same
+debugging-tool-vs-player-feature fork the entry above already names.
+
+**Still unscheduled, and the UI is the real cost.** The recording and the speed control are small;
+"feels nice to use" is a menu, a scrub bar and per-adapter input handling, and that is where the
+work actually is.
