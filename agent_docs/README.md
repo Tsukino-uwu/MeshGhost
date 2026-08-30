@@ -26,6 +26,10 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   points there; each filename carries its own date, so "the 2026-08-19 ADR" resolves without
   opening anything. `preflight.ps1` fails an ADR that is not in the index.
 - [plans.md](plans.md) — live roadmap, phase status, non-goals.
+- [scaling.md](scaling.md) — **what the Go side can carry**: the no-ceiling principle, the four
+  efficiency axes and their measured ranking, the culling model, and the ratified JSON-over-binary
+  decision. Read before proposing efficiency or scale work on `core`/`relay`/`transport`/the wire.
+  The Go-side pair to `crowd-limits.md`, which is the game-side half. Nothing in it is scheduled.
 - [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
   act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
 - [doc-history.md](doc-history.md) — the dated record of every doc-restructuring pass: what

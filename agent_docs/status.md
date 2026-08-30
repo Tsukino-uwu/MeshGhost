@@ -185,7 +185,7 @@ below says which SUBSYSTEM is unsettled and sends you there; it is deliberately 
 - **Relay per-state cost is down 26% CPU / 27% allocations (2026-08-28)** -- two redundant JSON
   passes gone, measured by the first relay benchmarks this repo has had. `relay/forward_bench_test.go`.
 - **OPEN: encoding/json is still ~58% of the relay per-state path** -- hand-written encoders are the
-  reversible next step, binary is rejected. Filed with the reasoning in `ideas.md`.
+  reversible next step, binary is rejected. Filed with the reasoning in `scaling.md`.
 - **Change suppression SHIPS, and TEVI now benefits: 70% of its states suppressed, confirmed to
   look identical (2026-08-28)** — 49.8 -> 16.5 MB/h. Pseudoregalia's share unmeasured. ADR 0039.
 - **OPEN: a predicted ghost sinks into the floor, and jumps land a beat late** — every generic

@@ -269,6 +269,7 @@ loaded and that index is not, so a trigger kept here still fires and a descripti
   facts observed from a running copy, never source, decompiled output, asset content or verbatim
   dumps (`licensing.md`).
 - `agent_docs/beyond-cosmetic.md` — read before proposing anything past Tier 2.
+- `agent_docs/scaling.md` — read before proposing efficiency or scale work on the Go side.
 - `agent_docs/effect-investigation.md` — read before starting effect/VFX work on a new adapter,
   not after it goes wrong.
 - `agent_docs/testing.md` — read before adding a test or chasing a flake.
