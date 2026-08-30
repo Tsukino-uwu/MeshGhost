@@ -1,82 +1,127 @@
--- MeshGhost pause watch, third pass -- MINIMAL. 2026-08-31.
+-- MeshGhost session-residue probe. 2026-08-31.
 --
--- The two earlier passes were too heavy and it showed: three FindAllOf whole-object-space scans
--- every 200ms, fifteen scans a second. The crash under investigation is a RACE (it does not
--- reproduce while a heavy call trace slows the game down), and with those passes running the user
--- went from "crashes on a reset" to "crashes on the second pause-menu open, opened slowly". A probe
--- that changes how often the bug fires is not measuring the bug. CLAUDE.md says this in one line:
--- a diagnostic can break the thing it measures.
+-- THE QUESTION, and it is the only one left standing after ten refuted fixes: the reset crash needs
+-- a ghost to have EVER EXISTED this session. Not to exist now -- ghosts have been destroyed at the
+-- click, destroyed when the pause menu opens, suppressed, and left alone, and the reset still
+-- crashes; only a session where no peer ever connected survives it. So a ghost's SPAWN permanently
+-- changes something, and no amount of tidying up afterwards undoes it.
 --
--- So this pass:
---   * finds each object ONCE and caches it, re-finding only if the handle goes invalid
---   * reads PROPERTIES only -- never calls a UFunction, because the fault is inside the Blueprint VM
---   * polls twice a second instead of five times
---   * watches exactly one question: WHAT FLIPS WHEN THE GAME PAUSES?
+-- Two singletons were censused from C++ (the GameInstance and the light manager, arrays and object
+-- references) and neither showed it. This looks everywhere instead: a count of live objects PER
+-- CLASS across the whole UObject space, on demand, so two snapshots can be diffed --
 --
--- Why that question: pausing stops the game's actors ticking, while MeshGhost's own tick keeps
--- running and calling into those pawns. The mod already goes silent across a level teardown; pause
--- was never considered. `AWorldSettings.Pauser` is the engine's own pause flag (it holds the
--- PlayerState that paused the game, and is null otherwise) and reading it costs one property read.
+--     one taken before any peer connects, one after a ghost has spawned AND been destroyed
+--
+-- Anything whose count does not come back is the residue, and it needs no theory about what the
+-- class is for.
+--
+-- HOW TO USE (no rebuild, no relaunch -- edit and press the hot-reload key to re-arm):
+--   * The probe prints a full census ~8 seconds after load, labelled BASELINE.
+--   * It prints another every time the pause menu opens, labelled LATER, with a DIFF against the
+--     baseline. Opening the menu is a deliberate, cheap trigger the user already performs.
+--
+-- ForEachUObject walks every live object once; at ~200k objects that is a fraction of a second and
+-- it runs only on those two occasions, never per tick. A probe that runs continuously would change
+-- the timing of a crash that is already known to be a race.
 
-local POLL_MS = 500
-
-local cached_world_settings = nil
-local cached_pc = nil
-local last = {}
+local baseline = nil
+local baseline_done = false
+local last_cursor = nil
 
 local function log(msg)
-    print("[MeshGhostMenuWatch] " .. msg .. "\n")
+    print("[MeshGhostResidue] " .. msg .. "\n")
 end
 
-local function on_change(key, value)
-    local v = tostring(value)
-    if last[key] ~= v then
-        log(key .. " : " .. tostring(last[key]) .. " -> " .. v)
-        last[key] = v
-    end
+--- Says out loud which whole-space walker this UE4SS build actually has. A probe that silently
+--- does nothing is indistinguishable from a finding of "nothing changed", and the first version of
+--- this file failed at load with no output at all.
+local walker_name, walker = nil, nil
+if type(ForEachUObject) == "function" then
+    walker_name, walker = "ForEachUObject", ForEachUObject
+elseif type(UObjectGlobals) == "table" and type(UObjectGlobals.ForEachUObject) == "function" then
+    walker_name, walker = "UObjectGlobals.ForEachUObject", UObjectGlobals.ForEachUObject
 end
 
-local function safe(fn, default)
-    local ok, v = pcall(fn)
-    if ok then
-        return v
+--- class name -> number of live, non-default objects.
+local function census()
+    local counts = {}
+    if not walker then
+        return counts
     end
-    return default
+    local ok, err = pcall(function()
+        walker(function(obj)
+            if not obj or not obj:IsValid() then
+                return
+            end
+            local ok2, cls = pcall(function() return obj:GetClass():GetFName():ToString() end)
+            if ok2 and cls then
+                counts[cls] = (counts[cls] or 0) + 1
+            end
+        end)
+    end)
+    if not ok then
+        log("census FAILED: " .. tostring(err))
+    end
+    return counts
 end
 
---- Finds an object once and keeps it. The scan only runs again if the handle dies.
-local function cached(current, class_name)
-    if current and current:IsValid() then
-        return current
+local function print_diff(now)
+    if not baseline then
+        return
     end
-    local found = FindAllOf(class_name)
-    if not found then
-        return nil
-    end
-    for _, o in ipairs(found) do
-        if o:IsValid() and not o:GetFullName():find("Default__") then
-            return o
+    local keys = {}
+    for k in pairs(now) do keys[#keys + 1] = k end
+    for k in pairs(baseline) do if now[k] == nil then keys[#keys + 1] = k end end
+    table.sort(keys)
+
+    local changed = 0
+    for _, k in ipairs(keys) do
+        local was = baseline[k] or 0
+        local is = now[k] or 0
+        if is ~= was then
+            changed = changed + 1
+            log(string.format("  %-52s %6d -> %6d  (%+d)", k, was, is, is - was))
         end
     end
-    return nil
+    log("diff vs baseline: " .. changed .. " class(es) changed")
 end
 
-LoopAsync(POLL_MS, function()
-    cached_world_settings = cached(cached_world_settings, "WorldSettings")
-    if cached_world_settings then
-        -- Pauser is set to the pausing PlayerState and cleared on resume: the engine's own answer
-        -- to "is the game paused", with no function call and no scan.
-        local pauser = safe(function() return cached_world_settings.Pauser end, nil)
-        local paused = pauser ~= nil and pauser:IsValid()
-        on_change("game.paused", paused)
-    end
+-- The baseline, once, a few seconds after load: before any peer has had time to connect.
+ExecuteWithDelay(8000, function()
+    baseline = census()
+    baseline_done = true
+    local n = 0
+    for _ in pairs(baseline) do n = n + 1 end
+    log("BASELINE taken: " .. n .. " distinct classes live")
+end)
 
-    cached_pc = cached(cached_pc, "PlayerController")
-    if cached_pc then
-        on_change("pc.bShowMouseCursor", safe(function() return cached_pc.bShowMouseCursor end, "?"))
+-- A LATER census whenever the pause menu opens -- a trigger the user already performs, and one that
+-- costs nothing while playing.
+LoopAsync(500, function()
+    if not baseline_done then
+        return false
     end
-
+    local pcs = FindAllOf("PlayerController")
+    if not pcs then
+        return false
+    end
+    for _, pc in ipairs(pcs) do
+        if pc:IsValid() and not pc:GetFullName():find("Default__") then
+            local ok, cursor = pcall(function() return pc.bShowMouseCursor end)
+            if ok then
+                if cursor and last_cursor == false then
+                    log("LATER census (pause menu opened) --")
+                    print_diff(census())
+                end
+                last_cursor = cursor and true or false
+            end
+            break
+        end
+    end
     return false
 end)
 
-log("armed (minimal pass) -- one property poll every " .. POLL_MS .. "ms, no scans, no calls")
+log("armed -- walker=" .. tostring(walker_name) ..
+    ", ExecuteWithDelay=" .. type(ExecuteWithDelay) ..
+    ", LoopAsync=" .. type(LoopAsync) ..
+    ", FindAllOf=" .. type(FindAllOf))

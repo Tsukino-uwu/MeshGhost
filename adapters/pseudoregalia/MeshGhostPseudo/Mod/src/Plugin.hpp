@@ -1223,6 +1223,9 @@ namespace MeshGhostPseudo
         // not reproduce while a heavy trace slows the game down, which is what a use-after-free
         // race looks like from the outside.
         uint64_t quiet_until_tick{0};
+
+        // Edge latch for the pause-menu ghost clear; see the tick.
+        bool pause_ghosts_cleared{false};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};

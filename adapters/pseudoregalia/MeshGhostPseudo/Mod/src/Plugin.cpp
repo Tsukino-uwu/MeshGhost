@@ -9900,6 +9900,22 @@ namespace MeshGhostPseudo
                     // suppressed, which is the control the investigation is missing.
                     if (dev_toggle_present(STR("guard_off.txt")))
                     {
+                        // **THE UNTESTED COMBINATION, and the evidence points straight at it.**
+                        // Destroying ghosts at the click crashes INSTANTLY; leaving them alone
+                        // crashes LATER, after the reload, once the player has loaded back in
+                        // (user, 2026-08-31). A late crash after a reload is exactly the
+                        // zone-change failure mode already fixed: ghosts respawning into a world
+                        // still coming up. That suppression arms at LoadMap PRE, which a reset
+                        // does not reliably reach.
+                        //
+                        // So `suppress` holds the respawn WITHOUT destroying anything.
+                        if (dev_toggle_contains(STR("guard_off.txt"), "suppress"))
+                        {
+                            suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                            quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                            Output::send(STR("[MeshGhostPseudo] RESET GUARD: SUPPRESS-ONLY -- ghosts left alive, respawns held.\n"));
+                            return;
+                        }
                         Output::send(STR("[MeshGhostPseudo] RESET GUARD: OBSERVE-ONLY (guard_off.txt) -- not destroying ghosts, not suppressing spawns.\n"));
                         return;
                     }
@@ -12907,9 +12923,44 @@ namespace MeshGhostPseudo
             }
             if (cursor_shown)
             {
+                // **On the RISING edge, destroy the ghosts -- from the tick, which is a safe place
+                // to destroy actors.** (Destroying them from the pause widget's own Construct
+                // callback crashed the game on 2026-08-31; that is a different context entirely and
+                // is not what this is.)
+                //
+                // Why destroy at all: a reset with NO ghost present has never once crashed, across
+                // every configuration tried, while a reset with one has crashed in all of them. The
+                // menu is open for seconds before anyone clicks Reset, so this removes the
+                // precondition long before the moment of danger -- rather than trying to survive
+                // it, which nine attempts failed to do.
+                //
+                // The cost is the user's own call, made when this was proposed: ghosts vanish while
+                // the pause menu is open. They come back when it closes.
+                if (!pause_ghosts_cleared)
+                {
+                    pause_ghosts_cleared = true;
+                    std::vector<std::string> alive;
+                    for (auto& [pid, premote] : remotes)
+                    {
+                        if (premote.ghost)
+                        {
+                            alive.push_back(pid);
+                        }
+                    }
+                    if (!alive.empty())
+                    {
+                        Output::send(STR("[MeshGhostPseudo] PAUSE: destroying {} ghost(s) while the menu is open.\n"),
+                                     static_cast<int>(alive.size()));
+                        for (const std::string& pid : alive)
+                        {
+                            release_ghost(pid);
+                        }
+                    }
+                }
                 ++tick_count;
                 return;
             }
+            pause_ghosts_cleared = false;
         }
 
         // **Total silence across a teardown -- see quiet_until_tick.** Not merely "do not spawn":
