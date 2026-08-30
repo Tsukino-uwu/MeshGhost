@@ -304,6 +304,10 @@ relaunch-and-navigate and costing about two seconds. Emerald and Crystal got a d
 and became the fastest adapters to work on; TEVI relaunched for every change from Phase 6 until
 **2026-08-28**, then shipped three features in that one session.
 
+**The story version, for a human**, with the three hosts compared and why they differ:
+[../../docs/live-reload.md](../../docs/live-reload.md). The table and traps below are the working
+reference; that file is the shape.
+
 **What exists per host, so nobody has to go looking:**
 
 | Host | Reloads adapter code live? | How |

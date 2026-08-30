@@ -209,6 +209,8 @@ is the internal working record of how it got built.
   checked-safe, and the gaps that remain.
 - [networking.md](docs/networking.md) — how the relay and client actually work, traced through
   the real code.
+- [live-reload.md](docs/live-reload.md) — how a code change reaches a running game without
+  restarting it, and why the three games solved it three different ways.
 - [antivirus.md](docs/antivirus.md) — why the binaries get flagged, and what you can check.
 
 **`agent_docs/`**
