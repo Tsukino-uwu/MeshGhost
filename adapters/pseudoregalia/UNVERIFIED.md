@@ -250,6 +250,50 @@ correct, and it is aimed at a path this crash never reaches. **It was kept anywa
 reload really does bypass `LoadMap PRE`, and every "cleared at teardown" guarantee in this file
 was simply absent there.
 
+### FIXED: zone changes with a ghost. STILL OPEN: reset to last save (2026-08-31)
+
+**The user's matrix is what cracked it** -- leaving a zone with NO ghost was fine, entering a zone
+WITH a ghost was fine, and only leaving a zone WITH a ghost crashed. So the bug was never about the
+reset button: **a world teardown while a player-pawn clone is alive kills the game.**
+
+**Two changes at `LoadMap PRE`, and zone changes now survive (user-confirmed):**
+
+1. **DESTROY live ghosts there.** `release_all_ghosts` drops references and destroys nothing by
+   design; the level's teardown was assumed to reclaim them, and it does -- in its own order, on a
+   pawn clone the game never expected. This is the last moment we control.
+2. **HOLD ghost spawning across the load.** With (1) alone the log showed both ghosts respawned
+   0.26s later into the still-loading world and the crash simply MOVED there.
+
+**A bug of mine defeated (2) on the first attempt**, which the log caught in seconds: the
+`InitGameState` hook set the spawn freeze to zero on the reasoning that "the new world is up". It
+fires ~180ms into a load, and ghosts were spawning 95ms after that. It holds a shorter window now.
+
+### The reset crash is a RACE, and that is new information (2026-08-31)
+
+**It does not reproduce while a heavy call trace is running.** The user tried reset-to-save and
+main menu repeatedly, before and after ghosts spawned, with `log_reset_fns.txt = all` armed: **no
+crashes at all**. Relaunched without it: **crashes on the first try.** Same fault address as every
+previous dump (`+0x1CD9A60`), same stack shape.
+
+**A fault that disappears when the game is slowed down is a race**, not a logic error -- which
+retires every "we left a stale pointer" theory as a complete explanation and reframes the search
+around ORDER rather than state.
+
+**Also refuted, each on its own run:** making the mod completely silent across the teardown (no
+reads, writes or calls from the tick, not merely no spawns); destroying the ghosts at the click;
+suppressing respawns; the HUD decouple; the shared-reference nulling; keeping the ghost's vertex
+light alive; forcing a GC.
+
+**What is worth trying next, in order:**
+1. **Destroy ghosts when the pause MENU OPENS**, not when Reset is clicked -- the current destroy
+   happens in the same frame as the reset, and decoupling the two by seconds is the cheapest way
+   to test whether proximity is the problem.
+2. **A narrower trace.** The all-calls trace masks the bug by slowing everything; a filter tight
+   enough to keep normal speed but wide enough to catch the tail would give the sequence at real
+   timing.
+3. **Ask whether the ghost needs to be a PAWN.** Everything about this points at a second
+   `BP_PlayerGoatMain_C` existing when the game tears a world down.
+
 ### THE CRASH DUMP AND THE CALL TRACE, which should have come first (2026-08-30/31)
 
 **Read the dump. `dev-scripts/read-minidump.py`, no debugger needed.** Five separate crashes:

@@ -1208,6 +1208,14 @@ namespace MeshGhostPseudo
         // respawns a missing ghost immediately, which is why destroying the ghosts at the click
         // was not enough on its own, and why a session with NO peer never crashed.
         uint64_t suppress_ghost_spawn_until_tick{0};
+
+        // **The mod does NOTHING at all until this tick.** Set when a teardown starts (the pause
+        // menu's Reset button, or LoadMap PRE). Suppressing SPAWNS was not enough: the tick also
+        // calls the game's own functions on the local pawn and on ghosts every frame, and a
+        // teardown destroys those actors underneath us. The crash is timing-sensitive -- it does
+        // not reproduce while a heavy trace slows the game down, which is what a use-after-free
+        // race looks like from the outside.
+        uint64_t quiet_until_tick{0};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};

@@ -9873,6 +9873,7 @@ namespace MeshGhostPseudo
                     // insufficient on 2026-08-30: the next tick simply spawned them again, into the
                     // world the reset was already tearing down.
                     suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                    quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
                     std::vector<std::string> to_release;
                     for (auto& [id, remote] : remotes)
@@ -10259,6 +10260,7 @@ namespace MeshGhostPseudo
                 // load never did, so the tick puts player-pawn clones into a world still building
                 // itself. The window is cleared by InitGameState when the new world is actually up.
                 suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
                 // Crash fix, found live 2026-08-13: entering a new area crashed with
                 // EXCEPTION_ACCESS_VIOLATION inside the camera fight-back hook. last_known_good_
@@ -10428,6 +10430,7 @@ namespace MeshGhostPseudo
                 // finishes coming up, short enough that ghosts are not missing for noticeably long
                 // after a legitimate transition.
                 suppress_ghost_spawn_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
+                quiet_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("InitGameStatePre")});
     }
@@ -12839,6 +12842,18 @@ namespace MeshGhostPseudo
         // so a subsystem that does not show up in it is not on this thread and is not this cost.
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         perf_report_if_due();
+
+        // **Total silence across a teardown -- see quiet_until_tick.** Not merely "do not spawn":
+        // do not read, write, or call anything. The tick calls the game's own functions on the
+        // local pawn and on ghosts every frame, and a teardown destroys those actors underneath
+        // us. Confirmed timing-sensitive on 2026-08-31: with a heavy call trace slowing the game
+        // down the crash does not reproduce at all, and without it the same action crashes -- the
+        // signature of a use-after-free race rather than a logic error.
+        if (tick_count < quiet_until_tick)
+        {
+            ++tick_count;
+            return;
+        }
 
         // **A periodic census, so a count can be watched SETTLING.** UE destruction is deferred:
         // a count taken in the same frame as K2_DestroyActor cannot tell an orphan from an actor
