@@ -63,6 +63,8 @@ has never been looked at. `verified.md`.
   three-launch A/B; the residual "delayed" read is the interp knob. ADR 0043, `pseudoregalia/VERIFIED.md`.
 - **OPEN: Pseudoregalia's `interp` has never been swept, and rotation extrapolation is unwatched** —
   250ms is a placeholder (TEVI measured 175ms); config-only. `pseudoregalia/UNVERIFIED.md`.
+- **The orientation bracket is OPT-IN per adapter and UNWATCHED since that change (2026-08-30)** —
+  `interpolate_orientation` in the bridge hello; Pseudoregalia needs a re-check. ADR 0043.
 - **HIGH PRIORITY: two shipped settings do nothing, and the config work around them is planned
   (2026-08-30)** — `ghost_collision` reaches no adapter in any game, nametags reach one of four;
   plan, ordering and the two `stage-release.ps1` bugs: `plans.md`, "Settings: defined once".
@@ -85,6 +87,8 @@ has never been looked at. `verified.md`.
   may be stiffer than the game's own model; unknown if real. `pseudoregalia/UNVERIFIED.md`.
 - **`probe_dustlight/` CRASHED the game twice and is disabled** — whole-world `ChildActorComponent`
   walk; cut the class list before reloading it. `pseudoregalia/PROBES.md`, `pitfalls/by-lesson.md`.
+- **A DATA RACE was seen ONCE in `core`'s `TestARelayDropInsideTheHandshakeStillReconnects`
+  (2026-08-30) and never reproduced** — 12x `./core`, 3x the package, a clean full suite. `testing.md`.
 - **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
   child gets a bare port number that can be taken first; unfixed. `testing.md`, Traps.
 - **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured

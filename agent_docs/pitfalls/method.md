@@ -968,3 +968,30 @@ was to revert it, not to keep it for tidiness.
 believed to. It had been described, in this repo's own planning notes, as absent — from listing
 target names and reading their categories rather than reading what they do. **An inventory taken by
 name is a guess.**
+
+## A DATA RACE SEEN ONCE IS REAL — AND FILTERING THE OUTPUT LOSES THE ONLY PART THAT ATTRIBUTES IT (Go side, 2026-08-30, OPEN)
+
+**Symptom.** One full `-race -count=3` run reported `WARNING: DATA RACE` with
+`--- FAIL: TestARelayDropInsideTheHandshakeStillReconnects`.
+
+**Not reproduced since**, across 12 runs of `./core`, 3 runs of the whole package, and a clean
+full-suite race run. **Status: OPEN, unattributed, and specifically NOT fixed.** The temptation is
+to call a non-reproducing race a flake and move on; a race that appears once is a real race whose
+window is narrow, which is exactly the kind that reaches a user and never reaches a test.
+
+**The method mistake, which is the transferable half.** The race report was piped through a
+`Select-String` filter that matched only the summary lines, so the goroutine stacks — the only part
+that says WHICH two accesses raced and therefore whose bug it is — were discarded, and the run
+never reproduced to give them back. **Capture the whole race output to a FILE first and filter the
+file afterwards.** A race report is not like a test failure that can be re-run on demand.
+
+**Where to look first if it returns**, offered as a starting point and not a conclusion: the
+handshake/reconnect path the failing test exercises. The interpolation work that landed the same
+day touches neither that path nor anything the test uses — but "the new code looks unrelated" is a
+hypothesis, and this entry exists precisely because nobody could check it.
+
+**CI is the likelier place to catch it again**, since it runs `-race` on every push against
+different scheduling. A red CI run naming this test is a gift to be READ (`gh run view <id>
+--log-failed`), never re-run until it goes green.
+
+**Evidence:** `agent_docs/testing.md`'s Traps list, `agent_docs/status.md`.

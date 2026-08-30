@@ -704,6 +704,14 @@ type Core struct {
 	// areas itself. Reset with the rest of the adapter state on detach.
 	adapterRenderAllAreas bool
 
+	// adapterWantsOrientBracket mirrors the attached adapter's Hello
+	// interpolate_orientation: when true, remoteStatesAt computes the
+	// orientation bracket and render_remote carries it. Off for an adapter
+	// with a discrete facing, which cannot use it and should not be sent it
+	// (bridge.Hello's own comment has the why). Reset with the rest of the
+	// adapter state on detach.
+	adapterWantsOrientBracket bool
+
 	// resumeToken is the single-use secret from the last Welcome, presented
 	// in a later Hello to reclaim this identity after an unexpected drop.
 	// Deliberately NOT cleared on disconnect — that is precisely when it

@@ -82,7 +82,16 @@ func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[
 	// The orientation bracket that goes with each state -- see orientBracket.
 	// A separate map rather than a field on protocol.State on purpose: State is
 	// the WIRE packet, and nothing here travels off this machine.
-	brackets := make(map[string]orientBracket, len(c.remotes))
+	//
+	// NOT COMPUTED AT ALL unless the adapter asked (bridge.Hello's
+	// interpolate_orientation). An adapter with a discrete facing -- four
+	// compass directions, a flipped sprite -- cannot use a midpoint between two
+	// orientations and would discard every one of these. Left nil so the map
+	// is not even allocated for those three adapters.
+	var brackets map[string]orientBracket
+	if c.adapterWantsOrientBracket {
+		brackets = make(map[string]orientBracket, len(c.remotes))
+	}
 	// AGE OUT A PEER NOBODY IS HEARING FROM. Until 2026-08-28 a remote was
 	// dropped only when the relay said it had LEFT, and a buffer that stops
 	// being fed keeps answering: remoteBuffer.at returns its newest sample for
@@ -106,7 +115,14 @@ func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[
 			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
 			continue
 		}
-		st, br, ok := buf.atBracket(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+		var st protocol.State
+		var br orientBracket
+		var ok bool
+		if c.adapterWantsOrientBracket {
+			st, br, ok = buf.atBracket(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+		} else {
+			st, ok = buf.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+		}
 		if !ok {
 			continue
 		}

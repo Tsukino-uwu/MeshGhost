@@ -10,6 +10,13 @@
   `-race`, `internal/e2e`, plus `core/orientbracket_test.go`. **Nothing about how it LOOKS is
   confirmed**; the Pseudoregalia half ships behind `GHOST_ROTATION_SLERP` and the user judges it
   on screen, per the standing rule.
+- **Amended the same day: the bracket is OPT-IN, not automatic.** An adapter asks for it with
+  `interpolate_orientation` in its bridge `hello`; without that the core does not compute or send
+  it. The first version sent it to everyone, which is game-blind but wasteful — three of the four
+  shipped adapters have a discrete facing and would discard every byte. Second saving alongside it:
+  **no bracket when the two orientations are byte-identical**, which covers a standing player and
+  anyone walking in a straight line, and cannot change a pixel (interpolating a value toward itself
+  returns that value). See "Opt-in" below.
 - **Bridge only, never `protocol.State`.** Nothing here crosses the network and no relay sees it:
   both blobs are already on the wire as consecutive samples, so this costs zero bandwidth on the
   link that matters. It is the core telling the adapter, over a local socket, which two it used.
@@ -106,3 +113,67 @@ Any future 3D adapter inherits the stepped-facing defect the day it ships, and n
 with it. The three-family rule behind it — vector quantities lerp directly, cyclic ones need a
 shortest-arc correction, discrete ones are never interpolated but only timed — is written up in
 `scaling.md` and belongs in `_template/` once this is confirmed on screen.
+
+## Opt-in: the shared pool an adapter picks from, rather than a thing the core decides
+
+**Amended 2026-08-30, on the user's framing:** *"shared config/settings, keep server/client dumb and
+not game knowleagable, make adapters/games use specific things from the shared
+template/base/pool config stuffs"*. That is exactly the shape already in use, and this amendment
+puts the bracket into it rather than beside it.
+
+**The pattern, stated once because it now has three members.** The core offers a pool of GENERIC
+capabilities, none of which knows what a game is. An adapter picks the ones it can use, in its
+bridge `hello`. The core learns only *that* a capability was requested, never why:
+
+| capability | what the adapter is declaring | who asks today |
+|---|---|---|
+| `features` | "I can speak these planes" (event, lease, escrow, world) | none — cosmetic only |
+| `render_all_areas` | "I translate foreign areas myself, so stop filtering" | Emerald |
+| `interpolate_orientation` | "my orientation is continuous, so a midpoint between two means something" | Pseudoregalia |
+
+Each is a statement about **the adapter's own capability**, which nothing else can know — that is
+what makes it game-blind rather than a `game_id` branch in disguise. And each is **adapter-local,
+never a room feature**: it changes what one core hands its own adapter and nothing on the wire, so
+two peers in a room may disagree and neither can tell. Fragmenting room compatibility over a local
+rendering choice would be the real mistake.
+
+**Why the bracket had to join it rather than stay automatic.** Computing it is game-blind, so the
+first version simply sent it to everyone — correct, and wasteful: only a game with CONTINUOUS
+rotation can use a midpoint between two orientations. Emerald and Crystal have four compass
+directions and TEVI flips a sprite; for all three the step IS the truth, and two extra blobs per
+peer per frame would be discarded on arrival. This project does not wave a saving away for being
+small (`plans.md`, "Efficiency is a standing goal"), and the cost here is per peer per frame.
+
+**Two savings, and only one of them needed a decision:**
+
+1. **The opt-in.** Off by default; three adapters ask for nothing and the map is not even
+   allocated for them. Byte-for-byte the behaviour that shipped before the bracket existed.
+2. **No bracket when nothing rotated** — a byte compare of the two orientation blobs, which is the
+   only question the core is allowed to ask about a field it may not parse (the same
+   equality-only treatment `area_id` and `anim` get). This needed no decision because **it cannot
+   change a pixel**: interpolating a value toward itself returns that value at every fraction,
+   which is precisely what the adapter's fallback renders. `TestNoBracketWhenNothingRotatedIsVisuallyIdentical`
+   keeps that argument as a test rather than a comment. It covers a standing player, a player
+   walking in a straight line, and every peer of an adapter that opted in without needing to.
+
+**Tied to the adapter's own flag, so the A/B stays honest.** With `GHOST_ROTATION_SLERP` off the
+mod does not ask, so the core computes and sends nothing — the bridge traffic reverts along with
+the rendering. A revert that leaves the cost running is the trap `FLAGS.md` exists to catch.
+
+**Confirm the opt-in from the CORE's log** (`adapter asked for interpolated orientation`), never
+from the adapter's own send: an adapter logging its outgoing hello proves it built a string. This
+is the one failure that is invisible from the game — no bracket looks exactly like the old stepping
+behaviour, and the mod's flag would still say `true`.
+
+## What a NEW 3D adapter has to do, and what it gets for free
+
+**For free:** the whole core half — bracketing, the fraction, every discontinuity guard, the
+prediction window, the suppression. None of it is written twice.
+
+**Its own, and it is small:** one line in the `hello`, and the interpolation for whatever shape its
+orientation is — per-component shortest-arc for Euler degrees, a real slerp with the dot-product
+negation for quaternions, and **nothing at all for a discrete facing, which must not opt in**. The
+reference implementation is ~15 lines with no dependencies (`lerp_angle_deg` in Pseudoregalia's
+`Plugin.cpp`); the four adapters live in three languages and this repo has no cross-adapter code
+layer, so that half is copied rather than shared, deliberately. The recipe, the table and the three
+non-obvious rules are in `adapters/_template/README.md`.

@@ -64,6 +64,9 @@ type fakeAdapter struct {
 
 	mu       sync.Mutex
 	rendered map[string]protocol.State
+	// renderMsgs is the WHOLE render_remote per peer, so a test can assert on
+	// the orientation bracket -- which sits beside State, not inside it (ADR 0043).
+	renderMsgs map[string]bridge.RenderRemote
 	// names is every remote_name this adapter was told, keyed by player id. A real adapter
 	// draws from exactly this, and a test that only inspects the Core's own map cannot see the
 	// handover -- which is where the 2026-08-28 ordering bug actually lived.
@@ -105,14 +108,15 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 		return nil, err
 	}
 	fa := &fakeAdapter{
-		t:        t,
-		conn:     conn,
-		rendered: make(map[string]protocol.State),
-		despawns: make(chan string, 16),
-		ready:    make(chan struct{}, 4),
-		rejects:  make(chan string, 4),
-		policies: make(chan string, 8),
-		order:    make(chan bridge.MessageType, 32),
+		t:          t,
+		conn:       conn,
+		rendered:   make(map[string]protocol.State),
+		renderMsgs: make(map[string]bridge.RenderRemote),
+		despawns:   make(chan string, 16),
+		ready:      make(chan struct{}, 4),
+		rejects:    make(chan string, 4),
+		policies:   make(chan string, 8),
+		order:      make(chan bridge.MessageType, 32),
 	}
 	conn.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
@@ -133,6 +137,7 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 			}
 			fa.mu.Lock()
 			fa.rendered[rr.PlayerID] = rr.State
+			fa.renderMsgs[rr.PlayerID] = rr
 			fa.mu.Unlock()
 		case bridge.TypeDespawnRemote:
 			var dr bridge.DespawnRemote
@@ -251,6 +256,32 @@ func (fa *fakeAdapter) rendersOf(playerID string) (protocol.State, bool) {
 	defer fa.mu.Unlock()
 	st, ok := fa.rendered[playerID]
 	return st, ok
+}
+
+// renderMsgOf is rendersOf for the whole bridge message, used where the
+// assertion is about a field that sits beside State rather than in it.
+func (fa *fakeAdapter) renderMsgOf(playerID string) (bridge.RenderRemote, bool) {
+	fa.mu.Lock()
+	defer fa.mu.Unlock()
+	rr, ok := fa.renderMsgs[playerID]
+	return rr, ok
+}
+
+// helloInterpolateOrientation is the opt-in an adapter with CONTINUOUS rotation
+// sends -- see bridge.Hello's interpolate_orientation.
+func (fa *fakeAdapter) helloInterpolateOrientation(gameID string) {
+	fa.t.Helper()
+	payload, err := json.Marshal(bridge.Hello{GameID: gameID, InterpolateOrientation: true})
+	if err != nil {
+		fa.t.Fatalf("marshal hello: %v", err)
+	}
+	env, err := json.Marshal(bridge.Envelope{Type: bridge.TypeHello, Payload: payload})
+	if err != nil {
+		fa.t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := fa.conn.Send(env); err != nil {
+		fa.t.Fatalf("send hello: %v", err)
+	}
 }
 
 func startCore(t *testing.T, relayAddr, gameID, room, name string) (*Core, string) {

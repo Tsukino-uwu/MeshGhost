@@ -64,6 +64,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// The next adapter may be an ordinary one: its Hello decides
 			// afresh, and until then the core's own filter is the default.
 			c.adapterRenderAllAreas = false
+			c.adapterWantsOrientBracket = false
 		}
 		if owns {
 			// Disarm auto-retry (see autoRetryGameID's doc comment) before
@@ -155,7 +156,20 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// own comment has the why). Under the same lock remoteStatesAt
 			// takes, so the filter change is atomic with the attach.
 			c.adapterRenderAllAreas = h.RenderAllAreas
+			// Same lock, same reason: remoteStatesAt reads this, so the
+			// change is atomic with the attach rather than landing mid-tick.
+			c.adapterWantsOrientBracket = h.InterpolateOrientation
 			c.mu.Unlock()
+
+			// Logged from what the core PARSED, not from what the adapter
+			// thinks it sent -- an adapter logging its own outgoing hello
+			// proves only that it built the string (CLAUDE.md). This line is
+			// the independent read, and it is the one to check when a ghost's
+			// facing steps: no line, no bracket, and the adapter is rendering
+			// the raw orientation whatever its own flag says.
+			if h.InterpolateOrientation {
+				log.Printf("core: adapter asked for interpolated orientation -- render_remote will carry the bracket")
+			}
 
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
 				// Release the slot claimed above: this connection never

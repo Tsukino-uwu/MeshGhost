@@ -18317,8 +18317,19 @@ namespace MeshGhostPseudo
         // Hello on CONNECTED, not on ready -- it is the message that asks the question.
         if (bridge->is_connected() && !bridge->hello_sent())
         {
+            // interpolate_orientation asks the core for the orientation bracket -- see
+            // GHOST_ROTATION_SLERP. OPT-IN per adapter, because only a game with CONTINUOUS
+            // rotation can use it: a stepped facing is correct where there are four compass
+            // directions, so Emerald, Crystal and TEVI ask for nothing and are sent nothing.
+            //
+            // **Tied to the flag deliberately, so the A/B stays a true revert.** With the flag
+            // off this adapter does not ask, the core does not compute or send the bracket, and
+            // the bridge traffic is identical to the pre-2026-08-30 build -- not just the
+            // rendering. A revert that leaves the cost running is the trap FLAGS.md warns about.
+            const char* want_orient_bracket = GHOST_ROTATION_SLERP ? ",\"interpolate_orientation\":true" : "";
             std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
-                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"}}";
+                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"" + want_orient_bracket + "}}";
+            Output::send(STR("[MeshGhostPseudo] HELLO {}\n"), to_wide_ascii(hello));
             if (bridge->send_line(hello))
             {
                 bridge->mark_hello_sent();

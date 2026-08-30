@@ -1556,10 +1556,42 @@ defect that looks like a rendering bug and is arithmetic.
 it holds the older bracket's value and facing STEPS at the send rate. That is CORRECT for a game
 with four discrete facings (Pokemon, and TEVI flipping a sprite) and WRONG for one with continuous
 rotation, where a fast turn reads as choppy and a slow one looks fine. **If your game rotates
-continuously, you inherit this defect on day one.** The fix is already built for you: `render_remote`
-carries `orientation_from`, `orientation_to` and `interp_t`, and you interpolate them in whatever
-shape your orientation actually is. All three are absent when there is no honest pair, and ignoring
-them is the pre-2026-08-30 behaviour.
+continuously, you inherit this defect on day one.**
+
+### The rotation recipe, for a new 3D adapter
+
+**Two steps, and the first is one line.** This is deliberately shaped as opt-in-then-implement so
+the shared half stays in the core and only the shape-specific half is yours:
+
+1. **Ask for it in your bridge `hello`:** `"interpolate_orientation": true`. The core then puts
+   `orientation_from`, `orientation_to` and `interp_t` on every `render_remote`. **Do not ask if
+   your facing is discrete** — you would be paying for two blobs per peer per frame that you
+   cannot use, which is why this is opt-in rather than automatic. Confirm it took from the CORE's
+   log (`adapter asked for interpolated orientation`), never from your own send.
+2. **Interpolate, in whatever shape your orientation actually is:**
+
+| your `orientation` is… | what you write |
+|---|---|
+| **Euler degrees** (`[pitch, yaw, roll]`) | per component: `from + wrap180(to - from) * t`, where `wrap180` folds into ±180 |
+| **a quaternion** | real slerp; negate one of the pair first when their dot product is negative |
+| **a single angle** | the scalar case of the first row |
+| **a compass string / 4 facings / a sprite flip** | **nothing — do not opt in.** There is no midpoint between "west" and "north" |
+
+The reference implementation is `lerp_angle_deg` plus its call site in Pseudoregalia's `Plugin.cpp`
+(`GHOST_ROTATION_SLERP`). It is ~15 lines and has no dependencies — **copy it rather than trying to
+share it**, since the four adapters are in three different languages and this repo has no
+cross-adapter code layer. What is genuinely shared is the core half, and that is already done.
+
+**Three rules that came out of doing it, all non-obvious:**
+
+- **Use the SAME bracket position used, never a chase toward the newest sample.** A damper is much
+  simpler and disagrees with the body during fast movement, because position renders an
+  interpolation delay in the past. Same bracket, same fraction, one clock.
+- **`interp_t` can exceed 1** under prediction, on purpose — rotation is extrapolated over the same
+  window position is. Clamp it defensively against garbage, do not clamp it to 1.
+- **Handle the bracket being ABSENT, because it often is.** No pair, a seam position refused to
+  cross, or — the common one — the peer did not rotate at all, which the core suppresses. Fall back
+  to the raw `orientation` field, which is the pre-2026-08-30 behaviour and always correct.
 
 **Two rules that came out of doing it, both non-obvious:**
 

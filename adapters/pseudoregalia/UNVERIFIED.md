@@ -95,6 +95,17 @@ chop is what let the delay be seen at all. Expect this shape again on any future
 a stutter routinely "reveals" a delay that was there the whole time, and treating that as a
 regression is how a good fix gets reverted.
 
+**RE-CHECK NEEDED after the 2026-08-30 opt-in change.** The confirmation above was won on a build
+where the core sent the bracket to every adapter unconditionally. It is now OPT-IN — the mod asks
+with `interpolate_orientation` in its bridge `hello` — plus the core suppresses the bracket when a
+peer's two orientations are byte-identical. Neither should be visible (the suppression provably
+cannot change a pixel, and the opt-in is asserted end to end over a real bridge socket by
+`TestHelloOptInReachesRenderRemoteEndToEnd`), **but the confirmed build and the shipped build are
+no longer the same binary, so the confirmation does not automatically carry across.** One spin is
+enough. **The tell if the wiring broke: the ghost's facing steps again exactly like the flag was
+off** — check the CORE log for `adapter asked for interpolated orientation`, not the mod's own
+HELLO line, which only proves it built the string.
+
 **So the next question is a KNOB, not a bug**, and it is the one ADR 0040 shipped for exactly this:
 `interp` (250ms here, never swept for this game — TEVI measured 175ms on 2026-08-28) and
 `extrapolate`, which is off. Both are config-only in the install's `config.json`, needing a

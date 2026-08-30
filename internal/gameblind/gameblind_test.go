@@ -314,8 +314,14 @@ var frozenProtocolFields = map[string][]string{
 }
 
 var frozenBridgeFields = map[string][]string{
-	"Envelope":      {"payload", "type"},
-	"Hello":         {"features", "game_id", "game_version", "render_all_areas"},
+	"Envelope": {"payload", "type"},
+	// interpolate_orientation (2026-08-30) qualifies under the SECOND test above and mirrors
+	// render_all_areas beside it: a bare bool by which an adapter declares a capability of its
+	// OWN -- "my orientation is continuous, so a midpoint between two of them means something".
+	// The core learns nothing about the game from it; it does not even learn what an orientation
+	// IS, which is precisely why the interpolation happens in the adapter. Bridge-only, so it
+	// cannot fragment room compatibility. See bridge.Hello and ADR 0043.
+	"Hello":         {"features", "game_id", "game_version", "interpolate_orientation", "render_all_areas"},
 	"Event":         {"Event"},
 	"Lease":         {"Lease"},
 	"LeaseState":    {"LeaseState"},

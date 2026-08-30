@@ -169,6 +169,33 @@ type Hello struct {
 	// that sets it takes over ALL area-based hiding, including for maps it
 	// cannot translate.
 	RenderAllAreas bool `json:"render_all_areas,omitempty"`
+
+	// InterpolateOrientation asks the core to include the orientation bracket
+	// on every render_remote -- the two opaque orientation blobs position was
+	// interpolated between, and the fraction between them. See RenderRemote's
+	// OrientationFrom/To/InterpT for what they are and ADR 0043 for why the
+	// core cannot do this interpolation itself.
+	//
+	// **OPT-IN, AND THAT IS AN EFFICIENCY DECISION, NOT A SAFETY ONE.** The
+	// bracket is game-blind to compute, so the core could send it to everyone
+	// -- and did, briefly, on the day it was added. But only an adapter whose
+	// orientation is CONTINUOUS can use it: a stepped facing is CORRECT for a
+	// game with four compass directions or a flipped sprite, where there is no
+	// midpoint between "west" and "north" to render. Sending two extra blobs
+	// per peer per frame to three adapters that discard them is pure waste on
+	// the bridge, and this project does not dismiss a saving for being small
+	// (plans.md, "Efficiency is a standing goal").
+	//
+	// Absent means false, which is byte-for-byte the behaviour that shipped
+	// before the bracket existed. An adapter that sets it must actually
+	// interpolate -- see adapters/_template/README.md's three-families
+	// section for which maths its own orientation shape needs.
+	//
+	// Adapter-local, deliberately NOT a room feature, for the same reason
+	// RenderAllAreas is not: it changes what this core hands its own adapter
+	// and nothing on the wire, so it must never fragment room compatibility.
+	// Two peers in one room may disagree about it and neither can tell.
+	InterpolateOrientation bool `json:"interpolate_orientation,omitempty"`
 }
 
 // Event is one event-plane message, in either direction. Adapter -> core it

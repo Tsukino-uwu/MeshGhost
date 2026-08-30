@@ -142,6 +142,7 @@ func TestOrientBracketRefusesAStaleBaselineForPrediction(t *testing.T) {
 func TestRenderRemoteCarriesTheBracketOverTheBridge(t *testing.T) {
 	c := New()
 	c.InterpolationDelay = 0
+	c.adapterWantsOrientBracket = true // the opt-in this message depends on
 	c.roster["p2"] = struct{}{}
 	now := time.Now().UnixMilli()
 	c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now - 100, Position: []float64{0, 0, 0}, AreaID: "a", Orientation: rot(0)})
@@ -183,4 +184,130 @@ func containsSub(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// The opt-in and the two savings, added 2026-08-30 after the first version sent
+// the bracket to every adapter. Only a game with CONTINUOUS rotation can use it;
+// three of the four shipped adapters have a discrete facing and would discard
+// every byte.
+
+func TestNoBracketUnlessTheAdapterAskedForIt(t *testing.T) {
+	for _, want := range []bool{false, true} {
+		c := New()
+		c.InterpolationDelay = 0
+		c.adapterWantsOrientBracket = want
+		c.roster["p2"] = struct{}{}
+		now := time.Now().UnixMilli()
+		c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now - 100, Position: []float64{0, 0, 0}, AreaID: "a", Orientation: rot(0)})
+		c.storeRemoteState(protocol.State{PlayerID: "p2", Timestamp: now + 100, Position: []float64{10, 0, 0}, AreaID: "a", Orientation: rot(90)})
+
+		states, brackets := c.remoteStatesAt(now)
+		if len(states) != 1 {
+			t.Fatalf("asked=%v: rendered %d remotes, want 1", want, len(states))
+		}
+		if got := brackets["p2"].Have; got != want {
+			t.Fatalf("asked=%v: bracket present = %v -- an adapter that did not ask must be sent nothing, and one that did must be sent it", want, got)
+		}
+		if !want && brackets != nil {
+			t.Error("the bracket map was allocated for an adapter that never asked")
+		}
+	}
+}
+
+// TestNoBracketWhenNothingRotatedIsVisuallyIdentical is the argument for the
+// second saving, kept as a test rather than left in a comment: suppressing the
+// bracket when the two orientations are byte-identical cannot change what an
+// adapter draws, because interpolating a value toward itself returns that value
+// at every fraction -- which is exactly what the adapter's fallback renders.
+func TestNoBracketWhenNothingRotatedIsVisuallyIdentical(t *testing.T) {
+	var b remoteBuffer
+	b.add(protocol.State{Timestamp: 1000, Position: []float64{0}, AreaID: "a", Orientation: rot(42)})
+	b.add(protocol.State{Timestamp: 2000, Position: []float64{10}, AreaID: "a", Orientation: rot(42)})
+
+	st, br, _ := b.atBracket(1500, 0, CurveLinear, PredictLinear, nil)
+	if br.Have {
+		t.Fatal("offered a bracket for a peer whose orientation did not change")
+	}
+	// What the adapter falls back to must be the same value the suppressed
+	// bracket would have produced at any fraction.
+	if string(st.Orientation) != string(rot(42)) {
+		t.Fatalf("fallback orientation = %s, want %s -- the suppression must be invisible", st.Orientation, rot(42))
+	}
+
+	// And the positive control: a peer that DID rotate still gets one, so the
+	// suppression is not quietly swallowing real rotation.
+	var moved remoteBuffer
+	moved.add(protocol.State{Timestamp: 1000, Position: []float64{0}, AreaID: "a", Orientation: rot(42)})
+	moved.add(protocol.State{Timestamp: 2000, Position: []float64{10}, AreaID: "a", Orientation: rot(43)})
+	if _, br2, _ := moved.atBracket(1500, 0, CurveLinear, PredictLinear, nil); !br2.Have {
+		t.Fatal("suppressed the bracket for a peer that rotated by one degree")
+	}
+}
+
+// TestHelloOptInReachesRenderRemoteEndToEnd is the one that would catch the
+// regression that matters: the adapter asks in its Hello, and the bracket has to
+// arrive on the real bridge socket. Every layer between those two points is
+// exercised -- hello parse, the mirrored preference, remoteStatesAt, the send --
+// because a break anywhere in it looks identical from the game's side (a ghost
+// whose facing steps again) and identical in the adapter's own logs, which only
+// ever prove it SENT the request.
+func TestHelloOptInReachesRenderRemoteEndToEnd(t *testing.T) {
+	relayAddr := startRelay(t)
+	core1, bridge1Addr := startCore(t, relayAddr, "spinner", "room1", "alice")
+	core1.MinSendInterval = time.Millisecond
+	_, bridge2Addr := startCore(t, relayAddr, "spinner", "room1", "bob")
+
+	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	adapter2 := dialFakeAdapter(t, bridge2Addr)
+	adapter2.helloInterpolateOrientation("spinner")
+
+	// A peer that is actually TURNING -- a bracket is suppressed for one that
+	// is not, so a still peer would make this test pass for the wrong reason.
+	yaw := 0.0
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		yaw += 7
+		adapter1.frame(&protocol.State{AreaID: "arena", Position: []float64{yaw, 0, 0}, Anim: "idle", Orientation: rot(yaw)})
+		adapter2.frame(&protocol.State{AreaID: "arena", Position: []float64{0, 0, 0}, Anim: "idle", Orientation: rot(0)})
+		if rr, ok := adapter2.renderMsgOf(core1.PlayerID()); ok && len(rr.OrientationTo) > 0 {
+			if len(rr.OrientationFrom) == 0 {
+				t.Fatal("render_remote carried orientation_to with no orientation_from -- a bracket must have both ends")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out: the adapter asked for interpolated orientation and no render_remote ever carried the bracket")
+}
+
+// The mirror image, and the reason the opt-in exists: an adapter that does not
+// ask is sent nothing, over the same real socket.
+func TestNoOptInMeansNoBracketOnTheWire(t *testing.T) {
+	relayAddr := startRelay(t)
+	core1, bridge1Addr := startCore(t, relayAddr, "stepper", "room1", "alice")
+	core1.MinSendInterval = time.Millisecond
+	_, bridge2Addr := startCore(t, relayAddr, "stepper", "room1", "bob")
+
+	adapter1 := dialFakeAdapter(t, bridge1Addr)
+	adapter2 := dialFakeAdapter(t, bridge2Addr) // no hello opt-in
+
+	yaw := 0.0
+	sawRender := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		yaw += 7
+		adapter1.frame(&protocol.State{AreaID: "arena", Position: []float64{yaw, 0, 0}, Anim: "idle", Orientation: rot(yaw)})
+		adapter2.frame(&protocol.State{AreaID: "arena", Position: []float64{0, 0, 0}, Anim: "idle", Orientation: rot(0)})
+		if rr, ok := adapter2.renderMsgOf(core1.PlayerID()); ok {
+			sawRender = true
+			if len(rr.OrientationFrom) > 0 || len(rr.OrientationTo) > 0 || rr.InterpT != 0 {
+				t.Fatalf("an adapter that never asked was sent a bracket: from=%s to=%s t=%v",
+					rr.OrientationFrom, rr.OrientationTo, rr.InterpT)
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !sawRender {
+		t.Fatal("no render_remote arrived at all -- this test proved nothing about the bracket")
+	}
 }

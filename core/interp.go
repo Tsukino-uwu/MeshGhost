@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"math"
 
@@ -157,6 +158,28 @@ func bracketBetween(older, newer protocol.State, renderTime int64) orientBracket
 		return orientBracket{}
 	}
 	if len(older.Orientation) == 0 || len(newer.Orientation) == 0 {
+		return orientBracket{}
+	}
+	// NOTHING ROTATED -- no bracket, and this is a real saving rather than a
+	// micro-optimisation. Interpolating a value toward itself returns that
+	// value at every fraction, so the adapter's fallback (use State.Orientation
+	// unchanged) renders the IDENTICAL result: this cannot change a pixel, and
+	// TestNoBracketWhenNothingRotatedIsVisuallyIdentical is that argument kept
+	// as a test.
+	//
+	// What it buys: a standing player, a player walking in a straight line, and
+	// every peer of a discrete-facing adapter that opted in anyway, all stop
+	// paying two extra blobs per frame. Change suppression (ADR 0039) already
+	// made the common case a repeat; this keeps the bracket from re-inflating
+	// it on the bridge.
+	//
+	// A BYTE COMPARE, deliberately, not a parse. The core may not read an
+	// orientation, so "did it change" is the only question it is allowed to
+	// ask -- the same equality-only treatment area_id and anim get. Two
+	// encodings of the same rotation compare unequal and simply produce a
+	// bracket that interpolates between identical values, which is correct if
+	// slightly wasteful, and is the safe direction to be wrong in.
+	if bytes.Equal(older.Orientation, newer.Orientation) {
 		return orientBracket{}
 	}
 	return orientBracket{
