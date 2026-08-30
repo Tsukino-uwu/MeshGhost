@@ -4198,6 +4198,19 @@ applied by the relay with equality and arithmetic only:
   directions rather than two designs meeting in the middle.
 - **Nothing** — everyone else.
 
+**THE REDUCED TIER IS A THIRD AXIS OF SENDING LESS, and naming it that way keeps it apart from
+what already ships.** Temporal: skip the message when nothing changed (shipped). Per-FIELD: fewer
+fields per message (filed above, unbuilt; TEVI's `anim_t` removal was a hand-rolled instance).
+Per-RECIPIENT: different amounts of the SAME state to different people, which is new — today every
+recipient gets identical bytes, which is exactly why the shipped filter can only be all-or-nothing
+per peer. The reduced tier is per-field and per-recipient together.
+
+Two things follow. **Most of the cost is the message, not its fields** — header, relay write,
+receiver wake-up — so trimming ~140 bytes to ~40 saves less than it reads; the reduced tier must
+also drop its RATE (a map marker needs a position a few times a second, not 20-100), and that is
+where its saving actually comes from. And **encode each tier once per state, never per recipient**,
+the same discipline as the per-recipient allocation removed in v1.0.0.
+
 **What is missing in the protocol today is the middle, not the concept.** `own_area_only` is binary:
 your own area, or the entire room. Emerald and Crystal render maps in their connection list, which
 is neither, so they decline filtering entirely and receive everything. **A declared SET of
