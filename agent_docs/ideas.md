@@ -4084,3 +4084,20 @@ ordering of real dials.
 **Unchanged and still worth doing:** the invariant framing, and making the remaining constants
 configurable. `MaxReconnectBackoff` and `InitialReconnectBackoff` are Core fields as of 2026-08-29
 (commit f25b38c); `DefaultHeartbeatInterval` and relay's `DefaultHelloTimeout` are not yet.
+
+## Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
+
+The shipped policy is that a ghost NEVER glows — vertex light killed, blade aura hidden, the same
+call as the blue outline (user, 2026-08-29/30: *"keep it fully disabled similar to how we did with
+the blue outlines"*). Cost of that policy: a peer who legitimately owns the ascendant light (the
+`havelight?` save flag), or is carrying the temporary post-pickup light, shows none of it to
+others — the user watched exactly that go missing on 2026-08-29.
+
+If ghost light parity is ever wanted, the shape is the observation mirror the recall glow uses:
+put the peer's actual light state on the wire (the save flag plus the temp-light window), and on
+the ghost re-enable its `LightMesh`/vertex light only while the peer's state says lit. The scene
+latch is no obstacle any more — post-spawn `FixAllLights` ships — but a ghost's vertex light
+painting rooms bright around it is why "too bright near other players" was the original complaint;
+any implementation should cap or skip the room-painting half and keep only the character-visible
+part. Filed on the user's ask: *"log it somewhere if we ever do want to give ghosts real
+synced/mimiced light in the future"*.

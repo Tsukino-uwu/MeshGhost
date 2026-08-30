@@ -187,13 +187,17 @@ these compiled in behaves differently for anyone who happens to create a file wi
 name.** They are gated behind `GHOST_CUSTOM_DEPTH_DEV_TOGGLE`, which is `true` in the committed
 build and must go `false` (with the toggles removed) before release.
 
+**Three light toggles were RETIRED on 2026-08-30 — promoted to shipped defaults, their files no
+longer read** (user's call: *"properly implement it"*): the ghost vertex-light kill
+(`hide_ghost_playerlight.txt`), the LightMesh/blade-aura hide (`hide_ghost_lightmesh.txt`), and
+post-spawn `BP_LightManager_C::FixAllLights` (`ghost_fix_lights.txt`, the scene-latch fix —
+`FixDynamicLights` alone measured insufficient). Their globals initialize `true` in code; a stale
+file beside the DLL is ignored. Acceptance run quoted in `VERIFIED.md` 2026-08-30.
+
 | File | What it does |
 | --- | --- |
-| `hide_ghost_playerlight.txt` | Destroys each ghost's `BP_DynamicVertexLight_C`, and suppresses it at spawn via the class template. **The ghost-glow fix.** |
-| `hide_ghost_lightmesh.txt` | Hides each ghost's `LightMesh` (`M_SpiritAura`). **The blade-aura fix.** |
-| `ghost_no_overlap.txt` | Spawns ghosts with capsule overlap events suppressed, so they cannot fire world triggers. Was armed through every 2026-08-30 latch reproduction, so it neither fixes the latch nor is proven necessary. |
-| `guard_playerlocation.txt` | Native pre-hook redirecting every `MPC_PlayerRelated.PlayerLocation` write to the local player's position. Same caveat: armed throughout, owns no measured visual. |
-| `ghost_fix_lights.txt` | Calls `BP_LightManager_C::FixAllLights` after every ghost spawn (and once on arming). **THE scene-latch fix, watched working 2026-08-30** — the ghost's vertex light registers with the light manager inside `SpawnActor` and nothing unregisters it; this runs the level's own repair. `FixDynamicLights` measured insufficient. |
+| `ghost_no_overlap.txt` | Spawns ghosts with capsule overlap events suppressed, so they cannot fire world triggers. Measured UNNECESSARY for lighting (2026-08-30: a ghost crossed light-transition volumes with this off, nothing changed); no other trigger class has been tested. |
+| `guard_playerlocation.txt` | Native pre-hook redirecting every `MPC_PlayerRelated.PlayerLocation` write to the local player's position. The theft is real; no visual has ever been attributed to it, and the acceptance run passed without it. |
 | `ghost_spawn_far.txt` | Births ghosts 5000 units above the player (next state pulls them in). A discriminator for the latch hunt — refuted the paint-at-spawn theory; keep OFF. |
 | `dump_lights_now.txt` | Edge-triggered instrument: each appearance dumps player light components, the four transitions, the ambience, the manager and every vertex light. |
 | `call_light_fn.txt` | Edge-triggered instrument: each appearance calls the manager function named by the file's FIRST LINE. How `FixAllLights` was proven live on a latched scene. |
@@ -207,8 +211,8 @@ eventually eliminated only because the toggle armed from BOOT works by a differe
 updater never runs, so the components are never created. The `bVisible` byte read is the suspect;
 until that is fixed, **only a subtraction printing a NON-ZERO count is evidence.**
 
-The first four are fixes wearing an instrument's clothes and are the next promotion job:
-`pseudoregalia/UNVERIFIED.md`, "WHERE THE NEXT SESSION STARTS".
+The promotion job ran 2026-08-30: the three proven light fixes are code now, and the two rows
+above stayed instruments because the acceptance run passed without them.
 
 ## Dormant — recorded negatives and retired approaches
 

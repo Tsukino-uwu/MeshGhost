@@ -265,13 +265,13 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
-## THE SCENE LATCH IS FIXED, watched on screen 2026-08-30 — post-spawn `BP_LightManager_C::FixAllLights`, and this supersedes the latch half of everything below
+## THE SCENE LATCH IS FIXED AND SHIPPED — moved to `VERIFIED.md` 2026-08-30; this section stays for the mechanism and the failed-fix table
 
-**The fix**: after every ghost spawn, the adapter calls the level's own
-`BP_LightManager_C::FixAllLights` — the same repair a `BP_LightTransition_C` performs when the
-player walks through it. User, on the armed build, client 1 in the dark, client 2 connecting:
-*"client1 didn't glow up this time"*. One clean run; still behind `ghost_fix_lights.txt` (armed in
-BOTH installs), NOT yet a shipped default, and its side effects on ordinary lighting are unwatched.
+**Final state**: all three light fixes are SHIPPED DEFAULTS (globals initialize true; the toggle
+files are no longer read and were deleted from both installs). The full acceptance run — latch
+gone, ghosts dark, blades clean, and a ghost crossing light-transition volumes disturbing nothing
+with the overlap suppression OFF — is quoted in `VERIFIED.md`'s 2026-08-30 entry. What follows is
+the mechanism and the night's negatives, kept because they are the record of HOW.
 
 **What the latch actually was, measured down to refuting everything else first.** The glow
 FOLLOWS the local player (user walked it: *"yes, even if client2 disconnect it still follows"*),
@@ -307,15 +307,20 @@ toggles), and the user cloned the install (`Pseudoregalia - Copy`) so each insta
 `UE4SS.log`/toggles — simultaneous dumps from one shared log interleave line-by-line and
 corrupted a whole sample before that.
 
-**Still open after this fix:**
-- Promote to shipped defaults (user not yet asked): post-spawn `FixAllLights`, the vertex-light
-  kill, the LightMesh hide — and drop the toggles per the instruments-ship-off rule.
-- The parity question (unchanged): a peer who legitimately has the ascendant light can never
-  glow; proper fix is light state on the wire.
-- `FixAllLights` side effects on ordinary lighting: unwatched (one run, one dark room).
-- `guard_playerlocation` and `ghost_no_overlap` were armed through every latch reproduction, so
-  neither is proven necessary NOR innocent; unarm and retest before shipping either.
+**Resolved the same night (all four bullets that stood here):** the three fixes ARE the shipped
+defaults (user: *"we should properly implement it"*); the parity question is answered — ghosts
+never glow, like the blue outline — with the future mirror filed in `agent_docs/ideas.md`; and
+the acceptance run ran with `guard_playerlocation` and `ghost_no_overlap` UNARMED: no latch, and
+a ghost walking through light-transition volumes changed nothing, so neither is needed for
+lighting and both stay dev-only.
+
+**Still open:**
+
 - The pickup cross-wire (below) is untouched by all of this.
+- `FixAllLights` side effects outside `ZONE_Dungeon`'s dark rooms: unwatched (it runs on every
+  ghost spawn, in every level).
+- Every `<bool>` byte read OUTSIDE `snapshot_scalar_properties` (the `bVisible` sweeps above all)
+  is still the bitfield-blind read — convert before trusting any of those subtractions again.
 
 ## CAUSE FOUND 2026-08-29 (evening session) — BOTH light bugs are the ghost's `BP_DynamicVertexLight_C`, and this supersedes the whole section below it
 
@@ -382,28 +387,14 @@ the reloader can re-run it any time — it prints world inventories by class, `M
 (one parameter: `PlayerLocation`), per-mesh materials/flags, and the `PlayerLight`/`LightMesh`
 pair. `PROBES.md` has the entry.
 
-### WHERE THE NEXT SESSION STARTS
+### This plan ran on 2026-08-30 and is DONE — kept only so its predictions can be checked against what happened
 
-**The rig is deployed and armed; nothing needs rebuilding to run the next test.** Toggle files
-present beside the DLL: `ghost_no_overlap.txt` (**the untested fix**), `guard_playerlocation.txt`,
-`hide_ghost_lightmesh.txt`, `hide_ghost_playerlight.txt`.
-
-1. **Run the latch test.** Relay + two instances, client 1 into the dark area, client 2 connects.
-   If client 1 stays dark, the overlap suppression is the answer and the three light bugs are one
-   story: **a ghost is a player-class pawn, so the game treats it as the player everywhere** — it
-   paints light, it carries the save's upgrades, and it trips the world's triggers.
-2. **If the latch still fires**, the remaining doors are `BP_LightManager_C`'s
-   `IlluminatedComponents` map (read it on both instances, latched vs clean — it is a
-   `MapProperty` and needs a targeted read the census does not yet do) and `BP_SafeZones_C` /
-   `BP_MapVolume_C`, which were never dumped.
-3. **Then the pickup cross-wire**, which is independent of all of the above and is the last open
-   defect: suspect the thrown prop's own destruction path.
-4. **Then promote the toggles to shipped defaults** (`FLAGS.md` entries, dev toggles removed) and
-   answer the parity question the user has not been asked yet: whether a peer who legitimately
-   has the ascendant light should glow to others, which needs the light state on the wire.
-
-**Every fix in this session is behind a dev toggle and none of it ships yet** — `CLAUDE.md`'s rule
-that instruments ship off applies to all six toggle files listed above.
+Step 1's latch test FAILED (overlap suppression was not the answer; the registration was), step
+2's map read went through the count only (32 slots, unchanged latched-vs-clean — the values were
+never needed once the vocabulary dump named `FixAllLights`), step 4's promotion and parity
+question are both resolved (shipped defaults; ghosts never glow, mirror filed in `ideas.md`).
+**Step 3 — the pickup cross-wire — is the one that remains open.** The toggle files named above
+were deleted from both installs; three are no longer even read.
 
 ## SUPERSEDED by the section above — kept for its measurements (2026-08-29, long session)
 

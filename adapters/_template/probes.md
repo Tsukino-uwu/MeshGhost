@@ -1984,3 +1984,31 @@ reloader mod (`adapters/pseudoregalia/probe_reloader/`) restarts a named mod whe
 file changes — no rebuild, no relaunch, no window focus. The UE4SS Ctrl+R keybind needs the game
 focused and silently missed three times while the user was typing elsewhere; confirm every
 reload in the log, never from the send.
+
+## When state diffs are clean, dump the FUNCTION vocabulary and drive the game's verbs live (Pseudoregalia, 2026-08-30)
+
+A symptom that survives a clean state diff is not stateless — it lives in state your reads cannot
+reach (an engine-side registration, painted vertex data, a manager's map values). Pseudoregalia's
+scene latch survived a 401-field latched-vs-clean diff with ZERO differences, and what cracked it
+was switching questions: not "what changed?" but "what can these classes be ASKED to do?" — dump
+every UFunction name on the suspect classes, then try the plausible verbs one at a time on the
+live symptom. `FixAllLights` cleared it with the user watching; its sibling `FixDynamicLights`
+did not, a distinction no amount of state reading would have produced.
+
+Three rig patterns from that night, all portable:
+
+- **An edge-triggered toggle whose CONTENT is the argument.** `call_light_fn.txt`'s first line
+  names the function to call; each appearance of the file is one call. A candidate repair then
+  costs two seconds instead of a build-deploy-relaunch cycle, and the agent can drive it while
+  the user only watches the screen.
+- **An edge-triggered dump toggle** (`dump_lights_now.txt`): each appearance is one snapshot, so
+  the agent samples exact user-named moments — "latched now", "repaired now" — without the user
+  touching anything but the game.
+- **Two instances of one install interleave their shared log line-by-line**, which corrupted a
+  whole two-instance sample unnoticed. Either sample with one instance closed (if the symptom
+  survives that — measure first), or run the second instance from a full COPY of the install so
+  every log, config and toggle file is per-instance. The user's copy solved it in one move.
+
+And one read to never trust again: a reflected bool through a plain byte pointer. UE packs bools
+as bitfields; the byte read reports any set neighbour as true (thirty bools once printed
+uniformly true). `FBoolProperty::GetPropertyValueInContainer` applies the mask — use it.

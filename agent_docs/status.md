@@ -63,13 +63,13 @@ has never been looked at. `verified.md`.
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
-- **Pseudoregalia's THREE light bugs are all fixed on screen (glow + blade 08-29, scene latch
-  2026-08-30 via post-spawn `FixAllLights`)** — every fix still behind dev toggles, promotion to
-  shipped defaults not yet asked. `pseudoregalia/UNVERIFIED.md`, the 08-30 section.
-- **NEW: a peer's sword pickup drives the LOCAL player's animation** — both single-call skips
-  negative, the both-skipped combination is armed and untested. `pseudoregalia/UNVERIFIED.md`.
-- **Two subtraction toggles still lie (nametag mid-session, blob shadow)** — the `bVisible` byte
-  read is the suspect; do not trust either until fixed. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's THREE light bugs are FIXED, SHIPPED AS DEFAULTS and user-confirmed
+  (2026-08-30)** — acceptance run with zero toggle files passed all checks. `pseudoregalia/VERIFIED.md`.
+- **Pseudoregalia's last open defect is the pickup CROSS-WIRE** — a peer's sword pickup drives
+  the local player's animation; next suspect the thrown prop's destruction path. `pseudoregalia/UNVERIFIED.md`.
+- **The lying-subtractions cause is FOUND (2026-08-30): bitfield bools read through a plain byte
+  pointer** — `snapshot_scalar_properties` converted to `FBoolProperty`; the `bVisible` sweeps are
+  not yet. `pitfalls/by-lesson.md`.
 - **Pseudoregalia's ghost DUST is FIXED and user-confirmed (2026-08-29)** — four stacked defects:
   echo loop, lost repeats, a re-broken echo, mid-body height. `pseudoregalia/VERIFIED.md`.
 - **`bb`/`hw`/`hew` got the same one-shot counter change and are UNWATCHED** — only `dl` was seen on

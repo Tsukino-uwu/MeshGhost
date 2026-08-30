@@ -177,6 +177,7 @@ filed under the right theme, but anything can check that it is listed.
 - Nametags: a peer's name renders above their ghost, both join orderings (2026-08-28)
 - Nametag COLOUR, as a plate the name stands on — three peers, three cases (2026-08-29)
 - Landing dust on a ghost: the echo loop, the swallowed repeats and the mid-body height, all three fixed (2026-08-29)
+- 2026-08-30 — the three ghost-light bugs are fixed, and the fixes ship as defaults
 
 ## Confirmed facts
 
@@ -4468,3 +4469,39 @@ since the string only changes when a count does.
   the same repeat-correctness. Only `dl` was watched on screen; the other three are unwatched and
   are noted as such in `UNVERIFIED.md`.
 - Scope: Steam build, `ZONE_Dungeon`, two instances on one machine over quic, loopback relay.
+
+## 2026-08-30 — the three ghost-light bugs are fixed, and the fixes ship as defaults
+
+**User-confirmed on screen, across three separate runs the same night** — first through dev
+toggles, then live on a latched scene, then on the final build with every toggle file deleted:
+
+1. **The connect-time scene latch is FIXED.** With client 1 standing in a dark area and client 2
+   connecting: *"client1 didn't glow up this time"* (toggle build), and on the shipped-default
+   build: *"client1 stayed dark even after client2 connected"*. The fix is the adapter calling
+   `BP_LightManager_C::FixAllLights` after every ghost spawn — the level's own repair, the one a
+   `BP_LightTransition_C` runs. Its causal link was proven live: on a latched scene, the call was
+   made while the user watched and *"client1 lost the glow"* the same second.
+2. **A ghost never glows** (vertex-light kill, confirmed 2026-08-29, reconfirmed on the
+   shipped-default build): *"ghosts are dark on both clients"*.
+3. **A ghost's blade never wears the ascendant aura** (LightMesh hide): *"the blade is clean for
+   both as well"*.
+4. **A ghost crossing light-transition volumes disturbs nothing** — deliberately tested with the
+   capsule-overlap suppression OFF: client 2's ghost walked into the dark area, out and in again,
+   while client 1 watched: *"the client1 glow or client1 ghost's glow didn't change/do anything as
+   intended"*. So the overlap suppression is NOT needed for lighting and stays dev-only.
+
+**What the latch was**: the ghost's `BP_DynamicVertexLight_C` registers with the light manager
+during `SpawnActor` and nothing unregisters it; the stale registration renders at the local
+player's position (it follows the player — walked and confirmed), survives the peer leaving, and
+lives in no reflected scalar (a 401-field latched-vs-clean diff read zero differences).
+`FixDynamicLights` alone was a measured no-op; `FixAllLights` clears it.
+
+**Policy, user's call**: ghosts stay light-less like the blue outline — *"keep it fully disabled
+similar to how we did with the blue outlines"*. Mirroring a peer's real light state is filed in
+`agent_docs/ideas.md`, not scheduled.
+
+- Scope: Steam build + a user-made copy of the install (separate logs), `ZONE_Dungeon`, two
+  instances on one machine over quic, relay with `-ghost-collision=disabled`. The shipped-default
+  run had ZERO toggle files beside either DLL.
+- Method and failed-fix table: `UNVERIFIED.md`'s 2026-08-30 section and
+  `agent_docs/pitfalls/by-lesson.md`'s two 2026-08-30 entries.

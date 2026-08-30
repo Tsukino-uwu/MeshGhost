@@ -1875,9 +1875,14 @@ namespace MeshGhostPseudo
     // `BP_DynamicVertexLight_C` -- this game's retro lighting paints brightness into level
     // geometry near the actor, with NO light component involved, which is why every light census
     // came back clean while the user watched walls glow around a ghost. This toggle destroys the
-    // ghost's copy. ONE-WAY per ghost: removing the file stops future kills but does not rebuild
-    // a destroyed child actor -- an area transition respawns the ghost and restores it.
-    bool g_ghost_vertexlight_killed = false;
+    // ghost's copy. ONE-WAY per ghost: an area transition respawns the ghost and restores it,
+    // and the per-tick sweep re-kills it.
+    //
+    // SHIPPED DEFAULT as of 2026-08-30 (user's call: "properly implement it" instead of toggle
+    // files) -- a ghost never carries the ascendant light, same policy as the blue outline. The
+    // future option of mirroring a peer's REAL light state over the wire is filed in
+    // agent_docs/ideas.md. No toggle reads this any more.
+    bool g_ghost_vertexlight_killed = true;
     // Skip the game's changeEquippedWeapon call on ghosts -- see the call site. The suspicion it
     // isolates: that Blueprint is the game's own pickup path and reaches the LOCAL player for the
     // pickup montage and the temp light (both watched landing on the local pawn, 2026-08-29).
@@ -1909,14 +1914,18 @@ namespace MeshGhostPseudo
     // position update brings it in on the next state. If the player stops lighting up, the paint
     // is the mechanism and the proper fix is that the light must never be constructed.
     bool g_ghost_spawn_far = false;
-    // Call BP_LightManager_C::FixDynamicLights after every ghost spawn -- the game's own repair,
-    // the same one a BP_LightTransition_C runs, replacing "walk out and back in". See
-    // call_fix_lights.
-    bool g_ghost_fix_lights = false;
+    // Call BP_LightManager_C::FixAllLights after every ghost spawn -- the game's own repair, the
+    // same one a BP_LightTransition_C runs, replacing "walk out and back in". The scene-latch
+    // fix: the ghost's vertex light registers with the manager inside SpawnActor and nothing
+    // unregisters it. SHIPPED DEFAULT as of 2026-08-30, watched fixing the latch on screen. See
+    // call_fix_lights; no toggle reads this any more.
+    bool g_ghost_fix_lights = true;
     // Hide only the ghost's WeaponMesh -- the blade-shimmer split, see the mesh loop.
     bool g_ghost_weapon_hidden = false;
     // Hide only the ghost's LightMesh -- the ascendant-light blade aura, see the mesh loop.
-    bool g_ghost_lightmesh_hidden = false;
+    // SHIPPED DEFAULT as of 2026-08-30 (confirmed gone on screen 2026-08-29): a ghost's blade
+    // never wears the aura, same never-glow policy as the vertex light above.
+    bool g_ghost_lightmesh_hidden = true;
 
     // **Hold the ghost's own light OFF. Cosmetic, 2026-08-29.**
     //
@@ -18068,20 +18077,10 @@ namespace MeshGhostPseudo
                 }
                 lights_dump_seen = lights_dump_now;
 
-                const bool fix_lights = dev_toggle_present(STR("ghost_fix_lights.txt"));
-                if (fix_lights != g_ghost_fix_lights)
-                {
-                    g_ghost_fix_lights = fix_lights;
-                    Output::send(STR("[MeshGhostPseudo] DEV: post-spawn FixAllLights now {} (ghost_fix_lights.txt {}).\n"),
-                                 fix_lights ? STR("ARMED") : STR("off"),
-                                 fix_lights ? STR("present") : STR("gone"));
-                    // Flipping it on mid-session also repairs NOW, so a latched scene does not
-                    // need a fresh connect to judge the call itself.
-                    if (fix_lights)
-                    {
-                        call_fix_lights(STR("FixAllLights")); // FixDynamicLights alone: measured no-op on a latched scene; FixAllLights: watched clearing it live, 2026-08-30
-                    }
-                }
+                // ghost_fix_lights.txt, hide_ghost_lightmesh.txt and hide_ghost_playerlight.txt
+                // are no longer read: the three proven light fixes became shipped defaults on
+                // 2026-08-30 (their globals initialize true). A stale file left beside the DLL is
+                // ignored rather than honoured.
 
                 const bool spawn_far = dev_toggle_present(STR("ghost_spawn_far.txt"));
                 if (spawn_far != g_ghost_spawn_far)
@@ -18099,15 +18098,6 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: MPC PlayerLocation guard now {} (guard_playerlocation.txt {}).\n"),
                                  guard_ploc ? STR("ACTIVE") : STR("off"),
                                  guard_ploc ? STR("present") : STR("gone"));
-                }
-
-                const bool hide_lightmesh = dev_toggle_present(STR("hide_ghost_lightmesh.txt"));
-                if (hide_lightmesh != g_ghost_lightmesh_hidden)
-                {
-                    g_ghost_lightmesh_hidden = hide_lightmesh;
-                    Output::send(STR("[MeshGhostPseudo] DEV: ghost LightMesh now {} (hide_ghost_lightmesh.txt {}).\n"),
-                                 hide_lightmesh ? STR("HIDDEN") : STR("shown"),
-                                 hide_lightmesh ? STR("present") : STR("gone"));
                 }
 
                 const bool hide_weapon = dev_toggle_present(STR("hide_ghost_weapon.txt"));
@@ -18137,14 +18127,6 @@ namespace MeshGhostPseudo
                                  skip_equip ? STR("present") : STR("gone"));
                 }
 
-                const bool kill_vl = dev_toggle_present(STR("hide_ghost_playerlight.txt"));
-                if (kill_vl != g_ghost_vertexlight_killed)
-                {
-                    g_ghost_vertexlight_killed = kill_vl;
-                    Output::send(STR("[MeshGhostPseudo] DEV: ghost DynamicVertexLight kill now {} (hide_ghost_playerlight.txt {}). One-way per ghost -- an area transition respawns it.\n"),
-                                 kill_vl ? STR("ARMED") : STR("off"),
-                                 kill_vl ? STR("present") : STR("gone"));
-                }
             }
         }
 
