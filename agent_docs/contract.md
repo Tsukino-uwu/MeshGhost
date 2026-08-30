@@ -141,7 +141,7 @@ Unchanged from the brief, restated exactly:
 | `timestamp` | numeric, for interpolation. Milliseconds, wall-clock (`time.Now().UnixMilli()` on whichever side stamps it). **Peers' wall clocks must actually agree, not just be internally consistent** — `core/interp.go`'s `remoteBuffer.at()` compares a *local* wall-clock render time directly against a *remote's* wall-clock timestamps. Meaningful clock skew between peers silently falls back to an edge snapshot every tick (interpolation stops, no error anywhere) rather than failing loudly. **A room that negotiates `clock.v1` closes that gap**: every member stamps in the *relay's* clock domain instead of its own, and renders against the same shifted clock, so nobody has to be correct about the real time — they only have to agree. Off by default, so an unnegotiated room is byte-for-byte the original behaviour. See Transport below. |
 | `area_id` | opaque string. Map bank for Emerald, scene name for TEVI/Unity. |
 | `position` | variable-length float array. 2 for Emerald, 3 for 3D games. |
-| `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. |
+| `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. Never interpolated by it either, for the same reason — see the tick model's rotation exception (2026-08-30), which is a BRIDGE addition and changes nothing here. |
 | `anim` | opaque string tag. |
 | `extras` | small free-form dict for game-specific data. |
 
@@ -730,6 +730,20 @@ have caused a flickering ghost in Phase 2 and an argument in Phase 5 if left unr
   already-interpolated `render_remote` calls to the adapter every frame; the adapter's job is
   purely "hold the latest state per id, draw all of them." This is chatty over the bridge,
   but the bridge is localhost — that cost is free.
+- **The one exception, added 2026-08-30 (ADR 0043): ROTATION is interpolated by the adapter,
+  because the core cannot.** Orientation is opaque by contract, so the core has never
+  interpolated it — it holds the older bracket's value until render time crosses the newer
+  sample, which makes facing a step function at the send rate. That is right for a game with four
+  discrete facings and wrong for one with continuous 3D rotation. The core therefore says WHICH
+  TWO samples it used and HOW FAR between them it rendered — `orientation_from`,
+  `orientation_to`, `interp_t` on `render_remote` — and the adapter, which knows whether its own
+  orientation is a compass string, a degrees triple or a quaternion, interpolates them itself.
+  **This does not reopen the rule above.** The core still owns the hard, reusable part (which
+  samples, which fraction, every discontinuity guard); the adapter supplies only the arithmetic
+  that depends on knowing what the value means. All three fields are absent whenever there is no
+  honest pair, and an adapter that ignores them behaves exactly as it did before they existed.
+  **Rotation gets no knobs of its own** — it follows the position ones, or the two fields run on
+  different clocks and disagree exactly when movement is fastest.
 
 ## Adapter interface
 
@@ -738,6 +752,7 @@ Unchanged surface from the brief, now with tick semantics attached:
 ```text
 get_local_state()          -> snapshot | nil     # sampled once per adapter frame tick
 render_remote(id, state)   -> void                # upsert into the adapter's remote-ghost set
+                                                  # carries the orientation bracket too, since 2026-08-30
 despawn_remote(id)         -> void                # remove from that set
 ```
 

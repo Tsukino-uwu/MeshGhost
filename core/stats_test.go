@@ -22,7 +22,7 @@ func TestStatsCountCrossAreaDiscardsAtRenderTime(t *testing.T) {
 	c.storeRemoteState(protocol.State{PlayerID: "far", AreaID: "cave", Timestamp: now, Position: []float64{3, 4}})
 
 	// Render-set build is where the discard happens.
-	got := c.remoteStatesAt(now)
+	got, _ := c.remoteStatesAt(now)
 	if len(got) != 1 {
 		t.Fatalf("rendered %d remotes, want 1 — only the same-area peer", len(got))
 	}
@@ -55,7 +55,7 @@ func TestStatsCountNothingCrossAreaWhenLocalAreaUnknown(t *testing.T) {
 
 	now := time.Now().UnixMilli()
 	c.storeRemoteState(protocol.State{PlayerID: "far", AreaID: "cave", Timestamp: now, Position: []float64{3, 4}})
-	if len(c.remoteStatesAt(now)) != 1 {
+	if got, _ := c.remoteStatesAt(now); len(got) != 1 {
 		t.Fatal("an unknown local area must filter nothing")
 	}
 	if s := c.Stats(); s.StatesFilteredByArea != 0 {

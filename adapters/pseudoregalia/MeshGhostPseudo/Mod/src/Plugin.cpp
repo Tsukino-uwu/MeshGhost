@@ -927,6 +927,50 @@ namespace MeshGhostPseudo
     // correct, so what the user saw is not a sync bug. See verified.md.
     constexpr bool POLE_ROTATION_TRACE = false;
 
+    // GHOST FACING IS INTERPOLATED, 2026-08-30 -- the fix for the user's "a bit choppy/low fps at
+    // 20hz and 250ms when turning around fast but super smooth when turning around slow".
+    //
+    // THE SYMPTOM IS ORIENTATION, NOT POSITION, and the code says why. `core/interp.go` is
+    // explicit that orientation is NEVER interpolated: it is opaque to the core by contract (a
+    // blob the core is forbidden to parse), so the interpolator takes it from the OLDER of the two
+    // bracketing snapshots and holds it until the next real sample passes render time. Facing is
+    // therefore a step function at the send rate. At 20Hz that is 20 steps a second, and the
+    // visible error is ANGULAR VELOCITY / Hz: a ~45 deg/s pan steps ~2.3 degrees and is invisible,
+    // a ~360 deg/s spin steps ~18 degrees and is unmistakable. Identical step COUNT either way,
+    // which is why the rate never feels like the problem until the player spins fast.
+    //
+    // WHY ONLY THIS GAME. A stepped facing is CORRECT for a game with four discrete facings and
+    // wrong for one with continuous 3D rotation. Pokemon has four directions and TEVI flips a
+    // sprite, so the step is the truth there. This is the only adapter with continuous rotation,
+    // and any future 3D one inherits this the day it ships.
+    //
+    // WHAT CHANGED TO MAKE IT FIXABLE HERE. The core cannot smooth a field it cannot parse -- but
+    // it CAN say which two samples it used and how far between them it rendered, without reading
+    // either. `bridge.RenderRemote` now carries `orientation_from`/`orientation_to`/`interp_t`
+    // alongside the unchanged `orientation`, and this adapter -- which knows its own orientation
+    // is a degrees triple -- does the interpolation. No protocol change, no rate change, no
+    // bandwidth: both blobs were already on the wire as consecutive samples.
+    //
+    // WHY THE SAME BRACKET AND NOT A CHASE TOWARD THE NEWEST SAMPLE. A damper is much simpler and
+    // is wrong in a way that only shows up while moving fast: position renders an interpolation
+    // delay in the PAST, so a facing chasing the newest value would put the body where the peer
+    // was and the head where they are now, and the two visibly disagree during exactly the motion
+    // that made anyone look. Same bracket, same fraction, one clock. `agent_docs/scaling.md`.
+    //
+    // GATES THE WORK, NOT THE DECISION (CLAUDE.md): `false` compiles the whole block out and the
+    // ghost is driven by the raw `orientation` field again -- byte-for-byte the pre-2026-08-30
+    // behaviour, which is what makes an A/B on screen mean something.
+    constexpr bool GHOST_ROTATION_SLERP = true;
+
+    // Defensive upper bound on the core's interpolation fraction. Above 1 is legitimate and
+    // deliberate -- under `-extrapolate` the core continues the arc past the newest sample for the
+    // same window it predicts position over, so facing and position stay on one clock -- and the
+    // core caps it there already, against its own `Extrapolate` setting. This is the second belt:
+    // these bytes crossed a socket, and an unbounded multiplier on an angle is how a ghost ends up
+    // spinning at a rate no game ever produced. 10 covers a 300ms prediction over a 50ms sample
+    // gap (T = 7) with room to spare.
+    constexpr double ROTATION_INTERP_MAX_T = 10.0;
+
     // One-shot, 2026-08-15: the follow-up BUBBLE_FX_DIFF earned. It found the pulsation's driver
     // (`Blink_NewTrack_0_<GUID>`, a Blueprint Timeline track), but knowing WHEN the effect runs
     // isn't enough to reproduce it -- something has to be callable on the ghost. This dumps the
@@ -2711,6 +2755,33 @@ namespace MeshGhostPseudo
             }
             pos += needle.size();
             return std::sscanf(s.c_str() + pos, "%lf", &out) == 1;
+        }
+
+        // SHORTEST-ARC interpolation between two angles in DEGREES -- the scalar form of a slerp,
+        // and the correct one for this game, whose orientation on the wire is a plain
+        // pitch/yaw/roll triple rather than a quaternion.
+        //
+        // WHY NOT A PLAIN LERP. Yaw 350 -> 10 lerps BACKWARDS through 340 degrees instead of
+        // forward through 20: a ghost spinning the long way round every time it crosses the seam,
+        // which is worse than the step this replaces. Folding the delta into the short half of the
+        // range first is the whole fix, and it is the same principle a quaternion slerp applies by
+        // negating one of the pair when their dot product is negative -- far cheaper on a scalar.
+        //
+        // The result is deliberately NOT re-wrapped into any particular range. FRotator accepts an
+        // unnormalized angle and the engine normalizes on use, and clamping here would reintroduce
+        // a discontinuity at whatever boundary was picked.
+        auto lerp_angle_deg(double from, double to, double t) -> double
+        {
+            double delta = std::fmod(to - from, 360.0);
+            if (delta > 180.0)
+            {
+                delta -= 360.0;
+            }
+            else if (delta < -180.0)
+            {
+                delta += 360.0;
+            }
+            return from + delta * t;
         }
 
         // JSON player_id values in this wire format are always plain ASCII ids (e.g. "p1-ghost",
@@ -11439,6 +11510,45 @@ namespace MeshGhostPseudo
             }
             double pitch = 0, yaw = 0, roll = 0;
             json_vec3_field(line, "orientation", pitch, yaw, roll); // best-effort, defaults to 0
+
+            // Interpolate the facing across the same bracket position was interpolated across --
+            // see GHOST_ROTATION_SLERP for the symptom, the cause and why a damper is the wrong
+            // shape. All three fields are best-effort together: a core predating them, or one with
+            // no honest pair to offer (a single sample, a render time outside the buffer with
+            // prediction off, an area change), sends none, and `orientation` above is used raw --
+            // which is exactly the behaviour that shipped before this existed.
+            //
+            // PEER-CONTROLLED BYTES, like every other field on this message: both blobs originated
+            // with a remote peer and are bounded only by protocol.MaxOrientationBytes, so a
+            // non-finite value is a live possibility rather than a theoretical one -- and an
+            // infinite angle written into an FRotator is a ghost that stops rendering, not a
+            // crash -- the kind of fault that gets blamed on the game rather than on the parser.
+            // Refuse the whole triple rather than part of it: a mixed frame would tilt a ghost.
+            if constexpr (GHOST_ROTATION_SLERP)
+            {
+                double from_pitch = 0, from_yaw = 0, from_roll = 0;
+                double to_pitch = 0, to_yaw = 0, to_roll = 0;
+                double interp_t = 0;
+                if (json_vec3_field(line, "orientation_from", from_pitch, from_yaw, from_roll) &&
+                    json_vec3_field(line, "orientation_to", to_pitch, to_yaw, to_roll) &&
+                    json_number_field(line, "interp_t", interp_t) &&
+                    std::isfinite(from_pitch) && std::isfinite(from_yaw) && std::isfinite(from_roll) &&
+                    std::isfinite(to_pitch) && std::isfinite(to_yaw) && std::isfinite(to_roll) &&
+                    std::isfinite(interp_t))
+                {
+                    if (interp_t < 0.0)
+                    {
+                        interp_t = 0.0;
+                    }
+                    else if (interp_t > ROTATION_INTERP_MAX_T)
+                    {
+                        interp_t = ROTATION_INTERP_MAX_T;
+                    }
+                    pitch = lerp_angle_deg(from_pitch, to_pitch, interp_t);
+                    yaw = lerp_angle_deg(from_yaw, to_yaw, interp_t);
+                    roll = lerp_angle_deg(from_roll, to_roll, interp_t);
+                }
+            }
 
             // Animation-state mirror (see verified.md's "ghost animation" entry) -- best-effort,
             // each defaults to 0 if missing (e.g. an older peer build without this field yet).

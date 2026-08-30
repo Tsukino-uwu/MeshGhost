@@ -326,7 +326,14 @@ var frozenBridgeFields = map[string][]string{
 	"SessionPolicy": {"ghost_collision"},
 	"Reject":        {"reason"},
 	"LocalState":    {"state"},
-	"RenderRemote":  {"player_id", "state"},
+	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
+	// above, and are the cleanest case of it in the list: the two orientation blobs are the
+	// SAME opaque bytes `orientation` already is, carried verbatim, and interp_t is a fraction
+	// the core computed from two timestamps it owns. The core learns nothing about what an
+	// orientation is by saying which pair it used -- it still cannot read either one, which is
+	// exactly why the interpolation has to happen in the adapter. bridge only, never
+	// protocol.State: nothing here crosses the network. See bridge.RenderRemote.
+	"RenderRemote":  {"interp_t", "orientation_from", "orientation_to", "player_id", "state"},
 	"DespawnRemote": {"player_id"},
 }
 

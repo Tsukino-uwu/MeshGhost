@@ -258,7 +258,7 @@ func (c *Core) onAdapterFrame(msg bridge.LocalState, nd transport.Transport, ren
 
 	c.forwardLocalState(msg.State)
 	c.tickRenders(rendered,
-		func(id string, st protocol.State) { c.sendRenderRemote(nd, id, st) },
+		func(id string, st protocol.State, br orientBracket) { c.sendRenderRemote(nd, id, st, br) },
 		func(id string) { c.sendDespawnRemote(nd, id) },
 	)
 }
@@ -287,11 +287,23 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 	if state, ok := adapter.GetLocalState(); ok {
 		c.forwardLocalState(&state)
 	}
-	c.tickRenders(rendered, adapter.RenderRemote, adapter.DespawnRemote)
+	// The in-process path drops the orientation bracket: core.Adapter is a Go
+	// interface implemented by test adapters and cmd/meshghost-fakeadapter,
+	// none of which draws anything, and widening it to carry a bracket nobody
+	// renders would buy a signature change and no behaviour. A real adapter
+	// speaks the bridge, where the bracket is on the message.
+	c.tickRenders(rendered,
+		func(id string, st protocol.State, _ orientBracket) { adapter.RenderRemote(id, st) },
+		adapter.DespawnRemote,
+	)
 }
 
-func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State) {
-	sendBridgeEnvelope(nd, bridge.TypeRenderRemote, bridge.RenderRemote{PlayerID: playerID, State: st})
+func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State, br orientBracket) {
+	msg := bridge.RenderRemote{PlayerID: playerID, State: st}
+	if br.Have {
+		msg.OrientationFrom, msg.OrientationTo, msg.InterpT = br.From, br.To, br.T
+	}
+	sendBridgeEnvelope(nd, bridge.TypeRenderRemote, msg)
 }
 
 func (c *Core) sendDespawnRemote(nd transport.Transport, playerID string) {

@@ -319,6 +319,39 @@ type LocalState struct {
 type RenderRemote struct {
 	PlayerID string         `json:"player_id"`
 	State    protocol.State `json:"state"`
+	// The orientation bracket: the two opaque orientation blobs State's
+	// position was interpolated BETWEEN, and how far between them the render
+	// time fell. Absent (all three empty/zero) whenever the core has no honest
+	// pair, which is the signal to use State.Orientation unchanged -- what
+	// every adapter did before these existed, and what an adapter that ignores
+	// them still does. See core.orientBracket for the full reasoning.
+	//
+	// BRIDGE-ONLY, DELIBERATELY: these are not on protocol.State and must
+	// never be, because nothing here crosses the network. Both blobs are
+	// already on the wire as consecutive samples; this is the core telling
+	// the adapter which two it used, over a local socket, at zero bandwidth
+	// cost to the relay link.
+	//
+	// WHY AN ADAPTER WOULD WANT THEM: the core is forbidden to parse an
+	// orientation, so it cannot interpolate one -- it holds the older
+	// bracket's value until the render time crosses the newer sample, which
+	// makes facing a STEP FUNCTION at the send rate. That is correct for a
+	// game with four facings and wrong for one with continuous 3D rotation,
+	// where it reads as choppy on a fast turn and fine on a slow one. An
+	// adapter for such a game interpolates between From and To at T itself --
+	// shortest-arc, since 350 degrees to 10 must travel +20 and not -340.
+	//
+	// T CAN EXCEED 1. Under prediction (`-extrapolate`) the arc continues past
+	// To for the same window position is predicted over, so that facing and
+	// position stay on one clock. An adapter that does not want prediction on
+	// rotation clamps it; one that does, does not.
+	//
+	// PEER-CONTROLLED BYTES, like every other field on this message: both
+	// blobs came from a remote peer via the relay and are bounded only by
+	// protocol.MaxOrientationBytes. Parse defensively.
+	OrientationFrom json.RawMessage `json:"orientation_from,omitempty"`
+	OrientationTo   json.RawMessage `json:"orientation_to,omitempty"`
+	InterpT         float64         `json:"interp_t,omitempty"`
 }
 
 // RemoteName is sent core -> adapter when a peer's nametag becomes known: on

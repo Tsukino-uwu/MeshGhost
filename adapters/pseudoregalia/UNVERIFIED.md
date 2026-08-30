@@ -36,6 +36,44 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
+## The ghost's FACING is now interpolated, and nobody has watched it (2026-08-30)
+
+**What changed.** A ghost's facing used to STEP at the send rate. Orientation is opaque to the
+core by contract, so `core/interp.go` never interpolated it — it held the older bracketing
+snapshot's value until render time crossed the newer one. At 20Hz that is 20 snaps a second, and
+the visible error is angular velocity divided by Hz: a slow pan steps ~2 degrees and is invisible,
+a fast spin steps ~18 and is not. That is the user's report exactly — *"a bit choppy/low fps at
+20hz and 250ms when turning around fast but super smooth when turning around slow"*.
+
+The core now names the pair it used and the fraction it rendered at (`orientation_from`,
+`orientation_to`, `interp_t` on `render_remote` — bridge only, zero bandwidth, ADR 0043) and this
+adapter interpolates the degrees triple itself, shortest-arc per component so yaw 350 -> 10
+travels +20 rather than -340. `GHOST_ROTATION_SLERP`, shipped `true`.
+
+**What to look at — a side-by-side spin.** Stand still and spin the character with the gamepad,
+with a loopback ghost offset beside you (the standing dev setup). **Position never changes in this
+test**, which is what makes it a clean read on facing alone.
+
+**What correct looks like: the ghost's facing and the player's are indistinguishable at EVERY spin
+speed.** Not "smoother than before" — the bar is 1:1, and the failure this replaces was only ever
+visible at speed, so a slow-pan check proves nothing. Three things worth watching for specifically:
+
+- **A spin that briefly goes the LONG way round** near the wrap point would mean the shortest-arc
+  fold is wrong, and it is the one bug a plain lerp would give.
+- **A facing that lags the body**, or leads it, during fast movement — that would mean rotation
+  and position ended up on different clocks, which is the whole reason this uses the same bracket
+  rather than the simpler chase-the-newest-value damper.
+- **A ghost whose facing drifts while it is standing perfectly still.** Nothing should move.
+
+**A/B is a flag flip:** `GHOST_ROTATION_SLERP = false` compiles the block out and restores the raw
+field, byte-for-byte the old behaviour.
+
+**Go side is confirmed with the tools** (full suite twice, `-race`, `internal/e2e`,
+`core/orientbracket_test.go`) — that says the right two samples and the right fraction reach the
+adapter, and says nothing at all about how it looks.
+
+---
+
 ## DRAINED 2026-08-27 — the health bar, and the ghost that could damage the player
 
 Both halves of what used to sit here were closed and user-confirmed the same day, so the entry is

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"math"
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -103,6 +104,119 @@ func (b *remoteBuffer) newestTimestamp() int64 {
 // and most callers (and every test that predates prediction) mean exactly it.
 func (b *remoteBuffer) at(renderTime int64) (protocol.State, bool) {
 	return b.atAhead(renderTime, 0, CurveLinear, PredictLinear, nil)
+}
+
+// orientBracket is the ROTATION half of the render model, and the core's only
+// possible contribution to it: the pair of opaque orientation blobs that
+// position was interpolated BETWEEN, plus how far between them the render time
+// fell. The core still never parses either blob -- it carries them exactly as
+// it carries a single one today (contract.md, "orientation ... opaque to the
+// core") -- so this adds a passthrough, not an interpretation.
+//
+// WHY THE CORE CANNOT JUST SMOOTH IT. Orientation is a json.RawMessage whose
+// shape is the adapter's business: a compass string for Emerald, a Euler
+// triple for Pseudoregalia, a quaternion for whatever ships next. There is no
+// midpoint the core can compute without deciding which of those it is, and
+// deciding is exactly the game knowledge it is forbidden to hold. So the
+// core hands over the two endpoints and the fraction, and the adapter -- which
+// does know what its own orientation means -- does the interpolation.
+//
+// WHY BOTH ENDPOINTS AND NOT JUST THE NEWER ONE. From/To is a self-contained
+// instruction, and it stays correct in the one case where the rendered
+// State.Orientation is NOT the From end: extrapolation, which returns the
+// NEWEST sample's fields and predicts past them, so the arc to continue runs
+// from the second-newest to the newest with T above 1. An adapter that read
+// State.Orientation as its From would swing the wrong way there.
+//
+// WHY IT MUST BE THE SAME BRACKET POSITION USED. A rotation chasing the newest
+// sample (a damper) is far simpler and is wrong for a reason that only shows up
+// while moving fast: position renders an interpolation delay in the past, so a
+// damped facing would put the body where the peer was and the head where they
+// are now, and the two visibly disagree during exactly the motion that made
+// anyone look. Same bracket, same fraction, one clock. agent_docs/scaling.md.
+//
+// Have is false whenever there is no honest pair -- a single sample, a render
+// time outside the buffer with prediction off, or one of the discontinuities
+// lerp already refuses to cross (an area change, a position-length change).
+// The adapter then holds State.Orientation, which is today's behaviour exactly.
+type orientBracket struct {
+	From json.RawMessage
+	To   json.RawMessage
+	T    float64
+	Have bool
+}
+
+// bracketBetween builds the orientation bracket for a pair of snapshots,
+// applying the SAME discontinuity guards lerp does -- so rotation is never
+// interpolated across a seam position refused to interpolate across. Returns
+// a zero (Have false) bracket when they do not hold, which is the adapter's
+// signal to hold the orientation it was given.
+func bracketBetween(older, newer protocol.State, renderTime int64) orientBracket {
+	span := newer.Timestamp - older.Timestamp
+	if span <= 0 || older.AreaID != newer.AreaID || len(older.Position) != len(newer.Position) {
+		return orientBracket{}
+	}
+	if len(older.Orientation) == 0 || len(newer.Orientation) == 0 {
+		return orientBracket{}
+	}
+	return orientBracket{
+		From: older.Orientation,
+		To:   newer.Orientation,
+		T:    float64(renderTime-older.Timestamp) / float64(span),
+		Have: true,
+	}
+}
+
+// atBracket is atAhead plus the orientation bracket that goes with the state
+// it returns. atAhead is the same call with the bracket dropped, kept as its
+// own entry point because the in-process adapter path and every test that
+// predates rotation interpolation mean exactly it.
+func (b *remoteBuffer) atBracket(renderTime int64, extrapolateAhead int64, curve CurveMode, predict PredictMode, meter *extrapolationMeter) (protocol.State, orientBracket, bool) {
+	st, ok := b.atAhead(renderTime, extrapolateAhead, curve, predict, meter)
+	if !ok {
+		return st, orientBracket{}, false
+	}
+	n := len(b.snapshots)
+	if n < 2 || renderTime <= b.snapshots[0].Timestamp {
+		return st, orientBracket{}, true
+	}
+	last := b.snapshots[n-1]
+	if renderTime >= last.Timestamp {
+		// Past the newest sample. With prediction off the state IS that
+		// sample and holding its orientation is the honest answer, so no
+		// bracket. With prediction on, continue the last measured arc for
+		// the same window position is predicted over, capped the same way --
+		// otherwise the body predicts while the head lags, during precisely
+		// the motion extrapolation exists for (scaling.md).
+		if extrapolateAhead <= 0 {
+			return st, orientBracket{}, true
+		}
+		older := b.snapshots[n-2]
+		dt := renderTime - last.Timestamp
+		if dt > extrapolateAhead {
+			dt = extrapolateAhead
+		}
+		br := bracketBetween(older, last, last.Timestamp+dt)
+		// A pair too far apart says nothing about the rate NOW, the same
+		// judgement extrapolate makes about position for the same reason:
+		// an idle peer's keepalive-spaced samples must not become a spin.
+		if last.Timestamp-older.Timestamp > maxVelocitySpanMs {
+			return st, orientBracket{}, true
+		}
+		return st, br, true
+	}
+	for i := 0; i < n-1; i++ {
+		older, newer := b.snapshots[i], b.snapshots[i+1]
+		if renderTime >= older.Timestamp && renderTime <= newer.Timestamp {
+			// CurveCatmullRom deliberately gets the straight two-sample arc:
+			// the four-sample rotation equivalent is squad, and building it
+			// for a field nothing interpolated at all until now would be two
+			// speculative steps at once (scaling.md). Pair squad with
+			// catmull-rom if that day comes.
+			return st, bracketBetween(older, newer, renderTime), true
+		}
+	}
+	return st, orientBracket{}, true
 }
 
 // atAhead is at with the opt-in prediction window described on extrapolate.

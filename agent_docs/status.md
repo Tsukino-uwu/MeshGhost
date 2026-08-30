@@ -59,9 +59,8 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **OPEN: a Pseudoregalia ghost's FACING steps at the send rate — the cause is found and the fix is
-  designed, not built (2026-08-30)** — orientation is never interpolated (opaque to the core), so
-  the fix is bracket slerp in the mod, following the existing knobs. `scaling.md`.
+- **Pseudoregalia's stepped FACING is BUILT, SHIPPED and UNWATCHED (2026-08-30)** — the core now
+  names its bracket, the mod interpolates it shortest-arc. ADR 0043, `pseudoregalia/UNVERIFIED.md`.
 - **HIGH PRIORITY: two shipped settings do nothing, and the config work around them is planned
   (2026-08-30)** — `ghost_collision` reaches no adapter in any game, nametags reach one of four;
   plan, ordering and the two `stage-release.ps1` bugs: `plans.md`, "Settings: defined once".

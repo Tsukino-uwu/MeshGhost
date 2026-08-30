@@ -498,11 +498,14 @@ has four directions and TEVI flips a sprite, so the step IS the truth there. Pse
 only adapter with continuous 3D rotation, so it is the only one where the step is an artefact. Any
 future 3D adapter inherits this the day it ships.
 
-**The fix is adapter-side and costs no bandwidth:** the core may never interpolate a field it is
-forbidden to parse, so the Pseudoregalia mod slerps the ghost's rotation toward the newest sample
-rather than snapping to it. No protocol change, no Hz change, no config. **Try this before
-concluding Pseudoregalia needs a higher rate** — raising Hz would only make the steps smaller and
-would pay bandwidth forever to hide a step that should not be there.
+**The fix is adapter-side and costs no bandwidth. BUILT AND SHIPPED 2026-08-30, ADR 0043** — the
+core may never interpolate a field it is forbidden to parse, so it names the bracket instead
+(`orientation_from`/`orientation_to`/`interp_t` on `render_remote`, bridge only, both blobs already
+on the wire as consecutive samples) and the Pseudoregalia mod interpolates it. No wire change, no
+Hz change, no config key. **Try this before concluding Pseudoregalia needs a higher rate** —
+raising Hz would only make the steps smaller and would pay bandwidth forever to hide a step that
+should not be there. Note the wording this paragraph carried before it was built: "slerps toward
+the newest sample" is the DAMPER, which the fork below rejects. It ships as bracket slerp.
 
 **The names, expanded once, because the file used them as jargon:** `lerp` is LINEAR
 INTERPOLATION; `slerp` is SPHERICAL LINEAR INTERPOLATION — the same idea on a sphere rather than a
@@ -583,8 +586,12 @@ is why the rate never feels like the problem until the player spins quickly.
 local character's facing is drawn at frame rate, the ghost's at 20 steps a second. A working slerp
 makes them indistinguishable at EVERY spin speed — that is the bar, not "better than before".
 
-**Status: the code fact is confirmed, the causal link is a strong hypothesis.** Nobody has watched a
-slerped ghost yet; the user judges that on screen, per the standing rule.
+**Status, 2026-08-30: BUILT, SHIPPED AND UNWATCHED.** The Go side is confirmed with the tools
+(full suite twice, `-race`, `internal/e2e`, `core/orientbracket_test.go`) — that says the right two
+samples and the right fraction reach the adapter, and nothing about how it looks. The causal link
+is still a strong hypothesis, not a result: nobody has watched a slerped ghost. The user judges it
+on screen, per the standing rule. `pseudoregalia/UNVERIFIED.md` carries what to look at; ADR 0043
+carries the reasoning. **Only then does the three-family rule below go into `_template/`.**
 
 **The end state:** every game ships a measured overrides file, and the template's values stop being
 "what everyone gets" and become "what a game that has not been measured yet gets". That reframing

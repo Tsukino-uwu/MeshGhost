@@ -2,8 +2,9 @@
 
 <!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
 
-`Plugin.cpp` carries 91 `constexpr bool` switches (re-counted 2026-08-29; the 87 written here
-before that was already stale, so treat the figure as a date-stamped measurement, not a total). They look alike and they are not alike, and
+`Plugin.cpp` carries 96 `constexpr bool` switches (re-counted 2026-08-30 with `grep -c "constexpr bool "`;
+the 91 written here on 2026-08-29 was itself a correction of a stale 87 and was stale again within a
+day, so treat the figure as a date-stamped measurement, not a total). They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
 when three load-bearing pose flags were read as leftover debug switches because their comments
 still said "OFF" from a sweep that had been reverted.
@@ -29,7 +30,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 26 that are `true`
+## Behaviour — the 27 that are `true`
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -54,6 +55,7 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 
 | Flag | What it does |
 |---|---|
+| `GHOST_ROTATION_SLERP` | **Added 2026-08-30, UNWATCHED — the ghost's FACING is interpolated instead of stepping at the send rate.** Orientation is opaque to the core, so it never interpolated it: facing snapped 20 times a second, which the user saw as *"a bit choppy/low fps at 20hz and 250ms when turning around fast but super smooth when turning around slow"* — angular velocity divided by Hz, so a slow pan steps ~2 degrees and a fast spin ~18. The core now names the bracket it used (`orientation_from`/`orientation_to`/`interp_t` on `render_remote`, ADR 0043) and this adapter interpolates it shortest-arc, per component. **Gates the WORK, not the decision** — `false` compiles the block out and the raw `orientation` drives the ghost again, which is byte-for-byte the pre-2026-08-30 behaviour, so an A/B on screen means something. The bar is a side-by-side spin that is indistinguishable at every speed. |
 | `SPAWN_BASED_GHOSTS` | Ghosts are spawned actors, called from the real game thread. `false` reverts to the older hijack-a-StaticMeshActor design, kept in case the world-leak crash ever reproduces. |
 | `GHOST_DESTROY_ON_DESPAWN` | A despawning ghost is destroyed (`K2_DestroyActor`) instead of being flung to `DESPAWN_PARK_Z`. Turned on 2026-08-17 once the premise for parking went stale: the "destroy silently no-ops" finding was a property of the *hijacked* actor, not of the build, and since Phase 7.6 the ghost is one we spawned. Falls back to parking when the call is not reflected, so the worst case is today's behaviour plus a log line. **The one thing it cannot rule out by itself is the historical "Fatal world leaks detected" crash** — see `BANDAGES.md`'s entry 0, whose whole argument rests on this flag being `true`. Note `DESPAWN_PARK_Z`'s own comment still says "NEVER destroy the actor": that comment is stale, and the value here is what wins. |
 | `GHOST_COLLISION_ENABLED` | **Listed here but `false` — the one row in this table that does not ship as `true`, kept together with the flags it gates.** **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus the `if constexpr` block re-typing the ghost's capsule and setting the Pawn-channel `Block` response, all of which compiles out entirely, so this is a real revert. **The `bCanBeDamaged` hurtbox disable used to be gated by this same flag and is now its own, `GHOST_HURTBOX_DISABLED` below** — they were one, which is how turning collision off silently changed damageability too. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
@@ -333,6 +335,7 @@ listed so that turning a probe on does not also mean re-deriving how often it sh
 | `SHADOW_PROBE_INTERVAL_TICKS` | `30` | `SHADOW_COMPONENT_PROBE`. ~5 samples/sec at ~150Hz. The trace logs on CHANGE, so this buys resolution rather than log volume — but each sample re-reads a few properties per actor, which is why it is not every tick. |
 | `VFX_PROBE_INTERVAL_TICKS`, `VFX_PROBE_PATH_FILTER`, `VFX_PROBE_NAME_FILTERS` | `450`, `"/Game/"`, `{"Weapon","Aura"}` | `VFX_CATALOG_PROBE`. The name filter is **deliberately widenable, never a hardcoded set of asset names** — clear the array to go back to all 58. A human-watched catalog needs a shortlist; that is `_template/README.md`'s rule. |
 | `GHOST_SPAWN_WEAPON_TRACE_DELAY_TICKS` | `150` | `GHOST_SPAWN_WEAPON_TRACE` |
+| `ROTATION_INTERP_MAX_T` | `10.0` | `GHOST_ROTATION_SLERP`. A defensive ceiling on the core's interpolation fraction, not a tuning value. Above 1 is legitimate — under `-extrapolate` the core continues the arc past the newest sample for the same window it predicts position over — and the core caps it there already against its own setting. This is the second belt, because those bytes crossed a socket and an unbounded multiplier on an angle is a ghost spinning at a rate no game produced. 10 covers a 300ms prediction over a 50ms gap (T = 7) with room to spare. |
 | `AFTERIMAGE_DISCOVERY_INTERVAL_TICKS`, `AFTERIMAGE_DISCOVERY_SAMPLE_DELAY_TICKS` | `450`, `30` | `AFTERIMAGE_DISCOVERY`. **The sample delay was 3, and 3 was wrong** — at that delay the probe reported "0 new objects" and concluded afterimages were pooled, the exact opposite of the truth. A probe's own cadence can invert its conclusion. |
 | `AFTERIMAGE_COLOR_SCAN_INTERVAL_TICKS` | `15` | the retired colour scan. Its predecessor at 3 ticks (~50 Hz) did per-object string work on the game thread and **truncated the very bursts it was counting** — the 2026-08-16 regression. |
 | `AFTERIMAGE_CALL_TEST_INTERVAL_TICKS` | `180` | `AFTERIMAGE_CALL_TEST` |

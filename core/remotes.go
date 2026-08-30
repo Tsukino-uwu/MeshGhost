@@ -75,10 +75,14 @@ func (c *Core) dropAllRemotes() {
 // contents. If localAreaID is still empty (no real local frame has arrived
 // yet), every remote passes through unfiltered rather than hiding
 // everything on an unknown local area.
-func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
+func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[string]orientBracket) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	out := make(map[string]protocol.State, len(c.remotes))
+	// The orientation bracket that goes with each state -- see orientBracket.
+	// A separate map rather than a field on protocol.State on purpose: State is
+	// the WIRE packet, and nothing here travels off this machine.
+	brackets := make(map[string]orientBracket, len(c.remotes))
 	// AGE OUT A PEER NOBODY IS HEARING FROM. Until 2026-08-28 a remote was
 	// dropped only when the relay said it had LEFT, and a buffer that stops
 	// being fed keeps answering: remoteBuffer.at returns its newest sample for
@@ -102,7 +106,7 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
 			continue
 		}
-		st, ok := buf.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+		st, br, ok := buf.atBracket(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
 		if !ok {
 			continue
 		}
@@ -116,8 +120,11 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 			continue
 		}
 		out[id] = st
+		if br.Have {
+			brackets[id] = br
+		}
 	}
-	return out
+	return out, brackets
 }
 
 // tickRenders diffs the currently-interpolated remote set against what was
@@ -125,7 +132,7 @@ func (c *Core) remoteStatesAt(renderTime int64) map[string]protocol.State {
 // for every remote that dropped out — shared by both the bridge-wire path
 // (onAdapterFrame) and the in-process path (onAdapterFrameInProcess) so the
 // tick-model diff logic exists exactly once.
-func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State), despawn func(id string)) {
+func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State, br orientBracket), despawn func(id string)) {
 	// The same clock domain outgoing timestamps are stamped in (nowMs), which
 	// is the whole point: remote samples carry the sender's idea of the time,
 	// and comparing them against a render time measured on a different clock
@@ -133,10 +140,10 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 	// sync off — every room today — this is exactly the previous
 	// time.Now().Add(-delay).
 	renderTime := c.nowMs() - c.InterpolationDelay.Milliseconds()
-	current := c.remoteStatesAt(renderTime)
+	current, brackets := c.remoteStatesAt(renderTime)
 
 	for id, st := range current {
-		render(id, st)
+		render(id, st, brackets[id])
 		rendered[id] = true
 	}
 	for id := range rendered {

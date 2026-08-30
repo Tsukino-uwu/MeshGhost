@@ -19,7 +19,7 @@ import (
 // which were despawned, the same way an adapter frame does.
 func renderOnce(c *Core, rendered map[string]bool) (drawn []string, despawned []string) {
 	c.tickRenders(rendered,
-		func(id string, st protocol.State) { drawn = append(drawn, id) },
+		func(id string, st protocol.State, _ orientBracket) { drawn = append(drawn, id) },
 		func(id string) { despawned = append(despawned, id) },
 	)
 	return drawn, despawned
