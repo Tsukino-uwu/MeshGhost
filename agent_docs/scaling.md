@@ -387,6 +387,27 @@ to the nearest divisor. Say so in the config's own documentation or the setting 
 - **The host declares how aggressive to be** — the percentages per band — because that is a
   bandwidth/quality trade belonging to whoever pays for the uplink.
 
+**THE CONFIG SHAPE (user, 2026-08-30): one boolean on the SERVER, on by default.** *"a user can
+decide if they want a set/fixed hz to always be used, or if they want the adaptive to try and be
+more efficient ... only disabled manually for example if someone want 100hz and always 100hz no
+matter what."* No client setting is needed for the POLICY — the relay decides what it forwards, and
+this inherits two existing patterns rather than inventing one: the room's send rate is already an
+operator knob (ADR 0017) and ghost collision is already a host-set room policy the relay tells
+clients about (ADR 0035). Adaptive Hz is a modifier on a knob the host already owns. It also
+belongs in the relay's startup log beside the existing `room send rate: NHz` line, which is where
+an operator checks what a room is actually doing.
+
+**But the boolean alone cannot be safe, for two reasons that put the ADAPTER back in the loop —
+as a declaration, not a setting:**
+- **The relay has no idea what "far" means.** It can compute a distance; it cannot know whether
+  400 is close. The bands must be adapter-declared, which gives the natural fail-safe: **an
+  adapter that declares no bands gets NO thinning even with the setting on**, exactly as absent
+  `own_area_only` means send everything. A new or untuned adapter is then never silently degraded,
+  and "on by default" stays honest rather than shipping an unwatched visual change — which the
+  1:1 bar and the never-assume-game-intent rule would both refuse.
+- **The relay cannot see the interpolation delay** that bounds thinning (below); that is
+  client-side, so the client declares it the way it already declares `own_area_only`.
+
 **THE HARD BOUND IS INTERPOLATION DELAY, and it is what will actually limit the bands.** A peer
 thinned to 5Hz has 200ms between samples; if the interpolation delay is shorter than the gap, the
 receiver's buffer runs dry and edge-holds — the ghost does not move slowly and smoothly, it
