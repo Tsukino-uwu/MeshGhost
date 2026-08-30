@@ -9880,52 +9880,16 @@ namespace MeshGhostPseudo
                 }
             }
 
-            // **The menu-open hook, resolved from the same widget.** Several names are tried
-            // because this build's vocabulary is not documented anywhere and a silent miss would
-            // look exactly like a fix that did not work -- so the one that resolves is logged, and
-            // so is the case where none does.
-            if (pause_open_hook_id == 0)
-            {
-                for (const wchar_t* opener : {STR("Construct"), STR("OnActivated"), STR("BP_OnActivated"),
-                                              STR("OnMenuOpened"), STR("NativeConstruct"), STR("OnAdded")})
-                {
-                    UFunction* open_fn = menu->GetFunctionByNameInChain(opener);
-                    if (!open_fn)
-                    {
-                        continue;
-                    }
-                    pause_open_hook_id = open_fn->RegisterPreHook(
-                        [this](UnrealScriptFunctionCallableContext&, void*) {
-                            std::vector<std::string> alive;
-                            for (auto& [gid, gremote] : remotes)
-                            {
-                                if (gremote.ghost)
-                                {
-                                    alive.push_back(gid);
-                                }
-                            }
-                            if (alive.empty())
-                            {
-                                return;
-                            }
-                            Output::send(STR("[MeshGhostPseudo] PAUSE OPEN: destroying {} ghost(s) now, long before any reset.\n"),
-                                         static_cast<int>(alive.size()));
-                            for (const std::string& gid : alive)
-                            {
-                                release_ghost(gid);
-                            }
-                            // Held only briefly: the point is to be clear of the reset, not to keep
-                            // ghosts away while somebody reads the menu.
-                            suppress_ghost_spawn_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
-                        });
-                    Output::send(STR("[MeshGhostPseudo] PAUSE OPEN hook armed on '{}'.\n"), opener);
-                    break;
-                }
-                if (pause_open_hook_id == 0)
-                {
-                    Output::send(STR("[MeshGhostPseudo] WARNING: no pause-menu open function resolved -- ghosts are NOT destroyed early.\n"));
-                }
-            }
+            // **NO destroy-on-menu-open hook here, and it is not coming back.** One was tried on
+            // 2026-08-31, hooking the widget's `Construct`, and it CRASHED THE GAME on the second
+            // pause-menu open: the hook fired from inside widget construction and destroyed ghost
+            // actors there. `Construct` also runs when the widget is CREATED rather than each time
+            // the menu opens, so it was the wrong event as well as an unsafe place to destroy
+            // actors from. Destroying actors inside a UI callback is not something to retry.
+            //
+            // The pause signal that DOES work was found by a Lua probe in seconds:
+            // `PlayerController.bShowMouseCursor` flips true exactly when the menu opens, and it is
+            // a property read -- no UFunction call, nothing added to the Blueprint VM's path.
 
             pause_reset_hook_id = reset_fn->RegisterPreHook(
                 [this](UnrealScriptFunctionCallableContext&, void*) {
@@ -12913,6 +12877,40 @@ namespace MeshGhostPseudo
         // so a subsystem that does not show up in it is not on this thread and is not this cost.
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         perf_report_if_due();
+
+        // **Silent while the game is PAUSED, too.** The pause menu stops the game ticking its
+        // actors while this mod's tick keeps calling into them every frame -- and the user found
+        // that toggling the menu fast is the cheapest way to fire the crash. `bShowMouseCursor` is
+        // the pause signal, measured by `probe_menuwatch` rather than guessed, and reading it is
+        // one property read on a controller this tick has already resolved.
+        // **Read through FBoolProperty, NOT as a bool*.** `bShowMouseCursor` is a BITFIELD, and a
+        // plain byte read reports true whenever any neighbouring bit in that byte is set. The first
+        // version of this did exactly that, decided the game was permanently paused, and silenced
+        // the whole mod: no ghosts spawned at all and the bridge sent 2 messages instead of ~120 a
+        // second. This file has a case file on precisely that read (`../../agent_docs/pitfalls.md`,
+        // "a bitfield bool read through a plain byte pointer says true for the whole byte") and I
+        // walked into it anyway.
+        if (auto [pause_controller, pause_pawn] = find_local_controller_and_pawn(); pause_controller)
+        {
+            bool cursor_shown = false;
+            if (UClass* pc_class = pause_controller->GetClassPrivate())
+            {
+                for (FProperty* p : TFieldRange<FProperty>(pc_class, EFieldIterationFlags::Default))
+                {
+                    if (p && p->GetName() == STR("bShowMouseCursor") &&
+                        p->GetClass().GetName() == STR("BoolProperty"))
+                    {
+                        cursor_shown = static_cast<FBoolProperty*>(p)->GetPropertyValueInContainer(pause_controller);
+                        break;
+                    }
+                }
+            }
+            if (cursor_shown)
+            {
+                ++tick_count;
+                return;
+            }
+        }
 
         // **Total silence across a teardown -- see quiet_until_tick.** Not merely "do not spawn":
         // do not read, write, or call anything. The tick calls the game's own functions on the
