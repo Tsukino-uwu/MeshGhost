@@ -515,6 +515,32 @@ lerps BACKWARDS through 340 degrees instead of forward through 20, and component
 lerp gives uneven angular speed that slows in the middle. Slerp takes the shortest path at a
 constant rate.
 
+**What CAN be smoothed at all — three families, decided by the maths of the quantity** (asked
+2026-08-30; generalises to every future adapter, so it belongs in `_template` too if the slerp
+fix works on screen):
+
+1. **Vector quantities — lerp works directly.** Position, velocity, scale, camera offset. The space
+   is flat, so a straight line between samples is correct.
+2. **Cyclic quantities — need wrap-aware interpolation.** Rotation, a compass heading, a hue, and
+   ANIMATION PHASE, which runs 0->1 and restarts: phase 0.95 -> 0.05 lerps backwards through the
+   whole clip exactly as yaw 350 -> 10 lerps the long way round. Slerp is this family's
+   3D-rotation member; a scalar angle or phase needs the same shortest-path rule, more cheaply.
+3. **Discrete quantities — never interpolated, only TIMED.** `anim` tags, `area_id`, booleans.
+   There is no midpoint between "walking" and "idle"; the only choice is WHEN the switch lands,
+   which is what holding the older sample already does. Its failure mode is a pop at the wrong
+   instant — and the related trap this repo already hit is believing a discrete tag over a
+   continuous fact (Emerald's drawn tier believed the anim tag and slid, when movement is a
+   position fact).
+
+**Where this project stands against those three:** position has all three knobs (ADR 0040);
+orientation has nothing (the gap above); **animation phase needs no smoothing at all, for a reason
+worth keeping — THE RECEIVING GAME ADVANCES THE CLIP ITSELF**, so a phase sample is a correction
+rather than a value to hold, and the game extrapolates it for free (the same let-the-game-do-the-
+work pattern that gave the spawned tier its screen culling); and everything else lives in `extras`,
+which the core may not smooth by contract, so an adapter syncing a continuous value owns its own
+smoothing. Colour is a fourth case, not relevant yet: linear RGB interpolation gives muddy
+midpoints, so a CHANGING tint would want a perceptual space — nametag colours are static.
+
 **The arithmetic, which makes the fix testable.** Each step is 1/Hz — 50ms at 20Hz — so the visible
 error is ANGULAR VELOCITY / Hz. A fast spin of ~360 deg/s is ~18 deg per step and unmistakable; a
 slow pan of ~45 deg/s is ~2.3 deg per step and invisible. Identical step COUNT in both cases, which
