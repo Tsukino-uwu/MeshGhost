@@ -725,6 +725,92 @@ recommitted). `-game`/`"game"` still work as an explicit override — needed by
 `cmd/meshghost-fakeadapter`, which has no real adapter to send a hello. See
 `agent_docs/contract.md`'s "Connecting: the bridge hello" section for the wire detail.
 
+### Settings: defined once, honoured everywhere (planned 2026-08-30, nothing built)
+
+**The principle, the user's:** anything that is not game-specific is defined ONCE in the shared
+template and honoured by EVERY adapter — the same way `core`/`relay` are shared. An adapter may
+implement it however that game requires, but it may not quietly ignore it. Three layers, and only
+the first is shared: the SETTING (what the player wants — generic, one key, one meaning), the
+MECHANISM (how this adapter achieves it — necessarily per-game, since a Lua emulator adapter and a
+UE C++ mod can never share code), and the TUNING inside that mechanism (per-adapter, and it belongs
+in that adapter's `FLAGS.md`, never in the player's config). Crystal's time-based collision policy
+is layers 2+3 and is fine as it is; what is broken is that layer 1 never reaches it.
+
+**Why this is a plan and not a cleanup: two shipped settings currently do nothing.** Both were
+already known individually; the audit that assembled them is 2026-08-30.
+
+- **`ghost_collision` does nothing end to end, in every game.** No adapter handles
+  `session_policy`, so the relay setting, the client setting, ADR 0035 and the relay's startup line
+  all dead-end at the bridge. Each game's solidity is its adapter's hardcoded choice, including
+  Pseudoregalia's — its shipped `"disabled"` override is decorative too. Known since 2026-08-19
+  (`status.md`), unchanged since. **`bridge.go` already asks for the honest fallback and nobody
+  does it either: an adapter that cannot honour "disabled" should say so in its own log, once.**
+- **Nametags reach one adapter of four.** Only Pseudoregalia handles `remote_name`; Emerald,
+  Crystal and TEVI receive and ignore it, so `name`/`name_color` do nothing in three games
+  (`status.md`). The Pokemon case needs a design decision first, not just code: BizHawk text is
+  host-drawn over a 240x160 screen and will not match the game's own font — **ask before building,
+  per the never-assume-game-intent rule.**
+
+**A third was a REGRESSION, already fixed 2026-08-30 (commit `766fd38`), and it is why this item
+exists at all:** `show_console` was deliberately removed from the template on 2026-08-16 so that
+absent means "decide per platform" — hidden on Windows, visible under Proton/Wine where the
+client's cleanup is unproven. A documentation re-audit on 2026-08-18 put `"show_console": false`
+back, silently disabling that safety valve, and it shipped that way through v1.0.0. **A doc sweep
+undid a behavioural fix and nothing caught it**, which is the strongest argument for the preflight
+check below.
+
+**The work, in order:**
+
+1. **Fix two `stage-release.ps1` bugs** — independent of everything else, and the first one blocks
+   the per-game render/rate values `scaling.md` wants. (a) The override regex only matches STRING
+   values and always writes a quoted value, so overriding a numeric or bool key silently falls
+   through to the INSERT path and produces a duplicate key holding a string — which fails to
+   unmarshal and takes that game's whole config down. (b) Inserted keys are anchored on
+   `"connect_to"`, so they land in the first tier of the file regardless of where they belong.
+2. **Restructure both shipped config files into two tiers**, basic first, then an
+   `_comment_ADVANCED` divider, with the complete set below it. Presentation only — no schema
+   change, no nested block, so config files players have already edited keep working. The tiers and
+   their ORDER are the user's, 2026-08-30. Client basic: `connect_to`, `name`, `name_color`,
+   `room`, `room_code`, `show_console`. Server basic: `listen_on`, `max_clients`, `room_code`,
+   `only_game`, `send_hz`. Everything else advanced, `ghost_collision` first under the divider,
+   then the render group, the rate group, the connection group, `local_game_bridge`, and `stats`;
+   `game`/`game_version`/`features` last and marked protocol-level, since a wrong value there
+   refuses the room rather than degrading the session. Adds `min_send`, `stats` and
+   `resume_grace_seconds`, which exist in code and appear in no shipped file. Short comments in the
+   basic tier, the full paragraphs below the divider.
+3. **A config per game, generated from the one template.** Emerald and Crystal currently read the
+   ROOT `config.json`, which is why they cannot have different values from each other — exactly the
+   two games whose render settings have never been measured. Each gets its own under
+   `games/pokemon/<game>/`, read by pointing the spawned core at it (working directory, so the log
+   lands there too, or `-config`). **Lookup is own-folder-first, then fall back to root**, which
+   both keeps an upgrading player working and gives a better permanent failure mode than falling
+   through to the built-in `127.0.0.1` defaults. **One file wins entirely — never merge — and the
+   chosen path is logged**, by the adapter and the core. Root keeps both sections: it is the
+   server's config and the double-click path `packaging/release/README.txt` documents.
+4. **`session_policy` honoured by all four adapters**, each with its own mechanism; an adapter that
+   cannot honour `disabled` logs it once instead of appearing to comply.
+5. **`remote_name` honoured by Emerald, Crystal and TEVI** — after the 240x160 text question is
+   answered by the user.
+6. **THEN the relay ships `ghost_collision: "disabled"` by default** (the user's call, 2026-08-30).
+   Order matters: flipped before step 4 it is a no-op that looks done — the same "a setting that
+   looks real and is not" failure this whole item is about. Note the resolution rule when doing it:
+   either side asking for disabled wins, so leaving the CLIENT default at `enabled` is what lets a
+   host turn collision back on with one setting instead of asking every player to edit a file.
+7. **Write the rule down where a new adapter meets it** — `adapters/CLAUDE.md` and `_template/`:
+   honour every shared setting, or log once that you cannot.
+8. **A preflight check that keeps it true**, since two of these went unnoticed from 2026-08-19 to 2026-08-30 and one was
+   undone by a doc sweep: every key a shipped config exposes must be referenced by the adapter that
+   ships it, and every bridge message type must be handled or explicitly declared unhandled.
+
+**Explicitly NOT doing:** a key registry, per-game manifests, or removal support in the staging
+script. All of that was machinery for expressing "this game does not do that" — and once every
+adapter honours every shared setting, no key needs filtering at all. Of 22 client keys only three
+ever varied by adapter, and all three are things any adapter can do.
+
+**Verification:** run `stage-release.ps1` against a scratch copy (it deletes the template from the
+tree by design), diff all five generated configs, then `preflight.ps1`. `README.txt` and
+`docs/networking.md` both document key names and will drift.
+
 ## Links
 
 - `agent_docs/contract.md` — packet schema, adapter interface, transport, tick model.

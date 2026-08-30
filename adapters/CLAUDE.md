@@ -178,6 +178,22 @@ fine. Tier on, effects off -> fine. One effect on -> broken. Four runs, no theor
 broke the game" hunt should take that shape before anyone reads code.
 
 
+## Hard rule: honour every SHARED setting, or say in your log that you cannot
+
+A key in the shared config template is **generic by definition** — it is what the PLAYER wants, not
+a fact about any game — so it is defined once and every adapter honours it. **How** is yours (a
+game may need a spawn slot freed, a capsule's collision cleared, a draw skipped); **whether** is
+not. Only the mechanism and the numbers inside it are per-game, and those numbers belong in this
+adapter's `FLAGS.md`, never in the player's config.
+
+**An adapter that genuinely cannot honour one must log that once, at startup, rather than silently
+appearing to comply.** Nothing checks and nothing can — the log line is the only signal anyone
+gets. Live proof this is not theoretical: `session_policy` is handled by ZERO of the four adapters,
+so `ghost_collision` does nothing in every game while its config key, its ADR and the relay's own
+startup line all say otherwise, and no adapter logs the gap either. `remote_name` reaches one of
+four. Both went unnoticed because `_template/PROTOCOL.md` did not document either message —
+fixed 2026-08-30. See `agent_docs/plans.md`, "Settings: defined once, honoured everywhere".
+
 ## Hard rule: the adapter may not cost the game its frame rate
 
 **The standard, user 2026-08-20: *"i don't want to ship/release anything that can't even keep the

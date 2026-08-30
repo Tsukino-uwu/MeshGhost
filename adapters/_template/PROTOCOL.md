@@ -173,6 +173,38 @@ or, when `get_local_state()` returned nil:
 ```
 
 `player_id`, `seq`, and `timestamp` are stamped by the core, not the adapter — leave them out.
+
+## Two core -> adapter messages this document used to omit, and every adapter that skipped them
+
+**Added 2026-08-30, because `_template/` had lagged and it cost real behaviour.** An adapter built
+from this file handled `render_remote`, `despawn_remote`, `bridge_ready` and `reject` — the four
+described above — and silently ignored the two below, because nothing here said they existed. That
+is why `ghost_collision` currently does nothing in any game and why nametags reach one adapter of
+four. **They are not optional, and they are not new: both ship today.**
+
+```json
+{"type":"session_policy","payload":{"ghost_collision":"enabled"}}
+{"type":"remote_name","payload":{"player_id":"p2","display_name":"Alice"}}
+```
+
+- **`session_policy`** carries the room-wide policy the host set, resolved by the core against this
+  client's own preference before it reaches you. `"disabled"` is BINDING — no ghost blocks anything,
+  at any time. It arrives right after `bridge_ready` and may arrive again if the policy changes.
+  **HOW you honour it is yours** (do not spawn a solid object, free a collision slot, clear a
+  capsule's collision — whatever this game requires); THAT you honour it is not. **An adapter that
+  genuinely cannot honour `"disabled"` must say so in its own log, once, rather than silently
+  appearing to comply** — nothing checks and nothing can, so the log line is the only signal a
+  player or a maintainer will ever get.
+- **`remote_name`** carries a peer's chosen nametag, sent when it becomes known: on join, and again
+  for every already-present peer when an adapter attaches to a room that is already populated.
+  Drawing it is per-game work — Pseudoregalia draws text on a coloured plate above the ghost — and
+  a game where readable text is genuinely impractical should log that once, for the same reason.
+
+**The general rule, which is why these two are called out rather than just listed:** a setting in
+the shared config template is generic by definition — it is what the PLAYER wants, not a fact about
+any game — so every adapter honours it with its own mechanism. Only the mechanism and its tuning are
+per-game, and the tuning belongs in this adapter's `FLAGS.md`, never in the player's config. See
+`adapters/CLAUDE.md` and `agent_docs/plans.md`'s "Settings: defined once, honoured everywhere".
 They *are* present on the `state` you receive back in `render_remote` (the core forwards the
 full stamped state), so don't treat seeing them inbound as a protocol error.
 
