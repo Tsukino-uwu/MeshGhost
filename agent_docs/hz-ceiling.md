@@ -12,7 +12,6 @@ ceiling), `relay/forward_bench_test.go` (CPU) and arithmetic over the shipped co
 timestamps). **Nothing above `protocol.MaxSendHz` (100) has ever RUN in a real session** —
 `ClampSendHz` prevents it — so this is a statement about the code, not about a game anyone watched.
 
-
 **Asked: is 100 a technical limit, could someone run 144-480Hz to match a game's fps?** `MaxSendHz`
 is **100** and its own comment says *"a bandwidth bound, not a technical one"* — correct, and the
 CPU end is not close. **It also has a SECURITY half**: a client adopts the room's rate from
@@ -41,7 +40,7 @@ added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derive
 `core/hzceiling_test.go`:
 
 | interp | last rate still interpolating | first rate that edge-holds |
-|---|---|---|
+| --- | --- | --- |
 | 175ms (TEVI) | 300Hz | 480Hz |
 | **250ms (shipped)** | **200Hz** | **256Hz** |
 | 400ms | 144Hz | 200Hz |
@@ -58,7 +57,7 @@ configured one that large, which is the only reason it never showed.
 remains, in the order it arrives:
 
 | # | limit | value | kind |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | 1 | **the game's own frame rate** | ~180Hz Pseudoregalia, 60 for GB/GBA | hard, per game, and the one that binds first |
 | 2 | **millisecond timestamps** | **1000Hz** | hard protocol wall — one sample per ms is all `timestamp` can express |
 | 3 | bandwidth | 1.2 GB/h at 20Hz, 28 GB/h at 480Hz (8-seat room) | linear, the host's |
@@ -112,7 +111,33 @@ lasting point, and it is why an opt-in past 100 wants a NEGOTIATED ceiling rathe
 constant: the relay still cannot see a client's render settings, so it cannot know what it is
 promising. `plans.md`, step 3.
 
+## "At high Hz you would not need interpolation at all" — half right, and the half that is wrong matters
+
+**Asked 2026-08-30.** Two different things wear the name `interp`, and raising Hz retires one of
+them and not the other.
+
+- **Interpolation as SMOOTHING does fade out.** At 1000Hz a sample lands every 1ms while the game
+  renders every ~5-16ms, so there is essentially always a fresh sample and the gap being filled is
+  smaller than a frame. Slerp likewise: a 360 deg/s spin steps 0.36 degrees per sample at 1000Hz,
+  which is invisible. On a clean link there is genuinely nothing left to smooth.
+- **The interpolation DELAY does not fade out, at any rate.** Its job was never filling the gap
+  between samples — it is insurance against **jitter, loss and reordering**, and none of those
+  shrink when the send rate rises. A 30ms jitter spike is 30ms at 20Hz and 30ms at 1000Hz. That is
+  why the shipped config carries a hard rule of its own: never set `interp` below the link's
+  jitter. At 1000Hz with no delay you would have exquisitely precise samples and still hitch every
+  time one arrived late.
+
+**So high Hz removes the need for interpolation only on a link with no jitter and no loss — which
+is localhost**, and localhost is precisely the condition that hid the interpolation delay behind a
+stutter until 2026-08-28. Judge this on netsim, never on a clean loopback.
+
+**The economics are the real answer, and they generalise past this project: INTERPOLATION IS
+BANDWIDTH COMPRESSION.** Buying Pseudoregalia's smooth facing through rate instead of slerp would
+have cost 10-20x the bandwidth — and was not even purchasable, since the game cannot sample past
+~180Hz. A full 8-seat room at 480Hz is 28 GB/h on the host's uplink; slerp cost ~15 lines and zero
+bytes. Every netcode interpolates rather than sending faster for exactly this reason: a trivial
+amount of CPU replaces an order of magnitude of traffic.
+
 **Raising Hz buys SAMPLING ACCURACY, never FRESHNESS.** A ghost at 480Hz with a 250ms delay is
 still drawn 250ms in the past. Lateness is `interp`'s to fix, and anyone raising the rate to cure a
 "delayed" look is turning the wrong knob. That is the single most useful line in this file.
-
