@@ -3138,6 +3138,15 @@ drift is bounded by how long someone stands perfectly still, not by session leng
 
 ## The wire format itself: JSON costs ~58% of the relay's per-state CPU (measured 2026-08-28)
 
+**The standing decision this entry argues against is ADR 0002 (2026-08-08), and that ADR is
+PROVISIONAL BY DESIGN — "JSON until it hurts", with two named exit conditions: the contract is
+stable, and bandwidth is demonstrably limiting. Check both before treating anything below as
+actionable** (2026-08-30: contract still moving — ADRs 0039-0042 revised the wire that same week —
+and bandwidth not limiting at current scale). One cost of switching that the sections below
+under-weigh: the contract's "unknown fields are ignored" rule gives FREE forward compatibility —
+0039's and 0041's fields shipped without breaking any older client — and a binary format must
+rebuild that with tagged fields or turn every contract revision into a version cutover.
+
 **Filed, not scheduled.** Recorded because the number is much higher than anyone had assumed, and
 because the obvious conclusion drawn from it -- "go binary" -- is the wrong one for reasons that
 are easy to forget and expensive to re-derive.
