@@ -87,6 +87,184 @@ was enabled to test, because the session ended before either player could look a
 
 ---
 
+## The RENDER SWEEP on netsim: the interp ladder, the rate axis, and what was NOT taken (2026-08-30)
+
+**The rig**, which is the part that makes the numbers mean anything: **two real game instances**
+(the user's call -- *"think i used 2 clients when testing with tevi, also easier to spot that way"*
+-- a loopback self-ghost was the first plan and is a weaker read), both clients through
+`meshghost-netsim` at **60ms latency / +/-25ms jitter / 2% loss / 2% reorder**, relay at the
+shipped 20Hz, `interp` swept in both installs' `config.json`. Same fault profile TEVI's sweep used,
+so the two games are comparable.
+
+**Judged CLIMBING from the broken end, on the user's rule:** *"our goal should be to go from low, to
+high, not just go high and then low ? so we actually notice when it 'gets good' instead of 'when it
+gets bad'"*, and *"easier to notice bad things getting better/perfect, than spotting when something
+gets slightly worse"*. The agent had started at the top and had to be corrected twice -- once on
+`interp`, then again on the rate axis, where "the bad end" is the opposite direction.
+
+### The interp ladder — walking back and forth past each other
+
+| interp | The user's read |
+| --- | --- |
+| 0ms | broken, as intended (the floor of the ladder) |
+| 175ms | *"still looks choppy/bad when moving back/forward"* |
+| 200ms | *"mostly smooth, but i see some chopy/jittery parts like 2-3"* |
+| 225ms | *"noticable choppy/jittery in comparison to 235"* — on a SECOND fault sequence, so not a dice roll |
+| 235ms | *"i don't think im seeing anything choppy/bad anymore"* |
+| 250ms (shipped) | clean |
+
+**The wall sits between 225 and 235ms, and Pseudoregalia therefore keeps the template's 250ms** --
+where TEVI settled at 175ms on the identical link. A per-game difference measured rather than
+assumed, which is what ADR 0040 exists for.
+
+**A 240ms override was written and then withdrawn the same hour, on the user's call.** They chose
+240 first (*"thats still a 10ms win compared to the 250ms we have used before"*) and then
+*"actually just put it at 250ms"*. Recorded because the reasoning matters: the user's standing
+preference is **the lowest delay that holds, not the safest high one** -- interp is visible lag by
+design -- and 240 vs 250 is inside one dice roll of the fault sequence anyway.
+
+### The rate axis — judged on JUMPING, which was the user's idea
+
+**20 -> 30 -> 40 -> 50 -> 60Hz barely moved the jump chop.** *"60 is also choppy"*. Tripling the
+rate is the biggest lever the network side has, so **that is a real result: the jump chop is not
+sample spacing**, and the shipped 20Hz is vindicated -- there is no reason to spend three times the
+bandwidth on a defect it does not fix.
+
+**The user picked the motion per axis, and it mattered:** back-and-forth walking for interp,
+jumping for rate. A jump is an ARC; on a straight path `catmull-rom` and `linear` are numerically
+identical, so the walking test could never have said anything about curvature.
+
+### What was NOT taken, and why
+
+- **`extrapolate`: not taken.** The user remembered TEVI's outcome correctly and the agent quoted a
+  stale line at them: the mid-sweep KNOB winner included prediction, but **TEVI's settled pick is
+  175ms / linear / prediction OFF**, because prediction hid the delay and pushed a landing ghost
+  through the floor. *"extrapolation felt way more instant/responsive, but it looked visually bad
+  in comparison for Tevi."* Pseudoregalia has more airtime, so the sink has more chances, not
+  fewer. `dev-scripts/README.md` now carries both lines together so the winner cannot be quoted
+  alone again.
+- **`curve catmull-rom`: UNJUDGED.** It was enabled to test the jump chop -- an arc drawn as chords
+  is the obvious suspect once rate is ruled out -- and **both game instances hard-crashed ~13
+  seconds later**, before anyone could look at a jump. See the crash entry below.
+- **Measured Go-side afterwards** (`core/curvespacing_test.go`): the curve is uniform-parameterised
+  but picks its neighbours BY INDEX, and this session's spacing was wildly uneven (60Hz samples
+  ~16ms apart, a 250ms keepalive re-send whenever a player stands still, plus the link's loss and
+  reordering). On a straight constant-velocity run, where a straight line should be exact, that
+  bends the rendered position **0.45 segment lengths**. Real defect, pinned by a test -- but a
+  wobble, not a teleport, so **it does not explain the crash** and was not claimed to.
+
+**So the sweep's remaining question is unchanged: what makes a jumping ghost look choppy at every
+rate and every interp?** Not spacing, not delay. The next candidates are the curve (once it is safe
+to enable) and the ghost's own animation being driven by arriving state rather than played through.
+
+---
+
+## Pending — the PERFORMANCE WORK: what it bought, what it broke, and what is unwatched (2026-08-30)
+
+**The problem, user-reported:** one peer took the game from 144fps to 70-80; two real clients the
+same; three ~40; four ~30. *"The game becomes unplayable with even just 2-3 players."*
+
+**What it turned out to be:** four whole-world `UObjectGlobals::FindAllOf` scans running on the
+tick, none of it rendering. Method, table and the transferable lessons:
+`../../agent_docs/pitfalls/method.md`, "A ghost cost half the frame rate".
+
+**Peak measured result, before the safety reverts below:** `tick_total` 9819 -> 2924 us/frame,
+per-ghost 6283 -> 309 us, and the user's own reading **70-80fps -> 141-144fps** with a peer
+present. Two ghosts measured 606 us total, i.e. linear.
+
+### What SHIPPED and is still in
+
+| Fix | What it was | Worth |
+| --- | --- | --- |
+| Dev-toggle sweeps gated | `hide_ghost_shadow`/`hide_ghost_nametag`/`hide_ghost_fx` swept the whole world every tick **in normal play, armed or not** | ~3300 us/frame |
+| Outline sweep walks the attach tree | was `FindAllOf` over every skeletal + static mesh in the level, every 5th frame | ~500 us/frame |
+| Light hold walks the attach tree | was two whole-world light scans **per ghost per tick** | ~6357 us/frame |
+| Afterimage sweep on an interval | was `FindAllOf("BP_AfterImage_C")` every tick | ~1200 us/frame |
+
+**The gating is REVERTED again as of the end of the session** — not because it was wrong, but as
+one variable in an A/B for the invisibility below. It is worth ~3300 us/frame and should go back
+in once that is settled.
+
+### What was REVERTED, and why it must not be retried naively
+
+**A crash, and it was ours.** The user reloaded a save on the second client and the game died with
+the empty `Fatal error!` dialog. Three fixes had cached raw pointers to level-owned objects
+between ticks: the local controller, the ghost's light components, the pooled projectile actors.
+
+- **RELOADING A SAVE INTO THE SAME LEVEL DOES NOT FIRE THE `LoadMap PRE` HOOK** -- the one place
+  this file drops every other level-owned pointer. Confirmed from the log: no `LoadMap PRE fired`
+  line anywhere near the crash.
+- **`IsUnreachable()` IS NOT A VALIDITY TEST.** It dereferences the object being tested, so the
+  guard written for a freed pointer is the same crash. The 2026-08-13 entry above the LoadMap hook
+  already said this; it was written and then not applied to the two caches that followed.
+- Reverted: the controller cache (+1308 us/frame) and the projectile pool cache (+~1200 us/frame).
+  Both carry a comment saying the obvious optimisation is a crash and **what it needs first: a
+  hook that fires on a same-level reload.** Not a cleverer guard.
+- The light fix was KEPT but rebuilt to walk `remote.ghost`'s own attach tree -- same saving, no
+  pointers held, and the ghost's lifetime is already managed by this file.
+
+### The OPEN defect: ghosts freeze and vanish, one side only
+
+**User-observed, twice, and NOT explained.** With two clients plus a synthetic peer:
+
+- **Client1's view:** client2's ghost frozen; the fake peer still moving normally.
+- **Client2's view:** client1's ghost frozen; the fake peer **not visible at all**.
+- Trigger, in the user's words: *"it seems to happen when i move around a lot and do different
+  stuffs on client2"*. Earlier in the same session: *"the ghosts also look really slow/laggy"* --
+  that half was the rig, see below.
+
+**So client2 stopped RECEIVING while client1 kept receiving.** A one-sided stall, not a rendering
+bug.
+
+**The mechanism for the flicker is known**, and it is not itself the bug: `core/remotes.go`'s
+`tickRenders` renders whoever `remoteStatesAt(renderTime)` returns and **despawns everyone else**.
+A peer whose samples stop arriving -- even briefly -- is despawned, and respawned when data
+resumes. Client2's adapter logged **44 spawn/despawn cycles of the fake peer**, ~20/second. So the
+flicker is a faithful report of a stream that keeps stopping; the question is why the stream stops.
+
+**A relay failure mode exists that fits, but the one in the log was self-inflicted:**
+`relay: pN is not draining its connection (256 messages queued) -- disconnecting it`. The instance
+of it that night came from the agent killing cores, so it is a CANDIDATE, not the finding.
+
+**What was NOT the cause, ruled out:** the cross-area filter (both sides reported byte-identical
+`area_id`), and the relay dropping either client (both stayed joined throughout the observation).
+
+**Next step, on the clean rig:** reproduce with relay `-introspect=10s` running, and read the
+per-member queue state rather than inferring from symptoms. If client2's adapter logs zero
+spawn/despawn cycles on a clean rig, the flicker belonged to the polluted session below.
+
+### RIG HYGIENE -- three ways the agent's own rig corrupted the evidence
+
+Written down because each one produced a symptom the user then had to judge:
+
+1. **Both mods walk 8 bridge ports from the same base**, so a kill-and-restart loop reshuffled
+   which game got which core, and stray mod-spawned cores appeared in the gaps. At one point the
+   two games were CROSS-WIRED. Fixed by giving each install its own far-apart base (6700 / 6800).
+2. **Killing cores mid-session leaves the dead sessions in the room** until the relay times them
+   out -- at one point four members, two of them dead, showing as frozen duplicate ghosts. Any
+   judgement made in that window is worthless.
+3. **`meshghost-netsim` stayed in the path from 18:02 until 22:00 on 2026-08-30**, long after
+   the interp sweep it was started for had ended (60ms latency,
+   +/-25ms jitter, 2% loss), because the install configs still pointed at `127.0.0.2`. That is the
+   whole explanation for *"the ghosts also look really slow/laggy"*, and it was the agent's fault
+   for not resetting the rig when the task changed.
+
+### What needs the user's eyes, none of it confirmed
+
+1. **That the crash is gone** -- reload a save on a second client, the exact thing that died.
+2. **That the freeze/vanish is gone, or reproducible**, on the clean rig.
+3. **A ghost must still not glow** -- the light hold was rewritten under a confirmed fix.
+4. **A ghost must not draw through walls during an attack** -- the outline sweep now walks the
+   attach tree instead of scanning the level.
+5. **The peer's thrown sword and ranged shot still appear** -- that block was edited and reverted.
+6. **A hypothesis that is unproven and worth testing when the gating goes back in:** the ungated
+   dev sweep called `call_set_visibility(component, true)` on anything of the ghost's it found
+   hidden, so it may have been acting as an accidental per-tick RE-SHOW. If ghosts stop vanishing
+   with the gating reverted, that is the answer -- and the fix is a cheap attach-tree restore, not
+   a whole-world sweep.
+
+---
+
 ## Pending — a NAMETAG SAT TOO LOW on a friend's machine, never reproduced here (2026-08-30)
 
 **Reported second-hand**, which is the most important fact about this entry: *"nametag sitting too

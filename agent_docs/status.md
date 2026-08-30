@@ -59,6 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
+- **Pseudoregalia PERF: ~20x per-ghost win landed, one fix crashed the game and was reverted**
+  (2026-08-30). Results, reverts and what is unwatched: `adapters/pseudoregalia/UNVERIFIED.md`.
+- **OPEN: ghosts freeze/vanish for ONE client while the other is fine** — a one-sided stream
+  stall, unexplained. `adapters/pseudoregalia/UNVERIFIED.md`.
 - **The Pseudoregalia render sweep is PAUSED mid-flight (2026-08-30)** — interp laddered on the
   two-instance netsim rig, `curve`/`extrapolate` unjudged. Ladder, verdicts and the crash that
   stopped it: `adapters/pseudoregalia/UNVERIFIED.md`.

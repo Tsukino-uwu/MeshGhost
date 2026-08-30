@@ -1076,3 +1076,48 @@ you are unplayable at three players; at 0.3ms, ten ghosts cost 3ms.
   code and every one measured at ~0. The timer took three rounds and answered it exactly.
 - **Measure the no-peer baseline too.** It was 2269 us/frame before any of this -- proof that a
   third of the cost had nothing to do with multiplayer at all.
+
+## Caching a level-owned pointer is a crash, and the hook you would hang it on does not fire (Pseudoregalia, 2026-08-30)
+
+**The optimisation is obvious and it is wrong.** Four whole-world scans per tick were costing half
+the frame rate (previous entry), and the natural fix -- find the object once, keep the pointer --
+crashed the user's game within the hour.
+
+**Symptom:** the empty `Fatal error!` dialog on the second client, when the user chose **reload
+save**. The adapter's log has no `LoadMap PRE fired` line anywhere near it.
+
+**Cause:** a same-level save reload frees the level's actors **without firing the LoadMap PRE
+hook**, which is where this adapter drops every other level-owned pointer. Three caches added that
+day -- the local PlayerController, a ghost's light components, the pooled projectile actors -- were
+all left pointing at freed memory, and the next tick dereferenced one.
+
+**And the guard is the same crash.** `IsUnreachable()` reads the object's own memory, so testing a
+freed pointer with it *is* the access violation. This file already carried that lesson from
+2026-08-13, on the camera view-target pointer; it was not applied to the caches written on top of
+it.
+
+**What to do instead, in order of preference:**
+
+1. **Walk from an object whose lifetime you already manage.** The light hold was rewritten to walk
+   the GHOST'S own attach tree -- `remote.ghost` is released at teardown and world-checked every
+   tick, so nothing new is assumed -- and it kept the entire ~6357 us/frame saving. This is the
+   right shape: same saving, no new lifetime claims.
+2. **Scan on an interval** where the immediate half is guaranteed by something else (a pre-hook
+   that refuses the write, for instance).
+3. **Pay the scan** and say so in a comment, which is what the controller and projectile paths now
+   do.
+
+**Before caching across ticks in a UE adapter at all, you need a RELIABLE new-world signal** -- a
+hook that fires on a same-level reload, not just on LoadMap. Finding one is the prerequisite piece
+of work, not an optimisation detail.
+
+## A diagnostic sweep can be load-bearing: check what it does when it is NOT armed (Pseudoregalia, 2026-08-30, OPEN)
+
+Gating three dev subtractions to run only while armed removed ~3300 us/frame -- and the same
+session reported ghosts going invisible. The unexamined half: while nothing was armed the sweep
+still ran and called `call_set_visibility(component, true)` on anything of the ghost's it found
+hidden. **It may have been an accidental per-tick RE-SHOW that other code depended on.**
+
+Unproven -- the gating was reverted as one variable in an A/B and the result is not in yet. Kept
+here because the shape generalises: **before gating a sweep, ask what it writes on the path where
+nothing is armed.** A subtraction instrument that also restores is two mechanisms wearing one name.

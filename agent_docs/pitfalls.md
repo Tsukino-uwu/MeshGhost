@@ -282,3 +282,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - The code already said which field was broken — reading it beat every planned measurement (Pseudoregalia, 2026-08-30)
 - A data race seen once is real — and filtering the output loses the only part that attributes it (Go side, 2026-08-30, CLOSED)
 - A ghost cost half the frame rate, and every suspect was wrong (Pseudoregalia, 2026-08-30)
+- Caching a level-owned pointer is a crash, and the hook you would hang it on does not fire (Pseudoregalia, 2026-08-30)
+- A diagnostic sweep can be load-bearing: check what it does when it is NOT armed (Pseudoregalia, 2026-08-30, OPEN)
