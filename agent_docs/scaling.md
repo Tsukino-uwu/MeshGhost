@@ -290,6 +290,9 @@ top-down each tick.
 it is correct): Trackmania and kart ghosts are mostly replay files — downloaded or local, no live
 netcode — so they say little about networking and a lot about how many translucent ghosts stay
 readable on one screen without occluding the game. That question arrives the day a big room works.
+**The other half of that conversation — that a replay file is the state stream written to disk, so
+MeshGhost's wire format already IS a replay format — is filed in `ideas.md`, "Ghost RECORDING and
+racing a replay".**
 
 **The generalized let-the-game-do-the-work rule for culling, in one line:** every game already
 maintains an active set — loaded maps, streamed levels, object pools — because it must answer

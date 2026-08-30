@@ -3898,3 +3898,49 @@ games are also 2.5D with continuous movement, so the rotation/interpolation work
 would apply rather than the tile-game path. **Read `/new-adapter` before any of that becomes a
 plan**, and `agent_docs/access-models.md` first, since "a randomizer exists" says nothing about
 whether OUR access model is legitimate.
+
+## Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
+
+**Quoted observation, relayed by the user 2026-08-30 and recorded verbatim** — secondhand, about
+Trackmania specifically, and **not verified against that game by anyone here**:
+
+> *"depending on the game it either saves inputs (if the game is fully deterministic) or enough
+> state to recreate it (basically what is being send by MeshGhost anyway) so I would have just
+> replaced the client and instead of sending to the server for syncing, saved it to a file.
+> Trackmania can reduce a lot of complexity by just not having to many states iirc. it's just
+> position + rotation, steering value, break, accelerate and which special effects are active and
+> you can fully recreate it. Then add limited polling + interpolation and things are good enough"*
+
+**Filed for two purposes the user named: a time-trial/race-against-a-ghost feature, and as a lens on
+making ghosts cheaper.** Prior art for PRESENTATION rather than the wire is already noted in
+`scaling.md`'s culling entry; this is the other half of that same conversation.
+
+**WHY THIS IS CHEAPER HERE THAN IT LOOKS: the replay format already exists.** A recording is this
+project's own state stream written to a file instead of a socket — same `protocol.State`, same
+timestamps, same `extras`. Playback is a fake peer: read the file, feed it into the interpolation
+buffer, and every renderer, every adapter and every knob works unchanged, because nothing
+downstream can tell where a snapshot came from. **No new format, no new render path, no adapter
+work.** That is a genuinely small feature hiding behind a big-sounding name, and it is the strongest
+argument for building it if anyone wants it.
+
+**THE INPUTS-VS-STATE FORK, and this project has already answered it by construction.** Recording
+INPUTS is smaller and needs the game to be fully deterministic; recording STATE is bigger and needs
+nothing. **We cannot assume determinism and should not try**: an adapter has no way to prove its
+game is deterministic, a patched ROM or a different build breaks it silently, and the failure mode
+is a replay that diverges halfway through with nothing to detect it. State is what we already send,
+and it is the robust half of the fork — the quote's own "or enough state to recreate it".
+
+**THE PERFORMANCE LESSON, which applies whether or not the feature is ever built: minimise the
+number of distinct STATES a ghost must express, not the bytes.** The Trackmania reading is that a
+whole vehicle is position, rotation, three scalars and a small set of active effects. This project
+already does the same thing in one place and should keep doing it — Pseudoregalia sends effect KEYS
+from a fixed table rather than asset paths, so a peer's VFX is one short string and the receiving
+game supplies the rest. **The generalisation is the existing let-the-game-do-the-work rule**: send
+the QUESTION, not the answer, and a small closed vocabulary beats a rich open one for cost AND for
+safety (an unbounded peer-controlled name lookup is its own risk — see "The ACE audit").
+
+**Not scheduled, and it has one real prerequisite:** deciding whether a recording is a debugging
+tool (agent-side, dev only) or a shipped feature players see. Those want different things — the
+first wants completeness, the second wants a file small enough to share and a UI to race against.
+**Nothing about Trackmania here has been checked**; if this is ever picked up, that starts with
+`licensing.md`, not with a download.
