@@ -523,8 +523,11 @@ fix works on screen):
    is flat, so a straight line between samples is correct.
 2. **Cyclic quantities — need wrap-aware interpolation.** Rotation, a compass heading, a hue, and
    ANIMATION PHASE, which runs 0->1 and restarts: phase 0.95 -> 0.05 lerps backwards through the
-   whole clip exactly as yaw 350 -> 10 lerps the long way round. Slerp is this family's
-   3D-rotation member; a scalar angle or phase needs the same shortest-path rule, more cheaply.
+   whole clip exactly as yaw 350 -> 10 lerps the long way round. **Wrap-aware just means lerp plus
+   a shortest-arc correction**: fold `target - current` into the short half of the range (+-180 for
+   degrees, +-0.5 for a 0..1 phase) before interpolating, so 350 -> 10 travels +20 rather than
+   -340. Slerp is the same principle for quaternions, where the check is negating one of the pair
+   when their dot product is negative; a scalar angle or phase gets it far more cheaply.
 3. **Discrete quantities — never interpolated, only TIMED.** `anim` tags, `area_id`, booleans.
    There is no midpoint between "walking" and "idle"; the only choice is WHEN the switch lands,
    which is what holding the older sample already does. Its failure mode is a pop at the wrong
