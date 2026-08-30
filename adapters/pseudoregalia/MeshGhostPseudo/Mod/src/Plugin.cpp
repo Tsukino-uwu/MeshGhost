@@ -12923,40 +12923,16 @@ namespace MeshGhostPseudo
             }
             if (cursor_shown)
             {
-                // **On the RISING edge, destroy the ghosts -- from the tick, which is a safe place
-                // to destroy actors.** (Destroying them from the pause widget's own Construct
-                // callback crashed the game on 2026-08-31; that is a different context entirely and
-                // is not what this is.)
+                // **NO destroying ghosts on pause. Tried 2026-08-31, withdrawn the same hour.**
+                // `bShowMouseCursor` FLICKERS rather than latching, so the rising edge fired over
+                // and over: six destroy-all events in two seconds, each followed by immediate
+                // respawns -- twelve pawn clones created and destroyed while the menu sat open,
+                // with the core never asking for a single despawn. Creating and destroying player
+                // pawns several times a second is bad on its own and is an excellent way to fire
+                // the very race being chased.
                 //
-                // Why destroy at all: a reset with NO ghost present has never once crashed, across
-                // every configuration tried, while a reset with one has crashed in all of them. The
-                // menu is open for seconds before anyone clicks Reset, so this removes the
-                // precondition long before the moment of danger -- rather than trying to survive
-                // it, which nine attempts failed to do.
-                //
-                // The cost is the user's own call, made when this was proposed: ghosts vanish while
-                // the pause menu is open. They come back when it closes.
-                if (!pause_ghosts_cleared)
-                {
-                    pause_ghosts_cleared = true;
-                    std::vector<std::string> alive;
-                    for (auto& [pid, premote] : remotes)
-                    {
-                        if (premote.ghost)
-                        {
-                            alive.push_back(pid);
-                        }
-                    }
-                    if (!alive.empty())
-                    {
-                        Output::send(STR("[MeshGhostPseudo] PAUSE: destroying {} ghost(s) while the menu is open.\n"),
-                                     static_cast<int>(alive.size()));
-                        for (const std::string& pid : alive)
-                        {
-                            release_ghost(pid);
-                        }
-                    }
-                }
+                // Staying QUIET while paused is kept: it costs nothing and it stops the tick
+                // calling into actors the paused game is no longer ticking.
                 ++tick_count;
                 return;
             }

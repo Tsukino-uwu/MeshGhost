@@ -268,6 +268,38 @@ reset button: **a world teardown while a player-pawn clone is alive kills the ga
 `InitGameState` hook set the spawn freeze to zero on the reasoning that "the new world is up". It
 fires ~180ms into a load, and ghosts were spawning 95ms after that. It holds a shorter window now.
 
+### THE CRASH IS INTERMITTENT, so single-run A/Bs proved nothing (2026-08-31)
+
+**User, late in the session:** *"client1 did some pretty cool things right now, it managed to go
+back to the main menu, and also use reset save a couple of times, and then after doing the reset
+save again later on it crashed"*. Same build, same conditions, several successes and then a
+failure.
+
+**So the fault is PROBABILISTIC, not deterministic per action** -- which retroactively invalidates
+the method used against it all evening. Roughly a dozen configurations were each tried ONCE and
+read as a verdict:
+
+- "destroying ghosts at the click crashes instantly, leaving them alone crashes late" -- two
+  samples of one random process, quite possibly.
+- "the pause-menu clear didn't fix it" -- one run.
+- Every "refuted" line in the list above except the ones with a mechanism behind them.
+
+**What still stands**, because it rests on something other than a single run: the crash needs a
+ghost to have existed (the no-peer case survived repeatedly, across the whole session); it does not
+reproduce while a heavy call trace is running (many attempts, zero crashes); the fault address is
+identical in every dump; and the zone-change fix was confirmed by the user across several
+transitions.
+
+**The protocol from here, and it is not optional for this bug:** a configuration is only
+distinguished from another by **N attempts, not one** -- five resets minimum per configuration,
+recorded as "k crashes out of n". A fix is a configuration that survives a run of attempts long
+enough that its absence would be surprising. Anything less is reading noise.
+
+**This is also why the next step is a MEASUREMENT rather than another candidate fix.** A
+probabilistic crash cannot be chased by A/B at one sample per build; the residue census
+(`probe_menuwatch`, per-class UObject counts, baseline vs after-a-ghost-existed) asks what is
+different rather than whether a guess helps.
+
 ### The reset crash is a RACE, and that is new information (2026-08-31)
 
 **It does not reproduce while a heavy call trace is running.** The user tried reset-to-save and

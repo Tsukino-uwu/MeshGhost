@@ -1170,3 +1170,25 @@ core file, a log the game wrote itself -- read it before generating hypotheses. 
 the user a relaunch per guess; reading costs nothing and often ends the search. This is the same
 instinct as "if a game has a cleared decompilation, READ IT FIRST" in CLAUDE.md, applied to runtime
 evidence instead of source.
+
+## A dozen single-run A/Bs against an intermittent bug (Pseudoregalia, 2026-08-31)
+
+**What happened.** A crash was chased from 22:00 to 01:15 on 2026-08-30/31 with one run per configuration -- destroy here,
+suppress there, hook this, skip that -- each result written down as a verdict. Then the user
+reported several successful resets followed by a failure on the same build, and the whole method
+collapsed: **the fault is probabilistic**, so a single run distinguishes nothing and most of those
+"refutations" were coin flips.
+
+**The tell was there earlier and was noticed without being acted on:** the crash did not reproduce
+while a heavy trace slowed the game down. That is a race, and a race is by definition not
+one-run-testable. The right response was to switch to N-run comparisons immediately; instead the
+next single-run A/B went out.
+
+**The rule: as soon as a fault is known or suspected to be timing-sensitive, a configuration costs
+N attempts, not one.** Record it as "k of n", pick n so that a zero would be surprising (five is
+usually enough to notice), and refuse to compare configurations tested at different n.
+
+**And prefer a measurement to an A/B entirely.** "What is different about the world after a ghost
+has existed" is answerable in one pass and does not care about timing; "does this change help" needs
+a sample. When the bug is probabilistic and the user pays a game relaunch per sample, the
+measurement is the cheaper instrument by a wide margin.

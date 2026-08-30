@@ -242,6 +242,14 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   runs `-introspect`, which is the only way to see that a player is SUSPENDED rather than simply
   frozen. Read the scripts' own headers before the session: they record what resumption does and
   does not cover, measured rather than assumed.
+- `hot-reload-lua.ps1` — **the agent's fallback for reloading a Lua probe into a RUNNING game**,
+  for hosts with no watcher mod. It activates the game window, sends UE4SS's `HotReloadKey`, and
+  restores the previous foreground window. **Prefer `probe_reloader`'s request file where it is
+  installed** (Pseudoregalia has it): that needs no keystroke and no focus, so it cannot be eaten by
+  the user typing elsewhere. Two things to check before using this: the key must match
+  `HotReloadKey` in that install's `UE4SS-settings.ini`, and it must not collide with a game or
+  UE4SS binding -- F10 is a UE4SS CONSOLE key here, and sending it opened the console and froze the
+  game's tick for twelve minutes on 2026-08-31.
 - `read-minidump.py` — **reads a UE crash dump with no debugger installed.** Prints the exception
   code, the faulting address, the access kind and bad pointer, and **which loaded module the
   faulting instruction is in**. That last fact decides whether a crash is the adapter's or the
