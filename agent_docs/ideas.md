@@ -4338,10 +4338,16 @@ top-down each tick.
 - **What it buys over tiers:** the room cap becomes a bandwidth number rather than a player count,
   and degradation is gradual — far peers get choppier before anyone disconnects.
 
-**THE SCALE GOAL, stated by the user 2026-08-30, and it reframes this whole section:** the design
-target is **100-1000+ people in a session**, Archipelago-community-lobby shaped — *"plan for the
-worst and hope for the best ... so that it actually scales properly for the future"* — not the
-2-10 friends everything above implicitly assumed. Consequences, recorded so the ranking is read at
+**THE SCALE PRINCIPLE, stated by the user 2026-08-30 and refined the same day — it reframes this
+whole section:** **the server/client must never be what caps a session. The adapters/games may be
+the limit; preferably nothing is.** Their own expected sessions are 2-20 people, but large
+community hosts (Archipelago lobbies run 100-1000+) must be POSSIBLE — *"i just don't want to
+limit the project itself, i want the adapters/games to be the limit, never the server/client and
+preferebly nothing."* So the target is not a player count to plan FOR; it is a prohibition on
+designs whose shape tops out. The area filter is the model: it did not raise the limit, it moved
+the limit out of the relay and into "how many people stand in one place" — the game's fact, not
+ours. Everything below is re-read under that principle rather than under the 2-10 friends the
+entries above implicitly assumed. Consequences, recorded so the ranking is read at
 the right scale: at n=1000, n x (n-1) is ~a million messages per tick — not slow, DOES NOT RUN —
 so the WHO axis is existential rather than an optimization, and the area filter's shape ("the
 limit is how many people stand in the same place") is the only one that survives.
