@@ -1,11 +1,22 @@
 # GhostSync — project brief
 
-<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
+<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Frozen file: it should never grow
+     toward this cap, since the only permitted edit is recording that something was superseded. -->
 
 (renamed to MeshGhost, after a lot of back/forth thinking to be something more unique)
 
-Hand this file to Claude Code at the start of a session. It defines what is being built,
-why, and the rules that govern how. Read it fully before proposing a plan.
+**THIS FILE IS HISTORIC AND FROZEN (declared 2026-08-30).** It is the idea and plan the project
+started from — a record of the original thinking, not a description of the current system. **Do not
+update it, do not fact-check it against the code, and do not "fix" what has drifted**: drift from
+here to the code is the project's history, and erasing it destroys the only account of what was
+originally intended. Four doc-sweep passes edited this file before this line existed; that was the
+mistake this line prevents. Corrections and current truth belong in the live docs below — this is
+also why it is exempt from the staleness expectations every other `agent_docs/` file carries.
+Amend only to record that it has been superseded, never to restate what superseded it.
+
+Hand this file to Claude Code at the start of a session. It defines what was originally intended,
+why, and the reasoning the rules grew from. Read it fully before proposing a plan — then follow the
+live docs for anything current.
 
 The implemented, precise version of section 3 below now lives in `agent_docs/contract.md` —
 that file is the one to follow for schema/interface details; this section is kept for the

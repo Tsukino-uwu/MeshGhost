@@ -7,6 +7,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 ## Files
 
 - [brief.md](brief.md) — the original design brief: vision, non-goals, prior art, rationale.
+  **HISTORIC AND FROZEN** — the plan the project started from, never updated to match the code.
+  Do not fact-check or correct it; drift from it is history, not a defect.
 - [project-history.md](project-history.md) — retrospective on the pre-planning phase before any
   adapter existed. Per-adapter build stories live in each game's own `README.md` instead.
 - [contract.md](contract.md) — **the durable artifact.** Packet schema, message types, adapter
