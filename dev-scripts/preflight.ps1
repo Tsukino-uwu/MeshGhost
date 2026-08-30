@@ -988,6 +988,47 @@ if (-not (Test-Path -LiteralPath $phaseIndex)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Bridge message coverage in the adapter template"
+
+# _template/PROTOCOL.md is what a new adapter is BUILT FROM, and it had never heard of
+# session_policy or remote_name -- so every adapter written from it handled four bridge messages
+# and silently ignored two. That is the whole reason ghost_collision does nothing in any game and
+# nametags reach one adapter of four (agent_docs/plans.md, "Settings: defined once, honoured
+# everywhere"). The standing rule is that _template/ may never lag, but nothing CHECKED it: a
+# message could be added to bridge/bridge.go and the template never told, which is exactly what
+# happened. This is the mechanical half of that rule -- it cannot tell whether an explanation went
+# stale, only that a message exists which the template has never heard of. Added 2026-08-30.
+$bridgeGo = "bridge/bridge.go"
+$protoDoc = "adapters/_template/PROTOCOL.md"
+if (-not (Test-Path -LiteralPath $bridgeGo)) {
+    Report-Fail "$bridgeGo does not exist -- the bridge message types are supposed to live there"
+} elseif (-not (Test-Path -LiteralPath $protoDoc)) {
+    Report-Fail "$protoDoc does not exist -- the adapter protocol template is supposed to live there"
+} else {
+    $protoText = Get-Content -LiteralPath $protoDoc -Raw
+    $wireNames = @([regex]::Matches(
+        (Get-Content -LiteralPath $bridgeGo -Raw),
+        'MessageType\s*=\s*"([a-z_]+)"') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+    # DELIMITED match only -- backticked or quoted. A bare substring would let ordinary prose
+    # satisfy this: "world" occurs 16 times in that file and only once as the message name, so a
+    # loose test would report a permanently green check for a message nobody had documented.
+    $tick  = [char]0x60   # backtick and double quote built from char codes rather than escaped:
+    $quote = [char]0x22   # both are punishing to quote correctly inside a PowerShell string.
+    $undocumented = @($wireNames | Where-Object {
+        $n = [regex]::Escape($_)
+        ($protoText -notmatch ($tick + $n + $tick)) -and ($protoText -notmatch ($quote + $n + $quote))
+    })
+    if ($wireNames.Count -eq 0) {
+        Report-Fail "found no MessageType constants in $bridgeGo -- this check has stopped working, fix it rather than deleting it"
+    } elseif ($undocumented.Count -gt 0) {
+        Report-Fail "$($undocumented.Count) bridge message type(s) exist in $bridgeGo but appear nowhere in $protoDoc -- a new adapter built from the template would never know they exist:"
+        $undocumented | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "all $($wireNames.Count) bridge message type(s) appear in the adapter template"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "dev-scripts README coverage"
 
 # Same failure shape one folder over: dev-scripts/README.md documents the launchers, and six
