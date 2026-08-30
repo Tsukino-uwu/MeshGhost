@@ -3153,7 +3153,13 @@ decided that byte gets burried forever?"* — amended only from "forever" to ADR
 because burying it outright would let the server/client cap the very sessions the no-ceiling
 principle protects. Practical meaning: nobody spends a line of code on binary unless a real
 session's bandwidth demonstrably limits, and if that day comes the state-plane-only path below is
-the shape it takes. **Do not re-open this casually; re-open it with a saturation measurement.**
+the shape it takes. **Do not re-open this casually; re-open it with a saturation measurement.** The user's underlying
+reasoning, same day, and it is the stronger form of the decision: binary trades a bandwidth ceiling
+for an EVOLVABILITY ceiling — *"not being able to debug bytes/having to maintain it if adding new
+things etc. sounds like a lot of work for a project that has to last in the long run."* Its keep
+cost is permanent and compounds with every contract revision (four ADRs added ignored-by-old-clients
+fields in one week of 2026-08), while its win is conditional on a day that may never come. A
+long-lived project prices standing costs above conditional wins.
 
 **Filed, not scheduled.** Recorded because the number is much higher than anyone had assumed, and
 because the obvious conclusion drawn from it -- "go binary" -- is the wrong one for reasons that
