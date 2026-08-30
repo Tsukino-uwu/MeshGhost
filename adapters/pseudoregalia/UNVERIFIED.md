@@ -250,6 +250,51 @@ correct, and it is aimed at a path this crash never reaches. **It was kept anywa
 reload really does bypass `LoadMap PRE`, and every "cleared at teardown" guarantee in this file
 was simply absent there.
 
+### THE CRASH DUMP AND THE CALL TRACE, which should have come first (2026-08-30/31)
+
+**Read the dump. `dev-scripts/read-minidump.py`, no debugger needed.** Five separate crashes:
+
+- `EXCEPTION_ACCESS_VIOLATION`, **reading 0x0** -- a NULL dereference, not a wild pointer. The game
+  read a pointer it expected to be set. That is a *removal/lifetime* problem, not corruption.
+- Faulting instruction **inside `pseudoregalia-Win64-Shipping.exe`**, at `+0x1CD9A60`, **identical
+  in all five dumps**. So: the game's own code, deterministic, single-cause. Our `main.dll` is
+  loaded nowhere near it.
+
+**Then ask the game what it was doing.** `log_reset_fns.txt` containing `all` logs every UFunction
+call (thousands/sec, one run only). The tail before the process died:
+
+```
+BndEvt__UI_PauseMenu_ResetButton...          <- the click
+K2_DestroyActor   on BP_PlayerGoatMain_C     <- the ghost
+ReceiveEndPlay    on BP_PlayerGoatMain_C
+OnPerceptionStimuliSourceEndPlay on AIPerceptionSystem
+ReceiveEndPlay    on BP_HpHitable_C (the ghost's)
+FixAllLights      on BP_LightManager_C       <- last call, then the fault
+```
+
+**So it dies in `BP_LightManager_C::FixAllLights`, walking lights, right after a ghost was
+destroyed.** The manager has no registration verb -- across a whole session the ONLY functions
+ever called on it are `FixAllLights` and `ReceiveBeginPlay` -- so it must gather the world's
+lights itself and walk them.
+
+**Refuted here too:** keeping the ghost's vertex light alive-but-zeroed at spawn (`decouple_off.txt`
+= `lightdestroy`). It does not help, and the reason is now obvious: destroying the GHOST destroys
+its child actor regardless, so the manager still meets a light that died microseconds earlier.
+
+**The mechanism, as precisely as the evidence supports it:** anything that walks the world's lights
+while a ghost-owned light is in the *just-destroyed, not-yet-collected* state hits null. Before the
+reset guard existed, the walker was the game's own reset; now it is also our `FixAllLights` call in
+that guard, which should be removed or moved BEFORE the destroy.
+
+**The next experiments, in order of cost:**
+1. **Remove our `FixAllLights` from the reset guard** (it can only make this worse) and re-test --
+   the crash should still happen via the game's own walk, which confirms the walker is not us.
+2. **Force a garbage collection right after any ghost-owned light is destroyed**, so nothing dead
+   is ever walkable. UE defers collection to a safe point, so this is a request, not a stall.
+3. **Stop the ghost owning a vertex light at all.** The construction-script child actor is created
+   inside `SpawnActor`, so the CDO route already failed; the remaining route is destroying the
+   ChildActorComponent itself rather than its child actor.
+
 ### What is ESTABLISHED, after seven runs (2026-08-30)
 
 **The trigger is that a ghost has EVER EXISTED this session -- not that one exists now.**

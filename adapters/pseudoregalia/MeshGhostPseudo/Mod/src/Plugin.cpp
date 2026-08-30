@@ -9853,7 +9853,13 @@ namespace MeshGhostPseudo
                     //
                     // We already call this after every ghost SPAWN. Never after a destroy, which is
                     // the gap.
-                    call_fix_lights(STR("FixAllLights"));
+                    // **NO FixAllLights here.** It was added on 2026-08-30 believing a stale light
+                    // registration was the crash; the all-calls trace then showed FixAllLights as
+                    // the LAST function executed before the fault, walking lights microseconds
+                    // after a ghost died. Whatever else is true, asking the manager to walk its
+                    // lights at exactly that moment can only make this worse. The game's own reset
+                    // still walks them, which is why removing this does not fix the crash -- but
+                    // it removes us from the list of suspects.
                     census_singleton_arrays(STR("after-reset-destroy"));
                     census_object_counts(STR("after-reset-destroy"));
                 });
@@ -10234,21 +10240,33 @@ namespace MeshGhostPseudo
                     {
                         c = static_cast<wchar_t>(::towlower(c));
                     }
-                    static const wchar_t* const WANTED[] = {STR("save"), STR("reset"), STR("retry"),
-                                                            STR("restart"), STR("respawn"), STR("reload"),
-                                                            STR("death"), STR("die")};
-                    bool interesting = false;
-                    for (const wchar_t* needle : WANTED)
+                    // **`log_reset_fns.txt` containing `all` logs EVERY call, unfiltered and
+                    // unde-duplicated.** That is enormously expensive and it is the point: the
+                    // reset crash is a NULL dereference inside the game's own code (five dumps,
+                    // one fixed offset), so the LAST function logged before the process dies names
+                    // what the game was executing. Seven hypotheses were refuted before anyone
+                    // asked the game directly.
+                    //
+                    // Never leave this on. It writes thousands of lines a second.
+                    static const bool log_everything = dev_toggle_contains(STR("log_reset_fns.txt"), "all");
+                    if (!log_everything)
                     {
-                        if (lowered.find(needle) != std::wstring::npos)
+                        static const wchar_t* const WANTED[] = {STR("save"), STR("reset"), STR("retry"),
+                                                                STR("restart"), STR("respawn"), STR("reload"),
+                                                                STR("death"), STR("die")};
+                        bool interesting = false;
+                        for (const wchar_t* needle : WANTED)
                         {
-                            interesting = true;
-                            break;
+                            if (lowered.find(needle) != std::wstring::npos)
+                            {
+                                interesting = true;
+                                break;
+                            }
                         }
-                    }
-                    if (!interesting || !announced.insert(name).second)
-                    {
-                        return;
+                        if (!interesting || !announced.insert(name).second)
+                        {
+                            return;
+                        }
                     }
                     Output::send(STR("[MeshGhostPseudo] RESET_FN_PROBE: {} on '{}'\n"),
                                  name,
@@ -11276,7 +11294,27 @@ namespace MeshGhostPseudo
                         (*vl_child)->ProcessEvent(init_fn, init_params);
                         vl_reinit = true;
                     }
-                    const bool vl_destroyed = call_destroy_actor(reinterpret_cast<AActor*>(*vl_child));
+                    // **`decouple_off.txt` containing `lightdestroy` keeps the light ALIVE (zeroed).**
+                    //
+                    // The reset crash (2026-08-30) dies inside `BP_LightManager_C::FixAllLights`,
+                    // one instruction, null pointer, in the game's own code -- five dumps agree,
+                    // and an all-calls trace put FixAllLights as the last thing executed after a
+                    // ghost was destroyed. The manager has no registration verb (only FixAllLights
+                    // is ever called on it), so it must collect its lights itself and walk them.
+                    //
+                    // We create a vertex light with the ghost and destroy it the same tick. A
+                    // destroyed actor is not collected for up to a GC interval, so anything that
+                    // walks the world's lights in that window meets a dead one. Zeroing it and
+                    // leaving it ALIVE makes it harmless AND walkable, which costs nothing: its
+                    // Intensity and Radius are already 0 and re-initialised through the game's own
+                    // InitializePrameters above.
+                    const bool keep_light_alive = dev_toggle_contains(STR("decouple_off.txt"), "lightdestroy");
+                    const bool vl_destroyed =
+                        keep_light_alive ? false : call_destroy_actor(reinterpret_cast<AActor*>(*vl_child));
+                    if (keep_light_alive)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DEV: ghost vertex light kept ALIVE and zeroed (decouple_off.txt names 'lightdestroy').\n"));
+                    }
                     Output::send(STR("[MeshGhostPseudo] DEV: spawn-tick vertex-light kill for remote {} -- zeroed intensity/radius, InitializePrameters {}, destroy {}.\n"),
                                  to_wide_ascii(player_id),
                                  vl_reinit ? STR("called") : STR("NOT REFLECTED"),
