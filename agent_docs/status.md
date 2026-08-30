@@ -59,6 +59,9 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
+- **HIGH PRIORITY: two shipped settings do nothing, and the config work around them is planned
+  (2026-08-30)** — `ghost_collision` reaches no adapter in any game, nametags reach one of four;
+  plan, ordering and the two `stage-release.ps1` bugs: `plans.md`, "Settings: defined once".
 - **Pseudoregalia is FEATURE COMPLETE (user, 2026-08-27) and its scope is written down** — nine
   confirmed entries that day; what it does NOT cover is listed with it. `pseudoregalia/VERIFIED.md`.
 - **Pseudoregalia's BLACK FLASH on ghost spawn is open after two measured negatives** — not the fade
@@ -114,7 +117,7 @@ that a peer's state genuinely differs from the local player's, which loopback co
 ### Open, not blocked
 
 - **Ghost collision policy: Go side DONE, adapters not wired.** Config, wire and bridge all ship
-  and are tested; no adapter reads `session_policy` yet, so nothing changes on screen. ADR 2026-08-19.
+  and are tested; no adapter reads `session_policy` (all four, re-checked 2026-08-30). `plans.md`.
 - **Emerald's real-panel clip count was REACHED, not played to** — the position was written, so it
   says nothing about whether ordinary play produces that overlap. `verified.md` 2026-08-19.
 - **18 Emerald probes and dev-scripts were rewritten to resolve their own directory (2026-08-25)** —
