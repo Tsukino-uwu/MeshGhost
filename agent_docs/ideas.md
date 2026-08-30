@@ -4165,3 +4165,64 @@ area filter for the same reason.
 whose third rung ("Nobody within N tiles") deferred distance for this same reason. This entry is
 the downlink mirror and answers the "unless the relay does it from coordinates it already relays"
 carve-out that entry left open.
+
+## A general culling model for every adapter — declared SETS and TIERS, not a rule per game (filed 2026-08-30)
+
+**The user's question, 2026-08-30:** does Pokemon need its own kind of culling, or should there be
+one overall model that covers TEVI, Pseudoregalia and every future adapter — given that top-down
+tile, 2D and 3D games see different distances and that Pseudoregalia's zones are far coarser than
+its rooms? Answer: one model, two primitives, and most of what is wanted is already reachable
+without a protocol change.
+
+**Granularity is ALREADY the adapter's choice.** `area_id` is opaque to the core — compared by
+equality, never interpreted — so what an "area" *is* was never decided by the Go side. Pseudoregalia
+reports the UE Level's full name (`Plugin.cpp:12011`), TEVI reports its area enum
+(`Plugin.cs:2359`). Moving Pseudoregalia from zone to room granularity is **not** a core or relay
+change; it is that adapter reporting a finer string, and the shipped `own_area_only` filter starts
+culling per room the same day. Nothing in `core` or `relay` learns anything about the game.
+
+**THE RULE THAT DECIDES GRANULARITY: cull to the widest thing the adapter DISPLAYS, not the widest
+thing it DRAWS.** This is the trap, and TEVI is the live example the user suspected. Its pause-map
+marker gates on `state.AreaId == currentLocalArea` (`Plugin.cs:383`) — a peer's marker appears
+because that peer's state is arriving while they are anywhere in the zone. Switch TEVI to room-level
+`area_id` and the ghosts get cheaper while the map marker silently loses everyone outside your own
+room. The character is drawn per room; the map is displayed per zone; the wider one sets the floor.
+
+**Which is why the model needs TIERS, not one on/off filter.** Three levels, decided by the adapter,
+applied by the relay with equality and arithmetic only:
+
+- **Full state** — peers whose character is actually rendered (own room, own screen, within R).
+- **Reduced state** — peers displayed only in the abstract: a map marker, a room list, a nameplate.
+  Position and identity at a slow rate; no animation, orientation or `extras`. This is the same
+  **presence packet** the uplink entry above already specifies, so one mechanism serves both
+  directions rather than two designs meeting in the middle.
+- **Nothing** — everyone else.
+
+**What is missing in the protocol today is the middle, not the concept.** `own_area_only` is binary:
+your own area, or the entire room. Emerald and Crystal render maps in their connection list, which
+is neither, so they decline filtering entirely and receive everything. **A declared SET of
+`area_id`s** — the areas I currently render, refreshed as the player moves — is still equality-only,
+still game-blind, and gives them real filtering back for the first time. It is also exactly what
+TEVI's tiers need: full set = my room, reduced set = my zone.
+
+**What falls out per game, with no new game knowledge in the Go side:**
+
+- **Emerald / Crystal** — full set = own map + connected maps (the adapter already computes this
+  list); distance inside the set is an optional extra, and probably worth nothing on a map that
+  mostly fits the screen. Measure before building.
+- **TEVI** — full set = current room, reduced set = current zone, which keeps the pause-map marker
+  working while making ghost traffic room-scoped. Today it is zone for both.
+- **Pseudoregalia** — its `area_id` is the UE Level, so "per room" needs the adapter to define
+  sub-areas from the level's own geometry. Long sightlines in 3D mean a set alone is the wrong tool
+  for the big rooms: this is the case that actually wants **distance with hysteresis** (send within
+  R, stop at R + margin, seed on entry), since a hard room boundary is what would make peers pop.
+
+**For future adapters the two primitives cover both world shapes:** equality-on-a-declared-set for
+discrete worlds (tiles, rooms, levels), distance for continuous ones (3D, large open rooms). They
+compose — a set first, distance inside it. Anything cleverer, such as line of sight or occlusion, is
+game knowledge and stays in the adapter, which is free to simply not render what it receives.
+
+**Build order, cheapest first:** (1) declared set of `area_id`s, which unblocks Emerald and Crystal
+and costs no new concepts; (2) the reduced tier, reusing the presence packet; (3) distance with
+hysteresis, for Pseudoregalia's big rooms — see "Distance culling the DOWNLINK" above. Each step
+gets shadow counters before code, the way the area filter's 93% was known before the filter existed.
