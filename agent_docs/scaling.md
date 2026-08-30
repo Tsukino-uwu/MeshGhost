@@ -503,6 +503,15 @@ rather than snapping to it. No protocol change, no Hz change, no config. **Try t
 concluding Pseudoregalia needs a higher rate** — raising Hz would only make the steps smaller and
 would pay bandwidth forever to hide a step that should not be there.
 
+**The arithmetic, which makes the fix testable.** Each step is 1/Hz — 50ms at 20Hz — so the visible
+error is ANGULAR VELOCITY / Hz. A fast spin of ~360 deg/s is ~18 deg per step and unmistakable; a
+slow pan of ~45 deg/s is ~2.3 deg per step and invisible. Identical step COUNT in both cases, which
+is why the rate never feels like the problem until the player spins quickly.
+
+**The 1:1 test is a side-by-side spin**, in the shape already used for renderer comparisons: the
+local character's facing is drawn at frame rate, the ghost's at 20 steps a second. A working slerp
+makes them indistinguishable at EVERY spin speed — that is the bar, not "better than before".
+
 **Status: the code fact is confirmed, the causal link is a strong hypothesis.** Nobody has watched a
 slerped ghost yet; the user judges that on screen, per the standing rule.
 
