@@ -264,6 +264,15 @@ global opt-in. Its failure mode is overshoot-and-snap, which is least visible on
 so "thin the rate for distant peers, extrapolate to cover the gap" is safe precisely because it is
 applied where mistakes do not show. Global is the setting that makes it risky.
 
+**RATIFIED 2026-09-01 — no-prediction stays the assumed default, and extrapolation is parked for
+a future interaction tier.** The user's call, after recalling the TEVI test (responsive but
+*"predict itself into the floor while jumping ... it just looked really bad"*): this project is
+visuals-first even now that it is not locked to visuals, so `extrapolate: "0s"` ships everywhere.
+Two conditions on ever changing that: (1) it gets its own watched ladder first, the way the
+Pseudoregalia hz/interp sweep was run — extrapolation was NOT part of that ladder; (2) the use
+case is a PvP/player-interaction mode where trading visual correctness for responsiveness is the
+point, which is `beyond-cosmetic.md` territory and unscheduled.
+
 **Occlusion is never the relay's.** A peer behind a wall in your own area is sent, and always will
 be: geometry is game knowledge. The adapter is free to receive and not draw, which is what the
 Emerald draw path already does.
