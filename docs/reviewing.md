@@ -29,6 +29,48 @@ socket the tree opens is greppable:
 grep -rnE 'net\.(Listen|Dial|ListenPacket|ListenUDP)|quic\.(Listen|Dial)' --include=*.go . | grep -v _test.go
 ```
 
+## Where the bytes go
+
+A review of network code is mostly following attacker-controlled bytes from the socket to every
+place they are used, and asking at each step what has been checked so far. This is that path, so
+you can start reading at the right line instead of the top of the file.
+
+**Into the relay** (what a host exposes):
+
+1. `cmd/meshghost-relay/main.go` binds one listener per configured transport through
+   `netx.ListenWithTLS`. Every listener is wrapped in `netx.LimitListener` (a cap on open
+   connections) and, for tcp with TLS on, `netx/tlsx` (the TLS-or-plaintext sniff). udp and quic
+   are `netx/udpconn` and `netx/quicconn`, each presenting a datagram socket as a `net.Listener`.
+   udp's admission cookie and per-connection token live in `netx/udpconn/cookies.go` and
+   `listener.go`; that is the code that decides whether a spoofed packet costs the relay anything.
+2. `relay.Server.Serve` accepts and starts `handleConn` (`relay/relay.go`). That function is the
+   whole per-connection state machine and is worth reading end to end: it wraps the socket in
+   `transport.NDJSONConn` with `protocol.MaxLineBytes` as the line cap (enforced *during* the read,
+   in `transport/transport.go`'s `readLoop`), arms the hello timer, and registers `OnReceive`.
+3. `OnReceive` runs, in order: the per-second flood cap; JSON decode of the envelope; if not yet
+   joined, only a `hello` is accepted, and its checks run field-length → protocol version → room
+   code (constant-time) → query-only → single-game restriction → room join/create → resume →
+   slot reservation. Everything before the room is touched is where a stranger with no code
+   lives.
+4. Once joined, each message type is decoded into its struct and passed through the matching
+   `protocol.Validate*` (`protocol/limits.go`, `protocol/online.go`) before anything is done with
+   it; deeper planes are gated on the room's negotiated features. State fans out through
+   `Room.forward` into each recipient's `outbox` (`relay/outbox.go`), which is what protects
+   everyone else from one peer that stops reading.
+
+**Into a player's machine** (what a peer or a hostile relay reaches):
+
+5. `core/relaysession.go`'s `handleRelayMessage` is the only reader of the relay socket. It
+   keeps its own roster (bounded), drops state for any id it never saw announced, re-validates
+   every field, and re-sanitizes names (`core/remotenames.go`).
+6. What survives is written to the bridge (`bridge/bridge.go`, localhost only) as `render_remote`
+   and friends, and the adapter renders it. The adapter never sees the relay. What each adapter
+   does with each field is the part reviewed last (ADR 0044's peer-to-adapter section).
+
+**Dependencies.** One: `github.com/quic-go/quic-go`, plus its `golang.org/x` transitive set. TLS,
+HMAC, JSON and the UDP socket are the Go standard library. There is no dependency for the wire
+format, the framing or the relay logic, so there is nothing to audit but this repository and Go.
+
 ## What the project claims
 
 [security.md](security.md) is the list of claims — what a hostile client can and cannot do to a

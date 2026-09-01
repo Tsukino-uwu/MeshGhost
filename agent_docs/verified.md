@@ -120,6 +120,7 @@ filed under the right theme, but anything can check that it is listed.
 - Fuzzing the SCHEDULE found three ways a live game goes permanently invisible (2026-08-29)
 - Two more from the same campaign, and CI's Windows runner found them (2026-08-29)
 - 2026-09-01 — `DefaultSendHz` lowered 20 → 15 for every adapter, on the first evidence the number ever had
+- 2026-09-02 — The first adversarial review: seven Go-side findings fixed, each with a test that failed first
 
 
 ## Split per game — 2026-08-25

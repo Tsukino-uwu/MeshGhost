@@ -2,6 +2,7 @@ package netx
 
 import (
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -15,8 +16,10 @@ func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	var logged int
-	ln := LimitListener(raw, 2, func(string, ...any) { logged++ }).(*limitListener)
+	// Written from the accept goroutine, read here: atomic, or the race
+	// detector (CI, first push) rightly objects.
+	var logged atomic.Int32
+	ln := LimitListener(raw, 2, func(string, ...any) { logged.Add(1) }).(*limitListener)
 	defer ln.Close()
 
 	accepted := make(chan net.Conn, 8)
@@ -69,8 +72,8 @@ func TestLimitListenerClosesConnectionsPastTheCap(t *testing.T) {
 		t.Fatal("connection past the cap was handed to Accept")
 	case <-time.After(100 * time.Millisecond):
 	}
-	if logged != 1 {
-		t.Fatalf("refusal logged %d times, want 1", logged)
+	if n := logged.Load(); n != 1 {
+		t.Fatalf("refusal logged %d times, want 1", n)
 	}
 
 	// Free one slot; the next dial is accepted again.

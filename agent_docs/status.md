@@ -9,6 +9,9 @@
 were the two never tested. Fly is now built, bandaged and partly confirmed; the boat is built and
 has never been looked at. `verified.md`.
 
+- **HIGH PRIORITY, the user's call 2026-09-02: all four games need ONE RUN EACH to watch the
+  adversarial review's adapter-side changes** (built, deployed, never run) — Crystal first, its main
+  loop now runs under `pcall`. What each run must show: that game's `UNVERIFIED.md`, last entry; ADR 0044.
 - **Emerald Fly is BANDAGED, not finished** (2026-08-26, user: *"good nuff for now"* but *"not
   properly working fully yet"*). Four compensations named: `emerald/BANDAGES.md` §4.
 - **Fly's confirmed scope is ONE case** — a same-town fly watched from a second instance; both
@@ -31,8 +34,6 @@ has never been looked at. `verified.md`.
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
   `crystal/UNVERIFIED.md`.
-- **The 2026-09-02 adversarial review's ADAPTER-side hardening is built, deployed and UNWATCHED**
-  in all four games — Crystal's new `pcall` main loop most of all. Each game's `UNVERIFIED.md`; ADR 0044.
 - **Cross-map ghosts SHIP and are confirmed on screen (2026-08-27)** — a peer across a route seam
   renders; houses hide for free. Open: the WARP branch is unwatched, and the block is UNMEASURED on
   the Archipelago build so the feature is off there. `crystal/UNVERIFIED.md`.
