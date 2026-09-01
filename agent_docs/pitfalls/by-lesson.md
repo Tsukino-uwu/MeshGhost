@@ -5562,3 +5562,55 @@ deadlocks on the pre-fix file (caught at attempt 40) and passes on the fixed one
 3. **A timing change is a concurrency test you did not write.** Anything that moves a system-wide
    interval — a send rate, a tick, a timeout — reshuffles every interleaving in the process, and
    the first failure after such a change deserves the dump, not a re-run.
+
+## A fuzzer that clips its inputs to the limit under test cannot find the overflow (Go side, 2026-09-02, CLOSED)
+
+**Symptom.** None, for nineteen days. `FuzzListenerSurvivesArbitraryDatagrams` had hammered the
+UDP listener since 2026-08-16 with millions of executions and never a crash. The first
+adversarial reviewer to look at `netx/udpconn` sent one 1201-byte datagram at the real
+`meshghost-relay` binary and the whole process exited three seconds after start — tcp and quic
+listeners included, because a listener dying is fatal by design.
+
+**Cause.** Two halves. The read loop used a buffer of exactly `MaxDatagramBytes` (1200), and on
+Windows a `ReadFromUDP` into a buffer smaller than the datagram returns the truncated bytes AND a
+`WSAEMSGSIZE` error; Linux truncates silently. The loop treated any error as the socket dying. The
+fuzzer half: its first lines were `if len(data) > MaxDatagramBytes { data = data[:MaxDatagramBytes] }`
+— it had been written to send arbitrary bytes and then trimmed those bytes to the very limit whose
+overflow was the bug. Every one of its millions of inputs was, by construction, one the code could
+handle. CI runs on Linux, so even an unclipped fuzzer there would have passed.
+
+**Fix.** A 64 KiB read buffer (no datagram anyone can send is larger), anything over
+`MaxDatagramBytes` read in full and dropped, both sides; the fuzzer's cap lifted to 60000;
+`netx/udpconn/oversized_test.go` fails on the old code on Windows. ADR 0044.
+
+**Lesson.** A test written by the author encodes the author's model of the input, and a fuzzer is
+only as hostile as its harness lets it be. When writing one, look at every line between
+`f.Fuzz(` and the call under test and ask what it FORBIDS — a truncation, a `Skip`, a
+canonicalisation — because each one is a class of input the campaign will never send. And a
+platform-specific error path is invisible to a CI that runs on one platform: the Windows job
+exists for exactly this, but a fuzz campaign has to be unclipped to reach it. The wider one, from
+the same review: five of seven Go findings were in code with honest tests that had never been
+asked "what does the party we did not write this for send?" `docs/reviewing.md` now tells the
+next reviewer to ask exactly that.
+
+## `MaxClients` counted seats, not sockets — and everything before the hello was free (Go side, 2026-09-02, CLOSED)
+
+**Symptom.** None seen; found by reading. A reviewer measured 3000 UDP admissions in 0.8 s for
+60 KB of attacker traffic → 3003 goroutines and 25 MB heap on the relay, released only at the
+10-second hello timeout; extrapolated, ~600 MB per attacker IP per window. On tcp the same, at
+a kernel socket each; under TLS a further 10-second handshake window before the relay even saw
+the connection. And past the descriptor limit `Accept` returned EMFILE, which `Serve` treated as
+fatal — the same "one error closes everything" shape as the datagram case above.
+
+**Cause.** Every bound the relay had was per-JOINED-client (`MaxClients`, the flood cap, the
+outbox) or per-connection-once-accepted (the hello timer). Nothing counted connections between
+accept and hello, so the cheapest state to hold — a socket that says nothing — was unbounded.
+
+**Fix.** `netx.LimitListener` closing connections past `relay.MaxOpenConnsFor` (8 per seat, floor
+64), applied BENEATH the TLS wrapper so a parked handshake counts; `Serve` retries temporary
+accept errors with backoff. `netx/limit_test.go`, `relay/serve_test.go`. ADR 0044.
+
+**Lesson.** When auditing limits, list every state a stranger can put the server in and ask which
+limit covers it — including the states BEFORE any identity exists, which are the ones nobody
+names because there is nothing to name them by. And a "fatal on any error" accept loop turns
+every resource limit the kernel enforces into a remote shutdown switch.

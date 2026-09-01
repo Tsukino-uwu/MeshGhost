@@ -88,6 +88,28 @@ const (
 	DefaultHelloTimeout = 10 * time.Second
 )
 
+// MaxOpenConnsFor is the per-listener bound on accepted connections, joined
+// or not, that cmd/meshghost-relay applies through netx.LimitListener. Eight
+// per seat, floored at 64: a real client uses one connection (plus a brief
+// discovery query and, on resume, a moment of overlap), so a relay at
+// MaxClients has room for every seat to be reconnecting at once with
+// strangers knocking, while a flood of never-hello connections stops at a
+// number the host's memory and descriptor limits can absorb. Until
+// 2026-09-02 nothing bounded this at all -- MaxClients counted only joined
+// clients, so a connection that never said hello was free to hold for
+// HelloTimeout, thousands at a time from one machine.
+func MaxOpenConnsFor(maxClients int) int {
+	if n := maxClients * OpenConnsPerSeat; n > MinMaxOpenConns {
+		return n
+	}
+	return MinMaxOpenConns
+}
+
+const (
+	OpenConnsPerSeat = 8
+	MinMaxOpenConns  = 64
+)
+
 // MaxMessagesPerSecondFor returns the per-client flood cap for a room running
 // at sendHz. It only ever scales UP from MaxMessagesPerSecond: lowering a
 // relay's send_hz must never start disconnecting clients that are still

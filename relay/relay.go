@@ -1010,11 +1010,33 @@ func (s *Server) resolveGhostCollision() string {
 // Serve accepts connections on ln, handling each on its own goroutine,
 // until Accept returns an error (typically because ln was closed).
 func (s *Server) Serve(ln net.Listener) error {
+	var backoff time.Duration
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			// A temporary Accept error is the kernel saying "not right now"
+			// -- out of file descriptors (EMFILE/ENFILE) being the one a
+			// stranger can cause on purpose, by opening connections and
+			// holding them. Until 2026-09-02 any error returned here, and
+			// cmd/meshghost-relay treats Serve returning as fatal, so
+			// exhausting the relay's descriptors from outside took every
+			// room down at once. Same shape as net/http.Server.Serve: back
+			// off, retry, and only give up on a real error (the listener
+			// closed). Found by the 2026-09-02 adversarial review;
+			// regression: TestServeSurvivesATemporaryAcceptError.
+			if ne, ok := err.(net.Error); ok && ne.Temporary() { //nolint:staticcheck // the deprecation is about timeouts; EMFILE is exactly what this asks
+				if backoff == 0 {
+					backoff = 5 * time.Millisecond
+				} else if backoff *= 2; backoff > time.Second {
+					backoff = time.Second
+				}
+				log.Printf("relay: accept: %v — retrying in %s", err, backoff)
+				time.Sleep(backoff)
+				continue
+			}
 			return err
 		}
+		backoff = 0
 		go s.handleConn(conn)
 	}
 }

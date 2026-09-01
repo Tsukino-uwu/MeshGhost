@@ -45,6 +45,10 @@ const (
 	// and the constant is shared rather than the relay's own.)
 	DefaultMaxLineBytes = 64 * 1024
 
+	// overflowHeadBytes is how much of an oversized line is kept for the
+	// error message. See the split function in readLoop for why it is small.
+	overflowHeadBytes = 96
+
 	// DefaultIdleTimeout closes a connection that hasn't delivered a
 	// complete line within this long, refreshed after every line. Without
 	// this, a connection that never finishes a line — including one that
@@ -250,9 +254,16 @@ func (c *NDJSONConn) readLoop() {
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		advance, token, err := bufio.ScanLines(data, atEOF)
 		if advance == 0 && token == nil && err == nil && len(data) >= maxLine && overflowHead == nil {
+			// Enough to name the message type and its first field, and no
+			// more: this head goes into a log line, quoted, and a relay
+			// logs it pre-hello for anyone who connects. At the previous
+			// 16000-byte cap, 4 KB of NUL bytes became 16 KB of log per
+			// connection, unauthenticated -- a 4x disk amplifier (found by
+			// the 2026-09-02 adversarial review). 96 bytes still identifies
+			// the message the way the 2026-09-01 case needed.
 			n := len(data)
-			if n > 16000 {
-				n = 16000
+			if n > overflowHeadBytes {
+				n = overflowHeadBytes
 			}
 			overflowHead = append([]byte(nil), data[:n]...)
 		}

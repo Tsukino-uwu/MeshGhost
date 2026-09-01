@@ -231,6 +231,11 @@ type TLSOptions struct {
 	// Logf receives the downgrade warning and the listener's per-connection
 	// notices. Nil means the standard logger.
 	Logf func(format string, args ...any)
+
+	// MaxOpenConns bounds accepted-and-not-yet-closed connections per
+	// listener, counted beneath the TLS layer so handshakes count too; 0
+	// means unbounded. Listen-side only. See LimitListener.
+	MaxOpenConns int
 }
 
 func (o TLSOptions) logf(format string, args ...any) {
@@ -251,6 +256,8 @@ func ListenWithTLS(k Kind, addr string, opts TLSOptions) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Before the TLS wrap, so a connection parked in its handshake counts.
+	ln = LimitListener(ln, opts.MaxOpenConns, opts.logf)
 	if k != TCP || opts.Mode == tlsx.Off {
 		return ln, nil
 	}

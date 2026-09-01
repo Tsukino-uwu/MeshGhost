@@ -59,7 +59,7 @@ func Listen(addr string) (*Listener, error) {
 }
 
 func (l *Listener) readLoop() {
-	buf := make([]byte, MaxDatagramBytes)
+	buf := make([]byte, readBufferBytes)
 	for {
 		n, remote, err := l.pc.ReadFromUDP(buf)
 		if err != nil {
@@ -69,6 +69,12 @@ func (l *Listener) readLoop() {
 				l.Close()
 			}
 			return
+		}
+		if n > MaxDatagramBytes {
+			// Nothing this package sends is that large, so it is not ours;
+			// dropped without touching l.conns. See readBufferBytes for why
+			// it must be read in full rather than left to the socket.
+			continue
 		}
 		l.handle(buf[:n], remote)
 	}

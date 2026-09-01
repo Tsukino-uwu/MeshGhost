@@ -30,6 +30,25 @@ import (
 // An empty name is stored as an ABSENCE rather than as "": there is no
 // difference between "set no name" and "set a name made entirely of characters
 // we strip", and both must end with no nametag drawn.
+// admitToRosterLocked adds playerID to the roster unless doing so would take
+// it past protocol.MaxRosterSize, in which case the id is refused and stays
+// unknown -- so its state is dropped by storeRemoteState like any other
+// unannounced id, and the adapter never hears of it. An id already present
+// is always admitted (a repeated join is not a new seat). Caller holds c.mu.
+func (c *Core) admitToRosterLocked(playerID string) bool {
+	if c.roster == nil {
+		c.roster = make(map[string]struct{})
+	}
+	if _, present := c.roster[playerID]; present {
+		return true
+	}
+	if len(c.roster) >= protocol.MaxRosterSize {
+		return false
+	}
+	c.roster[playerID] = struct{}{}
+	return true
+}
+
 func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
 	var tag protocol.Nametag
 	if raw != nil {

@@ -157,8 +157,10 @@ they would a TCP sequence number.
   adapter's own script/mod version, not a game build number — see the ADR for why). A room's
   version, once declared, is sticky the same way `game_id` already was.
 - **Legible rejection**: a refused `hello` (bad version, wrong room code, mismatched game/
-  version, full room) now gets a `reject` message with a reason before the connection closes,
-  instead of a bare hangup indistinguishable from "the relay is just slow or down."
+  version, mismatched feature set, a game this relay does not host, a field over its length
+  bound, full room) now gets a `reject` message with a reason before the connection closes,
+  instead of a bare hangup indistinguishable from "the relay is just slow or down." A joined
+  client that trips the flood cap gets one too (`rate limited`, retryable).
 - **A real remote-OOM, fixed**: `transport`'s read loop used to buffer a line without
   any size bound until it found a newline — a peer streaming bytes with no newline could grow
   memory without limit, and the existing `MaxLineBytes` check ran too late to stop it. Now
@@ -197,6 +199,44 @@ they would a TCP sequence number.
   "connected" short of a full client restart; `Core` now retries in the background with the
   same backoff shape as start-order independence above.
 
+## What changed (2026-09-02 adversarial review)
+
+The first pass that read this code the way an attacker would: five reviewers given only the code
+and "break this", one attack class each (resource exhaustion, protocol state and trust, the
+transport layer, the peer-to-adapter path), plus one checking every claim on this page against the
+code as it stood. Method, findings, fixes and what was deliberately left alone:
+[agent_docs/adr/0044](../agent_docs/adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md).
+Every fix below has a regression test that failed before it. Ranked by what it cost a host.
+
+- **One spoofable UDP datagram no longer kills the relay.** A datagram over 1200 bytes made
+  Windows hand the read loop an error alongside the bytes; the loop closed the listener, and the
+  relay binary treats that as fatal — tcp and quic died with it. No handshake, any source address.
+  The client side had the same hole against a player's port. Now read into a 64 KiB buffer and
+  dropped. The fuzzer had never seen it because it truncated its own inputs to that same limit.
+- **Descriptor exhaustion is no longer a remote crash.** `Serve` retries a temporary `Accept`
+  error (EMFILE) with backoff instead of returning.
+- **Connections that have not said hello are bounded.** Previously only *joined* clients counted
+  toward anything; a stranger could hold thousands of pre-hello connections at a few bytes each.
+  Now every listener closes connections past `relay.MaxOpenConnsFor` (8 per seat, floor 64),
+  counted beneath the TLS layer so a parked handshake counts too; refusals are logged once a second.
+- **One member can no longer refuse every trade in an `escrow.v1` room.** Terminal records kept
+  for `EscrowRetention` counted toward the room's cap, so 64 open-then-abort pairs — under the
+  flood cap — rejected everyone else's opens for a minute, renewably. Only live exchanges count
+  now, and an opener holds at most 8 (`MaxLiveEscrowsPerMember`).
+- **QUIC validates source addresses.** Every unvalidated Initial gets a Retry first, so a spoofed
+  packet costs a stateless reply rather than a TLS handshake and five seconds of half-open state,
+  and the 3x reply toward the spoofed address is gone. Incoming streams are limited to the one
+  the protocol uses and receive windows shrink from 512 KiB/1.5 MiB to 64/256 KiB.
+- **Pre-hello log amplification closed.** An oversized line's head was logged quoted up to 16000
+  bytes — 4 KB of NULs became 16 KB of log per unauthenticated connection. The head is 96 bytes.
+- **The core's roster is bounded** (`MaxRosterSize`, 512). A hostile or broken relay could announce
+  ids without end and every shipped adapter spawns a ghost per id with no count of its own.
+- **Adapter-side input hardening, built and deployed but not yet watched:** Pseudoregalia bounds a
+  peer's afterimage spawn count (it was written straight into the game's own spawn count), zeroes a
+  non-finite orientation, and caps remembered nametags; Crystal's main loop runs under `pcall` so
+  one bad field no longer ends the script; Emerald accepts only the two gender values its frame
+  tables know; TEVI treats a non-finite `anim_t`/`pause` as absent.
+
 ## A new risk this creates
 
 **Room-code auth is enforced entirely by the relay — a stale (pre-2026-08-14) relay binary
@@ -218,7 +258,7 @@ another player's network state, because no channel to another player's machine e
 
 **No message type carries an IP address or other network-identifying field.**
 `protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Reject`, `Join`,
-`Leave`, `State`, `Prefs`/`PrefsAck`, `Event`, `Lease`/`LeaseState`, `Escrow`/`EscrowState`,
+`Leave`, `State`, `Prefs`, `Event`, `Lease`/`LeaseState`, `Escrow`/`EscrowState`,
 `World`/`WorldState`, `Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
 carries only a reason string, and `Transports` (the transport-discovery reply, added 2026-08-16)
 carries a kind and a **port** per offer, never a host: the client already knows an address, and a
@@ -228,6 +268,15 @@ relay bound to `0.0.0.0` doesn't. A client only ever learns a peer's `player_id`
 characters stripped) and redistributed as `Welcome.Nametags` and `Join.Nametag`, then re-sanitized
 by the receiving client. A nametag is explicitly a label, not an identity, and still carries no
 address or network-identifying field.
+
+**A session can be resumed, and the token is the only secret the relay ever mints.** In a room that
+negotiated `resume.v1`, a dropped client's identity — its `player_id`, held leases and in-flight
+exchanges — is parked for a grace window (20s default) rather than announced as a leave, and
+reclaimed by presenting the `resume_token` its `welcome` carried: 16 bytes from `crypto/rand`,
+single-use, rotated on every welcome, looked up by exact match and never broadcast or logged
+(`relay/resume.go`). Whoever holds the token owns the session, so it crosses the network under
+whatever the transport gives it: encrypted on quic and TLS tcp, readable by an on-path observer on
+plain tcp and udp. A cosmetic room mints none and parks nothing.
 
 **`player_id` is not derived from an IP.** It's a monotonic counter assigned by the relay
 (`fmt.Sprintf("p%d", n)`, `relay/relay.go`'s `nextPlayerID`) — `p1`, `p2`, ... per
@@ -288,7 +337,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   per entity for a room's lifetime and hands the whole set to whoever takes the authority lease
   next — which is the entire point, and also the first mechanism by which a departed client's
   content reaches a stranger who arrived later. Bounded (`MaxWorldKeysPerRoom` x
-  `MaxWorldBlobBytes`, ~58KB per room, freed with the room) and opt-in per room, so it is not a
+  `MaxWorldBlobBytes`, ~52KiB per room, freed with the room) and opt-in per room, so it is not a
   resource gap; what it is, is a new place a client could smuggle something into, and it is not
   inspected because by hard rule it cannot be. Same posture as `extras`, with a longer lifetime.
 - **`tcp` is plaintext only if you turn `tls` off; `udp` always.** On `tcp` that is a setting rather
@@ -310,12 +359,31 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
   it needs is confirmed reachable from a quic-go connection.
 - **Room-code auth depends on the relay being current** — see "A new risk this creates" above.
   A stale relay binary silently provides none of the protection a client believes it configured.
-- **Not exhaustively audited.** The 2026-08-14 pass fixed the concrete DoS/trust gaps found
-  while scoping it (a real remote-OOM, a one-stalled-peer room freeze, the relay's roster being
-  discarded client-side) — not a claim that every possible malicious-peer angle has been tried.
-  A peer can still, for example, spam legitimate-looking rapid state changes right up to the
-  rate cap. Revisit if a new concrete attack shape is found, the same way this pass was scoped
-  from real findings rather than a hypothetical checklist.
+- **Audited once, adversarially, on 2026-09-02** — the resource-exhaustion, protocol-trust,
+  transport and peer-to-adapter surfaces, by reviewers who had not written the code and were not
+  shown this page (ADR 0044). That is one pass by one kind of reviewer, not a proof; the honest
+  status is "the things a hostile reader found in a day are fixed, and what they chose to leave
+  are listed below." A peer can still spam legitimate-looking rapid state changes right up to the
+  rate cap; that is what the cap is for. The next set of eyes should read the ADR first to look
+  past what the last set found. How to be that next set: [reviewing.md](reviewing.md).
+- **Room squatting under no-auth.** The first `hello` for a room name fixes its `game_version` and
+  feature set; every later joiner that disagrees is refused. With `room_code` unset, a stranger who
+  connects first locks that room name for everyone else. This is what the no-auth posture means;
+  the defence is the room code.
+- **A member of an opt-in `lease.v1`/`world.v1` room can fill its tables.** 256 lease keys
+  (renewable) or 64 world keys, after which every other member gets `too many`. World entries
+  outlive their writer by design — custody is the plane's purpose — so a departed member's 64 keys
+  stay until the room empties or a later authority drops them. No shipped adapter negotiates these
+  planes; a per-member bound of escrow's shape is the fix when one does. Related: a lease-holder
+  handover re-sends the room's world snapshot (~53 KB) per change of holder, so two colluding
+  members can turn ~200 B in into ~53 KB out per handover, up to the flood cap.
+- **Resume grace holds a seat with no socket.** A `resume.v1` identity keeps its `max_clients` slot
+  for the grace window after dropping, so eight identities cycling reconnects can hold all eight
+  default seats while rarely being connected. Bounded by `max_clients`, and no cheaper for the
+  attacker than holding eight connections.
+- **The UDP admission cookie is a small reflector.** A 2-byte spoofable hello gets an 18-byte
+  reply to the claimed address, plus one HMAC on the relay — 1.5x on the wire. Nothing is
+  remembered for an unvalidated address, and `udp` is opt-in. Recorded so it is not rediscovered.
 
 
 ### Why `auto` and not `off` — a policy decision, 2026-08-19

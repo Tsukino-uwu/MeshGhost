@@ -144,6 +144,24 @@ const (
 	// truncated, and such a client should use tcp.
 	MaxDatagramBytes = 1200
 
+	// readBufferBytes is the size of the buffer each read loop hands the
+	// socket, and it is deliberately NOT MaxDatagramBytes: the largest
+	// datagram IPv4 or (non-jumbogram) IPv6 can carry, so no datagram anyone
+	// can send arrives larger than the buffer. That matters because a read
+	// into a buffer smaller than the datagram is not a truncation on every
+	// platform — on Windows, ReadFromUDP returns the truncated bytes AND a
+	// WSAEMSGSIZE error, and both read loops treat any error as the socket
+	// dying. Until 2026-09-02 the buffer was MaxDatagramBytes, so one
+	// spoofable 1201-byte datagram from anywhere on the internet, with no
+	// handshake, closed the listener; and cmd/meshghost-relay treats a
+	// listener dying as fatal, so it took the tcp and quic transports down
+	// with it. The same buffer on the dialed side let one packet to a
+	// player's port end their session. Found by the 2026-09-02 adversarial
+	// review; the fuzzer had never seen it because it truncated its own
+	// inputs to MaxDatagramBytes. Regression: oversized_test.go. Datagrams
+	// over MaxDatagramBytes are read in full and then dropped.
+	readBufferBytes = 65535
+
 	// readQueue is how many datagrams may wait for one Conn before further
 	// ones are dropped. Dropping is correct rather than regrettable here:
 	// the state plane is explicitly lossy and latest-wins, and blocking

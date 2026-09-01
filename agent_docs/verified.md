@@ -1398,3 +1398,41 @@ Fixed (snapshot conns, release the lock, then close) with a regression test that
 closes 50 times and fails on a timeout rather than hanging — verified to deadlock on the pre-fix
 file and pass on the fixed one. Method and the "read the dump by lock, not by volume" lesson:
 `pitfalls/by-lesson.md`.
+
+## 2026-09-02 — The first adversarial review: seven Go-side findings fixed, each with a test that failed first
+
+**Track: Go side — agent-verified with the tools, per CLAUDE.md.** Nothing here is a game-side claim;
+the adapter-side hardening from the same review is in each game's `UNVERIFIED.md`, unwatched.
+
+**What was done.** Five review agents were given only the code and "break this", one attack class
+each (resource exhaustion; protocol state and trust; the transport layer; the peer-to-adapter path,
+which fanned out per adapter), plus a sixth that checked every claim in `docs/security.md` against
+the code as it stood. Every finding was confirmed against the code by me before it was acted on;
+three were also confirmed by a reviewer running the real `meshghost-relay` binary. ADR 0044 is the
+full account; `docs/security.md`'s new changelog section is the public one.
+
+**Fixed, with the regression test that fails on the pre-fix code:**
+
+| Finding | Fix | Test (fails without the fix) |
+| --- | --- | --- |
+| One oversized UDP datagram, spoofable, closed the listener and so the relay process (Windows `WSAEMSGSIZE`); same on the dialed side | 64 KiB read buffer, oversized dropped; fuzzer's input cap lifted 1200 → 60000 | `netx/udpconn/oversized_test.go` (both sides; run against the old code: dial timed out / `use of closed network connection`) |
+| Temporary `Accept` errors (EMFILE) returned from `Serve`, fatal in the binary | retry with backoff | `relay/serve_test.go` (old: `Serve returned on a temporary Accept error`) |
+| No bound on pre-hello connections | `netx.LimitListener` beneath TLS, `relay.MaxOpenConnsFor` | `netx/limit_test.go` |
+| Terminal escrow records counted toward the room cap; one member could refuse every trade | live-only counting, `MaxLiveEscrowsPerMember` = 8 by opener | `relay/escrow_cap_test.go` (both tests fail with the old expression swapped back in) |
+| QUIC never validated source addresses; 100 streams and 1.5 MiB windows per unauthenticated connection | `VerifySourceAddress` always; 1 stream, 64/256 KiB windows | existing `quicconn` suite (behaviour change is in quic-go's handshake, not observable from a unit test here) |
+| Pre-hello log head up to 16000 bytes, quoted | 96 bytes | existing `transport` suite |
+| Core roster unbounded against a hostile relay | `protocol.MaxRosterSize` = 512 on welcome and join | `core/roster_cap_test.go` (old: `roster after an oversized welcome holds 1024 ids`) |
+
+**Drift check of `docs/security.md`:** every security claim held. Three corrections: a message type
+that does not exist (`PrefsAck`), the world figure (~52 KiB, not 58 KB), and four reject reasons
+missing from the list. Resume, the outbox bounds and the new limits were undocumented there and now
+are.
+
+**Verification.** `dev-scripts/run-gotests.bat` green (build, vet, 17 packages × 2 including
+`internal/e2e`); `dev-scripts/run-gotests-race.bat` green (`-race -count=3`, e2e 444s); the two
+relay fuzz targets 30s each and the udp listener target 20s with the lifted cap, all PASS;
+`dev-scripts/preflight.ps1` clean. Both mod DLLs rebuilt (`built-from.txt` hashes match) and
+deployed with `meshghost.exe` to every live install, hash-verified as UPDATED.
+
+**Not claimed:** that the relay is now secure. One pass by one kind of reviewer; the known gaps it
+chose to leave are listed in `docs/security.md`. And nothing adapter-side has been watched.

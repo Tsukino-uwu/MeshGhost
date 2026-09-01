@@ -2674,3 +2674,21 @@ above — before the fix, that address could not even have been reached to fail.
 
 **What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no tier
 handover was part of this run.
+
+## Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
+
+`meshghost_crystal.lua`, three changes, `luac -p` clean, not run:
+
+- **`tick()` is wrapped in `pcall`** at the bottom of the file, the way Emerald's `guardedFrame`
+  already was. Before, any error in a frame — one bad field from one peer, or one of our own bugs
+  — ended the script until BizHawk was restarted. An error now costs the rest of that frame and
+  writes one `frame error (script continues)` line per DISTINCT message. **This changes what a
+  crash looks like:** where the loader log used to show the script gone, it now shows that line
+  and the adapter keeps going. The dev loader path (`MESHGHOST_DEV_LOADER`) is untouched.
+- **The cross-map log uses `%s`, not `%d`.** The core interpolates position, so a fractional tile
+  is normal, and Lua 5.4's `%d` raises on it. This one could fire WITHOUT an attacker — it is the
+  likeliest of the three to have been the "adapter died crossing a seam" shape. Watch: cross a seam
+  with a peer on the other side; the `cross-map:` line prints and the script survives.
+- **A non-object `extras` is treated as absent** at the top of `renderRemote`.
+
+ADR 0044, `docs/security.md`.

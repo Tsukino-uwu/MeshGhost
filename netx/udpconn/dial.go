@@ -106,14 +106,15 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 // dialed Conn owns its socket, so it does its own reading rather than being
 // fed by a demultiplexer.
 func (c *Conn) dialedReadLoop() {
-	buf := make([]byte, MaxDatagramBytes)
+	buf := make([]byte, readBufferBytes)
 	for {
 		n, err := c.pc.Read(buf)
 		if err != nil {
 			c.once.Do(func() { close(c.closed) })
 			return
 		}
-		if n == 0 {
+		if n == 0 || n > MaxDatagramBytes {
+			// Oversized: not ours, dropped. See readBufferBytes.
 			continue
 		}
 		// Every real payload is wrapped in a control frame carrying this

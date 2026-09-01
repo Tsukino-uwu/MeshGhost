@@ -167,6 +167,18 @@ const (
 	// exhaustion reasoning as MaxLeasesPerRoom.
 	MaxEscrowsPerRoom = 64
 
+	// MaxLiveEscrowsPerMember bounds how many LIVE (not yet committed or
+	// aborted) exchanges one member may have opened at once. Counted by
+	// opener, never by counterparty — counting both sides would let a member
+	// lock a victim out by naming them. Added 2026-09-02 after the
+	// adversarial review showed one member could fill MaxEscrowsPerRoom by
+	// itself; that also made retained terminal records stop counting toward
+	// the room cap, since they had let 64 open-then-abort pairs refuse every
+	// other member's trades for EscrowRetention, renewably. Together: filling
+	// the room's table takes eight members' cooperation, and a dead exchange
+	// costs nobody a slot.
+	MaxLiveEscrowsPerMember = 8
+
 	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
 	// DisplayName, RoomCode, GameVersion) — previously unbounded, found while
 	// auditing for malicious-peer hardening alongside room-code auth. One shared

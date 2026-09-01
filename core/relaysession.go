@@ -745,7 +745,9 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 				c.roster = make(map[string]struct{}, len(w.Roster))
 			}
 			for _, id := range w.Roster {
-				c.roster[id] = struct{}{}
+				if !c.admitToRosterLocked(id) {
+					break
+				}
 			}
 			// w.SendHz == 0 means "not advertised" (an older relay that
 			// predates this field), a distinct case from "advertised badly" —
@@ -828,8 +830,13 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 		var j protocol.Join
 		if err := json.Unmarshal(env.Payload, &j); err == nil {
 			c.mu.Lock()
-			c.roster[j.PlayerID] = struct{}{}
+			admitted := c.admitToRosterLocked(j.PlayerID)
 			c.mu.Unlock()
+			if !admitted {
+				// Nothing else for this id either: the name and the seeded
+				// state would outlive a roster entry that never existed.
+				break
+			}
 			c.storeRemoteName(j.PlayerID, j.Nametag)
 			if j.State != nil {
 				c.storeRemoteState(*j.State)

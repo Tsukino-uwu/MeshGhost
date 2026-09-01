@@ -51,6 +51,28 @@ func (e *escrow) isParty(id string) bool {
 	return e.parties[0] == id || e.parties[1] == id
 }
 
+// escrowTableFullLocked is the open-time bound: LIVE exchanges only, per room
+// and per opener. Until 2026-09-02 this was len(r.escrows) against
+// MaxEscrowsPerRoom, which counted the terminal records retained for
+// EscrowRetention -- so one member could open-and-abort 64 exchanges and every
+// other member's open was refused for the next minute, renewably, under the
+// flood cap. Found and confirmed by two independent reviewers in the
+// 2026-09-02 adversarial review; regression: escrow_cap_test.go. Caller holds
+// r.mu.
+func (r *Room) escrowTableFullLocked(opener string) bool {
+	live, mine := 0, 0
+	for _, e := range r.escrows {
+		if e.terminal {
+			continue
+		}
+		live++
+		if e.parties[0] == opener {
+			mine++
+		}
+	}
+	return live >= protocol.MaxEscrowsPerRoom || mine >= protocol.MaxLiveEscrowsPerMember
+}
+
 // escrowStateLocked renders the wire form. Blobs are attached ONLY once committed:
 // until then neither side may see the other's contribution, or the second
 // depositor could decide what to offer after seeing what it was offered.
@@ -107,9 +129,9 @@ func (r *Room) handleEscrow(from string, req protocol.Escrow) {
 			}, []string{from}); ok {
 				outs = append(outs, o)
 			}
-		case req.With == "" || req.With == from || !r.isMemberLocked(req.With) || len(r.escrows) >= protocol.MaxEscrowsPerRoom:
+		case req.With == "" || req.With == from || !r.isMemberLocked(req.With) || r.escrowTableFullLocked(from):
 			// No counterparty, itself, someone who is not here, or the room
-			// is already at its concurrent-exchange bound.
+			// (or this opener) is already at its live-exchange bound.
 			if o, ok := out(protocol.TypeEscrowState, protocol.EscrowState{
 				ID: req.ID, Seq: r.nextSeq(), Phase: protocol.EscrowPhaseAborted,
 				Reason: protocol.EscrowReasonRejected,

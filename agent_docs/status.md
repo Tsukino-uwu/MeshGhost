@@ -31,6 +31,8 @@ has never been looked at. `verified.md`.
   (it was crashing and the dev loader was unloading it — `attempt to index a nil value (local 'g')`
   in the loader log), and `applyPeerAction` no longer races the engine on the action byte.
   `crystal/UNVERIFIED.md`.
+- **The 2026-09-02 adversarial review's ADAPTER-side hardening is built, deployed and UNWATCHED**
+  in all four games — Crystal's new `pcall` main loop most of all. Each game's `UNVERIFIED.md`; ADR 0044.
 - **Cross-map ghosts SHIP and are confirmed on screen (2026-08-27)** — a peer across a route seam
   renders; houses hide for free. Open: the WARP branch is unwatched, and the block is UNMEASURED on
   the Archipelago build so the feature is off there. `crystal/UNVERIFIED.md`.

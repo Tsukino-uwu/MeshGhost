@@ -66,8 +66,12 @@ func FuzzListenerSurvivesArbitraryDatagrams(f *testing.F) {
 	f.Cleanup(func() { raw.Close() })
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > MaxDatagramBytes {
-			data = data[:MaxDatagramBytes]
+		// Capped near the IPv4 maximum, NOT at MaxDatagramBytes: until
+		// 2026-09-02 this truncated to MaxDatagramBytes, which is exactly why
+		// the fuzzer never found that one oversized datagram closed the
+		// listener on Windows (see readBufferBytes and oversized_test.go).
+		if len(data) > 60000 {
+			data = data[:60000]
 		}
 		if _, err := raw.Write(data); err != nil {
 			t.Skipf("write: %v", err)

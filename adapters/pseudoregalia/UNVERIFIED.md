@@ -1499,3 +1499,22 @@ montage path, not a loosening of the gate.
 no LoadAsset fallback -- `StaticFindObject` also only ever found loaded objects -- so "same outfit
 mod on both machines" worked before and works now (the catalog is YOUR game, mods included), and
 "a mod only the peer has" never worked on your screen either way; the refusal is just explicit now.
+
+## Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
+
+`Plugin.cpp`, three changes, all of the shape "a peer's field reaches the game unchecked" (ADR
+0044, `docs/security.md`). Built with `build-pseudoregalia.bat` and deployed to both installs
+2026-09-02; nothing has been watched since.
+
+- **`afterimage_n` is clamped to 1..64, else 6.** A peer's value was written straight into the
+  pawn's `afterImagesToSpawn`; only `<= 0` was corrected. What to watch: a slide still spawns the
+  same afterimage burst as before (the sender's real count is 6 on every build seen, well inside
+  the bound), and nothing about the trail looks different.
+- **A non-finite `orientation` is zeroed** on the raw (non-bracket) path. Only reachable from a
+  peer sending `1e999`; a normal session cannot tell the difference. Nothing to watch beyond
+  "ghosts still turn".
+- **Nametags are capped at 1024 remembered peers**, evicting names with no live ghost when full.
+  A normal session never reaches it. Nothing to watch beyond "names still show".
+
+Regression on the Go side (`core/roster_cap_test.go`) bounds how many ids a relay can announce at
+512, so the "unbounded pawn clones" finding is closed above this mod rather than in it.

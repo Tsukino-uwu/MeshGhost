@@ -2057,7 +2057,12 @@ local function handleBridgeLine(line)
                 -- extras is free-form/opaque per agent_docs/contract.md; default to "male" if
                 -- absent (e.g. an older client without this field) rather than erroring, same
                 -- forward-compatibility posture the relay/core already apply.
-                r.gender = (type(st.extras) == "table" and st.extras.gender) or "male"
+                -- Only the two values the frame tables know. Anything else -- a number, a
+                -- table, or a string that happens to name a genderFrames method -- made the
+                -- draw loop error every frame for every peer sorted after this one.
+                -- Found by the 2026-09-02 adversarial review of the peer-to-adapter path.
+                local g = type(st.extras) == "table" and st.extras.gender or nil
+                r.gender = (g == "male" or g == "female") and g or "male"
                 -- The peer's own graphic. Absent from an older peer, in which case the ghost
                 -- falls back to borrowing this machine's player graphic, exactly as before.
                 -- ADOPT A NEW GRAPHIC ONLY ONCE IT HAS SETTLED.

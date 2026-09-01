@@ -1547,6 +1547,36 @@ The carve-out is narrow, and each clause is load-bearing:
 useful to the adapter, that is the memory-write gate in `agent_docs/plans.md`, with an ADR — not a
 file move.
 
+## Hard rule: every field in a `render_remote` came from a stranger — treat it that way
+
+The core bounds what it forwards (sizes, finite positions, a roster cap of 512 ids, sanitized
+names), and that is ALL it can do: `extras`, `anim`, `area_id` and `orientation` are opaque to it
+by contract, so their CONTENTS reach your adapter exactly as a peer wrote them — and a hostile
+relay can write anything at all. The 2026-09-02 adversarial review (ADR 0044) read all four
+shipped adapters with that in mind and found the same shapes in each. Start with these, or you
+will be adding them after a peer finds them for you:
+
+- **Type-check before you index.** `extras` may be a number; `extras.gender` may be a table or a
+  string naming one of your own methods. Emerald drew nothing after the hostile peer in `pairs`
+  order until it checked. `type(x) == "table"` and an allowlist of the values your tables know.
+- **Finite before it reaches the engine.** JSON carries `1e999`; `sscanf`/Newtonsoft turn it into
+  infinity without a word, and infinity into a rotator or an Animator time is a ghost that stops
+  rendering. `isfinite` on every float you did not clamp; `%s` not `%d` in a log of a value the
+  core interpolated, because Lua 5.4's `%d` raises on a fraction.
+- **A count a peer sends is a REQUEST, never a number you hand the game.** Pseudoregalia wrote
+  `afterimage_n` straight into the pawn's own spawn count; a peer could ask for two billion
+  actors. Clamp to the range the real game produces (1..64 there) and fall back to the default.
+- **Bound every map keyed by `player_id`.** Nametags, per-peer caches, `remotes` itself: the core
+  caps live ids at 512, but ids are reused across a session and a name kept "so it survives a
+  despawn" is a name kept forever. Evict what has no live ghost when the map is full.
+- **Guard the frame.** Emerald's `guardedFrame` and, since 2026-09-02, Crystal's main loop run
+  under `pcall`: an error costs the rest of one frame, logged once per distinct message, instead
+  of the script — which for a BizHawk adapter means "until the user restarts the emulator".
+  UE4SS and BepInEx already isolate a throwing callback; a Lua adapter has to do it itself.
+
+None of this is a substitute for the core's bounds and none of it may make the core game-aware;
+it is the adapter's half of the same boundary. `docs/security.md` records what the core promises.
+
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 Root `CLAUDE.md` is always loaded and already carries the bridge-only rule and the

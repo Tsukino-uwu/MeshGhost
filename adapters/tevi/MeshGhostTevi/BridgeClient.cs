@@ -449,6 +449,15 @@ namespace MeshGhostTevi
             }
         }
 
+        // A peer's float reaches the Animator (speed, normalized time). Newtonsoft's float
+        // cast turns "NaN"/"Infinity" strings and out-of-range doubles into non-finite
+        // values without throwing, and a NaN there freezes that ghost's Animator. Treated
+        // as absent. Found by the 2026-09-02 adversarial review of the peer-to-adapter path.
+        private static float? FiniteOrNull(float? v)
+        {
+            return v.HasValue && !float.IsNaN(v.Value) && !float.IsInfinity(v.Value) ? v : null;
+        }
+
         private static int IndexOfNewline(StringBuilder sb)
         {
             for (int i = 0; i < sb.Length; i++)
@@ -706,8 +715,8 @@ namespace MeshGhostTevi
                                 RoomY = (int?)extras?["room_y"],
                                 TrailMode = (int?)extras?["trail"],
                                 WeaponRgba = (int?)extras?["weapon_rgba"],
-                                TempPause = (float?)extras?["pause"],
-                                AnimTime = (float?)extras?["anim_t"],
+                                TempPause = FiniteOrNull((float?)extras?["pause"]),
+                                AnimTime = FiniteOrNull((float?)extras?["anim_t"]),
                                 VfxSeq = (int?)extras?["vfx_seq"],
                                 VfxEffect = (int?)extras?["vfx_id"],
                                 VfxFacingLeft = (bool?)extras?["vfx_left"],

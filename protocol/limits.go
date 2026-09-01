@@ -26,6 +26,17 @@ const (
 	// MaxExtrasBytes bounds the serialized size of State.Extras.
 	MaxExtrasBytes = 1024
 
+	// MaxRosterSize bounds how many remote players a core will track at
+	// once -- the only bound between a hostile or broken relay and the
+	// adapter behind the bridge, which spawns one ghost per announced id
+	// with no count of its own (found by the 2026-09-02 adversarial review,
+	// TEVI's Instantiate per player_id). A join past this is ignored, and
+	// so is every state for that id, since the roster is what admits state.
+	// Well above the largest room the relay has been driven at (~150, see
+	// agent_docs/scaling.md); a relay hosting more than this needs a bigger
+	// number here first.
+	MaxRosterSize = 512
+
 	// MaxOrientationBytes bounds the serialized size of State.Orientation
 	// (raw JSON — scalar, vector, or quaternion depending on the adapter).
 	// Generous above any real representation, which is a handful of floats.

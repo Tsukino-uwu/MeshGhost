@@ -891,17 +891,13 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   "Transport" above for why the idle read deadline alone doesn't cover this case.
 - The relay stamps `player_id` on every `state` message from the connection's own
   relay-assigned id, server-side — never trusted from the client's payload, since a peer could
-  otherwise claim someone else's id. `core` mirrors this trust boundary on receive:
-  it keeps its own roster (seeded from `welcome`, maintained by `join`/`leave`) and drops any
-  `state` for a `player_id` it never actually saw announced, rather than trusting the relay
-  completely — a hostile or compromised relay was previously able to inject state for an
-  arbitrary id with nothing to stop it.
-- Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated
-  into a file path, shell command, or format string by an adapter. They are opaque data,
-  not code, even though they're only ever compared by equality within the same game.
+  otherwise claim someone else's id. `core` mirrors this on receive: it keeps its own roster
+  (seeded from `welcome`, maintained by `join`/`leave`) and drops any `state` for a `player_id`
+  it never saw announced — a hostile relay could previously inject state for any id.
+- Remote strings (`area_id`, `anim`, `extras` values, display name) are never interpolated into
+  a file path, shell command, or format string by an adapter. Opaque data, not code.
 - Max `event` payload: **1024 bytes** (`MaxEventBytes`), plus **64** for `corr_id`
-  (`MaxCorrIDLen`). Uniform across every transport rather than transport-dependent, so an event
-  means the same thing everywhere and needs no size negotiation.
+  (`MaxCorrIDLen`). Uniform across every transport, so an event needs no size negotiation.
   **Correction, 2026-08-18: it does NOT keep a whole event envelope under
   `udpconn.MaxDatagramBytes` (1200), and this file previously claimed it was chosen to.** It was
   sized against the *payload* alone. Measured: a maximal `Event` renders to **1441 bytes** and a
@@ -917,8 +913,9 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   client could grow the relay's lease table without bound by claiming a fresh key per message.
 - Lease TTL: clamped to **1s–5min**, default **30s** (`ClampLeaseTTL`) — clamped rather than
   refused, so a silly duration never costs a claim that would otherwise have been won.
-- Max escrow id: **64 bytes**; max escrow blob: **1024 bytes**; max concurrent exchanges per
-  room: **64** (`MaxEscrowsPerRoom`). Escrow timeout **60s**, terminal-record retention **60s**.
+- Max escrow id **64 bytes**, blob **1024 bytes**; LIVE exchanges per room **64**
+  (`MaxEscrowsPerRoom`), per opener **8** (`MaxLiveEscrowsPerMember`, by opener, never counterparty).
+  Timeout **60s**, retention **60s**; a retained record counts toward neither cap (ADR 0044).
 - Max `features` entries: **16**, each **64 bytes** (`MaxFeatures` / `MaxFeatureLen`). Max
   `resume_token`: **128 bytes** (`MaxResumeTokenLen`); the relay's own are 16 random bytes as
   hex. Both checked at the relay alongside the other `hello` field bounds, before any of them
@@ -926,6 +923,9 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Resume grace: an identity dropped from a `resume.v1` room is held **20s** by default
   (`DefaultResumeGrace`, `server.resume_grace_seconds`) before becoming a real leave. The
   client's slot stays counted against `max_clients` for that window, since it is still occupied.
+- ADR 0044 (2026-09-02): a core tracks at most **512** remote players (`MaxRosterSize`; a `join`
+  past it and every `state` for that id are ignored), and the relay closes connections past
+  **8 per seat, floor 64** per listener, joined or not (`relay.MaxOpenConnsFor`, beneath TLS).
 - An unknown message `type` is ignored, not treated as an error — same forward-compatibility
   posture as the existing unknown-*field* rule above.
 

@@ -30,13 +30,10 @@ are the halves this index already declared, cut where it already drew the lines:
 | [pitfalls/by-host.md](pitfalls/by-host.md) | BizHawk Lua, UE4SS, Unity, memory probing, overlay rendering | You know which subsystem you are touching |
 | [pitfalls/by-lesson.md](pitfalls/by-lesson.md) | The chronological half, and the largest | You have a symptom and want the lesson that matches |
 
-**The titles are the lessons.** That is why they are indexed rather than re-filed under themes,
-and why a per-game split was rejected: a lesson found in Emerald has to be findable while working
-on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body file appears here
-— a taxonomy cannot be checked that way, which is why this is an index.
-
-**Maintained by adding ONE line when you add an entry**, and new entries go at the END of
-`by-lesson.md`, so appending never touches an existing one.
+**The titles are the lessons**, indexed rather than re-filed under themes, so a lesson found in
+Emerald is findable while working on Crystal (a per-game split was rejected for that reason).
+`dev-scripts/preflight.ps1` checks every body-file heading appears here — a taxonomy cannot be
+checked that way. **Add ONE line here per entry; new entries go at the END of `by-lesson.md`.**
 
 ### Method, and instruments that lie — [pitfalls/method.md](pitfalls/method.md)
 
@@ -298,3 +295,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Interp is sized by the link's wobble plus loss holes, never by raw ping (cross-game, 2026-09-01, CLOSED)
 - A derived constant transmits a change to places nobody reasoned about (Go side, 2026-09-01, CLOSED before shipping)
 - A ten-minute test timeout was a real shipping deadlock — and 240 red herrings sat on top of it (Go side, 2026-09-01, CLOSED)
+- A fuzzer that clips its inputs to the limit under test cannot find the overflow (Go side, 2026-09-02, CLOSED)
+- `MaxClients` counted seats, not sockets — and everything before the hello was free (Go side, 2026-09-02, CLOSED)

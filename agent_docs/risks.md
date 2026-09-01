@@ -782,3 +782,22 @@ goal", the number sizes the win; it is not a threshold the win has to clear to b
   `protocol.MaxAnimLen`. **Neither is ACE**; both are cosmetic misbehaviour plus, for TEVI, a
   per-frame log flood from a peer alternating two bogus names. Fix for both is an allowlist of the
   names the adapter actually mirrors, which is a small fixed set. `ideas.md`, "The ACE audit".
+
+## Opt-in planes are exhaustible by one member of their room (opened 2026-09-02)
+
+**Risk.** In a room that negotiated `lease.v1` or `world.v1`, one member can claim all 256 lease
+keys (renewing to hold them) or, as an authority, write all 64 world keys and leave — world entries
+outlive their writer by design, so the table stays full until the room empties or a later authority
+drops each key. Every other member then gets `too many`. Two colluding members can also make a
+lease handover re-send the ~53 KB world snapshot per change of holder. Found by the 2026-09-02
+adversarial review (ADR 0044); escrow had the same shape and was fixed the same day with a
+per-opener cap and live-only counting.
+
+**Why open, not fixed.** No shipped adapter negotiates either plane, so nothing is exposed today;
+and the honest fix — a per-member share of each table, and a rate on handovers — is a contract
+decision that should be made when a plane ships and its real usage is known, not guessed now. The
+escrow fix is the template. `docs/security.md` lists it under known gaps so a host reads it before
+enabling the planes.
+
+**Closes when** a per-member bound and a handover rate land with the first adapter that ships a
+lease or world plane, with a test in the shape of `relay/escrow_cap_test.go`.

@@ -158,14 +158,14 @@ in agent memory is invisible to all three and goes stale with nothing to catch i
 
 **`../docs/` is the other half of the documentation, and it is not this folder's job.** It is
 written for people *using* MeshGhost; `agent_docs/` is the internal record of how it was built.
-Five files, all one level up:
+Six files, all one level up:
 
-- [../docs/security.md](../docs/security.md) — security and privacy posture: what's already
-  checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
-  checks, and bounded reads all shipped 2026-08-14) versus the gaps that remain. Since
-  2026-08-16 `quic` is the default, so a room code is encrypted by default, and TLS over `tcp`
-  landed 2026-08-19 — but the certificate is unverified, so encrypted is not authenticated, and
-  `udp` is still plaintext with no fix available.
+- [../docs/security.md](../docs/security.md) — security and privacy posture: what is checked-safe
+  versus the known gaps, per transport (`quic` default and encrypted; TLS on `tcp` since
+  2026-08-19, unverified certificate; `udp` plaintext, no fix). Claims re-checked line by line and
+  the first adversarial review folded in 2026-09-02 (ADR 0044).
+- [../docs/reviewing.md](../docs/reviewing.md) — the reviewer's front door (2026-09-02): which code
+  a host runs, where the claims are, how to run the fuzzers and race suite yourself.
 - [../docs/networking.md](../docs/networking.md) — how the relay and client actually work,
   traced through the real code: the life of a connection, the life of a state message, the
   concurrency model, the transports, the limits. Read it before changing any of them.

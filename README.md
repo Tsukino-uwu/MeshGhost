@@ -122,7 +122,9 @@ is the leg carrying the `room_code`, so it is the one worth closing. It does not
 session, which uses a separate certificate and is encrypted-but-unverified either way. Pinning is
 opt-in, nothing distributes the fingerprint for you, and the relay generates a new certificate on
 every restart. Full posture: [docs/security.md](docs/security.md). Why it works this way:
-[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs.
+[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs. **Want to check
+any of this yourself before hosting?** [docs/reviewing.md](docs/reviewing.md) says which code a
+host actually runs and how to run the fuzzers and the race detector on your own machine.
 
 ## How it works
 

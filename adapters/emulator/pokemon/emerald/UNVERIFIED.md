@@ -613,3 +613,11 @@ written it.
 
 **What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no
 sprite was part of this run.
+
+## Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
+
+`meshghost_emerald.lua`, the remote's gender read: anything but those two strings — a number, a
+table, or a string naming a `genderFrames` method — made `drawRemotes` error every frame, and every
+peer sorted after the hostile one in `pairs(remotes)` stopped drawing. Now falls back to `male`,
+the same as a missing value. `luac -p` clean; not run. Watch: a female-trainer peer still draws
+with the female frames. ADR 0044, `docs/security.md`.

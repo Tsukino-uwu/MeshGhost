@@ -189,6 +189,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-28 — The relay filters cross-area state, for clients that ask for it](adr/0041-2026-08-28-the-relay-filters-cross-area-state-for-clients-that-ask.md)
 - [2026-08-28 — Every client gets its own outbound queue and writer](adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)
 - [2026-08-30 — The core hands the adapter its orientation bracket, and rotation gets interpolated for the first time](adr/0043-2026-08-30-the-core-hands-the-adapter-its-orientation-bracket.md)
+- [2026-09-02 — The first adversarial review, and what it changed](adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md)
 
 ## Prior art
 

@@ -432,6 +432,10 @@ func main() {
 		fingerprint = fp
 	}
 
+	// Whatever the TLS mode, every listener gets the open-connection bound
+	// (relay.MaxOpenConnsFor); the log line it prints is rate-limited.
+	tlsOpts.MaxOpenConns = relay.MaxOpenConnsFor(*maxClients)
+
 	var listeners []boundListener
 	for _, k := range kinds {
 		bind := *addr

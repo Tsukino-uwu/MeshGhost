@@ -382,3 +382,13 @@ the documented same-continent floor in the release README, which also carries th
 profile at 300ms -- smooth ghosts confirms the transfer; stutter refutes the additive model and
 the number needs its own sweep. Until then every TEVI ghost on ANY link is drawn 125ms later than
 the measured pick, which a same-continent player can undo per the README.
+
+## Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
+
+`BridgeClient.cs`: the two peer floats that reach the Animator (`anim_t` → `Animator.Play`'s
+normalized time and the phase catch-up speed; `pause` → `anim.speed`) now go through
+`FiniteOrNull`. Newtonsoft's `(float?)` cast accepts `"NaN"`/`"Infinity"` strings and turns an
+out-of-range double into infinity without throwing, and a NaN there froze that one ghost's
+Animator. Built with `build-tevi.bat` and deployed to both installs 2026-09-02. A normal session
+cannot produce a non-finite value, so the watch is only "ghost animation phase and pause still
+behave as on 2026-09-01". ADR 0044, `docs/security.md`.

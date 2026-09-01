@@ -109,7 +109,25 @@ func clientTLSConfig() *tls.Config {
 }
 
 func quicConfig() *quic.Config {
-	return &quic.Config{EnableDatagrams: true}
+	return &quic.Config{
+		EnableDatagrams: true,
+		// This protocol is one bidirectional stream per connection plus
+		// datagrams, so nothing else is granted. quic-go's defaults (100
+		// bidirectional, 100 unidirectional, 512 KiB per stream, 1.5 MiB per
+		// connection) let a stranger who has completed a handshake but not a
+		// hello park many MiB of unread stream data on the relay for as long
+		// as the hello timer allows. Found by the 2026-09-02 adversarial
+		// review. -1 is quic-go's "none"; 0 would mean "default".
+		MaxIncomingStreams:    1,
+		MaxIncomingUniStreams: -1,
+		// Lines are at most protocol.MaxLineBytes (4 KiB) and are read as
+		// they arrive, so a window this size is never the bottleneck; it
+		// bounds what a peer can send ahead of the reader.
+		InitialStreamReceiveWindow:     64 * 1024,
+		MaxStreamReceiveWindow:         256 * 1024,
+		InitialConnectionReceiveWindow: 64 * 1024,
+		MaxConnectionReceiveWindow:     256 * 1024,
+	}
 }
 
 // ------------------------------------------------------------------- Conn
@@ -338,8 +356,30 @@ func Listen(addr string) (*Listener, error) {
 	if err != nil {
 		return nil, err
 	}
-	ql, err := quic.ListenAddr(addr, tlsConf, quicConfig())
+	ua, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
+		return nil, fmt.Errorf("quicconn: resolve %s: %w", addr, err)
+	}
+	pc, err := net.ListenUDP("udp", ua)
+	if err != nil {
+		return nil, fmt.Errorf("quicconn: listen %s: %w", addr, err)
+	}
+	tr := &quic.Transport{
+		Conn: pc,
+		// Every unvalidated source goes through a Retry first (RFC 9000
+		// §8.1.2), so a spoofed Initial costs the relay a stateless reply
+		// rather than a full TLS handshake and a 5-second half-open
+		// connection, and the relay stops being a 3x reflector toward the
+		// spoofed address. quic.ListenAddr leaves this nil, which never
+		// validates. The price is one extra round trip per connect, paid
+		// once per session; quic-go suggests gating this on load, but a
+		// relay connects rarely and is exposed always. Found by the
+		// 2026-09-02 adversarial review.
+		VerifySourceAddress: func(net.Addr) bool { return true },
+	}
+	ql, err := tr.Listen(tlsConf, quicConfig())
+	if err != nil {
+		_ = pc.Close()
 		return nil, fmt.Errorf("quicconn: listen %s: %w", addr, err)
 	}
 	l := &Listener{

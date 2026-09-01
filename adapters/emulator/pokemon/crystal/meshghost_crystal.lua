@@ -7650,6 +7650,12 @@ local function renderRemote(id, state)
 	if not inPlay() or type(state) ~= "table" then
 		return
 	end
+	if state.extras ~= nil and type(state.extras) ~= "table" then
+		-- Every extras read below indexes it; a number or boolean here raised, and
+		-- until the main loop was guarded that killed the script. Treated as absent.
+		-- 2026-09-02 adversarial review.
+		state.extras = nil
+	end
 	local pos = state.position
 	if type(pos) ~= "table" or type(pos[1]) ~= "number" or type(pos[2]) ~= "number" then
 		return
@@ -7695,7 +7701,10 @@ ENGINE.xmap.build(here) end
 				local k = id .. "|" .. state.area_id .. "|" .. here
 				if not ENGINE.xmap.said[k] then
 					ENGINE.xmap.said[k] = true
-					log(string.format("cross-map: %s is on %s, %d,%d -- translated to %d,%d on"
+					-- %s, not %d: a fractional tile (the core interpolates position, and a
+					-- peer may send anything) makes Lua 5.4's %d raise, and this log runs
+					-- inside the frame. Found by the 2026-09-02 adversarial review.
+					log(string.format("cross-map: %s is on %s, %s,%s -- translated to %s,%s on"
 						.. " our %s (via its %s connection)", id, state.area_id, pos[1], pos[2],
 						tx, ty, here,
 						(ENGINE.xmap.conns[state.area_id] or {}).dir or "?"))
@@ -10288,8 +10297,17 @@ MESHGHOST_DEV_UNLOAD = function()
 end
 
 if not MESHGHOST_DEV_LOADER then
+	-- tick() under pcall, as Emerald's guardedFrame does: an error costs the rest of
+	-- that frame, not the script. Bare, one bad field from one peer -- or one bug --
+	-- killed the whole adapter until BizHawk was restarted. Logged once per distinct
+	-- message so a per-frame error cannot flood the log. 2026-09-02.
+	local lastTickError = nil
 	while true do
-		tick()
+		local ok, err = pcall(tick)
+		if not ok and tostring(err) ~= lastTickError then
+			lastTickError = tostring(err)
+			log("MeshGhost: frame error (script continues): " .. lastTickError)
+		end
 		emu.frameadvance()
 	end
 end

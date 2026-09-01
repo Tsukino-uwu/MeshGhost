@@ -416,6 +416,18 @@ namespace MeshGhostPseudo
     // receive site), so two players occupying the same space WILL shove each other -- which in a
     // precision platformer can mean being pushed off a ledge. See agent_docs/ideas.md's
     // ghost-collision entry; this is the "untested with a real peer" risk, now partly answered.
+    // Largest afterimage burst a PEER may ask this machine's game to spawn for its ghost.
+    // The value is the sender's own game's count (6 on every build seen so far); this is a
+    // ceiling on a hostile one, not a tuning knob. See the spawn-count write in the
+    // afterimage path. 2026-09-02.
+    constexpr int32_t MAX_PEER_AFTERIMAGE_SPAWN = 64;
+
+    // How many peers' nametags are remembered before the ones with no live ghost are
+    // dropped. Names are deliberately kept across despawn_remote (see that handler), so
+    // without a ceiling a stream of fresh player_ids grew this map for the life of the
+    // process -- found by the 2026-09-02 adversarial review.
+    constexpr size_t MAX_REMEMBERED_NAMETAGS = 1024;
+
     constexpr double LOOPBACK_GHOST_OFFSET_X = 150.0;
     // Vertical loopback offset, added 2026-08-15 for the pole-rotation question, which the sideways
     // offset structurally cannot answer.
@@ -13218,6 +13230,14 @@ namespace MeshGhostPseudo
             }
             double pitch = 0, yaw = 0, roll = 0;
             json_vec3_field(line, "orientation", pitch, yaw, roll); // best-effort, defaults to 0
+            // sscanf's %lf accepts 1e999 (valid JSON, forwarded as-is) as inf, and an
+            // inf/NaN here reaches FRotator on the raw path -- the bracketed path below
+            // already guards its own triple. Same fallback as a missing field.
+            // Found by the 2026-09-02 adversarial review.
+            if (!std::isfinite(pitch) || !std::isfinite(yaw) || !std::isfinite(roll))
+            {
+                pitch = yaw = roll = 0;
+            }
 
             // Interpolate the facing across the same bracket position was interpolated across --
             // see GHOST_ROTATION_SLERP for the symptom, the cause and why a damper is the wrong
@@ -13629,6 +13649,15 @@ namespace MeshGhostPseudo
             // Into `nametags`, NOT remotes[player_id] -- the latter creates a ghost entry as a
             // side effect and breaks is_new_remote for any peer whose name arrives before its
             // first state, which is every peer that was already in the room.
+            if (nametags.size() >= MAX_REMEMBERED_NAMETAGS && nametags.count(player_id) == 0)
+            {
+                // Full: forget every name whose peer has no ghost right now. A live peer's
+                // name survives; a departed one is re-sent by the core if they come back.
+                for (auto it = nametags.begin(); it != nametags.end();)
+                {
+                    it = (remotes.count(it->first) != 0) ? std::next(it) : nametags.erase(it);
+                }
+            }
             Nametag& tag = nametags[player_id];
             tag.name = json_string_field(line, "display_name");
             tag.color = json_string_field(line, "color");
@@ -19937,10 +19966,19 @@ namespace MeshGhostPseudo
                 // count left extra afterimages lingering after a slide (user-observed). Falls back
                 // to 6 only if a peer on an older build sends no value, so this degrades to the
                 // previous behaviour instead of spawning nothing.
-                int32_t spawn_count = static_cast<int32_t>(remote.target_afterimage_spawn_n);
-                if (spawn_count <= 0)
+                //
+                // Bounded (2026-09-02): this number is written into the GAME's own spawn
+                // count, and it arrives from a peer. Unbounded, a hostile peer could ask this
+                // machine to spawn two billion afterimage actors; non-finite, the cast is
+                // undefined behaviour. Anything outside 1..MAX_PEER_AFTERIMAGE_SPAWN falls
+                // back to the historical 6, the same as a missing value. Found by the
+                // 2026-09-02 adversarial review of the peer-to-adapter path.
+                const double requested_n = remote.target_afterimage_spawn_n;
+                int32_t spawn_count = 6;
+                if (std::isfinite(requested_n) && requested_n >= 1.0 &&
+                    requested_n <= static_cast<double>(MAX_PEER_AFTERIMAGE_SPAWN))
                 {
-                    spawn_count = 6;
+                    spawn_count = static_cast<int32_t>(requested_n);
                 }
                 if (int32_t* count_ptr = mg_property_value<int32_t>(remote.ghost, STR("afterImagesToSpawn")))
                 {
