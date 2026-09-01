@@ -299,13 +299,30 @@ namespace MeshGhostPseudo
 
         // Smoothed render position for the above. Needed because `extras` is NOT interpolated by
         // the core -- internal/core/interp.go interpolates `position` only and holds every extras
-        // field from the older bracketing snapshot -- so these targets arrive in 20Hz steps while
-        // the redraw loop runs at ~150Hz. Replaying them raw would render the measured smooth arc
-        // as a visible ~15-unit-per-step stutter. Exponential smoothing toward the target is used
-        // rather than a second interpolation buffer, deliberately: a real buffer here would be
-        // duplicating the core's one genuinely reusable hard part into an adapter, which is the
-        // exact leak agent_docs/contract.md's tick model exists to prevent.
+        // field from the older bracketing snapshot -- so these targets arrive in send-rate steps
+        // while the redraw loop runs at ~150Hz.
+        //
+        // SEGMENT INTERPOLATION, 2026-09-01, replacing the original exponential chase. The EMA
+        // was chosen to avoid duplicating the core's interpolation buffer in an adapter -- but a
+        // five-round blind 15Hz-vs-20Hz A/B found the sword's mid-air chop was the ONLY visible
+        // artifact at EITHER rate (the user's "15Hz tell" fired on two 20Hz rounds), so the
+        // chase itself is the defect: it converges 25% per redraw toward a stepping target,
+        // which renders as a lurch at every step. This is still not the core's buffer -- no
+        // history, no render delay, no bracket search. One segment: when the target steps, glide
+        // from where the prop is drawn now to the new target over the observed inter-step
+        // interval, arriving as the next step lands.
         double render_weapon_x{}, render_weapon_y{}, render_weapon_z{};
+        // The segment being glided: from -> to over [start_ms, start_ms + dur_ms].
+        double weapon_seg_from_x{}, weapon_seg_from_y{}, weapon_seg_from_z{};
+        double weapon_seg_to_x{}, weapon_seg_to_y{}, weapon_seg_to_z{};
+        // NO rotation fields: the sword's rotation is deliberately written straight through --
+        // two interpolating renderers were built and reverted on 2026-09-01 (the render site's
+        // comment in Plugin.cpp has all three verdicts and why the turn direction is
+        // unreconstructable from these samples).
+        int64_t weapon_seg_start_ms{0};
+        int64_t weapon_seg_dur_ms{0};
+        // When the previous target step arrived, for measuring the inter-step interval.
+        int64_t weapon_target_seen_ms{0};
         bool weapon_render_primed{false};
 
         // What we actually wrote to the prop last frame, kept solely so the NEXT frame can read the

@@ -5425,3 +5425,66 @@ Two same-day recurrences of case-filed lessons, recorded because recurrence is t
   the dust mirror closed on 2026-08-29, re-made by a new spawn site. The rule: ANY component the
   mirror spawns from a row asset registers for exclusion, at the spawn site, the same edit.
 
+
+## A BLIND A/B CONVICTS THE RENDERER, NOT THE KNOB — the "15Hz tell" fired on 20Hz rounds (Pseudoregalia, 2026-09-01, CLOSED)
+
+**Symptom.** Sweeping the relay send rate, the user's one reliable discriminator was "the thrown
+sword looks choppy mid-air at the lower rate". Every open-label rung agreed with it.
+
+**Method that settled it.** Five rounds with the rate HIDDEN (the agent restarts the relay, the
+reconnect freeze marks a round boundary without revealing the value, sequence revealed only at
+the end). Score: 2.5/5 — chance — and the sword tell fired on two rounds that were actually 20Hz.
+So the tell was not measuring the knob at all: the sword's renderer (an EMA chase of a stepping
+target, since extras are never core-interpolated) was choppy at EVERY rate, and open-label
+judging had attributed the defect to whichever rate was on screen.
+
+**Lesson.** When a sweep's verdicts keep tracking one visible artifact, blind two rungs before
+trusting the axis. One evening of blind rounds cost six relay restarts and zero relaunches, and
+it redirected the fix from "more bandwidth" to a renderer bug that rate could never have fixed.
+Corollary worth keeping: a relay restart is CHEAP on this rig — clients rejoin unaided in ~17s —
+so per-rung cost is nearly zero once the games are up.
+
+## THE TURN DIRECTION OF A FAST TUMBLE IS NOT IN THE SAMPLES — three renderers watched, write-through wins (Pseudoregalia, 2026-09-01, CLOSED)
+
+**The trap, twice over.** (1) Plain shortest-arc interpolation of a tumbling prop's angles is
+smooth but sometimes draws the spin BACKWARDS — a 300-degree real turn and a -60-degree turn
+arrive as identical numbers, so no gate on the folded size can catch the wrong-direction case.
+(2) The "obvious" fix, velocity-continuity unwrapping (pick the ±360 candidate nearest the
+previous segment's rate), has a RUNAWAY: one wrong full-turn pick inflates the rate estimate,
+which biases every later pick — on screen "spinning way too much/little, glitching out".
+
+**Resolution.** Write rotation straight through. The game's own tumble is deliberately stepped,
+so honest steps match its character; smooth-and-correct requires the SENDER to ship spin rate or
+phase in extras, where it knows it exactly. Filed, not guessed at a fourth time.
+
+**Lesson.** Before smoothing any sampled quantity, ask whether the thing you must preserve
+(here: direction) is actually reconstructable from the samples. If it is not, interpolation is
+invention, and stepping is the 1:1-truer rendering. Also: the second failed guess at the same
+symptom was the signal to stop guessing (CLAUDE.md's two-guess rule) — the eventual answer was
+"stop trying", which no third renderer would have found.
+
+## A DECLARED-BUT-NEVER-ENFORCED CONSTANT GETS CALIBRATED BY NOBODY (Pseudoregalia, 2026-09-01, CLOSED)
+
+`WEAPON_SNAP_DISTANCE = 400` shipped with a confident comment ("comfortably above a real step of
+the measured ~300 units/sec arc") — and the code that was supposed to consult it consulted
+nothing: the EMA smoother never referenced the constant at all. The first renderer to actually
+enforce it produced 2-3 mid-arc teleports per throw, because real flight steps stretched by loss
+holes routinely cross 400 units — the "measurement" in the comment was wrong and nothing had
+ever been in a position to notice. **Lesson:** when adopting a tuning constant, grep for its
+USES, not its declaration — an unused constant's comment has never been tested against reality,
+and enforcing it for the first time is a behaviour change, not a cleanup. (Raised to 1500 on the
+observed data; the snap symptom itself persisted and is open in `UNVERIFIED.md` — so enforcing
+it also demonstrated the constant was never the cause of anything.)
+
+## INTERP IS SIZED BY THE LINK'S WOBBLE PLUS LOSS HOLES, NEVER BY RAW PING (cross-game, 2026-09-01, CLOSED)
+
+Measured end to end on the Pseudoregalia two-instance netsim rig: at a ~200-ping/±40ms-jitter/5%-
+loss "ocean" link, EVERY send rate from 15 to 20Hz stuttered constantly at interp 250ms, and the
+same rig was smooth at 350-375ms with the rate unchanged — while at a ~120-ping tier 250ms was
+already clean. Flat latency only moves a ghost further behind live (one-way path + interp); what
+forces the buffer up is arrival VARIANCE: jitter, plus the gap-doubling holes that loss punches.
+Hence the tier rule now in both shipped READMEs (Pseudoregalia 375ms default/250ms good-link;
+TEVI 300ms assumed/175ms measured floor). **Lesson for every future adapter sweep:** sweep the
+LINK tier as its own axis, judge interp per tier, and expect "constant stutter at any rate" to
+mean the delay budget, not the rate — the rate axis was blind-indistinguishable (above) the whole
+time this looked like a rate problem.

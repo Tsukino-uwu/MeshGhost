@@ -1420,3 +1420,52 @@ two models' bone transforms logged over the same motion before forming a theory.
 **Deliberately NOT scheduled.** Recorded so it is not rediscovered from scratch, and so that if a
 future stiffness report arrives there is a dated note saying it was noticed on 2026-08-29 and left
 alone on purpose.
+
+## Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
+
+**What shipped.** A ghost's wall kick now plays both measured systems (six-kick capture via the
+`probe_slashvfx` shape, logged in `UE4SS.log` 18:42): `wk` = `NS_WallKickHit`, the impact burst,
+world-spawned one-shot on the counter path with observed-height learning (fallback 0 -- the
+capture's 0..-72 offsets were measured against a player position logged up to one sample LATE, so
+the true at-kick offset is near zero); `ks` = `NS_KickStab`, the flourish, attached to the ghost's
+`VisualMesh` at the measured constant rel (10, 100, 85) -- the first attached row with an offset
+(`MirroredEffect::attach_offset_*`).
+
+**The user's one look:** *"think wall kicks look good enought now, hard to tell if anything is
+wrong"* -- a hedged positive, kept here rather than promoted until it holds through normal play.
+
+**Two limits stated at build time, not discovered later:**
+- **`wk` spawns centred on the ghost, not pushed to the wall face** (~40-100 units sideways in
+  the capture). Unlike the heal waves that offset IS knowable -- a world-frame delta the sender
+  could ship in extras beside the counter -- so if the placement ever reads wrong on screen,
+  that wire-carried offset is the upgrade. Do not guess it from the performer's yaw.
+- **`ks` is a presence row, so two kicks in one active window re-burst once** on the ghost
+  instead of twice -- the same shape the dust had before counters. Promote it to a counter only
+  if that is ever seen to matter.
+
+**Also unwatched:** both rows' first-of-session baseline behaviour, and `wk` on a watcher who has
+never wall-kicked (fallback height, no learned value).
+
+## OPEN — the thrown sword still SNAPS occasionally mid-arc, cause unattributed (2026-09-01)
+
+Survived every change made tonight, which is what makes it worth its own entry: seen at the old
+EMA renderer, at the segment glide, and AFTER `WEAPON_SNAP_DISTANCE` was raised 400 -> 1500 (so
+that constant is exonerated as the cause -- it was ALSO wrong, first session to enforce it, but
+fixing it did not remove the symptom). Final user state: *"now it just snap/teleport a bit"*,
+accepted as good enough for now on the ocean-profile link (5% loss).
+
+Next suspects, in order, none measured: (1) a loss hole longer than the segment's 400ms duration
+clamp makes the glide sprint the whole hole's distance in 400ms -- reads as a lurch/snap; (2) the
+`weapon_thrown` flag flickering across a suppressed/lost sample re-primes the renderer (a re-prime
+IS a deliberate snap); (3) a genuine target jump. A one-line log at the snap site (gap length,
+distance, primed state) settles all three in one throw session; measure before theorising.
+
+## FILED — a smooth ghost tumble needs SENDER-side spin data; receiver-side guessing is exhausted (2026-09-01)
+
+Three rotation renderers were watched in one evening (full verdicts: `VERIFIED.md`, the
+2026-09-01 evening entry; mechanism comments at the render site in `Plugin.cpp`). The conclusion
+is information-theoretic, not a tuning matter: at 15-20Hz a fast tumble turns more than 180
+degrees between arrivals, so its direction and turn count are simply not in the data -- shortest
+-arc under-rotates and sometimes reverses, unwrapping runs away. If 1:1 spin is ever wanted, the
+SENDER must ship the spin (rate or phase) in extras, where it knows it exactly. Until then
+write-through is the settled state and matches the game's own deliberately steppy spin.

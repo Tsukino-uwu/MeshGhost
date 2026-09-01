@@ -367,3 +367,17 @@ never reached.
 that peer's game outright. The portal should settle on its own within about a second, with nobody
 touching it. **The control that makes it meaningful** is the same run with the peer walking off the
 portal normally before disconnecting — that path already works today, and must still work after.
+
+## Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
+
+The user's call, made explicitly as a guess with stated reasoning: Pseudoregalia's ocean-profile
+sweep (netsim ~200 ping / ±40ms jitter / 5% loss) measured that its same-continent value needed
++125ms more buffer to stay smooth there, the extra buffer covers the LINK's wobble (a cost in
+milliseconds, not percent, so it transfers across games additively), and a too-high interp only
+adds delay, never stutter -- so the guess cannot regress smoothness, only immediacy. 175ms stays
+the documented same-continent floor in the release README, which also carries the honesty note.
+
+**What confirming this looks like:** one TEVI two-instance session through the same netsim ocean
+profile at 300ms -- smooth ghosts confirms the transfer; stutter refutes the additive model and
+the number needs its own sweep. Until then every TEVI ghost on ANY link is drawn 125ms later than
+the measured pick, which a same-continent player can undo per the README.

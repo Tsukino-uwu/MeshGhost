@@ -775,6 +775,12 @@ measured limits: [hz-ceiling.md](hz-ceiling.md). Neither of the next two is star
   every setting — how the interp delay hid behind a stutter until 2026-08-28. Judged on screen.
 - **STEP 3 — the 100Hz cap, after step 2 only. The problem is not the constant:** the safe rate
   depends on each CLIENT's `interp`, invisible to the relay, so an opt-in wants a NEGOTIATED ceiling.
+- **PER-PEER interp (logged 2026-09-01, user: agreed it's real, "not something to work on for
+  now").** `interp` is one knob per VIEWER: Pseudoregalia's 375ms — set for the worst realistic
+  link by the 2026-09-01 ocean-profile sweep — also delays a same-city friend's ghost that 250ms
+  would serve. The refinement: each ghost gets the smallest buffer its SENDER's link needs, derived
+  from that peer's measured arrival jitter/loss (the core already sees per-peer arrival times in
+  `remoteBuffer`). Sizing per peer, not a protocol change — nothing crosses the wire.
 
 ## Crowds that PLAY, not just survive: the measured optimization ladder (filed 2026-09-01)
 

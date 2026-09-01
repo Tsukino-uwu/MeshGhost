@@ -2695,17 +2695,26 @@ namespace MeshGhostPseudo
     constexpr const char* VFX_PROBE_NAME_FILTERS[] = {"Weapon", "Aura"};
 
     // Smoothing for a remote's thrown sword -- see RemoteGhost::render_weapon_x for why any is
-    // needed (extras cross the wire at 20Hz and the core never interpolates them, while this
-    // redraw loop runs at ~150Hz). Fraction of the remaining gap closed per redraw tick: covers
-    // most of a 20Hz step within that step's own interval, without the prop visibly trailing the
-    // arc behind where the peer actually threw it.
-    constexpr double WEAPON_SMOOTHING_ALPHA = 0.25;
+    // needed (extras cross the wire at the send rate and the core never interpolates them, while
+    // this redraw loop runs at ~150Hz), and for why 2026-09-01 replaced the exponential chase
+    // with segment interpolation. Bounds on the measured inter-step interval a segment glides
+    // over: the floor stops a duplicate/reordered near-simultaneous pair from turning into a
+    // teleport-speed segment, the ceiling stops the first step after a quiet spell (a landed
+    // sword re-sends on the 250ms keepalive) from stretching one glide across it.
+    constexpr int64_t WEAPON_SEG_MIN_MS = 16;
+    constexpr int64_t WEAPON_SEG_MAX_MS = 400;
 
     // Above this gap, snap instead of smoothing. A throw starts at the peer's hand and a peer can
     // also cross an area, and easing across either would draw the sword gliding through the level.
-    // Comfortably above a real 20Hz step of the measured arc (~300 units/sec, so ~15 units per
-    // update) and well below a room-scale jump.
-    constexpr double WEAPON_SNAP_DISTANCE = 400.0;
+    //
+    // RAISED 400 -> 1500, 2026-09-01. The 400 was calibrated against a "~300 units/sec" arc
+    // measurement that the first session to actually ENFORCE this constant refuted: on the
+    // ocean-profile rig (15Hz through ~200ms ping, 5% loss) the user saw the sword teleport 2-3
+    // times per throw, meaning ordinary flight steps stretched by loss holes routinely cross 400
+    // units -- so the real arc is far faster than that old number, and 400 turned normal late
+    // samples into snaps. 1500 still catches the hand-to-impact start and any area-scale jump,
+    // while a sub-1500 correction glides at segment speed instead of teleporting.
+    constexpr double WEAPON_SNAP_DISTANCE = 1500.0;
 
     // The weaponState value a thrown sword takes once it has landed and planted itself. Measured,
     // not assumed: an edge trace of the real sword showed 0 -> 3 on touchdown, identically across
@@ -8450,25 +8459,102 @@ namespace MeshGhostPseudo
         }
         call_set_visibility(remote.weapon_fly_component, true);
 
-        // Smoothing. Position only -- rotation is written straight through deliberately: the
-        // measured throw tumbles in discrete 30-degree steps rather than sweeping continuously,
-        // so there is no smooth curve to reconstruct, and easing an angle invites wrap-around
-        // artifacts at the +/-180 boundary for no visual gain.
-        const double dx = remote.target_weapon_x - remote.render_weapon_x;
-        const double dy = remote.target_weapon_y - remote.render_weapon_y;
-        const double dz = remote.target_weapon_z - remote.render_weapon_z;
-        if (!remote.weapon_render_primed)
+        // Smoothing. POSITION ONLY -- rotation is written straight through, and unlike the
+        // pre-2026-09-01 version of this comment, that is now a MEASURED decision, not an
+        // assumption. Three rotation renderers were watched on screen that evening:
+        //   - shortest-arc glide: smooth, but under-rotates a fast tumble ("looked slow") and
+        //     sometimes draws it BACKWARDS -- a turn past 180 degrees between arrivals folds to
+        //     a small turn the other way ("swaps direction sometimes"), and no gate can catch
+        //     it, because a 300-degree turn and a -60-degree turn arrive as the same numbers;
+        //   - velocity-continuity unwrap (+/-360 candidates picked by the previous segment's
+        //     rate): runaway -- one wrong full-turn pick inflates the rate estimate, which
+        //     biases every later pick ("spinning way too much/little, glitching out");
+        //   - write-through: stepped, matching the tumble's own native 30-degree steps.
+        // The direction of a fast tumble is UNRECONSTRUCTABLE from position-rate samples, so
+        // stepping honestly beats gliding wrongly (the user's call). A smooth ghost tumble
+        // needs the SENDER to ship its spin rate or tumble phase in extras -- filed in
+        // UNVERIFIED.md, not attempted by a fourth guess here.
+        //
+        // Segment interpolation (2026-09-01, see RemoteGhost::render_weapon_x for why the EMA
+        // it replaces was the visible defect): each time the target steps, glide from wherever
+        // the prop is drawn NOW to the new target, over the measured interval between this step
+        // and the previous one -- so the glide lands as the next step is due, at the arc's own
+        // speed, with no velocity estimate and no history buffer. Costs one step (~50-66ms) of
+        // extra latency on a prop already rendered 250ms behind live.
+        const int64_t weapon_now_ms =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch())
+                .count();
+        const double snap_dx = remote.target_weapon_x - remote.render_weapon_x;
+        const double snap_dy = remote.target_weapon_y - remote.render_weapon_y;
+        const double snap_dz = remote.target_weapon_z - remote.render_weapon_z;
+        const bool must_snap =
+            !remote.weapon_render_primed ||
+            (snap_dx * snap_dx + snap_dy * snap_dy + snap_dz * snap_dz) >
+                WEAPON_SNAP_DISTANCE * WEAPON_SNAP_DISTANCE;
+        if (must_snap)
         {
+            // A throw's first frame, an area change, or a room-scale correction: gliding across
+            // any of these draws the sword sailing through the level, so start exactly at the
+            // target with a degenerate (already-finished) segment.
             remote.render_weapon_x = remote.target_weapon_x;
             remote.render_weapon_y = remote.target_weapon_y;
             remote.render_weapon_z = remote.target_weapon_z;
+            remote.weapon_seg_from_x = remote.target_weapon_x;
+            remote.weapon_seg_from_y = remote.target_weapon_y;
+            remote.weapon_seg_from_z = remote.target_weapon_z;
+            remote.weapon_seg_to_x = remote.target_weapon_x;
+            remote.weapon_seg_to_y = remote.target_weapon_y;
+            remote.weapon_seg_to_z = remote.target_weapon_z;
+            remote.weapon_seg_start_ms = weapon_now_ms;
+            remote.weapon_seg_dur_ms = 0;
+            remote.weapon_target_seen_ms = weapon_now_ms;
             remote.weapon_render_primed = true;
         }
         else
         {
-            remote.render_weapon_x += dx * WEAPON_SMOOTHING_ALPHA;
-            remote.render_weapon_y += dy * WEAPON_SMOOTHING_ALPHA;
-            remote.render_weapon_z += dz * WEAPON_SMOOTHING_ALPHA;
+            if (remote.target_weapon_x != remote.weapon_seg_to_x ||
+                remote.target_weapon_y != remote.weapon_seg_to_y ||
+                remote.target_weapon_z != remote.weapon_seg_to_z)
+            {
+                // The target stepped: a new segment starts at the currently-drawn position, not
+                // at the old target, so an unfinished glide bends rather than jumps.
+                int64_t dur = weapon_now_ms - remote.weapon_target_seen_ms;
+                if (dur < WEAPON_SEG_MIN_MS)
+                {
+                    dur = WEAPON_SEG_MIN_MS;
+                }
+                if (dur > WEAPON_SEG_MAX_MS)
+                {
+                    dur = WEAPON_SEG_MAX_MS;
+                }
+                remote.weapon_seg_from_x = remote.render_weapon_x;
+                remote.weapon_seg_from_y = remote.render_weapon_y;
+                remote.weapon_seg_from_z = remote.render_weapon_z;
+                remote.weapon_seg_to_x = remote.target_weapon_x;
+                remote.weapon_seg_to_y = remote.target_weapon_y;
+                remote.weapon_seg_to_z = remote.target_weapon_z;
+                remote.weapon_seg_start_ms = weapon_now_ms;
+                remote.weapon_seg_dur_ms = dur;
+                remote.weapon_target_seen_ms = weapon_now_ms;
+            }
+            double t = 1.0;
+            if (remote.weapon_seg_dur_ms > 0)
+            {
+                t = static_cast<double>(weapon_now_ms - remote.weapon_seg_start_ms) /
+                    static_cast<double>(remote.weapon_seg_dur_ms);
+                if (t < 0.0)
+                {
+                    t = 0.0;
+                }
+                if (t > 1.0)
+                {
+                    t = 1.0;
+                }
+            }
+            remote.render_weapon_x = remote.weapon_seg_from_x + (remote.weapon_seg_to_x - remote.weapon_seg_from_x) * t;
+            remote.render_weapon_y = remote.weapon_seg_from_y + (remote.weapon_seg_to_y - remote.weapon_seg_from_y) * t;
+            remote.render_weapon_z = remote.weapon_seg_from_z + (remote.weapon_seg_to_z - remote.weapon_seg_from_z) * t;
         }
 
         // The landed glow ring, on the peer's own 0 -> 3 state edge exactly as before -- the
@@ -8687,6 +8773,12 @@ namespace MeshGhostPseudo
         // yaw so a ghost's copy points where the ghost is facing, not a fixed world direction.
         // False for the omnidirectional rows, which keeps their shipped visuals byte-identical.
         bool use_performer_yaw = false;
+        // For an ATTACHED row: RelativeLocation to set on the spawned component, in the attach
+        // parent's space. Added 2026-09-01 for the wall-kick flourish, which the capture put at
+        // a constant (10, 100, 85) on the skeletal mesh -- every prior attached row sat at its
+        // parent's origin, which is why this did not exist. Zero for all of them, so their
+        // shipped visuals are byte-identical.
+        double attach_offset_x = 0.0, attach_offset_y = 0.0, attach_offset_z = 0.0;
     };
 
     // Measured 2026-08-27. NS_Healing hangs off the capsule with no socket and no offset;
@@ -8746,6 +8838,29 @@ namespace MeshGhostPseudo
         // spawn rotation is judged on screen, not assumed. Same proximity-attribution risk as
         // `bb`, accepted for the same reason: a brief arc near a character who was attacking.
         {"sl", STR("/Game/VFX/Systems/NS_PlayerSlash.NS_PlayerSlash"), STR("RootComponent"), nullptr, true, 30.0, true},
+        // The wall kick, added 2026-09-01 from a six-kick capture (user: wall-kick effects
+        // missing on ghosts). Two systems fire per kick, and they take the two different rows:
+        //
+        // `wk` -- NS_WallKickHit, the impact burst AT THE WALL: world-spawned (owned by
+        // WorldSettings), so it rides the one-shot counter path. The capture's fx-minus-player
+        // z offsets ranged 0 to -72, but the player position in those log lines is up to one
+        // 200ms sample late (the kicker has already risen), so the true at-kick offset is near
+        // zero -- 0 is the fallback and the observed-height learning corrects it from the local
+        // player's own kicks as usual. KNOWN v1 LIMIT, stated not hidden: the burst spawns
+        // centred on the ghost, not pushed sideways to the wall face (~40-100 units in the
+        // capture). Unlike the heal waves, that horizontal offset IS knowable here (it is a
+        // world-frame delta the sender could put in extras alongside the counter) -- if this
+        // placement reads wrong on screen, that wire-carried offset is the upgrade, filed in
+        // UNVERIFIED.md rather than guessed from the performer's yaw.
+        {"wk", STR("/Game/VFX/Systems/NS_WallKickHit.NS_WallKickHit"), STR("RootComponent"), nullptr, true, 0.0},
+        // `ks` -- NS_KickStab, the kick flourish ON THE CHARACTER: attached to the skeletal mesh
+        // at a constant rel (10, 100, 85), identical across all six captured kicks, which is
+        // what attach_offset_* exists for. A presence row, not a counter: the burst lives long
+        // enough to straddle sends at any legal rate, so presence detects it; the known cost is
+        // that two kicks in quick succession share one active window and the ghost re-bursts
+        // once, accepted for v1 the same way the pre-counter dust was until it was seen to
+        // matter.
+        {"ks", STR("/Game/VFX/Systems/NS_KickStab.NS_KickStab"), STR("VisualMesh"), nullptr, false, 0.0, false, 10.0, 100.0, 85.0},
     };
 
     // Heights observed on the LOCAL player's own world-spawned effects, indexed by row. Written by
@@ -9438,6 +9553,17 @@ namespace MeshGhostPseudo
                         continue;
                     }
                     component = spawn_niagara_attached(asset, *attach_ptr, effect.socket);
+                    // The row's measured offset in the attach parent's space -- see
+                    // MirroredEffect::attach_offset_x. Written only when nonzero, so every
+                    // zero-offset row's spawn is byte-identical to before the field existed.
+                    if (component &&
+                        (effect.attach_offset_x != 0.0 || effect.attach_offset_y != 0.0 || effect.attach_offset_z != 0.0))
+                    {
+                        if (FVector* rel = mg_property_value<FVector>(component, STR("RelativeLocation")))
+                        {
+                            *rel = FVector(effect.attach_offset_x, effect.attach_offset_y, effect.attach_offset_z);
+                        }
+                    }
                 }
                 remote.vfx_components[key] = component;
 

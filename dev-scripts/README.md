@@ -522,7 +522,10 @@ verdicts, each the user's on-screen read (`agent_docs/verified.md`, "The render-
   the wrong recommendation, which the user caught from memory.
 - **`interp` below the link's jitter CAUSES chop** -- the render time keeps crossing between
   interpolating and predicting every frame. 50ms interp under ±25ms jitter looked worse than
-  100ms despite being "faster".
+  100ms despite being "faster". **Extended 2026-09-01: size it by jitter PLUS loss holes, never
+  by raw ping** -- on a ~200-ping/±40ms/5%-loss link every rate stuttered at 250ms and was smooth
+  at 375ms; flat latency only moves the ghost further behind. Tiers measured on Pseudoregalia:
+  250ms same-continent, 375ms ocean (`pitfalls/by-lesson.md`, the interp-tier lesson).
 - **`accelerated` prediction looked worse on every axis** (a second derivative of jittery
   samples), and **smoothing the damping's confidence across frames also made everything worse**
   (yesterday's damping applied to today's motion) -- both were A/B'd with everything else held

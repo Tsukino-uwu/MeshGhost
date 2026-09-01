@@ -67,9 +67,16 @@ has never been looked at. `verified.md`.
   and the ~5s spawn holds (removed).** `pseudoregalia/VERIFIED.md`; method in `pitfalls/by-lesson.md`.
 - **RESOLVED: ghosts freeze/vanish for ONE client — it was the agent's own rig** — a one-sided stream
   stall, unexplained. `adapters/pseudoregalia/UNVERIFIED.md`.
-- **The Pseudoregalia render sweep is PAUSED mid-flight (2026-08-30)** — interp laddered on the
-  two-instance netsim rig, `curve`/`extrapolate` unjudged. Ladder, verdicts and the crash that
-  stopped it: `adapters/pseudoregalia/UNVERIFIED.md`.
+- **The Pseudoregalia rate/interp sweep is DONE (2026-09-01): sub-10Hz floor watched, 15-vs-20
+  blind-indistinguishable, interp-per-link measured; 375ms ships.** `pseudoregalia/VERIFIED.md`.
+- **DECISION PENDING: `DefaultSendHz` 20 -> 15 for all adapters** — evidence gathered and supports
+  it (blind test + ocean tier); the change itself was deliberately not made. `pseudoregalia/VERIFIED.md`.
+- **TEVI's shipped interp was raised 175 -> 300ms on a stated, untested assumption (2026-09-01)** —
+  one netsim ocean run confirms or refutes the additive model. `tevi/UNVERIFIED.md`.
+- **Wall-kick mirror v1 watched once, hedged; the sword's mid-air snap is OPEN and unattributed;
+  smooth ghost tumble needs sender-side spin data (filed).** All three: `pseudoregalia/UNVERIFIED.md`.
+- **`curve`/`extrapolate` stay unjudged on Pseudoregalia** — the catmull-rom crash entry stands.
+  `adapters/pseudoregalia/UNVERIFIED.md`.
 - **Both Pseudoregalia instances hard-crashed seconds after `curve catmull-rom` was enabled** —
   unattributed, and the rig was cross-wired at the time. `adapters/pseudoregalia/UNVERIFIED.md`.
 - **`curve catmull-rom` is measurably wrong on uneven sample spacing** — a straight run bends by
@@ -77,8 +84,8 @@ has never been looked at. `verified.md`.
 
 - **Pseudoregalia's stepped FACING is FIXED and user-confirmed BETTER, not yet 1:1 (2026-08-30)** —
   three-launch A/B; the residual "delayed" read is the interp knob. ADR 0043, `pseudoregalia/VERIFIED.md`.
-- **OPEN: Pseudoregalia's `interp` has never been swept, and rotation extrapolation is unwatched** —
-  250ms is a placeholder (TEVI measured 175ms); config-only. `pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia's `interp` is MEASURED per link tier (2026-09-01): 250ms same-continent, 375ms
+  ocean; 375 ships.** Rotation extrapolation stays unwatched. `pseudoregalia/VERIFIED.md`.
 - **The orientation bracket is OPT-IN per adapter and UNWATCHED since that change (2026-08-30)** —
   `interpolate_orientation` in the bridge hello; Pseudoregalia needs a re-check. ADR 0043.
 - **HIGH PRIORITY: two shipped settings do nothing, and the config work around them is planned

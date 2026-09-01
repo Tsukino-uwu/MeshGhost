@@ -65,6 +65,28 @@ two ways, and the first needs no settings at all:
 
 Either way, open meshghost.exe yourself before you play.
 
+How far behind is a ghost drawn? ("interp" in config.json)
+   A ghost is deliberately drawn a fraction of a second behind where its player really is --
+   that buffer is what absorbs the internet between you, and "interp" in config.json is its
+   size. Bigger = smoother but more behind; smaller = more immediate but every network
+   hiccup shows as a stutter.
+
+   TEVI ships at 300ms, sized so the default survives a genuinely bad connection -- think
+   ~200 ping with wobble or packet loss, EU<->NA on mediocre Wi-Fi. (Honesty note: that
+   number is extrapolated from measuring another game on a simulated link that bad, not
+   from watching TEVI there -- but a too-large buffer only adds delay, never stutter, so
+   it cannot make ghosts choppier than a smaller one.)
+
+   Playing on a good same-continent connection (up to ~120 ping)? This one IS measured:
+
+       "interp": "175ms"
+
+   was tested clean on a simulated link that grade -- 150ms sat at the edge of visible
+   stutter -- so it is the sensible floor. Values in between behave in between. The tuning
+   loop: ghosts stutter = raise it; ghosts feel too far behind on a good connection = lower
+   it until you see stutter, then step one notch back. Both players set their own -- it
+   only affects what YOUR screen shows.
+
 One note specific to TEVI:
 - The mod's local bridge port defaults to 7778 and does not read config.json's
   "local_game_bridge" setting. It can be changed in BepInEx's own per-install config file

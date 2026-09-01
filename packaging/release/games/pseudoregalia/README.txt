@@ -114,6 +114,26 @@ Prefer to run it yourself? Two ways, and the first needs no settings at all:
 Either way, double-click meshghost.exe yourself before launching the game -- and remember
 it reads the config.json sitting next to it, so keep the two together.
 
+How far behind is a ghost drawn? ("interp" in config.json)
+   A ghost is deliberately drawn a fraction of a second behind where its player really is --
+   that buffer is what absorbs the internet between you, and "interp" in config.json is its
+   size. Bigger = smoother but more behind; smaller = more immediate but every network
+   hiccup shows as a stutter. Pseudoregalia ships at 375ms, which was picked by testing on
+   a deliberately bad simulated connection (about 200 ping with wobble and packet loss --
+   think bad Wi-Fi playing across the Atlantic): anything lower stuttered constantly there.
+
+   If your sessions have better ping than that, you can lower it for a more immediate ghost:
+
+       "interp": "375ms"   default -- smooth even at ~200 ping with loss (EU<->NA, bad Wi-Fi)
+       "interp": "250ms"   smooth at up to ~120 ping on a decent connection (same continent)
+
+   Values in between behave in between. The rule of thumb from measuring: the worse your
+   ping WOBBLES (not how big it is -- how much it varies, plus any packet loss), the more
+   interp you need. A steady 200 ping needs less than an unstable 100. If ghosts stutter,
+   raise it; if they feel too far behind and your connection is good, lower it until you
+   see stutter and step one notch back. Both players set their own -- it only affects what
+   YOUR screen shows.
+
 Two important notes specific to Pseudoregalia:
 - The mod finds its own local bridge port, walking 127.0.0.1:7778-7785 and taking the
   first one a core will have it on, and the config.json beside it deliberately has no

@@ -184,6 +184,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — 150 peers live: stable, recoverable, and the wire is no longer the ceiling
 - 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
 - 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
+- 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
 
 ## Confirmed facts
 
@@ -4679,3 +4680,43 @@ real clients:
   across a map seam, a reset mid-throw, and the ring/dust on non-flat ground (the 38 is one
   floor's measurement).
 
+
+## 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
+
+**The rig for all of it:** two real instances through `meshghost-netsim`, relay rate stepped by
+restart (the clients rejoin on their own -- quic takes ~17s to notice, then reconnects, which made
+a 9-rung ladder cost zero relaunches). Two link tiers: "same-continent" (60ms/±25ms/2% loss/2%
+reorder -- a ~120ms round trip) and "ocean" (100ms/±40ms/5% loss/2% reorder -- ~200 ping,
+EU<->NA-on-bad-Wi-Fi grade, the user's target for a shipped default).
+
+- **The sub-10Hz floor, watched for the first time** (a dev build lowered `MinSendHz` for the
+  session; reverted the same evening): **1Hz** *"really snappy/teleporting"*; **3Hz** *"still
+  teleporting everywhere"*; **5Hz** *"not teleporting anymore, but constantly snapping"*; **7Hz**
+  *"visually smooth, but it jitter/lag every now and then"*; **10Hz** *"fine, but some stutters
+  every now and then"*; **15Hz** *"can't really tell if there are any stutter/jitter things"*;
+  20Hz clean. The interp-model's prediction held exactly: the wall sits where the sample gap
+  (plus a loss hole) crosses the interp delay -- and the "constant snapping" rungs are LOSS
+  showing through, not the base rate.
+- **15Hz vs 20Hz is blind-indistinguishable at the same-continent tier.** Five rounds, rate
+  hidden, user guessed 2.5/5 -- and their one consistent "15Hz tell" (a choppy thrown sword) fired
+  on two rounds that were actually 20Hz, which convicted the sword's renderer, not the rate
+  (below). At the ocean tier both rates were equally bad (three rounds: constant stutter at 15
+  AND 20) until interp was raised, which settles that rate was never the lever there either.
+- **The interp-per-link rule, measured:** on the ocean link at 15Hz, **250ms stuttered
+  constantly, 350ms was smooth with rare blips, 375ms** *"actually looks fine, i saw 1 single
+  snap"*. The rule: interp must clear the link's jitter PLUS its loss holes; raw ping does not
+  matter (it only sets how far behind the ghost rides). **375ms is now this game's shipped
+  default** (`client-config-overrides.json`), the user's call, with 250ms documented in the
+  release README as the same-continent value.
+- **The thrown sword's mid-air chop was the RENDERER, not the rate** -- the blind test's real
+  finding. Fixed and user-accepted the same evening after three watched rotation strategies:
+  position now glides one segment behind the wire steps (replacing the EMA chase); rotation is
+  written straight through, because a fast tumble's direction is unreconstructable from these
+  samples (shortest-arc drew it backwards -- *"swaps direction sometimes"* -- and
+  velocity-continuity unwrapping ran away). Final state, the user: *"the rotation/spin is better
+  (the original games spin also looks a bit choppy/low frame rate by design in pseudoregalia
+  anyway) ... good enought for the sword throw."* The occasional position snap mid-arc stays OPEN
+  (`UNVERIFIED.md`).
+- Scope: one machine, two instances, simulated faults, walking/jumping/sword-throwing. The
+  cross-adapter `DefaultSendHz` 20->15 change was deliberately NOT made tonight -- evidence
+  supports it, decision pending.
