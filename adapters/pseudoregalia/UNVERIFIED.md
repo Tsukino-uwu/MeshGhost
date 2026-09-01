@@ -464,6 +464,68 @@ mode or the save subsystem, the same method that found `FixAllLights`.
 actor here (`IsUnreachable()` is itself a dereference -- see the entry above), so the fix has to be
 "let go before the teardown", not "survive touching freed memory".
 
+### CAUSE FOUND AND FIXED IN SOURCE: the reset crash was the NAMETAG's stale pointers (2026-09-01)
+
+**One reproduction with a fake peer, one minidump, and this time the dump named our own code.**
+Rig: single client + `meshghost-fakeadapter` as the peer (relay `-ghost-collision=disabled`).
+The user left the zone (fine), then chose *reset to last save* from ZONE_Dungeon, which reloaded
+ZONE_LowerCastle; the ghost respawned at 12:00:00.9 and the game died within the second --
+first attempt, exactly the proven spawn-into-post-reset-world pattern.
+
+**What was new: this dump faulted inside `UE4SS.dll` (+0x33A1C9), not the game exe** -- and a
+stack scavenge of the crash thread (scan the dumped stack for return addresses into loaded
+modules) put `main.dll` directly above it. Symbolized against our own PDB
+(`build/Mod/Game__Shipping__Win64/main.pdb`, same hash as the deployed DLL):
+`game_thread_tick` -> `update_ghost_nametag` (Plugin.cpp:12428) -> `set_text_render_transform`
+(:7549) -> `component->ProcessEvent(...)` -> AV. The component was `entry.nametag_component`.
+
+**The mechanism, and it explains every established fact:** the nametag text component, its plate
+and the plate's material instance are attached to the ghost, so any teardown frees them -- and
+NEITHER `release_all_ghosts` NOR `release_ghost` cleared the three pointers (every other
+component pointer in `RemoteGhost` is cleared there; the nametag shipped 2026-08-29, after those
+lines were written, and never joined them -- the comment there even predicts this family). The
+create guard in `update_ghost_nametag` is `if (!nametag_component)`, so the stale pointer skips
+re-creation on the respawned ghost and the first transform update calls `ProcessEvent` on freed
+memory. Hence: needs a ghost to have EXISTED (the stale pointer is the residue); crash tracks the
+RESPAWN across every hold length (the nametag path only runs once a ghost exists again); a
+post-reset world is hostile while a zone change usually survives (same-level reloads tend to hand
+the allocator the same addresses back -- the file already records that luck for the camera
+fallback pointer); intermittent, and masked by a heavy trace (freed memory only sometimes moves).
+
+**The fix (built 2026-09-01, deployed, UNWATCHED):** the nametag trio and its applied-name/colour
+latches are now cleared in `release_all_ghosts` and `release_ghost`, same as the weapon, VFX,
+projectile and glow pointers. **What to watch: with a peer connected, reset to last save
+repeatedly -- five-plus attempts, same zone and cross-zone -- per the N-attempts protocol above.**
+Correct is: no crash, and the respawned ghost gets its nametag back (a missing tag after respawn
+would mean the latches cleared but creation failed).
+
+**The nametag-never-returns bug was SEPARATE, and the user's gauntlet isolated it (2026-09-01):**
+same-zone resets kept the tag (the residue fix working), but any spell APART from the peer -- a
+cross-zone reset, or just walking to another zone -- lost it for the rest of the game session,
+surviving main menu, save switches, everything. Cause read straight from the code: the adapter's
+`despawn_remote` handler erased the `nametags` entry, and the core sends `despawn_remote` on a
+mere AREA change while `remote_name` is only ever pushed on join and on adapter attach -- so one
+separation forgot the name with nothing left to restore it. The erase guarded against a reused
+player_id inheriting a stale name, and the relay never reuses ids (`relay.go`, nextPlayerID).
+**Fixed 2026-09-01 (the name is kept for the session), built, deploys on next relaunch,
+UNWATCHED: correct is the tag surviving a zone round trip and a cross-zone reset.**
+`_template/PROTOCOL.md` now warns every future adapter.
+
+**Spawn-hold subtraction, built 2026-09-01, UNWATCHED:** every crash that justified the ~5s
+teardown spawn holds is now attributable to the nametag residue, so `no_spawn_hold.txt` (dev
+toggle beside the DLL) zeroes every hold site live -- reset click, LoadMap PRE, InitGameState.
+**What to watch: with the file present, the same five-plus-reset gauntlet plus zone changes; if
+it survives, the holds come out (or shrink to a token) and ghosts return instantly after loads.**
+The pause-menu QUIET stays regardless: it costs nothing visible (the game is paused) and not
+calling into actors a paused game is not ticking is sound on its own.
+
+**Caveat kept honest:** the earlier `bare_ghost` run (no nametag on the NEW ghost) also crashed.
+If that run's remote had a stale nametag pointer from the PREVIOUS ghost, it is the same bug --
+`update_ghost_nametag` runs regardless of how bare the new spawn is. If the reset still crashes
+after this fix, that run is the counter-evidence to start from, and the old exe-side fault
+(+0x1CD9A60, all five earlier dumps) may be a second residue path -- a freed component still
+registered somewhere the game itself walks.
+
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
 **User-observed, twice, and NOT explained.** With two clients plus a synthetic peer:

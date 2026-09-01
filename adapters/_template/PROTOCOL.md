@@ -214,6 +214,10 @@ four. **They are not optional, and they are not new: both ship today.**
   player or a maintainer will ever get.
 - **`remote_name`** carries a peer's chosen nametag, sent when it becomes known: on join, and again
   for every already-present peer when an adapter attaches to a room that is already populated.
+  **It is NEVER re-sent after a `despawn_remote`, and `despawn_remote` fires on a mere AREA
+  change — so keep the name for the session, keyed by player_id, outside your per-ghost state.**
+  Pseudoregalia erased it on despawn and any spell apart forgot the peer's name until relaunch
+  (2026-09-01). Ids are safe to key on: the relay never reuses a player_id.
   Drawing it is per-game work — Pseudoregalia draws text on a coloured plate above the ghost — and
   a game where readable text is genuinely impractical should log that once, for the same reason.
 
