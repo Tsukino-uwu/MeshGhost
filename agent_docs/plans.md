@@ -790,15 +790,18 @@ cadence named, number before and after.
 
 **The steps, in order -- each gated on the previous step's measurement:**
 
-1. **Read the tail split.** The instrumented build (four `loop_tail` sub-slots: pose/trace,
-   sweeps, light hold, event mirrors) is DEPLOYED to both installs and has never been run --
-   one 16-peer rung with `perf_report.txt` armed (it is still armed in the Steam install;
-   disarm before judging anything visual) names which block owns the cost. Zero code until
-   this number exists.
-2. **The reflection-property cache**, aimed at the named block: resolve each (UClass*, name)
-   property once, reuse the offset -- behaviour-preserving by construction, teardown-cleared
-   like every cache (the preflight release-check discipline). Verify: a normal 2-ghost session
-   watched for visual regressions, then re-run ladder rungs 16/32/100.
+1. **Read the tail split. DONE 2026-09-01** -- one 16-peer rung: `tail_sweeps` is 68% of
+   `loop_tail` (177 us/ghost), `tail_light` 32%, pose-trace and event mirrors ~0, and the four
+   sum to `loop_tail` with no remainder. The sweeps are `GetValuePtrByPropertyNameInChain`
+   lookups per component per ghost per tick, which is what step 2 targets. Table and rig:
+   `../adapters/pseudoregalia/UNVERIFIED.md`, "The TAIL SPLIT is READ". `perf_report.txt` is
+   still armed in the Steam install -- disarm before judging anything visual.
+2. **The reflection-property cache. BUILT AND MEASURED 2026-09-01** -- all 376 call sites,
+   teardown-cleared beside the other caches. The 16-peer tick fell 59% (6.9 -> 2.8 ms,
+   ~93 -> ~133fps); every reflection-heavy slot moved, `tail_light` most (-91%), refuting the
+   step-1 guess that it did distinct work. Numbers: `../adapters/pseudoregalia/UNVERIFIED.md`.
+   **Still owed: the user's 2-ghost visual pass (perf disarmed), and re-running rungs 32/100** --
+   the rises-with-population finding should now be re-measured before step 3 is aimed.
 3. **Redraw LOD by distance** -- the adapter-side version of "half rate beyond 1k units": far
    ghosts get the full redraw every Nth tick. CHANGES VISUALS (far motion gets steppier), so
    the user judges the distance band and N on screen; the speed rule still binds (never faster

@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <unordered_map>
+#include <string_view>
 #include <cwctype>
 #include <format>
 #include <utility>
@@ -2756,11 +2758,127 @@ namespace MeshGhostPseudo
         // in game_thread_tick for the story. Cleared wherever the controller cache is.
         std::vector<UObject*> g_projectile_pool;
 
+        // **The REFLECTION-PROPERTY CACHE, 2026-09-01 -- what the tail split was measured for.**
+        // Every `GetValuePtrByPropertyNameInChain` UE4SS offers does two expensive things on
+        // EVERY call: it builds an FName from the wide literal (a global name-table lookup), then
+        // walks the object's entire property chain comparing FNames. This adapter makes that call
+        // per component, per ghost, per tick -- which the tail split named as `tail_sweeps`, 68%
+        // of `loop_tail`, itself 80% of per-ghost cost (`agent_docs/plans.md`, "Crowds that PLAY"
+        // step 1; the table is in `../../UNVERIFIED.md`). It is also why per-ghost cost RISES
+        // with world population: a name walk scales with what it has to search.
+        //
+        // **Behaviour-preserving by construction.** The property a class exposes under a name
+        // cannot change while that class is loaded, so resolving (class, name) once and reusing
+        // the FProperty* hands back the exact pointer the walk would have found, and the value
+        // pointer is the same offset arithmetic UE4SS itself does. Misses are cached too -- a
+        // class that lacks a name lacks it every tick, and a re-walk to rediscover that is the
+        // most expensive kind of lookup there is.
+        //
+        // **Cleared in `release_all_ghosts`**, beside the controller and projectile caches, on
+        // the same teardown signal (LoadMap PRE / InitGameState PRE / the pause-menu Reset) and
+        // for the same reason: a UClass* belonging to a torn-down level must never stay a live
+        // key. Nothing here is ever dereferenced to decide that -- the map is simply dropped.
+        struct PropertyCacheKey
+        {
+            UStruct* owner{};
+            StringType name;
+        };
+
+        struct PropertyCacheProbe
+        {
+            UStruct* owner{};
+            StringViewType name;
+        };
+
+        // Heterogeneous (transparent) lookup, so the hot path hashes a string VIEW of the caller's
+        // literal and allocates nothing. Keying on the literal's POINTER would be cheaper still
+        // and is wrong: one call site passes a runtime string, whose buffer address can be handed
+        // back later for different text, which would return another class's property.
+        struct PropertyCacheHash
+        {
+            using is_transparent = void;
+            auto operator()(const PropertyCacheKey& key) const -> size_t
+            {
+                return mix(key.owner, StringViewType(key.name));
+            }
+            auto operator()(const PropertyCacheProbe& key) const -> size_t
+            {
+                return mix(key.owner, key.name);
+            }
+
+          private:
+            static auto mix(UStruct* owner, StringViewType name) -> size_t
+            {
+                const size_t a = std::hash<const void*>{}(owner);
+                const size_t b = std::hash<StringViewType>{}(name);
+                return a ^ (b + 0x9e3779b97f4a7c15ULL + (a << 6) + (a >> 2));
+            }
+        };
+
+        struct PropertyCacheEqual
+        {
+            using is_transparent = void;
+            auto operator()(const PropertyCacheKey& a, const PropertyCacheKey& b) const -> bool
+            {
+                return a.owner == b.owner && a.name == b.name;
+            }
+            auto operator()(const PropertyCacheKey& a, const PropertyCacheProbe& b) const -> bool
+            {
+                return a.owner == b.owner && StringViewType(a.name) == b.name;
+            }
+            auto operator()(const PropertyCacheProbe& a, const PropertyCacheKey& b) const -> bool
+            {
+                return a.owner == b.owner && a.name == StringViewType(b.name);
+            }
+        };
+
+        std::unordered_map<PropertyCacheKey, FProperty*, PropertyCacheHash, PropertyCacheEqual> g_property_cache;
+
+        // The owner choice mirrors `UObject::GetPropertyByNameInChain` exactly (a UStruct looks up
+        // its own fields, anything else looks up its class's), so a hit and a miss are the answers
+        // that function would have given. The miss path CALLS that function rather than
+        // re-implementing its iteration flags -- one walk per (class, name), for the life of the
+        // level.
+        auto mg_cached_property(UObject* object, const CharType* name) -> FProperty*
+        {
+            if (!object || !name)
+            {
+                return nullptr;
+            }
+            UStruct* owner = object->IsA<UStruct>() ? static_cast<UStruct*>(object) : object->GetClassPrivate();
+            if (!owner)
+            {
+                return nullptr;
+            }
+            const PropertyCacheProbe probe{owner, StringViewType(name)};
+            if (const auto it = g_property_cache.find(probe); it != g_property_cache.end())
+            {
+                return it->second;
+            }
+            FProperty* found = object->GetPropertyByNameInChain(name);
+            g_property_cache.emplace(PropertyCacheKey{owner, StringType(name)}, found);
+            return found;
+        }
+
+        // The drop-in for `mg_property_value<T>(object, name)`. Same nullptr
+        // contract: a missing property, a null object or a null class all read as nullptr, which
+        // every call site in this file already handles.
+        template <typename T>
+        auto mg_property_value(UObject* object, const CharType* name) -> T*
+        {
+            FProperty* property = mg_cached_property(object, name);
+            if (!property)
+            {
+                return nullptr;
+            }
+            return property->ContainerPtrToValuePtr<T>(object);
+        }
+
         auto find_local_controller_and_pawn() -> std::pair<UObject*, UObject*>
         {
             if (g_cached_local_controller)
             {
-                UObject** pawn_ptr = g_cached_local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                UObject** pawn_ptr = mg_property_value<UObject*>(g_cached_local_controller, STR("Pawn"));
                 if (pawn_ptr && *pawn_ptr)
                 {
                     return {g_cached_local_controller, *pawn_ptr};
@@ -2775,7 +2893,7 @@ namespace MeshGhostPseudo
                 {
                     continue;
                 }
-                UObject** pawn_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                UObject** pawn_ptr = mg_property_value<UObject*>(candidate, STR("Pawn"));
                 if (pawn_ptr && *pawn_ptr)
                 {
                     g_cached_local_controller = candidate;
@@ -2956,12 +3074,12 @@ namespace MeshGhostPseudo
             {
                 return false;
             }
-            UObject** abp = actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
+            UObject** abp = mg_property_value<UObject*>(actor, STR("animBPref"));
             if (!abp || !*abp)
             {
                 return false;
             }
-            bool* value = (*abp)->GetValuePtrByPropertyNameInChain<bool>(name);
+            bool* value = mg_property_value<bool>((*abp), name);
             return value && *value;
         }
 
@@ -2977,12 +3095,12 @@ namespace MeshGhostPseudo
             {
                 return;
             }
-            UObject** abp = actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref"));
+            UObject** abp = mg_property_value<UObject*>(actor, STR("animBPref"));
             if (!abp || !*abp)
             {
                 return;
             }
-            if (bool* ptr = (*abp)->GetValuePtrByPropertyNameInChain<bool>(name))
+            if (bool* ptr = mg_property_value<bool>((*abp), name))
             {
                 *ptr = value;
             }
@@ -3002,16 +3120,16 @@ namespace MeshGhostPseudo
             }
             for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
             {
-                UObject** mesh = actor->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                UObject** mesh = mg_property_value<UObject*>(actor, mesh_name);
                 if (!mesh || !*mesh)
                 {
                     Output::send(STR("[MeshGhostPseudo] OUTLINE_TRACE {} {}=<not found>\n"), label, mesh_name);
                     continue;
                 }
 
-                bool* custom_depth = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
-                bool* main_pass = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderInMainPass"));
-                int32_t* stencil = (*mesh)->GetValuePtrByPropertyNameInChain<int32_t>(STR("CustomDepthStencilValue"));
+                bool* custom_depth = mg_property_value<bool>((*mesh), STR("bRenderCustomDepth"));
+                bool* main_pass = mg_property_value<bool>((*mesh), STR("bRenderInMainPass"));
+                int32_t* stencil = mg_property_value<int32_t>((*mesh), STR("CustomDepthStencilValue"));
 
                 Output::send(STR("[MeshGhostPseudo] OUTLINE_TRACE {} {} obj={} bRenderCustomDepth={} CustomDepthStencilValue={} bRenderInMainPass={}\n"),
                              label,
@@ -3228,7 +3346,7 @@ namespace MeshGhostPseudo
                                                           : StringType(STR("<no class>"));
             double rel_x = 0.0, rel_y = 0.0, rel_z = 0.0;
             bool have_rel = false;
-            if (FVector* rel = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+            if (FVector* rel = mg_property_value<FVector>(component, STR("RelativeLocation")))
             {
                 rel_x = rel->X();
                 rel_y = rel->Y();
@@ -3236,22 +3354,22 @@ namespace MeshGhostPseudo
                 have_rel = true;
             }
             StringType visible = STR("<unreadable>");
-            if (bool* vis = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+            if (bool* vis = mg_property_value<bool>(component, STR("bVisible")))
             {
                 visible = *vis ? STR("true") : STR("false");
             }
             StringType hidden = STR("<unreadable>");
-            if (bool* hid = component->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+            if (bool* hid = mg_property_value<bool>(component, STR("bHiddenInGame")))
             {
                 hidden = *hid ? STR("true") : STR("false");
             }
             StringType attach = STR("<none>");
-            if (UObject** parent = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent && *parent)
+            if (UObject** parent = mg_property_value<UObject*>(component, STR("AttachParent")); parent && *parent)
             {
                 attach = (*parent)->GetName();
             }
             StringType socket = STR("<none>");
-            if (FName* socket_ptr = component->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+            if (FName* socket_ptr = mg_property_value<FName>(component, STR("AttachSocketName")))
             {
                 socket = socket_ptr->ToString();
             }
@@ -3371,27 +3489,27 @@ namespace MeshGhostPseudo
                 StringType value = STR("<not a simple type>");
                 if (prop_type == STR("DoubleProperty"))
                 {
-                    double* ptr = actor->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    double* ptr = mg_property_value<double>(actor, prop_name.c_str());
                     value = ptr ? std::format(STR("{:.3f}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("FloatProperty"))
                 {
-                    float* ptr = actor->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    float* ptr = mg_property_value<float>(actor, prop_name.c_str());
                     value = ptr ? std::format(STR("{:.3f}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("IntProperty"))
                 {
-                    int32_t* ptr = actor->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    int32_t* ptr = mg_property_value<int32_t>(actor, prop_name.c_str());
                     value = ptr ? std::format(STR("{}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("BoolProperty"))
                 {
-                    bool* ptr = actor->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    bool* ptr = mg_property_value<bool>(actor, prop_name.c_str());
                     value = ptr ? (*ptr ? STR("true") : STR("false")) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("ObjectProperty"))
                 {
-                    UObject** ptr = actor->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    UObject** ptr = mg_property_value<UObject*>(actor, prop_name.c_str());
                     value = (ptr && *ptr) ? STR("<non-null>") : STR("<null>");
                 }
                 Output::send(STR("[MeshGhostPseudo] {}: {} property '{}' ({}) = {}\n"),
@@ -3456,7 +3574,7 @@ namespace MeshGhostPseudo
                 }
                 const StringType prop_name = property->GetName();
                 const bool shadow_shaped = is_shadow_shaped_name(prop_name);
-                UObject** value = actor->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                UObject** value = mg_property_value<UObject*>(actor, prop_name.c_str());
                 if (!value || !*value)
                 {
                     // **A shadow-shaped name that is NULL here is a result, not a blank.** Set on
@@ -3583,7 +3701,7 @@ namespace MeshGhostPseudo
                 // address, which this project does not do.
                 for (const wchar_t* prop : {STR("Font"), STR("TextMaterial")})
                 {
-                    UObject** value = cdo->GetValuePtrByPropertyNameInChain<UObject*>(prop);
+                    UObject** value = mg_property_value<UObject*>(cdo, prop);
                     if (!value)
                     {
                         Output::send(STR("[MeshGhostPseudo] NAMETAGCENSUS:   {} -- NO SUCH PROPERTY "
@@ -3671,7 +3789,7 @@ namespace MeshGhostPseudo
                 // text component can draw, and any game font sharing it is usable.
                 const wchar_t* cache_type = STR("<no FontCacheType property>");
                 StringType cache_value;
-                if (uint8_t* raw = font->GetValuePtrByPropertyNameInChain<uint8_t>(STR("FontCacheType")))
+                if (uint8_t* raw = mg_property_value<uint8_t>(font, STR("FontCacheType")))
                 {
                     cache_value = std::to_wstring(static_cast<int>(*raw));
                     cache_type = cache_value.c_str();
@@ -3680,7 +3798,7 @@ namespace MeshGhostPseudo
                 // runtime one does not. Two independent signals beat one, and this one needs no
                 // enum decoding at all.
                 int32_t texture_count = -1;
-                if (TArray<UObject*>* textures = font->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("Textures")))
+                if (TArray<UObject*>* textures = mg_property_value<TArray<UObject*>>(font, STR("Textures")))
                 {
                     texture_count = textures->Num();
                 }
@@ -3791,28 +3909,28 @@ namespace MeshGhostPseudo
                 }
                 else if (prop_type == STR("FloatProperty"))
                 {
-                    if (float* v = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str()))
+                    if (float* v = mg_property_value<float>(obj, prop_name.c_str()))
                     {
                         out[key] = std::to_string(*v);
                     }
                 }
                 else if (prop_type == STR("DoubleProperty"))
                 {
-                    if (double* v = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str()))
+                    if (double* v = mg_property_value<double>(obj, prop_name.c_str()))
                     {
                         out[key] = std::to_string(*v);
                     }
                 }
                 else if (prop_type == STR("IntProperty"))
                 {
-                    if (int32_t* v = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str()))
+                    if (int32_t* v = mg_property_value<int32_t>(obj, prop_name.c_str()))
                     {
                         out[key] = std::to_string(*v);
                     }
                 }
                 else if (prop_type == STR("ByteProperty") || prop_type == STR("EnumProperty"))
                 {
-                    if (uint8_t* v = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str()))
+                    if (uint8_t* v = mg_property_value<uint8_t>(obj, prop_name.c_str()))
                     {
                         out[key] = std::to_string(static_cast<int>(*v));
                     }
@@ -3830,7 +3948,7 @@ namespace MeshGhostPseudo
                     // not read correctly through a plain byte offset, and printing a wrong value is
                     // worse than printing none. The brightness knobs are all floats.
                     UScriptStruct* inner_struct = static_cast<FStructProperty*>(property)->GetStruct();
-                    uint8_t* base = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    uint8_t* base = mg_property_value<uint8_t>(obj, prop_name.c_str());
                     if (inner_struct && base)
                     {
                         for (FProperty* inner : TFieldRange<FProperty>(inner_struct, EFieldIterationFlags::Default))
@@ -3887,7 +4005,7 @@ namespace MeshGhostPseudo
             for (const wchar_t* comp_name : {STR("PlayerLight"), STR("LightMesh"), STR("PointLight")})
             {
                 const std::string prefix = to_utf8(StringType{comp_name}) + ".";
-                UObject** comp = pawn->GetValuePtrByPropertyNameInChain<UObject*>(comp_name);
+                UObject** comp = mg_property_value<UObject*>(pawn, comp_name);
                 if (!comp || !*comp)
                 {
                     out[prefix + "__present"] = "no";
@@ -3900,7 +4018,7 @@ namespace MeshGhostPseudo
                 }
 
                 // Only PlayerLight has one; the other two return nothing and cost a named read.
-                if (UObject** child = (*comp)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor"));
+                if (UObject** child = mg_property_value<UObject*>((*comp), STR("ChildActor"));
                     child && *child)
                 {
                     const std::string child_prefix = prefix + "ChildActor.";
@@ -3979,27 +4097,27 @@ namespace MeshGhostPseudo
                 StringType prop_type = property->GetClass().GetName();
                 if (prop_type == STR("BoolProperty"))
                 {
-                    bool* ptr = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    bool* ptr = mg_property_value<bool>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (bool) = {}\n"), label, prop_name, ptr ? *ptr : false);
                 }
                 else if (prop_type == STR("IntProperty"))
                 {
-                    int32_t* ptr = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    int32_t* ptr = mg_property_value<int32_t>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (int32) = {}\n"), label, prop_name, ptr ? *ptr : -1);
                 }
                 else if (prop_type == STR("FloatProperty"))
                 {
-                    float* ptr = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    float* ptr = mg_property_value<float>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (float) = {}\n"), label, prop_name, ptr ? *ptr : -1.0f);
                 }
                 else if (prop_type == STR("DoubleProperty"))
                 {
-                    double* ptr = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    double* ptr = mg_property_value<double>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (double) = {}\n"), label, prop_name, ptr ? *ptr : -1.0);
                 }
                 else if (prop_type == STR("NameProperty"))
                 {
-                    FName* ptr = obj->GetValuePtrByPropertyNameInChain<FName>(prop_name.c_str());
+                    FName* ptr = mg_property_value<FName>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} (FName) = '{}'\n"), label, prop_name, ptr ? ptr->ToString() : STR("<unreadable>"));
                 }
                 else if (prop_type == STR("EnumProperty") || prop_type == STR("ByteProperty"))
@@ -4010,13 +4128,13 @@ namespace MeshGhostPseudo
                     // already read elsewhere in this file (moveState, actionState, movementMode,
                     // animJumpType) is read as a raw uint8_t, matching UE's standard
                     // UENUM(uint8)/plain-byte convention -- not a new access mechanism.
-                    uint8_t* ptr = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    uint8_t* ptr = mg_property_value<uint8_t>(obj, prop_name.c_str());
                     Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = {}\n"), label, prop_name, prop_type, ptr ? static_cast<int>(*ptr) : -1);
                 }
                 else if (prop_type == STR("ObjectProperty") || prop_type == STR("WeakObjectProperty") ||
                          prop_type == STR("SoftObjectProperty") || prop_type == STR("ClassProperty"))
                 {
-                    UObject** ptr = obj->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    UObject** ptr = mg_property_value<UObject*>(obj, prop_name.c_str());
                     if (ptr && *ptr)
                     {
                         Output::send(STR("[MeshGhostPseudo] DIAG: {} {} ({}) = {}\n"), label, prop_name, prop_type, (*ptr)->GetFullName());
@@ -4067,33 +4185,33 @@ namespace MeshGhostPseudo
                 StringType prop_type = property->GetClass().GetName();
                 if (prop_type == STR("BoolProperty"))
                 {
-                    bool* ptr = obj->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                    bool* ptr = mg_property_value<bool>(obj, prop_name.c_str());
                     out[prop_name] = ptr ? (*ptr ? STR("true") : STR("false")) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("IntProperty"))
                 {
-                    int32_t* ptr = obj->GetValuePtrByPropertyNameInChain<int32_t>(prop_name.c_str());
+                    int32_t* ptr = mg_property_value<int32_t>(obj, prop_name.c_str());
                     out[prop_name] = ptr ? std::format(STR("{}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("FloatProperty"))
                 {
-                    float* ptr = obj->GetValuePtrByPropertyNameInChain<float>(prop_name.c_str());
+                    float* ptr = mg_property_value<float>(obj, prop_name.c_str());
                     out[prop_name] = ptr ? std::format(STR("{:.4f}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("DoubleProperty"))
                 {
-                    double* ptr = obj->GetValuePtrByPropertyNameInChain<double>(prop_name.c_str());
+                    double* ptr = mg_property_value<double>(obj, prop_name.c_str());
                     out[prop_name] = ptr ? std::format(STR("{:.4f}"), *ptr) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("EnumProperty") || prop_type == STR("ByteProperty"))
                 {
-                    uint8_t* ptr = obj->GetValuePtrByPropertyNameInChain<uint8_t>(prop_name.c_str());
+                    uint8_t* ptr = mg_property_value<uint8_t>(obj, prop_name.c_str());
                     out[prop_name] = ptr ? std::format(STR("{}"), static_cast<int>(*ptr)) : STR("<unreadable>");
                 }
                 else if (prop_type == STR("ObjectProperty") || prop_type == STR("WeakObjectProperty") ||
                          prop_type == STR("SoftObjectProperty") || prop_type == STR("ClassProperty"))
                 {
-                    UObject** ptr = obj->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                    UObject** ptr = mg_property_value<UObject*>(obj, prop_name.c_str());
                     out[prop_name] = (ptr && *ptr) ? STR("<non-null>") : STR("<null>");
                 }
             }
@@ -5121,12 +5239,12 @@ namespace MeshGhostPseudo
             {
                 return false;
             }
-            UObject** gi_ptr = pawn_or_ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+            UObject** gi_ptr = mg_property_value<UObject*>(pawn_or_ghost, STR("As MV Game Instance Ref"));
             if (!gi_ptr || !*gi_ptr)
             {
                 return false;
             }
-            double* hp = (*gi_ptr)->GetValuePtrByPropertyNameInChain<double>(STR("CurrentHp"));
+            double* hp = mg_property_value<double>((*gi_ptr), STR("CurrentHp"));
             if (!hp)
             {
                 return false;
@@ -5428,7 +5546,7 @@ namespace MeshGhostPseudo
             {
                 return;
             }
-            UObject** pm_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("ProjectileMovement"));
+            UObject** pm_ptr = mg_property_value<UObject*>(prop, STR("ProjectileMovement"));
             if (!pm_ptr || !*pm_ptr)
             {
                 Output::send(STR("[MeshGhostPseudo] WEAPONPROP: prop has no reflected 'ProjectileMovement' -- cannot stop its gravity.\n"));
@@ -5446,11 +5564,11 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] WARNING: no reflected 'Deactivate' on prop ProjectileMovement -- the prop may still fall.\n"));
             }
 
-            if (FVector* velocity = projectile_movement->GetValuePtrByPropertyNameInChain<FVector>(STR("Velocity")))
+            if (FVector* velocity = mg_property_value<FVector>(projectile_movement, STR("Velocity")))
             {
                 *velocity = FVector(0.0, 0.0, 0.0);
             }
-            if (float* gravity_scale = projectile_movement->GetValuePtrByPropertyNameInChain<float>(STR("ProjectileGravityScale")))
+            if (float* gravity_scale = mg_property_value<float>(projectile_movement, STR("ProjectileGravityScale")))
             {
                 *gravity_scale = 0.0f;
             }
@@ -5546,7 +5664,7 @@ namespace MeshGhostPseudo
                              where.X(), where.Y(), where.Z());
                 for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("LightMesh"), STR("WeaponMesh")})
                 {
-                    if (UObject** mesh = dp->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+                    if (UObject** mesh = mg_property_value<UObject*>(dp, mesh_name); mesh && *mesh)
                     {
                         const auto cpd = read_float_array_property(*mesh, STR("CustomPrimitiveData"), 16);
                         StringType line;
@@ -5622,25 +5740,25 @@ namespace MeshGhostPseudo
                 {
                     // Two reads per key because the dump has no type table: LightIndex is a byte,
                     // the rest are bools/doubles; whichever pointer resolves is printed.
-                    if (bool* b = light->GetValuePtrByPropertyNameInChain<bool>(key); b && (StringType(key) == STR("Enabled") || StringType(key) == STR("DebugEnabled")))
+                    if (bool* b = mg_property_value<bool>(light, key); b && (StringType(key) == STR("Enabled") || StringType(key) == STR("DebugEnabled")))
                     {
                         Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *b ? STR("true") : STR("false"));
                     }
                     else if (StringType(key) == STR("LightIndex"))
                     {
-                        if (uint8_t* v = light->GetValuePtrByPropertyNameInChain<uint8_t>(key))
+                        if (uint8_t* v = mg_property_value<uint8_t>(light, key))
                         {
                             Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, static_cast<int>(*v));
                         }
                     }
                     else if (StringType(key) == STR("Time"))
                     {
-                        if (int32_t* v = light->GetValuePtrByPropertyNameInChain<int32_t>(key))
+                        if (int32_t* v = mg_property_value<int32_t>(light, key))
                         {
                             Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *v);
                         }
                     }
-                    else if (double* d = light->GetValuePtrByPropertyNameInChain<double>(key))
+                    else if (double* d = mg_property_value<double>(light, key))
                     {
                         Output::send(STR("[MeshGhostPseudo] LIGHTSTATE:    {} = {}\n"), key, *d);
                     }
@@ -6082,7 +6200,7 @@ namespace MeshGhostPseudo
                 }
                 // Must be OUR afterimage: a ghost's images are in this same list, and letting one
                 // through would feed the ghost's own colour back into itself.
-                UObject** cached_ptr = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                UObject** cached_ptr = mg_property_value<UObject*>(image, STR("cachedMesh"));
                 if (!cached_ptr || !*cached_ptr || (*cached_ptr)->GetOuterPrivate() != pawn)
                 {
                     continue;
@@ -6834,7 +6952,7 @@ namespace MeshGhostPseudo
                 // The enum value is written directly because it is a plain byte property; that it
                 // is the CENTRE value is confirmed on screen, not cited -- if the tag ends up
                 // right- or left-hung instead, this number is why.
-                if (uint8_t* halign = component->GetValuePtrByPropertyNameInChain<uint8_t>(STR("HorizontalAlignment")))
+                if (uint8_t* halign = mg_property_value<uint8_t>(component, STR("HorizontalAlignment")))
                 {
                     *halign = 1; // EHTA_Center
                 }
@@ -6851,7 +6969,7 @@ namespace MeshGhostPseudo
                     {
                         listed = true;
                         UObject* material = nullptr;
-                        if (UObject** m = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("TextMaterial")); m)
+                        if (UObject** m = mg_property_value<UObject*>(component, STR("TextMaterial")); m)
                         {
                             material = *m;
                         }
@@ -6945,17 +7063,17 @@ namespace MeshGhostPseudo
             }
 
             const wchar_t* registered = STR("<none>");
-            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bRegistered")))
+            if (bool* v = mg_property_value<bool>(component, STR("bRegistered")))
             {
                 registered = *v ? STR("true") : STR("FALSE");
             }
             const wchar_t* visible = STR("<none>");
-            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+            if (bool* v = mg_property_value<bool>(component, STR("bVisible")))
             {
                 visible = *v ? STR("true") : STR("FALSE");
             }
             const wchar_t* hidden = STR("<none>");
-            if (bool* v = component->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+            if (bool* v = mg_property_value<bool>(component, STR("bHiddenInGame")))
             {
                 hidden = *v ? STR("TRUE(hidden)") : STR("false");
             }
@@ -6963,12 +7081,12 @@ namespace MeshGhostPseudo
             // Did the instance inherit a font and material from the class defaults? If NewObject
             // did not copy them there is nothing to draw WITH, which looks exactly like this.
             StringType font_name = STR("<null>");
-            if (UObject** f = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Font")); f && *f)
+            if (UObject** f = mg_property_value<UObject*>(component, STR("Font")); f && *f)
             {
                 font_name = (*f)->GetName();
             }
             StringType material_name = STR("<null>");
-            if (UObject** m = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("TextMaterial")); m && *m)
+            if (UObject** m = mg_property_value<UObject*>(component, STR("TextMaterial")); m && *m)
             {
                 material_name = (*m)->GetName();
             }
@@ -6982,7 +7100,7 @@ namespace MeshGhostPseudo
             // stored B,G,R,A or R,G,B,A. A non-zero set that looks wrong on screen is a DIFFERENT
             // finding and would then be worth decoding properly.
             StringType colour_value = STR("<no TextRenderColor>");
-            if (uint8_t* rgba = component->GetValuePtrByPropertyNameInChain<uint8_t>(STR("TextRenderColor")))
+            if (uint8_t* rgba = mg_property_value<uint8_t>(component, STR("TextRenderColor")))
             {
                 colour_value = std::to_wstring(static_cast<int>(rgba[0])) + STR(",")
                              + std::to_wstring(static_cast<int>(rgba[1])) + STR(",")
@@ -6991,12 +7109,12 @@ namespace MeshGhostPseudo
             }
 
             StringType size_value = STR("<none>");
-            if (float* w = component->GetValuePtrByPropertyNameInChain<float>(STR("WorldSize")))
+            if (float* w = mg_property_value<float>(component, STR("WorldSize")))
             {
                 size_value = std::to_wstring(*w);
             }
             StringType text_value = STR("<none>");
-            if (FText* t = component->GetValuePtrByPropertyNameInChain<FText>(STR("Text")))
+            if (FText* t = mg_property_value<FText>(component, STR("Text")))
             {
                 text_value = t->ToString();
             }
@@ -7076,7 +7194,7 @@ namespace MeshGhostPseudo
             // Fallback: write the property directly. Reachable because the readback already reads
             // this exact property, so if the setter is genuinely absent this still puts a string
             // in -- it just leaves the render state to be refreshed below.
-            FText* slot = component->GetValuePtrByPropertyNameInChain<FText>(STR("Text"));
+            FText* slot = mg_property_value<FText>(component, STR("Text"));
             if (!slot)
             {
                 static bool warned = false;
@@ -7472,7 +7590,7 @@ namespace MeshGhostPseudo
                 return false;
             }
             UObject* camera_manager = nullptr;
-            if (UObject** m = controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerCameraManager")); m)
+            if (UObject** m = mg_property_value<UObject*>(controller, STR("PlayerCameraManager")); m)
             {
                 camera_manager = *m;
             }
@@ -8016,11 +8134,11 @@ namespace MeshGhostPseudo
             // should not be simulating either way, not because they ever fixed anything.
             stop_projectile_movement(prop);
 
-            if (UObject** root_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+            if (UObject** root_ptr = mg_property_value<UObject*>(prop, STR("RootComponent")); root_ptr && *root_ptr)
             {
                 call_set_simulate_physics(*root_ptr, false, STR("prop RootComponent"));
             }
-            if (UObject** mesh_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+            if (UObject** mesh_ptr = mg_property_value<UObject*>(prop, STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
             {
                 call_set_simulate_physics(*mesh_ptr, false, STR("prop SkeletalMesh"));
                 if constexpr (WEAPON_PROP_TRACE)
@@ -8056,9 +8174,9 @@ namespace MeshGhostPseudo
                 // a BoxComponent is a real difference between the two cases, not a stretch.
                 // Logged rather than "fixed" on the spot: writing Mobility blind would be guessing
                 // at the cause, and if it reads Movable here the fix lies somewhere else entirely.
-                if (UObject** root_ptr = prop->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+                if (UObject** root_ptr = mg_property_value<UObject*>(prop, STR("RootComponent")); root_ptr && *root_ptr)
                 {
-                    uint8_t* mobility_ptr = (*root_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("Mobility"));
+                    uint8_t* mobility_ptr = mg_property_value<uint8_t>((*root_ptr), STR("Mobility"));
                     Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: root='{}' Mobility={} (0=Static, 1=Stationary, 2=Movable)\n"),
                                  to_wide_ascii(player_id),
                                  (*root_ptr)->GetFullName(),
@@ -8104,7 +8222,7 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_state = remote.target_weapon_state;
             const auto new_state = static_cast<uint8_t>(remote.target_weapon_state);
             call_change_weapon_state(remote.weapon_actor, new_state);
-            if (uint8_t* state_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState")))
+            if (uint8_t* state_ptr = mg_property_value<uint8_t>(remote.weapon_actor, STR("weaponState")))
             {
                 *state_ptr = new_state;
             }
@@ -8112,14 +8230,14 @@ namespace MeshGhostPseudo
             {
                 // Independent readback, per CLAUDE.md: report what the actor says its state is
                 // now, not the value just written into it.
-                uint8_t* readback_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
+                uint8_t* readback_ptr = mg_property_value<uint8_t>(remote.weapon_actor, STR("weaponState"));
                 // The glow half, measured on the real sword: idleGlowVFX goes null -> non-null on
                 // exactly this 0 -> 3 edge, every throw. So the question here is narrow and this
                 // readback answers it outright -- if our prop's idleGlowVFX is non-null too, the
                 // state call already spawns the component and the glow is failing for some later
                 // reason; if it stays null, the spawn lives in the landing path the real sword runs
                 // on impact and calling the state setter alone was never going to reach it.
-                UObject** glow_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX"));
+                UObject** glow_ptr = mg_property_value<UObject*>(remote.weapon_actor, STR("idleGlowVFX"));
                 Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: weaponState -> {} (readback={}) idleGlowVFX={}\n"),
                              to_wide_ascii(player_id), static_cast<int>(new_state),
                              readback_ptr ? static_cast<int>(*readback_ptr) : -1,
@@ -8138,7 +8256,7 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] WARNING: glow system '{}' not found via StaticFindObject -- ghost {}'s landed sword will have no glow.\n"),
                                  to_wide_ascii(remote.target_weapon_glow), to_wide_ascii(player_id));
                 }
-                else if (UObject** root_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+                else if (UObject** root_ptr = mg_property_value<UObject*>(remote.weapon_actor, STR("RootComponent")); root_ptr && *root_ptr)
                 {
                     remote.weapon_glow_component = spawn_niagara_attached(glow_asset, *root_ptr);
                     Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: glow spawn '{}' -> {}\n"),
@@ -8191,8 +8309,8 @@ namespace MeshGhostPseudo
             if (tick_count % WEAPON_PROP_TRACE_INTERVAL_TICKS == 0)
             {
                 FVector readback = remote.weapon_actor->K2_GetActorLocation();
-                bool* embedded_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<bool>(STR("isEmbedded?"));
-                uint8_t* weapon_state_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
+                bool* embedded_ptr = mg_property_value<bool>(remote.weapon_actor, STR("isEmbedded?"));
+                uint8_t* weapon_state_ptr = mg_property_value<uint8_t>(remote.weapon_actor, STR("weaponState"));
 
                 // The prop's own mesh offset, added 2026-08-15 for the "sinks downwards while
                 // embedded" report. That symptom splits cleanly in two and these two columns
@@ -8210,9 +8328,9 @@ namespace MeshGhostPseudo
                 // the PlayerPickup reason -- so the fix differs per branch and neither is worth
                 // guessing at.
                 double mesh_x = -99999.0, mesh_y = -99999.0, mesh_z = -99999.0;
-                if (UObject** mesh_ptr = remote.weapon_actor->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+                if (UObject** mesh_ptr = mg_property_value<UObject*>(remote.weapon_actor, STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
                 {
-                    if (FVector* rel_loc = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                    if (FVector* rel_loc = mg_property_value<FVector>((*mesh_ptr), STR("RelativeLocation")))
                     {
                         mesh_x = rel_loc->X();
                         mesh_y = rel_loc->Y();
@@ -8857,7 +8975,7 @@ namespace MeshGhostPseudo
         // LOCATION is attached to nothing, and its `RelativeLocation` therefore holds a world
         // coordinate -- measured directly during the heal work, where the player's own
         // world-spawned waves logged `attach='<none>'` with real world coordinates.
-        if (FVector* where = remote.projectile_component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+        if (FVector* where = mg_property_value<FVector>(remote.projectile_component, STR("RelativeLocation")))
         {
             *where = FVector(remote.target_projectile_x, remote.target_projectile_y, remote.target_projectile_z);
         }
@@ -9030,7 +9148,7 @@ namespace MeshGhostPseudo
                 }
                 else
                 {
-                    UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(effect.attach_prop);
+                    UObject** attach_ptr = mg_property_value<UObject*>(remote.ghost, effect.attach_prop);
                     if (!attach_ptr || !*attach_ptr)
                     {
                         static std::set<std::string> warned_attach;
@@ -9117,7 +9235,7 @@ namespace MeshGhostPseudo
                 {
                     continue;
                 }
-                UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                UObject** asset_ptr = mg_property_value<UObject*>(component, STR("Asset"));
                 if (!asset_ptr || !*asset_ptr)
                 {
                     continue;
@@ -9185,7 +9303,7 @@ namespace MeshGhostPseudo
         // real effect hanging off the pawn's own WeaponMesh at a zero offset -- i.e. right where
         // the sword is held, which is why the user described it as an outline of the sword. The
         // root-attached first attempt is what made it sit visibly wrong.
-        UObject** attach_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+        UObject** attach_ptr = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh"));
         if (!attach_ptr || !*attach_ptr)
         {
             // Falling back to the root would silently reintroduce the exact misplacement this fix
@@ -9326,13 +9444,13 @@ namespace MeshGhostPseudo
                 // ghost's own -- otherwise the ghost's probe-spawned images would drown the real
                 // ones being measured.
                 std::string source = "<unknown>";
-                if (UObject** cached_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh")); cached_ptr && *cached_ptr)
+                if (UObject** cached_ptr = mg_property_value<UObject*>(candidate, STR("cachedMesh")); cached_ptr && *cached_ptr)
                 {
                     source = to_utf8((*cached_ptr)->GetFullName());
                 }
                 LinearColorRGBA color{};
                 const bool ok = read_linear_color(candidate, STR("Color"), color);
-                bool* grow_ptr = candidate->GetValuePtrByPropertyNameInChain<bool>(STR("Grow?"));
+                bool* grow_ptr = mg_property_value<bool>(candidate, STR("Grow?"));
                 Output::send(STR("[MeshGhostPseudo] AFTERIMAGECOLOR: {} rgba=({:.3f}, {:.3f}, {:.3f}, {:.3f}) read_ok={} grow={} from='{}'\n"),
                              candidate->GetName(), color.r, color.g, color.b, color.a, ok,
                              grow_ptr ? *grow_ptr : false,
@@ -9370,7 +9488,7 @@ namespace MeshGhostPseudo
                 afterimage_dumped = true;
                 dump_object_property_values(candidate, STR("BP_AfterImage_C"));
                 dump_object_reflection(candidate, STR("BP_AfterImage_C"));
-                if (UObject** mesh_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("PoseableMesh")); mesh_ptr && *mesh_ptr)
+                if (UObject** mesh_ptr = mg_property_value<UObject*>(candidate, STR("PoseableMesh")); mesh_ptr && *mesh_ptr)
                 {
                     dump_object_property_values(*mesh_ptr, STR("afterimage PoseableMesh"));
                 }
@@ -9418,8 +9536,8 @@ namespace MeshGhostPseudo
                      to_wide_ascii(remote.target_weapon_class));
 
         // What the ghost's OWN construction decided, independently of anything we sent it.
-        bool* ghost_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
-        UObject** ghost_weapon_ref = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+        bool* ghost_equipped = mg_property_value<bool>(remote.ghost, STR("weaponEquipped?"));
+        UObject** ghost_weapon_ref = mg_property_value<UObject*>(remote.ghost, STR("weaponRef"));
         Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: ghost weaponEquipped={} weaponRef={}\n"),
                      label, to_wide_ascii(player_id),
                      ghost_equipped ? *ghost_equipped : false,
@@ -9446,7 +9564,7 @@ namespace MeshGhostPseudo
             auto* weapon_actor = static_cast<AActor*>(candidate);
             FVector loc = weapon_actor->K2_GetActorLocation();
             std::string instigator = "<none>";
-            if (UObject** inst_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator")); inst_ptr && *inst_ptr)
+            if (UObject** inst_ptr = mg_property_value<UObject*>(candidate, STR("Instigator")); inst_ptr && *inst_ptr)
             {
                 instigator = to_utf8((*inst_ptr)->GetName());
             }
@@ -9554,7 +9672,7 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] VFXPROBE: '{}' no longer resolves -- skipped.\n"), to_wide_ascii(path));
             return;
         }
-        if (UObject** root_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")); root_ptr && *root_ptr)
+        if (UObject** root_ptr = mg_property_value<UObject*>(ghost, STR("RootComponent")); root_ptr && *root_ptr)
         {
             vfx_probe_component = spawn_niagara_attached(system, *root_ptr);
             if (!vfx_probe_component)
@@ -9740,7 +9858,7 @@ namespace MeshGhostPseudo
             {
                 UClass* cls = p ? p->GetClassPrivate() : nullptr;
                 UObject* cdo = cls ? cls->GetClassDefaultObject() : nullptr;
-                uint8_t* ap = cdo ? cdo->GetValuePtrByPropertyNameInChain<uint8_t>(STR("AutoPossessPlayer")) : nullptr;
+                uint8_t* ap = cdo ? mg_property_value<uint8_t>(cdo, STR("AutoPossessPlayer")) : nullptr;
                 if (ap)
                 {
                     Output::send(STR("[MeshGhostPseudo] ORPHANCENSUS [{}]   CDO AutoPossessPlayer = {}{}\n"),
@@ -9808,7 +9926,7 @@ namespace MeshGhostPseudo
                         continue;
                     }
                     const StringType pname = property->GetName();
-                    UObject** slot = obj->GetValuePtrByPropertyNameInChain<UObject*>(pname.c_str());
+                    UObject** slot = mg_property_value<UObject*>(obj, pname.c_str());
                     const std::string key = to_utf8(class_name) + "." + to_utf8(pname);
                     std::string val = "<null>";
                     if (slot && *slot)
@@ -9857,7 +9975,7 @@ namespace MeshGhostPseudo
                         continue;
                     }
                     const StringType prop_name = property->GetName();
-                    auto* arr = obj->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(prop_name.c_str());
+                    auto* arr = mg_property_value<TArray<UObject*>>(obj, prop_name.c_str());
                     if (!arr)
                     {
                         continue;
@@ -10310,6 +10428,14 @@ namespace MeshGhostPseudo
         g_cached_local_controller = nullptr;
         g_projectile_pool.clear();
 
+        // **The reflection-property cache, added 2026-09-01, dropped here for the same reason.**
+        // Its keys are UClass pointers from the level being torn down; nothing dereferences them
+        // (a stale key would only ever be compared), but a recycled address handed back to a
+        // different class would return that class's property offsets against this one's memory --
+        // a wrong read, not a crash, which is the harder bug to find. Rebuilding it costs one
+        // property walk per (class, name) in the new level.
+        g_property_cache.clear();
+
         // **The hurt/death BASELINES, invalidated here 2026-08-27** -- the counters stay, only the
         // memory of "what was the health last tick" is dropped. A save-file swap goes through this
         // hook (level -> TitleScreen -> level) and rewrites the GameInstance's `CurrentHp`; with
@@ -10736,11 +10862,11 @@ namespace MeshGhostPseudo
                 // serves: "OwningActor (ObjectProperty) = BP_PlayerGoatMain_C_...". That is the
                 // exact test this needed, and it replaces the timing correlation that stood in for
                 // it. Owner is still read as a fallback in case some rig uses it instead.
-                UObject** owning_actor = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("OwningActor"));
+                UObject** owning_actor = mg_property_value<UObject*>(target, STR("OwningActor"));
                 UObject* owner_obj = (owning_actor && *owning_actor) ? *owning_actor : nullptr;
                 if (!owner_obj)
                 {
-                    UObject** engine_owner = target->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner"));
+                    UObject** engine_owner = mg_property_value<UObject*>(target, STR("Owner"));
                     owner_obj = (engine_owner && *engine_owner) ? *engine_owner : nullptr;
                 }
 
@@ -11016,7 +11142,7 @@ namespace MeshGhostPseudo
                 bool any_ghost = false;
                 bool ghost_owned = false;
                 bool attributed = false;
-                UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor"));
+                UObject** copy_actor = mg_property_value<UObject*>(image, STR("copyActor"));
                 {
                     std::lock_guard<std::mutex> lock(state_mutex);
                     for (const auto& [id, remote] : remotes)
@@ -11250,10 +11376,10 @@ namespace MeshGhostPseudo
         // this whole phase's established working pattern for this build. Now that writes happen
         // on the real game thread (game_thread_tick), this should actually take visible effect.
         // EComponentMobility::Movable == 2, same value used successfully in the Lua fix.
-        UObject** root_component_ptr = hijack_target->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+        UObject** root_component_ptr = mg_property_value<UObject*>(hijack_target, STR("RootComponent"));
         if (root_component_ptr && *root_component_ptr)
         {
-            uint8_t* mobility_ptr = (*root_component_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("Mobility"));
+            uint8_t* mobility_ptr = mg_property_value<uint8_t>((*root_component_ptr), STR("Mobility"));
             if (mobility_ptr)
             {
                 *mobility_ptr = 2;
@@ -11337,7 +11463,7 @@ namespace MeshGhostPseudo
             // Why was a spawn allowed at all? Two ghosts per level load have been observed, which
             // means this reported a null ghost pointer moments after a successful spawn -- so
             // something invalidates it in between, and the loser is left orphaned in the world.
-            UObject** before = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            UObject** before = mg_property_value<UObject*>(local_controller, STR("Pawn"));
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE spawn-allowed remote={} entry={} tick={} controller_pawn_before={}\n"),
                          to_wide_ascii(player_id),
                          existing != remotes.end() ? STR("present") : STR("absent"),
@@ -11403,7 +11529,7 @@ namespace MeshGhostPseudo
         uint8_t saved_auto_possess = 0;
         if (UObject* cdo = pawn_class ? pawn_class->GetClassDefaultObject() : nullptr)
         {
-            auto_possess = cdo->GetValuePtrByPropertyNameInChain<uint8_t>(STR("AutoPossessPlayer"));
+            auto_possess = mg_property_value<uint8_t>(cdo, STR("AutoPossessPlayer"));
             if (auto_possess)
             {
                 saved_auto_possess = *auto_possess;
@@ -11436,7 +11562,7 @@ namespace MeshGhostPseudo
             // "suppression tried and the symptom survived it" for a whole session, which is the
             // subtraction-that-subtracts-nothing trap in ../../CLAUDE.md.
             UObject* cdo = pawn_class->GetClassDefaultObject();
-            UObject** tmpl = cdo ? cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")) : nullptr;
+            UObject** tmpl = cdo ? mg_property_value<UObject*>(cdo, STR("PlayerLight")) : nullptr;
 
             // **The CDO route is a measured dead end on this build** (2026-08-30: "'PlayerLight' on
             // the CDO is null", printed live). A Blueprint-added component's archetype is not a CDO
@@ -11478,9 +11604,9 @@ namespace MeshGhostPseudo
             }
 
             UObject** child_class = (tmpl && *tmpl)
-                                        ? (*tmpl)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass"))
+                                        ? mg_property_value<UObject*>((*tmpl), STR("ChildActorClass"))
                                     : gen_variable_tmpl
-                                        ? gen_variable_tmpl->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass"))
+                                        ? mg_property_value<UObject*>(gen_variable_tmpl, STR("ChildActorClass"))
                                         : nullptr;
             if (gen_variable_tmpl && child_class)
             {
@@ -11523,9 +11649,9 @@ namespace MeshGhostPseudo
         {
             if (UObject* cdo = pawn_class->GetClassDefaultObject())
             {
-                if (UObject** cap = cdo->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap && *cap)
+                if (UObject** cap = mg_property_value<UObject*>(cdo, STR("CapsuleComponent")); cap && *cap)
                 {
-                    if (bool* gen = (*cap)->GetValuePtrByPropertyNameInChain<bool>(STR("bGenerateOverlapEvents")))
+                    if (bool* gen = mg_property_value<bool>((*cap), STR("bGenerateOverlapEvents")))
                     {
                         ov_template_capsule = *cap;
                         ov_saved_generate = *gen;
@@ -11560,7 +11686,7 @@ namespace MeshGhostPseudo
 
         if (ov_template_capsule)
         {
-            if (bool* gen = ov_template_capsule->GetValuePtrByPropertyNameInChain<bool>(STR("bGenerateOverlapEvents")))
+            if (bool* gen = mg_property_value<bool>(ov_template_capsule, STR("bGenerateOverlapEvents")))
             {
                 *gen = ov_saved_generate;
             }
@@ -11569,7 +11695,7 @@ namespace MeshGhostPseudo
 
         if (vl_template_cac)
         {
-            if (UObject** child_class = vl_template_cac->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActorClass")))
+            if (UObject** child_class = mg_property_value<UObject*>(vl_template_cac, STR("ChildActorClass")))
             {
                 *child_class = vl_saved_child_class;
             }
@@ -11595,9 +11721,9 @@ namespace MeshGhostPseudo
         // point. The CAC's child actor exists by now (created during SpawnActor registration).
         if (g_ghost_vertexlight_killed)
         {
-            if (UObject** vl_cac = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight")); vl_cac && *vl_cac)
+            if (UObject** vl_cac = mg_property_value<UObject*>(ghost, STR("PlayerLight")); vl_cac && *vl_cac)
             {
-                if (UObject** vl_child = (*vl_cac)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor")); vl_child && *vl_child)
+                if (UObject** vl_child = mg_property_value<UObject*>((*vl_cac), STR("ChildActor")); vl_child && *vl_child)
                 {
                     // **Zero the light BEFORE destroying it (2026-08-30).** The night's diffs
                     // established that destroying this actor does not un-register whatever it
@@ -11608,11 +11734,11 @@ namespace MeshGhostPseudo
                     // make the registered slot WORTHLESS instead of merely orphaned: write both
                     // values to zero and push them through the light's own InitializePrameters
                     // (the game's name, typo included), then destroy as before.
-                    if (double* vl_int = (*vl_child)->GetValuePtrByPropertyNameInChain<double>(STR("Intensity")))
+                    if (double* vl_int = mg_property_value<double>((*vl_child), STR("Intensity")))
                     {
                         *vl_int = 0.0;
                     }
-                    if (double* vl_rad = (*vl_child)->GetValuePtrByPropertyNameInChain<double>(STR("Radius")))
+                    if (double* vl_rad = mg_property_value<double>((*vl_child), STR("Radius")))
                     {
                         *vl_rad = 0.0;
                     }
@@ -11674,9 +11800,9 @@ namespace MeshGhostPseudo
         {
             Output::send(STR("[MeshGhostPseudo] DIAG: spawn_rot passed to SpawnActor = (pitch={}, yaw={}, roll={})\n"),
                          spawn_rot.GetPitch(), spawn_rot.GetYaw(), spawn_rot.GetRoll());
-            if (UObject** spawn_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); spawn_capsule_ptr && *spawn_capsule_ptr)
+            if (UObject** spawn_capsule_ptr = mg_property_value<UObject*>(ghost, STR("CapsuleComponent")); spawn_capsule_ptr && *spawn_capsule_ptr)
             {
-                if (FRotator* spawn_capsule_rot = (*spawn_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                if (FRotator* spawn_capsule_rot = mg_property_value<FRotator>((*spawn_capsule_ptr), STR("RelativeRotation")))
                 {
                     Output::send(STR("[MeshGhostPseudo] DIAG: ghost CapsuleComponent RelativeRotation immediately after SpawnActor = (pitch={}, yaw={}, roll={})\n"),
                                  spawn_capsule_rot->GetPitch(), spawn_capsule_rot->GetYaw(), spawn_capsule_rot->GetRoll());
@@ -11690,9 +11816,9 @@ namespace MeshGhostPseudo
             {
                 Output::send(STR("[MeshGhostPseudo] DIAG: ghost has no reflected CapsuleComponent immediately after SpawnActor.\n"));
             }
-            if (UObject** spawn_movement_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); spawn_movement_ptr && *spawn_movement_ptr)
+            if (UObject** spawn_movement_ptr = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); spawn_movement_ptr && *spawn_movement_ptr)
             {
-                if (bool* spawn_orient_ptr = (*spawn_movement_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bOrientRotationToMovement")))
+                if (bool* spawn_orient_ptr = mg_property_value<bool>((*spawn_movement_ptr), STR("bOrientRotationToMovement")))
                 {
                     Output::send(STR("[MeshGhostPseudo] DIAG: ghost CharacterMovement bOrientRotationToMovement = {} -- forcing to false\n"), *spawn_orient_ptr);
                     // Facing-direction fix attempt, 2026-08-13: confirmed via the spawn-time DIAG
@@ -11719,7 +11845,7 @@ namespace MeshGhostPseudo
             // which also means the player's pawn was unpossessed -- and an unpossess/re-possess
             // cycle can restore the pawn without restoring whatever input the game bound to it.
             // That would look exactly like "camera is on me, I cannot move".
-            UObject** mid = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            UObject** mid = mg_property_value<UObject*>(local_controller, STR("Pawn"));
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE pre-handback tick={} controller_pawn={}\n"),
                          tick_count,
                          (mid && *mid) ? (*mid)->GetFullName() : STR("(none)"));
@@ -11740,7 +11866,7 @@ namespace MeshGhostPseudo
         // unpossess/possess path internally, which resets input state on a pawn that was working
         // fine. That is the current suspect for the player being unable to move while the camera
         // stays on them, now that the theft itself is fixed and the symptom survived.
-        UObject** currently_held = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+        UObject** currently_held = mg_property_value<UObject*>(local_controller, STR("Pawn"));
         bool controller_already_correct = currently_held && *currently_held == static_cast<UObject*>(local_pawn_actor);
 
         UFunction* possess_fn = local_controller->GetFunctionByNameInChain(STR("Possess"));
@@ -11768,7 +11894,7 @@ namespace MeshGhostPseudo
             // Ask the controller what it actually holds now, rather than trusting the call above.
             // possess_watch_until_tick keeps this running for a few ticks, because an auto-possess
             // that fires on the ghost's BeginPlay would land AFTER this line and be invisible here.
-            UObject** held = local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+            UObject** held = mg_property_value<UObject*>(local_controller, STR("Pawn"));
             Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE after-handback tick={} controller_pawn={} local_pawn={} ghost={}\n"),
                          tick_count,
                          (held && *held) ? (*held)->GetFullName() : STR("(none)"),
@@ -11784,9 +11910,9 @@ namespace MeshGhostPseudo
         // hand control back), so this checks whether the corruption happens during/because of
         // that possess/un-possess cycle -- reading right after it, before anything else
         // (collision, animation writes) touches the ghost.
-        if (UObject** post_possess_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); post_possess_capsule_ptr && *post_possess_capsule_ptr)
+        if (UObject** post_possess_capsule_ptr = mg_property_value<UObject*>(ghost, STR("CapsuleComponent")); post_possess_capsule_ptr && *post_possess_capsule_ptr)
         {
-            if (FRotator* post_possess_rot = (*post_possess_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+            if (FRotator* post_possess_rot = mg_property_value<FRotator>((*post_possess_capsule_ptr), STR("RelativeRotation")))
             {
                 Output::send(STR("[MeshGhostPseudo] DIAG: ghost CapsuleComponent RelativeRotation immediately after Possess() = (pitch={}, yaw={}, roll={})\n"),
                              post_possess_rot->GetPitch(), post_possess_rot->GetYaw(), post_possess_rot->GetRoll());
@@ -11852,7 +11978,7 @@ namespace MeshGhostPseudo
                 // "disabled it and that was not the cause" from "never found it at all". That is
                 // CLAUDE.md's "log the thing that would prove you wrong", and
                 // effect-investigation.md §3's `ours=` field, learned again the expensive way.
-                UObject** hitbox = ghost->GetValuePtrByPropertyNameInChain<UObject*>(hitbox_prop);
+                UObject** hitbox = mg_property_value<UObject*>(ghost, hitbox_prop);
                 if (!hitbox)
                 {
                     Output::send(STR("[MeshGhostPseudo] ghost decouple: '{}' does not resolve on this build.\n"), hitbox_prop);
@@ -11907,7 +12033,7 @@ namespace MeshGhostPseudo
             }
             if (UObject** ghost_hud = skip_hud_decouple
                                           ? nullptr
-                                          : ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef"));
+                                          : mg_property_value<UObject*>(ghost, STR("UI_HudRef"));
                 ghost_hud && *ghost_hud)
             {
                 if (UFunction* remove_fn = (*ghost_hud)->GetFunctionByNameInChain(STR("RemoveFromParent")))
@@ -11928,7 +12054,7 @@ namespace MeshGhostPseudo
             {
                 for (const wchar_t* timeline : {STR("Timeline_2"), STR("Timeline_3")})
                 {
-                    UObject** timeline_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(timeline);
+                    UObject** timeline_ptr = mg_property_value<UObject*>(ghost, timeline);
                     if (!timeline_ptr || !*timeline_ptr)
                     {
                         Output::send(STR("[MeshGhostPseudo] ghost transition: '{}' does not resolve on this build.\n"), timeline);
@@ -12000,7 +12126,7 @@ namespace MeshGhostPseudo
             for (const wchar_t* damage_field : {STR("lightAttackDamage"), STR("heavyAttackDamage"),
                                                 STR("projectileFullDamage")})
             {
-                if (double* dmg_ptr = ghost->GetValuePtrByPropertyNameInChain<double>(damage_field))
+                if (double* dmg_ptr = mg_property_value<double>(ghost, damage_field))
                 {
                     Output::send(STR("[MeshGhostPseudo] ghost decoupled: '{}' {} -> 0.\n"), damage_field, *dmg_ptr);
                     *dmg_ptr = 0.0;
@@ -12010,7 +12136,7 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] WARNING: ghost decouple could not resolve '{}' -- it may still deal damage.\n"), damage_field);
                 }
             }
-            if (bool* got_projectile = ghost->GetValuePtrByPropertyNameInChain<bool>(STR("obtainedProjectile?")))
+            if (bool* got_projectile = mg_property_value<bool>(ghost, STR("obtainedProjectile?")))
             {
                 Output::send(STR("[MeshGhostPseudo] ghost decoupled: 'obtainedProjectile?' {} -> false.\n"), *got_projectile);
                 *got_projectile = false;
@@ -12039,7 +12165,7 @@ namespace MeshGhostPseudo
                                                        STR("As MV Game Instance Ref"), STR("UI_HudRef"),
                                                        STR("BP_HpHitable"), STR("LastHitBy")})
             {
-                if (UObject** ref_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(shared_ref))
+                if (UObject** ref_ptr = mg_property_value<UObject*>(ghost, shared_ref))
                 {
                     const bool was_set = (*ref_ptr != nullptr);
                     *ref_ptr = nullptr;
@@ -12100,7 +12226,7 @@ namespace MeshGhostPseudo
         // flipping it back is a genuine revert -- CLAUDE.md's "a flag flip is not a revert".
         if constexpr (GHOST_HURTBOX_DISABLED)
         {
-            if (bool* can_be_damaged_ptr = ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bCanBeDamaged")))
+            if (bool* can_be_damaged_ptr = mg_property_value<bool>(ghost, STR("bCanBeDamaged")))
             {
                 *can_be_damaged_ptr = false;
                 Output::send(STR("[MeshGhostPseudo] ghost hurtbox disabled (bCanBeDamaged=false).\n"));
@@ -12124,7 +12250,7 @@ namespace MeshGhostPseudo
             // since UE4's initial public release.
             constexpr uint8_t ECC_PAWN = 2;
             constexpr uint8_t ECR_BLOCK = 2;
-            if (UObject** ghost_capsule_ptr = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); ghost_capsule_ptr && *ghost_capsule_ptr)
+            if (UObject** ghost_capsule_ptr = mg_property_value<UObject*>(ghost, STR("CapsuleComponent")); ghost_capsule_ptr && *ghost_capsule_ptr)
             {
                 UObject* ghost_capsule = *ghost_capsule_ptr;
                 UFunction* set_response_fn = ghost_capsule->GetFunctionByNameInChain(STR("SetCollisionResponseToChannel"));
@@ -12174,7 +12300,7 @@ namespace MeshGhostPseudo
             if (auto [diag_controller, diag_pawn] = find_local_controller_and_pawn(); diag_pawn)
             {
                 pre_spawn_player_state = snapshot_scalar_properties(diag_pawn);
-                UObject** shared = diag_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+                UObject** shared = mg_property_value<UObject*>(diag_pawn, STR("As MV Game Instance Ref"));
                 pre_spawn_shared_state = (shared && *shared) ? snapshot_scalar_properties(*shared)
                                                              : std::map<std::string, std::string>{};
 
@@ -12225,7 +12351,7 @@ namespace MeshGhostPseudo
             PerfScope perf_custom_depth(PERF_CUSTOM_DEPTH);
             for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
             {
-                if (UObject** mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name); mesh && *mesh)
+                if (UObject** mesh = mg_property_value<UObject*>(ghost, mesh_name); mesh && *mesh)
                 {
                     call_set_render_custom_depth(*mesh, false);
                 }
@@ -12311,11 +12437,11 @@ namespace MeshGhostPseudo
             // mid-session on an already-armed save during a live throw, never on a genuinely fresh
             // unarmed spawn -- this closes that gap by dumping WeaponMesh's own full property set
             // (not just those four) at the moment of spawn, on both the ghost and the local pawn.
-            if (UObject** ghost_weapon_mesh = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh")); ghost_weapon_mesh && *ghost_weapon_mesh)
+            if (UObject** ghost_weapon_mesh = mg_property_value<UObject*>(ghost, STR("WeaponMesh")); ghost_weapon_mesh && *ghost_weapon_mesh)
             {
                 dump_object_property_values(*ghost_weapon_mesh, STR("spawned ghost WeaponMesh"));
             }
-            if (UObject** local_weapon_mesh = local_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh")); local_weapon_mesh && *local_weapon_mesh)
+            if (UObject** local_weapon_mesh = mg_property_value<UObject*>(local_pawn, STR("WeaponMesh")); local_weapon_mesh && *local_weapon_mesh)
             {
                 dump_object_property_values(*local_weapon_mesh, STR("local pawn WeaponMesh at ghost-spawn"));
             }
@@ -12328,11 +12454,11 @@ namespace MeshGhostPseudo
             // whatever actually selects a weapon-visible-or-not pose/state. dump_object_property_values
             // now also handles EnumProperty/ByteProperty (previously skipped outright), so this
             // pass can catch a state-selector field it would have missed before.
-            if (UObject** ghost_abp = ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); ghost_abp && *ghost_abp)
+            if (UObject** ghost_abp = mg_property_value<UObject*>(ghost, STR("animBPref")); ghost_abp && *ghost_abp)
             {
                 dump_object_property_values(*ghost_abp, STR("spawned ghost animBPref"));
             }
-            if (UObject** local_abp = local_pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); local_abp && *local_abp)
+            if (UObject** local_abp = mg_property_value<UObject*>(local_pawn, STR("animBPref")); local_abp && *local_abp)
             {
                 dump_object_property_values(*local_abp, STR("local pawn animBPref at ghost-spawn"));
             }
@@ -13157,7 +13283,7 @@ namespace MeshGhostPseudo
                 {
                     state_diff_pending = false;
                     diff_scalar_snapshots(pre_spawn_player_state, snapshot_scalar_properties(pawn_obj), STR("pawn"));
-                    UObject** shared = pawn_obj->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref"));
+                    UObject** shared = mg_property_value<UObject*>(pawn_obj, STR("As MV Game Instance Ref"));
                     if (shared && *shared)
                     {
                         diff_scalar_snapshots(pre_spawn_shared_state, snapshot_scalar_properties(*shared), STR("shared"));
@@ -13206,7 +13332,7 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
-                        float* weight = camera->GetValuePtrByPropertyNameInChain<float>(STR("PostProcessBlendWeight"));
+                        float* weight = mg_property_value<float>(camera, STR("PostProcessBlendWeight"));
                         if (!weight || *weight == 0.0f)
                         {
                             continue; // already contributing nothing -- the settled case, no work
@@ -13238,7 +13364,7 @@ namespace MeshGhostPseudo
                         UObject* serves = rig;
                         if (is_player_rig)
                         {
-                            UObject** owning = rig->GetValuePtrByPropertyNameInChain<UObject*>(STR("OwningActor"));
+                            UObject** owning = mg_property_value<UObject*>(rig, STR("OwningActor"));
                             serves = (owning && *owning) ? *owning : nullptr;
                         }
                         if (serves == pawn_obj)
@@ -13288,7 +13414,7 @@ namespace MeshGhostPseudo
             std::string area_id;
             if (current_world)
             {
-                UObject** level_ptr = current_world->GetValuePtrByPropertyNameInChain<UObject*>(STR("PersistentLevel"));
+                UObject** level_ptr = mg_property_value<UObject*>(current_world, STR("PersistentLevel"));
                 if (level_ptr && *level_ptr)
                 {
                     area_id = to_utf8((*level_ptr)->GetFullName());
@@ -13301,17 +13427,17 @@ namespace MeshGhostPseudo
             // "anim" itself stays the 7.3 placeholder -- this data travels via "extras" instead
             // (Extras is the established opaque-structured-data field, e.g. Emerald's
             // extras.gender, so no core/protocol change is needed).
-            uint8_t* move_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState"));
-            uint8_t* action_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState"));
-            double* h_speed_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("horizontalSpeed"));
-            double* v_speed_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed"));
-            uint8_t* anim_jump_type_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType"));
+            uint8_t* move_state_ptr = mg_property_value<uint8_t>(pawn, STR("moveState"));
+            uint8_t* action_state_ptr = mg_property_value<uint8_t>(pawn, STR("actionState"));
+            double* h_speed_ptr = mg_property_value<double>(pawn, STR("horizontalSpeed"));
+            double* v_speed_ptr = mg_property_value<double>(pawn, STR("verticalSpeed"));
+            uint8_t* anim_jump_type_ptr = mg_property_value<uint8_t>(pawn, STR("animJumpType"));
 
             // Dream Breaker visibility mirror -- see RemoteGhost::target_weapon_equipped's
             // comment. Continuous "do you have the weapon" flag, confirmed via live-value trace
             // (verified.md), same shape as moveState/actionState above -- not gated behind
             // ABILITY_FIELD_TRACE, since it's now real production sync code, not diagnostics.
-            bool* weapon_equipped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
+            bool* weapon_equipped_ptr = mg_property_value<bool>(pawn, STR("weaponEquipped?"));
 
             // Outfit/costume mirror, added 2026-08-15 -- see RemoteGhost::target_outfit_mesh's
             // comment. Unlike weapon, no boolean flag or animBPref indirection: VisualMesh's own
@@ -13328,9 +13454,9 @@ namespace MeshGhostPseudo
             // between the class name and the path. Not gated behind OUTFIT_TRACE, real production
             // sync code now.
             std::string outfit_mesh;
-            if (UObject** visual_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); visual_mesh_ptr && *visual_mesh_ptr)
+            if (UObject** visual_mesh_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); visual_mesh_ptr && *visual_mesh_ptr)
             {
-                if (UObject** skel_mesh_ptr = (*visual_mesh_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); skel_mesh_ptr && *skel_mesh_ptr)
+                if (UObject** skel_mesh_ptr = mg_property_value<UObject*>((*visual_mesh_ptr), STR("SkeletalMesh")); skel_mesh_ptr && *skel_mesh_ptr)
                 {
                     std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
                     size_t space_pos = full_name.find(' ');
@@ -13366,9 +13492,9 @@ namespace MeshGhostPseudo
             // offers. A counter rather than a flag, like every other short event on this wire.
             if constexpr (MIRROR_DEATH_FADE)
             {
-                if (UObject** gi_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
+                if (UObject** gi_ptr = mg_property_value<UObject*>(pawn, STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
                 {
-                    if (double* hp = (*gi_ptr)->GetValuePtrByPropertyNameInChain<double>(STR("CurrentHp")))
+                    if (double* hp = mg_property_value<double>((*gi_ptr), STR("CurrentHp")))
                     {
                         const bool dead_now = (*hp <= 0.0);
                         if (dead_now && !local_was_dead)
@@ -13402,13 +13528,13 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
-                        bool* custom_depth = component->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        bool* custom_depth = mg_property_value<bool>(component, STR("bRenderCustomDepth"));
                         if (!custom_depth || !*custom_depth)
                         {
                             continue;
                         }
                         int32_t stencil = -1;
-                        if (int32_t* stencil_ptr = component->GetValuePtrByPropertyNameInChain<int32_t>(STR("CustomDepthStencilValue")))
+                        if (int32_t* stencil_ptr = mg_property_value<int32_t>(component, STR("CustomDepthStencilValue")))
                         {
                             stencil = *stencil_ptr;
                         }
@@ -13416,7 +13542,7 @@ namespace MeshGhostPseudo
                         // outlined but WHERE it is, because a separate actor standing exactly at
                         // the ghost looks precisely like the ghost being outlined.
                         std::string where;
-                        if (FVector* rel = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        if (FVector* rel = mg_property_value<FVector>(component, STR("RelativeLocation")))
                         {
                             where = "  rel=(" + std::to_string(static_cast<int>(rel->X())) + "," +
                                     std::to_string(static_cast<int>(rel->Y())) + "," +
@@ -13469,12 +13595,12 @@ namespace MeshGhostPseudo
                         StringType sample;
                         if (prop_type == STR("ObjectProperty"))
                         {
-                            UObject** value = pawn->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                            UObject** value = mg_property_value<UObject*>(pawn, prop_name.c_str());
                             sample = (value && *value) ? (*value)->GetFullName() : StringType(STR("<null>"));
                         }
                         else if (prop_type == STR("BoolProperty"))
                         {
-                            bool* value = pawn->GetValuePtrByPropertyNameInChain<bool>(prop_name.c_str());
+                            bool* value = mg_property_value<bool>(pawn, prop_name.c_str());
                             sample = value ? (*value ? STR("true") : STR("false")) : STR("<unreadable>");
                         }
                         else
@@ -13499,17 +13625,17 @@ namespace MeshGhostPseudo
                 static std::map<StringType, StringType> prev_visibility;
                 for (const wchar_t* mesh_prop : {STR("VisualMesh"), STR("Mesh")})
                 {
-                    UObject** mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(mesh_prop);
+                    UObject** mesh_ptr = mg_property_value<UObject*>(pawn, mesh_prop);
                     if (!mesh_ptr || !*mesh_ptr)
                     {
                         continue;
                     }
                     StringType sample;
-                    if (bool* hidden = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame")))
+                    if (bool* hidden = mg_property_value<bool>((*mesh_ptr), STR("bHiddenInGame")))
                     {
                         sample += *hidden ? STR("hidden=true ") : STR("hidden=false ");
                     }
-                    if (bool* visible = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible")))
+                    if (bool* visible = mg_property_value<bool>((*mesh_ptr), STR("bVisible")))
                     {
                         sample += *visible ? STR("visible=true ") : STR("visible=false ");
                     }
@@ -13517,7 +13643,7 @@ namespace MeshGhostPseudo
                     // changed name; a parameter animation on the SAME material does not, and that
                     // absence is itself the answer -- it would mean the next step is a dynamic
                     // material instance read rather than another property.
-                    if (auto* materials = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("OverrideMaterials")))
+                    if (auto* materials = mg_property_value<TArray<UObject*>>((*mesh_ptr), STR("OverrideMaterials")))
                     {
                         sample += std::format(STR("overrides={} "), materials->Num());
                         for (int m = 0; m < materials->Num() && m < 4; ++m)
@@ -13544,7 +13670,7 @@ namespace MeshGhostPseudo
             static int blink_count = 0;
             if constexpr (MIRROR_PLAYER_BLINK)
             {
-                if (UObject** blink_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("Blink")); blink_ptr && *blink_ptr)
+                if (UObject** blink_ptr = mg_property_value<UObject*>(pawn, STR("Blink")); blink_ptr && *blink_ptr)
                 {
                     const bool playing_now = timeline_is_playing(*blink_ptr);
                     if (playing_now && !blink_was_playing)
@@ -13602,11 +13728,11 @@ namespace MeshGhostPseudo
                         // The class default object appears in this list and is not a shot. It has
                         // no RootComponent -- the same reflection-only actor test the thrown weapon
                         // uses, rather than a raw cast on an object whose type is not guaranteed.
-                        if (!candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                        if (!mg_property_value<UObject*>(candidate, STR("RootComponent")))
                         {
                             continue;
                         }
-                        UObject** instigator = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator"));
+                        UObject** instigator = mg_property_value<UObject*>(candidate, STR("Instigator"));
                         if (!instigator || *instigator != pawn)
                         {
                             continue; // somebody else's shot, or one with no instigator
@@ -13624,7 +13750,7 @@ namespace MeshGhostPseudo
                         // from "the component exists" to "the component is active" for precisely
                         // this reason (`VERIFIED.md` 2026-08-16). The movement component is the
                         // honest test: a projectile that is not moving is not a shot.
-                        UObject** movement = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("ProjectileMovement"));
+                        UObject** movement = mg_property_value<UObject*>(candidate, STR("ProjectileMovement"));
                         if (movement && *movement)
                         {
                             if (!component_is_active(*movement))
@@ -13632,7 +13758,7 @@ namespace MeshGhostPseudo
                                 continue; // pooled and idle, not in flight
                             }
                         }
-                        else if (bool* hidden = candidate->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden")))
+                        else if (bool* hidden = mg_property_value<bool>(candidate, STR("bHidden")))
                         {
                             // Fallback for a build where the movement component is not reflected
                             // under that name. Deliberately second: `bHidden` is a bitfield-packed
@@ -13666,12 +13792,12 @@ namespace MeshGhostPseudo
                                 {
                                     continue;
                                 }
-                                UObject** component = candidate->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
+                                UObject** component = mg_property_value<UObject*>(candidate, property->GetName().c_str());
                                 if (!component || !*component)
                                 {
                                     continue;
                                 }
-                                UObject** asset_ptr = (*component)->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                                UObject** asset_ptr = mg_property_value<UObject*>((*component), STR("Asset"));
                                 if (!asset_ptr || !*asset_ptr)
                                 {
                                     continue;
@@ -13709,13 +13835,13 @@ namespace MeshGhostPseudo
             // See RemoteGhost::target_weapon_glow -- non-empty only while the sword is landed.
             std::string weapon_glow;
             {
-                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
                 UObject* weapon_ref = weapon_ref_ptr ? *weapon_ref_ptr : nullptr;
                 const bool weapon_in_hand = weapon_equipped_ptr && *weapon_equipped_ptr;
                 // RootComponent is the reflection-only actor test used throughout this file, in
                 // place of a raw cast on an object whose type isn't guaranteed.
                 if (weapon_ref && !weapon_in_hand &&
-                    weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                    mg_property_value<UObject*>(weapon_ref, STR("RootComponent")))
                 {
                     auto* weapon_actor = static_cast<AActor*>(weapon_ref);
                     FVector weapon_loc = weapon_actor->K2_GetActorLocation();
@@ -13750,7 +13876,7 @@ namespace MeshGhostPseudo
 
                         // Production read now, not a diagnostic -- the landing trace below proved
                         // this is the field that carries the resting pose.
-                        if (uint8_t* state_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState")))
+                        if (uint8_t* state_ptr = mg_property_value<uint8_t>(weapon_ref, STR("weaponState")))
                         {
                             weapon_state = static_cast<int>(*state_ptr);
                         }
@@ -13761,9 +13887,9 @@ namespace MeshGhostPseudo
                         // above, and it costs nothing since idleGlowVFX is non-null exactly while
                         // landed, which is exactly when the ghost needs it. Same class-name-prefix
                         // strip as every other object path this adapter sends.
-                        if (UObject** glow_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX")); glow_ptr && *glow_ptr)
+                        if (UObject** glow_ptr = mg_property_value<UObject*>(weapon_ref, STR("idleGlowVFX")); glow_ptr && *glow_ptr)
                         {
-                            if (UObject** asset_ptr = (*glow_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                            if (UObject** asset_ptr = mg_property_value<UObject*>((*glow_ptr), STR("Asset")); asset_ptr && *asset_ptr)
                             {
                                 std::string full_name = to_utf8((*asset_ptr)->GetFullName());
                                 size_t space_pos = full_name.find(' ');
@@ -13813,8 +13939,8 @@ namespace MeshGhostPseudo
                                 }
                             }
 
-                            uint8_t* state_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<uint8_t>(STR("weaponState"));
-                            bool* embedded_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<bool>(STR("isEmbedded?"));
+                            uint8_t* state_ptr = mg_property_value<uint8_t>(weapon_ref, STR("weaponState"));
+                            bool* embedded_ptr = mg_property_value<bool>(weapon_ref, STR("isEmbedded?"));
                             const int32_t state_now = state_ptr ? static_cast<int32_t>(*state_ptr) : -2;
                             const int32_t embedded_now = embedded_ptr ? (*embedded_ptr ? 1 : 0) : -2;
 
@@ -13822,9 +13948,9 @@ namespace MeshGhostPseudo
                             // off the actor's own SkeletalMesh component, which the property dump
                             // confirmed exists on this class.
                             double mesh_x = -99999.0, mesh_y = -99999.0, mesh_z = -99999.0;
-                            if (UObject** mesh_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
+                            if (UObject** mesh_ptr = mg_property_value<UObject*>(weapon_ref, STR("SkeletalMesh")); mesh_ptr && *mesh_ptr)
                             {
-                                if (FVector* rel_loc = (*mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                                if (FVector* rel_loc = mg_property_value<FVector>((*mesh_ptr), STR("RelativeLocation")))
                                 {
                                     mesh_x = rel_loc->X();
                                     mesh_y = rel_loc->Y();
@@ -13843,8 +13969,8 @@ namespace MeshGhostPseudo
                             // whether our own Change Weapon State call already spawns one (and it's
                             // failing for another reason) or never gets that far. `hasLight?` is
                             // read alongside it as the other plausible gate, at no extra cost.
-                            UObject** glow_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("idleGlowVFX"));
-                            bool* has_light_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<bool>(STR("hasLight?"));
+                            UObject** glow_ptr = mg_property_value<UObject*>(weapon_ref, STR("idleGlowVFX"));
+                            bool* has_light_ptr = mg_property_value<bool>(weapon_ref, STR("hasLight?"));
 
                             // Now that the state setter is PROVEN not to spawn the glow (our prop's
                             // idleGlowVFX stayed null through every 0 -> 3 call), the practical
@@ -13901,7 +14027,7 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
-                    UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                    UObject** asset_ptr = mg_property_value<UObject*>(component, STR("Asset"));
                     if (!asset_ptr || !*asset_ptr)
                     {
                         continue;
@@ -14000,7 +14126,7 @@ namespace MeshGhostPseudo
                     // on the GHOST. Reading it on the PLAYER, on change, names the culprit outright
                     // instead of narrowing the field one candidate per live run.
                     static StringType prev_last_hit_by;
-                    if (UObject** hit_by = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("LastHitBy")))
+                    if (UObject** hit_by = mg_property_value<UObject*>(pawn, STR("LastHitBy")))
                     {
                         const StringType who = *hit_by ? (*hit_by)->GetFullName() : StringType(STR("<none>"));
                         if (who != prev_last_hit_by)
@@ -14025,12 +14151,12 @@ namespace MeshGhostPseudo
                             // ghost ends the guessing; one only ever fired by the player says the
                             // damage comes from somewhere else and the search moves.
                             StringType owner = STR("<none>");
-                            if (UObject** owner_ptr = instance->GetValuePtrByPropertyNameInChain<UObject*>(STR("Owner")); owner_ptr && *owner_ptr)
+                            if (UObject** owner_ptr = mg_property_value<UObject*>(instance, STR("Owner")); owner_ptr && *owner_ptr)
                             {
                                 owner = (*owner_ptr)->GetFullName();
                             }
                             StringType instigator = STR("<none>");
-                            if (UObject** inst_ptr = instance->GetValuePtrByPropertyNameInChain<UObject*>(STR("Instigator")); inst_ptr && *inst_ptr)
+                            if (UObject** inst_ptr = mg_property_value<UObject*>(instance, STR("Instigator")); inst_ptr && *inst_ptr)
                             {
                                 instigator = (*inst_ptr)->GetFullName();
                             }
@@ -14103,10 +14229,10 @@ namespace MeshGhostPseudo
                         // calls it 'Asset', Cascade calls it 'Template' -- try both rather than
                         // silently reporting "<no asset>" for every Cascade effect found.
                         std::string asset_name = "<no asset>";
-                        UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset"));
+                        UObject** asset_ptr = mg_property_value<UObject*>(component, STR("Asset"));
                         if (!asset_ptr || !*asset_ptr)
                         {
-                            asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Template"));
+                            asset_ptr = mg_property_value<UObject*>(component, STR("Template"));
                         }
                         if (asset_ptr && *asset_ptr)
                         {
@@ -14140,17 +14266,17 @@ namespace MeshGhostPseudo
                                 continue;
                             }
                             std::string attach_parent = "<none>";
-                            if (UObject** parent_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent_ptr && *parent_ptr)
+                            if (UObject** parent_ptr = mg_property_value<UObject*>(component, STR("AttachParent")); parent_ptr && *parent_ptr)
                             {
                                 attach_parent = to_utf8((*parent_ptr)->GetFullName());
                             }
                             std::string socket = "<none>";
-                            if (FName* socket_ptr = component->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+                            if (FName* socket_ptr = mg_property_value<FName>(component, STR("AttachSocketName")))
                             {
                                 socket = to_utf8(socket_ptr->ToString());
                             }
                             double rel_x = 0.0, rel_y = 0.0, rel_z = 0.0;
-                            if (FVector* rel_ptr = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                            if (FVector* rel_ptr = mg_property_value<FVector>(component, STR("RelativeLocation")))
                             {
                                 rel_x = rel_ptr->X();
                                 rel_y = rel_ptr->Y();
@@ -14179,7 +14305,7 @@ namespace MeshGhostPseudo
             bool local_bubble_charged = false;
             if (!bubble_charge_prop_name.empty())
             {
-                if (bool* bc_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(bubble_charge_prop_name.c_str()))
+                if (bool* bc_ptr = mg_property_value<bool>(pawn, bubble_charge_prop_name.c_str()))
                 {
                     local_bubble_charged = *bc_ptr;
                 }
@@ -14206,7 +14332,7 @@ namespace MeshGhostPseudo
             std::string montage_path;
             {
                 std::string montage_full_name;
-                if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                if (UObject** abp_ptr = mg_property_value<UObject*>(pawn, STR("animBPref")); abp_ptr && *abp_ptr)
                 {
                     read_current_active_montage(*abp_ptr, montage_full_name);
                 }
@@ -14245,7 +14371,7 @@ namespace MeshGhostPseudo
             // questions this answers and why the existing weaponRef record is contradictory.
             if constexpr (WEAPON_ACTOR_TRACE)
             {
-                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
                 UObject* weapon_ref = weapon_ref_ptr ? *weapon_ref_ptr : nullptr;
                 const bool equipped_now = weapon_equipped_ptr && *weapon_equipped_ptr;
 
@@ -14288,7 +14414,7 @@ namespace MeshGhostPseudo
                     // actors carry a RootComponent. If this never prints, weaponRef is a component
                     // or data object and the thrown sword has to be found some other way -- which
                     // is what the sweep below exists for.
-                    UObject** root_component_ptr = weapon_ref->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                    UObject** root_component_ptr = mg_property_value<UObject*>(weapon_ref, STR("RootComponent"));
                     if (root_component_ptr)
                     {
                         auto* weapon_actor = static_cast<AActor*>(weapon_ref);
@@ -14381,8 +14507,8 @@ namespace MeshGhostPseudo
             {
                 if (tick_count % LOG_INTERVAL_TICKS == 0)
                 {
-                    UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
-                    UObject** weapon_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+                    UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
+                    UObject** weapon_mesh_ptr = mg_property_value<UObject*>(pawn, STR("WeaponMesh"));
                     Output::send(STR("[MeshGhostPseudo] TRACE weapon local: weaponEquipped={} weaponRef={} WeaponMesh={}\n"),
                                  weapon_equipped_ptr ? *weapon_equipped_ptr : false,
                                  (weapon_ref_ptr && *weapon_ref_ptr) ? STR("non-null") : STR("null"),
@@ -14397,8 +14523,8 @@ namespace MeshGhostPseudo
                     // touching the ghost at all.
                     if (weapon_mesh_ptr && *weapon_mesh_ptr)
                     {
-                        bool* hidden_in_game_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bHiddenInGame"));
-                        bool* visible_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                        bool* hidden_in_game_ptr = mg_property_value<bool>((*weapon_mesh_ptr), STR("bHiddenInGame"));
+                        bool* visible_ptr = mg_property_value<bool>((*weapon_mesh_ptr), STR("bVisible"));
                         Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh: bHiddenInGame={} bVisible={}\n"),
                                      hidden_in_game_ptr ? *hidden_in_game_ptr : false,
                                      visible_ptr ? *visible_ptr : false);
@@ -14414,7 +14540,7 @@ namespace MeshGhostPseudo
                         // specifically. A visible jump in this value across a throw/pickup would
                         // directly confirm the socket-swap theory without needing to find a real
                         // "AttachSocketName"-style property/function by name first.
-                        if (FVector* rel_loc = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        if (FVector* rel_loc = mg_property_value<FVector>((*weapon_mesh_ptr), STR("RelativeLocation")))
                         {
                             Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh RelativeLocation=({}, {}, {})\n"),
                                          rel_loc->X(), rel_loc->Y(), rel_loc->Z());
@@ -14431,7 +14557,7 @@ namespace MeshGhostPseudo
                         // (NameProperty) plus a full attach API (GetAttachSocketName,
                         // GetSocketTransform, K2_AttachToComponent) -- tracing its real live value
                         // now, the direct test of the socket-swap theory.
-                        if (FName* attach_socket = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<FName>(STR("AttachSocketName")))
+                        if (FName* attach_socket = mg_property_value<FName>((*weapon_mesh_ptr), STR("AttachSocketName")))
                         {
                             Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh AttachSocketName='{}'\n"), attach_socket->ToString());
                         }
@@ -14447,7 +14573,7 @@ namespace MeshGhostPseudo
                         // file already confirmed the UStaticMeshComponent sibling 'StaticMesh'
                         // works as a direct-property read elsewhere in this phase); nullptr-safe if
                         // WeaponMesh isn't actually a skeletal mesh component on this build.
-                        if (UObject** skel_mesh_ptr = (*weapon_mesh_ptr)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")))
+                        if (UObject** skel_mesh_ptr = mg_property_value<UObject*>((*weapon_mesh_ptr), STR("SkeletalMesh")))
                         {
                             Output::send(STR("[MeshGhostPseudo] TRACE weapon local WeaponMesh SkeletalMesh={}\n"),
                                          (skel_mesh_ptr && *skel_mesh_ptr) ? STR("non-null") : STR("null"));
@@ -14465,9 +14591,9 @@ namespace MeshGhostPseudo
             // via reflection to be a real property on this build's stock component.
             uint8_t movement_mode = 0;
             bool orient_rotation_to_movement = false;
-            if (UObject** movement_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); movement_ptr && *movement_ptr)
+            if (UObject** movement_ptr = mg_property_value<UObject*>(pawn, STR("CharacterMovement")); movement_ptr && *movement_ptr)
             {
-                if (uint8_t* movement_mode_ptr = (*movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                if (uint8_t* movement_mode_ptr = mg_property_value<uint8_t>((*movement_ptr), STR("MovementMode")))
                 {
                     movement_mode = *movement_mode_ptr;
                 }
@@ -14477,7 +14603,7 @@ namespace MeshGhostPseudo
                 // our explicit K2_SetActorLocationAndRotation yaw write -- confirmed as a real
                 // property via reflection (log_pawn_reflection_once's CharacterMovement dump), not
                 // guessed at. Checking the real player's own value here, not yet acted on.
-                if (bool* orient_ptr = (*movement_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("bOrientRotationToMovement")))
+                if (bool* orient_ptr = mg_property_value<bool>((*movement_ptr), STR("bOrientRotationToMovement")))
                 {
                     orient_rotation_to_movement = *orient_ptr;
                 }
@@ -14514,13 +14640,13 @@ namespace MeshGhostPseudo
                 const wchar_t* resolved_name = nullptr;
                 for (const wchar_t* name : HEALTH_NAMES)
                 {
-                    if (double* d_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(name))
+                    if (double* d_ptr = mg_property_value<double>(pawn, name))
                     {
                         local_health = *d_ptr;
                         resolved_name = name;
                         break;
                     }
-                    if (int32_t* i_ptr = pawn->GetValuePtrByPropertyNameInChain<int32_t>(name))
+                    if (int32_t* i_ptr = mg_property_value<int32_t>(pawn, name))
                     {
                         local_health = static_cast<double>(*i_ptr);
                         resolved_name = name;
@@ -14557,15 +14683,15 @@ namespace MeshGhostPseudo
             // The slide Timeline's track value -- the peer's exact point on the game's own pose
             // curve. See SLIDE_TIMELINE_TRACK. 1.0 is standing; a slide runs it down toward 0.
             float local_slide_t = 1.0f;
-            if (float* slide_t_ptr = pawn->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+            if (float* slide_t_ptr = mg_property_value<float>(pawn, SLIDE_TIMELINE_TRACK))
             {
                 local_slide_t = *slide_t_ptr;
             }
 
             float local_capsule_half = 0.0f;
-            if (UObject** local_cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); local_cap_ptr && *local_cap_ptr)
+            if (UObject** local_cap_ptr = mg_property_value<UObject*>(pawn, STR("CapsuleComponent")); local_cap_ptr && *local_cap_ptr)
             {
-                if (float* half_ptr = (*local_cap_ptr)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                if (float* half_ptr = mg_property_value<float>((*local_cap_ptr), STR("CapsuleHalfHeight")))
                 {
                     local_capsule_half = *half_ptr;
                 }
@@ -14638,7 +14764,7 @@ namespace MeshGhostPseudo
             // false-positive on a turn-around or a plain backflip by construction, because those
             // are moments the game itself never sets it.
             {
-                int32_t* to_spawn_ptr = pawn->GetValuePtrByPropertyNameInChain<int32_t>(STR("afterImagesToSpawn"));
+                int32_t* to_spawn_ptr = mg_property_value<int32_t>(pawn, STR("afterImagesToSpawn"));
                 int32_t to_spawn_now = to_spawn_ptr ? *to_spawn_ptr : 0;
 
                 // Trigger A -- the game's own counted-burst decision. Cannot false-positive, but a
@@ -14903,7 +15029,7 @@ namespace MeshGhostPseudo
                                 StringType detail = STR("<not an object property>");
                                 if (ptype == STR("ObjectProperty"))
                                 {
-                                    UObject** ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(pname.c_str());
+                                    UObject** ptr = mg_property_value<UObject*>(pawn, pname.c_str());
                                     detail = (ptr && *ptr && (*ptr)->GetClassPrivate())
                                                  ? (*ptr)->GetClassPrivate()->GetFullName()
                                                  : StringType(STR("<null>"));
@@ -14922,9 +15048,9 @@ namespace MeshGhostPseudo
                     if (movement_mode == FLYING_MOVEMENT_MODE)
                     {
                         double vm_yaw = -9999.0;
-                        if (UObject** vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm_ptr && *vm_ptr)
+                        if (UObject** vm_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); vm_ptr && *vm_ptr)
                         {
-                            if (FRotator* vm_rot = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                            if (FRotator* vm_rot = mg_property_value<FRotator>((*vm_ptr), STR("RelativeRotation")))
                             {
                                 vm_yaw = vm_rot->GetYaw();
                             }
@@ -14976,14 +15102,14 @@ namespace MeshGhostPseudo
                         // floor moment is always covered regardless of which trigger does or
                         // doesn't fire.
                         float local_half = -1.0f;
-                        if (UObject** cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap_ptr && *cap_ptr)
+                        if (UObject** cap_ptr = mg_property_value<UObject*>(pawn, STR("CapsuleComponent")); cap_ptr && *cap_ptr)
                         {
-                            if (float* half_ptr = (*cap_ptr)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                            if (float* half_ptr = mg_property_value<float>((*cap_ptr), STR("CapsuleHalfHeight")))
                             {
                                 local_half = *half_ptr;
                             }
                         }
-                        bool* crouched_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched"));
+                        bool* crouched_ptr = mg_property_value<bool>(pawn, STR("bIsCrouched"));
                         Output::send(STR("[MeshGhostPseudo] TRACE trailCoverage: tick={} toSpawn={} moveState={} actionState={} animJumpType={} movementMode={} hSpeed={:.0f} vSpeed={:.0f} halfHeight={:.1f} crouched={} z={:.1f}\n"),
                                      tick_count,
                                      to_spawn_now,
@@ -15008,7 +15134,7 @@ namespace MeshGhostPseudo
             if constexpr (ABILITY_FIELD_TRACE)
             {
                 bool spawn_tracking_particles_now = false;
-                if (bool* stp_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("spawnTrackingParticles?")))
+                if (bool* stp_ptr = mg_property_value<bool>(pawn, STR("spawnTrackingParticles?")))
                 {
                     spawn_tracking_particles_now = *stp_ptr;
                 }
@@ -15033,7 +15159,7 @@ namespace MeshGhostPseudo
             if constexpr (ANIM_TRACE)
             {
                 UObject* local_abp = nullptr;
-                if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                if (UObject** abp_ptr = mg_property_value<UObject*>(pawn, STR("animBPref")); abp_ptr && *abp_ptr)
                 {
                     local_abp = *abp_ptr;
                 }
@@ -15081,11 +15207,11 @@ namespace MeshGhostPseudo
                 }
 
                 bool weapon_equipped_now = false;
-                if (bool* we_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?")))
+                if (bool* we_ptr = mg_property_value<bool>(pawn, STR("weaponEquipped?")))
                 {
                     weapon_equipped_now = *we_ptr;
                 }
-                UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
                 bool weapon_ref_valid_now = (weapon_ref_ptr && *weapon_ref_ptr);
                 int move_state_now = move_state_ptr ? static_cast<int>(*move_state_ptr) : -1;
                 int action_state_now = action_state_ptr ? static_cast<int>(*action_state_ptr) : -1;
@@ -15118,7 +15244,7 @@ namespace MeshGhostPseudo
                     // whether bIsCrouched has to gate it. Reading bIsCrouched here rather than
                     // assuming it: the same property the trailCoverage trace already reads.
                     bool crouched_now = false;
-                    if (bool* crouched_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched")))
+                    if (bool* crouched_ptr = mg_property_value<bool>(pawn, STR("bIsCrouched")))
                     {
                         crouched_now = *crouched_ptr;
                     }
@@ -15153,7 +15279,7 @@ namespace MeshGhostPseudo
                 if (tick_count % OBJECT_REFLECTION_DUMP_INTERVAL_TICKS == 0)
                 {
                     dump_object_reflection(pawn, STR("local pawn"));
-                    if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                    if (UObject** abp_ptr = mg_property_value<UObject*>(pawn, STR("animBPref")); abp_ptr && *abp_ptr)
                     {
                         dump_object_reflection(*abp_ptr, STR("local pawn animBPref"));
                     }
@@ -15170,7 +15296,7 @@ namespace MeshGhostPseudo
                     // The reference is read off the LOCAL pawn every sample rather than cached:
                     // which instance the player actually points at is part of what is being
                     // measured here.
-                    if (UObject** gi_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
+                    if (UObject** gi_ptr = mg_property_value<UObject*>(pawn, STR("As MV Game Instance Ref")); gi_ptr && *gi_ptr)
                     {
                         std::map<StringType, StringType> now = snapshot_object_values(*gi_ptr);
                         if (!prev_game_instance.empty())
@@ -15179,7 +15305,7 @@ namespace MeshGhostPseudo
                         }
                         prev_game_instance = std::move(now);
                     }
-                    if (UObject** hud_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("UI_HudRef")); hud_ptr && *hud_ptr)
+                    if (UObject** hud_ptr = mg_property_value<UObject*>(pawn, STR("UI_HudRef")); hud_ptr && *hud_ptr)
                     {
                         std::map<StringType, StringType> now = snapshot_object_values(*hud_ptr);
                         if (!prev_hud.empty())
@@ -15199,22 +15325,22 @@ namespace MeshGhostPseudo
             {
                 if (tick_count % LOG_INTERVAL_TICKS == 0)
                 {
-                    bool* weapon_equipped_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
-                    double* charge_hold_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("chargeAttackHoldTime"));
-                    double* current_power_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("currentPower"));
-                    int32_t* power_level_ptr = pawn->GetValuePtrByPropertyNameInChain<int32_t>(STR("powerLevel"));
-                    bool* has_ground_pound_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("hasGroundPound"));
-                    bool* wallride_held_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("wallRideButtonHeld?"));
-                    bool* can_flip_jump_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("canFlipJump?"));
-                    UObject** weapon_mesh_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
-                    UObject** weapon_ref_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
-                    UObject** charging_vfx_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("chargingVFX"));
-                    UObject** wallride_vfx_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideVFX"));
+                    bool* weapon_equipped_ptr = mg_property_value<bool>(pawn, STR("weaponEquipped?"));
+                    double* charge_hold_ptr = mg_property_value<double>(pawn, STR("chargeAttackHoldTime"));
+                    double* current_power_ptr = mg_property_value<double>(pawn, STR("currentPower"));
+                    int32_t* power_level_ptr = mg_property_value<int32_t>(pawn, STR("powerLevel"));
+                    bool* has_ground_pound_ptr = mg_property_value<bool>(pawn, STR("hasGroundPound"));
+                    bool* wallride_held_ptr = mg_property_value<bool>(pawn, STR("wallRideButtonHeld?"));
+                    bool* can_flip_jump_ptr = mg_property_value<bool>(pawn, STR("canFlipJump?"));
+                    UObject** weapon_mesh_ptr = mg_property_value<UObject*>(pawn, STR("WeaponMesh"));
+                    UObject** weapon_ref_ptr = mg_property_value<UObject*>(pawn, STR("weaponRef"));
+                    UObject** charging_vfx_ptr = mg_property_value<UObject*>(pawn, STR("chargingVFX"));
+                    UObject** wallride_vfx_ptr = mg_property_value<UObject*>(pawn, STR("wallRideVFX"));
 
                     bool anim_equipped_weapon = false;
-                    if (UObject** abp_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); abp_ptr && *abp_ptr)
+                    if (UObject** abp_ptr = mg_property_value<UObject*>(pawn, STR("animBPref")); abp_ptr && *abp_ptr)
                     {
-                        if (bool* anim_equip_ptr = (*abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                        if (bool* anim_equip_ptr = mg_property_value<bool>((*abp_ptr), STR("animEquippedWeapon")))
                         {
                             anim_equipped_weapon = *anim_equip_ptr;
                         }
@@ -15244,11 +15370,11 @@ namespace MeshGhostPseudo
             {
                 if (movement_mode != 1 || landed_now || jumped_now)
                 {
-                    uint8_t* prev_move_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("previousMoveState"));
-                    uint8_t* prev_action_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("previousActionState"));
-                    double* move_uptime_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("moveStateUptime"));
-                    double* action_uptime_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("actionStateUptime"));
-                    uint8_t* control_state_ptr = pawn->GetValuePtrByPropertyNameInChain<uint8_t>(STR("controlState"));
+                    uint8_t* prev_move_state_ptr = mg_property_value<uint8_t>(pawn, STR("previousMoveState"));
+                    uint8_t* prev_action_state_ptr = mg_property_value<uint8_t>(pawn, STR("previousActionState"));
+                    double* move_uptime_ptr = mg_property_value<double>(pawn, STR("moveStateUptime"));
+                    double* action_uptime_ptr = mg_property_value<double>(pawn, STR("actionStateUptime"));
+                    uint8_t* control_state_ptr = mg_property_value<uint8_t>(pawn, STR("controlState"));
                     Output::send(STR("[MeshGhostPseudo] PULSE local: moveState={} prevMoveState={} actionState={} prevActionState={} moveUptime={} actionUptime={} controlState={} movementMode={} landed={} jumped={} landed_count={} jumped_count={}\n"),
                                  move_state_ptr ? static_cast<int>(*move_state_ptr) : -1,
                                  prev_move_state_ptr ? static_cast<int>(*prev_move_state_ptr) : -1,
@@ -15288,14 +15414,14 @@ namespace MeshGhostPseudo
                 // turns around? The one-shot dump caught only a single snapshot (yaw=-90,
                 // scale=(1,1,1)) -- logging on the existing trace cadence to see it live across a
                 // real turn.
-                if (UObject** vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm_ptr && *vm_ptr)
+                if (UObject** vm_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); vm_ptr && *vm_ptr)
                 {
-                    FRotator* vm_rot = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation"));
-                    FVector* vm_scale = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeScale3D"));
+                    FRotator* vm_rot = mg_property_value<FRotator>((*vm_ptr), STR("RelativeRotation"));
+                    FVector* vm_scale = mg_property_value<FVector>((*vm_ptr), STR("RelativeScale3D"));
                     // RelativeLocation added for the slide mesh-offset question (SLIDE_MESH_PROBE's
                     // own comment). Kept on this slow cadence too, so the standing baseline stays
                     // in the log once the fast probe is switched back off.
-                    FVector* vm_loc = (*vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+                    FVector* vm_loc = mg_property_value<FVector>((*vm_ptr), STR("RelativeLocation"));
                     Output::send(STR("[MeshGhostPseudo] TRACE local VisualMesh: rot=(pitch={},yaw={},roll={}) scale=(x={},y={},z={}) loc=(x={},y={},z={})\n"),
                                  vm_rot ? vm_rot->GetPitch() : -9999.0,
                                  vm_rot ? vm_rot->GetYaw() : -9999.0,
@@ -15313,9 +15439,9 @@ namespace MeshGhostPseudo
                 // correctly here, that means capsule rotation really is the right mechanism and
                 // the bug is specific to the ghost (fixable), not a wrong theory about how this
                 // game drives facing at all.
-                if (UObject** cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap_ptr && *cap_ptr)
+                if (UObject** cap_ptr = mg_property_value<UObject*>(pawn, STR("CapsuleComponent")); cap_ptr && *cap_ptr)
                 {
-                    if (FRotator* cap_rot = (*cap_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    if (FRotator* cap_rot = mg_property_value<FRotator>((*cap_ptr), STR("RelativeRotation")))
                     {
                         Output::send(STR("[MeshGhostPseudo] TRACE local CapsuleComponent RelativeRotation: pitch={} yaw={} roll={}\n"),
                                      cap_rot->GetPitch(), cap_rot->GetYaw(), cap_rot->GetRoll());
@@ -15336,7 +15462,7 @@ namespace MeshGhostPseudo
                 if constexpr (OUTFIT_TRACE)
                 {
                     dump_object_property_values(pawn, STR("local pawn (outfit trace)"));
-                    if (UObject** outfit_vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); outfit_vm_ptr && *outfit_vm_ptr)
+                    if (UObject** outfit_vm_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); outfit_vm_ptr && *outfit_vm_ptr)
                     {
                         dump_object_property_values(*outfit_vm_ptr, STR("local pawn VisualMesh"));
                     }
@@ -15354,14 +15480,14 @@ namespace MeshGhostPseudo
             {
                 if (tick_count % SLIDE_MESH_PROBE_INTERVAL_TICKS == 0)
                 {
-                    if (UObject** probe_vm_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); probe_vm_ptr && *probe_vm_ptr)
+                    if (UObject** probe_vm_ptr = mg_property_value<UObject*>(pawn, STR("VisualMesh")); probe_vm_ptr && *probe_vm_ptr)
                     {
-                        FVector* probe_loc = (*probe_vm_ptr)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+                        FVector* probe_loc = mg_property_value<FVector>((*probe_vm_ptr), STR("RelativeLocation"));
 
                         float probe_half = -1.0f;
-                        if (UObject** probe_cap_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); probe_cap_ptr && *probe_cap_ptr)
+                        if (UObject** probe_cap_ptr = mg_property_value<UObject*>(pawn, STR("CapsuleComponent")); probe_cap_ptr && *probe_cap_ptr)
                         {
-                            if (float* probe_half_ptr = (*probe_cap_ptr)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                            if (float* probe_half_ptr = mg_property_value<float>((*probe_cap_ptr), STR("CapsuleHalfHeight")))
                             {
                                 probe_half = *probe_half_ptr;
                             }
@@ -15660,7 +15786,7 @@ namespace MeshGhostPseudo
                     // Must be OUR afterimage: `cachedMesh` names the character it was snapshotted
                     // from, and a ghost's own images are in this list too. Without this filter the
                     // ghost's colour would feed back into itself and its trail would self-trigger.
-                    UObject** cached_ptr = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                    UObject** cached_ptr = mg_property_value<UObject*>(image, STR("cachedMesh"));
                     const bool is_ours = cached_ptr && *cached_ptr &&
                                          to_utf8((*cached_ptr)->GetFullName()).find(pawn_name) != std::string::npos;
 
@@ -15848,7 +15974,7 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
-                            UObject** cm = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("cachedMesh"));
+                            UObject** cm = mg_property_value<UObject*>(image, STR("cachedMesh"));
                             if (!cm || !*cm)
                             {
                                 continue;
@@ -15868,7 +15994,7 @@ namespace MeshGhostPseudo
                                     {
                                         continue;
                                     }
-                                    if (float* op = image->GetValuePtrByPropertyNameInChain<float>(prop->GetName().c_str()))
+                                    if (float* op = mg_property_value<float>(image, prop->GetName().c_str()))
                                     {
                                         opacity = *op;
                                     }
@@ -16023,10 +16149,10 @@ namespace MeshGhostPseudo
             // in Plugin.hpp and WALLRIDE_TRACE's own comment.
             if constexpr (WALLRIDE_TRACE)
             {
-                bool* wr_held_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("wallRideButtonHeld?"));
-                bool* can_wr_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("canWallRun"));
-                int32_t* clings_ptr = pawn->GetValuePtrByPropertyNameInChain<int32_t>(STR("currentWallRunClings"));
-                UObject** wr_vfx_ptr = pawn->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideVFX"));
+                bool* wr_held_ptr = mg_property_value<bool>(pawn, STR("wallRideButtonHeld?"));
+                bool* can_wr_ptr = mg_property_value<bool>(pawn, STR("canWallRun"));
+                int32_t* clings_ptr = mg_property_value<int32_t>(pawn, STR("currentWallRunClings"));
+                UObject** wr_vfx_ptr = mg_property_value<UObject*>(pawn, STR("wallRideVFX"));
 
                 bool wr_held_now = wr_held_ptr ? *wr_held_ptr : false;
                 bool can_wr_now = can_wr_ptr ? *can_wr_ptr : false;
@@ -16057,9 +16183,9 @@ namespace MeshGhostPseudo
             // posture as every other GetValuePtrByPropertyNameInChain call in this file.
             if constexpr (TRAIL_TRIGGER_TRACE)
             {
-                bool* ultra_cap_ptr = pawn->GetValuePtrByPropertyNameInChain<bool>(STR("ultraCap"));
-                double* full_ultra_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("fullUltraModifier"));
-                double* capped_ultra_ptr = pawn->GetValuePtrByPropertyNameInChain<double>(STR("cappedUltraModifier"));
+                bool* ultra_cap_ptr = mg_property_value<bool>(pawn, STR("ultraCap"));
+                double* full_ultra_ptr = mg_property_value<double>(pawn, STR("fullUltraModifier"));
+                double* capped_ultra_ptr = mg_property_value<double>(pawn, STR("cappedUltraModifier"));
 
                 bool ultra_cap_now = ultra_cap_ptr ? *ultra_cap_ptr : false;
                 double full_ultra_now = full_ultra_ptr ? *full_ultra_ptr : -1.0;
@@ -16236,7 +16362,7 @@ namespace MeshGhostPseudo
                             // changes for a component, so it is cached; ATTRIBUTION is only
                             // cached for the player-attached rows, because an owner does not
                             // change while a position does.
-                            if (UObject** asset_ptr = component->GetValuePtrByPropertyNameInChain<UObject*>(STR("Asset")); asset_ptr && *asset_ptr)
+                            if (UObject** asset_ptr = mg_property_value<UObject*>(component, STR("Asset")); asset_ptr && *asset_ptr)
                             {
                                 const std::string asset_full = to_utf8((*asset_ptr)->GetFullName());
                                 const size_t space_pos = asset_full.find(' ');
@@ -16287,7 +16413,7 @@ namespace MeshGhostPseudo
                             // the capture run, where both waves logged attach='<none>' with a
                             // real world coordinate. Tested EVERY sample, not cached: the whole
                             // question is where it is, and that is the one thing that moves.
-                            FVector* where = component->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation"));
+                            FVector* where = mg_property_value<FVector>(component, STR("RelativeLocation"));
                             if (!where)
                             {
                                 continue;
@@ -16584,7 +16710,7 @@ namespace MeshGhostPseudo
             std::set<UObject*> alive_this_tick;
             for (UObject* image : afterimages)
             {
-                if (!image || !image->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent")))
+                if (!image || !mg_property_value<UObject*>(image, STR("RootComponent")))
                 {
                     continue; // the class default object, not a placed one
                 }
@@ -16613,7 +16739,7 @@ namespace MeshGhostPseudo
                     // from -- an equality test, not a guess, and it cannot be fooled by two
                     // characters overlapping. Resolving to a non-ghost IS an answer: the
                     // player's.
-                    if (UObject** copy_actor = image->GetValuePtrByPropertyNameInChain<UObject*>(STR("copyActor")); copy_actor && *copy_actor)
+                    if (UObject** copy_actor = mg_property_value<UObject*>(image, STR("copyActor")); copy_actor && *copy_actor)
                     {
                         decided_by_identity = true;
                         for (UObject* ghost : ghosts)
@@ -16718,12 +16844,12 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
-                    UObject** component = image->GetValuePtrByPropertyNameInChain<UObject*>(property->GetName().c_str());
+                    UObject** component = mg_property_value<UObject*>(image, property->GetName().c_str());
                     if (!component || !*component)
                     {
                         continue;
                     }
-                    bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                    bool* custom_depth = mg_property_value<bool>((*component), STR("bRenderCustomDepth"));
                     if (!custom_depth || !*custom_depth)
                     {
                         continue;
@@ -16893,7 +17019,7 @@ namespace MeshGhostPseudo
             {
                 if (pawn_obj)
                 {
-                    if (auto* hit_list = remote.ghost->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("hitActorsArray")))
+                    if (auto* hit_list = mg_property_value<TArray<UObject*>>(remote.ghost, STR("hitActorsArray")))
                     {
                         bool already_listed = false;
                         for (int e = 0; e < hit_list->Num(); ++e)
@@ -16936,7 +17062,7 @@ namespace MeshGhostPseudo
                 bool wrote_any = false;
                 for (const wchar_t* gate : {STR("lockAttack?"), STR("bouncedAttackLockoutTimer")})
                 {
-                    if (bool* flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(gate))
+                    if (bool* flag = mg_property_value<bool>(remote.ghost, gate))
                     {
                         *flag = true;
                         wrote_any = true;
@@ -16946,7 +17072,7 @@ namespace MeshGhostPseudo
                                                STR("storedChargeAttack"), STR("obtainedChargeAttack?"),
                                                STR("obtainedAttack?")})
                 {
-                    if (bool* flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(enabler))
+                    if (bool* flag = mg_property_value<bool>(remote.ghost, enabler))
                     {
                         *flag = false;
                         wrote_any = true;
@@ -16954,7 +17080,7 @@ namespace MeshGhostPseudo
                 }
                 // The multiplier is zeroed too, on the chance the victim's response reads it off
                 // the attacker. Cheap, and it costs nothing if it is never consulted.
-                if (double* multiplier = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("powerDamageMultiplier")))
+                if (double* multiplier = mg_property_value<double>(remote.ghost, STR("powerDamageMultiplier")))
                 {
                     *multiplier = 0.0;
                     wrote_any = true;
@@ -16993,7 +17119,7 @@ namespace MeshGhostPseudo
             if constexpr (GHOST_PROJECTILE_WATCH)
             {
                 static int prev_hit_count = -1;
-                if (auto* hit_list = remote.ghost->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("hitActorsArray")))
+                if (auto* hit_list = mg_property_value<TArray<UObject*>>(remote.ghost, STR("hitActorsArray")))
                 {
                     const int now_count = static_cast<int>(hit_list->Num());
                     if (now_count != prev_hit_count)
@@ -17021,7 +17147,7 @@ namespace MeshGhostPseudo
                 static std::map<StringType, int> prev_fast_collision;
                 for (const wchar_t* watched : {STR("WeaponMesh"), STR("CapsuleComponent")})
                 {
-                    UObject** component = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(watched);
+                    UObject** component = mg_property_value<UObject*>(remote.ghost, watched);
                     if (!component || !*component)
                     {
                         continue;
@@ -17055,7 +17181,7 @@ namespace MeshGhostPseudo
                 if (tick_count % PROJECTILE_WATCH_INTERVAL_TICKS == 0)
                 {
                     static StringType prev_ghost_hit_by;
-                    if (UObject** ghost_hit = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("LastHitBy")))
+                    if (UObject** ghost_hit = mg_property_value<UObject*>(remote.ghost, STR("LastHitBy")))
                     {
                         const StringType who = *ghost_hit ? (*ghost_hit)->GetFullName() : StringType(STR("<none>"));
                         if (who != prev_ghost_hit_by)
@@ -17079,7 +17205,7 @@ namespace MeshGhostPseudo
                                 continue;
                             }
                             const StringType prop_name = property->GetName();
-                            UObject** value = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                            UObject** value = mg_property_value<UObject*>(remote.ghost, prop_name.c_str());
                             if (!value || !*value)
                             {
                                 continue;
@@ -17176,15 +17302,15 @@ namespace MeshGhostPseudo
             {
                 static bool logged_arm_mirror = false;
                 float* player_arm = nullptr;
-                if (UObject** player_spring = pawn_obj ? pawn_obj->GetValuePtrByPropertyNameInChain<UObject*>(STR("SpringArm")) : nullptr;
+                if (UObject** player_spring = pawn_obj ? mg_property_value<UObject*>(pawn_obj, STR("SpringArm")) : nullptr;
                     player_spring && *player_spring)
                 {
-                    player_arm = (*player_spring)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength"));
+                    player_arm = mg_property_value<float>((*player_spring), STR("TargetArmLength"));
                 }
-                if (UObject** ghost_spring = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("SpringArm"));
+                if (UObject** ghost_spring = mg_property_value<UObject*>(remote.ghost, STR("SpringArm"));
                     player_arm && ghost_spring && *ghost_spring)
                 {
-                    if (float* ghost_arm = (*ghost_spring)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength")))
+                    if (float* ghost_arm = mg_property_value<float>((*ghost_spring), STR("TargetArmLength")))
                     {
                         if (!logged_arm_mirror)
                         {
@@ -17234,7 +17360,7 @@ namespace MeshGhostPseudo
                                 continue;
                             }
                             StringType sample = STR("<property does not resolve>");
-                            UObject** component = owner->GetValuePtrByPropertyNameInChain<UObject*>(candidate.c_str());
+                            UObject** component = mg_property_value<UObject*>(owner, candidate.c_str());
                             if (component && !*component)
                             {
                                 sample = STR("<null>");
@@ -17273,7 +17399,7 @@ namespace MeshGhostPseudo
                                 for (const wchar_t* render_flag : {STR("CastShadow"), STR("bCastHiddenShadow"),
                                                                    STR("bHiddenInGame"), STR("bVisible")})
                                 {
-                                    if (bool* flag = (*component)->GetValuePtrByPropertyNameInChain<bool>(render_flag))
+                                    if (bool* flag = mg_property_value<bool>((*component), render_flag))
                                     {
                                         sample += std::format(STR(" {}={}"), render_flag,
                                                               *flag ? STR("true") : STR("false"));
@@ -17283,7 +17409,7 @@ namespace MeshGhostPseudo
                                 // Logged generically rather than by hardcoding 'SpringArm': the
                                 // census reports the attach parent, so following it costs nothing
                                 // and does not assume this build's arrangement is the only one.
-                                if (UObject** parent = (*component)->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent")); parent && *parent)
+                                if (UObject** parent = mg_property_value<UObject*>((*component), STR("AttachParent")); parent && *parent)
                                 {
                                     FVector parent_world{};
                                     if (component_world_location(*parent, parent_world))
@@ -17292,11 +17418,11 @@ namespace MeshGhostPseudo
                                                               (*parent)->GetName(),
                                                               parent_world.X(), parent_world.Y(), parent_world.Z());
                                     }
-                                    if (float* arm = (*parent)->GetValuePtrByPropertyNameInChain<float>(STR("TargetArmLength")))
+                                    if (float* arm = mg_property_value<float>((*parent), STR("TargetArmLength")))
                                     {
                                         sample += std::format(STR(" armLength={:.1f}"), *arm);
                                     }
-                                    if (bool* trace = (*parent)->GetValuePtrByPropertyNameInChain<bool>(STR("bDoCollisionTest")))
+                                    if (bool* trace = mg_property_value<bool>((*parent), STR("bDoCollisionTest")))
                                     {
                                         sample += *trace ? STR(" doCollisionTest=true") : STR(" doCollisionTest=false");
                                     }
@@ -17372,9 +17498,9 @@ namespace MeshGhostPseudo
             {
                 if (remote.target_capsule_half > 0.0)
                 {
-                    if (UObject** ghost_capsule = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); ghost_capsule && *ghost_capsule)
+                    if (UObject** ghost_capsule = mg_property_value<UObject*>(remote.ghost, STR("CapsuleComponent")); ghost_capsule && *ghost_capsule)
                     {
-                        if (float* ghost_half = (*ghost_capsule)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        if (float* ghost_half = mg_property_value<float>((*ghost_capsule), STR("CapsuleHalfHeight")))
                         {
                             const float desired_half = static_cast<float>(remote.target_capsule_half);
                             if (*ghost_half != desired_half)
@@ -17456,9 +17582,9 @@ namespace MeshGhostPseudo
                     // The mesh either side of the call, both fresh reads -- whether the call moved
                     // it is the whole question, and echoing our own local could never show that.
                     auto read_ghost_mesh_z = [&]() -> double {
-                        if (UObject** vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm && *vm)
+                        if (UObject** vm = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); vm && *vm)
                         {
-                            if (FVector* rel = (*vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                            if (FVector* rel = mg_property_value<FVector>((*vm), STR("RelativeLocation")))
                             {
                                 return rel->Z();
                             }
@@ -17485,7 +17611,7 @@ namespace MeshGhostPseudo
                 // nothing else sets the state the maintenance is waiting on. Writing it true early
                 // in this investigation did nothing, but that was before anything had made the
                 // ghost genuinely crouch; the maintenance is now demonstrably live and reading it.
-                if (bool* ghost_crouched_flag = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched")))
+                if (bool* ghost_crouched_flag = mg_property_value<bool>(remote.ghost, STR("bIsCrouched")))
                 {
                     if (*ghost_crouched_flag != peer_shrunk_clear)
                     {
@@ -17549,7 +17675,7 @@ namespace MeshGhostPseudo
             // on the curve moves every frame.
             if constexpr (GHOST_SLIDE_TIMELINE_DRIVE)
             {
-                if (float* ghost_slide_t = remote.ghost->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+                if (float* ghost_slide_t = mg_property_value<float>(remote.ghost, SLIDE_TIMELINE_TRACK))
                 {
                     const float desired_t = static_cast<float>(remote.target_slide_t);
                     if (*ghost_slide_t != desired_t)
@@ -17569,7 +17695,7 @@ namespace MeshGhostPseudo
                 if (remote.target_capsule_half > 0.0)
                 {
                     const double desired_base_z = -(remote.target_capsule_half + 1.0);
-                    if (FVector* ghost_base_offset = remote.ghost->GetValuePtrByPropertyNameInChain<FVector>(STR("BaseTranslationOffset")))
+                    if (FVector* ghost_base_offset = mg_property_value<FVector>(remote.ghost, STR("BaseTranslationOffset")))
                     {
                         if (ghost_base_offset->Z() != desired_base_z)
                         {
@@ -17606,23 +17732,23 @@ namespace MeshGhostPseudo
                 {
                     remote.pose_window_ticks_left--;
                     double win_mesh = -999999.0;
-                    if (UObject** vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); vm && *vm)
+                    if (UObject** vm = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); vm && *vm)
                     {
-                        if (FVector* rel = (*vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                        if (FVector* rel = mg_property_value<FVector>((*vm), STR("RelativeLocation")))
                         {
                             win_mesh = rel->Z();
                         }
                     }
                     float win_half = -1.0f;
-                    if (UObject** cap = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); cap && *cap)
+                    if (UObject** cap = mg_property_value<UObject*>(remote.ghost, STR("CapsuleComponent")); cap && *cap)
                     {
-                        if (float* h = (*cap)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        if (float* h = mg_property_value<float>((*cap), STR("CapsuleHalfHeight")))
                         {
                             win_half = *h;
                         }
                     }
                     float win_ghost_t = -1.0f;
-                    if (float* t = remote.ghost->GetValuePtrByPropertyNameInChain<float>(SLIDE_TIMELINE_TRACK))
+                    if (float* t = mg_property_value<float>(remote.ghost, SLIDE_TIMELINE_TRACK))
                     {
                         win_ghost_t = *t;
                     }
@@ -17646,10 +17772,10 @@ namespace MeshGhostPseudo
                 bool vm_resolved = false;
                 bool rel_resolved = false;
                 double readback_z = -999999.0;
-                if (UObject** trace_vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); trace_vm && *trace_vm)
+                if (UObject** trace_vm = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); trace_vm && *trace_vm)
                 {
                     vm_resolved = true;
-                    if (FVector* trace_rel = (*trace_vm)->GetValuePtrByPropertyNameInChain<FVector>(STR("RelativeLocation")))
+                    if (FVector* trace_rel = mg_property_value<FVector>((*trace_vm), STR("RelativeLocation")))
                     {
                         rel_resolved = true;
                         readback_z = trace_rel->Z();
@@ -17670,29 +17796,29 @@ namespace MeshGhostPseudo
                     // per-tick fight to stop having. Read here rather than in the write block so it
                     // costs nothing on the ticks that print nothing.
                     double ghost_half = -1.0;
-                    if (UObject** trace_cap = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); trace_cap && *trace_cap)
+                    if (UObject** trace_cap = mg_property_value<UObject*>(remote.ghost, STR("CapsuleComponent")); trace_cap && *trace_cap)
                     {
-                        if (float* trace_half = (*trace_cap)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight")))
+                        if (float* trace_half = mg_property_value<float>((*trace_cap), STR("CapsuleHalfHeight")))
                         {
                             ghost_half = *trace_half;
                         }
                     }
-                    bool* ghost_crouched = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bIsCrouched"));
+                    bool* ghost_crouched = mg_property_value<bool>(remote.ghost, STR("bIsCrouched"));
 
                     // The whole crouch chain in one line: wants (the input we set) -> half (the
                     // capsule the component shrinks) -> crouched (the flag it publishes) -> mesh.
                     // Whichever link stops changing is where the machinery is not running.
                     int wants_crouch_state = -1;
                     bool can_ever_crouch = false;
-                    if (UObject** trace_move = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); trace_move && *trace_move)
+                    if (UObject** trace_move = mg_property_value<UObject*>(remote.ghost, STR("CharacterMovement")); trace_move && *trace_move)
                     {
-                        if (bool* trace_wants = (*trace_move)->GetValuePtrByPropertyNameInChain<bool>(STR("bWantsToCrouch")))
+                        if (bool* trace_wants = mg_property_value<bool>((*trace_move), STR("bWantsToCrouch")))
                         {
                             wants_crouch_state = *trace_wants ? 1 : 0;
                         }
                         // If the component was never allowed to crouch at all, nothing downstream
                         // can happen and no amount of asking will change that.
-                        if (bool* trace_can = (*trace_move)->GetValuePtrByPropertyNameInChain<bool>(STR("bCanEverCrouch")))
+                        if (bool* trace_can = mg_property_value<bool>((*trace_move), STR("bCanEverCrouch")))
                         {
                             can_ever_crouch = *trace_can;
                         }
@@ -17703,7 +17829,7 @@ namespace MeshGhostPseudo
                     // this way rather than wrong -- a distinction worth being able to make.
                     double base_offset_z = -999999.0;
                     bool base_resolved = false;
-                    if (FVector* trace_base = remote.ghost->GetValuePtrByPropertyNameInChain<FVector>(STR("BaseTranslationOffset")))
+                    if (FVector* trace_base = mg_property_value<FVector>(remote.ghost, STR("BaseTranslationOffset")))
                     {
                         base_resolved = true;
                         base_offset_z = trace_base->Z();
@@ -17794,7 +17920,7 @@ namespace MeshGhostPseudo
                                 continue;
                             }
                             const bool want_visible = !g_ghost_fx_hidden;
-                            bool* visible = fx->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                            bool* visible = mg_property_value<bool>(fx, STR("bVisible"));
                             if (visible && *visible != want_visible)
                             {
                                 call_set_visibility(fx, want_visible);
@@ -17879,7 +18005,7 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
-                            bool* visible = component->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                            bool* visible = mg_property_value<bool>(component, STR("bVisible"));
                             if (!visible || *visible != sub.hidden)
                             {
                                 continue;
@@ -17914,7 +18040,7 @@ namespace MeshGhostPseudo
                 // which mesh renders it is the open question).
                 for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh"), STR("LightMesh")})
                 {
-                    if (UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                    if (UObject** mesh = mg_property_value<UObject*>(remote.ghost, mesh_name);
                         mesh && *mesh)
                     {
                         const bool weapon_only_hidden = g_ghost_weapon_hidden && std::wcscmp(mesh_name, STR("WeaponMesh")) == 0;
@@ -17924,7 +18050,7 @@ namespace MeshGhostPseudo
                         // player's from havelight?/weapon state and nothing drives the ghost's.
                         const bool lightmesh_hidden = g_ghost_lightmesh_hidden && std::wcscmp(mesh_name, STR("LightMesh")) == 0;
                         const bool want_visible = !g_ghost_mesh_hidden && !weapon_only_hidden && !lightmesh_hidden;
-                        bool* visible = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bVisible"));
+                        bool* visible = mg_property_value<bool>((*mesh), STR("bVisible"));
                         if (visible && *visible != want_visible)
                         {
                             call_set_visibility(*mesh, want_visible);
@@ -17939,10 +18065,10 @@ namespace MeshGhostPseudo
                 // counter in GHOST_HOLD_LIGHT_OFF.
                 if (g_ghost_vertexlight_killed)
                 {
-                    if (UObject** cac = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("PlayerLight"));
+                    if (UObject** cac = mg_property_value<UObject*>(remote.ghost, STR("PlayerLight"));
                         cac && *cac)
                     {
-                        if (UObject** child = (*cac)->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor"));
+                        if (UObject** child = mg_property_value<UObject*>((*cac), STR("ChildActor"));
                             child && *child)
                         {
                             const std::string child_name = to_utf8((*child)->GetFullName());
@@ -17967,10 +18093,10 @@ namespace MeshGhostPseudo
             {
                 for (const wchar_t* mesh_name : {STR("VisualMesh"), STR("WeaponMesh")})
                 {
-                    if (UObject** mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(mesh_name);
+                    if (UObject** mesh = mg_property_value<UObject*>(remote.ghost, mesh_name);
                         mesh && *mesh)
                     {
-                        bool* on = (*mesh)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        bool* on = mg_property_value<bool>((*mesh), STR("bRenderCustomDepth"));
                         if (on && !*on)
                         {
                             call_set_render_custom_depth(*mesh, true);
@@ -18003,12 +18129,12 @@ namespace MeshGhostPseudo
                             continue;
                         }
                         const StringType prop_name = property->GetName();
-                        UObject** component = owner->GetValuePtrByPropertyNameInChain<UObject*>(prop_name.c_str());
+                        UObject** component = mg_property_value<UObject*>(owner, prop_name.c_str());
                         if (!component || !*component)
                         {
                             continue;
                         }
-                        bool* custom_depth = (*component)->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        bool* custom_depth = mg_property_value<bool>((*component), STR("bRenderCustomDepth"));
                         if (!custom_depth || !*custom_depth)
                         {
                             continue; // already off -- no engine call, which is what keeps this cheap
@@ -18050,7 +18176,7 @@ namespace MeshGhostPseudo
                 if (tick_count % OUTLINE_SWEEP_INTERVAL_TICKS == 0)
                 {
                     std::vector<UObject*> owned;
-                    if (UObject** root = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                    if (UObject** root = mg_property_value<UObject*>(remote.ghost, STR("RootComponent"));
                         root && *root)
                     {
                         owned.push_back(*root);
@@ -18063,7 +18189,7 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
-                            auto* children = node->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("AttachChildren"));
+                            auto* children = mg_property_value<TArray<UObject*>>(node, STR("AttachChildren"));
                             if (!children)
                             {
                                 continue;
@@ -18097,7 +18223,7 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
-                        bool* custom_depth = mesh->GetValuePtrByPropertyNameInChain<bool>(STR("bRenderCustomDepth"));
+                        bool* custom_depth = mg_property_value<bool>(mesh, STR("bRenderCustomDepth"));
                         if (!custom_depth || !*custom_depth)
                         {
                             continue; // off already -- the overwhelmingly common case
@@ -18165,7 +18291,7 @@ namespace MeshGhostPseudo
                 {
                     const float held_target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
                     std::vector<UObject*> ghost_lights;
-                    if (UObject** light_root = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                    if (UObject** light_root = mg_property_value<UObject*>(remote.ghost, STR("RootComponent"));
                         light_root && *light_root)
                     {
                         ghost_lights.push_back(*light_root);
@@ -18179,16 +18305,16 @@ namespace MeshGhostPseudo
                             // Through the child actor as well as the component tree: the light
                             // hangs off a ChildActorComponent's spawned actor, which is one hop
                             // the plain AttachChildren list does not make on its own.
-                            if (UObject** child_actor = node->GetValuePtrByPropertyNameInChain<UObject*>(STR("ChildActor"));
+                            if (UObject** child_actor = mg_property_value<UObject*>(node, STR("ChildActor"));
                                 child_actor && *child_actor)
                             {
-                                if (UObject** child_root = (*child_actor)->GetValuePtrByPropertyNameInChain<UObject*>(STR("RootComponent"));
+                                if (UObject** child_root = mg_property_value<UObject*>((*child_actor), STR("RootComponent"));
                                     child_root && *child_root)
                                 {
                                     ghost_lights.push_back(*child_root);
                                 }
                             }
-                            auto* kids = node->GetValuePtrByPropertyNameInChain<TArray<UObject*>>(STR("AttachChildren"));
+                            auto* kids = mg_property_value<TArray<UObject*>>(node, STR("AttachChildren"));
                             if (!kids)
                             {
                                 continue;
@@ -18209,7 +18335,7 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
-                        float* held = light->GetValuePtrByPropertyNameInChain<float>(STR("Intensity"));
+                        float* held = mg_property_value<float>(light, STR("Intensity"));
                         if (!held || *held == held_target)
                         {
                             continue;
@@ -18257,7 +18383,7 @@ namespace MeshGhostPseudo
                         // to the birth value so the A/B can ask what this light looks like when it
                         // is genuinely ON. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block.
                         const float target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
-                        float* intensity = light->GetValuePtrByPropertyNameInChain<float>(STR("Intensity"));
+                        float* intensity = mg_property_value<float>(light, STR("Intensity"));
                         if (!intensity || *intensity == target)
                         {
                             continue; // already where we want it -- every level light lands here too
@@ -18271,7 +18397,7 @@ namespace MeshGhostPseudo
                         UObject* node = light;
                         for (int hop = 0; !ours && hop < 8 && node; ++hop)
                         {
-                            UObject** parent = node->GetValuePtrByPropertyNameInChain<UObject*>(STR("AttachParent"));
+                            UObject** parent = mg_property_value<UObject*>(node, STR("AttachParent"));
                             if (!parent || !*parent)
                             {
                                 break;
@@ -18489,9 +18615,9 @@ namespace MeshGhostPseudo
                 {
                     FRotator actual = remote.ghost->K2_GetActorRotation();
                     double g_vm_yaw = -9999.0;
-                    if (UObject** g_vm = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_vm && *g_vm)
+                    if (UObject** g_vm = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); g_vm && *g_vm)
                     {
-                        if (FRotator* g_vm_rot = (*g_vm)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                        if (FRotator* g_vm_rot = mg_property_value<FRotator>((*g_vm), STR("RelativeRotation")))
                         {
                             g_vm_yaw = g_vm_rot->GetYaw();
                         }
@@ -18511,30 +18637,30 @@ namespace MeshGhostPseudo
             // should make the ghost's anim instance drive itself the same way -- no direct AnimBP
             // writes needed. No-ops safely (nullptr checks) in hijack mode, where the ghost is a
             // StaticMeshActor with no such properties.
-            if (uint8_t* g_move_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState")))
+            if (uint8_t* g_move_state = mg_property_value<uint8_t>(remote.ghost, STR("moveState")))
             {
                 *g_move_state = clamp_to_uint8(remote.target_move_state);
             }
-            if (uint8_t* g_action_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState")))
+            if (uint8_t* g_action_state = mg_property_value<uint8_t>(remote.ghost, STR("actionState")))
             {
                 *g_action_state = clamp_to_uint8(remote.target_action_state);
             }
-            if (double* g_h_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("horizontalSpeed")))
+            if (double* g_h_speed = mg_property_value<double>(remote.ghost, STR("horizontalSpeed")))
             {
                 *g_h_speed = remote.target_h_speed;
             }
-            if (double* g_v_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed")))
+            if (double* g_v_speed = mg_property_value<double>(remote.ghost, STR("verticalSpeed")))
             {
                 *g_v_speed = remote.target_v_speed;
             }
-            if (uint8_t* g_anim_jump_type = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType")))
+            if (uint8_t* g_anim_jump_type = mg_property_value<uint8_t>(remote.ghost, STR("animJumpType")))
             {
                 *g_anim_jump_type = clamp_to_uint8(remote.target_anim_jump_type);
             }
             // "Stuck flying after jump" fix -- see RemoteGhost::target_movement_mode's comment.
-            if (UObject** g_movement_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); g_movement_ptr && *g_movement_ptr)
+            if (UObject** g_movement_ptr = mg_property_value<UObject*>(remote.ghost, STR("CharacterMovement")); g_movement_ptr && *g_movement_ptr)
             {
-                if (uint8_t* g_movement_mode = (*g_movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                if (uint8_t* g_movement_mode = mg_property_value<uint8_t>((*g_movement_ptr), STR("MovementMode")))
                 {
                     *g_movement_mode = clamp_to_uint8(remote.target_movement_mode);
                 }
@@ -18566,16 +18692,16 @@ namespace MeshGhostPseudo
                     // the value you just wrote as proof it worked", and the specific question here
                     // is whether the ghost is still in the LedgeGrab montage while it looks stuck.
                     int rb_move = -1, rb_ajt = -1;
-                    if (uint8_t* rb_ms = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState")))
+                    if (uint8_t* rb_ms = mg_property_value<uint8_t>(remote.ghost, STR("moveState")))
                     {
                         rb_move = static_cast<int>(*rb_ms);
                     }
-                    if (uint8_t* rb_aj = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("animJumpType")))
+                    if (uint8_t* rb_aj = mg_property_value<uint8_t>(remote.ghost, STR("animJumpType")))
                     {
                         rb_ajt = static_cast<int>(*rb_aj);
                     }
                     std::string rb_montage;
-                    if (UObject** g_abp_rb = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_rb && *g_abp_rb)
+                    if (UObject** g_abp_rb = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_rb && *g_abp_rb)
                     {
                         read_current_active_montage(*g_abp_rb, rb_montage);
                     }
@@ -18628,7 +18754,7 @@ namespace MeshGhostPseudo
                 // the same edge.
                 if (!g_ghost_equip_anim_skipped)
                 {
-                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                     {
                         call_update_weapon_equip(*g_abp_ptr, remote.target_weapon_equipped);
                     }
@@ -18710,7 +18836,7 @@ namespace MeshGhostPseudo
                     {
                         if (!is_attack_montage)
                         {
-                            if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                            if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                             {
                                 play_length = call_montage_play(*g_abp_ptr, montage_obj);
                             }
@@ -18757,7 +18883,7 @@ namespace MeshGhostPseudo
                 // Suppressed while either probe is on -- see MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS.
                 if (!montage_started_this_tick && !MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS)
                 {
-                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                     {
                         // **0.0f, corrected 2026-08-15 from a live capture.** This was 0.1f on the
                         // reasoning that a normal end-of-animation deserves a soft blend rather
@@ -18834,7 +18960,7 @@ namespace MeshGhostPseudo
             if (!MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS &&
                 tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
             {
-                if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                 {
                     std::string ghost_montage;
                     if (read_current_active_montage(*g_abp_ptr, ghost_montage) &&
@@ -18887,7 +19013,7 @@ namespace MeshGhostPseudo
             {
                 if (tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
                 {
-                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                     {
                         std::string ghost_montage;
                         if (read_current_active_montage(*g_abp_ptr, ghost_montage))
@@ -18927,7 +19053,7 @@ namespace MeshGhostPseudo
                     if (UObject* montage_obj = find_loaded_montage_by_label(label))
                     {
                         float play_length = -1.0f;
-                        if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                        if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                         {
                             play_length = call_montage_play(*g_abp_ptr, montage_obj);
                         }
@@ -18949,7 +19075,7 @@ namespace MeshGhostPseudo
                     --remote.montage_readback_ticks_left;
                     std::string ghost_montage;
                     bool asked = false;
-                    if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+                    if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
                     {
                         asked = read_current_active_montage(*g_abp_ptr, ghost_montage);
                     }
@@ -18964,13 +19090,13 @@ namespace MeshGhostPseudo
             // Property write kept as a safety-net sync AFTER the calls above, in case either
             // function has prerequisites/side effects this adapter doesn't drive -- unconditional,
             // every tick, same as before the reorder.
-            if (bool* g_weapon_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?")))
+            if (bool* g_weapon_equipped = mg_property_value<bool>(remote.ghost, STR("weaponEquipped?")))
             {
                 *g_weapon_equipped = remote.target_weapon_equipped;
             }
-            if (UObject** g_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_ptr && *g_abp_ptr)
+            if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
             {
-                if (bool* g_anim_equipped_weapon = (*g_abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                if (bool* g_anim_equipped_weapon = mg_property_value<bool>((*g_abp_ptr), STR("animEquippedWeapon")))
                 {
                     *g_anim_equipped_weapon = remote.target_weapon_equipped;
                 }
@@ -18982,16 +19108,16 @@ namespace MeshGhostPseudo
                     // Independent readback -- re-fetches the pointers fresh rather than reusing
                     // g_weapon_equipped/g_anim_equipped_weapon above, per CLAUDE.md's "never log
                     // the value you just wrote as proof it worked" rule.
-                    bool* rb_weapon_equipped = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("weaponEquipped?"));
-                    UObject** rb_weapon_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("WeaponMesh"));
+                    bool* rb_weapon_equipped = mg_property_value<bool>(remote.ghost, STR("weaponEquipped?"));
+                    UObject** rb_weapon_mesh = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh"));
                     // New for the inversion-test run: weaponRef was only ever traced on the local
                     // pawn (see the local WEAPON_SYNC_TRACE block's own comment -- an earlier trace
                     // showed it "genuinely toggles," but its ghost-side value was never recorded).
-                    UObject** rb_weapon_ref = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("weaponRef"));
+                    UObject** rb_weapon_ref = mg_property_value<UObject*>(remote.ghost, STR("weaponRef"));
                     bool rb_anim_equipped = false;
-                    if (UObject** rb_abp_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); rb_abp_ptr && *rb_abp_ptr)
+                    if (UObject** rb_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); rb_abp_ptr && *rb_abp_ptr)
                     {
-                        if (bool* rb_anim_ptr = (*rb_abp_ptr)->GetValuePtrByPropertyNameInChain<bool>(STR("animEquippedWeapon")))
+                        if (bool* rb_anim_ptr = mg_property_value<bool>((*rb_abp_ptr), STR("animEquippedWeapon")))
                         {
                             rb_anim_equipped = *rb_anim_ptr;
                         }
@@ -19007,7 +19133,7 @@ namespace MeshGhostPseudo
                     // Same mesh-asset check as the local block, on the ghost's own WeaponMesh.
                     if (rb_weapon_mesh && *rb_weapon_mesh)
                     {
-                        UObject** rb_skel_mesh = (*rb_weapon_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh"));
+                        UObject** rb_skel_mesh = mg_property_value<UObject*>((*rb_weapon_mesh), STR("SkeletalMesh"));
                         Output::send(STR("[MeshGhostPseudo] TRACE weapon ghost {} WeaponMesh SkeletalMesh={}\n"),
                                      to_wide_ascii(id),
                                      (rb_skel_mesh && *rb_skel_mesh) ? STR("non-null") : STR("null"));
@@ -19055,7 +19181,7 @@ namespace MeshGhostPseudo
                 // confirmed via reflection first, never assumed from general UE knowledge alone).
                 if constexpr (DUMP_VISUALMESH_FUNCTIONS)
                 {
-                    if (UObject** g_visual_mesh_for_dump = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_visual_mesh_for_dump && *g_visual_mesh_for_dump)
+                    if (UObject** g_visual_mesh_for_dump = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); g_visual_mesh_for_dump && *g_visual_mesh_for_dump)
                     {
                         dump_object_reflection(*g_visual_mesh_for_dump, STR("ghost VisualMesh (outfit function search)"));
                     }
@@ -19085,7 +19211,7 @@ namespace MeshGhostPseudo
                 }
                 if (outfit_mesh_obj)
                 {
-                    if (UObject** g_visual_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); g_visual_mesh && *g_visual_mesh)
+                    if (UObject** g_visual_mesh = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); g_visual_mesh && *g_visual_mesh)
                     {
                         // T-pose fix, 2026-08-15: call the real setter FIRST, applying the same
                         // ordering lesson the Dream Breaker fix already taught this file (a raw
@@ -19101,11 +19227,11 @@ namespace MeshGhostPseudo
                         // costume swap; writing only one and hoping the engine keeps the other in
                         // sync is exactly the kind of untested assumption this project's own
                         // discipline says to avoid.
-                        if (UObject** g_skel_mesh = (*g_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh")))
+                        if (UObject** g_skel_mesh = mg_property_value<UObject*>((*g_visual_mesh), STR("SkeletalMesh")))
                         {
                             *g_skel_mesh = outfit_mesh_obj;
                         }
-                        if (UObject** g_skinned_asset = (*g_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkinnedAsset")))
+                        if (UObject** g_skinned_asset = mg_property_value<UObject*>((*g_visual_mesh), STR("SkinnedAsset")))
                         {
                             *g_skinned_asset = outfit_mesh_obj;
                         }
@@ -19119,9 +19245,9 @@ namespace MeshGhostPseudo
                     // log per real outfit change (edge-gated above), not a per-tick trace, so it's
                     // cheap enough to keep on permanently the same as the "spawned ghost" log line.
                     UObject** rb_skel_mesh = nullptr;
-                    if (UObject** rb_visual_mesh = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("VisualMesh")); rb_visual_mesh && *rb_visual_mesh)
+                    if (UObject** rb_visual_mesh = mg_property_value<UObject*>(remote.ghost, STR("VisualMesh")); rb_visual_mesh && *rb_visual_mesh)
                     {
-                        rb_skel_mesh = (*rb_visual_mesh)->GetValuePtrByPropertyNameInChain<UObject*>(STR("SkeletalMesh"));
+                        rb_skel_mesh = mg_property_value<UObject*>((*rb_visual_mesh), STR("SkeletalMesh"));
                     }
                     Output::send(STR("[MeshGhostPseudo] outfit mesh applied for ghost {}: target='{}' readback={}\n"),
                                  to_wide_ascii(id), to_wide_ascii(remote.target_outfit_mesh),
@@ -19190,7 +19316,7 @@ namespace MeshGhostPseudo
                 {
                     spawn_count = 6;
                 }
-                if (int32_t* count_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<int32_t>(STR("afterImagesToSpawn")))
+                if (int32_t* count_ptr = mg_property_value<int32_t>(remote.ghost, STR("afterImagesToSpawn")))
                 {
                     *count_ptr = spawn_count;
                 }
@@ -19248,16 +19374,16 @@ namespace MeshGhostPseudo
                 // a completely different problem (position, scale, lifetime, visibility).
                 if constexpr (TRAIL_TRIGGER_TRACE)
                 {
-                    if (int32_t* rb_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<int32_t>(STR("afterImagesToSpawn")))
+                    if (int32_t* rb_ptr = mg_property_value<int32_t>(remote.ghost, STR("afterImagesToSpawn")))
                     {
                         Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger ghost {}: readback afterImagesToSpawn={} immediately after call\n"),
                                      to_wide_ascii(id), *rb_ptr);
                     }
                     // Ghost's own capsule, to compare against the local one logged on the slide
                     // edge -- see that block's comment for the sinking-into-the-floor theory.
-                    if (UObject** g_cap_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); g_cap_ptr && *g_cap_ptr)
+                    if (UObject** g_cap_ptr = mg_property_value<UObject*>(remote.ghost, STR("CapsuleComponent")); g_cap_ptr && *g_cap_ptr)
                     {
-                        float* g_half_ptr = (*g_cap_ptr)->GetValuePtrByPropertyNameInChain<float>(STR("CapsuleHalfHeight"));
+                        float* g_half_ptr = mg_property_value<float>((*g_cap_ptr), STR("CapsuleHalfHeight"));
                         Output::send(STR("[MeshGhostPseudo] TRACE slideCapsule ghost {}: CapsuleHalfHeight={} z={}\n"),
                                      to_wide_ascii(id), g_half_ptr ? *g_half_ptr : -1.0f, remote.target_z);
                     }
@@ -19277,12 +19403,12 @@ namespace MeshGhostPseudo
                 {
                     double g_health = -1.0;
                     bool found = false;
-                    if (double* d_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<double>(name))
+                    if (double* d_ptr = mg_property_value<double>(remote.ghost, name))
                     {
                         g_health = *d_ptr;
                         found = true;
                     }
-                    else if (int32_t* i_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<int32_t>(name))
+                    else if (int32_t* i_ptr = mg_property_value<int32_t>(remote.ghost, name))
                     {
                         g_health = static_cast<double>(*i_ptr);
                         found = true;
@@ -19312,7 +19438,7 @@ namespace MeshGhostPseudo
             // stuck at 5) is visible across the whole burst rather than only at the call instant.
             if constexpr (TRAIL_TRIGGER_TRACE)
             {
-                if (int32_t* drain_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<int32_t>(STR("afterImagesToSpawn")); drain_ptr && *drain_ptr != 0)
+                if (int32_t* drain_ptr = mg_property_value<int32_t>(remote.ghost, STR("afterImagesToSpawn")); drain_ptr && *drain_ptr != 0)
                 {
                     Output::send(STR("[MeshGhostPseudo] TRACE trailTrigger ghost {}: drain afterImagesToSpawn={} tick={}\n"),
                                  to_wide_ascii(id), *drain_ptr, tick_count);
@@ -19341,7 +19467,7 @@ namespace MeshGhostPseudo
                     // Stopped immediately after the call that started it rather than on the way out
                     // (the falling edge still stops it too, as a safety net) so it is never
                     // audible, instead of playing until the cling ends.
-                    if (UObject** sfx_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideSFX")); sfx_ptr && *sfx_ptr)
+                    if (UObject** sfx_ptr = mg_property_value<UObject*>(remote.ghost, STR("wallRideSFX")); sfx_ptr && *sfx_ptr)
                     {
                         const wchar_t* which = call_audio_component_stop(*sfx_ptr);
                         if constexpr (WALLRIDE_TRACE)
@@ -19357,7 +19483,7 @@ namespace MeshGhostPseudo
                     // effect started above never ends (confirmed live: it followed the ghost around
                     // while walking). Deactivates the component rather than nulling the property,
                     // matching what the real player's own logic evidently does.
-                    if (UObject** vfx_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideVFX")); vfx_ptr && *vfx_ptr)
+                    if (UObject** vfx_ptr = mg_property_value<UObject*>(remote.ghost, STR("wallRideVFX")); vfx_ptr && *vfx_ptr)
                     {
                         call_component_deactivate(*vfx_ptr);
                         if constexpr (WALLRIDE_TRACE)
@@ -19375,7 +19501,7 @@ namespace MeshGhostPseudo
                     // Paired SFX -- see call_audio_component_stop's own comment. doWallRun starts
                     // this alongside the VFX, and without stopping it the cling sound looped
                     // forever after the peer left the wall (confirmed live, same session).
-                    if (UObject** sfx_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("wallRideSFX")); sfx_ptr && *sfx_ptr)
+                    if (UObject** sfx_ptr = mg_property_value<UObject*>(remote.ghost, STR("wallRideSFX")); sfx_ptr && *sfx_ptr)
                     {
                         const wchar_t* which = call_audio_component_stop(*sfx_ptr);
                         if constexpr (WALLRIDE_TRACE)
@@ -19402,7 +19528,7 @@ namespace MeshGhostPseudo
             // that probe went on to prove.
             if ((land_edge || jump_edge) && !MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS)
             {
-                if (UObject** g_abp_for_montage = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("animBPref")); g_abp_for_montage && *g_abp_for_montage)
+                if (UObject** g_abp_for_montage = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_for_montage && *g_abp_for_montage)
                 {
                     // Blend-out tightened 2026-08-13 (user-confirmed live: the fix worked but the
                     // ghost held the hang pose a bit longer than the real player, on top of the
@@ -19466,13 +19592,13 @@ namespace MeshGhostPseudo
                 // Read back what actually stuck on the ghost after our writes above, not just
                 // what we intended to write -- "ran without errors" isn't evidence something took
                 // effect, per CLAUDE.md.
-                uint8_t* rb_move_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("moveState"));
-                uint8_t* rb_action_state = remote.ghost->GetValuePtrByPropertyNameInChain<uint8_t>(STR("actionState"));
-                double* rb_v_speed = remote.ghost->GetValuePtrByPropertyNameInChain<double>(STR("verticalSpeed"));
+                uint8_t* rb_move_state = mg_property_value<uint8_t>(remote.ghost, STR("moveState"));
+                uint8_t* rb_action_state = mg_property_value<uint8_t>(remote.ghost, STR("actionState"));
+                double* rb_v_speed = mg_property_value<double>(remote.ghost, STR("verticalSpeed"));
                 int rb_movement_mode = -1;
-                if (UObject** rb_movement_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CharacterMovement")); rb_movement_ptr && *rb_movement_ptr)
+                if (UObject** rb_movement_ptr = mg_property_value<UObject*>(remote.ghost, STR("CharacterMovement")); rb_movement_ptr && *rb_movement_ptr)
                 {
-                    if (uint8_t* rb_movement_mode_ptr = (*rb_movement_ptr)->GetValuePtrByPropertyNameInChain<uint8_t>(STR("MovementMode")))
+                    if (uint8_t* rb_movement_mode_ptr = mg_property_value<uint8_t>((*rb_movement_ptr), STR("MovementMode")))
                     {
                         rb_movement_mode = static_cast<int>(*rb_movement_mode_ptr);
                     }
@@ -19513,9 +19639,9 @@ namespace MeshGhostPseudo
                 // CapsuleComponent instead, already proven reliable elsewhere in this file
                 // (log_pawn_reflection_once's dump, the animation-state mirroring code).
                 double reflected_yaw = -9999.0;
-                if (UObject** g_capsule_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<UObject*>(STR("CapsuleComponent")); g_capsule_ptr && *g_capsule_ptr)
+                if (UObject** g_capsule_ptr = mg_property_value<UObject*>(remote.ghost, STR("CapsuleComponent")); g_capsule_ptr && *g_capsule_ptr)
                 {
-                    if (FRotator* g_relative_rot = (*g_capsule_ptr)->GetValuePtrByPropertyNameInChain<FRotator>(STR("RelativeRotation")))
+                    if (FRotator* g_relative_rot = mg_property_value<FRotator>((*g_capsule_ptr), STR("RelativeRotation")))
                     {
                         reflected_yaw = g_relative_rot->GetYaw();
                     }
@@ -19527,7 +19653,7 @@ namespace MeshGhostPseudo
                              reflected_yaw);
                 }
 
-                bool* hidden_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden"));
+                bool* hidden_ptr = mg_property_value<bool>(remote.ghost, STR("bHidden"));
                 if (hidden_ptr)
                 {
                     *hidden_ptr = true;
@@ -19743,7 +19869,7 @@ namespace MeshGhostPseudo
             // Bounded window after a spawn, never a permanent per-tick log.
             if (auto [watch_controller, watch_pawn] = find_local_controller_and_pawn(); watch_controller)
             {
-                UObject** held = watch_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                UObject** held = mg_property_value<UObject*>(watch_controller, STR("Pawn"));
                 Output::send(STR("[MeshGhostPseudo] POSSESS_TRACE watch tick={} controller_pawn={}\n"),
                              tick_count,
                              (held && *held) ? (*held)->GetFullName() : STR("(none)"));

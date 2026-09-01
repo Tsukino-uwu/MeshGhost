@@ -294,6 +294,89 @@ in seconds when the crowd leaves, and a reset-to-save restored max fps -- moved 
 `VERIFIED.md`.** Crowd-rig calibration for repeats: ring **z = -545**, radius <= 200 at the
 standing spot (pawn-center ground is -733; -650 and -580 both left bodies partly buried).
 
+### The TAIL SPLIT is READ (2026-09-01): `tail_sweeps` owns the redraw, and it is name-based reflection
+
+**`plans.md` "Crowds that PLAY" step 1, done.** One 16-peer rung on the deployed instrumented
+build, `perf_report.txt` armed, same rig as the ladder (relay 20Hz / `-max-clients=200` /
+`-ghost-collision=disabled`, `meshghost-fakeadapter -clients 16` orbiting the ZONE_LowerCastle
+standing spot at ring z=-545 radius 200, idle anim, one machine). Four consecutive 2s report
+blocks, all agreeing within a few percent; the table is one of them (15:07:28, 186 frames/2s
+= ~93fps).
+
+| slot | us/frame | per ghost | share |
+| --- | --- | --- | --- |
+| `tick_total` | 6911 | - | 100% |
+| `remotes_loop` | 5225 | 327 us | 76% of tick |
+| -- `loop_tail` | 4182 | 261 us | **80% of the loop** |
+| ---- `tail_sweeps` | 2828 | 177 us | **68% of the tail** |
+| ---- `tail_light` | 1349 | 84 us | 32% of the tail |
+| ---- `tail_posetrc` | 2 | 0.1 us | ~0 |
+| ---- `tail_events` | 0 | 0 us | ~0 |
+| `local_state` (flat) | 1252 | - | 18% of tick |
+
+**The four sub-slots sum to `loop_tail` with no unattributed remainder** (4179 vs 4182), so the
+split is complete: there is no hidden fifth cost inside that span.
+
+**The finding: two of the four blocks are free and one is the whole target.** Pose-trace and
+event mirrors cost nothing measurable; the optimization is `tail_sweeps` (the visibility /
+outline / custom-depth sweeps), with `tail_light` a real second at half its size.
+
+**And `tail_sweeps` is exactly the shape the step-2 cache was designed for**: read of
+`Plugin.cpp` 17742-18120 shows it is `GetValuePtrByPropertyNameInChain<...>` all the way down --
+`bVisible`, `bRenderCustomDepth`, `VisualMesh`/`WeaponMesh`/`LightMesh`, `RootComponent`,
+`AttachChildren` -- a name lookup per component per ghost per tick, plus a `TFieldRange`
+property walk over each outline target's class. That also explains ladder finding 2 (per-ghost
+cost rising with world population): name-based resolution scales with what it has to search.
+
+- **Unwatched by the user; these are the agent's own numbers**, and nothing visual was judged
+  while `perf_report.txt` was armed. It is STILL ARMED in the Steam install -- disarm before any
+  visual session, re-arm for step 2's before/after.
+- **Step 2 is now unblocked and aimed**: cache the resolved (UClass*, name) -> offset, clear it
+  where every other cache is cleared (the InitGameState PRE hook). Expect it to move
+  `tail_sweeps`, not `tail_light`; verify with a normal 2-ghost session watched for visual
+  regressions, then re-run rungs 16/32/100 against this table.
+
+### Step 2, the REFLECTION-PROPERTY CACHE: built, deployed, measured -59% tick -- UNWATCHED (2026-09-01)
+
+**All 376 `GetValuePtrByPropertyNameInChain` call sites now go through a (UClass*, name) ->
+FProperty* cache** (`Plugin.cpp`, `g_property_cache` beside the controller/projectile caches,
+cleared with them in `release_all_ghosts` -- LoadMap PRE / InitGameState PRE / the Reset click).
+Behaviour-preserving by construction: the cached FProperty* is the exact pointer UE4SS's own
+chain walk returns, and the miss path calls that same function. Misses are cached too.
+
+**Measured on the same 16-peer rung, minutes apart, same rig and ring** (before = the step-1
+table above; after = four agreeing 2s blocks, 15:16-15:18):
+
+| slot | before | after | change |
+| --- | --- | --- | --- |
+| `tick_total` | 6911 | 2824 | -59% |
+| `remotes_loop` | 5225 | 1548 | -70% (327 -> 97 us/ghost) |
+| -- `loop_tail` | 4182 | 959 | -77% |
+| ---- `tail_sweeps` | 2828 | 829 | -71% |
+| ---- `tail_light` | 1349 | 125 | -91% |
+| `local_state` | 1252 | 851 | -32% |
+| `ls_rest` | 1197 | 803 | -33% |
+| frames/2s | 186 (~93fps) | 266 (~133fps) | +43% |
+
+At 16 peers the game now runs ~133fps against a ~143 solo baseline. Log clean over the run: no
+warnings, no lookup failures, 16 nametags drawn every frame, `send_fail=0 lines_malformed=0`.
+
+- **The step-1 prediction was HALF WRONG, on the record:** it said the cache would move
+  `tail_sweeps` and leave `tail_light` roughly alone. `tail_light` fell hardest (-91%) -- it was
+  name-lookup bound too, not doing distinct work. The flat blocks moving (-32/-33%) is why
+  converting every call site paid, not just the named block.
+- **UNWATCHED: the user has not judged a ghost on screen since this build.** The claim "identical
+  pointer, identical behaviour" is an argument, not a screen. Check: a normal 2-ghost session,
+  `perf_report.txt` DISARMED, watching for anything that renders differently (visibility,
+  outlines, nametags, light, weapon).
+- **Not re-run: rungs 32/100/150.** The "per-ghost cost rises with world population" finding was
+  attributed to name walks scaling with object count; the cache should flatten that. Measure,
+  don't assume.
+- **What the post-cache profile says is left, largest first (16 peers, us/frame):** `ls_rest` 929
+  (flat), `tail_sweeps` 823 (the outline attach-tree walk per ghost per tick -- the per-call
+  reflection inside it is now cached, the walk itself is not), `loop_pose_xf` 338, `local_state`'s
+  other blocks ~50. The remaining `tail_sweeps` is ~51 us/ghost.
+
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
 **User-observed, twice, and NOT explained.** With two clients plus a synthetic peer:
