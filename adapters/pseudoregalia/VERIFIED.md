@@ -182,6 +182,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — the reset-to-save crash is FIXED, and its cause was the nametag's stale pointers
 - 2026-09-01 — the 2026-08-30 per-ghost performance win, restated here now that its crash is closed
 - 2026-09-01 — 150 peers live: stable, recoverable, and the wire is no longer the ceiling
+- 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
+- 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
 
 ## Confirmed facts
 
@@ -4640,3 +4642,40 @@ the other's ghost within ~0.3s -- before the user judged it on screen and confir
 - Scope: two real clients, one machine. Found, measured, built and confirmed 2026-09-01.
 - The same capture found `NS_FootstepDust` world-spawned at the feet and unmirrored -- filed as
   a candidate in `UNVERIFIED.md`, deliberately not added unasked.
+
+## 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
+
+**The two-peer session refuted every loopback-era sword-throw confirmation** (the watching
+PLAYER lost their sword to a peer's throw; the ghost's hand never changed; the prop froze
+mid-air, snapped, sank), and the day ended with the whole suite rebuilt and confirmed on two
+real clients:
+
+- **The carrier was the spawned `BP_looseWeapon_C` itself** -- proven by a subtraction ladder
+  (whole prop off -> player keeps sword; spawn-only -> player loses it) after four other
+  carriers were exonerated by isolated, self-measuring probes. Its construction repoints the
+  local player's `weaponRef` and strips `weaponEquipped?` -- a singleplayer class claiming THE
+  player. Fix: `create_ghost_weapon_flyer` -- a mesh component on the ghost, same class and
+  asset as its hand WeaponMesh (both read live; `SetSkeletalMeshAsset` is this build's setter),
+  driven from the wire. User: *"Tsukino don't lose their weapon anymore."*
+- **Flight, wall bounces and the tumbling pose**: the wire's own position+rotation replay, plus
+  a measured constant -- the real sword's mesh sits at roll+90 inside its actor, composed
+  exactly by adding to the innermost rotation. User: *"think air rotation/pose and the wall
+  bounce vfx worked as intended."* Bounces are a sender-side velocity-sign-flip counter playing
+  the measured `NS_WallKickHit` at the flyer.
+- **Landing dust at the sword, not at anyone's feet** -- the sword's own `NS_DustLand` excluded
+  from the player's `dl` counter by closer-to-sword distance, replayed on the 0->3 edge at the
+  landing; our spawn registered for echo exclusion after one round of bouncing onto the other
+  ghost. User: *"sword dust works properly now, not shown at any ghost/feet anymore."*
+- **The landed ring**: world-aligned (attached, it stood on edge), floor-seated (38 units below
+  the actor origin, measured), re-seated from the live target each tick, and hidden before
+  destroy on the catch edge (this build has no `DeactivateImmediate` -- measured). User:
+  *"the ground vfx goes away directly when picking it up"*; seating *"i think ... properly
+  seated now"* (their hedge, kept).
+- **The chair shadow**: `shadow_on` mirrors the player's `BlobShadow.bVisible` (the game's own
+  sit/stand flag, measured by the shadow_sit capture) onto the ghost's component -- shipped
+  inert once because the flag was read through a plain byte (the bitfield trap, third case);
+  `mg_read_bool` masks properly. User: *"chair shadow is fixed properly now."*
+- Scope: two real clients, one machine, one session (2026-09-01). Unwatched still: a throw
+  across a map seam, a reset mid-throw, and the ring/dust on non-flat ground (the 38 is one
+  floor's measurement).
+

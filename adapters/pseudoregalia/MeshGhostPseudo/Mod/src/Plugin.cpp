@@ -1411,7 +1411,7 @@ namespace MeshGhostPseudo
     // Flipped back off 2026-08-15, its job done: it found the resting pose (weaponState 0 -> 3),
     // proved the state setter does NOT spawn the glow, and -- once its own blind spot was fixed by
     // reading the position BEFORE each write instead of after -- measured the sinking as gravity.
-    constexpr bool WEAPON_PROP_TRACE = true; // armed 2026-09-01 for the two-peer throw session (stuck-in-air / sinking); flip back off when it ends
+    constexpr bool WEAPON_PROP_TRACE = false; // armed 2026-09-01 for the two-peer throw session, off again the same day with the flyer suite user-confirmed
 
     // Why a landed ghost sword floats, 2026-08-15. The sync itself is PROVEN correct for this:
     // WEAPON_PROP_TRACE showed TARGET/RENDER/READBACK agreeing to a decimal through a whole arc,

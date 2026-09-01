@@ -153,6 +153,14 @@ without incident. One census 3s after each (re)load; write the reloader trigger 
 - **`Scripts/equip_carrier_test.lua` / `montage_carrier_test.lua`** — one-shot carrier tests
   that exonerated `changeEquippedWeapon`-on-ghost and `CustomPlayMontage`(throw)-on-ghost by
   sampling the player's own flags through each call. Both clean, both negatives recorded.
+- **`Scripts/bounce_capture.lua`** — named the wall-bounce VFX (`NS_WallKickHit` at the contact
+  point) and the real sword's constant mesh offset (roll+90) in one flight capture.
+- **`Scripts/shadow_sit_capture.lua`** — caught the game flipping `BlobShadow.bVisible` on the
+  chair sit/stand edges; the shadow mirror is built on that flag.
+- **`Scripts/shadow_prop_name.lua`** — candidate-name tester. A sibling Lua function-census
+  (`meshsetter_census.lua`) never worked (`ForEachFunction` nil on this build) and was DELETED
+  rather than left armed -- preflight refuses blind reflection walks in armed probes; the C++
+  `dump_component_functions` is the working tool for that question.
 - **`Scripts/prop_carrier_test.lua` — CRASHED a live client (2026-09-01) and must not be re-run
   as written.** Two suspects, in order: `GetClass()` on a pawn's `weaponRef` (a pointer the game
   keeps AFTER pickup and can leave stale — a UFunction call on an object nobody owns, the exact

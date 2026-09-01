@@ -90,8 +90,10 @@ has never been looked at. `verified.md`.
   timelines, not a camera fade. `pseudoregalia/UNVERIFIED.md`.
 - **Pseudoregalia's THREE light bugs are FIXED, SHIPPED AS DEFAULTS and user-confirmed
   (2026-08-30)** — acceptance run with zero toggle files passed all checks. `pseudoregalia/VERIFIED.md`.
-- **Pseudoregalia's last open defect is the pickup CROSS-WIRE** — a peer's sword pickup drives
-  the local player's animation; next suspect the thrown prop's destruction path. `pseudoregalia/UNVERIFIED.md`.
+- **The pickup CROSS-WIRE and the whole thrown-sword family are CLOSED, user-confirmed on two
+  clients (2026-09-01)** — rebuilt on an owned flyer component. `pseudoregalia/VERIFIED.md`.
+- **The melee slash and the chair-shadow mirror SHIP, user-confirmed (2026-09-01)** — plus the
+  loopback-only demotion rule the day taught. `pseudoregalia/VERIFIED.md`, `pitfalls/by-lesson.md`.
 - **The lying-subtractions cause is FOUND (2026-08-30): bitfield bools read through a plain byte
   pointer** — `snapshot_scalar_properties` converted to `FBoolProperty`; the `bVisible` sweeps are
   not yet. `pitfalls/by-lesson.md`.

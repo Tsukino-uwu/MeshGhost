@@ -2125,3 +2125,30 @@ prints the pause menu's visibility transitions and destroys ghost pawns when it 
 hypothesis test that would otherwise have been a build. Identify things by what they ARE rather
 than by mod internals (a ghost is a player pawn with no controller), and the probe stays honest
 about what it knows.
+
+## The CARRIER TEST: isolate a suspected game call with self-measured before/after state
+
+Born 2026-09-01, hunting how a ghost's sword throw stripped the OTHER player's sword. When a
+mirror side-effects something it never touches, the suspects are the game functions the mirror
+calls -- and arguing about which one is guessing. Instead, for each suspect, a probe that:
+
+1. performs ONLY that call, on the mirror's target (the ghost), with no peer and no real event
+   anywhere -- `changeEquippedWeapon(false)` on the ghost, the throw montage on the ghost;
+2. reads the VICTIM's state itself, before, after, and sampled for a few seconds -- never "did
+   the user catch the moment": the first run went unobserved and proved nothing, the
+   self-measuring rerun settled it mechanically in six seconds;
+3. restores what it changed.
+
+Two suspects exonerated this way in minutes each. When every individual call comes back clean,
+STOP testing calls -- subtract whole SUBSYSTEMS with runtime toggles on the real path (the
+whole prop path, then its halves), because "A alone does nothing, B alone does nothing" still
+never implies A+B does nothing, and the carrier was the one piece no call-level test contained:
+the spawn itself.
+
+Two rules the same investigation re-paid for: a Lua shortcut that called `GetClass()` on a
+pawn's `weaponRef` (a pointer the game keeps stale after pickup) CRASHED a live client -- the
+finer split belonged in the adapter behind its own guards; and the flag your probe reads with
+Lua (which masks bitfield bools correctly) is NOT the flag C++ reads through a byte pointer --
+a measurement can be right while the mirror built from it is wrong (`pitfalls/by-lesson.md`,
+the third bitfield case).
+

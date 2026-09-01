@@ -147,7 +147,6 @@ half a player notices first.
   drawn a tile out of place because of one of them. Method: [probes.md](_template/probes.md), "Diff what you
   BUILT against what the game BUILT".
 
-
 ## Hard rule: reproduce the EFFECT, never adopt a handle the engine can recycle
 
 **A structure that stores another object's id is safe for the engine, which owns every lifetime
@@ -162,8 +161,10 @@ forever for a sprite that could no longer report itself finished.
 
 **What to do:**
 
-- **Copy what the effect DOES, not the data structure that does it.** The bob turned out to be one
-  number the peer was already sending. The engine's shape was never needed.
+- **Copy what the effect DOES, not the data structure that does it.** The bob was one number the
+  peer already sent; the engine's shape was never needed. **A game CLASS is structure too — a
+  singleplayer constructor may claim THE player (the loose sword repointed the watcher's
+  `weaponRef`, 2026-09-01): build visuals from engine components you own, never the gameplay class.**
 - **If you must hold an engine handle, re-validate it every use**, against the identity marker from
   the section above -- never against "it was valid when I stored it".
 - **Two writers on one field is its own bug.** An intermediate version drove the same bob from both
@@ -176,7 +177,6 @@ forever for a sprite that could no longer report itself finished.
 **The bisect that found it is the method, and it is cheap.** Adapter dropped -> fine. Tier off ->
 fine. Tier on, effects off -> fine. One effect on -> broken. Four runs, no theory. Any "our code
 broke the game" hunt should take that shape before anyone reads code.
-
 
 ## Hard rule: honour every SHARED setting, or say in your log that you cannot
 
@@ -248,7 +248,6 @@ because the previous run's `DRAW_OVERFLOW = "0"` outlived a flags file that mere
 line. **Both times the log looked right** -- it reported peers WAITING for the tier, which is not
 the same as drawn -- and both times a person looking at the screen caught it. Find the counter
 that reports work DONE, and treat its absence as a result.
-
 
 ## Hard rule: never move a ghost faster than the game moves, and never in units the game does not use
 

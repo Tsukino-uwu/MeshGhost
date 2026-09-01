@@ -5374,3 +5374,54 @@ caching any raw `UObject*`, ask "can the game free this WITHIN a level?" -- if y
 hold `FWeakObjectPtr`. `adapters/pseudoregalia/CLAUDE.md` carries the rule, and `preflight.ps1`
 now fails any file-scope raw-pointer cache in `Plugin.cpp` without a `stale-safe:` annotation
 saying which case it is (the user's ask: make this one impossible to re-derive).
+
+## A SINGLEPLAYER GAME CLASS SPAWNED AS A COSMETIC PROP CLAIMS THE PLAYER (Pseudoregalia, 2026-09-01, CLOSED)
+
+**Symptom.** With two real peers, a ghost's sword throw stripped the WATCHING player's own
+sword, played the pickup animation on them, and the prop froze mid-air, snapped to ground and
+sank -- while the same code had looked perfect on loopback since 2026-08-15, where the cross-write
+writes the player's own values back and is invisible.
+
+**Cause.** The mirror spawned the game's real `BP_looseWeapon_C` as the ghost's thrown sword.
+That class is written for a game with ONE recallable sword: its construction repoints the local
+player's `weaponRef` at itself and clears `weaponEquipped?` (measured live -- the passive
+capture logged the repoint the tick our prop spawned), and the game then keeps re-parking "its"
+sword at world origin under our position writes -- the two-writers fight that read as stuck-
+in-air.
+
+**How it was found -- the method outlasts the fix.** Guessing carriers was losing: FOUR theories
+died to measurement first (extras-cap drops: relay drop-logging saw none; shared anim instance:
+identities distinct; `changeEquippedWeapon`-on-ghost and the throw montage on the ghost: both
+CARRIER-TESTED -- called in isolation with the player's flags sampled before/after/through, both
+clean). What settled it was SUBTRACTION AT SUBSYSTEM LEVEL: a runtime toggle skipping the whole
+prop path (player keeps sword) then a finer one skipping only the state call (player loses it
+again) -- two rounds, no theory, carrier = the spawn itself. A-alone/B-alone-proves-nothing
+lived again, and a Lua attempt to shortcut the split crashed a client (stale `weaponRef`
+`GetClass()` -- a UFunction on an object nobody owns).
+
+**Fix.** Reproduce the EFFECT on something we own: a mesh component added to the ghost
+(`AddComponentByClass`, the nametag's mechanism), same class and mesh asset as its hand
+WeaponMesh read live, driven from the wire -- which already carried the real sword's whole
+flight, bounces and embedded pose. One move retired the cross-wire, the second writer, the
+origin-parking, the sinking and the pickup-animation echo.
+
+**The rule, generalised in `adapters/CLAUDE.md`'s effect-not-structure section:** a game CLASS
+is structure too. In singleplayer game code, constructors and BeginPlay are free to reach "the
+player" -- spawning such a class as a cosmetic prop executes that claim. Build visuals from
+engine-level components you own.
+
+## THE BITFIELD BOOL, THIRD CASE — AND EVERY ONE-SHOT A MIRROR SPAWNS MUST REGISTER FOR ECHO EXCLUSION (Pseudoregalia, 2026-09-01, both CLOSED)
+
+Two same-day recurrences of case-filed lessons, recorded because recurrence is the finding:
+
+- **The shadow mirror shipped INERT**: `shadow_on` read the player's `BlobShadow.bVisible`
+  through `mg_property_value<bool>` -- the plain-byte bitfield read, walked into for the third
+  time WITH the case file open (the Lua probe that measured the flag masks bitfields correctly,
+  which is why the measurement was right and the mirror wrong). Fix-forever this time:
+  `mg_read_bool` (FBoolProperty mask, cached) now exists; new flag reads go through it.
+- **The sword's landing dust bounced onto the other ghost**: the receiver's landing-edge spawn
+  uses the `dl` row's own asset and was not pushed into `recent_one_shot_components`, so the
+  watcher's sender counted OUR burst as its player's landing and broadcast it -- the exact echo
+  the dust mirror closed on 2026-08-29, re-made by a new spawn site. The rule: ANY component the
+  mirror spawns from a row asset registers for exclusion, at the spawn site, the same edit.
+

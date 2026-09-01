@@ -388,7 +388,13 @@ requires a `stale-safe:` annotation on every file-scope raw-pointer cache. Deplo
 installs. **UNWATCHED: needs a session where a real charged shot is fired and hits something --
 the exact sequence that crashed -- plus the peer-side projectile still rendering on a ghost.**
 
-### The sword-throw cross-wire: CARRIER FOUND (2026-09-01) -- it is the thrown-weapon PROP path
+### The sword-throw cross-wire: CLOSED same day -- see VERIFIED.md 2026-09-01 (the flyer suite)
+
+**Every symptom in this section was fixed and user-confirmed on two clients the same day**; the
+record below stands as the investigation trail. Remaining opens: a throw across a map seam, a
+reset mid-throw, and the ring/dust floor-drop (38) on non-flat ground -- none watched.
+
+### (closed) The sword-throw cross-wire: CARRIER FOUND (2026-09-01) -- it was the thrown-weapon PROP path
 
 **The subtraction that settled it: with `skip_ghost_weapon_prop.txt` armed on the WATCHING
 client, the player KEPT their sword through a peer's throw+pickup (user-confirmed live).** Four

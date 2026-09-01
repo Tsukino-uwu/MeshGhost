@@ -290,3 +290,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A dozen single-run A/Bs against an intermittent bug (Pseudoregalia, 2026-08-31)
 - The reset-to-save crash: two sessions of guards for a bug one symbolized stack named (Pseudoregalia, 2026-08-30 → 09-01, CLOSED)
 - A cache that is safe at teardown can still dangle mid-level — ask what the game frees on its own (Pseudoregalia, 2026-09-01, CLOSED)
+- A singleplayer game class spawned as a cosmetic prop claims the player (Pseudoregalia, 2026-09-01, CLOSED)
+- The bitfield bool, third case — and every one-shot a mirror spawns must register for echo exclusion (Pseudoregalia, 2026-09-01, both CLOSED)
