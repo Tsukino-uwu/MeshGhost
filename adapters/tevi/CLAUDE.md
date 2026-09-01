@@ -60,9 +60,10 @@ any Unity adapter.
 ## Configuration goes through BepInEx's own config, not an environment variable
 
 This host has a real config system and the player already knows where it lives, so the bridge
-port is a BepInEx `BridgePort` entry rather than an env var — unlike the emulator adapters, which
-have no such system and use the environment. `_template/PROTOCOL.md` has the port-walk contract
-that setting feeds.
+port's primary home is a BepInEx `BridgePort` entry rather than an env var — unlike the emulator
+adapters, which have no such system and use the environment. The shared `MESHGHOST_BRIDGE_PORT`
+launcher override still exists and wins over the config entry, so one launcher script can aim
+every game. `_template/PROTOCOL.md` has the port-walk contract both feed.
 
 ## Launching the core: no console window
 

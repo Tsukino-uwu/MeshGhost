@@ -1048,9 +1048,10 @@ All done on this machine — kept as the checklist a fresh setup should still fo
 
 ## Workspace conventions
 
-- The project lives in `C:\dev\MeshGhost`.
-- Do not access outside authorized directories unless explicitly approved.
 - Record any non-default environment tweaks here, factually and version-specific.
+- **Session scaffolding and build logs go to `dev-logs/` (gitignored wholesale)** — redirect
+  relay/core/fakeadapter/netsim and `build-*.bat` output there, never loose at the root; 181 strays
+  were swept in on 2026-09-01, and root `build-*`/`fake-*`/`netsim-*` log globs catch forgetters.
 - **BizHawk Lua CAN start a process with NO window — via `luanet`, not `os.execute`
   (2026-08-18).** This unblocks autostart for both Pokemon adapters, which was previously assumed
   impossible because every shell route flashes.

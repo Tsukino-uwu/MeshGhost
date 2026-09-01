@@ -56,13 +56,15 @@ actually tested. Fly is now built and partly confirmed but **not complete** — 
   [agent_docs/licensing.md](../../../../agent_docs/licensing.md) for the rule on how that decomp
   may and may not be used.
 - Tile-grid movement means small integer positions; the brief's original "10Hz sync looks
-  fine" hypothesis was superseded once real send-rate limits shipped — the real cap is 20Hz
-  (`core.DefaultMinSendInterval`), live-confirmed across the three games shipping at the time —
+  fine" hypothesis was superseded once real send-rate limits shipped — the real cap is 15Hz
+  (`core.DefaultMinSendInterval`, from `protocol.DefaultSendHz`; it was 20Hz from Phase 6 until
+  2026-09-01), 20Hz having been live-confirmed across the three games shipping at the time —
   Emerald, TEVI and Pseudoregalia; **Crystal is the fourth and came later** (2026-08-18) (see
   [agent_docs/contract.md](../../../../agent_docs/contract.md)'s Limits section).
 - No ROM is or will be shipped with this repo. Bring your own legally-obtained copy.
 - The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
-  what `.github/workflows/release.yml` ships and what any future fix belongs in.
+  what `dev-scripts/stage-release.ps1` (invoked by `.github/workflows/release.yml`) stages into
+  the release, and what any future fix belongs in.
   `phase5_5_sprite.lua` is a historical copy under its original development-phase name (split
   off 2026-08-14, byte-identical only at that moment — see that file's own header for how far
   it's since diverged) — the "How this adapter was built" section below is the accurate
@@ -89,9 +91,10 @@ Measured 2026-08-19 and 2026-08-21 with real peers over the real relay. Full tab
   a nearby NPC loads.
 - **The hardware is not the constraint here.** A GBA overworld character is a single OAM entry, so
   13 ghosts plus the cast used 16 of 128. (Crystal, on the Game Boy, hits a hardware wall of ten
-  characters — this one does not.) The hardware tier adds **56** more characters on top of the
-  engine's own, and both full at once — **67 characters on screen** — still measured 60.0fps,
-  indistinguishable from a bare emulator.
+  characters — this one does not.) The hardware tier's 56 entries have since been split across
+  five pools (2026-08-21, see `BANDAGES.md`), so it now holds **26** peer bodies on top of the
+  engine's own; the pre-split measurement — all 56 as bodies, **67 characters on screen** — still
+  measured 60.0fps, indistinguishable from a bare emulator.
 - **The painted tier is the rung that costs.** Those same 56 peers painted instead cost a third of
   the frame rate. That comparison is why the ladder is ordered the way it is, and why both overflow
   rungs are opt-in.

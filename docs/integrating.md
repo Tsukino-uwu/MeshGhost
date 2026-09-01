@@ -215,11 +215,18 @@ Lines are capped at 4096 bytes by the relay.
 << {"type":"leave","payload":{"player_id":"p3"}}
 ```
 
-That is the whole cosmetic protocol. Notes on it, in the order they will trip you:
+That is the whole cosmetic protocol. (The transcript was captured when the default room rate was
+20Hz — a current relay at defaults advertises `"send_hz":15`. A current relay may also include
+fields this capture predates, all `omitempty`: `nametags` on `welcome` and `nametag` on `join`
+when peers set a `display_name`, `ghost_collision`, `features`, `resume_token`. Rule 6 below is
+the mitigation, and this is its live example.) Notes on it, in the order they will trip you:
 
 - **The `hello` above is the complete minimum.** Everything else is optional. Send no `features` at
   all and none of the event/lease/escrow/world machinery ever runs for your room — which is what you
-  want until you deliberately need it.
+  want until you deliberately need it. Two optional fields added since this was written:
+  `name_color` (a hex colour for your nametag) and `own_area_only` — leave `own_area_only` unset
+  unless you filter received states by `area_id` yourself, because setting it makes the relay stop
+  sending you states from other areas entirely.
 - **`player_id` is assigned by the relay**, formatted `p<N>`, and never reused. Your `welcome`'s
   `roster` is everyone who was already there — it does not include you.
 - **The relay stamps `player_id` on your state and nothing else.** Look at what alice received:

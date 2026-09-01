@@ -249,9 +249,12 @@ rather than about any adapter:
 - **The engine's own characters sit BELOW the overlay's entries — 0..3 in this scene**, and
   sprite-vs-sprite
   ties are broken by entry number — so they are drawn over the fog rather than under it.
-- **A semi-transparent sprite cannot blend against another sprite.** Put any sprite beneath the
-  overlay and the overlay stops blending there and draws OPAQUE — a solid grey block the size of
-  the sprite underneath (measured: pure greys, 181..247, against purple water).
+- **The overlay stops blending only where a same-priority, lower-entry-number sprite outranks
+  it** — there it draws OPAQUE, one solid grey block per entry rectangle (measured: pure greys,
+  181..247, against purple water). The earlier reading, "a semi-transparent sprite cannot blend
+  against another sprite", was wrong — the engine's own characters sit in front of the same sheet
+  with no artifact; see `FLAGS.md`'s `MESHGHOST_EMERALD_HW_PRIORITY` row for the Mt Pyre run that
+  corrected it.
 
 **Nothing else comes with it.** There is no companion sprite (that is surfing), the underwater
 graphics declare no reflection, and the graphic is 32×32 like every other special state. The one
@@ -714,7 +717,7 @@ authoritative depends on what the character is doing:
 - **`gPlayerAvatar.bikeSpeed` (+0x0B)** — the Mach Bike. A *stable* field holding the game's own
   `PLAYER_SPEED_*` value, which maps to a movement action (`FAST` to `WALK_FAST`, `FASTEST` to
   `WALK_FASTER`). Stable is the property that matters: `movementActionId` is transient, so sampling
-  it at 20Hz catches an ordinary walk or a turn as often as a fast action.
+  it at 15Hz (the send rate) catches an ordinary walk or a turn as often as a fast action.
 - **`movementActionId` as `WALK_FAST`** — the muddy slope's forced movement, during which
   `bikeSpeed` reads **0** even though the rider is visibly moving fast. Here the action is the
   reliable source, because the forced movement holds it.

@@ -5,9 +5,13 @@
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
-adds the freshly-built Go `.exe`s and the Emerald and Crystal adapter files on top, drops
-`client-config-template.json` into each mod folder that installs into a game (TEVI's and
-Pseudoregalia's) renamed to `config.json`, and zips the whole `packaging/release/` folder as the
+builds the Go `.exe`s and then delegates the assembly to `dev-scripts/stage-release.ps1`
+(also the local dry-run/rehearsal path), which copies the Emerald and Crystal adapter files in,
+and drops a `config.json` into each mod folder that installs into a game (TEVI's and
+Pseudoregalia's) — built by merging that game's `client-config-overrides.json` onto
+`client-config-template.json`, which is why the three shipped `config.json`s differ (TEVI ships
+`interp: 300ms`, Pseudoregalia `375ms`, both `ghost_collision: disabled`); the template itself is
+then removed from the staged tree. The workflow zips the whole `packaging/release/` folder as the
 Windows release asset. It does **not** stage a copy of the client beside those mods — see "One
 copy of the client, copied in by hand" below. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
@@ -204,10 +208,12 @@ Nothing under `adapters/` is picked up automatically — that tree holds source 
 shippable output (other Lua scripts under `adapters/emulator/pokemon/emerald/` are frozen/dev artifacts;
 `adapters/tevi/MeshGhostTevi/` is a C# project; pseudoregalia carries a submodule). Emerald is
 the easy case only because `meshghost_emerald.lua` *is* the shipped file. Each game gets its own
-step in `.github/workflows/release.yml`'s assemble job when its adapter is genuinely ready to
-ship — see the Emerald and Crystal steps there for the pattern (copy the script, copy a `lib/`
-next to it; Crystal reuses Emerald's, which is the same BizHawk LuaSocket build), and TEVI below
-for what a compiled adapter needs instead.
+staging step in `dev-scripts/stage-release.ps1` (which `release.yml` runs) when its adapter is
+genuinely ready to ship — see the Emerald and Crystal blocks there for the pattern (copy the
+script, copy a `lib/` next to it; Crystal reuses Emerald's, which is the same BizHawk LuaSocket
+build), and TEVI below for what a compiled adapter needs instead. A game whose mod folder ships a
+`config.json` also needs a `games/<game>/client-config-overrides.json` (or a deliberate decision
+not to override anything).
 
 Every game also gets a hand-written, committed `games/<publisher>/<game>/README.txt` — the
 end-user-facing setup steps for that specific game (what's in the folder, where to drag/copy it,

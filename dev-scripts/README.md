@@ -66,11 +66,11 @@ full note.
   in/out with an hourly rate, and the share of remote states thrown away as cross-area), and
   `-introspect` on the relay for the server side of the same picture. Both are off by default.
 - `run-relay.bat` / `run-relay-loopback.bat` — a single relay, `-send-hz=100`. Deliberately NOT
-  the relay's own 20Hz default: since the send/receive rate-control feature (see the ADR in
+  the relay's own 15Hz default: since the send/receive rate-control feature (see the ADR in
   agent_docs/architecture.md), a relay's advertised send_hz is prescriptive — a Core adopts it
   unless it has its own slower explicit `-min-send`, and the SLOWER of the two always wins. Left
-  at 20Hz, this relay would silently override every `run-core-*.bat` script's own fast
-  `-min-send` (below) back down to 50ms. 100Hz keeps this relay out of the way entirely, so
+  at the default, this relay would silently override every core launcher's own fast
+  `-min-send` (below) back down to ~67ms. 100Hz keeps this relay out of the way entirely, so
   each core's own `-min-send` is what actually governs local test timing, same as before this
   feature existed.
 - `run-core.bat <game> [transport] [instance]` — **the dev core launcher for every game.**
@@ -165,8 +165,8 @@ full note.
 
   1. **Relay fan-out**, which grows with the *square* of room size — `Room.Forward` sends every
      state to every other member. Measured on the real structs, one Pseudoregalia state line is
-     597 bytes, so a 16-seat room at the default 20Hz is ~2.7 MB/s of relay upload (~9.6 GB an
-     hour) against ~175 KB/s down per player; a 32-seat room is ~11.3 MB/s up (~40 GB/hour).
+     597 bytes, so a 16-seat room at the default 15Hz is ~2.0 MB/s of relay upload (~7.2 GB an
+     hour) against ~131 KB/s down per player; a 32-seat room is ~8.5 MB/s up (~30 GB/hour).
      The host carries the quadratic term, which is why raising the cap is their bandwidth bill.
   2. **Per-client receive**, which grows linearly and won't be what breaks.
   3. **Adapter render cost** — almost certainly the one that actually binds, and the only one
@@ -230,8 +230,8 @@ latency path. Separation is the offset's job (`adapters/pseudoregalia/BANDAGES.m
 is the question being asked.
 
 The relay's `-send-hz=100` matters for the same reason: its advertised rate is prescriptive and the
-effective rate is the **slower** of it and the client's own `-min-send`, so a relay left at its 20Hz
-default silently drags every dev client back down, and a ghost updating at 20Hz cannot be judged
+effective rate is the **slower** of it and the client's own `-min-send`, so a relay left at its 15Hz
+default silently drags every dev client back down, and a ghost updating at 15Hz cannot be judged
 1:1 whatever interp says.
 
 - `run-relay-online.bat` + `run-core-pseudoregalia-online.bat` — **the two-machine pair for the
@@ -290,7 +290,7 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   [agent_docs/phases/phase3.md](../agent_docs/phases/phase3.md) and
   [agent_docs/phases/phase6.md](../agent_docs/phases/phase6.md).
 - `run-relay-loopback-shipped.bat` — the same loopback echo at **shipped** settings: `-loopback`
-  is its only departure from a released relay, so the receive rate is the default 20Hz rather
+  is its only departure from a released relay, so the receive rate is the default 15Hz rather
   than `run-relay-loopback.bat`'s `-send-hz=100`. That override is exactly what would invalidate
   a test asking how the renderer looks at the rate a real player receives. **Pair it with
   `run-core-crystal-shipped.bat`, never with `run-core.bat crystal`** — see the interp/offset
@@ -404,7 +404,7 @@ default silently drags every dev client back down, and a ghost updating at 20Hz 
   not test what you meant. Two things worth watching that the automated tests cannot reach: a
   state message over `udpconn.MaxDatagramBytes` (1200) is refused rather than sent, which shows
   up as `core: send state to relay failed` rather than as silence; and the retransmit timer and
-  dedup pruning only get exercised over minutes at 20Hz, not over one round trip — see CLAUDE.md's
+  dedup pruning only get exercised over minutes at a real send rate, not over one round trip — see CLAUDE.md's
   rule about light tests not closing load-dependent risks.
 - `build-pseudoregalia.bat` — not a launcher, a build step: compiles the Pseudoregalia UE4SS
   C++ mod (`main.dll`) via its local CMake build tree and stages it into

@@ -10,10 +10,12 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not `probes/README.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Six directories, nine scripts,
-one index. Written 2026-08-25; before that the directories had no index at all, which
-`_template/README.md` had mandated since it was written. Three of the six arrived on 2026-08-29,
-when `CLAUDE.md` made Lua-plus-hot-reload the default way to ask this game a question.
+— there is no single `probes/` folder to index from the inside. Eleven directories, seventeen
+scripts, one index (2026-09-01 count; six directories and nine scripts when this was written
+2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
+mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
+Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatch/` and
+`probe_slashvfx/` followed on 2026-08-31 and 2026-09-01.
 
 ## Every probe here is READ-ONLY
 
@@ -77,7 +79,7 @@ stops, so a crash names its own cause. `agent_docs/verified.md` and `phase7.md` 
 
 ## `probe_reloader/` — the hot-reload loop itself
 
-- **`Scripts/main.lua`** (65) — a resident watcher that calls `RestartMod` when a trigger file
+- **`Scripts/main.lua`** (73) — a resident watcher that calls `RestartMod` when a trigger file
   changes, so a probe restarts inside the running game with no keystroke and no window focus.
   Deliberately dumb and never edited during an iteration: a syntax error in the probe being
   iterated cannot take the reload loop down with it. `../CLAUDE.md` has the protocol.
@@ -115,10 +117,12 @@ re-darkens is indistinguishable in `UE4SS.log` from one fixed on the first sweep
 forbids reading back the value you wrote with the thing that wrote it; this is the separate
 instrument.
 
-- **`Scripts/main.lua`** (~70) — once a second, one line per `PointLightComponent`: full name and
-  `Intensity`. Stops itself after 60 samples. A ghost steady at 0 means the write took and nothing
-  fights it; a ghost flickering 0 ↔ 5000 means the hold is earning its per-tick cost.
-- **It is deliberately the smallest instrument that answers the question**, and that is the whole
+- **`Scripts/main.lua`** (134 — it has roughly doubled from the ~70 lines this row first
+  recorded, so re-read it before calling it minimal) — once a second, one line per
+  `PointLightComponent`: full name and `Intensity`. Stops itself after 60 samples. A ghost steady
+  at 0 means the write took and nothing fights it; a ghost flickering 0 ↔ 5000 means the hold is
+  earning its per-tick cost.
+- **It began as the smallest instrument that answers the question**, and that is the whole
   lesson its ancestor above paid for: no UFunction call on anything, one property read, one class
   enumerated. `FindAllOf` still returns class-default objects — reading a property off one is
   survivable, and calling into one is the line `probe_dustlight/` crossed.
@@ -166,4 +170,27 @@ without incident. One census 3s after each (re)load; write the reloader trigger 
   keeps AFTER pickup and can leave stale — a UFunction call on an object nobody owns, the exact
   line `probe_dustlight/` crossed), and `World:SpawnActor` of a gameplay-bearing Blueprint from
   Lua. The split it wanted now lives in the adapter as `skip_ghost_weapon_state.txt`, with the
-  C++ guards. Ships WITHOUT `enabled.txt`, like `probe_dustlight/`.
+  C++ guards. It is not `main.lua`, so it never auto-loads — but note the FOLDER is armed:
+  `probe_swordthrow/enabled.txt` exists for the folder's `main.lua` (unlike `probe_dustlight/`,
+  which ships disarmed).
+
+## `probe_menuwatch/` — the reset-world fingerprint (2026-08-31)
+
+**The question:** spawning a pawn into a world made by "reset to last save" kills the game, while
+the same spawn after a ZONE CHANGE is fine — so what differs about the world a reset makes?
+Prints a fingerprint of the world every 2s and on change, so a zone-change world and a reset
+world can be diffed line for line. Property reads and cheap lookups only — no UFunction calls
+into the Blueprint VM, which is where the fault lives. Quiet unless something changes. Ships
+disarmed (no `enabled.txt`). Its findings fed the reset-crash root-cause (`UNVERIFIED.md`,
+`VERIFIED.md` 2026-09-01).
+
+## `probe_slashvfx/` — what a melee swing actually spawns (2026-09-01)
+
+**The question, the user's:** a ghost playing the attack montage shows none of the *"curved slash
+ish going outward"* VFX. Logs every Niagara/Cascade component APPEARING or ACTIVATING — asset,
+attach point, offset — exactly the fields a `MIRRORED_EFFECTS` row needs; activations are
+labelled separately because pooled components reactivate rather than appear. Safe shape per the
+dustlight post-mortem: named property reads only, no UFunction calls on `FindAllOf` results, two
+classes at 5Hz, and it reports its own coverage every 10s so "no events" is distinguishable from
+"not looking". **Carries `enabled.txt` — ARMED as of 2026-09-01** while its question is still
+open; disarm it once the slash mirror ships.

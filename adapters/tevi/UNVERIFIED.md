@@ -49,11 +49,13 @@ star, hold and slam, at the same heights, on the same sides.
 
 **Three residuals, in the order they are likely to be noticed, none of them measured:**
 
-- **A ghost renders behind by design** (`interp`, and TEVI's dev-judged pick is now 175ms --
-  `../../agent_docs/verified.md`). Body and effects are delayed together, so it should not look
-  internally out of step -- if the star lags the ghost's OWN swing, interpolation is not the cause.
+- **A ghost renders behind by design** (`interp` -- 175ms was the dev-judged same-machine floor,
+  and the SHIPPED default was raised to 300ms on 2026-09-01 to price a real link, see this file's
+  own later entry and `../../agent_docs/verified.md`). Body and effects are delayed together, so it
+  should not look internally out of step -- if the star lags the ghost's OWN swing, interpolation
+  is not the cause.
   **One consequence is permanent and not a defect:** the weapon strobe cycles every ~83ms while the
-  ghost renders 175ms behind, so a delayed replica can never agree with the live player frame for
+  ghost renders 175-300ms behind, so a delayed replica can never agree with the live player frame for
   frame -- only its rhythm, its colours and its HELD poses can match.
 - **Effects spawn on message ARRIVAL, and that is now a MEASURED decision rather than a pending
   one (2026-08-28).** The "better fix" this entry used to propose -- spawning when the ghost's clip
@@ -187,7 +189,6 @@ was, until the core's own drop detection finally despawned that peer (quic ~17s,
   recorded states. A state that lands this frame is still drawn this frame, so the change costs no
   latency in the normal case.
 - **A marker whose state is older than `MarkerStaleSeconds` (1s) HIDES.** Hidden, not destroyed --
-- MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
   destroying stays the core despawn's job, so a peer mid-hitch comes straight back. One second is
   chosen because the core re-sends every remote it tracks on *every* adapter frame: a peer standing
   perfectly still still produces `render_remote`, so silence means the states stopped arriving,
@@ -261,7 +262,7 @@ settled on, and reports waiting for `bridge_ready` before its first send rather 
 start two TEVI copies with no `BridgePort` set in either config, and each should land on its own
 core (7778 and 7779) rather than one failing or both talking to the same one.
 
-## Pending -- two of the five probes have never been run
+## Pending -- two of the six probes have never been run
 
 `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` are still written-but-never-run, which is their honest
 state ([PROBES.md](PROBES.md)). Neither is part of the shipped mod; both are compiled out while

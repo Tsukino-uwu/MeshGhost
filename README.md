@@ -3,8 +3,8 @@
 <!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
-independent copy of the game; friends show up as "ghosts" — live position, facing and animation —
-while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by
+independent copy of the game; friends show up as "ghosts" — live position, facing and animation,
+with an optional nametag in a colour of their choosing — while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by
 default there are no synced items, enemies, health or progression, and desync is expected and
 fine. If a friend kills a boss, it stays alive in your world, and that's okay.
 
@@ -69,6 +69,11 @@ Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 - Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret.
+- **Nametags are opt-in and cosmetic.** Set `client.name` (and optionally `client.name_color`) in
+  `config.json`; leave `name` empty — the shipped default — and no tag is drawn. Drawing it is
+  per-game work, shipped in Pseudoregalia today (a coloured plate above the ghost) and not yet in
+  the other three. Names are length-capped and sanitized on the relay and again by each receiver,
+  and a name is a label, never an identity.
 - Archipelago-patched ROMs are handled rather than merely hoped for: Emerald detects the patch's
   relocated addresses at startup and adjusts, and Crystal identifies the patch from its ROM header
   and switches to its own separately-measured address set. Both are tied to the base patch each was

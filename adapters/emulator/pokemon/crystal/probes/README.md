@@ -16,13 +16,12 @@ has been read, its conclusion belongs in `VERIFIED.md`.
 live, with no emulator relaunch. See `agent_docs/environment.md`. Older probes here predate the
 loader and run their own frame loop, so they still work opened directly in the Lua Console.
 
-## Twenty of these WRITE, and fifteen hold the controller. Read this before running one.
+## Twenty of these WRITE, and seventeen hold the controller. Read this before running one.
 
 Called out here rather than only in their own headers, because a folder index that hides a
 memory-writing tool is the worst kind of gap — nobody reads a header they did not know existed.
 **This section said "ten" and named nine until 2026-08-25, while eighteen scripts were missing
-from the index entirely — five of them writers.** That is the gap in its purest form: the index
-was reassuring and wrong at the same time.
+from the index — five of them writers** (and it undercounted twice more since).
 
 **Object RAM only, never a save** — a reset or a map load rebuilds what they touched:
 `spawn_test.lua` through `spawn_test7.lua`, `struct_diff_probe.lua`, `walk_test.lua`,
@@ -34,21 +33,23 @@ on frames where the engine's own layout pass has declared them unused, and parks
 
 **Player state, deliberately** — these cheat on purpose, which `CLAUDE.md` permits for a
 probe and never for an adapter: `goto_map.lua` warps the player (six writes, exactly what the
-game's own `warp` command does; **it savestates to slot 8 first, always**, which is this
-project's undo convention), `grant_test_kit.lua` writes badges/HMs into the party,
-`grant_items.lua` writes the bag, `set_level.lua` writes a party Pokémon's level, experience and
-stats, and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
+game's own `warp` command does; **it savestates first, always** — to slot 8, this project's undo
+convention, unless `MESHGHOST_GOTO_UNDO_SLOT` says otherwise), `grant_test_kit.lua` writes
+badges/HMs into the party, `grant_items.lua` writes the bag, `grant_flash.lua` sets the Flash
+status flag, `set_level.lua` writes a party Pokémon's level, experience and stats,
+`ap_bag_grant.lua` and `ap_force_state.lua` write bag/state on an Archipelago build,
+and `noclip.lua` redirects `wTilesetCollisionAddress` into a WRAM zero region.
 **None writes the `.sav`** — but an in-game save afterwards makes their changes
 permanent, so savestate first and reload after. `noclip_off.lua` restores the collision pointer.
 
 **The three grant probes are kept SEPARATE on purpose** — badges/moves, bag, and levels — so that
 what each one changed stays obvious when something later looks wrong.
 
-**Fifteen hold the controller**, and the count keeps growing because a savestate-driven rig is now
-the normal way to reach an expensive state: `action_probe`, `bump_probe`, `dig_drive`, `door_loop`,
-`fish_drive`, `fly_drive`, `ice_probe`, `idle_cycle_drive`, `ledge_drive`, `menu_clip_check`,
-`menu_state_table`, `square_drive`, `surf_follow_probe`, `trainer_check`, `whirlpool_drive` — plus
-anything loaded alongside them.
+**Seventeen hold the controller**, and the count keeps growing because a savestate-driven rig is
+now the normal way to reach an expensive state: `action_probe`, `bump_probe`, `dig_drive`,
+`door_loop`, `fish_drive`, `fly_drive`, `ice_probe`, `idle_cycle_drive`, `ledge_drive`,
+`menu_clip_check`, `menu_state_table`, `seam_drive`, `seam_shuttle`, `square_drive`,
+`surf_follow_probe`, `trainer_check`, `whirlpool_drive` — plus anything loaded alongside them.
 Unload them before handing the game back — in a loopback session the ghost IS the local player
 echoed, so a probe jittering the player jitters the ghost, and that reads as a rendering fault.
 One left loaded on 2026-08-22 became a suspect for a ghost wiggle and cost a round of diagnosis.
@@ -86,8 +87,8 @@ Each one exists because the previous one failed in a specific way; `phase9.md` h
 ## Movement, pose and cadence
 
 The 1:1 bar is judged on screen, so these measure what the engine DRAWS and how fast, not what
-its structs say. `../CLAUDE.md`'s "never move a ghost in units the game does not use" came out
-of this group.
+its structs say. `adapters/CLAUDE.md`'s "never move a ghost in units the game does not use" came
+out of this group.
 
 | Probe | What it answered |
 | --- | --- |
@@ -187,10 +188,10 @@ wrong. Results and what is still unmeasured: `phase9.md` and `VERIFIED.md`.
 
 | File | What it is |
 | --- | --- |
-| `connections_probe.lua` | **Passive.** Reads `wMapConnections` and all four connection structs every frame and prints a SEAM REPORT on every map change: which of the departing map's structs named the arriving map, the player's coordinates on both sides, and a CANDIDATE CHECK that runs the translation arithmetic BACKWARDS against the crossing to mark its own homework. It is what caught a mirrored north/south assumption before it shipped. Also logs `wBGMapOffsetX/Y` and `hSCX/hSCY` for screen-mapping questions, and reports which directions it has NOT seen. |
+| `connections_probe.lua` | **Passive.** Reads `wMapConnections` and all four connection structs every frame and prints a SEAM REPORT on every map change: which of the departing map's structs named the arriving map, the player's coordinates on both sides, and a CANDIDATE CHECK that runs the translation arithmetic BACKWARDS against the crossing to mark its own homework. It is what caught a mirrored north/south assumption before it shipped. Also logs `wBGMapOffsetX/Y` and `hSCX/hSCY` for screen-mapping questions, and reports which directions it has NOT seen. Honours `MESHGHOST_CRYSTAL_CONN_ADDR` (env, then global) to override the `wMapConnections` address. |
 | `seam_drive.lua` | **Input-driving.** Loads savestates 7, 8 and 5 in turn and walks one tile across each seam, so all four directions are exercised without asking anyone to hold a controller. Aborts if a wild battle starts (slot 5 is on the water) and proves it returned to a known state rather than asserting it. |
 | `seam_shuttle.lua` | **Input-driving.** Walks back and forth across one east/west seam forever — the user's own repro. Deliberately paces PERPENDICULAR to the seam and prints the player's map each second: an earlier square-walking driver strolled across the seam and silently turned a cross-map peer into an ordinary one. Repetition is what turns "I think it blinked" into a distribution. |
-| `xtrace_on.lua` | Sets `MESHGHOST_CRYSTAL_XTRACE` before the adapter loads, arming the adapter's own bounded per-frame tier trace (40 frames after each map change, with per-frame draw counters and the reason any frame went unpainted). The dev loader shares one Lua environment, which is why a global set here reaches the adapter. |
+| `xtrace_on.lua` | Sets `MESHGHOST_CRYSTAL_XTRACE` before the adapter loads, arming the adapter's own bounded per-frame tier trace (150 frames after each map change, with per-frame draw counters and the reason any frame went unpainted). The dev loader shares one Lua environment, which is why a global set here reaches the adapter. |
 
 ## Not a probe
 

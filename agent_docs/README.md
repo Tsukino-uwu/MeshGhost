@@ -33,7 +33,7 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - [hz-ceiling.md](hz-ceiling.md) — **how fast a room can actually run**, measured: where the
   snapshot buffer edge-holds (a silent CLIFF, not a gradient), what the millisecond timestamps cost,
   the bandwidth per room size, and which layer owns which limit. Read before raising `send_hz`,
-  before touching `maxSnapshots`/`maxSnapshotAgeMs`, or before answering "can we run at 144/480Hz
+  before touching `maxSnapshots`/`defaultSnapshotAgeMs`, or before answering "can we run at 144/480Hz
   to match the game's fps?". Split out of `scaling.md` 2026-08-30.
 - [ideas.md](ideas.md) — unscheduled feature backlog. Not the roadmap — researched enough to
   act on when picked, but nothing here is committed until it moves into [plans.md](plans.md).
@@ -101,8 +101,6 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
 - **`.claude/skills/new-adapter/` and `.claude/skills/write-a-probe/` — required reading, sequenced.**
   A skill's body loads only when invoked, so these carry the order to read things in without
   spending context until the moment they apply. They are maps, not copies: every rule keeps one home.
-  **Confirmed working 2026-08-25** — `write-a-probe` invoked and loaded in a live session, the
-  first proof either fires since they were added; before that the mechanism itself was untested.
 
 **The one-line map, if you are new here** (user's framing, 2026-08-19, corrected on one point):
 
@@ -160,7 +158,7 @@ in agent memory is invisible to all three and goes stale with nothing to catch i
 
 **`../docs/` is the other half of the documentation, and it is not this folder's job.** It is
 written for people *using* MeshGhost; `agent_docs/` is the internal record of how it was built.
-Four files, all one level up:
+Five files, all one level up:
 
 - [../docs/security.md](../docs/security.md) — security and privacy posture: what's already
   checked-safe (no client ever learns a peer's IP; room-code auth, protocol- and game-version
@@ -179,6 +177,8 @@ Four files, all one level up:
   a real captured wire transcript, and what the relay answers versus drops in silence.
 - [../docs/antivirus.md](../docs/antivirus.md) — why the unsigned Go binaries get flagged, the
   two separate causes, and what a user can verify instead of taking our word for it.
+- [../docs/live-reload.md](../docs/live-reload.md) — the story of how each host reloads adapter
+  code into a running game; the rule and checklist live in `adapters/CLAUDE.md`, not here.
 
 ## How to use this folder
 

@@ -107,6 +107,9 @@ now it is neither.
 that might carry a side effect" is still a rule written far from the code that would want that
 component later.
 
+*(The numbering jumps here on purpose: entry 5 CLOSED on 2026-08-27 and its record moved below
+entries 6-7, keeping its number so older citations of "entry 5" still resolve.)*
+
 ### 6. The afterimage trail's CADENCE is ours, because a ghost has no `SpriteAnimation`
 
 `MeshGhostTevi/Plugin.cs`, `ApplyTrail()`. TEVI drives its afterimage trail from `SpriteAnimation`,

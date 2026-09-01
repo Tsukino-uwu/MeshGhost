@@ -24,7 +24,7 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 | [PLAYER_FIELDS.md](PLAYER_FIELDS.md) | Which fields exist, which we sync, how to promote one |
 | [FLAGS.md](FLAGS.md) | What every compile-time switch does, and which are recorded negatives |
 | [BANDAGES.md](BANDAGES.md) | Where we compensate instead of reproducing the mechanism |
-| [PROBES.md](PROBES.md) | The six dev-only Lua probes, what each was for |
+| [PROBES.md](PROBES.md) | The dev-only Lua probes (eleven folders as of 2026-09-01), what each was for |
 | [VERIFIED.md](VERIFIED.md) | Dated, user-confirmed evidence — append-only |
 | [UNVERIFIED.md](UNVERIFIED.md) | Believed working, nobody has watched it yet |
 
@@ -384,6 +384,29 @@ Roughly in order:
     room dividers draw over anything translucent, at any sort priority. Confirmed with three
     instances at once, one per case: name with colour, name without, and neither.
 
+56. Put out the light a ghost brought with it. Every spawned pawn carries the Blueprint's default
+    5000-intensity ascendant light plus a camera rig nobody looks through, additively brightening
+    the room per peer; both are now held dark/neutral, and after every spawn the level's own
+    light repair (`FixAllLights`) runs — the same call a light transition makes. Watched by the
+    user, 2026-08-30.
+
+57. Root-caused the reset crash to stale nametag pointers and fixed it — a world made by "reset
+    to last save" freed objects our components still referenced, so the next spawn died in the
+    engine. Found with the minidump reader and the world-fingerprint probe, confirmed by the user
+    2026-09-01. The spawn also now waits for a stable local pawn (`SPAWN_DELAY_TICKS`).
+
+58. Made a crowd affordable: 150 ghosts live in one room, roughly 30 above 50fps, after removing
+    per-ghost whole-world scans (per-ghost cost 6283 → 309 us) and unarming flag-gated sweeps
+    that ran with no toggle present. The same ladder fed the project-wide 15Hz send-rate default,
+    acquitted by a blind 15-vs-20 A/B the user scored at chance. Measured 2026-09-01,
+    `VERIFIED.md` and `agent_docs/crowd-limits.md`.
+
+59. Rebuilt the thrown sword as our own flyer component after the game's own class kept claiming
+    the watcher's player (`create_ghost_weapon_flyer` — pose, glow, bounce effects and blob
+    shadow driven from the peer's samples), and confirmed it on two real peers, 2026-09-01. The
+    peer-named-asset catalog gate landed the same day: a peer's asset name resolves only through
+    the local game's own loaded assets.
+
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
@@ -422,7 +445,8 @@ outstanding is a ghost failing to do something the player can do.
 
 ## Dev tools
 
-Six dev-only Lua probes across three folders, **indexed in [PROBES.md](PROBES.md)** — that file is
+Seventeen dev-only Lua probe scripts across eleven mod folders (2026-09-01 count — each probe is
+its own UE4SS mod directory), **indexed in [PROBES.md](PROBES.md)** — that file is
 their one home; this section says only why they exist and what to be careful of. None of them ships:
 the release contains the compiled `MeshGhostPseudo` DLL plus a bundled UE4SS runtime to load it, and
 nothing from these folders. They are kept because they are the record of how each capability was

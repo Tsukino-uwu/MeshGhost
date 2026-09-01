@@ -321,3 +321,32 @@ point of picking a second, structurally different game.
   real investigation (what actually spawns the VFX game-side, is it read into `local_state`
   today or not) before touching code — per `CLAUDE.md`, no fix without a cited source for what's
   actually happening.
+
+## Catch-up record, written 2026-09-01 — the 2026-08-28 session that closed the question above
+
+This file sat unwritten while the work happened; backfilled from the commit log and
+`adapters/tevi/VERIFIED.md`, which carries the dated evidence for every item.
+
+- **2026-08-27** — TEVI left its fixed bridge port: the 8-port walk, the send gate, and
+  port-walk convergence with the other three adapters (`74609a6`, `5634d10`, `9a34500`).
+- **2026-08-28, the hot-reload session** — the live-reload loop was proven in-game via BepInEx
+  ScriptEngine, after three green-but-did-nothing deploy bugs (`306377f`, `9905cf8`, `7cddef2`,
+  `c42b6cb`), and it carried the rest of the day:
+  - **The charged-attack VFX — this phase's final open question — was answered and confirmed on
+    a ghost** (`fac154e`, `10697c1`, `07b3d89`): the effects are POOLED and never parent to the
+    character, found by `DIAG_SPAWN_DIFF` returning a clean negative and `DIAG_POOL_WATCH`
+    naming both effects on its first run (`PROBES.md`). Mirrored by pool key.
+  - Afterimage trails on peer ghosts (`8ce0a44`); warp devices wake for a ghost, mirroring Stay
+    rather than Enter/Exit (`d5aeef5`, `1b4930b`); ghost dust lands per hop (2026-08-29,
+    `90c3562`).
+  - Animation PHASE sync, the perfect-timing effect, and hitstop mirroring (`e2b7447`), measured
+    with the new `DIAG_HITSTOP_PHASE` probe.
+  - Map markers went frame-driven with a 1s stale-hide (`81bc6b8`), peer anim names got bounds
+    (`42596d4`), the main-menu despawn got its core-side answer (`bdd1e02`), and ghosts survive
+    core restarts (`2fb2ebf`).
+  - Change suppression measured at ~70% of states suppressed in real play (`a2f309a`,
+    `0d030a2`), and TEVI shipped a 175ms per-game interp default (`1a5aa5b`, `c2dc3b7`) — raised
+    to 300ms on 2026-09-01 to price a real link.
+
+The phase's open question is therefore CLOSED; what remains open for TEVI lives in
+`adapters/tevi/UNVERIFIED.md` and `agent_docs/status.md`, not here.

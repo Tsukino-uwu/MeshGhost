@@ -95,7 +95,7 @@ let the relay start enforcing a limit it never told this client about.
 anything else this early is silently ignored.
 
 1. **Field lengths** (`relay.go`). Every `hello` string field against `MaxHelloFieldLen`
-   (128, `relay/limits.go`). This runs *first*, before even the version check, and its
+   (128, `protocol/online.go`). This runs *first*, before even the version check, and its
    rejection logs without echoing the field values — the normal rejection path prints them,
    and printing an unbounded attacker-controlled field into the host's own log is precisely
    what bounding the field was for.
@@ -147,7 +147,7 @@ matters — the joiner learns the room from its own `welcome`, the room learns t
 the slot, forwards a `leave` to the remaining roster, and drops the room if it is now empty.
 For a **cosmetic** room that is the whole story: a reconnect is a new connection with a new
 `player_id`. A room whose members negotiated `resume.v1` is the exception — `suspend`
-(`relay/online.go`) parks the identity in the room, marked suspended, and arms a grace timer
+(`relay/resume.go`) parks the identity in the room, marked suspended, and arms a grace timer
 (`Server.resumeGrace`, `protocol.DefaultResumeGrace`, 20s) instead of announcing a `leave`; a
 client that comes back inside the window presents its `Welcome.ResumeToken` and reclaims the same
 `player_id`, its leases and its in-flight exchanges. Nothing survives a relay restart — the
@@ -160,32 +160,42 @@ upgrading would make every other player watch this one leave and rejoin.
 Adapter → bridge → core → relay → other cores → their adapters. What happens at each hop:
 
 **Adapter → core.** Once per game frame the adapter sends a bridge `local_state`
-(`bridge.go`). `handleBridgeConn` (`core.go`) decodes it and calls `onAdapterFrame`
-(`core.go`). The adapter always drives; the core never calls into it uninvited.
+(`bridge.go`). `handleBridgeConn` (`core/bridgeserve.go`) decodes it and calls `onAdapterFrame`
+(`core/bridgeserve.go`). The adapter always drives; the core never calls into it uninvited.
 
-**Core → relay.** `forwardLocalState` (`core.go`) does four things worth knowing:
+**Core → relay.** `forwardLocalState` (`core/sending.go`) does seven things worth knowing:
 
 - It records `c.localAreaID` on *every* real frame, before any throttling and whether or not a
   relay connection even exists — the cross-area render filter needs the adapter's actual
   current area, not the last one that happened to get sent.
-- It throttles to `effectiveSendInterval()` (`core.go`), which is the **slower** of the
+- It throttles to `effectiveSendInterval()` (`core/sending.go`), which is the **slower** of the
   relay's advertised rate and this core's own `MinSendInterval`, falling back to
-  `DefaultMinSendInterval` (50ms/20Hz) when neither exists. Slower, always: the relay's rate is
+  `DefaultMinSendInterval` (~67ms/15Hz) when neither exists. Slower, always: the relay's rate is
   prescriptive for a client with no opinion, but a client that deliberately configured a floor
   did so because of its own connection, and the relay has no business overriding that upward.
 - A throttled frame is dropped *before* being stamped, so it never consumes a `seq`.
-- `sendState` (`core.go`) uses `SendUnreliable`, not `Send`. This is the state plane,
+- **Change suppression**: a state byte-identical to the last one sent is skipped, re-sent only
+  every `IdleKeepalive` (250ms default, the `keepalive` config key) so a standing player costs a
+  fraction of a moving one without ever looking dead to the relay.
+- **The bracket sample**: when a suppressed state finally changes, the last suppressed value is
+  re-sent stamped 1ms before the changed one, so a receiver never lerps a slow creep across the
+  silent gap.
+- The timestamp is stamped in the *relay's* clock domain when the room negotiated `clock.v1`
+  (`core/online.go`), so peers only have to agree, not be right.
+- `sendState` (`core/sending.go`) uses `SendUnreliable`, not `Send`. This is the state plane,
   which the contract defines as lossy and latest-wins. On tcp there is no difference at all; on
-  a datagram transport it means a lost sample is superseded by the next one ~50ms later rather
+  a datagram transport it means a lost sample is superseded by the next one ~67ms later rather
   than retransmitted — and a retransmitted position arrives stale and out of order, which is
   worse than the gap it filled.
 
-**At the relay.** The `TypeState` case (`relay.go`): decode, `protocol.ValidateState`
+**At the relay.** `forwardState` (`relay/states.go`): decode, `protocol.ValidateState`
 (`protocol/limits.go`) — drop the whole message rather than truncate it, so a client sees
-silence instead of a confusing half-message — then **stamp `st.PlayerID = id` from the
-connection's own assigned id** (`relay.go`), never trusting the payload's. A peer could
-otherwise claim someone else's id. Then
-`r.ForwardUnreliable(stateEnv, r.stateRecipients(id, st.AreaID, len(stateEnv.Payload), time.Now()))` (`relay.go`).
+silence instead of a confusing half-message (the relay itself logs the drop, throttled, with a
+`protocol.StateRejectReason` — added 2026-09-01 after a silent drop hid an `extras` overflow) —
+then **stamp `st.PlayerID = id` from the connection's own assigned id**, never trusting the
+payload's. A peer could otherwise claim someone else's id. Then the state line is rebuilt with
+`protocol.AppendEnvelope` and handed to `forwardLine` for the recipients `stateRecipients`
+picked (`relay/relay.go`).
 
 **The per-recipient receive cap.** `stateRecipients` (`relay.go`) asks each *other* member
 whether it currently wants a sample from this sender, via `Client.allowStateFrom`
@@ -199,24 +209,31 @@ costs smoothness, never latency or memory. Only `state` is ever gated this way; 
 `leave` would strand a permanently frozen ghost on the capped recipient's screen.
 
 Note `allowStateFrom` is a minimum-interval gate, not a token bucket, so the achievable rate is
-quantized: a 15Hz cap against a 20Hz sender yields 10Hz, not 15. Documented at the function,
+quantized: a 10Hz cap against a 15Hz sender yields 7.5Hz, not 10. Documented at the function,
 and acceptable for the same "it's cosmetic" reason.
 
-**Receiving core.** `handleRelayMessage` (`core.go`) → `storeRemoteState` (`core.go`),
+**Receiving core.** `handleRelayMessage` (`core/relaysession.go`) → `storeRemoteState` (`core/remotes.go`),
 which applies the *same* `protocol.ValidateState`, ignores state for its own id, and then
 checks `c.roster` — the set of ids this core actually saw announced via `welcome` or `join`.
 A state for an id it never saw is dropped. That is a deliberate trust boundary against the
 relay itself: previously `welcome.roster` was discarded entirely and any id arriving in a
 state was accepted, so a hostile or compromised relay could inject state for an arbitrary
-player. Surviving states are appended to that remote's `remoteBuffer` (`interp.go`), which
-keeps the last 8 snapshots — enough to smooth a couple of dropped packets, not a replay log.
+player. Surviving states are appended to that remote's `remoteBuffer` (`interp.go`), bounded by
+TIME first (a window derived from `InterpolationDelay` plus the prediction settings, 600ms by
+default) and by a 1024-sample memory cap second — enough to smooth dropped packets at any
+permitted rate, not a replay log. (It was a count of 8 until 2026-08-28; the comment at the
+constant records the bug that fixed.)
 
-**Core → adapter.** Every adapter frame, `tickRenders` (`core.go`) computes
+**Core → adapter.** Every adapter frame, `tickRenders` (`core/remotes.go`) computes
 `renderTime = now - InterpolationDelay` (250ms by default) and asks `remoteStatesAt`
-(`core.go`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go`)
+(`core/remotes.go`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go`)
 finds the two snapshots bracketing `renderTime` and lerps position between them; `area_id`,
-`anim`, `orientation` and `extras` are opaque and are never interpolated — they're taken from
-the older snapshot and hold until the next real sample passes. Outside the buffered range it
+`anim` and `extras` are opaque and are never interpolated — they're taken from
+the older snapshot and hold until the next real sample passes. `orientation` is opaque and
+uninterpolated *by the core* too, but since 2026-08-30 the core hands the adapter the bracket —
+both endpoint blobs plus the fraction (`orientation_from`/`orientation_to`/`interp_t` on
+`render_remote`, `orientBracket` in `core/interp.go`) — so an adapter that knows what its own
+orientation blob means can interpolate facing itself. Outside the buffered range it
 returns the nearest edge snapshot, with no extrapolation. `lerp` (`interp.go`) additionally
 refuses to blend across mismatched position lengths, a non-positive time span, or two different
 `area_id`s — that last one because blending two zones' unrelated coordinate spaces renders a
@@ -225,8 +242,14 @@ ghost at a meaningless midpoint.
 `remoteStatesAt` also drops any remote whose `area_id` doesn't equal the local player's own,
 unless the local area is still unknown. Equality only; it never looks inside the string.
 
-That filter runs *after* the bytes have already crossed the network, so the traffic it throws away
-is real. Both ends can now measure it rather than guess: `meshghost -stats=<dur>` logs one client
+That client-side filter is still the authority, but since the `own_area_only` opt-in (2026-08-28)
+it is mostly a backstop: a client whose adapter renders only its own area says so on its `hello`
+(re-negotiable mid-session with `prefs`), and the relay then skips cross-area recipients in
+`stateRecipients` before the bytes are ever sent — with an explicit transition rule so a
+departure still reaches the area being left, and `seedArrivalInto` (`relay/states.go`) so a
+late-seen peer is not invisible. Every shipped adapter except the ones that render adjacent
+areas (Emerald's cross-map ghosts) opts in by default. For a peer that did *not* opt in, the
+client-side filter still throws away real traffic. Both ends can measure it rather than guess: `meshghost -stats=<dur>` logs one client
 line (link rtt, clock offset, peers known versus rendered, bytes in/out with an hourly rate, and
 the share of received remote states discarded as cross-area, `core/stats.go`), and the relay's
 `-introspect` reports the same fan-out per room from its side (`StateFanoutSnapshot` and its
@@ -294,13 +317,15 @@ invariant and nothing else in `Client` does; hence a mutex on exactly that field
 else. `maxReceiveHz` sits next to it unguarded, because it's written once before the `Client` is
 published into `Room.members` and never mutated after.
 
-**`Room.Forward` snapshots targets before sending** (`relay.go`). It copies the
-recipient `(id, conn)` pairs under `r.mu`, releases the lock, and only then sends. This used to
-send while holding the lock for the whole loop. Once `Send` gained a write deadline and could
-legitimately block for seconds against a stalled peer (`DefaultWriteTimeout`, 10s,
-`transport.go`), holding `r.mu` across every recipient's `Send` meant **one stalled member
-could freeze every other room operation** — joins, leaves, roster reads, other forwards — for
-the same duration. The same snapshot-then-act shape appears in `Room.remove` (`relay.go`,
+**`Room.Forward` snapshots targets, then ENQUEUES — it no longer sends at all** (`relay.go`;
+`Forward`/`ForwardUnreliable` are thin wrappers over `forward` → `forwardLine`). The snapshot is
+the recipient `(id, conn, outbox)` triples copied under `r.mu` with the lock released before any
+work; the loop then hands each recipient's line to its own bounded outbox (see Backpressure
+below), whose dedicated writer goroutine does the actual send. Two generations of the same bug
+led here: sending while holding `r.mu` meant one stalled member could freeze every room
+operation for `DefaultWriteTimeout` (10s, `transport.go`); and even the unlocked *serial* send
+loop still let one slow peer delay everyone after it in the loop, demonstrated 2026-08-28
+(`relay/outbox.go`'s header records it). The same snapshot-then-act shape appears in `Room.remove` (`relay.go`,
 purging receive gates after unlocking) and `stateRecipients` (`relay.go`, consulting each
 recipient's gate after unlocking), which also keeps `r.mu` and `gateMu` from ever nesting.
 
@@ -311,7 +336,7 @@ one. Same reasoning as `Transport.Send` being reliable everywhere: reliability i
 **On the core side**, `Core.mu` guards the remote map, roster, `localAreaID`, send-throttle
 state, and the relay identity fields; `relayConnectMu` separately serialises dial attempts so a
 retry loop and a real adapter's bridge `hello` can't race into two simultaneous connects
-(`core.go`). The `OnDisconnect` handler at `core.go` checks `c.relay == conn` before
+(`core/relaysession.go`). The `OnDisconnect` handler there checks `c.relay == conn` before
 clearing anything, so a stale connection's late callback can't wipe a newer live one's state.
 
 **In `transport`**, `deliverMu` (`transport.go`) serialises actual callback
@@ -328,10 +353,10 @@ into the middle of it.
 ## 6. Transports
 
 **The handshake is always tcp, and no setting changes that.** `Core.Transport` is not "how to
-connect" — it is "what to move to *once* connected". `resolveTransport` (`core.go`) states
-this at length and is worth reading directly. A `tcp` preference short-circuits immediately
+connect" — it is "what to move to *once* connected". `resolveTransport` (`core/transportpick.go`)
+states this at length and is worth reading directly. A `tcp` preference short-circuits immediately
 (there's nothing to upgrade to, and asking would cost a round trip to learn nothing); anything
-else runs `queryTransports` (`core.go`) first.
+else runs `queryTransports` (`core/transportpick.go`) first.
 
 That inversion buys three things at once:
 
@@ -350,7 +375,7 @@ joining is the whole point (see section 2's note on session resumption). It retu
 itself, so it's passed up; everything else (an old relay, a refused room code, a malformed
 answer) yields "nothing to upgrade to" and lets the real connect attempt surface the real
 problem with its real reason. An older relay that doesn't know `query_only` treats the message
-as a real join and replies `welcome`; `core.go` recognises that, logs it, and falls back
+as a real join and replies `welcome`; `core/transportpick.go` recognises that, logs it, and falls back
 to tcp. That costs one spurious join/leave against pre-2026-08-16 relays only, and is the price
 of the field being additive rather than a version bump.
 
@@ -453,7 +478,7 @@ happens when each one trips*.
   client flooding the relay isn't behaving as this project's own adapters do, and there's
   nothing to gain from staying connected to find out why. The cap only ever scales *up* from
   120 — turning a relay's `send_hz` down must never start disconnecting older clients still
-  sending at their own built-in 20Hz default. `ReasonRateLimited` is classified *retryable* by
+  sending at the 20Hz default their build shipped with. `ReasonRateLimited` is classified *retryable* by
   `core.isPermanentRejectReason` (`core.go`), because a reconnecting client re-reads the
   room's advertised `send_hz` from the new `welcome` and may well fit the second time.
 - **MaxClients** — server-wide (section 4). Trips → `ReasonServerFull`, also retryable, since
@@ -461,7 +486,7 @@ happens when each one trips*.
 - **Hello timeout** — 10s (section 2). Trips → logged and closed, no reject (there is no
   established protocol conversation to reject *within*).
 - **Idle timeout** — `DefaultIdleTimeout` (60s, `transport.go`), refreshed after every
-  complete line. This is what makes `Core.sendHeartbeats` (`core.go`) necessary: a core
+  complete line. This is what makes `Core.sendHeartbeats` (`core/sending.go`) necessary: a core
   with no adapter attached sends nothing at all, got closed as idle, and the auto-reconnect
   handed out a fresh `player_id` every cycle — which every other peer saw as a despawn/respawn
   once a minute. The 20s `ping` exists only to keep the connection non-idle. It is **not**
@@ -492,18 +517,23 @@ happens when each one trips*.
   when full rather than blocked. Blocking would let one slow reader stall the demultiplexer for
   every other connection on the shared socket.
 
-Backpressure, in short: there isn't any, on purpose. Nothing queues on behalf of a slow peer.
-Excess is dropped (receive cap, full read queue), refused (oversized datagram), or the
-connection is closed (flood, idle, oversized line). That's coherent for the **state** plane because
-it is defined as lossy and latest-wins — a dropped sample is superseded ~50ms later, so the failure
-mode is a slightly less smooth ghost, not a wrong one.
+Backpressure, in short: exactly one bounded queue, and it exists to protect everyone *else* from
+a slow peer. Since 2026-08-28 (ADR 0042) every client has its own outbox — a FIFO capped at
+`maxOutboxLines` (256, `relay/outbox.go`) drained by a dedicated writer goroutine — so a stalled
+reader delays only its own queue, never the forwarding loop. An unreliable line arriving at a
+full outbox displaces the oldest queued unreliable line (latest-wins, as the state plane is
+defined); a *reliable* line arriving at a full outbox disconnects the peer, because dropping a
+decision silently is worse than losing the client. Everything else is still dropped (receive cap,
+full read queue), refused (oversized datagram), or closed (flood, idle, oversized line) — for the
+**state** plane a dropped sample is superseded ~67ms later, so the failure mode is a slightly
+less smooth ghost, not a wrong one.
 
 It does not extend to the planes past cosmetic, and that asymmetry is deliberate rather than
 overlooked: those carry decisions, so they ride the reliable path and are bounded before they are
 ever accepted rather than dropped afterwards. The one exception is a lossy `world` write, which the
 adapter opts into per write precisely because it *is* superseded by its own next update — and even
-there the relay stores the latest, so a snapshot stays complete. What has no backpressure anywhere
-is a peer that stops reading: that is the write timeout's job, not a queue's.
+there the relay stores the latest, so a snapshot stays complete. A peer that stops reading
+entirely is still the write timeout's job: the outbox absorbs a stall, the timeout ends it.
 
 ## 8. What the relay deliberately does not do
 
@@ -519,8 +549,10 @@ is a peer that stops reading: that is the write timeout's job, not a queue's.
 - **It never learns anything about an adapter.** The relay sees `game_id` and `game_version` as
   opaque strings and nothing else. It has no idea whether the client is a real game, a fake
   adapter, or nothing at all.
-- **It doesn't redistribute identity.** `display_name` reaches the relay and is logged there;
-  it is never forwarded. `welcome.roster` and `join` carry ids only.
+- **It doesn't redistribute identity — a nametag is a label, not identity.** Since nametags
+  shipped, `display_name`/`name_color` ARE forwarded (sanitized, as `welcome.nametags` and
+  `join.nametag`), but nothing network-identifying ever is: no address, no account, nothing a
+  peer could resolve back to a person. `welcome.roster` itself still carries ids only.
 - **It never calls `RemoteAddr()`.** `relay` and `core` contain no call site (the only
   definitions are the `net.Conn` methods `udpconn`/`quicconn` must implement, plus a stub on a
   fake conn in `transport`'s tests). One

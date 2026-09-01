@@ -97,10 +97,10 @@ runs normally with no ghosts, which reads as a networking fault or a dead relay.
 **Measured 2026-08-21, and it is not theoretical**: Crystal hit it four times in a single session,
 and each time cost a reload cycle to identify. Re-counted 2026-08-27:
 
-| adapter | lines | top-level locals |
+| adapter | lines (2026-09-01) | top-level locals |
 |---|---|---|
-| Crystal | 9,539 | **197 of 200** (re-measured 2026-08-27, unchanged) |
-| Emerald | 11,290 | **199 of 200** (re-measured 2026-08-28: compiles with 1 added, fails with 2) |
+| Crystal | 10,295 | **197 of 200** (re-measured 2026-08-28: compiles with 3 added, fails with 4) |
+| Emerald | 11,364 | **199 of 200** (re-measured 2026-08-28: compiles with 1 added, fails with 2) |
 
 **Crystal is three names from the wall and Emerald is ONE.** Crystal's row read 188 for one day and was
 already stale when it was read: adding two plain constants for a feature stopped the file loading

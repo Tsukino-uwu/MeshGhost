@@ -2715,10 +2715,12 @@ wire, not the renderer. The measurement is unambiguous once taken: the painted g
 relative to the player on **100 of 132** walking frames at the shipped default, and **0px on all
 194** with `-interp=0ms -min-send=10ms`. Nothing about the renderer changed between those two runs.
 
-**Why it happened here and not in Emerald: Emerald has `dev-scripts/run-core-emerald.bat` and
-Crystal had no equivalent**, so every Crystal session silently got an autostarted core on play
-defaults. `run-core-crystal.bat` now exists and mirrors it. The two modes are deliberately
-opposite and both are legitimate — `run-core-emerald.bat` (`-interp=0ms`) for judging a
+**Why it happened here and not in Emerald: Emerald had a dedicated core launcher and Crystal had
+no equivalent**, so every Crystal session silently got an autostarted core on play defaults. A
+Crystal launcher was then added to mirror it. (The per-game launchers were collapsed into
+`run-core.bat <game>` on 2026-08-25 — today's equivalents are `run-core.bat emerald` /
+`run-core.bat crystal`, plus `run-core-crystal-shipped.bat`.) The two modes are deliberately
+opposite and both are legitimate — `run-core.bat` (`-interp=0ms`) for judging a
 side-offset ghost against the player, `run-core-emerald-trail.bat` (`-interp=200ms`) for a ghost
 sitting ON the player where the delay is the thing being judged.
 

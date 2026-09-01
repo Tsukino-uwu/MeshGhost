@@ -61,11 +61,10 @@ itself; a core it merely found belongs to whoever started it.
 **A core serves exactly one adapter at a time** (added 2026-08-16 with the port walk). A second
 bridge connection is answered with `reject` and closed. This was always the intent — everything
 below says "the bridge connection" in the singular — but nothing enforced it, and the gap was not
-theoretical: two adapters running the *same* `game_id` both got an accepted `hello` and then shared
-one relay session, fighting over one `player_id`, one `seq`, one send-rate budget and one
-`area_id`, with both sides logging a normal connect. Two copies of one game on one machine is a
-normal thing to do — it is how most adapters here were tested — so the rule is now explicit and
-enforced rather than assumed.
+theoretical: two adapters running the *same* `game_id` shared one relay session, fighting over one
+`player_id`, one `seq`, one send-rate budget and one `area_id`, with both sides logging a normal
+connect. Two copies of one game on one machine is how most adapters here were tested, so the rule
+is now explicit and enforced rather than assumed.
 
 **A `hello` is always answered**, with exactly one of:
 
@@ -74,18 +73,15 @@ enforced rather than assumed.
 | `bridge_ready` | accepted; this core is yours (a `session_policy` follows it) |
 | `reject` (with a `reason`) | not available — the core closes immediately after |
 
-The acknowledgement exists because silence used to be ambiguous. A core only ever sent
-`render_remote`/`despawn_remote`, and only once a peer existed, so an adapter could not distinguish
-"accepted" from "still starting" from "wrong program on this port" — it could only infer success
-from the absence of a hangup. That was affordable when there was one fixed port and unaffordable
-once adapters started walking a range looking for a free core. `reason` is for the adapter's log,
-not for branching on: the correct response to any rejection is the same, which is to try the next
-port. **An adapter that receives neither must move on to the next port**, not assume acceptance.
-Silence looks identical to an unrelated program holding a port in the range, and committing to one
-strands the adapter with no ghosts and no explanation. Skipping a core that is merely old costs
-nothing by comparison: the adapter starts its own on a free port and everything works. This was
-briefly the other way round, and a test that squats a port with a listener that never speaks
-(`internal/e2e`'s `TestPortWalkFindsAFreeCore`) showed the trade was backwards.
+The acknowledgement exists because silence used to be ambiguous: a core only ever sent
+`render_remote`/`despawn_remote`, and only once a peer existed, so an adapter could not tell
+"accepted" from "still starting" from "wrong program on this port" — affordable with one fixed
+port, unaffordable once adapters walked a range. `reason` is for the adapter's log, not for
+branching on: the correct response to any rejection is the same, which is to try the next port. **An adapter that receives neither must move on to the next port**, not assume acceptance:
+silence looks identical to an unrelated program holding a port, and committing to one strands the
+adapter with no ghosts and no explanation, where skipping a merely-old core costs nothing. This
+was briefly the other way round; `internal/e2e`'s `TestPortWalkFindsAFreeCore` (a listener that
+never speaks) showed the trade was backwards.
 
 **`session_policy` (core -> adapter, added 2026-08-19)** carries the room-wide rules the host set
 that only the adapter can actually apply. Sent immediately after `bridge_ready` — never before it,
@@ -105,21 +101,25 @@ collision means in this game. `"disabled"` is binding: no ghost blocks anything,
 
 The value is resolved by the core from the relay's `Welcome.ghost_collision` and the client's own
 `client.ghost_collision`, and **the more restrictive of the two wins** — the same rule
-`Welcome.send_hz` uses for rates, so a host can take collision away from a room and can never force
-it onto a player who does not want it. Absent on both sides resolves to `"enabled"`, which is why a
+`Welcome.send_hz` uses for rates, so a host can take collision away from a room and can never
+force it onto a player who does not want it. Absent on both sides resolves to `"enabled"`, so a
 client talking to a relay built before this field behaves exactly as it did before.
 
-**"Not yet known" is not "absent".** Both look like an empty string in the core, and they must not
-resolve the same way: a room that said nothing means `"enabled"`, but a room that has not sent its
-Welcome yet means *wait*. The core withholds `session_policy` until a Welcome has actually landed,
-so an adapter is never told its ghosts may be solid on the strength of a value nobody supplied. It
-is reachable — a relaunching game re-attaches while the previous relay connection's teardown is
-still in flight — and CI's `-race` job caught it that way on 2026-08-22.
+**"Not yet known" is not "absent".** Both look like an empty string in the core: a room that said
+nothing means `"enabled"`, but a room that has not sent its Welcome yet means *wait* — the core
+withholds `session_policy` until a Welcome has actually landed, so an adapter is never told its
+ghosts may be solid on the strength of a value nobody supplied. The gap is reachable (a
+relaunching game re-attaches mid-teardown); CI's `-race` job caught it on 2026-08-22.
 
 **It is advisory.** The relay has no game knowledge and cannot verify an adapter honoured it, the
 same way nothing enforces `send_hz`. An adapter that ignores the message is unaffected by its
 existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
 than appearing to comply. See the 2026-08-19 ADR in `architecture.md`.
+
+**`remote_name` (core -> adapter)** carries a peer's sanitized nametag (`player_id`,
+`display_name`, colour), sent when it becomes known: on join, and once per already-present peer on
+attach. Never re-sent after `despawn_remote`, so an adapter keys names by `player_id` for the
+whole session — `_template/PROTOCOL.md` has the wire shape and the trap.
 
 **Bridge lifecycle is tied to the relay connection:** if the bridge connection ends (the
 adapter/game closes, or its socket otherwise drops), the core closes its relay connection too,
@@ -132,7 +132,7 @@ underneath a game that is still running.
 
 ## Packet schema (the `state` message payload)
 
-Unchanged from the brief, restated exactly:
+Unchanged from the brief:
 
 | Field | Notes |
 |---|---|
@@ -183,10 +183,11 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 | Message | Direction | Carries |
 |---|---|---|
 | `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
-| `welcome` | relay → client | assigned `player_id`, current room roster, room send rate (`send_hz`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
+| `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
-| `join` | relay → client | a peer's `player_id`, plus an optional initial `state`. Populated **only** for a room that negotiated `snapshot.v1`, where a joining client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
+| `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a room that negotiated `snapshot.v1`, where a joining client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
+| `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); answered with `prefs_ack`. Added 2026-08-28 |
 | `leave` | **both directions** | relay → client: a peer's `player_id` — this is what drives `despawn_remote`. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
@@ -617,7 +618,7 @@ ends and the next begins.
   - **`udp` cannot be encrypted.** Go's standard library has no DTLS, so `room_code` crosses
     that transport in the clear with no fix available. `quic` is always encrypted — its
     handshake is TLS 1.3 — and `tcp` optionally so, via the `tls` setting on both ends
-    (`off`/`auto`/`required`; `off` is the binaries' default, `auto` what a release ships).
+    (`off`/`auto`/`required`; `auto` is both the binaries' default and what a release ships).
     That setting also covers the tcp discovery
     handshake every client makes, which is where `room_code` goes even on a quic session.
   - **Ports:** `tcp` and `udp` share `listen_on` (independent port spaces), and `quic` shares
@@ -985,8 +986,8 @@ never from memory.
       sending leaves its ghost frozen on every other screen. The adapter drops its bridge
       connection instead, which the core already turns into a relay leave and every peer into
       a despawn (`core_test.go`'s `TestBridgeDisconnectDespawnsForPeer`), and reconnects
-      immediately. Separately, the
-      adapter should debounce one frame around any `mapGroup`/`mapNum` change: a transient
+      immediately. Separately, the adapter should debounce one frame around any
+      `mapGroup`/`mapNum` change: a transient
       placeholder read was observed exactly at the moment the save block's pointer relocates
       during some (not all) transitions — see `agent_docs/verified.md`'s "placeholder-glitch"
       entries. This is an adapter-side guard, not a reason to return `nil` from the core's
@@ -996,5 +997,4 @@ never from memory.
 
 - `agent_docs/brief.md` — the original design brief this contract implements.
 - `agent_docs/architecture.md` — system shape and the ADRs that produced the decisions above.
-- `agent_docs/plans.md` — phase roadmap that consumes this contract.
-- `agent_docs/verified.md` — where the open questions above get closed, with evidence.
+- `agent_docs/plans.md` — roadmap; `agent_docs/verified.md` — where open questions get closed.

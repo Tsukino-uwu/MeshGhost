@@ -39,11 +39,13 @@ Phase 6 fully done 2026-08-13.**
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
-- **Shipped DLL is `PluginVersion` 0.2.0, rebuilt and redeployed 2026-08-18.** That build added
+- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-08-28** (the build
+  carrying the trail/warp/pooled-VFX/hitstop work below). The 2026-08-18 build before it added
   three bridge/lifecycle behaviours — `bridge_ready` and `reject` are handled explicitly instead of
   falling into the unknown-message default, the bridge is drained only after the local player is
-  confirmed to exist, and returning to the **main menu** despawns every peer ghost. **None of the
-  three has been watched live yet.** The despawn fires on a real main-menu return only: peer ghosts
+  confirmed to exist, and returning to the **main menu** despawns every peer ghost. The despawn
+  half has still not been watched live; the send-gate half has (see `UNVERIFIED.md`/`BANDAGES.md`,
+  2026-08-28). The despawn fires on a real main-menu return only: peer ghosts
   stay visible during the Characters/pause overlay, which is the wanted behaviour and is why
   `documentation.md` insists on naming the exact state rather than saying "menu".
 
@@ -51,10 +53,18 @@ Phase 6 fully done 2026-08-13.**
 
 Map marker for other player ghosts, shows a constantly tracking/updating tiny tevi bunny icon
 for where other players are in your current zone (as long as you have discovered/seen the maps
-before). Known limitations: it only refreshes when a `render_remote` arrives, so a peer who stops
-sending leaves their marker frozen where it was, and it was reported slow to start tracking again
-after a peer left and rejoined (2026-08-28, not investigated) — see
+before). Known limitations: the marker used to refresh only when a `render_remote` arrived, so a
+peer who stopped sending left it frozen — fixed 2026-08-28 (a per-frame refresh hides a marker
+older than 1s, unwatched so far, see [UNVERIFIED.md](UNVERIFIED.md)) — and it was reported slow to
+start tracking again after a peer left and rejoined (2026-08-28, not investigated) — see
 [agent_docs/status.md](../../agent_docs/status.md).
+
+## Building it
+
+`dev-scripts/build-tevi.bat` builds the DLL — it needs `MeshGhostTevi/lib/Assembly-CSharp.dll`
+and `lib/Newtonsoft.Json.dll` copied in once from your own TEVI install (proprietary, gitignored,
+never committed — which is also why CI cannot build this adapter and the DLL is checked in).
+After a rebuild, also copy the DLL to the live game install(s), not just `packaging/release/`.
 
 ## How this adapter was built
 

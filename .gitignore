@@ -94,7 +94,8 @@
 # `ap_try.flag.off` -- renaming it back is how you turn it on, which beats deleting it and
 # re-creating it from memory later. Without the glob that parked file shows up untracked and the
 # same over-broad `git add -A` sweeps it in, which is precisely how the live one got committed.
-# release.yml still checks for the exact name `ap_try.flag`, so a parked one cannot fail a build.
+# The staging check (dev-scripts/stage-release.ps1, run by release.yml) matches the exact name
+# `ap_try.flag`, so a parked one cannot fail a build.
 /adapters/emulator/pokemon/crystal/ap_try.flag*
 
 # Exception: the TEVI mod DLL is committed on purpose -- CI cannot build it (the
@@ -235,3 +236,13 @@ dev-scripts/bizhawk-dev-loader*.target
 # its working directory, so this is how you change -interp on a running session without
 # relaunching the emulator. It must never ship -- the release config lives in packaging/.
 adapters/**/config.json
+
+# Session scaffolding/build logs an agent redirects at the repo root (relay/core/fakeadapter/
+# netsim runs, build-*.bat output). They accumulated as 181 loose files at the root by
+# 2026-09-01; the convention (agent_docs/environment.md) is now to redirect into dev-logs/,
+# and the root globs below catch the stray that forgets, so neither shape ever shows untracked.
+/dev-logs/
+/build-*.log
+/build-*.err.log
+/fake-*.log
+/netsim-*.log

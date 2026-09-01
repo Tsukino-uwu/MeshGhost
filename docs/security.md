@@ -218,15 +218,16 @@ another player's network state, because no channel to another player's machine e
 
 **No message type carries an IP address or other network-identifying field.**
 `protocol/protocol.go`'s complete message set (`Hello`, `Welcome`, `Reject`, `Join`,
-`Leave`, `State`, `Event`, `Lease`/`LeaseState`, `Escrow`/`EscrowState`, `World`/`WorldState`,
-`Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
+`Leave`, `State`, `Prefs`/`PrefsAck`, `Event`, `Lease`/`LeaseState`, `Escrow`/`EscrowState`,
+`World`/`WorldState`, `Ping`/`Pong`, `Transports`) has no address field anywhere — `Reject`
 carries only a reason string, and `Transports` (the transport-discovery reply, added 2026-08-16)
 carries a kind and a **port** per offer, never a host: the client already knows an address, and a
-relay bound to `0.0.0.0` doesn't. A client only ever learns a
-peer's `player_id` and cosmetic state (position/area/anim/extras) — not even a chosen
-`display_name`: `Hello.DisplayName` reaches the relay but is only logged there, never
-redistributed to other clients (`Welcome.Roster` is just a list of ids, `Join` carries no name
-either). See `agent_docs/ideas.md`'s nameplates entry if that's ever wired up for real.
+relay bound to `0.0.0.0` doesn't. A client only ever learns a peer's `player_id`, cosmetic state
+(position/area/anim/extras), and — since nametags shipped — the peer's chosen display label:
+`Hello.DisplayName` and `Hello.NameColor` are sanitized by the relay (length-capped, control
+characters stripped) and redistributed as `Welcome.Nametags` and `Join.Nametag`, then re-sanitized
+by the receiving client. A nametag is explicitly a label, not an identity, and still carries no
+address or network-identifying field.
 
 **`player_id` is not derived from an IP.** It's a monotonic counter assigned by the relay
 (`fmt.Sprintf("p%d", n)`, `relay/relay.go`'s `nextPlayerID`) — `p1`, `p2`, ... per
@@ -259,10 +260,12 @@ player's machine — it would have to compromise the core itself first, a separa
 **Misbehavior limits exist and defend against both a malformed and a malicious peer**
 (`relay/limits.go`, `protocol/limits.go`): `MaxLineBytes` (4096, now enforced
 during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8),
-`MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128),
+`MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128, in
+`protocol/online.go`),
 `DefaultMaxClients` (8, server-wide across all rooms, configurable per relay),
-`MaxMessagesPerSecond` (120 at the default 20Hz — a floor, not a flat cap: the real per-client
-limit is `max(120, send_hz * RateLimitHeadroomMultiple)`, and that multiple is 6),
+`MaxMessagesPerSecond` (120 — a floor, not a flat cap: the real per-client limit is
+`max(120, send_hz * RateLimitHeadroomMultiple)` with the multiple at 6, and at the default 15Hz
+the scaled term is 90, so the floor is what applies),
 `DefaultHelloTimeout` (10s). The opt-in planes carry their own, in `protocol/online.go`
 rather than `limits.go`: `MaxEventBytes` (1024), `MaxLeaseKeyLen` (128), `MaxEscrowBlobBytes`
 (1024), `MaxWorldKeyLen` (64), `MaxWorldBlobBytes` (768), plus
@@ -385,13 +388,13 @@ stalls everything queued behind it ("head-of-line blocking") until it's retransm
 when a newer position update already superseded the lost one and you just want to render the
 latest state, now. That tradeoff doesn't bite the way it would in a competitive shooter:
 
-- **Send rate defaults to 20Hz, operator-configurable 10-100Hz** (`core.DefaultMinSendInterval`
+- **Send rate defaults to 15Hz, operator-configurable 10-100Hz** (`core.DefaultMinSendInterval`
   is the fallback when nothing else applies; the actual rate is
   `Core.effectiveSendInterval()` — the slower of a relay's advertised `Welcome.SendHz` and a
   client's own explicit `Core.MinSendInterval`, `core.go`; see the send/receive rate-control ADR
   in `architecture.md`), and rendering already runs `InterpolationDelay` (250ms default) behind
   the newest sample specifically to smooth network jitter. A TCP stall is at most one send
-  interval (~50ms at the 20Hz default, as low as ~10ms at the 100Hz ceiling) — invisible against
+  interval (~67ms at the 15Hz default, as low as ~10ms at the 100Hz ceiling) — invisible against
   delay already absorbed by design at the default rate, not a new cost UDP would meaningfully
   remove; a relay configured near the 100Hz ceiling narrows that margin and is worth revisiting
   if this reasoning is ever re-checked.
@@ -415,9 +418,9 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
   for reachability (hole-punching to skip port-forwarding for direct peer connections) doesn't
   apply, because there's no direct peer connection to punch a hole for.
 
-**Caveat on the ~50ms figure above, added 2026-08-16 — it is optimistic.** A lost packet stalls
+**Caveat on the ~67ms figure above, added 2026-08-16 — it is optimistic.** A lost packet stalls
 delivery until it is *retransmitted*, so the bound is retransmit timing, not send rate. Fast
-retransmit needs three subsequent packets, which at 20Hz is already ~150ms, so the RTO timer —
+retransmit needs three subsequent packets, which at 15Hz is already ~200ms, so the RTO timer —
 floored near 200ms on common stacks — is likely to dominate instead. **This is reasoning, not a
 measurement**: nobody has run MeshGhost over a genuinely lossy link and watched. It does not
 change the conclusion (250ms of interpolation absorbs a lot, and a ghost is cosmetic), but the

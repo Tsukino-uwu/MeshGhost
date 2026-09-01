@@ -129,13 +129,17 @@ lines.** It was the most frequently touched file in the repo. On 2026-08-25 the 
 moved, verbatim and in their original order, to a `VERIFIED.md` beside each adapter's own
 `README.md`/`FLAGS.md`/`BANDAGES.md`/`documentation.md`:
 
-| Game | File | Entries |
+| Game | File | Entries at the 2026-08-25 split |
 | --- | --- | --- |
 | Pokémon Crystal | [../adapters/emulator/pokemon/crystal/VERIFIED.md](../adapters/emulator/pokemon/crystal/VERIFIED.md) | 65 |
 | Pokémon Emerald | [../adapters/emulator/pokemon/emerald/VERIFIED.md](../adapters/emulator/pokemon/emerald/VERIFIED.md) | 120 |
 | Pseudoregalia | [../adapters/pseudoregalia/VERIFIED.md](../adapters/pseudoregalia/VERIFIED.md) | 104 |
 | TEVI | [../adapters/tevi/VERIFIED.md](../adapters/tevi/VERIFIED.md) | 18 |
 | Go side, cross-game, governance | this file | 37 |
+
+Those numbers are the split's inventory, not a live count, and the column now says so (2026-09-01,
+when they read 85/156/138/27/58 and this table still said the split-day figures). An entry count
+is a thing to measure, never a thing to quote: `grep -c '^### ' <file>` against its own index.
 
 **What stayed here**: the Go packages, `cmd/`, the relay and transports; releases and CI;
 cross-game method entries (the side-by-side renderer comparison, which both Pokémon adapters

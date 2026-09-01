@@ -228,15 +228,18 @@ of them stops being measured, the entry is already here to be corrected.
   it logs `UNCONFIRMED ADDRESS IN USE` on **every** startup, so a session run this way can be told
   apart afterwards; and it announces that nothing seen in that session may be written to
   `VERIFIED.md` as a fact. **It lowers the bar to *unconfirmed*, never to *invented*** — a missing
-  candidate still refuses. `release.yml` fails the build if `ap_try.flag` reaches the package.
+  candidate still refuses. `dev-scripts/stage-release.ps1` (run by `release.yml`) fails the build
+  if `ap_try.flag` reaches the package.
   **It is currently INERT, and that is the interesting part.** Every address the startup check
   requires has now been measured (`W_BATTLEMODE`, the last holdout, on 2026-08-19 with
   `probes/ap_battlemode_probe.lua`), and `candidates` is an empty table — so the flag has nothing
-  left to substitute and turning it on changes nothing. **Two** addresses are still unmeasured on
-  the Archipelago build — `W_USEDSPRITES` and `W_STATEFLAGS` — and neither is in the required list:
-  both are optional by design, and their absence switches the peer's own appearance off (and the
-  hardware tier off entirely) rather than refusing to run. (This said "the one address" until
-  2026-08-27; `FLAGS.md` and `README.md` had both said two since the measurement.)
+  left to substitute and turning it on changes nothing. **Eleven** optional addresses are still
+  unmeasured on the Archipelago build — `W_USEDSPRITES` and `W_STATEFLAGS`, plus the
+  map-connection trio (cross-map ghosts off), `W_SPRITEUPDATESON` (the drawn tier's UI gate never
+  fires) and the five Fly-landing entries — and none is in the required list: all are optional by
+  design, and their absence switches those features off rather than refusing to run. (This said
+  "the one address" until 2026-08-27 and "two" until 2026-09-01 — each correction counted only
+  the entries someone had already been bitten by, which is the under-count's own lesson.)
   **What would let it go:** deleting it, once someone is satisfied that no further Archipelago
   address will need the same treatment. Kept for now because the mechanism is the valuable part
   and rebuilding it correctly is harder than leaving it. Registered in [FLAGS.md](FLAGS.md) as a

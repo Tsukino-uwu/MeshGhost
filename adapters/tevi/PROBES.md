@@ -11,8 +11,9 @@ The host decides the shape, the same way it does for Pseudoregalia. BepInEx load
 it has **no equivalent of BizHawk's Lua console**, so there is nothing to attach a standalone
 script to and no `probes/` folder for one to live in. A probe for TEVI is therefore a block inside
 `MeshGhostTevi/Plugin.cs` behind a `private const bool DIAG_*`, which the compiler removes entirely
-when the flag is `false`. `DIAG_REDRAW_TRACE` set that precedent on 2026-08-14; the two below
-followed on 2026-08-27.
+when the flag is `false`. `DIAG_REDRAW_TRACE` set that precedent on 2026-08-14; `DIAG_MARKER_STALENESS`
+and `DIAG_MENU_GATE` followed on 2026-08-27, and `DIAG_SPAWN_DIFF`, `DIAG_POOL_WATCH` and
+`DIAG_HITSTOP_PHASE` on 2026-08-28.
 
 **That is a host constraint, not a per-adapter exception** — any future BepInEx adapter inherits it,
 and `adapters/_template/probes-README.md` says so.
@@ -38,8 +39,9 @@ the measurement that made it a rule.
 | Menu gate | `DIAG_MENU_GATE` | What the adapter can see at each play-session transition, and therefore what really distinguishes the pause overlay from the main menu. | One line per transition. | **No** |
 | Spawn diff | `DIAG_SPAWN_DIFF` | What a move actually **spawns** — every GameObject that appears or disappears near the player *and* near each peer ghost, by instance id. Written for the charged-attack gap, where the ghost animates and no effect appears. | A scene-wide `FindObjectsOfType<Transform>()` at 20Hz, plus one line per appearance. **Reports its own scan time**; raise `SpawnDiffSampleInterval` if that is bad. | Yes, 2026-08-28 (rebuilt first — see below) |
 | Pool watch | `DIAG_POOL_WATCH` | Which POOLED effect the game just spawned, **by prefab name** (`Normal4H Blast`, `CutinStar`), for effects that do not parent to the character — which is most of them. The widening to reach for when Spawn diff comes back empty. | Walks the two `ObjectPooler`s (~375 objects) per sample; measured `avgMs=0.09`. | Yes, 2026-08-28 |
+| Hitstop phase | `DIAG_HITSTOP_PHASE` | Timing and colour of a mirrored attack: the freeze phase on ghost vs peer, effect impulses sent/received, and sprite-layer colours — see its own section below. | One line per EVENT (arm/freeze/unpause, VFX send/recv, layer change), never per frame. | Yes, 2026-08-28 |
 
-**Three of the five have been run; `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` never have.** That
+**Four of the six have been run; `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` never have.** That
 is their honest state and it is written here rather than left to be assumed: a probe that has never
 run proves nothing, and neither does its own output once it has
 (`../../agent_docs/testing.md`). Both unrun ones are queued in [UNVERIFIED.md](UNVERIFIED.md).
@@ -58,11 +60,13 @@ the character. That is the documented cue to widen the SUBSYSTEM rather than sam
 
 ## Marker staleness — `DIAG_MARKER_STALENESS`
 
-**The question.** `UpdateRemoteMapMarker` runs only from `UpsertRemoteGhost`, which runs only when a
-`render_remote` arrives. So the marker is update-driven, not frame-driven: a peer that stops sending
-leaves it frozen wherever it was, and nothing hides or refreshes it. **The defect is known from
-reading the code; what is not knowable that way is the AGE of what a person is looking at**, and age
-is not recoverable from the screen afterwards.
+**The question — updated 2026-08-28, when the defect it was written for was fixed.** The marker
+used to be update-driven (`UpdateRemoteMapMarker` ran only when a `render_remote` arrived), so a
+peer that stopped sending left it frozen. Since 2026-08-28 `RefreshRemoteMapMarkers()` runs every
+`Update` and hides a marker older than `MarkerStaleSeconds` (1s). The probe's question is now
+whether that frame-driven refresh actually keeps the drawn age under 1s — **the AGE of what a
+person is looking at is still the thing reading the code cannot give you**, and the fix has never
+been watched (see `UNVERIFIED.md`).
 
 **What it prints.** Per visible marker, once a second while the map is open: the peer id, whether
 the marker is active in the hierarchy, and seconds since a `render_remote` last moved it.

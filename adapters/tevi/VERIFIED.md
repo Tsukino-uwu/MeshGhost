@@ -9,10 +9,10 @@ frequently touched file in the repo.
 
 **The gate is unchanged, and it is the strict one.** Nothing adapter- or game-side on the
 BASE/VANILLA game goes in here until **the user has confirmed it on screen** — no probe log,
-console read or screenshot of yours substitutes, and neither does a clean test run. Measurements that are not yet confirmed live in
-[`../../agent_docs/unverified.md`](../../agent_docs/unverified.md) — the index to
-the per-game queues; this adapter has none of its own, which `_template/README.md` allows and
-`preflight.ps1` expects. A patched ROM (Archipelago and similar) is the agent's to confirm
+console read or screenshot of yours substitutes, and neither does a clean test run. Measurements
+that are not yet confirmed live in this adapter's own [`UNVERIFIED.md`](UNVERIFIED.md) (created
+2026-08-27 — this paragraph used to say the adapter had no queue of its own, and `preflight.ps1`
+now requires one per adapter). A patched ROM (Archipelago and similar) is the agent's to confirm
 visually; say so in the entry. The full rule is in [../../CLAUDE.md](../../CLAUDE.md).
 
 **Append-only.** Do not rewrite or delete an entry's original observation. Adding later

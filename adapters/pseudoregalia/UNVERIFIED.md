@@ -553,7 +553,7 @@ re-pushes every known name whenever an adapter attaches (`core/remotenames.go`,
 `pushRemoteNames`). So the NAME is still in hand after a reload.
 
 **What is not restored is the COMPONENT, and this is a code read, not a measurement.** The
-LoadMap teardown (`release_ghosts`, the block that runs before a level is torn down) drops
+LoadMap teardown (`release_all_ghosts`, the block that runs before a level is torn down) drops
 `weapon_actor`, `vfx_components`, `projectile_component`, `recall_glow_component` and re-arms
 every "already synced" latch — and **never touches `nametag_component`, `nametag_plate`,
 `nametag_plate_mid`, `nametag_applied_name` or `nametag_create_failed`**. Those are raw pointers

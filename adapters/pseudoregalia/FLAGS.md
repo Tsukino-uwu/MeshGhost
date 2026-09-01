@@ -25,12 +25,13 @@ whole point is to be the thing you trust when a comment and a value disagree.
 | **Probe** | `false` | A diagnostic: tracing, dumping, or measuring. Off in every build a user runs. |
 | **Dormant** | `false` | A recorded negative or a retired approach, kept as evidence and as an instant revert. |
 
-**Compile-time bools are not the only switches here.** `Plugin.cpp` also carries ~40 `constexpr`
-*numbers* that decide behaviour — hold windows, guards, offsets, thresholds. They are registered in
+**Compile-time bools are not the only switches here.** `Plugin.cpp` also carries ~95 `constexpr`
+*numbers* (2026-09-01 count — treat it as date-stamped like the bool count) that decide behaviour
+— hold windows, guards, offsets, thresholds. They are registered in
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 27 that are `true`
+## Behaviour — the 33 that are `true` (re-counted 2026-09-01)
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -69,6 +70,11 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `GHOST_AFTERIMAGE_NO_OUTLINE` | **ZERO frames, user-confirmed 2026-08-27** — the outline is refused at the native `SetRenderCustomDepth` call itself (`register_afterimage_outline_guard`), never merely stripped after. The game enables custom depth BEFORE setting `copyActor` (measured), so an unattributable enable while a ghost is alive is refused and RESTORED a tick later by the sweep if the image is the player's own — the failure mode inverted into the invisible direction. Attribution: `copyActor` equality when set; birth proximity as the labelled fallback (continuous proximity was tried first and REVERTED for taking the local player's outline with it). The per-tick sweep stays as backstop and logs anything that got past the hook. |
 | `GHOST_HOLD_OUTLINE_OFF` | A ghost is never drawn through walls: custom depth is stripped from everything it owns, every tick, plus a ~30Hz sweep for components attached at RUNTIME that no property points at. Generalised from a five-name list on the user's rule — *"i don't want it to apply to the ghosts at all, no matter what/where. only to the player itself."* The asymmetry is the point: a peer's position behind geometry is information. **Has never once found custom depth on**, which is how the afterimage carrier was eventually identified. |
 | `GHOST_HOLD_LIGHT_OFF` | **BUILT 2026-08-29, never watched.** Holds a ghost's ascendant-light `PointLight` at intensity 0. Measured first: the player's reads 0 and the ghost's reads 5000, same class, same attach point (`WeaponMesh`) — so 5000 is the pawn Blueprint's own DEFAULT, which the game drives down on a real player through logic a ghost never runs, and nothing was ever being copied. Additive across peers, which is why the user saw the room brighten with company. Attributed up the ATTACH chain (a `ChildActorComponent`'s actor outers to the LEVEL, so an outer walk finds nobody), and the engine call is made ONLY on a component attributed to one of our ghosts — `FindAllOf` hands back class-default objects and calling a UFunction on one crashed a live session twice the same day. **Deliberately does not touch `bVisible`/`bIsActive`: both lights report them false, including the one lighting the room.** Paired with `LIGHT_SWEEP_INTERVAL_TICKS`. |
+| `GHOST_NAMETAGS` | **The nametag feature, confirmed by three peers 2026-08-29.** Renders a peer's `remote_name` as a `UTextRenderComponent` above the ghost, using only the engine's own cooked font/material (`RobotoDistanceField` / `DefaultTextMaterialOpaque`, confirmed present by `NAMETAG_CENSUS_PROBE`) — nothing of ours ships, which is what ruled out the UMG-widget approach another mod took. |
+| `NAMETAG_COLOR_PLATE` | **The coloured plate behind a nametag, confirmed 2026-08-29.** Uses the engine's opaque+unlit `DebugMeshMaterial` ("Color" parameter) because every translucent material vanished behind the game's own translucency sorting and every game opaque master is lit/stylized. Drawn only when the peer set a `name_color`. |
+| `GHOST_NEUTRALISE_CAMERA_RIGS` | Holds a ghost's spawned camera rig dark — the pawn Blueprint gives every spawn a camera nobody looks through, which the 2026-08-29 light hunt found contributing. Swept at `CAMERA_RIG_SWEEP_INTERVAL_TICKS` (~5/s); writes only to a rig that is not the local player's and not already neutral. |
+| `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` | **A diagnostic shipping `true` — its own comment says "two spawns' worth of output and it should be off again".** Scalar-diffs the local player's properties around a ghost spawn and prints what moved. Registered 2026-09-01 as exactly the defect class the register hunts (a probe in the `true` list); flip it `false` on the next functional rebuild unless its question is still open. |
+| `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` | **A diagnostic shipping `true` — its own comment says "must ship OFF".** Polls for a custom-depth dev toggle file every `DEV_TOGGLE_POLL_TICKS` (one `GetFileAttributesW` per poll). Registered 2026-09-01, same defect class as the row above; same disposition. |
 | `MIRROR_PEER_PROJECTILE` | **Confirmed 2026-08-27.** A peer's ranged shot, mirrored as the projectile's own Niagara EFFECT along the sampled path — never as the game's actor, which crashed the game when its pointer outlived it. The sender attributes a shot by `Instigator` and requires its `ProjectileMovement` to be ACTIVE, because this game pools actors and existence is not activity. |
 | `MIRROR_DEATH_FADE` | **Confirmed 2026-08-27.** Runs the pawn's own `dieFade(DieNotRez)` on a ghost — dying on the peer's health reaching zero, resurrecting when their `NS_RespawnSafe` starts. Found by two probes: the model is never hidden and its materials go dynamic (so it is an animated parameter), then a census named the function. |
 | `MIRROR_HURT_REACTION` | **Confirmed 2026-08-27, and the one flag with a runtime tripwire.** Runs the pawn's own `BPI_PerformDamageResponse` on a ghost whenever the peer's shared health DECREASES — a pit fall is 5 HP, damage rather than death, which is why the death fade could not carry it. Because health is a GameInstance singleton, the mirror reads `CurrentHp` around the call and **disarms itself for the session** if the value moves. It has never fired; that is a measured fact about the function, not an assumption. |
@@ -94,32 +100,38 @@ The lesson for this register: a probe with no flag is invisible to this file, so
 cannot prove the shipped build is quiet. What proves it is reading a real session's log, which is
 the only reason this was found.
 
-46 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
-`_CENSUS`, `_HUNT`, plus `VFX_CATALOG_PROBE`, `OBJECT_REFLECTION_DUMP`, `AFTERIMAGE_CALL_TEST`,
-`AFTERIMAGE_DISCOVERY`, `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`.
+47 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
+`_CENSUS`, `_HUNT`, plus `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
+`DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`, and `NAMETAG_STATE_READBACK` (probe by
+nature, not by suffix: reads back what each nametag component actually holds, because "never
+created", "drew nothing" and "drew the wrong string" were three bugs behind one symptom). Three
+worth knowing by name: `NAMETAG_CENSUS_PROBE` (the one-shot font/material census the nametag
+feature was built on), `GHOST_MESH_Z_TRACE` (the slide-transition instrument `SLIDE_SEAM_HOLD_MS`
+was derived from — turn it back on only to re-measure against a new game build), and the two
+diagnostics currently shipping `true` in the Behaviour table above, which belong down here.
 
-**The arithmetic, so a future audit can check it in one pass** — recounted 2026-08-27, after the
-outline work: **87** `constexpr bool` in `Plugin.cpp` (86 until 2026-08-28), being 85 written plus
+**The arithmetic, so a future audit can check it in one pass** — recounted 2026-09-01, after the
+nametag/sword-throw/crowd sessions (the 2026-08-27 recount of 87 had itself gone stale within
+days, which is why the figure carries a date and the COMMAND, never a total to trust): **96**
+`constexpr bool` declarations in `Plugin.cpp`, being 95 written plus
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather than set
-(`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped build
-without being written so. Of the 85:
+(`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped
+build without being written so. Of the 95:
 
-- **26 written `true`** — Behaviour, above.
-- **60 written `false`** (59 until `LOCAL_MOVEMENT_TRACE` was added on 2026-08-28), splitting by
-  name into **46 probe-shaped** and **14 not**.
-- Of those 14, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
-  `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and the
-  remaining **12 are the Dormant recorded negatives** below.
-- **The Dormant table has 16 rows, not 12**, and that is deliberate rather than a miscount: four
-  probe-shaped flags are also recorded there because their *findings* are what matters, not their
-  off-ness. A flag can be counted once and written up twice.
+- **33 written `true`** — Behaviour, above.
+- **62 written `false`**, splitting by name into **47 probe-shaped** and **15 not**.
+- Of those 15, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
+  `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and
+  the remaining **13 are recorded negatives / retired approaches** (the Dormant table below, plus
+  `NAMETAG_STATE_READBACK`, a nametag instrument that is probe by nature though not by suffix).
+- The Dormant table also carries some probe-shaped flags because their *findings* are what
+  matters, not their off-ness. A flag can be counted once and written up twice.
 
-**Recounted from the code 2026-08-27, and the count had drifted.** The previous figure of 58 was
-several flags stale before this session added any, so these numbers were measured with
-`grep -oP '^\s*constexpr bool \K\w+(?= = (true|false);)'` rather than adjusted arithmetically —
-that command is the audit, and it takes a second. **The audit also caught a probe shipping as
-`true`** (`HEALTH_PROBE`, now off; see its comment), which is exactly what this register is for:
-a name ending `_PROBE` sitting in the `true` list is a defect, not a special case.
+**The audit is the grep, not this block:**
+`grep -oP '^\s*constexpr bool \K\w+(?= = (true|false);)'` — it takes a second, and it is how the
+2026-08-27 recount caught a probe shipping as `true` (`HEALTH_PROBE`, now off; see its comment),
+which is exactly what this register is for: a name ending `_PROBE` sitting in the `true` list is
+a defect, not a special case.
 
 **`OUTLINE_HUNT` and `LOCKON_PROBE` (added 2026-08-27)** are the outline investigation's two
 instruments. `OUTLINE_HUNT` enumerates every mesh component in the world currently rendering custom
@@ -172,7 +184,9 @@ cutscenes), and that same ungated line is what pinned the 2026-08-27 camera-poin
 exact statement when the crash dialog carried no stack — so it has earned something. Still a
 defect by this file's own rule: gate it under the flag on the next FUNCTIONAL rebuild. Not fixed
 on the spot because the fix would have re-shipped an unwatched binary minutes after the user
-confirmed the current one, purely to remove a log line.
+confirmed the current one, purely to remove a log line. **Still ungated as of 2026-09-01, having
+survived every functional rebuild since** — the deferral clause has quietly become permanent, so
+either gate it on the next rebuild for real or accept it here as a deliberate always-on line.
 
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS` is derived, not set: it is true whenever either montage
 probe is on, and exists so a probe run does not fight the adapter's own montage stops.
@@ -209,6 +223,12 @@ file beside the DLL is ignored. Acceptance run quoted in `VERIFIED.md` 2026-08-3
 | `skip_ghost_weapon_state.txt` | Historical: skipped the game's `Change Weapon State` on the spawned prop. The prop is gone (flyer since 2026-09-01); the toggle now gates a call that no longer exists and is retained only as the ladder's record. |
 | `hide_ghost_mesh.txt`, `hide_ghost_weapon.txt`, `hide_ghost_fx.txt`, `hide_ghost_shadow.txt`, `hide_ghost_nametag.txt`, `keep_custom_depth.txt`, `ghost_light_on.txt` | Subtraction instruments, one component class each. |
 | `trace_remotes.txt` | Arms the per-remote redraw readback/TRACE block (2026-09-01; previously always on). Two log lines plus ~6 reflection reads per remote every `LOG_INTERVAL_TICKS` — a real cost at crowd sizes, so it ships OFF. The `bHidden` nudge in that block is behaviour and runs regardless. |
+| `bare_ghost.txt` | Spawns a ghost with everything after the pawn itself skipped — no decouple, no lights, no nametag, no mirrors. The ghost looks wrong on purpose; it is the base rung of the subtraction ladder. |
+| `decouple_off.txt` | Skips parts of the shared-state decouple; a keyword on the file's first line (e.g. `lightdestroy`) selects which part. Split instrument for the decouple ladder. |
+| `dump_arrays.txt` | Arms `census_object_counts`/`census_singleton_arrays` — object-count dumps at labelled moments, for leak/orphan hunts. |
+| `force_gc.txt` | Requests an engine garbage-collection sweep (`CollectGarbage`, deferred by UE to a safe point) at the instrumented moment. |
+| `guard_off.txt` | Turns a guard hook into log-only — nothing destroyed or suppressed — the missing CONTROL for judging what the guard itself causes. |
+| `log_reset_fns.txt` | Logs the functions the game runs during a reset. Costly; its own comment says never leave it on. |
 | `perf_report.txt` | **Per-subsystem frame-cost timer** (2026-08-30). Prints accumulated us/frame per subsystem every ~2s: `tick_total` plus each block, so every slot reads as a share of the whole and the unattributed remainder is itself the finding. Disarmed it is one bool test per scope. This is what found four whole-world scans costing half the frame rate -- `../../agent_docs/pitfalls/method.md`. **Never leave it armed while judging anything visual.** |
 
 **Two of these subtractions LIE and are not to be trusted** (measured 2026-08-29): the nametag and
@@ -259,8 +279,9 @@ work feeds, or revert the commit instead.
 
 ## Tunable constants — the `constexpr` NUMBERS
 
-**A bool register is only half the switches.** `Plugin.cpp` carries roughly forty `constexpr`
-numbers, and several of them decide behaviour as completely as any flag: a hold window, a guard,
+**A bool register is only half the switches.** `Plugin.cpp` carries ~95 `constexpr`
+numbers (2026-09-01 count, roughly a third of them function-local — see below), and several of
+them decide behaviour as completely as any flag: a hold window, a guard,
 an offset, a threshold. They are listed here for the same reason the bools are — so a number with
 a measurement behind it is not "tidied" by someone who reads it as arbitrary, and so a number that
 *is* arbitrary is not mistaken for a measurement.
@@ -274,18 +295,22 @@ a measurement behind it is not "tidied" by someone who reads it as arbitrary, an
 | **Tuned by eye** | adjusted until it looked right — the shape `BANDAGES.md` cares about | yes, and it should eventually be replaced |
 
 **Where a constant lives matters too.** Most sit at namespace scope near the top of `Plugin.cpp`,
-but **nine are function-local**, and they are cited elsewhere (`BANDAGES.md`, and the tables below)
-by bare name, which reads as though they were file-scope. They are not, and a grep at the top of the
-file will not find them:
+but **a growing set is function-local** (28 distinct names by the 2026-09-01 recount, against the
+nine this paragraph listed on 2026-08-27), and several are cited elsewhere (`BANDAGES.md`, and the
+tables below) by bare name, which reads as though they were file-scope. They are not, and a grep
+at the top of the file will not find them. The two location claims that keep getting relied on:
 
 - inside `Plugin::game_thread_tick()` — `SLIDE_CAPSULE_THRESHOLD`, `CROUCH_MOVE_STATE`,
   `SLIDE_REFIRE_INTERVAL_TICKS`, `SLIDE_REFIRE_WINDOW_TICKS`, `FLYING_MOVEMENT_MODE`,
   `IN_BUBBLE_MOVE_STATE`, `BUBBLE_MOVEMENT_MODE`
 - inside `Plugin::ensure_ghost_spawned()` — `ECC_PAWN`, `ECR_BLOCK`, `ECC_WORLD_DYNAMIC`
 
-**This paragraph named four of the nine until 2026-08-27**, and gave `game_thread_tick()` as the
-home of all of them, which is exactly the failure it exists to prevent — so it now lists them, and
-a constant added function-local is added here in the same edit.
+The rest (epsilons, per-effect proximity/reuse thresholds, weapon-flyer floor drops, catalog
+bounds, log budgets) live beside their use sites — **find one with
+`grep -n "constexpr.*<NAME>" Plugin.cpp` and note its enclosing function before citing it.**
+**This paragraph named four until 2026-08-27 and nine until 2026-09-01**, which is exactly the
+failure it exists to prevent — a constant added function-local is added here in the same edit,
+or the count above is at least re-dated.
 
 ### Shipped behaviour
 
@@ -299,14 +324,13 @@ a constant added function-local is added here in the same edit.
 | `MIN_PLAUSIBLE_DISTANCE` | `100.0` | **Sized.** Refuse to spawn against a transform still near the origin — a real placed pawn is never that close to (0,0,0), so this reads "the engine has not placed this pawn yet", not a location. |
 | `LOOPBACK_GHOST_OFFSET_X` | `150.0` | **Deliberate design decision**, dev-only, render-only. **Do not set it to 0 while `GHOST_COLLISION_ENABLED` is true** — tried 2026-08-15 and it immediately reproduced the Phase 7.4 bug where an overlapping ghost physically shoves the player. It is also real evidence about the collision feature: the "collision doesn't push me around" result was obtained *with* this offset, and real peers get none. |
 | `LOOPBACK_GHOST_OFFSET_Z` | `0.0` | **Refused at any other value**, by the user, and `BANDAGES.md` records why: side by side at the same ground level is what makes pose and timing comparable. Tried at `220.0` on 2026-08-15 and it was worse — on a pole the ghost went out of frame entirely. Kept named because it is the right tool for a horizontal orbit. |
-| `SPAWN_DELAY_TICKS` | `0` | Was `300` (~5 s) as a **diagnostic**, never as behaviour — it isolated the Phase 7.4 camera re-pick from level entry. That investigation finished, so the cost stopped being worth paying; the constant stays so the next one can raise it. |
+| `SPAWN_DELAY_TICKS` | `120` (~1 s) | **Behaviour since the reset-crash work** (its comment, `Plugin.cpp:~600`): a spawn is held until the local pawn has been stable this long, the game-side half of the fix for spawning into a mid-transition world. It was `300` (~5 s) as a Phase 7.4 diagnostic, then `0` when that investigation finished — this row said `0` until 2026-09-01 while the code shipped `120`. |
 | `PULSE_HOLD_TICKS` | `3` | **Sized** against the AnimBP's own update graph, which can stomp a single-tick write to `landed?`/`jumped?` before the state machine sees it. |
-| `WEAPON_SMOOTHING_ALPHA` | `0.25` | **Sized** against the rate gap: extras cross the wire at 20 Hz and the core never interpolates them, while the redraw loop runs at ~150 Hz. Fraction of the remaining gap closed per tick. |
-| `WEAPON_SNAP_DISTANCE` | `400.0` | **Sized.** Above this, snap instead of easing — comfortably above one 20 Hz step of the measured ~300 units/s throw arc and well below a room-scale jump, so a throw or an area change does not draw the sword gliding through the level. |
+| `WEAPON_SNAP_DISTANCE` | `1500.0` | **Sized, re-measured 2026-09-01** (was `400.0`; its comment records the raise): loss holes stretch ordinary flight steps past 400 units, so 400 turned normal late samples into snaps — 1500 still catches the hand-to-impact start and any area-scale jump, while anything smaller glides at segment speed. Paired with `WEAPON_SEG_MIN_MS`/`WEAPON_SEG_MAX_MS` (`16`/`400`), the clamp on a flight segment's duration. (`WEAPON_SMOOTHING_ALPHA`, the old per-tick easing constant, no longer exists — the thrown sword was rebuilt as our own flyer component, `create_ghost_weapon_flyer`, 2026-09-01.) |
 | `SLIDE_REFIRE_INTERVAL_TICKS` | `12` | **Tuned by eye**, and says so: roughly a third of a short slide at ~150 Hz, so one slide gets a few overlapping bursts. Function-local. |
 | `SLIDE_REFIRE_WINDOW_TICKS` | `40` | **Tuned by eye** — cuts re-fires off around the halfway mark of a slide's consistent 87 ticks so the last images land near the slide's own end. Function-local, and **dormant in practice**: the observed-spawn trigger is what fires today (`BANDAGES.md`, Deliberate). |
 | `AFTERIMAGE_SPAWN_PROXIMITY_UNITS` | `400.0` | **Derived, not guessed.** An afterimage is placed at the player, so the only separation possible is how far the player moved within one scan gap (≤10 ticks at ~150 Hz ≈ 67 ms, ~100 units at 1500 units/s). 400 is ~4x margin, and the log reports the furthest mover so a mis-size shows up in the capture. |
-| `AFTERIMAGE_COLOR_HOLD_TICKS` | `15` | **Sized against the send rate**, not against how long the effect looks right: ~20 Hz is ~7-8 ticks at this build's ~150 Hz. The failure it fixes was a sampling race — same reasoning as `PULSE_HOLD_TICKS`. |
+| `AFTERIMAGE_COLOR_HOLD_TICKS` | `15` | **Sized against the send rate**, not against how long the effect looks right: the 20 Hz it was sized at is ~7-8 ticks at this build's ~150 Hz. At today's 15 Hz default (~10 ticks per sample) the margin is thinner than the row implied — still above one interval, but worth re-checking if the hold ever misses. The failure it fixes was a sampling race — same reasoning as `PULSE_HOLD_TICKS`. |
 | `AFTERIMAGE_COLOR_OBSERVE_DELAY_TICKS` | `4` | **Measured behaviour**: the game counts `afterImagesToSpawn` *down* across ticks, so on the tick a burst is detected its images do not exist yet. |
 | `AFTERIMAGE_COLOR_OBSERVE_WINDOW_TICKS` | `20` | **Sized generously on purpose.** A single scan saw only part of a burst and mis-attributed the rest to the *next* one — the "blue arrives one burst late" bug. The log's `off=`/`new=` pair reports the real drain profile, so tighten from measurement, not from another guess. |
 | `AFTERIMAGE_OBSERVE_SCAN_INTERVAL_TICKS` / `AFTERIMAGE_IDLE_SCAN_INTERVAL_TICKS` / `AFTERIMAGE_COLOR_OBSERVE_STRIDE_TICKS` | `6` / `10` / `5` | Cadences for the observe path, which runs **once per burst** rather than on a fixed forever-cadence. That is one of the three reasons it is cheap enough to leave on where its predecessor regressed. |

@@ -28,3 +28,14 @@ never referenced from anywhere. Added 2026-08-25.
 **Adding one:** create `phaseN.md`, give it the dated-record note at the top, and add its row
 here. Numbering follows `plans.md`'s roadmap, and a `.5` is legitimate — Phase 5.5 was real work
 that did not warrant its own integer.
+
+**A phase file is the FULL history of its adapter — keep it fed while the work happens** (the
+user's call, 2026-09-01). Every phase file above had gone days-to-weeks stale while the work was
+recorded only in VERIFIED/pitfalls; each now carries a dated catch-up section at its end, and the
+next session should append to the phase file in the same pass that closes the work, not later.
+
+**Go-side (core/relay/protocol/transport) work has no phase file, deliberately.** Its dated
+record is the ADR folder (`../adr/`, one file per decision — 0039-0043 cover the 2026-08-28
+architecture week) plus `../scaling.md`, `../hz-ceiling.md` and `../testing.md`; a phase file
+would be a second home for the same history. If the Go side ever gets a phase of its own, this
+paragraph is the scope statement to revise.

@@ -2,7 +2,7 @@
 
 <!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
 
-**Read this before raising `send_hz`, changing `maxSnapshots`/`maxSnapshotAgeMs`, or answering
+**Read this before raising `send_hz`, changing `maxSnapshots`/`defaultSnapshotAgeMs`, or answering
 "could we run at 144/240/480Hz to match a game's frame rate?".** Split out of
 [scaling.md](scaling.md) on 2026-08-30, which was at its cap and where this had become the largest
 single topic. That file keeps the five-line summary and points here.
@@ -36,7 +36,8 @@ answer.
 samples, so it spans 64/Hz seconds; interpolation works while that covers the interpolation delay,
 and past it `at()` falls off the old edge and edge-holds — no error, just stutter. **Exactly the
 2026-08-28 bug at a higher rate**: the count was 8 then and broke at the dev rig's 100Hz; the fix
-added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derived**, and pinned by
+added a time bound (`defaultSnapshotAgeMs`, feeding the derived `historyMs` window in
+`core/interp.go`) but kept a count. **MEASURED, not derived**, and pinned by
 `core/hzceiling_test.go`:
 
 | interp | last rate still interpolating | first rate that edge-holds |
@@ -91,11 +92,13 @@ MILLISECONDS, so the interval quantizes to **ZERO error whenever the rate divide
 means **144Hz is a worse choice than 125 or 200**, and a rate should be picked from the exact set.
 The flood cap scales 6x with the rate on its own.
 
-**WHY 100 IS A CLEANER CEILING THAN IT LOOKS.** The buffer is bounded by BOTH `maxSnapshots` (64)
-and `maxSnapshotAgeMs` (600). The count only starts binding above **~107Hz** (64 samples span
-598ms there, just under the age bound), so **at or below 100Hz the count is irrelevant and any
-interp delay up to 600ms works.** MaxSendHz sits just under the crossover — whether by judgement or
-luck, it is the last round number where the count constant cannot bite.
+**THE COUNT NO LONGER BINDS ANYWHERE NEAR THE CEILING.** `maxSnapshots` was raised to **1024**
+(`core/interp.go`), a pure memory bound: 1024 samples cover the default 600ms window up to
+**~1700Hz**, seventeen times `MaxSendHz`. The functional bound is the TIME window
+(`defaultSnapshotAgeMs` = 600, or the larger derived `historyMs` when render settings need more),
+so **at any permitted rate the count is irrelevant and any interp delay up to 600ms works.**
+(This paragraph argued a ~107Hz count-vs-age crossover while the count was 64; that crossover is
+gone — corrected 2026-09-01.)
 
 **THE CEILING THAT BINDS FIRST IS THE GAME'S OWN FRAME RATE.** An adapter samples on the game's
 frame and cannot produce a DISTINCT sample faster than the game renders — Pseudoregalia ticks

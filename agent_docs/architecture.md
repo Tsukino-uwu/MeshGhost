@@ -15,14 +15,14 @@ are a record, and a record is capped by splitting it, not by refusing entries
 
 ```text
         Relay (relay, cmd/meshghost-relay)
-             |  relay protocol: NDJSON over tcp|udp|quic (via netx). 16 types:
-             |  hello/welcome/reject/join/leave/state/ping/pong/transports, plus
-             |  the opt-in planes event/lease/lease_state/escrow/escrow_state/
+             |  relay protocol: NDJSON over tcp|udp|quic (via netx). 17 types:
+             |  hello/welcome/reject/join/leave/state/prefs/ping/pong/transports,
+             |  plus the opt-in planes event/lease/lease_state/escrow/escrow_state/
              |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only. 14 types:
+             |  adapter bridge: NDJSON/TCP, localhost-only. 15 types:
              |  hello/bridge_ready/reject/session_policy/local_state/render_remote/
-             |  despawn_remote, plus the same opt-in planes (bridge/bridge.go)
+             |  despawn_remote/remote_name, plus the same opt-in planes (bridge/bridge.go)
      [ Adapter contract ]
         /    |    \
    Emerald  Crystal  TEVI  Pseudoregalia   (per-game, rewritten each time)
@@ -65,10 +65,10 @@ transport  — generic NDJSON framing over any net.Conn. Defines its own Transpo
 bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
 core       — snapshot buffer, interpolation, remote-player tracking. Imports
-                       protocol, transport, bridge, netx.
-relay      — room membership, forwarding, limits. Imports protocol, transport.
-                       Never imports core or bridge — the relay stays ignorant of
-                       adapter-side concerns, same as it's ignorant of games.
+                       protocol, transport, bridge, netx, internal/textfmt.
+relay      — room membership, forwarding, limits. Imports protocol, transport,
+                       internal/textfmt. Never imports core or bridge — the relay stays
+                       ignorant of adapter-side concerns, same as it's ignorant of games.
 netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Added
                        2026-08-16. No deps on our own packages, same leaf discipline as
                        transport; subpackages netx/udpconn and netx/quicconn hold the
@@ -79,6 +79,12 @@ netx       — transport selection (tcp|udp|quic) as net.Listener/net.Conn. Adde
                        net.Conn.
 
 NOT PUBLIC — internal/ still means what it always did:
+internal/cfg        — production, added 2026-08-25. The config-file plumbing shared by the
+                       two mains (BOM stripping, bad-value handling), extracted because
+                       both carried a copy that had already begun to diverge.
+internal/textfmt    — production, added 2026-08-28. Number formatting for the one-line
+                       status summaries; extracted because core/stats.go and
+                       relay/introspect.go carried byte-identical copies.
 internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
                        the bridge; imports bridge, netx, protocol, transport. Ships no
                        production code, so nothing imports it.
@@ -91,9 +97,10 @@ internal/gameblind  — test-only, added 2026-08-20. Five tests over the source 
                        above a chosen set rather than the residue of deleting a directory.
 
 cmd/* are package main and were never importable:
-cmd/meshghost       — desktop app entry point. Imports core, netx and protocol (the Phase 3
-                       note here once predicted transport/bridge imports; they never arrived).
-cmd/meshghost-relay — standalone relay entry point. Imports relay, netx and protocol.
+cmd/meshghost       — desktop app entry point. Imports core, netx, protocol and internal/cfg
+                       (the Phase 3 note here once predicted transport/bridge imports; they
+                       never arrived).
+cmd/meshghost-relay — standalone relay entry point. Imports relay, netx, protocol, internal/cfg.
 cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core, netx
                        and protocol.
 cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NONE of our own

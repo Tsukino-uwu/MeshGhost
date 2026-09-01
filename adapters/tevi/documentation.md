@@ -108,7 +108,7 @@ is up, and returning to the **main menu / title** does null it. The *behaviour* 
 unsure and noted only that the behaviour works as intended today. **Nothing was changed on that
 basis** — this is the exact file whose pause-menu reasoning produced the 2026-08-18 false
 regression, and reasoning from code about what a game means is what caused it. A probe settles it:
-`probes/README.md`.
+`PROBES.md`'s `DIAG_MENU_GATE` section.
 
 That single difference is what lets a `player == null` check tell "the player left the session"
 apart from "the player opened a menu" — without it, a pause would be indistinguishable from

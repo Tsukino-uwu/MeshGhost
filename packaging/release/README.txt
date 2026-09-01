@@ -132,7 +132,13 @@ Setup, once:
                it as "" if they didn't -- most hosts won't have, since it's
                off by default. If they did set one, you must enter it
                exactly or you'll be refused.
-     "name"  -- whatever you want your ghost to show as to others.
+     "name"  -- whatever you want your ghost to show as to others, as a
+               floating nametag (in games whose mod draws one). Empty --
+               the default -- means no nametag at all. Capped at 24
+               characters and cleaned up by the server either way.
+     "name_color" -- optional colour for that nametag, as "#RRGGBB"
+               (e.g. "#00c8ff"). Leave "" for a plain name with no
+               coloured box behind it.
      "ghost_collision" -- whether other players' ghosts can be solid in
                YOUR game -- bumped into, stood on, in the way. "enabled"
                (the default) accepts whatever the host chose. "disabled"
@@ -209,9 +215,9 @@ Setup, once:
                                      stutter starts to show, because each
                                      step is a discrete hop rather than a
                                      smooth slide.
-                 below "50ms"     -- not recommended, even on a great
+                 below "70ms"     -- not recommended, even on a great
                                      connection: your own client only sends
-                                     its position about once every 50ms (20
+                                     its position about once every 67ms (15
                                      times/second) no matter what, so a
                                      lower value doesn't get you fresher
                                      data -- it just leaves less buffer to
@@ -236,6 +242,10 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
+     The config.json inside a game's mod folder may carry a few more keys
+     ("keepalive", "curve", "extrapolate", "predict") -- rendering knobs
+     already tuned per game. Leave them as shipped; each one's own
+     _comment line in the file says what it does.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
    Notepad is fine for this. If you use something else, save the file as

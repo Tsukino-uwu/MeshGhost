@@ -787,7 +787,10 @@ filed under the right theme, but anything can check that it is listed.
   `ue4ss\UE4SS.dll`, and `ue4ss\UE4SS-settings.ini` (all rewritten at the same instant,
   08/13 19:14:52) — `MeshGhostPseudo\`'s own files were untouched (still 18:21:01). The
   resulting installed `UE4SS.dll` is a different build than the one MeshGhost bundles in
-  `packaging/release/games/pseudoregalia/ue4ss-runtime/`: different size (16,240,640 vs.
+  `packaging/release/games/pseudoregalia/ue4ss-runtime/` *(pointer corrected 2026-09-01: the
+  runtime is now staged in-tree at
+  `packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/`; the provenance
+  file `ue4ss-runtime-built-from.txt` keeps the old level)*: different size (16,240,640 vs.
   16,248,832 bytes) and different SHA-256 (`B379...79FB1` vs. `B36F...53F2F89`), confirmed via
   `Get-FileHash`. Despite the mismatch, user launched Pseudoregalia after the swap and
   confirmed watching the loopback ghost render and follow correctly in-game — "everything

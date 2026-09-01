@@ -559,7 +559,7 @@ want opposite responses. It read as a networking fault for several minutes. **A 
 resource must name the resource**; a retry log without the target is a log that cannot be
 diagnosed from.
 
-**Cross-reference:** `adapters/tevi/BridgeClient.cs` (`RefusalsBeforeWalking`, `portRefusals`),
+**Cross-reference:** `adapters/tevi/MeshGhostTevi/BridgeClient.cs` (`RefusalsBeforeWalking`, `portRefusals`),
 `adapters/tevi/UNVERIFIED.md` -- the fix's own recovery path is reasoned, not reproduced.
 
 

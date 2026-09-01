@@ -168,7 +168,7 @@ about networking, only about **adapter behaviour that depends on the peer differ
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target (all eleven) | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target (all fourteen) | no |
 | **gofmt** | yes (`dev-scripts/preflight.ps1`) | yes — `gofmt -l` on tracked `.go`, added 2026-08-18 | no |
 
 **The race detector used to be the one real hole, and it cost a round trip before it was
@@ -220,10 +220,10 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   wire**. That test has a deliberate negative control in the same function (with `tls` off the
   room code *is* captured), so it fails both when the feature breaks and when the test stops
   watching the right traffic.
-- **`bridge`** — **no test files of its own.** It is types and limits only, and it is
-  covered where it is used: `core`'s `dialFakeAdapter` speaks real bridge NDJSON, and
-  `internal/e2e` drives a real adapter across it. Worth knowing before assuming a bridge change
-  is unguarded.
+- **`bridge`** — has `bridge_test.go` since 2026-08-25 (seven tests plus two fuzz targets;
+  before that it had none at all). It is also covered where it is used: `core`'s
+  `dialFakeAdapter` speaks real bridge NDJSON, and `internal/e2e` drives a real adapter
+  across it.
 - **`internal/gameblind`** — the structural rules, made mechanical (2026-08-20). Five tests, no
   network and no game: **no game name in library code** (comments and tests are exempt — naming
   the game a rule came from is documentation, and Go-side tests use game ids as sample data);
@@ -386,11 +386,11 @@ Only the seed corpus runs during a normal `go test`. To run a real campaign:
 go test ./protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
 ```
 
-Four of the eleven targets carry a version of that command in their own doc comment (`protocol`,
+Four of the fourteen targets carry a version of that command in their own doc comment (`protocol`,
 `transport`, and both in `relay/fuzz_test.go` — those say `-fuzztime=60s`, and the two older ones
 say `-run=Fuzz` rather than `-run=XXX`); for the rest, substitute the package and target name into
-the line above. `-run=XXX` matches no ordinary test, so only
-the fuzzing runs. One target at a time — Go does not support fuzzing several at once.
+the line above. `-run=XXX` matches no ordinary test, so only the fuzzing runs. One target at a
+time — Go does not support fuzzing several at once.
 
 The targets, and the property each actually tests (none is a restatement of the code's own
 checks):
@@ -408,19 +408,19 @@ checks):
 | `FuzzNormalizeFeaturesIsIdempotent` | Normalizing twice equals normalizing once, so two clients advertising the same capabilities are never refused a shared room. |
 | `FuzzValidateWorldIsStableAcrossTheWire` | A world write survives the wire unchanged — including its `authority`, which is compared for equality against a lease key, so a string that mutates in transit means every write silently denied. |
 | `FuzzRelaySurvivesArbitraryPostJoinMessages` | A live relay fed arbitrary messages *after* a real join still serves clients — the only coverage of the dispatch reaching `handleEvent`/`handleLease`/`handleEscrow`/`handleWorld`. |
+| `FuzzEnvelopeUnmarshalNeverPanics` (**bridge**) / `FuzzHelloUnmarshalNeverPanics` (bridge) | The bridge's outermost decode and its `hello` decode fail cleanly on arbitrary bytes — an adapter is third-party code and the bridge had no fuzzing (and no tests) until 2026-08-25. |
+| `FuzzClampRatesAlwaysLandInRange` | Every rate the relay resolves from a hello lands inside the honoured clamp range, whatever the inputs (added with the 15Hz default change, 2026-09-01). |
 
-**Two targets have now shipped written-but-unwired**, which makes it a pattern rather than a slip:
-`FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and
-`FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having
+**Two targets have now shipped written-but-unwired**, a pattern rather than a slip:
+`FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and `FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having
 never once run). **Adding a target is not done until `.github/workflows/ci.yml` has a step for it**,
-and this table is where the next session checks. The udp one is the
-most exposed of them: udp parses a stranger's bytes *before* address validation, room
-code, or protocol version, and since the transport defaults changed it sits on the fallback path
-rather than being opt-in.
+and this table is where the next session checks. The udp one is the most exposed of them: udp
+parses a stranger's bytes *before* address validation, room code, or protocol version, and since
+the transport defaults changed it sits on the fallback path rather than being opt-in.
 
-If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus`
-artifact. Download it, drop it into the matching `testdata/fuzz/<Target>/` directory, and
-`go test ./<pkg>` replays it as an ordinary test case — commit it as a regression test.
+If CI's fuzz job fails, the reproducing input is uploaded as the `fuzz-failure-corpus` artifact:
+drop it into `testdata/fuzz/<Target>/`, where `go test ./<pkg>` replays it — commit it as a
+regression test.
 
 ## Traps
 

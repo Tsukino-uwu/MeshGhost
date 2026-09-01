@@ -400,3 +400,20 @@ is reproducing it by hand, per effect, for ever.
 - `probes/bikeloop_probe.lua`, `bikeline_probe.lua`, `grasswalk.lua`: scripted riding, counted in
   TILES not frames — a frame-timed route drifts across the map and rides into trainers.
 - `probes/goto_map.lua`: warp anywhere, so reaching a state costs nobody's time.
+
+## Catch-up record, written 2026-09-01 — the body the REOPENED header never got
+
+The header above says "REOPENED 2026-08-26 for Fly and the boat" and the file recorded nothing
+after it. Backfilled from the commit log; evidence in
+`adapters/emulator/pokemon/emerald/VERIFIED.md`, `BANDAGES.md` (entry 4) and `UNVERIFIED.md`.
+
+- **2026-08-26 — the Fly session, nine faults end to end** (`330c6d7`, `ea4b0b6`, `29ad111`,
+  `58ea70c`, `7074055`, `c22da7c`, `6f91538`, `87ff6ba`, `983f78f`): ROM addresses shifted on a
+  patched ROM, the bird's arc anchored to the screen rather than the world, and three renderers
+  showing three different fly faults. Fly is registered as a bandage where it compensates.
+- **2026-08-27** — Ice was the wrong function (`8af2364`), and the flag register was found
+  disagreeing with its own code in both directions at once (`2da653e`, `067ee12`) — the audit
+  that produced the register-completeness rule in `_template/FLAGS.md`.
+- **2026-08-28** — Emerald spent a session at 5fps because its own fix had been written in
+  Crystal (`583647a`); all four adapters started reading the bridge-port config, two having read
+  no config at all (`15b2715`).

@@ -847,3 +847,26 @@ rules: `pitfalls/by-host.md`. The compare rig's per-frame instruments now sit be
 The user, riding a 9x9 on the bike with the full stack live: *"yee its smooth to play/control as
 well now. and looks smooth visually"*, then *"moving perfect, surf working, bike working etc etc"*.
 Agent numbers on that same lap: furthest behind 0px, K drift 0 over 7 parks, 0 catch-up, 0 resyncs.
+
+## Catch-up record, written 2026-09-01 — the active phase's missing week
+
+This is the ACTIVE phase file and its record stopped at 2026-08-25. Backfilled from the commit
+log; evidence in `adapters/emulator/pokemon/crystal/VERIFIED.md`, `UNVERIFIED.md` and `FLAGS.md`.
+
+- **2026-08-26 — fishing confirmed; the Fly arc end to end.** The "!" was two faults in one
+  symptom (`21085ac`, `6c3aa33`). Then Fly, from "does not touch the player's object" to
+  confirmed on screen, landing spiral included, with the peer becoming the Pokémon mid-flight
+  and teleport queued with its whole envelope (`e95ce49` … `9b299f3`). Ledge hops confirmed on
+  both tiers; Dig and Escape Rope confirmed; three decomp-shaped guesses refuted by measurement
+  (`c4b6ea9`, `d6bd684`, `d16e97e`, `aa237d0`).
+- **2026-08-26, the patched cartridge** — its extra fourth gait measured (`43ceab5` and kin),
+  the camera's two dead bytes on that build, the third ghost that was never in the game, the
+  idle rule raised to a minute, stand-only learned facing.
+- **2026-08-27 — cross-map ghosts.** Crystal learned the game's own map connections
+  (`f09e3b7`, `80316b2`, `43b44b8`, `d62020f`, `6bccb3c`): a peer on a connected neighbour map
+  renders through translated coordinates; a seam crossing no longer un-draws peers; derived
+  facing kept a stale mirror and was fixed. GAIT_PX per engine tick vs video frame, and the
+  camera plausibility test taught the fourth gait (`a2b640c`, `4af2333`, `cc108e2`).
+- **2026-08-28** — cross-map ghosts survive the relay's cross-area filter, measured at a 76%
+  cross-area room (`8eb0b20` — the adapter-side counterpart of ADR 0041), and the bridge-port
+  config landed with the other adapters (`15b2715`).

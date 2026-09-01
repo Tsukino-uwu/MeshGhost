@@ -121,7 +121,9 @@ the peers would have seen. What a log cannot show is the other player's screen.
 ## Pending — Emerald: a room bigger than the map (2026-08-19)
 
 Measured with synthetic peers, not with people: the engine's 16-entry object array is shared with
-the map's own NPCs, so a town holding the player and two NPCs fits exactly **13 ghosts**; peers
+the map's own NPCs, so a town holding the player and two NPCs fits exactly **13 ghosts** (measured
+2026-08-19, before the reserved slot existed — the same town budgets **12** today, see
+`README.md`'s Limits section); peers
 past that are refused and simply never appear. Past the ceiling the adapter used to log a refusal
 per unplaceable peer per frame, which cost 60fps → 3fps at 24 peers and 1fps at 36; that is fixed
 (throttled message, and no further spawn attempts once the array is full for the frame) and
@@ -139,9 +141,10 @@ map can spare (**nearest peers win**, with a 3-tile hysteresis band so ghosts do
 while someone walks past, and a reserve so the engine always keeps a slot for a character of its
 own), and everything past that painted with the older `gui.*` pixel path so that **no peer is
 simply absent**. The drawn tier is behind `MESHGHOST_EMERALD_DRAWN_OVERFLOW` and is **off by
-default** — see `BANDAGES.md`: a drawn ghost has no engine occlusion, and the region a text box or
-the START menu occupies is not measured yet on this game, so with the flag on it would paint over
-them.
+default** — see `BANDAGES.md`: a drawn ghost has no engine occlusion. (The text-box/START-menu
+region has since been measured and the tier clips it — `tiering.scanPanel()` reads BG0's tilemap,
+shipped 2026-08-19 — so the reason the flag stays off is now that the clip has not been repeated
+under controlled real play, not that the region is unmeasured.)
 
 Self-tested with synthetic peers on one indoor map, from the adapter's own counters: 40 peers →
 13 spawned + 27 painted at a full 59.7fps; 150 peers → 13 spawned + up to 172 painted (the ones
@@ -208,8 +211,6 @@ on screen (`verified.md`: the Acro Bike is FINISHED 2026-08-21, surfing and divi
     *Self-tested* by reading back what the game computes at that tile: `behaviour 21
     (OCEAN_WATER)`, collision 0, elevation 1, player at elevation 3 adjacent. **Not confirmed on
     screen, and no rod has successfully been cast on it yet.**
-- **Archipelago ROMs still use the old drawn overlay.** See `adapters/emulator/pokemon/emerald/BANDAGES.md`
-  — one live run on a patched seed either closes it or refuses safely.
 
 ## Pending — Emerald: what a BLOCKED rider actually does (2026-08-20)
 

@@ -1137,7 +1137,9 @@ filed under the right theme, but anything can check that it is listed.
 - Source: three real session logs, `internal/meshghost emerald first online.log` (friend's
   client), `internal/meshghost.log` (host's client), `internal/meshghost-server.log` (relay) —
   all from the same 2026-08-13 22:28–22:44 session, IPs manually redacted by the user before
-  sharing.
+  sharing. *(Noted 2026-09-01: those three logs were session-local, gitignored artifacts under
+  the old `internal/` layout and are not recoverable from the tree — the entry's evidence is
+  this record of them, not the files.)*
 - Notes: per the agent-read-log gating already established for TEVI 6.1 above, a log line is
   sufficient confirmation for a connectivity claim like this one (distinct from a
   visual/gameplay claim, which still needs the user to watch it on screen — no ghost rendering
@@ -1195,6 +1197,8 @@ filed under the right theme, but anything can check that it is listed.
 - Source: `adapters/emulator/pokemon/emerald/probes/phase5_5_sprite.lua` (unchanged by this session —
   the diagnostic trace added to investigate was reverted, not shipped);
   `internal/core/core.go` (same — diagnostic trace added and reverted, no net code change).
+  *(Pointer corrected 2026-09-01: the 2026-08-17 module move retired `internal/core/` — the
+  package is `core/core.go` at the repo root.)*
 - Notes: closes the "Emerald (Lua): all fixes applied ... not yet live-verified in an
   emulator" / "not separately exercised: ... a non-loopback two-real-peer run" gaps noted in
   `status.md`'s 2026-08-14 sweep entry. Relay-restart-mid-session (the dead-socket
@@ -1433,6 +1437,8 @@ filed under the right theme, but anything can check that it is listed.
   `cmd/meshghost`, `dev-scripts/run-core-*.bat` defaults changed to instant-for-local-testing)
   is design/config work, not a runtime fact, so it isn't a `verified.md` entry on its own --
   see `dev-scripts/README.md` and `internal/core/core.go`'s `MinSendInterval` for that half.
+  *(Pointer corrected 2026-09-01: `MinSendInterval` now lives in `core/core.go` at the repo
+  root — the 2026-08-17 module move retired `internal/core/`.)*
 
 ### A client could be orphaned into a room that had already been dropped
 

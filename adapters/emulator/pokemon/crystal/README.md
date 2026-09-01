@@ -4,7 +4,8 @@
 
 **Status: shipping, and under active work — Phase 9.** `meshghost_crystal.lua` dials the bridge,
 spawns a real in-game object event for each peer, walks it with the game's own step mechanism, and
-ships in the release (`.github/workflows/release.yml` stages it into `games/pokemon/crystal/`). It
+ships in the release (`release.yml` runs `dev-scripts/stage-release.ps1`, which stages it into
+`games/pokemon/crystal/`). It
 **writes game RAM** — object RAM only, never a save.
 
 **Three tiers, which is this adapter's headline structure.** A peer is rendered by the best one
@@ -34,9 +35,12 @@ judged on screen at all, and the mixed room has only ever been run on one map wi
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
   ([VERIFIED.md](VERIFIED.md), 2026-08-17). An entry nobody has measured stays `nil` rather than
   reading a plausible address, and a `nil` in any of the ten the adapter must read or write makes
-  it **refuse to run**. Two entries on the Archipelago table are still `nil` and are not in that
-  ten, so they turn a feature off instead: `W_USEDSPRITES` (a peer's own appearance) and
-  `W_STATEFLAGS` (the hardware tier). Every switch: [FLAGS.md](FLAGS.md).
+  it **refuse to run**. Eleven optional entries are unmeasured on the Archipelago table and turn
+  a feature off instead of refusing: `W_USEDSPRITES` (a peer's own appearance), `W_STATEFLAGS`
+  (the hardware tier), the `W_MAPCONNECTIONS`/`W_MAPWIDTH`/`W_MAPHEIGHT` trio (cross-map ghosts),
+  `W_SPRITEUPDATESON` (the drawn tier's UI gate never fires), and the five party/icon entries the
+  Fly landing reads (no Fly arrival on that build). (This said "two entries" until 2026-09-01 —
+  only the first two had ever been counted.) Every switch: [FLAGS.md](FLAGS.md).
 - Adapter language: Lua (BizHawk's scripting host), as Emerald.
 - **How the game is read: an external source decompilation** —
   [`pokecrystal`](https://github.com/pret/pokecrystal), built locally and verified byte-identical
@@ -294,10 +298,10 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
   compensations, and the runtime switches.
 - `VERIFIED.md`, `UNVERIFIED.md` — what the user has confirmed on screen, and the queue of what is
   measured and still waiting for them to look.
-- `probes/` — every development tool, and none of it ships. Seventy-six scripts covering the address
+- `probes/` — every development tool, and none of it ships. Eighty scripts covering the address
   hunt, the spawn recipe worked out one failure at a time, the Archipelago re-measurement, and the
   savestate-driven rigs that make an expensive state (a fly, a ledge, a whirlpool) repeatable.
-  **Twenty of them WRITE and fifteen hold the controller**; they are indexed, one line each, in
+  **Twenty of them WRITE and seventeen hold the controller**; they are indexed, one line each, in
   [probes/README.md](probes/README.md) — read that rather than the folder listing.
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying

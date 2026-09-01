@@ -106,8 +106,10 @@ cycle costs the user a real game launch.
 shipped adapter also carries constants that decide behaviour: a hold window, a spawn guard, a
 render offset, a distance threshold, a snap limit. They do not look like switches — they look like
 arithmetic — so nobody classifies them, and then one gets "simplified" by a reader who assumed it
-was arbitrary. Pseudoregalia has ~40 of these against its 58 bools; the register was bools-only
-until 2026-08-18 and that omission is why this section exists.
+was arbitrary. Pseudoregalia had ~40 of these against its then-58 bools (2026-08-18 count; its own
+register keeps the dated current figure — 96 bools by 2026-08-30, so treat any count as a
+date-stamped measurement); the register was bools-only until 2026-08-18 and that omission is why
+this section exists.
 
 **Register a number here the moment its value carries an argument.** Not every integer needs a
 row — a buffer size does not. The test is whether someone changing it would be changing

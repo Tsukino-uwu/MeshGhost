@@ -594,8 +594,10 @@ descriptions of one mechanism start drifting. In one line: the relay advertises 
 `send_hz`, a client's own slower `min_send` always wins, `max_receive_hz_per_player` is enforced
 relay-side per recipient, and the flood cap scales with `send_hz` only ever upward.
 
-**Real regression caught and fixed in the same change**: every `dev-scripts/run-core-*.bat`
-pass `-min-send=10ms` — faster than the (now fallback-only) 20Hz default — which under "slower
+**Real regression caught and fixed in the same change**: the core launchers `run-core.bat` and
+`run-core-pseudoregalia-online.bat` (not every `run-core-*.bat` — the crystal-shipped and
+emerald-trail ones deliberately keep play defaults) pass `-min-send=10ms` — faster than the (now
+fallback-only) default, 20Hz then and 15Hz since 2026-09-01 — which under "slower
 wins" against an unconfigured relay would have silently capped every one of them back down to
 50ms, undoing the exact fast-local-timing setup Phase 8 chose deliberately
 (`agent_docs/phases/phase8.md`). The relay dev scripts pass `-send-hz=100`

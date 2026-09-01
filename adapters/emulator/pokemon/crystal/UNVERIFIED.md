@@ -390,7 +390,7 @@ Neither is scheduled. Both are measured, and the numbers above are what any fix 
 **Status: measured and fixed in code, NOT confirmed on screen.** The user reported it live —
 *"the drawn ghost still looks a bit stuttery/jittery while moving around"* — while playing the
 shipped-settings rig (`run-relay-loopback-shipped.bat` + `run-core-crystal-shipped.bat`, 250ms
-interpolation at the relay's default 20Hz).
+interpolation at the relay's then-default 20Hz; the default is 15Hz since 2026-09-01).
 
 ### What it was
 
@@ -620,7 +620,7 @@ are enumerable (no drawn peer that frame, the UI latch, the settle window, a >12
 
 Continues the entry above ("the '206px continuous bleed' was a counter artefact"). All three were
 found by measurement against a source citation, all three are deployed on the shipped-settings rig
-(`hSCX`-clocked, 250ms/20Hz), and **no user has judged any of them on screen yet.**
+(`hSCX`-clocked, 250ms and the then-default 20Hz), and **no user has judged any of them on screen yet.**
 
 ### 1. The adapter's "camera" register was not the camera
 
@@ -745,9 +745,9 @@ a step), through the frame that tile came back through the core, to the frame `s
 
 | relay | core interp | wire | adapter | total | spread |
 |---|---|---|---|---|---|
-| 20Hz (shipped) | 0ms | mean 3.1 | mean 0.7 | mean 3.9 | **2-5 frames** |
+| 20Hz (then the default) | 0ms | mean 3.1 | mean 0.7 | mean 3.9 | **2-5 frames** |
 | 100Hz | 0ms | **flat 2, every step** | mean 0.6 | mean 2.6 | **0** |
-| 20Hz (shipped) | 250ms (shipped) | mean ~16 | mean 0.6 | mean ~16.5 | **2-3 frames** |
+| 20Hz (then the default) | 250ms (shipped) | mean ~16 | mean 0.6 | mean ~16.5 | **2-3 frames** |
 
 Roughly 100 steps, `square_drive` lapping a 3-tile square with the ghost 4 tiles clear of it.
 
@@ -760,8 +760,11 @@ offset, and a constant offset has no reference to be judged against unless the p
 — which is only true on this loopback rig. What a real player can see is the lag CHANGING from step
 to step: the ghost walks, hesitates, walks. That is the *"slightly behind/slow/late"* report.
 
-**The mechanism, and it predicts all three rows.** The relay ships a room at 20Hz — one sample every
-50ms, three frames. The core lerps every component of `Position` between the two bracketing samples
+**The mechanism, and it predicts all three rows.** The relay shipped a room at 20Hz when this was
+measured — one sample every 50ms, three frames. (The default is **15Hz since 2026-09-01** — one
+sample every ~67ms, FOUR frames — so the same mechanism now predicts a slightly WIDER spread; the
+ramp is the relay's sample interval in frames.) The core lerps every component of `Position`
+between the two bracketing samples
 (`core/interp.go`), and Crystal's `Position[0..1]` are TILE INDICES: a quantity that only ever moves
 in whole steps. Lerping a step function turns an exact instant into a three-frame ramp, and
 `math.floor` crosses that ramp at a moment that depends on where the jump fell between samples. So
@@ -820,7 +823,7 @@ Built on the measurement above. `STEP_TRIGGER_PROG = 4`: the ghost waits until t
 pixels of sixteen into its step before taking one, instead of stepping the moment the peer's
 (interpolated, and therefore ramped) tile index crosses an integer.
 
-**The A/B, same session, same rig, same sample size** — shipped settings, relay 20Hz, core 250ms,
+**The A/B, same session, same rig, same sample size** — the settings shipped at the time, relay 20Hz, core 250ms,
 `square_drive` lapping a 3-tile square:
 
 | `STEP_TRIGGER_PROG` | step-start spread, p5-p95 | full range | mean | shape |
@@ -841,7 +844,7 @@ this is close to as far as the idea goes.
 progress is never computed and the trigger is the old tile comparison, byte for byte.
 
 **It cannot help at `-interp=0ms`, and that is not a fault in it.** With interpolation off the pixel
-position is the newest 20Hz sample and jumps in threes like the tile does, so there is no smooth
+position is the newest sample (20Hz in that run) and jumps in threes like the tile does, so there is no smooth
 quantity to lean on. **Judge this at shipped settings only** — `run-relay-loopback-shipped.bat` +
 `run-core-crystal-shipped.bat`, and read the core's own `smoothing:` line before believing anything.
 
@@ -2628,7 +2631,7 @@ the fault. What finally worked, in order — the general form is now in
 3. **Per-frame counters inside the trace.** The per-second report prints per-frame locals, so it
    landed on healthy frames and reported `0 off screen` throughout a 20-frame gap. With
    `[want=1 drawn=0 off=1]` on each traced frame the cause was unmissable.
-4. A **driver that repeats the transition** (`dev-scripts/seam_shuttle.lua`) so the reading is a
+4. A **driver that repeats the transition** (`probes/seam_shuttle.lua`) so the reading is a
    distribution over ~30-60 crossings. That distribution — half the crossings with a 16-23 frame
    gap, half with one frame — is what identified the fault as one-directional.
 

@@ -33,11 +33,11 @@ REM is duration and the transports/faults a unit test cannot reach -- point it a
 REM run-netsim.bat's proxy address to soak under loss and jitter.
 REM
 REM -event-every 300ms with 6 peers is ~120 relay messages/sec of control traffic on top of
-REM the 20Hz state plane. Do not lower it much: the relay's per-client flood cap is
+REM the 15Hz state plane. Do not lower it much: the relay's per-client flood cap is
 REM max(120, send_hz*6) messages/sec and it CLOSES a connection that exceeds it, which reads
 REM as a mysterious disconnect rather than as "you asked for too much." The world plane spends
 REM the same budget: -host-entities 5 at -entity-hz 12 is 60 writes/sec from whichever peer
-REM holds the authority, on top of that peer's 20Hz state and its events. Raise either number
+REM holds the authority, on top of that peer's 15Hz state and its events. Raise either number
 REM and check the arithmetic against 120 before assuming a disconnect is a bug.
 start "soak relay" ..\meshghost-relay.exe -addr=127.0.0.1:7911 -transport=tcp -introspect=10s
 timeout /t 2 /nobreak >nul

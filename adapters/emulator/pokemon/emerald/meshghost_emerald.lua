@@ -694,6 +694,8 @@ end
 --
 -- Filtering it at the RECEIVER was tried twice and cannot work: the transient outlives one update
 -- and spans two at 20Hz, so "the same state twice" is satisfied by the unsettled state itself.
+-- (Traced at the then-20Hz send rate; at today's 15Hz default the updates are further apart, so
+-- the argument only strengthens.)
 -- The sender is the only place that sees every frame, so it is the only place that can tell a
 -- settled state from a half-built one. A new graphic is held until its offset stops changing --
 -- typically two frames, and the peer simply keeps seeing the previous state meanwhile, which is

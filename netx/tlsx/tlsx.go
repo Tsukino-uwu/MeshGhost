@@ -77,7 +77,7 @@ const (
 	// how a session gets debugged — netcat, a packet capture,
 	// cmd/meshghost-netsim — and turning that off by default would cost
 	// the project its cheapest diagnostic. Both binaries default their
-	// -tls flag to Auto, and a release config sets "required".
+	// -tls flag to Auto, and the release config ships "auto" too.
 	Off Mode = iota
 
 	// Auto encrypts when the other end can. On a listener it serves TLS

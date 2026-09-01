@@ -114,14 +114,15 @@ has never been looked at. `verified.md`.
   walk; cut the class list before reloading it. `pseudoregalia/PROBES.md`, `pitfalls/by-lesson.md`.
 - **`internal/e2e`'s port reservation is a TOCTOU and flakes on CI under `-race`** (2026-08-27) —
   child gets a bare port number that can be taken first; unfixed. `testing.md`, Traps.
-- **Crystal is THREE names from Lua's 200-local ceiling and Emerald is TWO** (re-measured
-  2026-08-26; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
+- **Crystal is THREE names from Lua's 200-local ceiling and Emerald is ONE** (re-measured
+  2026-08-28; Crystal's entry said 188 and was already stale when it broke the build). `emulator/CLAUDE.md`.
 - **TEVI now hot-reloads: the loop is CONFIRMED and three features shipped through it (2026-08-28).**
   Build it first on any new adapter — `_template/README.md`. `tevi/VERIFIED.md`.
 - **A relaunched game could get a DEAD session, fixed 2026-08-27** — `relayOwner` stayed with the
   departing adapter, so its disconnect tore down the replacement's relay session. `verified.md`.
-- **Crystal's "FEATURE COMPLETE, 2026-08-27" has no stated scope** — the user's own line, no
-  description; Teleport and RUNNING may or may not be inside it. `crystal/UNVERIFIED.md`.
+- **Crystal's "FEATURE COMPLETE, 2026-08-27": the term is now defined** — the user's meaning
+  (2026-09-01): playable / good-enough state, NOT "no further work". Whether Teleport and RUNNING
+  sit inside it is still unasked. `crystal/UNVERIFIED.md`.
 - **One doc item left open on purpose** — incident narrative still inside several ADRs and one
   `risks.md` bullet. (`status.md`'s own length was the other; drained 2026-08-25.) `doc-history.md` §5.
 - **Four refactors deferred by the 2026-08-18 audit** — `game_thread_tick()`, the two Lua adapters'
