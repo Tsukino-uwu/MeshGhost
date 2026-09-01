@@ -79,6 +79,35 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
   trail colour on your screen.
 - Custom nametags above players
 
+## Performance, and how it scales with a crowd
+
+Measured 2026-09-01, the day a peer-ladder session (0 → 150 synthetic peers) found and removed
+three scaling ceilings in one afternoon — a relay message that grew with room size and killed
+every joiner above ~100, a connection-framing bug under write pressure, and a game-thread drain
+that replayed queued history instead of keeping the newest state per player. Before any of this,
+on 2026-08-30, **a single ghost cost the game half its frame rate** (144fps → 70) because of four
+whole-world scans running per tick; those were found with a per-subsystem frame timer and scoped
+to what a ghost actually owns. After all of it:
+
+| Peers | ~Frame rate (144fps machine) |
+|---|---|
+| 0 | ~143 |
+| 4 | ~133 |
+| 8 | ~124 |
+| 16 | ~82 |
+| 32 | ~53 |
+| 100 | ~12 |
+| 150 | ~4.5 |
+
+So a **~30-player room stays above 50fps** on the test machine, ~16 stays above 80 — and 150
+ghosts *work*, in the sense that every one spawns, animates and wears its nametag, degrading into
+a stable slideshow rather than a freeze, and recovering within seconds of the crowd leaving. The
+caveats and the exact per-ghost numbers live in
+[agent_docs/crowd-limits.md](../../agent_docs/crowd-limits.md) (the cross-game home for "how many
+ghosts can a game hold", alongside Emerald's and Crystal's measured ceilings); what remains on
+the table — the per-ghost redraw span that dominates the cost, instrumented and waiting — is
+filed in [UNVERIFIED.md](UNVERIFIED.md).
+
 ## How this adapter was built
 
 Third game, and by far the hardest: roughly 15-20 hours to reach "good enough" — a ghost that

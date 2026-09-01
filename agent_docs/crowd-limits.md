@@ -267,6 +267,37 @@ remembering when reading the Crystal table above as reassurance: Crystal survive
 at a flat 60fps because its refusal path happens to be cheap and its log line is rate-limited to
 once a minute. Nothing enforced that; it was luck, until it was measured.
 
+## Pseudoregalia (UE5) — measured 2026-09-01, after the three crowd fixes
+
+**No hard ceiling: 150 ghosts rendered, every one spawned, named and animated. The limit is frame
+rate, and it is the adapter's own per-ghost tick cost plus the engine's pawn cost — linear to 32
+peers, superlinear past ~50.** Measured on the fixed build (bounded Welcome, write-poisoning,
+latest-wins drain — each found by an earlier rung of this same ladder); idle orbiting peers with
+nametags, one machine carrying the game, relay and all N synthetic cores at once.
+
+| Peers | Adapter tick | Per-ghost | ~Frame rate |
+|---|---|---|---|
+| 0 | 1.4 ms | — | ~143 |
+| 2 | 2.2 ms | 340 us | ~139 |
+| 4 | 3.0 ms | 319 us | ~133 |
+| 8 | 4.4 ms | 332 us | ~124 |
+| 16 | 8.0 ms | 321 us | ~82 |
+| 32 | 12.7 ms | 312 us | ~53 |
+| 100 | 55.8 ms | 454 us | ~12 |
+| 150 | 166.6 ms | 657 us | ~4.5 |
+
+Removing the crowd returned the tick to 1.9 ms within 25 seconds; full frame rate needs a world
+rebuild (a reset-to-save clears the destroyed pawns the GC has not collected yet).
+
+- **Per-ghost cost is flat ~320 us to 32 peers, then RISES with population** (657 us at 150):
+  name-based reflection scales with total object count, so big-room numbers cannot be
+  extrapolated from small-room ones. `loop_tail` (the per-ghost redraw span) is ~80% of it and
+  is instrumented in four sub-slots for the next optimization pass.
+- **The comfortable band on this machine: ~30 peers at 50fps+, ~16 at 80fps+.** Contrast the
+  pre-fix state, where ONE peer cost 144 -> 70fps (four whole-world scans; `pitfalls/method.md`).
+- The synthetic rig itself is a real cost at 100+: the relay fanning N x N states burned multiple
+  cores. A two-machine run is the honest next measurement for the big rungs.
+
 ## What to do about a ceiling you cannot raise — BUILT FOR CRYSTAL, 2026-08-19
 
 **Do as much as the game can handle on its own, then fake it above that cap** (the user's rule,

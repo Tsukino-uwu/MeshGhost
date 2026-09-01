@@ -240,6 +240,10 @@ run-by-run hunt log is in this file's history at commit `be2763b`.
 
 ### The PEER LADDER, first run (2026-09-01): linear to 50, superlinear above, and a wire bug at 150
 
+**The definitive post-fix ladder (same day, all three fixes in, 0-150 with recovery) is in
+`agent_docs/crowd-limits.md`'s Pseudoregalia section and the README's performance section — this
+section is the first run's record and the findings that came out of it.**
+
 **Rig:** one real client at the standing spot, `meshghost-fakeadapter -clients N` (idle orbiters,
 no names), relay at 20Hz / `-max-clients=200`, `perf_report.txt` armed. Rungs 4 / 16 / 50 / 100 /
 150. User's read at 50: *"started to drop fps quite a bit, but i guess its still better than what

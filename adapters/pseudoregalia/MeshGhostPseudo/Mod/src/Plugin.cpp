@@ -7757,6 +7757,13 @@ namespace MeshGhostPseudo
             PERF_LOOP_POSE_XFORM,
             PERF_LOOP_HEAD,
             PERF_LOOP_TAIL,
+            // The tail split, added 2026-09-01: loop_tail measured ~80% of per-ghost cost at
+            // every ladder rung, and it is four unrelated subsystems in one span -- these name
+            // which one earns the optimization before anything is rewritten.
+            PERF_TAIL_POSE_TRACE,
+            PERF_TAIL_SWEEPS,
+            PERF_TAIL_LIGHT,
+            PERF_TAIL_EVENTS,
             PERF_LS_CAMRIG,
             PERF_LS_OUTFIT,
             PERF_LS_PROJECTILE,
@@ -7769,6 +7776,7 @@ namespace MeshGhostPseudo
             STR("recall_glow  "), STR("mirrored_vfx "), STR("afterimage   "), STR("custom_depth "),
             STR("find_pawn    "), STR("local_state  "), STR("afterimg_swp "), STR("remotes_loop "),
             STR("loop_mirrors "), STR("loop_pose_xf "), STR("loop_head    "), STR("loop_tail    "),
+            STR("tail_posetrc "), STR("tail_sweeps  "), STR("tail_light   "), STR("tail_events  "),
             STR("ls_camrig    "), STR("ls_outfit    "), STR("ls_projectile"), STR("ls_rest      ")};
 
         bool g_perf_armed = false;
@@ -17581,6 +17589,7 @@ namespace MeshGhostPseudo
             call_set_actor_location_and_rotation(remote.ghost, target_loc, target_rot);
             perf_stop(PERF_LOOP_POSE_XFORM);
             perf_start(PERF_LOOP_TAIL);
+            perf_start(PERF_TAIL_POSE_TRACE);
 
             // Per-tick window across a pose transition -- see POSE_WINDOW_TRACE. Placed after the
             // teleport so each line is the FINAL state of that frame, which is what renders.
@@ -17729,6 +17738,8 @@ namespace MeshGhostPseudo
                 tick_remote_projectile(id, remote, current_world);
             }
 
+            perf_stop(PERF_TAIL_POSE_TRACE);
+            perf_start(PERF_TAIL_SWEEPS);
             // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
             // game turns custom depth back on during an attack and a spawn-time write cannot
             // survive that.
@@ -18106,6 +18117,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_TAIL_SWEEPS);
+            perf_start(PERF_TAIL_LIGHT);
             // See GHOST_HOLD_LIGHT_OFF: a ghost is born holding the pawn Blueprint's default
             // ascendant-light brightness, because it never runs the logic that drives a real
             // player's down to 0. Held rather than written at spawn, and cheap by construction --
@@ -18304,6 +18317,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_TAIL_LIGHT);
+            perf_start(PERF_TAIL_EVENTS);
             // Hurt reaction on the ghost -- see MIRROR_HURT_REACTION, including why this reads the
             // player's health around the call.
             if constexpr (MIRROR_HURT_REACTION)
@@ -18381,6 +18396,7 @@ namespace MeshGhostPseudo
 
             // The empty-hand recall glow. Edge-gated inside, so this is a cheap no-op on the vast
             // majority of ticks.
+            perf_stop(PERF_TAIL_EVENTS);
             perf_stop(PERF_LOOP_TAIL);
             {
                 PerfScope perf_recall(PERF_RECALL_GLOW);
