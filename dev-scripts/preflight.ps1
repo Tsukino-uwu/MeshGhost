@@ -1114,6 +1114,26 @@ if ((Test-Path $rgHpp) -and (Test-Path $rgCpp)) {
     Report-Skip "Pseudoregalia sources not present"
 }
 
+Section "FindAllOf ratchet (Pseudoregalia)"
+
+# Added 2026-09-01 with the write-time performance checklist (_template/README.md): whole-world
+# and class-scoped enumerations are the shape that took the game from 144fps to 30 at four peers,
+# added one cheap-looking site at a time. This does not judge any site -- most of the 46 are
+# one-shot or edge-triggered instruments, which are fine -- it only forces the NEXT one to be a
+# conscious decision: a new call site fails here until its author names its cadence (per the
+# checklist) and bumps the expected count on the line below. Same force-the-look philosophy as
+# the RemoteGhost release check above. Count updated 2026-09-01 (46).
+$expectedFindAllOf = 46
+$faCount = (Select-String -LiteralPath "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp" -Pattern 'UObjectGlobals::FindAllOf\(' -AllMatches | ForEach-Object { $_.Matches.Count } | Measure-Object -Sum).Sum
+if ($null -eq $faCount) { $faCount = 0 }
+if ($faCount -eq $expectedFindAllOf) {
+    Report-Pass "FindAllOf call sites: $faCount (matches the recorded count)"
+} elseif ($faCount -gt $expectedFindAllOf) {
+    Report-Fail "FindAllOf call sites grew: $faCount vs recorded $expectedFindAllOf -- name the new site's cadence (one-shot / per-event / per-interval / per-tick / per-ghost-per-tick, per _template/README.md's write-time checklist) in a comment at the site, confirm it is not on a steady per-tick path, then bump `$expectedFindAllOf in this file"
+} else {
+    Report-Fail "FindAllOf call sites shrank: $faCount vs recorded $expectedFindAllOf -- good news, probably; update `$expectedFindAllOf in this file so the ratchet holds at the new floor"
+}
+
 Section "GitHub Action versions agree across workflows"
 
 # WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub

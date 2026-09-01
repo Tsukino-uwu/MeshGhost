@@ -16,6 +16,7 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -240,6 +241,23 @@ func (c *NDJSONConn) readLoop() {
 		initial = 4096
 	}
 	scanner.Buffer(make([]byte, initial), maxLine)
+	// overflowHead captures the start of a line that is about to kill the scanner with
+	// ErrTooLong. scanner.Bytes() is only meaningful after a SUCCESSFUL Scan, so the error
+	// path below cannot recover the offending bytes on its own -- this split function sees
+	// the full buffer at the moment it is full with no delimiter, which is the last look
+	// anyone gets. One capture, bounded, only in the failure case.
+	var overflowHead []byte
+	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		advance, token, err := bufio.ScanLines(data, atEOF)
+		if advance == 0 && token == nil && err == nil && len(data) >= maxLine && overflowHead == nil {
+			n := len(data)
+			if n > 16000 {
+				n = 16000
+			}
+			overflowHead = append([]byte(nil), data[:n]...)
+		}
+		return advance, token, err
+	})
 
 	for {
 		if idle > 0 {
@@ -250,6 +268,13 @@ func (c *NDJSONConn) readLoop() {
 			err := scanner.Err()
 			if err == nil {
 				err = io.EOF
+			}
+			if errors.Is(err, bufio.ErrTooLong) && overflowHead != nil {
+				// The head names the message -- without this, "token too long" says a line
+				// was oversized and nothing about WHICH, which on 2026-09-01 cost a live
+				// 150-peer session and a round of wrong theories. Captured by the split
+				// function above, because scanner.Bytes() is empty on this path.
+				err = fmt.Errorf("%w (line head: %q)", err, overflowHead)
 			}
 			c.fail(err)
 			return
@@ -348,6 +373,18 @@ func (c *NDJSONConn) Send(payload []byte) error {
 	c.writeBuf = append(c.writeBuf[:0], payload...)
 	c.writeBuf = append(c.writeBuf, '\n')
 	_, err := c.conn.Write(c.writeBuf)
+	if err != nil {
+		// **A failed write POISONS a stream connection, found live 2026-09-01 at 150 peers:**
+		// a write deadline can expire with the line HALF-WRITTEN, and NDJSON cannot
+		// resynchronize after that -- the peer's scanner sees a line that never ends, grows it
+		// until MaxLineBytes, and dies with "bufio.Scanner: token too long" (which is exactly
+		// what one synthetic core reported on the 150-peer ladder; the relay's per-writer
+		// queues meant only that one client's stream was mangled). Returning the error while
+		// leaving the conn open turned one timed-out write into a permanently mis-framed
+		// stream that LOOKED alive. Closing here makes the failure honest: the read loop ends,
+		// onDisconnect fires, and the caller's reconnect path takes over.
+		_ = c.conn.Close()
+	}
 	return err
 }
 

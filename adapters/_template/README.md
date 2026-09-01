@@ -1281,6 +1281,42 @@ fix the wrong limit: `agent_docs/ideas.md`, "Spawn to the game's cap, then DRAW 
 In [../CLAUDE.md](../CLAUDE.md). One line: **frame rate is a shipping requirement, not a tuning
 concern** — and when anyone says "choppy", measure pacing, not rate.
 
+## Write-time performance checklist — cost is designed in, not debugged out
+
+**Set 2026-09-01, the user's standing rule:** *"probly good hygiene to not make 'bad performance'
+code in the first place"* — stated after a hunt where four accumulated whole-world scans had
+taken Pseudoregalia from 144fps to 30 at four peers, none of them wrong when written, every one
+of them cheap-looking alone. The pattern to prevent is not one bad function; it is costs added
+one at a time with nobody naming the cadence they run at. **Apply this checklist while WRITING
+any code a tick path will run — it is five questions, not a process:**
+
+1. **Name the block's cadence out loud in a comment: one-shot, per-event, per-interval,
+   per-tick, or per-ghost-per-tick.** The last one is the multiplier that has actually shipped
+   damage — anything there must be O(what this ghost owns), never O(world). If you cannot name
+   the cadence, you do not know what the code costs.
+2. **No whole-world/scene enumeration on any per-tick path.** Scope to what you own: the ghost's
+   attach tree, a cached set with a teardown clear (the release-checklist rule above — perf
+   caches and pointer safety are the same discipline), or an event that hands you the object.
+   One-shot and edge-triggered instruments may enumerate; steady-state code may not.
+3. **A diagnostic costs what it COMPUTES, not what it prints.** Readbacks, reflection reads,
+   string builds and `GetFullName()` calls all run before any gate on the output. Gate the whole
+   block, ship it OFF, and make the disarmed cost one bool test (the `perf_report.txt` /
+   `trace_remotes.txt` shape). A diagnostic that ships armed is a shipping decision.
+4. **No unconditional per-tick or per-remote logging, ever** — event-driven or toggle-gated
+   only. The host decides how bad this is (BizHawk's console cost 7fps at one line a second; a
+   file is cheaper but not free at crowd sizes) — the rule does not depend on the host.
+5. **A perf claim gets a NUMBER before and after** — the per-subsystem timer
+   ([probes.md](probes.md), "Price a suspicion before fixing it") exists so "this is cheap" is a
+   measurement, not a feeling. Per-ghost cost must be linear in ghosts and small against the
+   frame budget (at 144fps the whole frame is ~7ms; Pseudoregalia's reference per-ghost cost is
+   ~0.3ms after the 2026-08-30 fixes — a new per-ghost feature is judged against that scale).
+
+**The mechanical half:** `dev-scripts/preflight.ps1` ratchets the count of `FindAllOf` call
+sites in Pseudoregalia's adapter — a new site fails the check until the recorded count is
+bumped, which forces the author to name its cadence consciously (same force-the-look philosophy
+as the release-path check). A new adapter builds the equivalent ratchet for its host's own
+expensive-enumeration verb in its first week.
+
 ## Find out how many ghosts this game can hold, and make it refuse cleanly
 
 **An old game has a fixed number of character slots and a fixed hardware sprite budget, both

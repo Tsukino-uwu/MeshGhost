@@ -486,3 +486,90 @@ func TestSendUnreliableMatchesSendOverTCP(t *testing.T) {
 		t.Errorf("write = %q, want %q", got, want)
 	}
 }
+
+// partialWriteConn fails its first Write mid-line -- reporting n < len(p)
+// with a timeout error, exactly what a net.Conn does when the write
+// deadline expires with the kernel buffer full -- and records whether
+// Close was called. Everything after that first failure is a bug's
+// playground: a stream missing half a line plus its newline can never be
+// re-framed.
+type partialWriteConn struct {
+	mu         sync.Mutex
+	writeCalls int
+	closed     bool
+	closedCh   chan struct{}
+	once       sync.Once
+}
+
+func newPartialWriteConn() *partialWriteConn {
+	return &partialWriteConn{closedCh: make(chan struct{})}
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string   { return "i/o timeout" }
+func (timeoutError) Timeout() bool   { return true }
+func (timeoutError) Temporary() bool { return true }
+
+func (c *partialWriteConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return 0, net.ErrClosed
+	}
+	c.writeCalls++
+	if c.writeCalls == 1 {
+		return len(p) / 2, timeoutError{}
+	}
+	return len(p), nil
+}
+
+func (c *partialWriteConn) Read(p []byte) (int, error) {
+	<-c.closedCh
+	return 0, net.ErrClosed
+}
+
+func (c *partialWriteConn) Close() error {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+	c.once.Do(func() { close(c.closedCh) })
+	return nil
+}
+
+func (c *partialWriteConn) wasClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+func (c *partialWriteConn) LocalAddr() net.Addr                { return nil }
+func (c *partialWriteConn) RemoteAddr() net.Addr               { return nil }
+func (c *partialWriteConn) SetDeadline(t time.Time) error      { return nil }
+func (c *partialWriteConn) SetReadDeadline(t time.Time) error  { return nil }
+func (c *partialWriteConn) SetWriteDeadline(t time.Time) error { return nil }
+
+// TestFailedWritePoisonsConnection pins the fix for a bug the 150-peer
+// ladder found live on 2026-09-01: Send returned the write error but left
+// the connection OPEN with half a line (and no newline) on the stream. The
+// next Send then appended a fresh line onto the unterminated one, and the
+// receiving side's scanner grew that never-ending "line" until it died
+// with "bufio.Scanner: token too long" -- which is precisely the error one
+// synthetic core reported at 150 peers. NDJSON framing cannot be recovered
+// after a partial line, so the only honest move is to close the connection
+// and let the reconnect path take over.
+func TestFailedWritePoisonsConnection(t *testing.T) {
+	conn := newPartialWriteConn()
+	c := FromConn(conn)
+	defer c.Close()
+
+	if err := c.Send([]byte(`{"seq":1}`)); err == nil {
+		t.Fatal("first Send must surface the partial-write error")
+	}
+	if !conn.wasClosed() {
+		t.Fatal("a failed write left the mis-framed connection open -- every later Send appends to a line that never ended")
+	}
+	if err := c.Send([]byte(`{"seq":2}`)); err == nil {
+		t.Fatal("Send on a poisoned connection must fail, not silently write onto a mangled stream")
+	}
+}

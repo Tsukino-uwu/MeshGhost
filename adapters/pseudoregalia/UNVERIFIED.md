@@ -238,6 +238,58 @@ run-by-run hunt log is in this file's history at commit `be2763b`.
   before touching anything; Emerald's lesson was one line a second costing 7fps (console there,
   file here -- the file may well be fine, which is what the measurement is for).
 
+### The PEER LADDER, first run (2026-09-01): linear to 50, superlinear above, and a wire bug at 150
+
+**Rig:** one real client at the standing spot, `meshghost-fakeadapter -clients N` (idle orbiters,
+no names), relay at 20Hz / `-max-clients=200`, `perf_report.txt` armed. Rungs 4 / 16 / 50 / 100 /
+150. User's read at 50: *"started to drop fps quite a bit, but i guess its still better than what
+1-2 ghosts were at before"* (pre-fix, ONE peer cost 144->70).
+
+| peers | tick_total | remotes_loop | per-ghost | frames/2s (~fps) |
+| --- | --- | --- | --- | --- |
+| 0 | ~1.5 ms | - | - | ~287 (~144) |
+| 4 | ~3.1 ms | 1.3 ms | ~330 us | ~276 (~138) |
+| 16 | ~7.6 ms | 5.0 ms | ~310 us | ~175 (~87) |
+| 50 | ~23 ms | 17.2 ms | ~344 us | ~61 (~30) |
+| 100 | 59-94 ms | 43.5 ms | ~435 us | ~20 (~10) |
+
+**Findings, in priority order:**
+
+1. **`loop_tail` (the reflection-driven redraw) is ~80% of per-ghost cost at every rung**
+   (~250-350 us/ghost). It is THE target for any crowd work: batching the reflected calls,
+   caching resolved FProperty offsets per class, or a cheaper position write would move every
+   row of the table at once. Unmeasured which of its calls dominates -- perf-slot it first.
+2. **Per-ghost cost RISES with population** (310 us at 16 -> 435 us at 100), and flat subsystems
+   grew too (`ls_rest` 0.7 -> 4.4 ms at 100): reflection lookups appear to scale with total
+   UObject count. So 150-peer numbers cannot be extrapolated from 16-peer measurements.
+3. **150 peers found a REAL wire bug** -- `bufio.Scanner: token too long` on one synthetic core.
+   Cause found in `transport.Send`: a write-deadline expiry mid-line left the connection open
+   with an unterminated line, and every later Send appended to it. **Fixed 2026-09-01 (a failed
+   write closes the stream connection), regression-tested (`TestFailedWritePoisonsConnection`,
+   verified to fail against the old code).** The reconnect path takes over; what a 150-peer room
+   looks like ACROSS a reconnect has not been watched.
+4. **The empty-projectile-pool rescan was refilling at the sample cadence** -- 577 us/frame paid
+   in every session where nobody ever fires. Fixed same day (interval-only rescan); the
+   post-fix no-peer baseline should read ~950 us/frame and has not been re-measured.
+5. **Ladder caveats:** all idle anim, one machine carrying game + relay + 150 cores at once.
+   Engine-side pawn cost is inside the fps readings but outside the PERF numbers. (Fake peers DO
+   carry nametags -- "fake-ghost-N" -- confirmed on screen at 150, so tag cost is included.)
+
+**LIVE 150 (second attempt, wire fixed) found the next layer down: a DRAIN RUNAWAY (2026-09-01,
+fixed in source, UNWATCHED).** With the relay fix in, all 150 peers joined clean -- and the GAME
+spiralled: single ticks of 19s -> 33s -> 45s, 0fps, GPU idle. Cause read from the drain loop:
+`game_thread_tick` replayed EVERY queued bridge line faithfully, so once one tick ran longer
+than the arrival rate (150 peers x 20Hz = 3000 lines/s), the queue compounded -- and the backlog
+replayed the whole session's spawn history in order, which the fingerprint probe measured as
+**2051 player pawns alive at once** before the queued despawns caught up. Removing the crowd
+left ~20fps of GC hangover from the two thousand corpses. The fix: latest-wins collapse -- the
+drain now keeps only the NEWEST `render_remote` per player (lifecycle lines all still apply in
+order), bounding a tick's work by peer count rather than by how far behind it got. **What to
+watch: 150 peers again -- expect a stable slideshow (~10-15fps) with NO freeze, and instant
+recovery to baseline when the crowd leaves.** Crowd-rig calibration, learned across three
+attempts: spawn ring at the user's spot needs **z = -545** (pawn-center ground is -733; -650 and
+-580 both left bodies partly buried) and radius <= 200 to stay on the flat court and in view.
+
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
 **User-observed, twice, and NOT explained.** With two clients plus a synthetic peer:

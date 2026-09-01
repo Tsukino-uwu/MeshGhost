@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -1988,4 +1989,91 @@ func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
 	if ids[0] != "first" || ids[1] != "second" {
 		t.Fatalf("delivered %v — a message produced during the flush overtook the backlog", ids)
 	}
+}
+
+// TestBigRoomWelcomeStaysUnderLineLimit pins the fix for the bug that took every client of a
+// 150-peer room down AT JOIN on 2026-09-01: the Welcome carried the entire roster and its
+// nametags, which grows O(members) and crossed protocol.MaxLineBytes (4096) somewhere above
+// ~100 named members. Every core reads its relay connection through a scanner capped at
+// exactly that limit, so the oversized Welcome killed the connection with "bufio.Scanner:
+// token too long" -- room size had silently become a wire-format ceiling, which
+// agent_docs/scaling.md's standing principle prohibits. The fix bounds the Welcome
+// (maxWelcomeRoster) and hands the remaining members over as ordinary Joins, which a core
+// already treats identically to a roster entry.
+//
+// The reader below is deliberately a RAW scanner with the core's own line limit rather than a
+// testClient (whose transport.Dial default is the generous 64KiB): this test must die exactly
+// the way a real core died, so it fails against the unbounded Welcome and passes against the
+// bounded one.
+func TestBigRoomWelcomeStaysUnderLineLimit(t *testing.T) {
+	big := NewServer()
+	big.MaxClients = 200
+	addr := startServerWith(t, big)
+
+	const members = 120
+	clients := make([]*testClient, 0, members)
+	for i := 0; i < members; i++ {
+		c := dialTestClient(t, addr, "faketest", "bigroom", fmt.Sprintf("load-test-name-%03d", i))
+		defer c.conn.Close()
+		c.expectWelcome(timeout)
+		clients = append(clients, c)
+	}
+
+	raw, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("raw dial: %v", err)
+	}
+	defer raw.Close()
+	hello, _ := json.Marshal(protocol.Envelope{Type: protocol.TypeHello, Payload: mustMarshal(t, protocol.Hello{
+		ProtocolVersion: protocol.Version,
+		GameID:          "faketest",
+		Room:            "bigroom",
+	})})
+	if _, err := raw.Write(append(hello, '\n')); err != nil {
+		t.Fatalf("raw hello: %v", err)
+	}
+
+	known := map[string]bool{}
+	sc := bufio.NewScanner(raw)
+	sc.Buffer(make([]byte, 4096), protocol.MaxLineBytes)
+	_ = raw.SetReadDeadline(time.Now().Add(5 * time.Second))
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) > protocol.MaxLineBytes {
+			t.Fatalf("relay sent a %d-byte line, over protocol.MaxLineBytes=%d", len(line), protocol.MaxLineBytes)
+		}
+		var env protocol.Envelope
+		if err := json.Unmarshal(line, &env); err != nil {
+			t.Fatalf("unparseable line from relay: %v", err)
+		}
+		switch env.Type {
+		case protocol.TypeWelcome:
+			var w protocol.Welcome
+			if err := json.Unmarshal(env.Payload, &w); err != nil {
+				t.Fatalf("unmarshal welcome: %v", err)
+			}
+			for _, id := range w.Roster {
+				known[id] = true
+			}
+		case protocol.TypeJoin:
+			var j protocol.Join
+			if err := json.Unmarshal(env.Payload, &j); err != nil {
+				t.Fatalf("unmarshal join: %v", err)
+			}
+			known[j.PlayerID] = true
+		}
+		if len(known) >= members {
+			return // every pre-existing member learned, no line over the limit
+		}
+	}
+	t.Fatalf("connection ended before all %d members were learned (got %d): %v -- the exact failure a real core hit at 150 peers", members, len(known), sc.Err())
+}
+
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return b
 }

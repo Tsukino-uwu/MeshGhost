@@ -61,6 +61,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - Log the success path from the first build, or three bugs share one symptom (2026-08-28)
 - Two copies of one game share one log file, so neither can be attributed (2026-08-28)
 - Nothing that can block goes before a handshake completes — and a change with no proven benefit is not free (2026-08-29)
+- An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01)
 - Failure signatures
 - Pitfalls by theme
 - Cross-game comparison

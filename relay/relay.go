@@ -526,6 +526,13 @@ func (r *Room) tryAdd(c *Client) {
 // write, not a working queue depth.
 const maxPendingBeforeWelcome = 64
 
+// maxWelcomeRoster bounds how many members the Welcome itself lists; the rest are sent as
+// ordinary Joins immediately after it (see the bounded-Welcome comment at the send site).
+// Sizing: a roster id is ~7 bytes and a nametag entry ~60 with a maximal name, so 32 members
+// keeps the Welcome's variable part under ~2.2KB -- comfortably inside protocol.MaxLineBytes
+// (4096) alongside every fixed field, with no dependence on how big rooms are allowed to get.
+const maxWelcomeRoster = 32
+
 // markWelcomedAndFlush ends the pre-Welcome hold for playerID: from here on
 // Room.forward writes to it directly, and anything that arrived while it was
 // held is delivered now, in the order it was produced.
@@ -1513,10 +1520,36 @@ func (s *Server) handleConn(conn net.Conn) {
 			log.Printf("relay: %s (%q) joined room %q as game %q over %s",
 				newID, nametagName(newClient.nametag), hello.Room, hello.GameID, transportName(conn))
 
+			// **The Welcome is BOUNDED, and the rest of the room arrives as ordinary Joins
+			// (2026-09-01).** A Welcome carrying the whole roster grows O(members), and at
+			// ~100+ named members it crossed protocol.MaxLineBytes (4096) -- the receiving
+			// core's scanner then killed the connection with "token too long", which took
+			// every client of a 150-peer room down AT JOIN and made room size a wire-format
+			// ceiling. That is exactly the shape agent_docs/scaling.md prohibits. A Join
+			// teaches a client one member (id + nametag) and every core already handles it
+			// identically to a roster entry, so overflow members are handed over that way:
+			// written on the same conn, after the Welcome and before markWelcomedAndFlush
+			// releases the fan-out hold, so ordering is exactly as if they had joined a
+			// moment later. Old clients need nothing.
+			welcomeRoster := rosterBeforeJoin
+			var overflowRoster []string
+			if len(welcomeRoster) > maxWelcomeRoster {
+				overflowRoster = welcomeRoster[maxWelcomeRoster:]
+				welcomeRoster = welcomeRoster[:maxWelcomeRoster]
+			}
+			welcomeNames := rosterNames
+			if len(overflowRoster) > 0 {
+				welcomeNames = make(map[string]protocol.Nametag, len(welcomeRoster))
+				for _, id := range welcomeRoster {
+					if tag, ok := rosterNames[id]; ok {
+						welcomeNames[id] = tag
+					}
+				}
+			}
 			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
 				PlayerID:       newID,
-				Roster:         rosterBeforeJoin,
-				Nametags:       rosterNames,
+				Roster:         welcomeRoster,
+				Nametags:       welcomeNames,
 				SendHz:         sendHz,
 				GhostCollision: s.resolveGhostCollision(),
 				// The room's agreed set PLUS whatever client-scoped
@@ -1527,6 +1560,16 @@ func (s *Server) handleConn(conn net.Conn) {
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
 			})
+
+			// The members the bounded Welcome could not carry -- see its comment above.
+			for _, id := range overflowRoster {
+				j := protocol.Join{PlayerID: id}
+				if tag, ok := rosterNames[id]; ok {
+					t := tag
+					j.Nametag = &t
+				}
+				sendEnvelope(nd, protocol.TypeJoin, j)
+			}
 
 			// Welcome is on the wire, so this client may now be written to
 			// directly — and anything the room produced while it was being

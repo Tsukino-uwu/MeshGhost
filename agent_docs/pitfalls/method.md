@@ -1192,3 +1192,32 @@ usually enough to notice), and refuse to compare configurations tested at differ
 has existed" is answerable in one pass and does not care about timing; "does this change help" needs
 a sample. When the bug is probabilistic and the user pays a game relaunch per sample, the
 measurement is the cheaper instrument by a wide margin.
+
+## An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01)
+
+`bufio.Scanner: token too long` from a core at 150 peers led the hunt to the transport package,
+whose `DefaultMaxLineBytes` is a generous 64KiB no legitimate message approaches — so the first
+theories were exotic: partial writes mis-framing the stream, quic datagrams splicing mid-line.
+The actual connection was constructed with `protocol.MaxLineBytes` = **4096**, and the dying
+line was a perfectly healthy Welcome that a ~100-member room legitimately outgrows. The error
+text carries no limit value and no offending bytes, so every reader assumed the limit they knew.
+
+**Three moves that settled it, in order of cheapness:**
+
+1. **A raw client with no line cap, joined to the live room** (a dozen lines of python: dial,
+   hello, measure every line received). It cleared the room-wide traffic in one run — biggest
+   line 941 bytes — which narrowed the oversized line to something only the DYING client
+   receives, i.e. its own Welcome.
+2. **Make the failing instrument dump its evidence**: the scanner's split function sees the full
+   buffer at the moment it overflows, so `transport` now attaches the line's head to the error
+   (`read-minidump.py`'s lesson again — the diagnostic that names the thing beats the theory).
+   The head read "welcome", mid-JSON, healthy — refuting corruption in one look.
+3. **Grep for who CONSTRUCTS the connection, not who defines the default** — the limit that
+   binds is the one passed at the call site (`FromConnWithLimits(netConn,
+   protocol.MaxLineBytes, ...)`), and it was sixteen times tighter than the package default the
+   error was being read against.
+
+**The rule: when a limit-shaped error fires, print or find the LIMIT'S ACTUAL VALUE at that call
+site before theorizing about what exceeded it.** And the design half: any message that grows
+with room membership will cross ANY fixed line limit eventually — bound the message (the Welcome
+now lists 32 members and hands the rest over as ordinary Joins), don't raise the limit.

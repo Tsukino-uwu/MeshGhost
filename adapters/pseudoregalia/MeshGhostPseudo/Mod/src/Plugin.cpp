@@ -1919,6 +1919,10 @@ namespace MeshGhostPseudo
     // there.
     bool g_ghost_keeps_custom_depth = false;
 
+    // `trace_remotes.txt` beside the DLL arms the per-remote readback/TRACE block in the redraw
+    // loop (see its comment). Ships OFF: it is a diagnostic, and at crowd sizes it is a real cost.
+    bool g_remote_trace_armed = false;
+
     // **Two more subtractions, 2026-08-29, and they exist because six clean instruments in a row
     // did not move the symptom.** The ghost's light reads 0 (independent probe, both instances),
     // `SetIntensity` resolved with no warning, no other light class in the level is lit, the
@@ -2732,23 +2736,37 @@ namespace MeshGhostPseudo
         // agent_docs/pitfalls.md's "Engine reflection / API availability" section:
         // FindFirstOf returns the CDO (need FindAllOf + RF_ClassDefaultObject filter), and Pawn
         // is an inherited property (need GetValuePtrByPropertyNameInChain, not the plain version).
-        // **CACHING THIS IS A CRASH, and it was tried and reverted on 2026-08-30.** `FindAllOf`
-        // walks all of UObject space and this runs every tick -- measured at 1308 us/frame with no
-        // peer present -- so holding the controller between ticks is the obvious fix and it is
-        // wrong.
+        // **CACHED between ticks since 2026-09-01 -- the 2026-08-30 revert's precondition is met.**
+        // The revert said: "anything that revisits this needs a RELIABLE new-world signal first (a
+        // hook that fires on a same-level reload), not a cleverer guard". That signal exists now
+        // and is proven: release_all_ghosts runs at LoadMap PRE (map changes, before teardown), at
+        // InitGameState PRE (fired on every same-level save reload in the 2026-09-01 gauntlet
+        // logs), and at the pause-menu Reset click (before the reload even starts) -- and it clears
+        // g_cached_local_controller alongside every other level-owned pointer. The scan cost the
+        // cache removes was measured at 1308 us/frame with no peer present (`FindAllOf` walks all
+        // of UObject space, every tick).
         //
-        // Why: RELOADING A SAVE INTO THE SAME LEVEL does not fire the LoadMap PRE hook, which is
-        // where this file drops every other level-owned pointer. The cached controller is freed
-        // and the next tick dereferences it; the user's game died with the empty `Fatal error!`
-        // dialog on the second client's "reload save", exactly as the 2026-08-13 entry above the
-        // LoadMap hook warns. There is no cheap validity test either -- `IsUnreachable()` is
-        // itself a dereference of the freed object, which is the same crash.
-        //
-        // Anything that revisits this needs a RELIABLE new-world signal first (a hook that fires on
-        // a same-level reload), not a cleverer guard. Until then the scan stays, and the cost is
-        // paid knowingly: `agent_docs/pitfalls/method.md`.
+        // The PAWN is deliberately NOT cached: it is re-read through the cached controller's own
+        // property every call (cheap, named), so possession changes are seen immediately. A cached
+        // controller whose pawn reads null falls back to the scan -- that is the pre-cache
+        // behaviour for that state, not a new path.
+        UObject* g_cached_local_controller = nullptr;
+
+        // The pooled PRJ_PlayerCutter_C actors, held between samples -- see the projectile block
+        // in game_thread_tick for the story. Cleared wherever the controller cache is.
+        std::vector<UObject*> g_projectile_pool;
+
         auto find_local_controller_and_pawn() -> std::pair<UObject*, UObject*>
         {
+            if (g_cached_local_controller)
+            {
+                UObject** pawn_ptr = g_cached_local_controller->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
+                if (pawn_ptr && *pawn_ptr)
+                {
+                    return {g_cached_local_controller, *pawn_ptr};
+                }
+                g_cached_local_controller = nullptr;
+            }
             std::vector<UObject*> controllers;
             UObjectGlobals::FindAllOf(STR("PlayerController"), controllers);
             for (UObject* candidate : controllers)
@@ -2760,6 +2778,7 @@ namespace MeshGhostPseudo
                 UObject** pawn_ptr = candidate->GetValuePtrByPropertyNameInChain<UObject*>(STR("Pawn"));
                 if (pawn_ptr && *pawn_ptr)
                 {
+                    g_cached_local_controller = candidate;
                     return {candidate, *pawn_ptr};
                 }
             }
@@ -10275,6 +10294,14 @@ namespace MeshGhostPseudo
         // Plugin-level, so it sits outside the per-remote loop above.
         last_non_ghost_view_target = nullptr;
 
+        // **The two 2026-08-30 perf caches, re-landed 2026-09-01 BECAUSE this line runs at every
+        // teardown signal** -- LoadMap PRE, InitGameState PRE (covers the same-level save reload
+        // that killed the first attempt), and the Reset click. Dropping them here is the entire
+        // safety story; see find_local_controller_and_pawn's comment. Together they were ~2.5
+        // ms/frame of every-tick FindAllOf.
+        g_cached_local_controller = nullptr;
+        g_projectile_pool.clear();
+
         // **The hurt/death BASELINES, invalidated here 2026-08-27** -- the counters stay, only the
         // memory of "what was the health last tick" is dropped. A save-file swap goes through this
         // hook (level -> TitleScreen -> level) and rewrites the GameInstance's `CurrentHp`; with
@@ -13539,15 +13566,26 @@ namespace MeshGhostPseudo
                 {
                     projectile_active = false;
 
-                    // **Scanned fresh, deliberately.** Holding the pooled actors between samples
-                    // was tried on 2026-08-30 and withdrawn the same day: a same-level save reload
-                    // frees them without firing LoadMap PRE, and every guard for that is itself a
-                    // dereference of freed memory. The scan is expensive (~1.2 ms/frame at this
-                    // cadence) and it is correct; the cheap version needs a real new-world signal
-                    // first. See find_local_controller_and_pawn's comment for the whole story.
-                    std::vector<UObject*> projectiles;
-                    UObjectGlobals::FindAllOf(STR("PRJ_PlayerCutter_C"), projectiles);
-                    for (UObject* candidate : projectiles)
+                    // **Pooled actors HELD between samples since 2026-09-01 -- same precondition
+                    // story as find_local_controller_and_pawn (see its comment): the reliable
+                    // new-world signal exists, and release_all_ghosts clears this pool at LoadMap
+                    // PRE, InitGameState PRE and the Reset click, before any teardown frees the
+                    // actors. The game pools and re-uses these (established -- it is why a spent
+                    // shot keeps existing), so within one world the list only grows; discovery of
+                    // a slot no scan has seen waits at most PROJECTILE_RESCAN_INTERVAL_TICKS, and
+                    // an empty pool re-scans at the RESCAN interval like everything else -- the
+                    // first version re-scanned an empty pool at the SAMPLE cadence "so the first
+                    // shot is not delayed", which meant the common case (a session where nobody
+                    // fires) paid the full pre-cache cost forever: the 2026-09-01 baseline showed
+                    // ls_projectile at 577 us/frame with zero shots ever fired. A first shot
+                    // discovered up to PROJECTILE_RESCAN_INTERVAL_TICKS (~0.2s) late is invisible;
+                    // 577 us of every frame is not. The fresh scan this replaces cost ~1.2 ms/frame.
+                    if (tick_count % PROJECTILE_RESCAN_INTERVAL_TICKS == 0)
+                    {
+                        g_projectile_pool.clear();
+                        UObjectGlobals::FindAllOf(STR("PRJ_PlayerCutter_C"), g_projectile_pool);
+                    }
+                    for (UObject* candidate : g_projectile_pool)
                     {
                         if (!candidate)
                         {
@@ -16433,9 +16471,43 @@ namespace MeshGhostPseudo
             disconnect_cleanup_pending = bridge_disconnect_cleanup_pending;
             bridge_disconnect_cleanup_pending = false;
         }
-        for (const std::string& line : lines_to_process)
+        // **LATEST-WINS COLLAPSE before applying, 2026-09-01 -- the fix for the 150-peer death
+        // spiral.** The state plane is latest-wins by contract (excess samples are superseded,
+        // never owed), but this drain replayed every queued line faithfully -- so the moment one
+        // tick ran longer than the arrival rate, the next tick's queue was bigger, and the
+        // runaway compounded into 19-45 SECOND ticks. The backlog then replayed the session's
+        // whole spawn history in order: the world-fingerprint probe measured 2051 player pawns
+        // alive at once before the queued despawns caught up. Collapsing render_remote to the
+        // newest line per player bounds a tick's work by the number of PEERS, not by how far
+        // behind the queue got; lifecycle lines (despawn, names, policy) all still apply, in
+        // order, relative to the states that survive.
+        if (lines_to_process.size() > 1)
         {
-            handle_bridge_line(line, pawn_obj, controller);
+            std::unordered_set<std::string> state_seen;
+            std::vector<const std::string*> kept;
+            kept.reserve(lines_to_process.size());
+            for (auto it = lines_to_process.rbegin(); it != lines_to_process.rend(); ++it)
+            {
+                if (json_string_field(*it, "type") == "render_remote")
+                {
+                    if (!state_seen.insert(json_string_field(*it, "player_id")).second)
+                    {
+                        continue; // an older state for a player whose newer one is already kept
+                    }
+                }
+                kept.push_back(&*it);
+            }
+            for (auto it = kept.rbegin(); it != kept.rend(); ++it)
+            {
+                handle_bridge_line(**it, pawn_obj, controller);
+            }
+        }
+        else
+        {
+            for (const std::string& line : lines_to_process)
+            {
+                handle_bridge_line(line, pawn_obj, controller);
+            }
         }
         if (disconnect_cleanup_pending)
         {
@@ -19367,6 +19439,14 @@ namespace MeshGhostPseudo
 
             if (tick_count % LOG_INTERVAL_TICKS == 0)
             {
+                // **Readbacks and TRACE lines gated behind trace_remotes.txt since 2026-09-01**
+                // (default OFF): at 120 ticks this was two log lines and a half-dozen reflection
+                // reads PER REMOTE, always on -- ~375 lines/sec at 150 peers, which is exactly
+                // the per-frame-diagnostic shape adapters/CLAUDE.md says ships off. The bHidden
+                // nudge at the bottom of this block is BEHAVIOUR, not logging, and deliberately
+                // stays unconditional so arming the trace changes nothing visual.
+                if (g_remote_trace_armed)
+                {
                 // Read back what actually stuck on the ghost after our writes above, not just
                 // what we intended to write -- "ran without errors" isn't evidence something took
                 // effect, per CLAUDE.md.
@@ -19429,6 +19509,7 @@ namespace MeshGhostPseudo
                              target_rot.GetYaw(),
                              actual_rot.GetYaw(),
                              reflected_yaw);
+                }
 
                 bool* hidden_ptr = remote.ghost->GetValuePtrByPropertyNameInChain<bool>(STR("bHidden"));
                 if (hidden_ptr)
@@ -19475,6 +19556,15 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: per-subsystem cost report now {} (perf_report.txt {}).\n"),
                                  perf_on ? STR("ARMED") : STR("off"),
                                  perf_on ? STR("present") : STR("gone"));
+                }
+
+                const bool trace_on = dev_toggle_present(STR("trace_remotes.txt"));
+                if (trace_on != g_remote_trace_armed)
+                {
+                    g_remote_trace_armed = trace_on;
+                    Output::send(STR("[MeshGhostPseudo] DEV: per-remote redraw trace now {} (trace_remotes.txt {}).\n"),
+                                 trace_on ? STR("ARMED") : STR("off"),
+                                 trace_on ? STR("present") : STR("gone"));
                 }
 
                 const bool present = dev_toggle_present(STR("keep_custom_depth.txt"));
