@@ -5407,7 +5407,10 @@ namespace MeshGhostPseudo
         // The table already knows which rows are which (`world_spawned`), so this is reproducing
         // the game's own arrangement rather than adding an offset -- the same correction the recall
         // glow needed when it shipped attached to the root because nothing had said otherwise.
-        auto spawn_niagara_at_location(UObject* world_context, UObject* system_asset, const FVector& location) -> UObject*
+        // `yaw_degrees`: optional facing for a DIRECTIONAL system (the melee slash arcs outward);
+        // 0.0 for the omnidirectional rows leaves the parameter exactly as the zeroed buffer had
+        // it, so their behaviour is unchanged by this parameter existing.
+        auto spawn_niagara_at_location(UObject* world_context, UObject* system_asset, const FVector& location, double yaw_degrees = 0.0) -> UObject*
         {
             if (!system_asset || !world_context)
             {
@@ -5477,6 +5480,23 @@ namespace MeshGhostPseudo
                     // A zeroed scale would spawn the system at size zero -- invisible, and
                     // indistinguishable from the bug this is fixing.
                     *std::bit_cast<FVector*>(slot) = FVector(1.0, 1.0, 1.0);
+                }
+                else if (param_name == STR("Rotation") && yaw_degrees != 0.0)
+                {
+                    // Written by the param's own reflected SIZE, never through the SDK's FRotator:
+                    // the vendored struct marshals as float whatever the engine uses (this
+                    // adapter's CLAUDE.md, the ABI-mismatch rule), so the reflection is the only
+                    // honest source of the layout. FRotator memory order is Pitch, Yaw, Roll.
+                    if (param->GetSize() == 24)
+                    {
+                        auto* rot = std::bit_cast<double*>(slot);
+                        rot[1] = yaw_degrees;
+                    }
+                    else if (param->GetSize() == 12)
+                    {
+                        auto* rot = std::bit_cast<float*>(slot);
+                        rot[1] = static_cast<float>(yaw_degrees);
+                    }
                 }
                 else if (param_name == STR("bAutoActivate"))
                 {
@@ -8435,6 +8455,10 @@ namespace MeshGhostPseudo
         // here is what a ghost gets before the local player has ever performed the action, which
         // for a peer who heals first would otherwise be nothing at all.
         double world_offset_z;
+        // A directional one-shot (the melee slash arcs OUTWARD): spawn it with the performer's
+        // yaw so a ghost's copy points where the ghost is facing, not a fixed world direction.
+        // False for the omnidirectional rows, which keeps their shipped visuals byte-identical.
+        bool use_performer_yaw = false;
     };
 
     // Measured 2026-08-27. NS_Healing hangs off the capsule with no socket and no offset;
@@ -8486,6 +8510,14 @@ namespace MeshGhostPseudo
         // instead of at the floor"* -- which is this constant, exactly.
         {"dl", STR("/Game/VFX/Systems/NS_DustLand.NS_DustLand"), STR("RootComponent"), nullptr, true, -GHOST_STANDING_CAPSULE_HALF},
         {"bb", STR("/Game/VFX/Systems/NS_BasicBurst.NS_BasicBurst"), STR("RootComponent"), nullptr, true, 0.0},
+        // The melee slash arc, added 2026-09-01 from the probe_slashvfx capture (user: a ghost's
+        // sword swing shows no *"curved slash ish going outward"*). Six swings, all identical:
+        // world-spawned (owned by WorldSettings, attached to nothing) at exactly the player's
+        // x/y, +30 above the actor origin. Directional -- the arc travels outward -- so it is the
+        // first row spawned with the performer's yaw; whether the system actually orients by
+        // spawn rotation is judged on screen, not assumed. Same proximity-attribution risk as
+        // `bb`, accepted for the same reason: a brief arc near a character who was attacking.
+        {"sl", STR("/Game/VFX/Systems/NS_PlayerSlash.NS_PlayerSlash"), STR("RootComponent"), nullptr, true, 30.0, true},
     };
 
     // Heights observed on the LOCAL player's own world-spawned effects, indexed by row. Written by
@@ -9096,7 +9128,10 @@ namespace MeshGhostPseudo
                 const double burst_offset_z = have_observed_world_offset[i] ? observed_world_offset_z[i]
                                                                             : effect.world_offset_z;
                 const FVector burst_at(burst_ghost_loc.X(), burst_ghost_loc.Y(), burst_ghost_loc.Z() + burst_offset_z);
-                UObject* burst_component = spawn_niagara_at_location(remote.ghost, burst_asset, burst_at);
+                // A directional burst (the slash) points where the GHOST faces; target_yaw is the
+                // peer's own reported facing, the same value the ghost's body is turned by.
+                const double burst_yaw = effect.use_performer_yaw ? remote.target_yaw : 0.0;
+                UObject* burst_component = spawn_niagara_at_location(remote.ghost, burst_asset, burst_at, burst_yaw);
                 // **Registered so local detection can exclude it.** Not doing this is what
                 // reinstated the echo the moment one-shots stopped being retained -- see
                 // RemoteGhost::recent_one_shot_components. Nothing else reads this list.

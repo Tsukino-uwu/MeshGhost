@@ -394,10 +394,15 @@ the exact sequence that crashed -- plus the peer-side projectile still rendering
 vfx when using the melee attacks"*.** The ghost plays the attack montage (montage mirroring
 ships); whatever the game spawns alongside a swing is not mirrored -- the same shape as the heal
 waves and landing dust before their rows existed (`MIRRORED_EFFECTS` covers heal/chg/hw/hew/rsp/
-dl/bb; nothing attack-shaped). Not yet measured: what a local melee swing actually spawns (Niagara
-on the pawn? world-spawned? a weapon-trail component the montage's notifies drive?). Next step is
-a capture during real swings -- count what appears, then decide the row. The four ground-combo
-montages are named in `documentation.md` ("Animation montages").
+dl/bb; nothing attack-shaped). MEASURED same hour (`probe_slashvfx`, six swings, all
+identical): **`NS_PlayerSlash`, world-spawned at the player's x/y, +30 above the actor origin** --
+and the same capture found `NS_FootstepDust` (world-spawned at the feet) equally unmirrored, filed
+as a candidate, not added. **The `sl` row is BUILT and DEPLOYED, unwatched**: same one-shot
+counter path as `dl`/`bb`, plus the first DIRECTIONAL spawn -- the ghost's copy is spawned with
+`target_yaw` through a size-checked Rotation param (the FRotator-as-float ABI trap, written by
+reflected size instead). Whether NS_PlayerSlash actually orients by spawn rotation is unknown --
+judged on screen. Check: swing at a ghost's side on two clients; the arc should appear on the
+ghost, facing the way the ghost faces, roughly chest height.
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
