@@ -12,6 +12,7 @@
 #include <cstring>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <string_view>
 #include <cwctype>
 #include <format>
@@ -3062,6 +3063,102 @@ namespace MeshGhostPseudo
         auto to_wide_ascii(const std::string& s) -> StringType
         {
             return StringType(s.begin(), s.end());
+        }
+
+        // -------------------------------------------------------------------------------------
+        // PEER-NAMED ASSET RESOLUTION, 2026-09-01: the catalog gate.
+        //
+        // Four extras fields carry an asset path a PEER chose -- the montage being played, the
+        // outfit mesh, the landed sword's glow system, the projectile's effect system -- and
+        // until this existed each was handed straight to StaticFindObject. Type checks at the
+        // call sites kept that short of code execution (the 2026-08-27 ACE audit's conclusion),
+        // but two real problems remained, and the user named the gap directly ("trying to sneak
+        // in something malicious/harmful in the extras... we don't really check/know what comes
+        // from a adapter/game and goes in there"):
+        //   1. a peer could make a ghost resolve and play ANY loaded object of the right class,
+        //      not just things a player's character does; and
+        //   2. a peer spamming unique garbage names forced a global object lookup per message --
+        //      a remote perf lever with no log trail.
+        //
+        // The gate: a peer's string is a KEY into a catalog the local game itself provides,
+        // never an argument to the global lookup. The catalog is the set of full paths of every
+        // LOADED object of the class in question, enumerated with the same class-scoped
+        // FindAllOf every probe here uses -- so it cannot resolve less than the old path did
+        // (StaticFindObject also only ever finds loaded objects), and it needs no hand-written
+        // allowlist, which would have broken the montage mirror's deliberate generality (the
+        // sender ships whatever montage is playing -- capability parity, the user's standing
+        // rule). On a hit, the lookup runs on the CATALOG'S OWN copy of the string; a miss
+        // refreshes the catalog at most once per cooldown (assets do load lazily as a level
+        // opens) and otherwise costs one hash lookup, which closes the spam lever too.
+        //
+        // Stated limit, not discovered later: a cross-BUILD peer (a modded client naming an
+        // asset a vanilla watcher does not have) now gets an explicit refusal where it
+        // previously got a failed lookup -- same visible outcome, cleaner reason. Game-thread
+        // only, like every static cache in this file.
+        constexpr int64_t PEER_ASSET_CATALOG_REFRESH_MS = 10000;
+        constexpr size_t PEER_ASSET_NAME_MAX_BYTES = 512;
+
+        auto resolve_peer_named_asset(const wchar_t* class_name, const std::string& peer_path) -> UObject*
+        {
+            if (peer_path.empty() || peer_path.size() > PEER_ASSET_NAME_MAX_BYTES)
+            {
+                return nullptr;
+            }
+
+            struct Catalog
+            {
+                std::unordered_set<std::string> paths;
+                int64_t last_refresh_ms = -1;
+            };
+            static std::map<std::wstring, Catalog> catalogs;
+            Catalog& cat = catalogs[class_name];
+
+            const auto now_ms = []() -> int64_t {
+                return std::chrono::duration_cast<std::chrono::milliseconds>(
+                           std::chrono::steady_clock::now().time_since_epoch())
+                    .count();
+            };
+
+            const auto rebuild = [&]() {
+                cat.last_refresh_ms = now_ms();
+                cat.paths.clear();
+                std::vector<UObject*> found;
+                // Cadence: per-interval at worst -- first use per class, then only on a MISS and
+                // behind PEER_ASSET_CATALOG_REFRESH_MS; a hit never enumerates. Not on any steady
+                // per-tick path.
+                UObjectGlobals::FindAllOf(class_name, found);
+                for (UObject* obj : found)
+                {
+                    if (!obj)
+                    {
+                        continue;
+                    }
+                    // GetFullName is "Class /Path.To.Object"; the wire carries the path half,
+                    // exactly as the sender derives it, so store that half.
+                    const std::string full = to_utf8(obj->GetFullName());
+                    const size_t space_pos = full.find(' ');
+                    cat.paths.insert(space_pos != std::string::npos ? full.substr(space_pos + 1) : full);
+                }
+            };
+
+            if (cat.last_refresh_ms < 0)
+            {
+                rebuild();
+            }
+            auto it = cat.paths.find(peer_path);
+            if (it == cat.paths.end() && now_ms() - cat.last_refresh_ms >= PEER_ASSET_CATALOG_REFRESH_MS)
+            {
+                rebuild();
+                it = cat.paths.find(peer_path);
+            }
+            if (it == cat.paths.end())
+            {
+                return nullptr;
+            }
+            // The catalog's own bytes, not the peer's -- byte-identical on a hit, but the
+            // invariant "nothing peer-controlled reaches the global lookup" holds by
+            // construction rather than by equality reasoning.
+            return UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(*it).c_str());
         }
 
         // Best-effort extra safety margin for the hijack design (user-requested 2026-08-13):
@@ -8595,8 +8692,7 @@ namespace MeshGhostPseudo
             }
             if (new_state == LANDED_WEAPON_STATE && !remote.weapon_glow_component && !remote.target_weapon_glow.empty())
             {
-                UObject* glow_asset = UObjectGlobals::StaticFindObject<UObject*>(
-                    nullptr, nullptr, to_wide_ascii(remote.target_weapon_glow).c_str());
+                UObject* glow_asset = resolve_peer_named_asset(STR("NiagaraSystem"), remote.target_weapon_glow);
                 if (!glow_asset)
                 {
                     Output::send(STR("[MeshGhostPseudo] WARNING: glow system '{}' not found via StaticFindObject -- ghost {}'s landed sword will have no glow.\n"),
@@ -9339,8 +9435,7 @@ namespace MeshGhostPseudo
             }
             remote.last_projectile_spawn_attempt_tick = tick_count;
 
-            UObject* asset = UObjectGlobals::StaticFindObject<UObject*>(
-                nullptr, nullptr, to_wide_ascii(remote.target_projectile_vfx).c_str());
+            UObject* asset = resolve_peer_named_asset(STR("NiagaraSystem"), remote.target_projectile_vfx);
             if (!asset)
             {
                 remote.last_failed_projectile_vfx = remote.target_projectile_vfx;
@@ -19303,7 +19398,9 @@ namespace MeshGhostPseudo
             {
                 remote.last_seen_montage_count = remote.target_montage_count;
                 montage_started_this_tick = true;
-                UObject* montage_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
+                // Through the catalog gate, not the global lookup -- see
+                // resolve_peer_named_asset. The type check below stays as the belt.
+                UObject* montage_obj = resolve_peer_named_asset(STR("AnimMontage"), remote.target_montage);
                 // Type check, same reasoning as the outfit mesh's: a path that resolves to
                 // something that isn't a montage must not be handed to CustomPlayMontage.
                 if (montage_obj && montage_obj->GetClassPrivate() && montage_obj->GetClassPrivate()->GetName() != STR("AnimMontage"))
@@ -19506,7 +19603,7 @@ namespace MeshGhostPseudo
                             float restored_length = -1.0f;
                             if (!remote.target_montage.empty())
                             {
-                                if (UObject* want = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_montage).c_str());
+                                if (UObject* want = resolve_peer_named_asset(STR("AnimMontage"), remote.target_montage);
                                     want && want->GetClassPrivate() && want->GetClassPrivate()->GetName() == STR("AnimMontage"))
                                 {
                                     restored_length = call_montage_play(*g_abp_ptr, want);
@@ -19713,7 +19810,7 @@ namespace MeshGhostPseudo
                 // official C++ mod guide (docs/guides/creating-a-c++-mod.md), same pattern already
                 // used for the SetViewTargetWithBlend UFunction lookup elsewhere in this file, just
                 // with UObject* instead of UFunction*/UClass*.
-                UObject* outfit_mesh_obj = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(remote.target_outfit_mesh).c_str());
+                UObject* outfit_mesh_obj = resolve_peer_named_asset(STR("SkeletalMesh"), remote.target_outfit_mesh);
                 // Type check, found while reasoning about modded-costume peers: target_outfit_mesh
                 // is peer-controlled data (json_string_field's own comment already flags every
                 // extras field this way), and StaticFindObject with Class=nullptr matches ANY

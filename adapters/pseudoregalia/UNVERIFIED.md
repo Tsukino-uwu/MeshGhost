@@ -1469,3 +1469,33 @@ degrees between arrivals, so its direction and turn count are simply not in the 
 -arc under-rotates and sometimes reverses, unwrapping runs away. If 1:1 spin is ever wanted, the
 SENDER must ship the spin (rate or phase) in extras, where it knows it exactly. Until then
 write-through is the settled state and matches the game's own deliberately steppy spin.
+
+## Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
+
+**What changed.** The 2026-08-27 ACE audit's "a peer can NAME a thing" gap is closed, and it had
+grown since the audit: five resolve sites, not one -- `target_montage` (play + divergence-restore),
+`target_outfit_mesh`, `target_weapon_glow`, `target_projectile_vfx` -- each fed a peer string
+straight to `StaticFindObject`. All five now go through `resolve_peer_named_asset` (`Plugin.cpp`):
+the peer's string is a key into a set of the LOCAL game's own loaded assets of the right class
+(class-scoped `FindAllOf`, rebuilt at most once per 10s and only on a miss), and on a hit the
+global lookup runs on the catalog's own copy of the string. A miss is a refusal. Closes both
+residual risks: a peer naming loaded-but-wrong assets of the right class is unchanged (parity --
+same class, same game), but the garbage-name-spam perf lever (one global object lookup per
+message) is now one hash lookup, and nothing peer-controlled reaches `StaticFindObject` at all.
+
+**Why not an allowlist:** the montage mirror is deliberately generic (the sender ships whatever
+montage is playing -- capability parity), and a hand list breaks the next montage nobody thought
+of. The catalog IS the game's own list, mods included, maintained by the game.
+
+**What to watch, one session:** montage mirror (throw a sword, ledge-hang), outfit swap, landed
+sword glow, the ranged shot -- all four must look exactly as before; any of them missing is the
+gate over-refusing and the log will say which name missed. **Known edge, stated up front:** an
+asset first LOADED mid-session resolves up to ~10s later than before (the miss-triggered refresh
+is rate-limited); outfits retry and self-heal, but a montage played within seconds of its first
+load this level could skip once. If that is ever seen, the fix is a cheap targeted refresh on the
+montage path, not a loosening of the gate.
+
+**Mod compatibility, asked by the user and answered from the code:** unchanged. The old path had
+no LoadAsset fallback -- `StaticFindObject` also only ever found loaded objects -- so "same outfit
+mod on both machines" worked before and works now (the catalog is YOUR game, mods included), and
+"a mod only the peer has" never worked on your screen either way; the refusal is just explicit now.

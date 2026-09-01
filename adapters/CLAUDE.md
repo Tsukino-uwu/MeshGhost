@@ -49,10 +49,6 @@ the one exception and must be relaunched). Doing it first is not a convenience: 
 between a change costing a relaunch-and-navigate and costing seconds, and it compounds over every
 iteration of every feature afterwards.
 
-**The evidence is two adapters in this repo.** The Pokemon pair got a dev loader in Phase 8 and
-became the fastest to work on. TEVI relaunched for every change from Phase 6 until 2026-08-28, then
-shipped three features in one session once it did not have to.
-
 **Two things the loop can never test, so it does not replace a cold start:** a bug that only appears
 on a COLD START is invisible to it, and a reload ORPHANS whatever the old instance parented into the
 scene — a ghost is usually a clone in the world, not a child of your component, so despawn
@@ -146,6 +142,12 @@ half a player notices first.
   alone — a constructor computes fields no description contains, and the same blob spent a day
   drawn a tile out of place because of one of them. Method: [probes.md](_template/probes.md), "Diff what you
   BUILT against what the game BUILT".
+
+## Hard rule: peer VALUES get clamps, peer KEYS get allowlists, peer NAMES get a local catalog
+
+A peer string never reaches a global object lookup: an asset name resolves only through a catalog
+of the local game's own loaded assets of that class — refuses nothing a same-game watcher could
+render (mods included), prices spam at a hash lookup. Mechanism: `resolve_peer_named_asset`, `pseudoregalia/.../Plugin.cpp`.
 
 ## Hard rule: reproduce the EFFECT, never adopt a handle the engine can recycle
 

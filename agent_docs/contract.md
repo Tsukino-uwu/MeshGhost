@@ -853,13 +853,11 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`MaxMessagesPerSecondFor`,
   `relay/limits.go`) — the relay closes, rather than throttles, a connection that
   exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
-  feature (see the ADR in `architecture.md`). At the default `send_hz` (**15** since 2026-09-01,
-  20 before it) the scaled term is 90, so the flat **120** floor applies — the same number an
-  unconfigured relay has always enforced, and the `× 6` multiple is now a pinned literal
-  precisely so that lowering the default could not widen the cap at every other rate
-  (`relay/floodcapstable_test.go` is the regression test). The cap **only ever
-  scales up**, never down: a relay turned *down* to a slower room rate must not start
-  disconnecting older clients still sending at their own built-in default.
+  feature (see the ADR in `architecture.md`). At the default `send_hz` (**15** since 2026-09-01)
+  the scaled term is 90, so the flat **120** floor applies — unchanged for an unconfigured relay;
+  the `× 6` multiple is a pinned literal so lowering the default could not widen the cap at other
+  rates (`relay/floodcapstable_test.go`). The cap **only ever scales up**, never down: a relay
+  turned *down* must not start disconnecting clients still sending at their own built-in default.
   **Client-side enforced since Phase 6** (TEVI): `core.Core.MinSendInterval` (left at
   zero by `core.New()` since the rate-control ADR, so the relay's advertised rate wins by
   default; `DefaultMinSendInterval`, ~67ms / 15Hz, is the last-resort fallback when neither a
@@ -871,12 +869,9 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   wrong for a frame-driven game with no engine-level cap, and the connection was closed by the
   relay after about two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry
   and the ADR in `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced by
-  default. **Superseded 2026-09-01:** the rate is now **15Hz**, and for the first time it rests
-  on evidence rather than headroom arithmetic — a watched ladder (1/3/5/7/10/15/20Hz on two real
-  game instances through `meshghost-netsim`) plus a five-round blind A/B of 15 against 20 that
-  the watcher scored at chance. 10Hz is where stutter becomes visible, so the default sits above
-  the floor rather than on it. See `adapters/pseudoregalia/VERIFIED.md`, the 2026-09-01 evening
-  entry.
+  default. **Superseded 2026-09-01:** the rate is now **15Hz**, resting on evidence for the first
+  time — a watched ladder plus a blind 15-vs-20 A/B scored at chance; 10Hz is where stutter turns
+  visible, so the default sits above the floor. `adapters/pseudoregalia/VERIFIED.md`.
 - `send_hz` / `max_receive_hz_per_player` clamping (`protocol.ClampSendHz` /
   `protocol.ClampReceiveHz`): absent, zero, or negative resolves to the field's own "unspecified"
   default (`protocol.DefaultSendHz` for `send_hz`; uncapped for `max_receive_hz_per_player`); a
@@ -960,16 +955,12 @@ never from memory.
       verified.md` (`gObjectEvents`/facing-direction entry).
 - [x] Local snapshot frequency: **answered, not by confirming the brief's 10Hz hypothesis, but
       by superseding it.** The real enforced rate is `core.DefaultMinSendInterval` = **~67ms /
-      15Hz** (2026-09-01; 50ms / 20Hz from Phase 6 until then). The original 20 was chosen for
-      headroom under the relay's 120 msg/sec cap (found live: TEVI's frame-driven `Update()` runs
-      uncapped well above 120Hz with no engine-level throttle) and was live-confirmed across the
-      games shipping at the time, but was never a claim about the right rate. **15 is measured**:
-      a rung-by-rung ladder watched on screen and a blind 15-vs-20 A/B scored at chance, run on
-      Pseudoregalia as the most sample-hungry adapter so the other three inherit a rate proven on
-      the hardest case — `adapters/pseudoregalia/VERIFIED.md`. The brief's 10Hz is now known to be
-      *below* the visible floor rather than merely unconfirmed. Operator-configurable per relay
-      (`server.send_hz`, 10–100) and per game as of the send/receive rate-control feature — see
-      the subsection above and the ADR in `architecture.md`.
+      15Hz** (2026-09-01; 50ms / 20Hz from Phase 6 until then — the 20 was headroom arithmetic
+      under the relay's 120 msg/sec cap, never a claim about the right rate). **15 is measured**:
+      a rung-by-rung ladder watched on screen plus a blind 15-vs-20 A/B scored at chance, on
+      Pseudoregalia as the most sample-hungry adapter — `adapters/pseudoregalia/VERIFIED.md`. The
+      brief's 10Hz is now known to sit *below* the visible floor. Operator-configurable per relay
+      (`server.send_hz`, 10–100) — see the subsection above and the ADR in `architecture.md`.
 - [x] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
       or client-relative? **Decided (already true of the implementation, not a new choice):**
       `seq` is a `Core`-lifetime counter (`atomic.AddUint64(&c.seq, 1)`) that never resets —
