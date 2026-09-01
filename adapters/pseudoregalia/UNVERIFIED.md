@@ -388,6 +388,34 @@ requires a `stale-safe:` annotation on every file-scope raw-pointer cache. Deplo
 installs. **UNWATCHED: needs a session where a real charged shot is fired and hits something --
 the exact sequence that crashed -- plus the peer-side projectile still rendering on a ghost.**
 
+### The sword-throw cross-wire: CARRIER FOUND (2026-09-01) -- it is the thrown-weapon PROP path
+
+**The subtraction that settled it: with `skip_ghost_weapon_prop.txt` armed on the WATCHING
+client, the player KEPT their sword through a peer's throw+pickup (user-confirmed live).** Four
+carriers were exonerated by measurement first: extras-cap state drops (relay drop-logging saw
+none), a shared anim instance (identities distinct), `changeEquippedWeapon`-on-ghost and the
+throw montage on the ghost (both flag-sampled clean). So the claimer is the mirror spawning a
+real `BP_looseWeapon_C` and/or calling the game's `Change Weapon State` on it -- a singleplayer
+game with ONE recallable sword keeping global loose-sword state fits exactly.
+
+- **Next split is BUILT: `skip_ghost_weapon_state.txt`** keeps the spawn + position writes and
+  silences only the state call. One watched round names the claimer precisely.
+- **The stuck-in-air mechanism is CAPTURED numerically** (WEAPON_PROP_TRACE, 16:38): our position
+  writes land (READBACK==RENDER) and by the next tick the actor is back at a FIXED point -- the
+  spawned prop's own in-flight logic is a second writer fighting ours. TWO WRITERS ON ONE FIELD.
+- **The likely endgame fix, not yet decided:** stop borrowing the game's gameplay-bearing class
+  as a cosmetic prop -- reproduce the EFFECT (sword mesh, glow, embed pose) on an actor we fully
+  own, which retires the cross-wire, the second writer AND the sinking in one move. That is the
+  adapters/CLAUDE.md "reproduce the effect, never adopt the structure" rule; decide after the
+  state-call split says which half claims.
+- **NEW, user-observed: the sword-landing DUST plays at the GHOST instead of where the sword
+  landed.** The `dl` one-shot row can only spawn at the ghost; dust born at a sword's landing
+  point needs the sword position. Wants either suppression of sword-landing dust from the `dl`
+  counter (sender-side attribution) or a positioned one-shot variant.
+- **The whole loopback-era sword-throw record is demoted:** every 2026-08-15 "confirmed live"
+  was loopback, where the cross-wire writes the player's own values back and is invisible.
+  User, 2026-09-01: assume everything sword-throw is unverified with two peers.
+
 ### NEW (user, 2026-09-01): a ghost's MELEE ATTACK shows no VFX
 
 **Found on a two-client session the same hour the cache was confirmed: *"we are not doing the a

@@ -201,6 +201,13 @@ namespace MeshGhostPseudo
         // visual-only posture.
         RC::Unreal::AActor* weapon_actor{nullptr};
         RC::Unreal::UWorld* weapon_actor_world{nullptr};
+        // The flyer that replaced the spawned prop (2026-09-01): a mesh component WE add to the
+        // ghost, same class and asset as its hand WeaponMesh, driven from the wire. Attached to
+        // the ghost, so it dies with it -- cleared wherever recall_glow_component is, for the
+        // same reason. weapon_hand_hidden remembers that WE hid the ghost's hand mesh, so the
+        // restore on catch never un-hides a mesh someone else hid.
+        RC::Unreal::UObject* weapon_fly_component{nullptr};
+        bool weapon_hand_hidden{false};
 
         // The peer's ranged projectile, mirrored as an EFFECT rather than an actor -- see
         // MIRROR_PEER_PROJECTILE for the crash that forced that. This component is one WE created,
@@ -245,6 +252,11 @@ namespace MeshGhostPseudo
         // saw nothing to do. Calling only on a real edge is the shape that fixed that.
         double target_weapon_state{};
         double last_synced_weapon_state{-1.0}; // -1 = nothing synced yet, outside any real state
+        // The peer's cumulative wall-bounce counter (velocity sign-flips on their real sword,
+        // sender-side). Monotonic per peer; -1 means "baseline on next sight", the vfx_counts
+        // rule, so a mid-session join never replays bounce history. 2026-09-01.
+        double target_weapon_bounce{};
+        double last_seen_weapon_bounce{-1.0};
 
         // The landed sword's glow ring. Sent as the NiagaraSystem asset's own object path, read off
         // the peer's real sword rather than hardcoded, so a build or mod with a different effect

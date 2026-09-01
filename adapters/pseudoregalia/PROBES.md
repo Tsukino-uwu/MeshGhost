@@ -145,3 +145,17 @@ without incident. One census 3s after each (re)load; write the reloader trigger 
   rig** — it reinstalls every Lua mod, orphans the adapter's spawned ghosts, and broke the session
   it was tried in (camera stolen, duplicate ghosts). Deploy the folder, relaunch the game once,
   and use `probe_reloader/` from then on.
+
+## `probe_swordthrow/` — the two-peer sword-throw investigation (2026-09-01)
+
+- **`Scripts/main.lua`** — the passive capture: pawn weapon flags on change, loose-weapon/
+  projectile flight tracks per sample. Safe shape; ran clean on both clients.
+- **`Scripts/equip_carrier_test.lua` / `montage_carrier_test.lua`** — one-shot carrier tests
+  that exonerated `changeEquippedWeapon`-on-ghost and `CustomPlayMontage`(throw)-on-ghost by
+  sampling the player's own flags through each call. Both clean, both negatives recorded.
+- **`Scripts/prop_carrier_test.lua` — CRASHED a live client (2026-09-01) and must not be re-run
+  as written.** Two suspects, in order: `GetClass()` on a pawn's `weaponRef` (a pointer the game
+  keeps AFTER pickup and can leave stale — a UFunction call on an object nobody owns, the exact
+  line `probe_dustlight/` crossed), and `World:SpawnActor` of a gameplay-bearing Blueprint from
+  Lua. The split it wanted now lives in the adapter as `skip_ghost_weapon_state.txt`, with the
+  C++ guards. Ships WITHOUT `enabled.txt`, like `probe_dustlight/`.
