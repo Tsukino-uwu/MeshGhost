@@ -369,9 +369,9 @@ warnings, no lookup failures, 16 nametags drawn every frame, `send_fail=0 lines_
   pointer, identical behaviour" is an argument, not a screen. Check: a normal 2-ghost session,
   `perf_report.txt` DISARMED, watching for anything that renders differently (visibility,
   outlines, nametags, light, weapon).
-- **Not re-run: rungs 32/100/150.** The "per-ghost cost rises with world population" finding was
-  attributed to name walks scaling with object count; the cache should flatten that. Measure,
-  don't assume.
+- **Rungs 32/100/150 re-run same day: every rung ~2x faster, the population rise halved but
+  survived** (97 -> 219 us/ghost across the ladder, was 321 -> 657; 150 rung dirty, ~114 live).
+  Table and caveats: `../../agent_docs/crowd-limits.md`, "The property-cache re-run".
 - **What the post-cache profile says is left, largest first (16 peers, us/frame):** `ls_rest` 929
   (flat), `tail_sweeps` 823 (the outline attach-tree walk per ghost per tick -- the per-call
   reflection inside it is now cached, the walk itself is not), `loop_pose_xf` 338, `local_state`'s

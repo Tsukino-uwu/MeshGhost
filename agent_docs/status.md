@@ -61,8 +61,8 @@ has never been looked at. `verified.md`.
 
 - **Pseudoregalia crowds: three scaling ceilings removed and user-confirmed, full ladder
   published (2026-09-01)** — 150 ghosts stable, ~30 above 50fps. `crowd-limits.md`, `pseudoregalia/VERIFIED.md`.
-- **Steps 1+2 of "Crowds that PLAY" are DONE and MEASURED (2026-09-01): the property cache cut
-  the 16-peer tick 59% (~93 -> ~133fps). UNWATCHED; rungs 32/100 not re-run.** `pseudoregalia/UNVERIFIED.md`.
+- **Steps 1+2 of "Crowds that PLAY" are DONE and the ladder RE-RUN (2026-09-01): every rung ~2x
+  (16 peers ~133fps, 32 ~90); UNWATCHED, and `ls_rest` is the next split.** `crowd-limits.md`.
 - **CLOSED 2026-09-01: the reset-to-save crash (nametag stale pointers), the vanished nametags,
   and the ~5s spawn holds (removed).** `pseudoregalia/VERIFIED.md`; method in `pitfalls/by-lesson.md`.
 - **RESOLVED: ghosts freeze/vanish for ONE client — it was the agent's own rig** — a one-sided stream
