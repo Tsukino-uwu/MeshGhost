@@ -153,6 +153,12 @@ if ($ForRelease) {
 # itself, so they reach the root exe and config with no copy of anything.
 New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
 Copy-Item adapters\emulator\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\ -Force
+# Remove any staged lib\ from a previous run first: Copy-Item -Recurse into an EXISTING
+# directory copies the source INTO it, so a re-run used to leave a doubled lib\lib\ nesting
+# in the staged tree (found 2026-09-01; CI stages into a clean checkout and never saw it).
+if (Test-Path packaging\release\games\pokemon\emerald\lib) {
+    Remove-Item -Recurse -Force packaging\release\games\pokemon\emerald\lib
+}
 Copy-Item -Recurse -Force adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\emerald\lib
 
 # Crystal's lib\ comes from Emerald's: it is the same BizHawk LuaSocket build, and
@@ -161,6 +167,10 @@ Copy-Item -Recurse -Force adapters\emulator\pokemon\emerald\lib packaging\releas
 # that fallback is never needed by a player.
 New-Item -ItemType Directory -Force packaging\release\games\pokemon\crystal | Out-Null
 Copy-Item adapters\emulator\pokemon\crystal\meshghost_crystal.lua packaging\release\games\pokemon\crystal\ -Force
+# Same re-run guard as Emerald's above.
+if (Test-Path packaging\release\games\pokemon\crystal\lib) {
+    Remove-Item -Recurse -Force packaging\release\games\pokemon\crystal\lib
+}
 Copy-Item -Recurse -Force adapters\emulator\pokemon\emerald\lib packaging\release\games\pokemon\crystal\lib
 
 # An experiment flag beside the adapter would make it run an Archipelago ROM on an unconfirmed

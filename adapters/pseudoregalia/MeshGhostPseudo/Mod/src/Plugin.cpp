@@ -1907,10 +1907,14 @@ namespace MeshGhostPseudo
     // and the strip resumes. No relaunch, which matters because the user is standing in the dark
     // room while this is measured.
     //
-    // **This is a diagnostic and must ship OFF.** It costs one `GetFileAttributesW` every
-    // `DEV_TOGGLE_POLL_TICKS`, and a probe left armed is a suspect in every report after it
-    // (`../../CLAUDE.md`). Flip it false once the question is answered -- the answer belongs in a
-    // real fix, not in a file somebody has to remember to delete.
+    // **Deliberately `true`, and no longer only about custom depth** (comment corrected
+    // 2026-09-01 -- it used to say "must ship OFF" from when this gated one A/B). This flag has
+    // become the master gate for the whole file-toggle dev workflow: the per-poll
+    // dev_toggle_present checks, the subtraction toggles (hide_ghost_*, ghost_light_on, ...),
+    // and perf_report.txt arming all sit under it, so flipping it false disables the register's
+    // entire Runtime dev-toggle table. Cost when no toggle file exists is file-existence checks
+    // every DEV_TOGGLE_POLL_TICKS -- the expensive sweeps only run while a toggle is ARMED
+    // (the 2026-08-30 fix; ~3.3ms/frame before it). FLAGS.md is the register.
     constexpr bool GHOST_CUSTOM_DEPTH_DEV_TOGGLE = true;
 
     // ~5 checks a second at this build's ~150Hz. The file is created by hand between two looks at
@@ -2115,7 +2119,10 @@ namespace MeshGhostPseudo
     // crashed this game from Lua the same day, and no object pointer can be diffed usefully anyway.
     //
     // Two spawns' worth of output and it should be off again: this is an instrument, not behaviour.
-    constexpr bool PLAYER_STATE_DIFF_ON_GHOST_SPAWN = true;
+    // OFF 2026-09-01: it shipped true through the reset-crash investigation it was built for,
+    // which is closed (stale nametag pointers, user-confirmed fixed) -- flagged by the register
+    // audit as a probe in the true list, the exact defect class the register hunts.
+    constexpr bool PLAYER_STATE_DIFF_ON_GHOST_SPAWN = false;
 
     constexpr bool GHOST_NEUTRALISE_CAMERA_RIGS = true;
 

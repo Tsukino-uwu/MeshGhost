@@ -192,5 +192,6 @@ attach point, offset — exactly the fields a `MIRRORED_EFFECTS` row needs; acti
 labelled separately because pooled components reactivate rather than appear. Safe shape per the
 dustlight post-mortem: named property reads only, no UFunction calls on `FindAllOf` results, two
 classes at 5Hz, and it reports its own coverage every 10s so "no events" is distinguishable from
-"not looking". **Carries `enabled.txt` — ARMED as of 2026-09-01** while its question is still
-open; disarm it once the slash mirror ships.
+"not looking". **Its question is ANSWERED — the slash ships as the `NS_PlayerSlash` row in
+`MIRRORED_EFFECTS`, and the user calls it fixed (2026-09-01)** — so its `enabled.txt` is parked
+as `.off`, same convention as `probe_swordthrow/`; rename it back to re-measure on a new build.

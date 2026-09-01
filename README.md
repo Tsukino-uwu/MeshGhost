@@ -165,10 +165,15 @@ worked example.
 go get github.com/Tsukino-uwu/MeshGhost
 ```
 
-**Nothing here is promised.** Pre-1.0, **no API stability guarantee** — these packages may change
-shape in any release, we do not test third-party use, and we will not know if we break you.
-`v0.9.0` is the first fetchable tag — `v0.8.5` and earlier were cut under the old module name and
-cannot be resolved at all. If you need something that cannot move under you, fork or vendor it;
+**What `v1.0.0` (2026-08-30) does and does not promise.** The stable surface is the **wire
+protocol**: it is version-checked at the handshake, additions since have been optional fields an
+old client safely ignores, and [docs/integrating.md](docs/integrating.md) documents it precisely
+so other games and other clients can build against the relay — which is what the 1.0 marks. The
+**Go package APIs** follow module semver from here (a breaking Go-API change means a `/v2` module
+path), but third-party use of the packages is unsupported and untested — we will not knowingly
+break you, and we also will not know if we do. `v0.9.0` is the first fetchable tag — `v0.8.5` and
+earlier were cut under the old module name and cannot be resolved at all. If you need something
+that cannot move under you, pin a version, or fork/vendor it;
 [MIT](LICENSE) allows that outright. None of this affects adapters, which speak a socket rather
 than a Go API.
 

@@ -31,7 +31,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 33 that are `true` (re-counted 2026-09-01)
+## Behaviour — the 32 that are `true` (re-counted 2026-09-01, after `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` came off)
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -73,8 +73,7 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `GHOST_NAMETAGS` | **The nametag feature, confirmed by three peers 2026-08-29.** Renders a peer's `remote_name` as a `UTextRenderComponent` above the ghost, using only the engine's own cooked font/material (`RobotoDistanceField` / `DefaultTextMaterialOpaque`, confirmed present by `NAMETAG_CENSUS_PROBE`) — nothing of ours ships, which is what ruled out the UMG-widget approach another mod took. |
 | `NAMETAG_COLOR_PLATE` | **The coloured plate behind a nametag, confirmed 2026-08-29.** Uses the engine's opaque+unlit `DebugMeshMaterial` ("Color" parameter) because every translucent material vanished behind the game's own translucency sorting and every game opaque master is lit/stylized. Drawn only when the peer set a `name_color`. |
 | `GHOST_NEUTRALISE_CAMERA_RIGS` | Holds a ghost's spawned camera rig dark — the pawn Blueprint gives every spawn a camera nobody looks through, which the 2026-08-29 light hunt found contributing. Swept at `CAMERA_RIG_SWEEP_INTERVAL_TICKS` (~5/s); writes only to a rig that is not the local player's and not already neutral. |
-| `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` | **A diagnostic shipping `true` — its own comment says "two spawns' worth of output and it should be off again".** Scalar-diffs the local player's properties around a ghost spawn and prints what moved. Registered 2026-09-01 as exactly the defect class the register hunts (a probe in the `true` list); flip it `false` on the next functional rebuild unless its question is still open. |
-| `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` | **A diagnostic shipping `true` — its own comment says "must ship OFF".** Polls for a custom-depth dev toggle file every `DEV_TOGGLE_POLL_TICKS` (one `GetFileAttributesW` per poll). Registered 2026-09-01, same defect class as the row above; same disposition. |
+| `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` | **Deliberately `true` — the MASTER GATE for the file-toggle dev workflow**, no longer only the custom-depth A/B its name remembers: every `dev_toggle_present` poll, the subtraction toggles (`hide_ghost_*`, `ghost_light_on`, ...) and `perf_report.txt` arming all sit under it, so `false` disables the entire Runtime dev-toggle table below. Cost with no toggle file present is file-existence checks every `DEV_TOGGLE_POLL_TICKS`; the expensive sweeps run only while ARMED (the 2026-08-30 fix). Its comment said "must ship OFF" from its one-question days and shipped `true` anyway — the comment was corrected 2026-09-01, believing the value, per this file's own closing rule. |
 | `MIRROR_PEER_PROJECTILE` | **Confirmed 2026-08-27.** A peer's ranged shot, mirrored as the projectile's own Niagara EFFECT along the sampled path — never as the game's actor, which crashed the game when its pointer outlived it. The sender attributes a shot by `Instigator` and requires its `ProjectileMovement` to be ACTIVE, because this game pools actors and existence is not activity. |
 | `MIRROR_DEATH_FADE` | **Confirmed 2026-08-27.** Runs the pawn's own `dieFade(DieNotRez)` on a ghost — dying on the peer's health reaching zero, resurrecting when their `NS_RespawnSafe` starts. Found by two probes: the model is never hidden and its materials go dynamic (so it is an animated parameter), then a census named the function. |
 | `MIRROR_HURT_REACTION` | **Confirmed 2026-08-27, and the one flag with a runtime tripwire.** Runs the pawn's own `BPI_PerformDamageResponse` on a ghost whenever the peer's shared health DECREASES — a pit fall is 5 HP, damage rather than death, which is why the death fade could not carry it. Because health is a GameInstance singleton, the mirror reads `CurrentHp` around the call and **disarms itself for the session** if the value moves. It has never fired; that is a measured fact about the function, not an assumption. |
@@ -100,15 +99,17 @@ The lesson for this register: a probe with no flag is invisible to this file, so
 cannot prove the shipped build is quiet. What proves it is reading a real session's log, which is
 the only reason this was found.
 
-47 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
+48 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
 `_CENSUS`, `_HUNT`, plus `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`, and `NAMETAG_STATE_READBACK` (probe by
 nature, not by suffix: reads back what each nametag component actually holds, because "never
 created", "drew nothing" and "drew the wrong string" were three bugs behind one symptom). Three
 worth knowing by name: `NAMETAG_CENSUS_PROBE` (the one-shot font/material census the nametag
 feature was built on), `GHOST_MESH_Z_TRACE` (the slide-transition instrument `SLIDE_SEAM_HOLD_MS`
-was derived from — turn it back on only to re-measure against a new game build), and the two
-diagnostics currently shipping `true` in the Behaviour table above, which belong down here.
+was derived from — turn it back on only to re-measure against a new game build), and
+`PLAYER_STATE_DIFF_ON_GHOST_SPAWN` (the spawn-time scalar diff, off since 2026-09-01 — it had
+shipped `true` through the reset-crash hunt it served; the register audit caught it, the user
+called the flip).
 
 **The arithmetic, so a future audit can check it in one pass** — recounted 2026-09-01, after the
 nametag/sword-throw/crowd sessions (the 2026-08-27 recount of 87 had itself gone stale within
@@ -118,8 +119,9 @@ days, which is why the figure carries a date and the COMMAND, never a total to t
 (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped
 build without being written so. Of the 95:
 
-- **33 written `true`** — Behaviour, above.
-- **62 written `false`**, splitting by name into **47 probe-shaped** and **15 not**.
+- **32 written `true`** — Behaviour, above (33 until `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` came off
+  later the same day).
+- **63 written `false`**, splitting by name into **48 probe-shaped** and **15 not**.
 - Of those 15, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
   `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and
   the remaining **13 are recorded negatives / retired approaches** (the Dormant table below, plus

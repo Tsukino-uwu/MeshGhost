@@ -1955,5 +1955,14 @@ is in `adapters/pseudoregalia/VERIFIED.md` (entries through 2026-09-01), `UNVERI
   flyer after the game's class claimed the watcher's player (`ead064e` … `b2f4508`), and the
   peer-named-asset catalog gate closed the last unbounded lookups (`0ee2a63`).
 
+- **2026-09-01, later — the register audit's follow-through, on the user's call.**
+  `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` flipped off (its reset-crash question is closed; it was a
+  diagnostic shipping `true` against its own comment), `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` kept
+  `true` with its comment corrected — it had quietly become the master gate for the whole
+  file-toggle dev workflow — and `probe_swordthrow/` disarmed (`enabled.txt` parked as `.off`;
+  its day is closed) along with `probe_slashvfx/` (the user confirmed the melee slash/arc VFX
+  fixed — it ships as the `NS_PlayerSlash` row in `MIRRORED_EFFECTS`). DLL rebuilt and deployed
+  to both installs.
+
 Open items from this stretch live in `adapters/pseudoregalia/UNVERIFIED.md` and
 `agent_docs/status.md`; the crowd plan is `agent_docs/crowd-limits.md`.

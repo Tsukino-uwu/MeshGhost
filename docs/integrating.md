@@ -332,9 +332,13 @@ refuses from outside the owning module. Both are gone. Six packages are importab
 `internal/e2e` is not importable and is not meant to be. `cmd/*` are `package main` and never
 were.
 
-**What is not promised.** This is pre-1.0 and there is **no API stability guarantee**: any of
-these may change shape in a later release, we do not test third-party use, and we will not know
-we broke you. `v0.9.0` is the first fetchable tag; `v0.8.5` and earlier cannot be fetched at
+**What is and is not promised, as of `v1.0.0` (2026-08-30).** The stable surface is the **wire
+protocol this document describes** — version-checked at the handshake, extended only with
+optional fields an old client ignores — and that stability is the point of the 1.0: the relay
+and client are meant to be reusable by other people and other games. The **Go package APIs**
+follow module semver from v1.0.0 (a breaking Go-API change means a `/v2` module path), but we do
+not test third-party use of the packages and will not know we broke you — pin a version if it
+must not move. `v0.9.0` is the first fetchable tag; `v0.8.5` and earlier cannot be fetched at
 all — only tags after the rename resolve. The packages are on pkg.go.dev only because someone
 fetched them, not because they are curated for outside readers.
 
