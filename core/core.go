@@ -285,6 +285,10 @@ type Core struct {
 	relayGame string // game_id this Core is connected to the relay as, once connected
 	seq       uint64
 
+	// lastStateDropLog throttles the "dropping state" log line in
+	// storeRemoteState -- see the comment there (2026-09-01).
+	lastStateDropLog atomic.Pointer[time.Time]
+
 	// relayOwner is the bridge connection considered responsible for the
 	// current c.relay — only its own disconnect is allowed to close
 	// c.relay. Set two ways: (1) ConnectRelayOnAdapterHello, on a Hello

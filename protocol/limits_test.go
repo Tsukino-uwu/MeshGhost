@@ -357,3 +357,24 @@ func TestExtrasSizingIsConcurrencySafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// StateRejectReason must name the extras cap for an oversized-extras state and
+// stay empty for a valid one -- the 2026-09-01 sword-throw investigation is why
+// this string exists at all (both enforcement points dropped silently).
+func TestStateRejectReasonNamesOversizedExtras(t *testing.T) {
+	st := State{PlayerID: "p1", AreaID: "area", Anim: "idle", Position: []float64{1, 2, 3}}
+	if got := StateRejectReason(st); got != "" {
+		t.Fatalf("valid state got reason %q", got)
+	}
+	st.Extras = map[string]any{"junk": string(make([]byte, MaxExtrasBytes+1))}
+	got := StateRejectReason(st)
+	if got == "" {
+		t.Fatalf("oversized extras got empty reason")
+	}
+	if !strings.Contains(got, "extras") {
+		t.Fatalf("reason %q does not name extras", got)
+	}
+	if ValidateState(st) {
+		t.Fatalf("ValidateState accepted what StateRejectReason rejected")
+	}
+}

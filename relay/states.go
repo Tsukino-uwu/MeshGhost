@@ -14,6 +14,8 @@ package relay
 
 import (
 	"encoding/json"
+	"log"
+	"sync/atomic"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -45,6 +47,7 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	// shared with core so both enforcement points can't
 	// silently drift apart.
 	if !protocol.ValidateState(st) {
+		logStateDropThrottled("relay", senderID, st)
 		return protocol.State{}, false
 	}
 	// player_id is stamped server-side from the connection's own
@@ -203,3 +206,26 @@ func (r *Room) forgetState(playerID string) {
 	delete(r.lastState, playerID)
 	r.mu.Unlock()
 }
+
+// logStateDropThrottled says WHY a state was dropped, at most once per
+// dropLogInterval per process -- the reason (protocol.StateRejectReason) is
+// only computed inside the throttle window. Added 2026-09-01: both
+// enforcement points dropped silently, and a Pseudoregalia sword throw that
+// pushed extras past the cap presented as four unrelated ghost bugs before
+// anything named the real cause. A steady stream of oversized states from one
+// misbehaving adapter must not flood the log, hence the throttle rather than
+// a per-drop line.
+func logStateDropThrottled(who, playerID string, st protocol.State) {
+	now := time.Now()
+	last := lastStateDropLog.Load()
+	if last != nil && now.Sub(*last) < dropLogInterval {
+		return
+	}
+	stamp := now
+	lastStateDropLog.Store(&stamp)
+	log.Printf("%s: dropping state from %s: %s (repeats suppressed for %s)", who, playerID, protocol.StateRejectReason(st), dropLogInterval)
+}
+
+const dropLogInterval = 5 * time.Second
+
+var lastStateDropLog atomic.Pointer[time.Time]

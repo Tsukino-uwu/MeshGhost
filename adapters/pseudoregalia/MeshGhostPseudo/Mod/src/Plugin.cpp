@@ -1411,7 +1411,7 @@ namespace MeshGhostPseudo
     // Flipped back off 2026-08-15, its job done: it found the resting pose (weaponState 0 -> 3),
     // proved the state setter does NOT spawn the glow, and -- once its own blind spot was fixed by
     // reading the position BEFORE each write instead of after -- measured the sinking as gravity.
-    constexpr bool WEAPON_PROP_TRACE = false;
+    constexpr bool WEAPON_PROP_TRACE = true; // armed 2026-09-01 for the two-peer throw session (stuck-in-air / sinking); flip back off when it ends
 
     // Why a landed ghost sword floats, 2026-08-15. The sync itself is PROVEN correct for this:
     // WEAPON_PROP_TRACE showed TARGET/RENDER/READBACK agreeing to a decimal through a whole arc,
@@ -1993,6 +1993,15 @@ namespace MeshGhostPseudo
     // Skip updateWeaponEquip on the ghost's anim instance -- the second half of the pickup
     // cross-wire split, see the call site.
     bool g_ghost_equip_anim_skipped = false;
+    // Skip the whole thrown-weapon PROP mirror (tick_remote_weapon: spawn, Change Weapon State,
+    // position writes). Added 2026-09-01 because it is the ONE subsystem no cross-wire isolation
+    // ever subtracted: the 16:29/16:32 carrier tests exonerated changeEquippedWeapon-on-ghost
+    // and CustomPlayMontage-on-ghost individually, while a real peer throw still strips the
+    // local player's sword -- and a game built around recalling THE one sword plausibly keeps
+    // global loose-sword state that a second real BP_looseWeapon_C claims. Armed on the
+    // WATCHING client: if the local player keeps their sword through a peer throw, the prop
+    // path is the carrier.
+    bool g_ghost_weapon_prop_skipped = false;
     // Guard MPC_PlayerRelated.PlayerLocation against ghost writes -- see
     // register_playerlocation_guard. Measured 2026-08-29 (probe_namecensus stage 10): the live
     // slot held the GHOST's position on both instances, so the ghost's own tick is winning the
@@ -8047,6 +8056,13 @@ namespace MeshGhostPseudo
 
     auto Plugin::tick_remote_weapon(const std::string& player_id, RemoteGhost& remote, UWorld* current_world) -> void
     {
+        // The whole-prop subtraction toggle -- see g_ghost_weapon_prop_skipped's declaration.
+        // Skipping releases nothing already spawned on purpose: arming mid-flight leaving a prop
+        // behind is visible and expected; the clean test arms it before the peer throws.
+        if (g_ghost_weapon_prop_skipped)
+        {
+            return;
+        }
         // Staleness, both checks the ghost pawn gets and for the same reasons: a level transition
         // destroys spawned actors out from under us, and a peer/local area change leaves this
         // pointing into a torn-down world. Cleared rather than reused -- the next thrown sample
@@ -19922,6 +19938,15 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: ghost changeEquippedWeapon call now {} (skip_ghost_equip_call.txt {}).\n"),
                                  skip_equip ? STR("SKIPPED") : STR("made"),
                                  skip_equip ? STR("present") : STR("gone"));
+                }
+
+                const bool skip_weapon_prop = dev_toggle_present(STR("skip_ghost_weapon_prop.txt"));
+                if (skip_weapon_prop != g_ghost_weapon_prop_skipped)
+                {
+                    g_ghost_weapon_prop_skipped = skip_weapon_prop;
+                    Output::send(STR("[MeshGhostPseudo] DEV: thrown-weapon PROP mirror now {} (skip_ghost_weapon_prop.txt {}).\n"),
+                                 skip_weapon_prop ? STR("SKIPPED") : STR("run"),
+                                 skip_weapon_prop ? STR("present") : STR("gone"));
                 }
 
             }

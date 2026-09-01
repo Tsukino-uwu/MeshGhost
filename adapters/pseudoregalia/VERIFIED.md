@@ -4622,3 +4622,21 @@ The user watched the whole arc on screen, one fix per rung:
 - Still open, filed in `UNVERIFIED.md`: `loop_tail` (the reflection redraw) dominates per-ghost
   cost (~80%), and per-ghost cost rises with world population — the two levers if crowds should
   ever be PLAYABLE rather than survivable.
+
+## 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
+
+The user found it on a two-client session (*"we are not doing the a vfx when using the melee
+attacks"* -- *"like a curved slash ish going outward"*), and the whole loop closed inside the
+hour: `probe_slashvfx` captured six swings (`NS_PlayerSlash`, world-spawned at the player's x/y,
++30 over the actor origin), the `sl` one-shot row shipped on the same counter path as `dl`/`bb`,
+and the wire was watched end to end -- a swing on one client (`sl:0 -> 1`) fired `burst 'sl'` on
+the other's ghost within ~0.3s -- before the user judged it on screen and confirmed.
+
+- First DIRECTIONAL one-shot: spawned with the performer's `target_yaw`, written through
+  SpawnSystemAtLocation's Rotation param by its reflected SIZE (the vendored FRotator marshals
+  as float whatever the engine uses -- this adapter's `CLAUDE.md`). The user's confirmation did
+  not separately call out direction; if a wrong-facing arc is ever reported, that write is the
+  first suspect.
+- Scope: two real clients, one machine. Found, measured, built and confirmed 2026-09-01.
+- The same capture found `NS_FootstepDust` world-spawned at the feet and unmirrored -- filed as
+  a candidate in `UNVERIFIED.md`, deliberately not added unasked.

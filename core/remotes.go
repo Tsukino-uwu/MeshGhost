@@ -10,7 +10,9 @@ package core
 // despawn, not a judgement about what an area contains.
 
 import (
+	"log"
 	"sync/atomic"
+	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
@@ -25,6 +27,15 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// too since a hostile or compromised relay was previously trusted
 	// completely. See the ADR in agent_docs/architecture.md.
 	if !protocol.ValidateState(st) {
+		// Throttled like the relay's twin (relay/states.go): a state dropped
+		// for size must say so -- the 2026-09-01 sword throw presented as four
+		// ghost bugs while both enforcement points stayed silent.
+		now := time.Now()
+		if last := c.lastStateDropLog.Load(); last == nil || now.Sub(*last) >= 5*time.Second {
+			stamp := now
+			c.lastStateDropLog.Store(&stamp)
+			log.Printf("core: dropping state from %s: %s (repeats suppressed for 5s)", st.PlayerID, protocol.StateRejectReason(st))
+		}
 		return
 	}
 

@@ -397,12 +397,10 @@ waves and landing dust before their rows existed (`MIRRORED_EFFECTS` covers heal
 dl/bb; nothing attack-shaped). MEASURED same hour (`probe_slashvfx`, six swings, all
 identical): **`NS_PlayerSlash`, world-spawned at the player's x/y, +30 above the actor origin** --
 and the same capture found `NS_FootstepDust` (world-spawned at the feet) equally unmirrored, filed
-as a candidate, not added. **The `sl` row is BUILT and DEPLOYED, unwatched**: same one-shot
-counter path as `dl`/`bb`, plus the first DIRECTIONAL spawn -- the ghost's copy is spawned with
-`target_yaw` through a size-checked Rotation param (the FRotator-as-float ABI trap, written by
-reflected size instead). Whether NS_PlayerSlash actually orients by spawn rotation is unknown --
-judged on screen. Check: swing at a ghost's side on two clients; the arc should appear on the
-ghost, facing the way the ghost faces, roughly chest height.
+as a candidate, not added. **CONFIRMED on two clients, user 2026-09-01: "the slash works"
+-- moved to `VERIFIED.md`.** Direction was not separately called out; the size-checked Rotation
+write is the first suspect if a wrong-facing arc is ever reported. `NS_FootstepDust` stays here
+as the filed candidate.
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 

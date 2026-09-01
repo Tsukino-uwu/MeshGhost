@@ -3,6 +3,7 @@ package protocol
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sync"
 )
@@ -197,6 +198,36 @@ func ValidateState(st State) bool {
 	// — both call sites drop it either way — so ordering the cheap ones first
 	// is invisible for an accepted state and pure profit for a rejected one.
 	return extrasWithinLimit(st.Extras)
+}
+
+// StateRejectReason names which ValidateState check st fails, or "" if it
+// passes them all. Only ever called on the REJECTION path (both call sites
+// drop the state either way, so the accepted path never pays for this), and
+// it exists because the drop used to be silent at both enforcement points:
+// found 2026-09-01, when a Pseudoregalia sword throw pushed that adapter's
+// extras past MaxExtrasBytes and every symptom on the receiving side --
+// a ghost holding a sword its peer had thrown, a prop frozen mid-air --
+// pointed anywhere but here. A state dropped for size must say so.
+func StateRejectReason(st State) string {
+	if !ValidOpaqueString(st.AreaID, MaxAreaIDLen) {
+		return fmt.Sprintf("area_id invalid or over %d bytes", MaxAreaIDLen)
+	}
+	if !ValidOpaqueString(st.Anim, MaxAnimLen) {
+		return fmt.Sprintf("anim invalid or over %d bytes", MaxAnimLen)
+	}
+	if n := JSONWireLen(st.Orientation); n > MaxOrientationBytes {
+		return fmt.Sprintf("orientation %d bytes over the %d cap", n-MaxOrientationBytes, MaxOrientationBytes)
+	}
+	if !IsValidPosition(st.Position) {
+		return "position not a finite vector of plausible length"
+	}
+	if !extrasWithinLimit(st.Extras) {
+		if b, err := json.Marshal(st.Extras); err == nil {
+			return fmt.Sprintf("extras %d bytes, %d over the %d cap", len(b), len(b)-MaxExtrasBytes, MaxExtrasBytes)
+		}
+		return fmt.Sprintf("extras over the %d-byte cap", MaxExtrasBytes)
+	}
+	return ""
 }
 
 // extrasSizer is a buffer and encoder kept together so the pool hands out one
