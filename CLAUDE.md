@@ -178,10 +178,11 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   that reopened the same day once real sustained traffic was tried.
 - **Treat "access denied" as a question to research, not a wall** — who gates it, how do people
   get past it — before investing in a workaround.
-- **Anything on `PATH` may resolve to the wrong install — including `cmd` itself.** Confirm the
-  real copy (`C:\Program Files\CMake\bin`, `$env:ComSpec`) before believing a build failure;
-  prefer an absolute path for the interpreter. Twice live, both a devkitPro/MSYS2 shadow:
-  2026-08-13 `cmake` (a fake `CMAKE_GENERATOR` failure), 2026-08-17 `cmd`. See `pitfalls.md`.
+- **Anything on `PATH` may resolve to the wrong install — and bare `cmd` is NEVER safe here: a
+  `.bat` runs via `& $env:ComSpec /c`, every time.** Confirm the real copy (`$env:ComSpec`,
+  `C:\Program Files\CMake\bin`) before believing a build failure. Thrice live, all a
+  devkitPro/MSYS2 shadow: 2026-08-13 `cmake`, 2026-08-17 `cmd`, 2026-09-01 `cmd` again — exit 0,
+  EMPTY output, nothing ran, "open with" popups at the user. Failure mode: green. `pitfalls.md`.
 - **Don't use worktree-isolated parallel agents for testing work here.** The test loop is "make
   a change, then watch it live in a running BizHawk/game session" — a git worktree can't share
   that live, stateful session, so parallelizing testing across worktrees doesn't fit how this

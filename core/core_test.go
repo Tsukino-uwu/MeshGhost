@@ -2198,6 +2198,36 @@ func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
 	}
 }
 
+// lockedBuffer is the log sink for tests that redirect the global log package:
+// Core logs through it from goroutines, and reconnect loops leaked by earlier
+// tests in the package keep writing into whatever log.SetOutput points at.
+// CI's race detector caught a bare bytes.Buffer in that role on 2026-09-01.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// linesMentioning returns only the log lines that contain addr, so assertions
+// ignore lines written by other tests' cores about other relays.
+func (b *lockedBuffer) linesMentioning(addr string) string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out strings.Builder
+	for _, line := range strings.Split(b.buf.String(), "\n") {
+		if strings.Contains(line, addr) {
+			out.WriteString(line)
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
+}
+
 // TestReconnectKeepsSayingItCannotReachTheRelay is the regression test for a
 // core that retries a relay address nothing answers on any more: it used to
 // log once and then go completely silent, because the log line was gated
@@ -2210,6 +2240,9 @@ func TestRateLimitedRejectIsRetryableUnlikeAConfigReject(t *testing.T) {
 // then dialed it for ten minutes without a word — which read from outside as
 // a broken reconnect loop rather than a wrong address. The loop was fine; the
 // reporting was not.
+//
+// Assertions are scoped to lines naming THIS test's relay address (see
+// lockedBuffer) so stray reconnect loops from other tests cannot flake them.
 func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	// Reserve an address and free it, so dialing it is refused rather than
 	// hanging — the same shape as a relay that has exited.
@@ -2223,7 +2256,7 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	prevInterval := setReconnectLogInterval(20 * time.Millisecond)
 	t.Cleanup(func() { setReconnectLogInterval(prevInterval) })
 
-	var logged bytes.Buffer
+	var logged lockedBuffer
 	prevOut := log.Writer()
 	prevFlags := log.Flags()
 	log.SetOutput(&logged)
@@ -2242,8 +2275,8 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected a dial failure with nothing listening, got nil")
 	}
-	if got := strings.Count(logged.String(), "will keep retrying"); got != 1 {
-		t.Fatalf("first failure should log once, got %d:\n%s", got, logged.String())
+	if got := strings.Count(logged.linesMentioning(addr), "will keep retrying"); got != 1 {
+		t.Fatalf("first failure should log once, got %d:\n%s", got, logged.linesMentioning(addr))
 	}
 
 	// An immediate retry inside the interval must stay quiet — that part of
@@ -2251,22 +2284,20 @@ func TestReconnectKeepsSayingItCannotReachTheRelay(t *testing.T) {
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected the retry to fail too, got nil")
 	}
-	if strings.Contains(logged.String(), "still cannot reach the relay") {
-		t.Fatalf("a retry inside the interval must not log:\n%s", logged.String())
+	if strings.Contains(logged.linesMentioning(addr), "still cannot reach the relay") {
+		t.Fatalf("a retry inside the interval must not log:\n%s", logged.linesMentioning(addr))
 	}
 
 	time.Sleep(2 * getReconnectLogInterval())
 	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err == nil {
 		t.Fatal("expected the retry to fail too, got nil")
 	}
-	out := logged.String()
-	if !strings.Contains(out, "still cannot reach the relay") {
-		t.Fatalf("a retry past the interval should say so again, log was:\n%s", out)
-	}
 	// Naming the address is the whole point: the live incident was a core
-	// dialing a port nobody expected it to be dialing.
-	if !strings.Contains(out, addr) {
-		t.Fatalf("the repeat should name the relay address %s, log was:\n%s", addr, out)
+	// dialing a port nobody expected it to be dialing — so the assertion
+	// only accepts the repeat on a line that names this relay's address.
+	out := logged.linesMentioning(addr)
+	if !strings.Contains(out, "still cannot reach the relay") {
+		t.Fatalf("a retry past the interval should say so again and name %s, log was:\n%s", addr, out)
 	}
 
 	// Once a relay is actually there, the complaining stops and the outage

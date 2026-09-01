@@ -709,6 +709,16 @@ Backing detail for `CLAUDE.md`'s public-repo rule. Two live cases, and they fail
 - **Generalizes to**: on a machine with a toolchain bundle on `PATH` (devkitPro, MSYS2,
   Cygwin, Git-for-Windows), assume **any** common command name may be shadowed — including
   ones that feel too fundamental to check. Resolve interpreters by absolute path in scripts.
+- **Recurred 2026-09-01, with a WORSE symptom shape: silent fake success.** Bare `cmd /c`
+  from an agent tool call (running `dev-scripts/run-gotests.bat` and the race suite) resolved
+  to the same devkitPro stub — but instead of the loud "Cannot run a document" error, it
+  (a) popped Windows "How do you want to open this file?" picker dialogs at the USER, and
+  (b) returned **exit code 0 with empty output, having run nothing**. Two full "test suite
+  passed" results were void before the empty output was distrusted and the runs redone via
+  `& $env:ComSpec /c`. The tells: a batch script's exit 0 with NO captured output, and the
+  user reporting stray cmd/"open with" popups. The rule the recurrence earns: **never type
+  bare `cmd` on this machine at all** — not "prefer" the absolute path; there is no safe
+  bare-`cmd` invocation here, and its failure mode is a green result.
 
 ### The diagnostics were the bug: probes that broke the effect they measured (2026-08-16)
 
