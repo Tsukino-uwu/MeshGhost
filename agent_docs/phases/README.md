@@ -24,6 +24,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase7.md](phase7.md) | Third game: Pseudoregalia (UE5, UE4SS). The largest record here. | Done |
 | [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Reopened 2026-08-26 (Fly, boat) |
 | [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | **In progress** |
+| [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | **Open-ended by design** |
 
 **Adding one:** create `phaseN.md`, give it the dated-record note at the top, and add its row
 here. Numbering follows `plans.md`'s roadmap, and a `.5` is legitimate — Phase 5.5 was real work
@@ -34,8 +35,9 @@ user's call, 2026-09-01). Every phase file above had gone days-to-weeks stale wh
 recorded only in VERIFIED/pitfalls; each now carries a dated catch-up section at its end, and the
 next session should append to the phase file in the same pass that closes the work, not later.
 
-**Go-side (core/relay/protocol/transport) work has no phase file, deliberately.** Its dated
-record is the ADR folder (`../adr/`, one file per decision — 0039-0043 cover the 2026-08-28
-architecture week) plus `../scaling.md`, `../hz-ceiling.md` and `../testing.md`; a phase file
-would be a second home for the same history. If the Go side ever gets a phase of its own, this
-paragraph is the scope statement to revise.
+**Go-side (core/relay/protocol/transport) work logs in [phase10.md](phase10.md)** — created
+2026-09-01 on the user's call, the same way Emerald got its own file (phase 8) after being built
+mixed into phases 1-5.5. ONE file for server and client together, deliberately: nearly every
+Go-side event spans both, so two files would double-write or file arbitrarily. It is the
+timeline; the detail stays in the ADRs and the topic docs it points at. **Phase 11 onward is
+reserved for the fifth game and beyond.**
