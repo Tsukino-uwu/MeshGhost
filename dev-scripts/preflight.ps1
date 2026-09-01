@@ -1134,6 +1134,39 @@ if ($faCount -eq $expectedFindAllOf) {
     Report-Fail "FindAllOf call sites shrank: $faCount vs recorded $expectedFindAllOf -- good news, probably; update `$expectedFindAllOf in this file so the ratchet holds at the new floor"
 }
 
+Section "Raw-pointer caches must say why they cannot dangle (Pseudoregalia)"
+
+# Added 2026-09-01, at the user's request ("its not the first time this happens"), after the
+# SECOND cached-raw-UObject* crash in three days: the nametag residue (2026-08-30) and the
+# projectile pool (2026-09-01) both held a raw pointer to something the engine freed, and both
+# crashed a live session. The teardown hooks only cover LEVEL teardown -- an actor the game
+# destroys MID-level (a projectile dies on impact) has no hook, and the only safe hold is the
+# engine's own FWeakObjectPtr, whose Get() re-validates per use.
+#
+# So: every file-scope raw UObject*/AActor* cache in Plugin.cpp must carry a "stale-safe:"
+# comment within the six lines above it, naming why it cannot dangle (hook-cleared and never
+# freed mid-level, or per-use validated). FWeakObjectPtr holds need no annotation -- they are
+# the answer. This cannot see struct members or locals; it forces the look on the shape that
+# has actually crashed twice.
+$pluginPath = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp"
+$pluginLines = Get-Content -LiteralPath $pluginPath
+$cachePattern = '^\s*(static\s+)?(std::vector<\s*(UObject|AActor)\s*\*\s*>|(UObject|AActor)\s*\*)\s+g_\w+\s*[={;]'
+$unannotated = @()
+for ($i = 0; $i -lt $pluginLines.Count; $i++) {
+    if ($pluginLines[$i] -match $cachePattern) {
+        $lo = [Math]::Max(0, $i - 6)
+        $window = $pluginLines[$lo..$i] -join "`n"
+        if ($window -notmatch 'stale-safe:') {
+            $unannotated += ("line " + ($i + 1) + ": " + $pluginLines[$i].Trim())
+        }
+    }
+}
+if ($unannotated.Count -eq 0) {
+    Report-Pass "every file-scope raw UObject*/AActor* cache carries a stale-safe: annotation"
+} else {
+    Report-Fail ("raw-pointer cache(s) with no stale-safe: annotation -- say why it cannot dangle (hook-cleared and never freed mid-level, or per-use validated), or hold FWeakObjectPtr instead: " + ($unannotated -join "; "))
+}
+
 Section "GitHub Action versions agree across workflows"
 
 # WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub

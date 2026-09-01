@@ -365,10 +365,10 @@ warnings, no lookup failures, 16 nametags drawn every frame, `send_fail=0 lines_
   `tail_sweeps` and leave `tail_light` roughly alone. `tail_light` fell hardest (-91%) -- it was
   name-lookup bound too, not doing distinct work. The flat blocks moving (-32/-33%) is why
   converting every call site paid, not just the named block.
-- **UNWATCHED: the user has not judged a ghost on screen since this build.** The claim "identical
-  pointer, identical behaviour" is an argument, not a screen. Check: a normal 2-ghost session,
-  `perf_report.txt` DISARMED, watching for anything that renders differently (visibility,
-  outlines, nametags, light, weapon).
+- **User's first read, 2026-09-01, after a reset-to-save (which exercises the cache-clear path)
+  and a 2-ghost session with perf disarmed: *"think everything look and works fine"*.** Hedged
+  with "think", so it sits here until it holds through normal play; the same session immediately
+  found the melee-VFX gap below, which is a missing feature, not a cache regression.
 - **Rungs 32/100/150 re-run same day: every rung ~2x faster, the population rise halved but
   survived** (97 -> 219 us/ghost across the ladder, was 321 -> 657; 150 rung dirty, ~114 live).
   Table and caveats: `../../agent_docs/crowd-limits.md`, "The property-cache re-run".
@@ -376,6 +376,28 @@ warnings, no lookup failures, 16 nametags drawn every frame, `send_fail=0 lines_
   (flat), `tail_sweeps` 823 (the outline attach-tree walk per ghost per tick -- the per-call
   reflection inside it is now cached, the walk itself is not), `loop_pose_xf` 338, `local_state`'s
   other blocks ~50. The remaining `tail_sweeps` is ~51 us/ghost.
+
+### The projectile-pool crash (2026-09-01): FIXED with FWeakObjectPtr, UNWATCHED under a real shot
+
+**The user's game crashed (`EXCEPTION_ACCESS_VIOLATION` in `game_thread_tick`, the projectile
+block) four seconds after they fired a charged shot** -- the pool cache re-landed that morning
+held raw pointers to actors the game destroys on impact; full account and the new rule:
+`../../agent_docs/pitfalls/by-lesson.md` (mid-level frees have no hook) and this adapter's
+`CLAUDE.md`. Fixed same hour: the pool holds `FWeakObjectPtr`, `Get()` per use; `preflight` now
+requires a `stale-safe:` annotation on every file-scope raw-pointer cache. Deployed to both
+installs. **UNWATCHED: needs a session where a real charged shot is fired and hits something --
+the exact sequence that crashed -- plus the peer-side projectile still rendering on a ghost.**
+
+### NEW (user, 2026-09-01): a ghost's MELEE ATTACK shows no VFX
+
+**Found on a two-client session the same hour the cache was confirmed: *"we are not doing the a
+vfx when using the melee attacks"*.** The ghost plays the attack montage (montage mirroring
+ships); whatever the game spawns alongside a swing is not mirrored -- the same shape as the heal
+waves and landing dust before their rows existed (`MIRRORED_EFFECTS` covers heal/chg/hw/hew/rsp/
+dl/bb; nothing attack-shaped). Not yet measured: what a local melee swing actually spawns (Niagara
+on the pawn? world-spawned? a weapon-trail component the montage's notifies drive?). Next step is
+a capture during real swings -- count what appears, then decide the row. The four ground-combo
+montages are named in `documentation.md` ("Animation montages").
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 

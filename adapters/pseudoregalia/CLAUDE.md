@@ -81,6 +81,15 @@ produces an **entirely new pawn instance**, not a re-initialised old one. Treat 
 actor pointer as invalid immediately after a transition and re-acquire it, rather than
 re-validating what you stored.
 
+**And a hook-cleared cache only covers LEVEL teardown — an actor the game frees MID-level has no
+hook, and a raw pointer to one is a crash with a delay on it.** Two in three days: the nametag
+residue (2026-08-30) and the projectile pool (2026-09-01 — a cutter is destroyed on impact, and
+the pool held its corpse for a rescan interval). Before caching any raw `UObject*`, answer "can
+the game free this WITHIN a level?" If yes — or if unknown — hold `FWeakObjectPtr` and `Get()`
+per use; it re-validates the serial number and hands back null instead of a dangle. `preflight`
+enforces a `stale-safe:` annotation on every file-scope raw-pointer cache in `Plugin.cpp` saying
+which case it is. Evidence: `../../agent_docs/pitfalls/by-lesson.md`.
+
 ## Spawning a player Blueprint takes the player's control and camera
 
 Spawning a second copy of the player's own controllable Blueprint auto-possesses it, and the

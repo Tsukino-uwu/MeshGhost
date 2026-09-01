@@ -298,32 +298,15 @@ rebuild (a reset-to-save clears the destroyed pawns the GC has not collected yet
 - The synthetic rig itself is a real cost at 100+: the relay fanning N x N states burned multiple
   cores. A two-machine run is the honest next measurement for the big rungs.
 
-### The property-cache re-run (2026-09-01, same day): every rung roughly twice as fast, knee softened not gone
+### The property-cache re-run (2026-09-01, same day): every rung roughly twice as fast
 
-After the reflection-property cache (`plans.md` "Crowds that PLAY" step 2; all 376
-`GetValuePtrByPropertyNameInChain` sites resolved once per (class, name)), the same rig re-ran
-rungs 16/32/100/150 minutes apart. Agent-measured, unwatched; fps from frames-per-2s.
-
-| Peers | Adapter tick | Per-ghost | ~fps (pre-cache fps) |
-|---|---|---|---|
-| 16 | 2.8 ms | 97 us | ~133 (~82) |
-| 32 | 5.1 ms | ~103 us | ~90 (~53) |
-| 100 | 25.5 ms | ~196 us | ~16.5 (~12) |
-| 150* | 33 ms | ~219 us | ~11 (~4.5) |
-
-- **Per-ghost cost halved-to-thirded at every rung, and the rise-with-population halved but
-  survived** (97 -> 219 us across the ladder, was 321 -> 657): name-based reflection was half
-  the scaling story, not all of it. The residual riser is `tail_sweeps` (51 -> 108 us/ghost) --
-  the outline attach-tree walk -- plus the flat blocks below.
-- **The "flat" per-frame blocks balloon with population**: `local_state` 0.9 -> 6.4 ms and
-  `ls_rest` 0.8 -> 6.2 ms from 16 to 150 peers, despite iterating no ghosts. `ls_rest` is
-  unsplit; it is the next thing to sub-slot.
-- *The 150 rung is dirty: only ~114 peers were live in the render loop by measurement time --
-  the relay reset 17 fake-core connections under load (single box, ~560k renders/s across the
-  synthetic clients; the failed-write-closes-connection fix doing its job). The two-machine
-  caveat stands for every 100+ number, now with a concrete symptom to its name.
-- At 16-32 peers the game now holds 90-133fps against a ~143 solo baseline -- the "comfortable
-  band" moved from ~16 peers at 80fps+ to ~32 at 90fps.
+Post-cache (`plans.md` step 2), same rig, agent-measured, unwatched: **16 peers 2.8 ms/~133fps
+(was 6.9/~82), 32 peers 5.1 ms/~90fps (was 12.7/~53), 100 peers 25.5 ms/~16.5fps, 150* 33 ms/~11fps.**
+The comfortable band moved from ~16 peers at 80fps+ to ~32 at 90fps (solo baseline ~143), and
+the rise-with-population halved but survived (97 -> 219 us/ghost, was 321 -> 657): the riser left is
+`tail_sweeps` (the outline attach walk, 51 -> 108 us/ghost) plus `local_state`/`ls_rest` at ~6 ms
+each by 150 despite iterating no ghosts -- `ls_rest` is unsplit and next. *150 was dirty: ~114
+live, the relay reset 17 fake cores under single-box load. Detail: `pseudoregalia/UNVERIFIED.md`.
 
 ## What to do about a ceiling you cannot raise — BUILT FOR CRYSTAL, 2026-08-19
 

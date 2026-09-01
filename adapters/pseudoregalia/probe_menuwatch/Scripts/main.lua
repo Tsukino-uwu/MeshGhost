@@ -1,127 +1,107 @@
--- MeshGhost session-residue probe. 2026-08-31.
+-- MeshGhost world-fingerprint probe. 2026-08-31.
 --
--- THE QUESTION, and it is the only one left standing after ten refuted fixes: the reset crash needs
--- a ghost to have EVER EXISTED this session. Not to exist now -- ghosts have been destroyed at the
--- click, destroyed when the pause menu opens, suppressed, and left alone, and the reset still
--- crashes; only a session where no peer ever connected survives it. So a ghost's SPAWN permanently
--- changes something, and no amount of tidying up afterwards undoes it.
+-- THE QUESTION, now that the trigger is proven: spawning a second player pawn into a world produced
+-- by "reset to last save" kills the game, while the same spawn after a ZONE CHANGE is fine. Both
+-- are freshly loaded worlds. So what is different about the one a reset makes?
 --
--- Two singletons were censused from C++ (the GameInstance and the light manager, arrays and object
--- references) and neither showed it. This looks everywhere instead: a count of live objects PER
--- CLASS across the whole UObject space, on demand, so two snapshots can be diffed --
+-- Established first, so this probe is not chasing a guess (`../../UNVERIFIED.md`):
+--   * the crash follows the SPAWN, not the reset -- holding the respawn 2s, 6s and 30s moved the
+--     crash with it, and with the 30s hold the game ran quietly for fourteen seconds and died in
+--     the same second the ghosts returned
+--   * it is SpawnActor itself, not our setup -- a ghost spawned and left completely untouched
+--     crashed identically
 --
---     one taken before any peer connects, one after a ghost has spawned AND been destroyed
+-- So this prints a FINGERPRINT of the world, every 2s and on change: the things most likely to
+-- differ between a save-reset reload and a zone transition. Do a zone change, then a reset, and the
+-- two fingerprints can be diffed line for line.
 --
--- Anything whose count does not come back is the residue, and it needs no theory about what the
--- class is for.
---
--- HOW TO USE (no rebuild, no relaunch -- edit and press the hot-reload key to re-arm):
---   * The probe prints a full census ~8 seconds after load, labelled BASELINE.
---   * It prints another every time the pause menu opens, labelled LATER, with a DIFF against the
---     baseline. Opening the menu is a deliberate, cheap trigger the user already performs.
---
--- ForEachUObject walks every live object once; at ~200k objects that is a fraction of a second and
--- it runs only on those two occasions, never per tick. A probe that runs continuously would change
--- the timing of a crash that is already known to be a race.
+-- Property reads and cheap lookups only -- no UFunction calls into the Blueprint VM, which is where
+-- the fault lives. It also stays quiet unless something changes, so it adds nothing while playing.
 
-local baseline = nil
-local baseline_done = false
-local last_cursor = nil
+local POLL_MS = 2000
+local last_print = nil
 
 local function log(msg)
-    print("[MeshGhostResidue] " .. msg .. "\n")
+    print("[MeshGhostWorldFP] " .. msg .. "\n")
 end
 
---- Says out loud which whole-space walker this UE4SS build actually has. A probe that silently
---- does nothing is indistinguishable from a finding of "nothing changed", and the first version of
---- this file failed at load with no output at all.
-local walker_name, walker = nil, nil
-if type(ForEachUObject) == "function" then
-    walker_name, walker = "ForEachUObject", ForEachUObject
-elseif type(UObjectGlobals) == "table" and type(UObjectGlobals.ForEachUObject) == "function" then
-    walker_name, walker = "UObjectGlobals.ForEachUObject", UObjectGlobals.ForEachUObject
+local function safe(fn, default)
+    local ok, v = pcall(fn)
+    if ok and v ~= nil then
+        return v
+    end
+    return default
 end
 
---- class name -> number of live, non-default objects.
-local function census()
-    local counts = {}
-    if not walker then
-        return counts
+local function name_of(o)
+    if not o then
+        return "<nil>"
     end
-    local ok, err = pcall(function()
-        walker(function(obj)
-            if not obj or not obj:IsValid() then
-                return
-            end
-            local ok2, cls = pcall(function() return obj:GetClass():GetFName():ToString() end)
-            if ok2 and cls then
-                counts[cls] = (counts[cls] or 0) + 1
-            end
-        end)
-    end)
-    if not ok then
-        log("census FAILED: " .. tostring(err))
+    local ok, n = pcall(function() return o:GetFullName() end)
+    if ok and n then
+        return n
     end
-    return counts
+    return "<unnamed>"
 end
 
-local function print_diff(now)
-    if not baseline then
-        return
+local function first_live(class_name)
+    local all = FindAllOf(class_name)
+    if not all then
+        return nil
     end
-    local keys = {}
-    for k in pairs(now) do keys[#keys + 1] = k end
-    for k in pairs(baseline) do if now[k] == nil then keys[#keys + 1] = k end end
-    table.sort(keys)
-
-    local changed = 0
-    for _, k in ipairs(keys) do
-        local was = baseline[k] or 0
-        local is = now[k] or 0
-        if is ~= was then
-            changed = changed + 1
-            log(string.format("  %-52s %6d -> %6d  (%+d)", k, was, is, is - was))
+    for _, o in ipairs(all) do
+        if o:IsValid() and not name_of(o):find("Default__") then
+            return o
         end
     end
-    log("diff vs baseline: " .. changed .. " class(es) changed")
+    return nil
 end
 
--- The baseline, once, a few seconds after load: before any peer has had time to connect.
-ExecuteWithDelay(8000, function()
-    baseline = census()
-    baseline_done = true
+local function count_live(class_name)
+    local all = FindAllOf(class_name)
+    if not all then
+        return 0
+    end
     local n = 0
-    for _ in pairs(baseline) do n = n + 1 end
-    log("BASELINE taken: " .. n .. " distinct classes live")
-end)
-
--- A LATER census whenever the pause menu opens -- a trigger the user already performs, and one that
--- costs nothing while playing.
-LoopAsync(500, function()
-    if not baseline_done then
-        return false
-    end
-    local pcs = FindAllOf("PlayerController")
-    if not pcs then
-        return false
-    end
-    for _, pc in ipairs(pcs) do
-        if pc:IsValid() and not pc:GetFullName():find("Default__") then
-            local ok, cursor = pcall(function() return pc.bShowMouseCursor end)
-            if ok then
-                if cursor and last_cursor == false then
-                    log("LATER census (pause menu opened) --")
-                    print_diff(census())
-                end
-                last_cursor = cursor and true or false
-            end
-            break
+    for _, o in ipairs(all) do
+        if o:IsValid() and not name_of(o):find("Default__") then
+            n = n + 1
         end
+    end
+    return n
+end
+
+LoopAsync(POLL_MS, function()
+    local pc = first_live("PlayerController")
+    local ws = first_live("WorldSettings")
+    local gm = first_live("GameModeBase") or first_live("AGameModeBase")
+    local gs = first_live("GameStateBase")
+
+    local pawn = pc and safe(function() return pc.Pawn end, nil) or nil
+    local pauser = ws and safe(function() return ws.Pauser end, nil) or nil
+
+    -- The fingerprint. Anything that could plausibly differ between a reset reload and a zone load,
+    -- and nothing that needs a function call to obtain.
+    local fp = table.concat({
+        "world=" .. name_of(pc and safe(function() return pc:GetWorld() end, nil)),
+        "pc=" .. (pc and "yes" or "NO"),
+        "pawn=" .. (pawn and pawn:IsValid() and "yes" or "NO"),
+        "pawnName=" .. (pawn and pawn:IsValid() and name_of(pawn):gsub(".*[%.:]", "") or "-"),
+        "paused=" .. tostring(pauser ~= nil and pauser:IsValid()),
+        "cursor=" .. tostring(safe(function() return pc and pc.bShowMouseCursor end, "?")),
+        "gameMode=" .. (gm and name_of(gm):gsub(".*[%.:]", "") or "NO"),
+        "gameState=" .. (gs and name_of(gs):gsub(".*[%.:]", "") or "NO"),
+        "playerPawns=" .. count_live("BP_PlayerGoatMain_C"),
+        "hpHitables=" .. count_live("BP_HpHitable_C"),
+        "lightMgrs=" .. count_live("BP_LightManager_C"),
+        "savePoints=" .. count_live("BP_SavePoint_C"),
+    }, "  ")
+
+    if fp ~= last_print then
+        log(fp)
+        last_print = fp
     end
     return false
 end)
 
-log("armed -- walker=" .. tostring(walker_name) ..
-    ", ExecuteWithDelay=" .. type(ExecuteWithDelay) ..
-    ", LoopAsync=" .. type(LoopAsync) ..
-    ", FindAllOf=" .. type(FindAllOf))
+log("armed -- world fingerprint on change, every " .. POLL_MS .. "ms. Do a ZONE CHANGE, then a RESET, and diff.")

@@ -26,6 +26,7 @@
 #include <Unreal/CoreUObject/UObject/UnrealType.hpp>
 #include <Unreal/FFrame.hpp>
 #include <Unreal/FHitResult.hpp>
+#include <Unreal/FWeakObjectPtr.hpp>
 #include <Unreal/Hooks.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UnrealVersion.hpp>
@@ -2752,11 +2753,25 @@ namespace MeshGhostPseudo
         // property every call (cheap, named), so possession changes are seen immediately. A cached
         // controller whose pawn reads null falls back to the scan -- that is the pre-cache
         // behaviour for that state, not a new path.
+        // stale-safe: level-owned and hook-cleared -- release_all_ghosts nulls this at LoadMap
+        // PRE, InitGameState PRE and the Reset click, and nothing destroys a PlayerController
+        // MID-level. An actor the game can free mid-level (a projectile dies on impact) must use
+        // FWeakObjectPtr instead; preflight enforces the annotation, the 2026-09-01 pool crash is
+        // the reason.
         UObject* g_cached_local_controller = nullptr;
 
         // The pooled PRJ_PlayerCutter_C actors, held between samples -- see the projectile block
         // in game_thread_tick for the story. Cleared wherever the controller cache is.
-        std::vector<UObject*> g_projectile_pool;
+        //
+        // **WEAK pointers, not raw -- the 2026-09-01 crash.** The first re-landing of this cache
+        // held raw UObject* and CRASHED the user's game four seconds after they fired a real
+        // shot: a cutter is DESTROYED ON IMPACT (documentation.md said so all along, two sections
+        // above the pooling note this cache's comment leaned on), so the pool held a freed
+        // pointer for up to a rescan interval and the sample loop dereferenced it. The teardown
+        // hooks cannot help -- this destruction is MID-LEVEL, game-owned, and has no hook.
+        // FWeakObjectPtr is the engine's own answer: Get() validates the serial number against
+        // the object array and returns nullptr once the slot is freed or recycled.
+        std::vector<FWeakObjectPtr> g_projectile_pool;
 
         // **The REFLECTION-PROPERTY CACHE, 2026-09-01 -- what the tail split was measured for.**
         // Every `GetValuePtrByPropertyNameInChain` UE4SS offers does two expensive things on
@@ -13717,10 +13732,23 @@ namespace MeshGhostPseudo
                     if (tick_count % PROJECTILE_RESCAN_INTERVAL_TICKS == 0)
                     {
                         g_projectile_pool.clear();
-                        UObjectGlobals::FindAllOf(STR("PRJ_PlayerCutter_C"), g_projectile_pool);
+                        std::vector<UObject*> live_cutters;
+                        UObjectGlobals::FindAllOf(STR("PRJ_PlayerCutter_C"), live_cutters);
+                        for (UObject* cutter : live_cutters)
+                        {
+                            if (cutter)
+                            {
+                                g_projectile_pool.emplace_back(cutter);
+                            }
+                        }
                     }
-                    for (UObject* candidate : g_projectile_pool)
+                    for (const FWeakObjectPtr& pooled : g_projectile_pool)
                     {
+                        // Get() re-validates against the object array every sample: a cutter the
+                        // game destroyed since the last rescan reads back null here instead of
+                        // being dereferenced -- see the pool's declaration for the crash this
+                        // guards against.
+                        UObject* candidate = pooled.Get();
                         if (!candidate)
                         {
                             continue;

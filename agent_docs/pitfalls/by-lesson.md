@@ -5342,3 +5342,35 @@ the cause was one grep: which release path clears `nametag_component`? None.
 **Evidence:** `adapters/pseudoregalia/VERIFIED.md` 2026-09-01; the hunt's full run-by-run log in
 `adapters/pseudoregalia/UNVERIFIED.md`'s 2026-08-30/31 sections as committed at `be2763b` (kept
 in history, drained on confirmation); dumps in the UE crash folder dated 08-30 through 09-01.
+
+## A CACHE THAT IS SAFE AT TEARDOWN CAN STILL DANGLE MID-LEVEL — ASK WHAT THE GAME FREES ON ITS OWN (Pseudoregalia, 2026-09-01, CLOSED)
+
+**Symptom.** Hard crash (`EXCEPTION_ACCESS_VIOLATION`) in `game_thread_tick`, four seconds after
+the user fired a real charged shot -- on a build that had just survived a 150-peer ladder, a
+reset gauntlet and a 19-minute play session, because none of those ever fired one.
+
+**Cause.** The projectile pool cache (re-landed that morning with the controller cache, both
+correctly cleared at every LEVEL teardown signal) held raw `UObject*`. Its landing comment leaned
+on one recorded fact -- "the game pools and re-uses these, the list only grows" -- while
+`documentation.md` carried the opposite one TWO SECTIONS earlier: a cutter is **destroyed on
+impact**, "anything holding a pointer to one is holding a pointer that will be freed underneath
+it." Mid-level destruction has no hook, so the pool held the corpse for up to a rescan interval
+(~0.2s) and the sample loop dereferenced it. Pre-cache this was impossible: a fresh `FindAllOf`
+every sample only ever returns live objects.
+
+**How it was found.** The user's crash paste named `game_thread_tick` + a line in the projectile
+block; the UE4SS.log's last seconds showed `chg` flick on/off, then a brand-new
+`PRJ_PlayerCutter_C` id appearing 4s before the exit -- the one actor class the whole day's
+synthetic testing never spawned. No theory survived contact with those two artifacts; reading
+them first beat every guess (the 2026-08-30 "six hypotheses before opening the dump" lesson,
+honoured this time).
+
+**Fix.** The pool holds `FWeakObjectPtr` -- the engine's serial-number-validated handle; `Get()`
+per use returns null once the slot is freed or recycled. Hook-clearing stays for hygiene.
+
+**The rule, now in three places because this is the SECOND raw-pointer-cache crash in three days**
+(the nametag residue was the first): a hook-cleared cache only covers level teardown; before
+caching any raw `UObject*`, ask "can the game free this WITHIN a level?" -- if yes or unknown,
+hold `FWeakObjectPtr`. `adapters/pseudoregalia/CLAUDE.md` carries the rule, and `preflight.ps1`
+now fails any file-scope raw-pointer cache in `Plugin.cpp` without a `stale-safe:` annotation
+saying which case it is (the user's ask: make this one impossible to re-derive).
