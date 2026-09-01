@@ -2070,6 +2070,27 @@ documented MINIDUMP layout) and answers the two questions that constrain everyth
 `pseudoregalia-Win64-Shipping.exe + 0x1CD9A60` with `bad_ptr=0x0` -- identical every time, which
 says the crash is deterministic and single-cause, and retires "maybe it is a race" for free.
 
+**CORRECTED 2026-09-01, by the bug that finished this lesson: both bolded claims above failed
+for a use-after-free.** The fault module does NOT decide whose bug it is -- a deref of freed
+memory crashes wherever the garbage points, and those five game-exe dumps were OUR stale pointer
+all along. And the identical address did not mean "not a race" -- the crash was timing-sensitive
+(a heavy trace masked it completely). What IS attributable is the crashed thread's STACK, which
+the dump also carries:
+
+- **`read-minidump.py <dump> --stack`** scavenges the dumped stack for return addresses inside
+  any loaded module, in stack order. Your own module near the top is the lead, whatever module
+  the fault landed in. Not a real unwind -- stale frames appear -- so treat it as a
+  lead-generator.
+- **`read-minidump.py --symbolize <your.dll> <offset...>`** resolves those offsets to
+  function+file+line via dbghelp (ships with Windows, no install) against the PDB beside YOUR
+  build-output DLL -- hash-match it against the deployed copy first. This turned two sessions of
+  refuted theories into a one-grep fix: the stack named `update_ghost_nametag`, and the only
+  remaining question was which release path cleared its pointer (none did).
+
+**So the order on any native crash with a dump:** fault module and kind first (they still shape
+the question), then `--stack`, then `--symbolize` your own frames -- all before the first theory.
+Full saga: `../../agent_docs/pitfalls/by-lesson.md`, "The reset-to-save crash".
+
 **What the offset is NOT for:** disassembling the game. Recording an address as a fact is fine
 (`../../agent_docs/licensing.md`); shipping decompiled or disassembled expression is not.
 

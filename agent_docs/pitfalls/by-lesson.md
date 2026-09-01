@@ -5267,3 +5267,78 @@ which knows what its own orientation means, does the maths. ADR 0043.
    confirmation here after two hedged ones.
 
 **Evidence:** `adapters/pseudoregalia/VERIFIED.md` 2026-08-30, `agent_docs/scaling.md`, ADR 0043.
+
+## The reset-to-save crash: two sessions of guards for a bug one symbolized stack named (Pseudoregalia, 2026-08-30 → 09-01, CLOSED)
+
+**Symptom.** *Reset to last save* with a peer's ghost present (or having been present) killed the
+game with an empty `Fatal error!` dialog — intermittently. Two evenings of investigation across
+two chats: seven configuration runs, four refuted theories, a proven-but-misread causal chain
+("spawning a ghost into a post-reset world is the trigger"), destroy-at-click guards, spawn
+suppression windows, an InitGameState teardown hook, a pause-menu clear (withdrawn same hour),
+and a ~5s post-load spawn hold shipped as mitigation. None of it fixed the crash.
+
+**Cause.** `update_ghost_nametag` held three pointers to components that die with the ghost —
+the tag's TextRenderComponent, its plate, and the plate's material instance — and NEITHER release
+path (`release_all_ghosts`, `release_ghost`) cleared them. The create guard is
+`if (!nametag_component)`, so after any teardown-plus-respawn the stale pointer skipped
+re-creation and the first transform update ran `ProcessEvent` on freed memory. **The fourth
+instance of the exact family the release path's own comment predicts** ("anything actor-shaped
+added to RemoteGhost in future belongs in these lines too") — the thrown prop, the VFX map and
+the projectile each did this first; the nametag shipped 2026-08-29, after those lines, and never
+joined them.
+
+**Fix.** Clear the trio and its applied-name/colour latches in both release paths. Confirmed by
+two user gauntlets 2026-09-01: mixed same-zone and cross-zone resets, zone changes, menu trips —
+no crash. The ~5s spawn holds were then removed by subtraction (`no_spawn_hold.txt`, ghosts back
+60-100ms after InitGameState, mixed gauntlet clean), because every observation that justified
+them — "the crash follows the respawn", "the world was still settling" — was the residue being
+dereferenced at the only moment the nametag path runs: when a ghost exists again.
+
+**What actually cracked it, in one move:** a minidump whose fault landed OUTSIDE the game exe.
+Every earlier dump faulted at one address inside `pseudoregalia-Win64-Shipping.exe` with our DLL
+"nowhere near it", which was read as exoneration. The 2026-09-01 dump faulted inside `UE4SS.dll`;
+a **stack scavenge** (scan the dumped stack for return addresses inside loaded modules —
+`dev-scripts/read-minidump.py --stack`) put `main.dll` directly above the fault, and **symbolizing
+those offsets against our own PDB** (`--symbolize`, dbghelp against
+`build/Mod/Game__Shipping__Win64/main.pdb`) named the function, file and line in seconds:
+`game_thread_tick → update_ghost_nametag → set_text_render_transform → ProcessEvent`. From there
+the cause was one grep: which release path clears `nametag_component`? None.
+
+**THE TRANSFERABLE RULES, in the order they were paid for:**
+
+1. **"The fault is in the game's code, our module is nowhere on it" exonerates nothing for a
+   use-after-free.** A deref of freed memory crashes WHEREVER the garbage points — five dumps at
+   one exe address and a sixth inside UE4SS were the same bug wearing different coats. What IS
+   ours is the stack, and a minidump carries it: scavenge it and symbolize your own frames before
+   theorizing. This tooling existed two sessions late; it should be the FIRST move on any native
+   crash with a dump on disk.
+2. **A subtraction that strips the NEW object's setup does not subtract the OLD object's
+   residue.** The `bare_ghost` run (spawn a clone, touch nothing) still crashed and was read as
+   "every line of our post-spawn code is exonerated" — but the killing pointer belonged to the
+   PREVIOUS ghost, and `update_ghost_nametag` runs however bare the new spawn is. When a crash
+   needs a thing to have EXISTED, the suspect list is what outlives that thing, and stripping
+   the replacement tests none of it.
+3. **Freed memory has two failure modes, so one residue can be two bug reports.** The same stale
+   pointer sometimes crashed and sometimes silently swallowed writes — which the user had
+   separately reported as "nametags don't always renew after a reset". An unexplained
+   sometimes-visual defect and an intermittent crash in the same subsystem are one suspect, not
+   two.
+4. **When a mechanism-backed cause lands, every mitigation it explains goes back on trial.** The
+   spawn holds cost ~5 ghostless seconds per load and were retired the same day by one toggle
+   run. A hold that "helps" an intermittent bug is indistinguishable from luck until the cause is
+   known — and holds built on misattributed evidence outlive the bug unless something forces the
+   re-test.
+5. **The checklist that would have prevented this existed, in a comment, at the exact place the
+   fix landed.** New feature holding an actor-owned pointer? Grep for the release-path clears and
+   join them BEFORE first ship. A predicted bug family's fifth member should not require a
+   debugger to find.
+6. **A name for a peer is SESSION state, not ghost state — check what a protocol message
+   invalidates before erasing on it.** `despawn_remote` fires on a mere area change;
+   `remote_name` is sent once per join/attach; the relay never reuses player ids. Erasing the
+   name on despawn made any spell apart forget it for the rest of the game session, unfixable
+   from the game. One separation, permanent damage, and the erase guarded a case that cannot
+   occur. `_template/PROTOCOL.md` now carries the warning.
+
+**Evidence:** `adapters/pseudoregalia/VERIFIED.md` 2026-09-01; the hunt's full run-by-run log in
+`adapters/pseudoregalia/UNVERIFIED.md`'s 2026-08-30/31 sections as committed at `be2763b` (kept
+in history, drained on confirmation); dumps in the UE crash folder dated 08-30 through 09-01.

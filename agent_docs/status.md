@@ -59,10 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **Pseudoregalia PERF: ~20x per-ghost win landed, one fix crashed the game and was reverted**
-  (2026-08-30). Results, reverts and what is unwatched: `adapters/pseudoregalia/UNVERIFIED.md`.
-- **OPEN: "reset to last save" crashes a client that has a peer** — bisected to BEFORE
-  2026-08-30's work; next step is testing with the mod off. `adapters/pseudoregalia/UNVERIFIED.md`.
+- **Pseudoregalia PERF: ~20x per-ghost win landed and its shadowing crash is now closed** —
+  the two reverted caches (~2500 us/frame) are UNBLOCKED by the InitGameState hook. `adapters/pseudoregalia/UNVERIFIED.md`.
+- **CLOSED 2026-09-01: the reset-to-save crash (nametag stale pointers), the vanished nametags,
+  and the ~5s spawn holds (removed).** `pseudoregalia/VERIFIED.md`; method in `pitfalls/by-lesson.md`.
 - **RESOLVED: ghosts freeze/vanish for ONE client — it was the agent's own rig** — a one-sided stream
   stall, unexplained. `adapters/pseudoregalia/UNVERIFIED.md`.
 - **The Pseudoregalia render sweep is PAUSED mid-flight (2026-08-30)** — interp laddered on the

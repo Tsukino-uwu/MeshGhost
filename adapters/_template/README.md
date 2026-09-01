@@ -1201,6 +1201,31 @@ In [../CLAUDE.md](../CLAUDE.md). One line: **copy what an effect DOES, not the d
 that does it** — a structure naming another object by index is safe for the engine, which owns
 every lifetime involved, and unsafe for you, who own none. Learned twice in Emerald, 2026-08-21.
 
+## Hard rule: per-peer engine references get ONE release checklist, and a CHECK that new fields joined it
+
+**Set 2026-09-01, after the FOURTH member of one bug family shipped as an intermittent
+use-after-free crash that consumed two sessions** (the nametag trio; before it the thrown prop,
+the VFX map, and the projectile actor — `agent_docs/pitfalls/by-lesson.md`, "The reset-to-save
+crash"). The recurrence shape is always the same: a new feature adds a field to the per-peer
+struct that references something the engine owns, and the release paths — written before that
+field existed — never learn about it. A comment at the release site predicting EXACTLY this bug
+was there the whole time. **A comment cannot fail a build. This family needs a check that can.**
+
+- **One struct holds all per-peer engine references; its release path(s) clear every one; and
+  `dev-scripts/preflight.ps1` verifies mechanically that every such field is mentioned there.**
+  Pseudoregalia's check ("RemoteGhost pointer fields are cleared at release") is the worked
+  example: regex the pointer fields out of the struct, require each name in both release
+  functions. A field that is deliberately safe to keep still earns a comment naming it there,
+  which satisfies the check honestly.
+- **Every host has its own spelling of the same trap, so a NEW adapter builds the equivalent
+  check for its own language in its first week**: Unreal/C++ raw pointers dangle; Unity/C#
+  objects are destroyed-but-non-null (`==` is overloaded, references outlive the object); Lua
+  adapters hold slot indices the engine recycles (the rule above). The check's shape follows
+  the language; the requirement does not.
+- **Why "mentioned", not "assigned null"**: assignment styles differ between release paths
+  (`remote.x = nullptr` vs `it->second.x = nullptr`), and the goal is that the author LOOKED at
+  the field at release time — the check forces the look, the code review judges the handling.
+
 ## A movement that does not animate is still a movement
 
 **Do not assume a character crossing tiles is playing a walk cycle.** Emerald's ice slides a

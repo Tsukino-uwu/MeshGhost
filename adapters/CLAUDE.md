@@ -197,9 +197,9 @@ fixed 2026-08-30. See `agent_docs/plans.md`, "Settings: defined once, honoured e
 ## Hard rule: the adapter may not cost the game its frame rate
 
 **The standard, user 2026-08-20: *"i don't want to ship/release anything that can't even keep the
-intended base fps"*.** For an emulated game that is the console's own rate -- 60fps for a GBA or a
-Game Boy -- and it is a shipping requirement, not a nice-to-have. A ghost nobody can see because
-the game is stuttering is worth less than no ghost at all.
+intended base fps"*; 2026-09-01, for ALL adapters: *"1:1 + performance should be good"*, a really
+high priority.** For an emulated game that is the console's own rate -- 60fps for a GBA -- and it
+is a shipping requirement. A ghost nobody can see because the game stutters is worth less than none.
 
 **Measure it against a CONTROL before believing any number.** Same route, same probe, one variable:
 a scripted ride with the adapter, and the identical ride with nothing loaded. The machine running
@@ -208,30 +208,30 @@ scripts loaded -- and without that run, the game's own map loading gets attribut
 loaded at the time. The harness and the two instruments are in [probes.md](_template/probes.md), "Price a
 suspicion before fixing it".
 
-**The four costs that actually showed up, in the order they bit** (all Emerald 2026-08-20,
-symptom -> cause -> fix in `agent_docs/pitfalls.md`) -- every one of them applies to any emulator
-adapter, because none is about that game:
+**The five costs that actually showed up, in the order they bit** (1-4 Emerald 2026-08-20, 5
+Pseudoregalia 2026-08-30; symptom -> cause -> fix in `agent_docs/pitfalls.md`) -- every one
+applies beyond the game it was found in:
 
 1. **Never allocate what the engine will immediately free.** An engine culls objects outside its
    own view. Respawning one it just culled starts a loop -- allocate, cull, allocate -- that costs
    tile allocation and sprite setup every cycle and produced 217ms frames. A spawn decision must
    ask *"will this survive the engine's own housekeeping?"*, not merely *"is there a free slot?"*.
-2. **The front-end's console is a GUI append, not a print — and ONE line a second is already too
-   many.** Measured 2026-08-21 on Emerald: a probe logging a single `console.log` once a second ran
-   **50.7 avg fps against a 58.1 control**, and sending that same line to the file instead recovered
-   all of it — 58.1, exactly the control, with the feature it was measuring still running. The cost
-   is not per line; it scales with **what the console window already holds**, so it grows through a
-   session and gets harder to attribute the longer you work. This entry used to say the danger was
-   events arriving in BURSTS. That was too generous, and the measurement above is why it no longer
-   says it. **Split the two calls**: a `say()` for the handful of orientation lines at load, and a
-   `log()` on every per-frame or per-second path that only ever writes the FILE. Full numbers and
-   the subtraction that found it: `agent_docs/pitfalls.md`, 2026-08-21.
+2. **The front-end's console is a GUI append, not a print — ONE line a second already cost 7fps
+   on Emerald (50.7 vs 58.1 control), and the same line to a FILE cost nothing.** The cost scales
+   with what the console window already holds, so it grows through a session. **Split the calls**:
+   `say()` for a handful of load-time lines, `log()` (file-only) for every per-frame or per-second
+   path. Full numbers: `agent_docs/pitfalls.md`, 2026-08-21.
 3. **"In use by the engine" and "in use by us" are different questions.** Anything claimed by
    asking the engine *"is this free?"* -- object slots, sprite slots, VRAM tile ranges -- has a
    window where our own claim is invisible to that question, and a second peer will land in it.
    Exclude what you already hold, and audit for duplicates so a collision announces itself.
 4. **Probes come off when they are not answering a question**, and a flag that is merely not set
    is not off -- see below.
+5. **A whole-world enumeration PER GHOST PER TICK is how a game scales 144 -> 30fps with four
+   peers** (Pseudoregalia: scoping the scans to the ghost's own attach tree cut per-ghost cost
+   6283 -> 309 us). **And a flag-gated diagnostic must not pay its cost when UNARMED** -- three
+   toggle sweeps scanned in normal play with no toggle file present, ~3300 us/frame for nothing.
+   Timer and audit method: `_template/probes.md`; numbers: `pseudoregalia/VERIFIED.md` 2026-09-01.
 
 **A per-frame diagnostic is a shipping decision, not a debugging convenience.** Enumeration of an
 array every frame, a string built per object per frame, a file write per frame: each is affordable

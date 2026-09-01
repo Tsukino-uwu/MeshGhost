@@ -1842,9 +1842,15 @@ namespace MeshGhostPseudo
     constexpr uint64_t AFTERIMAGE_SWEEP_INTERVAL_TICKS = 5;
 
     // How long ghost spawning stays suppressed after the pause menu's Reset button is clicked.
-    // ~6s at this game's frame rate, and cut short the moment LoadMap or InitGameState fires,
-    // so it only ever runs long if the reset does not complete.
-    constexpr uint64_t RESET_SPAWN_SUPPRESS_TICKS = 900;
+    // **ZERO since 2026-09-01, and zero is the tested value, not an oversight.** The holds were
+    // built against the reset crash, whose real cause turned out to be the nametag's stale
+    // component pointers (see release_all_ghosts) -- every "the crash moved to the respawn"
+    // observation is explained by the respawn dereferencing that residue, not by the world being
+    // unready. Confirmed by subtraction with the user watching: a mixed gauntlet of resets, zone
+    // changes and menu trips at zero hold, ghosts back 60-100ms after InitGameState, no crash,
+    // 2026-09-01. The window machinery stays because it is one constant away from re-arming if a
+    // genuinely timing-shaped teardown crash ever appears.
+    constexpr uint64_t RESET_SPAWN_SUPPRESS_TICKS = 0;
 
     // How long ghost spawning stays suppressed after a new world reports its game state.
     // ~2s at this game's frame rate: the level is up by then, and a ghost missing for two
@@ -1865,7 +1871,11 @@ namespace MeshGhostPseudo
     // Back to ~6s after the 30s causal test did its job (2026-08-31): the crash tracked the SPAWN
     // across 2s, 6s and 14s holds, landing within the same second the ghosts came back, so a reset
     // is not what kills the game -- spawning a ghost into a post-reset world is.
-    constexpr uint64_t POST_WORLD_SPAWN_SUPPRESS_TICKS = 900;
+    // **ZERO since 2026-09-01, same evidence as RESET_SPAWN_SUPPRESS_TICKS above:** the spawn was
+    // only ever fatal because the respawn dereferenced the nametag residue, now cleared at every
+    // release. Zero is the user-watched configuration; the history above is kept because it is a
+    // textbook record of a hold chasing a symptom whose cause was elsewhere.
+    constexpr uint64_t POST_WORLD_SPAWN_SUPPRESS_TICKS = 0;
 
     // Ceiling on the attach-tree walk that replaced the sweep's world scan. A player pawn
     // carries a couple of dozen components; 256 is far above anything real and exists so a
@@ -1908,17 +1918,6 @@ namespace MeshGhostPseudo
     // (`game_thread_tick`), and this adapter's own rule is that actor state is only ever touched
     // there.
     bool g_ghost_keeps_custom_depth = false;
-
-    // **The spawn-hold subtraction, 2026-09-01 -- create `no_spawn_hold.txt` beside the DLL and
-    // every teardown hold (reset click, LoadMap, InitGameState) arms at ZERO ticks: ghosts
-    // respawn the moment the core re-sends them and the tick never goes quiet.** Exists because
-    // the real reset crash turned out to be the nametag's stale component pointers, which taints
-    // the evidence behind every hold: each "the crash moved to the respawn" observation is
-    // explained by the respawn dereferencing the stale pointer, not by the world being unready.
-    // The holds cost every player ~5 ghostless seconds after every zone change and reset, so
-    // whether they are still load-bearing is worth an N-attempt gauntlet with this file present.
-    // Judged by the intermittency protocol (five-plus resets per configuration), not one run.
-    bool g_spawn_hold_disabled = false;
 
     // **Two more subtractions, 2026-08-29, and they exist because six clean instruments in a row
     // did not move the symptom.** The ghost's light reads 0 (independent probe, both instances),
@@ -9944,9 +9943,8 @@ namespace MeshGhostPseudo
                         // So `suppress` holds the respawn WITHOUT destroying anything.
                         if (dev_toggle_contains(STR("guard_off.txt"), "suppress"))
                         {
-                            // no_spawn_hold.txt (see g_spawn_hold_disabled) zeroes every hold site.
-                            suppress_ghost_spawn_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
-                            quiet_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
+                            suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                            quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
                             Output::send(STR("[MeshGhostPseudo] RESET GUARD: SUPPRESS-ONLY -- ghosts left alive, respawns held.\n"));
                             return;
                         }
@@ -9957,10 +9955,11 @@ namespace MeshGhostPseudo
                     // **Spawning stops FIRST.** Destroying the ghosts alone was measured
                     // insufficient on 2026-08-30: the next tick simply spawned them again, into the
                     // world the reset was already tearing down. (That respawn crash is now known to
-                    // be the nametag's stale pointer -- no_spawn_hold.txt exists to re-test whether
-                    // this hold still earns its ~5 ghostless seconds; see g_spawn_hold_disabled.)
-                    suppress_ghost_spawn_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
-                    quiet_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
+                    // be the nametag's stale pointer, and the subtraction showed the hold never
+                    // earned its ~5 ghostless seconds -- both constants are 0 now, see their
+                    // declarations.)
+                    suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                    quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
                     std::vector<std::string> to_release;
                     for (auto& [id, remote] : remotes)
@@ -10381,10 +10380,10 @@ namespace MeshGhostPseudo
                 // the teardown. A reset click already suppresses spawning for a window; a level
                 // load never did, so the tick puts player-pawn clones into a world still building
                 // itself. The window is cleared by InitGameState when the new world is actually up.
-                // (no_spawn_hold.txt zeroes this -- the "crash follows the respawn" evidence is now
-                // attributed to the nametag's stale pointer; see g_spawn_hold_disabled.)
-                suppress_ghost_spawn_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
-                quiet_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : RESET_SPAWN_SUPPRESS_TICKS);
+                // (The "crash follows the respawn" evidence is now attributed to the nametag's
+                // stale pointer; both constants are 0 now, see their declarations.)
+                suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
+                quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
 
                 // Crash fix, found live 2026-08-13: entering a new area crashed with
                 // EXCEPTION_ACCESS_VIOLATION inside the camera fight-back hook. last_known_good_
@@ -10553,9 +10552,8 @@ namespace MeshGhostPseudo
                 // A shorter window from here is the compromise: long enough that the new level
                 // finishes coming up, short enough that ghosts are not missing for noticeably long
                 // after a legitimate transition.
-                // (no_spawn_hold.txt zeroes this too; see g_spawn_hold_disabled.)
-                suppress_ghost_spawn_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : POST_WORLD_SPAWN_SUPPRESS_TICKS);
-                quiet_until_tick = tick_count + (g_spawn_hold_disabled ? 0 : POST_WORLD_SPAWN_SUPPRESS_TICKS);
+                suppress_ghost_spawn_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
+                quiet_until_tick = tick_count + POST_WORLD_SPAWN_SUPPRESS_TICKS;
             },
             Hook::FCallbackOptions{.OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("InitGameStatePre")});
     }
@@ -11273,7 +11271,7 @@ namespace MeshGhostPseudo
         // **Nothing is spawned while a reset is in flight** -- see suppress_ghost_spawn_until_tick.
         // The window is cleared early by the LoadMap/InitGameState hooks when they fire, so a reset
         // that completes normally costs at most a few frames of ghostlessness.
-        if (!g_spawn_hold_disabled && tick_count < suppress_ghost_spawn_until_tick)
+        if (tick_count < suppress_ghost_spawn_until_tick)
         {
             return;
         }
@@ -13046,7 +13044,7 @@ namespace MeshGhostPseudo
         // us. Confirmed timing-sensitive on 2026-08-31: with a heavy call trace slowing the game
         // down the crash does not reproduce at all, and without it the same action crashes -- the
         // signature of a use-after-free race rather than a logic error.
-        if (!g_spawn_hold_disabled && tick_count < quiet_until_tick)
+        if (tick_count < quiet_until_tick)
         {
             ++tick_count;
             return;
@@ -19477,18 +19475,6 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DEV: per-subsystem cost report now {} (perf_report.txt {}).\n"),
                                  perf_on ? STR("ARMED") : STR("off"),
                                  perf_on ? STR("present") : STR("gone"));
-                }
-
-                const bool hold_off = dev_toggle_present(STR("no_spawn_hold.txt"));
-                if (hold_off != g_spawn_hold_disabled)
-                {
-                    g_spawn_hold_disabled = hold_off;
-                    // No zeroing of the armed windows from THIS thread (on_update is UE4SS's
-                    // thread): the game-thread checks consult the flag directly, so an armed
-                    // window is simply ignored while the file is present.
-                    Output::send(STR("[MeshGhostPseudo] DEV: teardown spawn holds now {} (no_spawn_hold.txt {}).\n"),
-                                 hold_off ? STR("DISABLED -- ghosts respawn immediately") : STR("armed"),
-                                 hold_off ? STR("present") : STR("gone"));
                 }
 
                 const bool present = dev_toggle_present(STR("keep_custom_depth.txt"));

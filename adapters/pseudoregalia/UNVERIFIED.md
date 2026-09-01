@@ -191,7 +191,8 @@ reloaded a save on the second client and the game died with the empty `Fatal err
 caches were the obvious suspect and the reasoning below is sound in itself -- but **bisecting
 settled it the other way**: with the pre-session DLL deployed (commit `b74a1d1`, confirmed live by
 zero `PERF` lines in the log), *"reset to last save"* **still crashed client2**. So the crash is
-PRE-EXISTING and predates every change made on 2026-08-30. It is filed on its own below.
+PRE-EXISTING and predates every change made on 2026-08-30. **Closed 2026-09-01 -- it was the
+nametag residue; see the CLOSED section below and `VERIFIED.md`.**
 
 The caches were reverted anyway, and should stay reverted, because the lifetime defect described
 here is real whether or not it caused this particular crash. Three fixes had cached raw pointers to
@@ -210,321 +211,32 @@ projectile actors.
 - The light fix was KEPT but rebuilt to walk `remote.ghost`'s own attach tree -- same saving, no
   pointers held, and the ghost's lifetime is already managed by this file.
 
-### The OPEN defect: "reset to last save" crashes a client that has a peer (2026-08-30)
+### CLOSED 2026-09-01: the reset-to-save crash, the vanished nametags, and the spawn holds
 
-**Reproduced twice, and BISECTED to before this session's work.** The user chooses *reset to last
-save* on client2 while a peer is present; the game dies with the empty `Fatal error!` dialog. It
-does the same on the **pre-session build** (`b74a1d1`), which is how we know none of 2026-08-30's
-changes introduced it.
+The two-session hunt that lived here (2026-08-30 -> 09-01: seven configuration runs, four refuted
+theories, the causal spawn-tracking experiment, the race finding, the intermittency protocol) is
+**resolved and user-confirmed** -- the cause was the nametag trio's stale component pointers,
+never cleared by any release path. Confirmed entries: `VERIFIED.md` 2026-09-01. Transferable
+lessons and the full method: `agent_docs/pitfalls/by-lesson.md`, "The reset-to-save crash". The
+run-by-run hunt log is in this file's history at commit `be2763b`.
 
-**What the dump says: almost nothing, and that is a fact about the crash.**
-`EXCEPTION_ACCESS_VIOLATION reading address 0xffffffffffffffff`, an EMPTY call stack, and neither
-`MeshGhost` nor `main.dll` appears anywhere in `CrashContext.runtime-xml`. It dies inside the
-engine rather than in our frame -- the same signature as this adapter's other empty-dialog crashes.
+**Still open from that closure, filed here so it is not lost:**
 
-**Related history, which is where to start rather than from scratch:** `retry last save` is the
-exact case that crashed on 2026-08-27 with a poisoned `vfx_components` pointer, fixed by dropping
-those references at teardown; and `agent_docs/pitfalls.md` records that reloading the SAME level
-behaves differently from loading a new one. **The `LoadMap PRE` hook does not fire on a same-level
-reload** -- established this session from the logs -- so every "cleared at teardown" guarantee in
-this file is simply absent on this path. That is the strongest lead: something the adapter holds
-across a same-level reload is being touched afterwards.
-
-**NARROWED BY SUBTRACTION THE SAME EVENING -- A GHOST IS THE TRIGGER:**
-
-| mod | ghost present | reset to last save |
-| --- | --- | --- |
-| **off** (`enabled.txt` renamed) | no | **survives** |
-| on | **yes** | **crashes** -- four times |
-| on | no (alone in the room) | **survives** |
-
-So it is not the game on its own, and not the mod's always-on hooks either: **the crash needs a
-ghost actor to exist.** That also explains why it only ever hit the client that had a peer -- the
-user hit it on client2 three times and then on client1 the moment client1 was the one with the
-fake peer, which retired the "client2 is special" reading.
-
-**And NO teardown hook fires before it dies.** On the crashing run the last `LoadMap PRE` and
-`InitGameState PRE` were 35 seconds earlier -- the process goes down inside the reset itself,
-before either. That is why the `InitGameState` teardown added on 2026-08-30 did not help: it is
-correct, and it is aimed at a path this crash never reaches. **It was kept anyway** -- a same-level
-reload really does bypass `LoadMap PRE`, and every "cleared at teardown" guarantee in this file
-was simply absent there.
-
-### FIXED: zone changes with a ghost. STILL OPEN: reset to last save (2026-08-31)
-
-**The user's matrix is what cracked it** -- leaving a zone with NO ghost was fine, entering a zone
-WITH a ghost was fine, and only leaving a zone WITH a ghost crashed. So the bug was never about the
-reset button: **a world teardown while a player-pawn clone is alive kills the game.**
-
-**Two changes at `LoadMap PRE`, and zone changes now survive (user-confirmed):**
-
-1. **DESTROY live ghosts there.** `release_all_ghosts` drops references and destroys nothing by
-   design; the level's teardown was assumed to reclaim them, and it does -- in its own order, on a
-   pawn clone the game never expected. This is the last moment we control.
-2. **HOLD ghost spawning across the load.** With (1) alone the log showed both ghosts respawned
-   0.26s later into the still-loading world and the crash simply MOVED there.
-
-**A bug of mine defeated (2) on the first attempt**, which the log caught in seconds: the
-`InitGameState` hook set the spawn freeze to zero on the reasoning that "the new world is up". It
-fires ~180ms into a load, and ghosts were spawning 95ms after that. It holds a shorter window now.
-
-### PROVEN: spawning a ghost into a POST-RESET world is the trigger (2026-08-31)
-
-**Not the reset. Not our setup. The spawn.** Established by moving the spawn and watching the crash
-follow it, three times, then by stripping the spawn to nothing:
-
-| ghost respawn held for | ghosts returned | crash |
-| --- | --- | --- |
-| ~2s | 1-2s after the reload | ~2s after the respawn |
-| ~6s | 3s after the reload | ~2s after the respawn |
-| ~30s (causal test) | 14s after the reload | **the same second they returned**, after 14 quiet seconds |
-
-**Fourteen seconds with no ghost and no crash, then the crash lands the instant one spawns.** That
-is a causal link, not a correlation: the crash tracked the spawn every time it was moved.
-
-**And it is the SpawnActor itself, not anything we do afterwards.** `bare_ghost.txt` spawns the
-clone and leaves it completely untouched -- no decouple, no vertex-light kill, no custom depth, no
-nametag, no mirrors, no hijack setup. The log shows two bare ghosts at 01:34:49 and the process
-gone at 01:34:50. **Every line of our post-spawn code is exonerated**, which retires a large part
-of the search space in one run.
-
-**The world matters, not the timing.** The same spawn after a ZONE CHANGE is fine -- confirmed
-repeatedly the same night, including transitions with ghosts alive. Only a world produced by
-*reset to last save* is hostile, and it stays hostile for at least 14 seconds.
-
-**So the question is now precise and small: what is different about a world reloaded by a save
-reset, compared with one reached by a zone change, that makes spawning a second player pawn fatal?**
-That is a state comparison, and it needs no theory: snapshot the same handful of things in both
-worlds -- the local pawn and controller, the game state, whether level streaming is still in
-flight, the pause flag, the game mode -- and diff. A Lua probe can do it and reload without a
-restart.
-
-**A mitigation exists if the cause proves expensive to reach**: refuse to spawn ghosts in a world
-produced by a reset, until the next real level load. It costs a player their ghosts after every
-reset until they change zone, which is a real loss, so it is a fallback rather than the answer.
-
-### THE CRASH IS INTERMITTENT, so single-run A/Bs proved nothing (2026-08-31)
-
-**User, late in the session:** *"client1 did some pretty cool things right now, it managed to go
-back to the main menu, and also use reset save a couple of times, and then after doing the reset
-save again later on it crashed"*. Same build, same conditions, several successes and then a
-failure.
-
-**So the fault is PROBABILISTIC, not deterministic per action** -- which retroactively invalidates
-the method used against it all evening. Roughly a dozen configurations were each tried ONCE and
-read as a verdict:
-
-- "destroying ghosts at the click crashes instantly, leaving them alone crashes late" -- two
-  samples of one random process, quite possibly.
-- "the pause-menu clear didn't fix it" -- one run.
-- Every "refuted" line in the list above except the ones with a mechanism behind them.
-
-**What still stands**, because it rests on something other than a single run: the crash needs a
-ghost to have existed (the no-peer case survived repeatedly, across the whole session); it does not
-reproduce while a heavy call trace is running (many attempts, zero crashes); the fault address is
-identical in every dump; and the zone-change fix was confirmed by the user across several
-transitions.
-
-**The protocol from here, and it is not optional for this bug:** a configuration is only
-distinguished from another by **N attempts, not one** -- five resets minimum per configuration,
-recorded as "k crashes out of n". A fix is a configuration that survives a run of attempts long
-enough that its absence would be surprising. Anything less is reading noise.
-
-**This is also why the next step is a MEASUREMENT rather than another candidate fix.** A
-probabilistic crash cannot be chased by A/B at one sample per build; the residue census
-(`probe_menuwatch`, per-class UObject counts, baseline vs after-a-ghost-existed) asks what is
-different rather than whether a guess helps.
-
-### The reset crash is a RACE, and that is new information (2026-08-31)
-
-**It does not reproduce while a heavy call trace is running.** The user tried reset-to-save and
-main menu repeatedly, before and after ghosts spawned, with `log_reset_fns.txt = all` armed: **no
-crashes at all**. Relaunched without it: **crashes on the first try.** Same fault address as every
-previous dump (`+0x1CD9A60`), same stack shape.
-
-**A fault that disappears when the game is slowed down is a race**, not a logic error -- which
-retires every "we left a stale pointer" theory as a complete explanation and reframes the search
-around ORDER rather than state.
-
-**Also refuted, each on its own run:** making the mod completely silent across the teardown (no
-reads, writes or calls from the tick, not merely no spawns); destroying the ghosts at the click;
-suppressing respawns; the HUD decouple; the shared-reference nulling; keeping the ghost's vertex
-light alive; forcing a GC.
-
-**What is worth trying next, in order:**
-1. **Destroy ghosts when the pause MENU OPENS**, not when Reset is clicked -- the current destroy
-   happens in the same frame as the reset, and decoupling the two by seconds is the cheapest way
-   to test whether proximity is the problem.
-2. **A narrower trace.** The all-calls trace masks the bug by slowing everything; a filter tight
-   enough to keep normal speed but wide enough to catch the tail would give the sequence at real
-   timing.
-3. **Ask whether the ghost needs to be a PAWN.** Everything about this points at a second
-   `BP_PlayerGoatMain_C` existing when the game tears a world down.
-
-### THE CRASH DUMP AND THE CALL TRACE, which should have come first (2026-08-30/31)
-
-**Read the dump. `dev-scripts/read-minidump.py`, no debugger needed.** Five separate crashes:
-
-- `EXCEPTION_ACCESS_VIOLATION`, **reading 0x0** -- a NULL dereference, not a wild pointer. The game
-  read a pointer it expected to be set. That is a *removal/lifetime* problem, not corruption.
-- Faulting instruction **inside `pseudoregalia-Win64-Shipping.exe`**, at `+0x1CD9A60`, **identical
-  in all five dumps**. So: the game's own code, deterministic, single-cause. Our `main.dll` is
-  loaded nowhere near it.
-
-**Then ask the game what it was doing.** `log_reset_fns.txt` containing `all` logs every UFunction
-call (thousands/sec, one run only). The tail before the process died:
-
-```
-BndEvt__UI_PauseMenu_ResetButton...          <- the click
-K2_DestroyActor   on BP_PlayerGoatMain_C     <- the ghost
-ReceiveEndPlay    on BP_PlayerGoatMain_C
-OnPerceptionStimuliSourceEndPlay on AIPerceptionSystem
-ReceiveEndPlay    on BP_HpHitable_C (the ghost's)
-FixAllLights      on BP_LightManager_C       <- last call, then the fault
-```
-
-**So it dies in `BP_LightManager_C::FixAllLights`, walking lights, right after a ghost was
-destroyed.** The manager has no registration verb -- across a whole session the ONLY functions
-ever called on it are `FixAllLights` and `ReceiveBeginPlay` -- so it must gather the world's
-lights itself and walk them.
-
-**Refuted here too:** keeping the ghost's vertex light alive-but-zeroed at spawn (`decouple_off.txt`
-= `lightdestroy`). It does not help, and the reason is now obvious: destroying the GHOST destroys
-its child actor regardless, so the manager still meets a light that died microseconds earlier.
-
-**The mechanism, as precisely as the evidence supports it:** anything that walks the world's lights
-while a ghost-owned light is in the *just-destroyed, not-yet-collected* state hits null. Before the
-reset guard existed, the walker was the game's own reset; now it is also our `FixAllLights` call in
-that guard, which should be removed or moved BEFORE the destroy.
-
-**The next experiments, in order of cost:**
-1. **Remove our `FixAllLights` from the reset guard** (it can only make this worse) and re-test --
-   the crash should still happen via the game's own walk, which confirms the walker is not us.
-2. **Force a garbage collection right after any ghost-owned light is destroyed**, so nothing dead
-   is ever walkable. UE defers collection to a safe point, so this is a request, not a stall.
-3. **Stop the ghost owning a vertex light at all.** The construction-script child actor is created
-   inside `SpawnActor`, so the CDO route already failed; the remaining route is destroying the
-   ChildActorComponent itself rather than its child actor.
-
-### What is ESTABLISHED, after seven runs (2026-08-30)
-
-**The trigger is that a ghost has EVER EXISTED this session -- not that one exists now.**
-Measured, in this order:
-
-| Configuration | Reset to last save |
-| --- | --- |
-| Mod disabled (`enabled.txt` renamed) | **survives** |
-| Mod on, no peer ever connected | **survives** |
-| Mod on, ghost on screen | **crashes** |
-| Mod on, ghosts destroyed at the click by a guard | **crashes** |
-| Mod on, ghost destroyed + spawning suppressed for 900 ticks | **crashes** |
-| Mod on, every UFunction hook skipped (`hooks_off.txt=all`) | **crashes** |
-| Mod on, peer gone, room empty, no ghost anywhere | **crashes** |
-
-**Four theories REFUTED by those runs, each of which looked good on paper:**
-
-1. *The ghost actor exists during the reset* -- no: destroyed at the click, still crashes.
-2. *The tick respawns a ghost into a tearing-down world* -- no: spawning suppressed, still crashes.
-3. *The camera fallback pointer* (`last_non_ghost_view_target`, a documented 2026-08-27 crash) --
-   no: the guard now runs the full `release_all_ghosts`, still crashes.
-4. *One of the five UFunction hooks* (camera fight-back, damage guards, fade guard, afterimage
-   outline guard, playerlocation guard) -- no: all five skipped, still crashes. **The run also
-   confirmed the toggle worked**, because the camera immediately got stuck on the ghost's rig,
-   which is exactly what the fight-back hook prevents.
-
-**Also tried and not the fix:** `FixAllLights` on the destroy path. The spawn path's own comment
-says "the ghost's vertex light registers with the manager inside SpawnActor and nothing
-unregisters it", and `documentation.md` records that `FixAllLights` clears a stale dynamic
-registration -- so calling it when a ghost is destroyed was well-founded. It still crashed.
-
-### The next MEASUREMENT, not another theory
-
-Something a ghost SPAWN leaves in the game's own state outlives both the ghost and the peer. The
-way to find it is to look, not to guess: **diff the state of the game's singletons across a ghost
-spawn** -- the GameInstance, the light manager, and any array-valued property on them -- then diff
-again after the ghost is destroyed, and look for what does not go back. `snapshot_scalar_properties`
-already exists for the scalar half and reads bitfield bools correctly; what is missing is the
-OBJECT-ARRAY half, which is where a registration would live.
-
-That is the same method that solved the light latch (dump the vocabulary / census what exists,
-rather than reasoning about mechanism), and it is the only honest next step after four refutations.
-
-**Kept from the failed attempts, because each is correct in itself and costs nothing:** the
-`InitGameState` teardown (a same-level reload really does bypass `LoadMap PRE`), the reset guard
-plus spawn suppression (a ghost really should not be spawned into a reset), and `hooks_off.txt`,
-which turns the next hook bisect into "edit a line, relaunch".
-
-**So the next step is a hook that fires at the START of the reset**, before the game tears
-anything down, so the ghosts can be released while they are still safe to touch. The mod already
-pre-hooks UFunctions by name (the camera fight-back, the damage guards, the afterimage outline
-guard), so the work is finding the reset's own function -- a function-vocabulary dump on the game
-mode or the save subsystem, the same method that found `FixAllLights`.
-
-**What NOT to do:** guess at a guard inside the tick. There is no safe validity test for a freed
-actor here (`IsUnreachable()` is itself a dereference -- see the entry above), so the fix has to be
-"let go before the teardown", not "survive touching freed memory".
-
-### CAUSE FOUND AND FIXED IN SOURCE: the reset crash was the NAMETAG's stale pointers (2026-09-01)
-
-**One reproduction with a fake peer, one minidump, and this time the dump named our own code.**
-Rig: single client + `meshghost-fakeadapter` as the peer (relay `-ghost-collision=disabled`).
-The user left the zone (fine), then chose *reset to last save* from ZONE_Dungeon, which reloaded
-ZONE_LowerCastle; the ghost respawned at 12:00:00.9 and the game died within the second --
-first attempt, exactly the proven spawn-into-post-reset-world pattern.
-
-**What was new: this dump faulted inside `UE4SS.dll` (+0x33A1C9), not the game exe** -- and a
-stack scavenge of the crash thread (scan the dumped stack for return addresses into loaded
-modules) put `main.dll` directly above it. Symbolized against our own PDB
-(`build/Mod/Game__Shipping__Win64/main.pdb`, same hash as the deployed DLL):
-`game_thread_tick` -> `update_ghost_nametag` (Plugin.cpp:12428) -> `set_text_render_transform`
-(:7549) -> `component->ProcessEvent(...)` -> AV. The component was `entry.nametag_component`.
-
-**The mechanism, and it explains every established fact:** the nametag text component, its plate
-and the plate's material instance are attached to the ghost, so any teardown frees them -- and
-NEITHER `release_all_ghosts` NOR `release_ghost` cleared the three pointers (every other
-component pointer in `RemoteGhost` is cleared there; the nametag shipped 2026-08-29, after those
-lines were written, and never joined them -- the comment there even predicts this family). The
-create guard in `update_ghost_nametag` is `if (!nametag_component)`, so the stale pointer skips
-re-creation on the respawned ghost and the first transform update calls `ProcessEvent` on freed
-memory. Hence: needs a ghost to have EXISTED (the stale pointer is the residue); crash tracks the
-RESPAWN across every hold length (the nametag path only runs once a ghost exists again); a
-post-reset world is hostile while a zone change usually survives (same-level reloads tend to hand
-the allocator the same addresses back -- the file already records that luck for the camera
-fallback pointer); intermittent, and masked by a heavy trace (freed memory only sometimes moves).
-
-**The fix (built 2026-09-01, deployed, UNWATCHED):** the nametag trio and its applied-name/colour
-latches are now cleared in `release_all_ghosts` and `release_ghost`, same as the weapon, VFX,
-projectile and glow pointers. **What to watch: with a peer connected, reset to last save
-repeatedly -- five-plus attempts, same zone and cross-zone -- per the N-attempts protocol above.**
-Correct is: no crash, and the respawned ghost gets its nametag back (a missing tag after respawn
-would mean the latches cleared but creation failed).
-
-**The nametag-never-returns bug was SEPARATE, and the user's gauntlet isolated it (2026-09-01):**
-same-zone resets kept the tag (the residue fix working), but any spell APART from the peer -- a
-cross-zone reset, or just walking to another zone -- lost it for the rest of the game session,
-surviving main menu, save switches, everything. Cause read straight from the code: the adapter's
-`despawn_remote` handler erased the `nametags` entry, and the core sends `despawn_remote` on a
-mere AREA change while `remote_name` is only ever pushed on join and on adapter attach -- so one
-separation forgot the name with nothing left to restore it. The erase guarded against a reused
-player_id inheriting a stale name, and the relay never reuses ids (`relay.go`, nextPlayerID).
-**Fixed 2026-09-01 (the name is kept for the session), built, deploys on next relaunch,
-UNWATCHED: correct is the tag surviving a zone round trip and a cross-zone reset.**
-`_template/PROTOCOL.md` now warns every future adapter.
-
-**Spawn-hold subtraction, built 2026-09-01, UNWATCHED:** every crash that justified the ~5s
-teardown spawn holds is now attributable to the nametag residue, so `no_spawn_hold.txt` (dev
-toggle beside the DLL) zeroes every hold site live -- reset click, LoadMap PRE, InitGameState.
-**What to watch: with the file present, the same five-plus-reset gauntlet plus zone changes; if
-it survives, the holds come out (or shrink to a token) and ghosts return instantly after loads.**
-The pause-menu QUIET stays regardless: it costs nothing visible (the game is paused) and not
-calling into actors a paused game is not ticking is sound on its own.
-
-**Caveat kept honest:** the earlier `bare_ghost` run (no nametag on the NEW ghost) also crashed.
-If that run's remote had a stale nametag pointer from the PREVIOUS ghost, it is the same bug --
-`update_ghost_nametag` runs regardless of how bare the new spawn is. If the reset still crashes
-after this fix, that run is the counter-evidence to start from, and the old exe-side fault
-(+0x1CD9A60, all five earlier dumps) may be a second residue path -- a freed component still
-registered somewhere the game itself walks.
+- **The two reverted perf caches are UNBLOCKED.** They were reverted pending "a hook that fires
+  on a same-level reload" -- the InitGameState PRE hook now IS that hook (it fired on every reset
+  in the 2026-09-01 logs). Re-landing the controller cache (+1308 us/frame) and projectile pool
+  cache (+~1200 us/frame) with their pointers cleared there is ~2500 us/frame waiting on an
+  afternoon. See "What was REVERTED" above.
+- **The earlier exe-side fault (+0x1CD9A60, five dumps) was never separately explained.** It is
+  ATTRIBUTED to the same residue (a use-after-free crashes wherever the garbage points), and no
+  crash of any kind has reproduced since the fix -- but if that address ever returns, it is its
+  own bug and the attribution was too generous.
+- **A LOG-VOLUME perf audit has never been run (user's standing priority, 2026-09-01: perf is
+  high priority on all adapters).** The 2026-09-01 session log shows steady per-event
+  `Output::send` traffic in normal play -- `bridge:` stats ~1/s, `CAMERA_TRACE`, per-redraw
+  `TRACE remote` lines -- 475 call sites total, cost unmeasured. Measure with `perf_report.txt`
+  before touching anything; Emerald's lesson was one line a second costing 7fps (console there,
+  file here -- the file may well be fine, which is what the measurement is for).
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 

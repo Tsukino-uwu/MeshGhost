@@ -1059,6 +1059,61 @@ if (-not (Test-Path -LiteralPath $devIndex)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "RemoteGhost pointer fields are cleared at release (Pseudoregalia)"
+
+# Added 2026-09-01, after the FOURTH member of one bug family: a raw pointer field added to
+# RemoteGhost that no release path cleared (the thrown prop, the VFX map, the projectile actor,
+# then the nametag trio -- the last one shipped as an intermittent use-after-free crash that
+# consumed two sessions; pitfalls/by-lesson.md, "The reset-to-save crash"). The release-path
+# comment predicting exactly this existed the whole time, which is the point: a comment cannot
+# fail a build, and this family has proven it needs a check that can. Every `RC::Unreal::T*`
+# field declared in the RemoteGhost struct must be MENTIONED in BOTH release_all_ghosts and
+# release_ghost -- mention is the proxy (assignment styles differ between the two), and a field
+# that is deliberately safe to keep still earns its line as a comment naming it there.
+$rgHpp = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.hpp"
+$rgCpp = "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp"
+if ((Test-Path $rgHpp) -and (Test-Path $rgCpp)) {
+    $hppLines = @(Get-Content -LiteralPath $rgHpp)
+    $structStart = -1; $structEnd = -1
+    for ($i = 0; $i -lt $hppLines.Count; $i++) {
+        if ($structStart -lt 0 -and $hppLines[$i] -match '^\s*struct RemoteGhost\b') { $structStart = $i; continue }
+        if ($structStart -ge 0 -and $hppLines[$i] -match '^    \};') { $structEnd = $i; break }
+    }
+    if ($structStart -lt 0 -or $structEnd -lt 0) {
+        Report-Fail "could not locate the RemoteGhost struct in $rgHpp -- fix this check, do not delete it"
+    } else {
+        $fields = @()
+        for ($i = $structStart; $i -lt $structEnd; $i++) {
+            if ($hppLines[$i] -match 'RC::Unreal::\w+\*\s*(\w+)\s*\{') { $fields += $Matches[1] }
+        }
+        $cppText = Get-Content -LiteralPath $rgCpp -Raw
+        $bodies = @{}
+        foreach ($fn in @('release_all_ghosts', 'release_ghost')) {
+            if ($cppText -match "(?s)auto Plugin::$fn\(.*?\n    \}") { $bodies[$fn] = $Matches[0] }
+        }
+        if ($fields.Count -eq 0 -or $bodies.Count -ne 2) {
+            Report-Fail "RemoteGhost release check could not parse its inputs (fields=$($fields.Count), bodies=$($bodies.Count)) -- fix this check, do not delete it"
+        } else {
+            $unreleased = @()
+            foreach ($f in $fields) {
+                foreach ($fn in $bodies.Keys) {
+                    # Word-boundary match, not substring: "nametag_plate" must not be satisfied
+                    # by "nametag_plate_mid" -- the first negative test of this check passed when
+                    # it should have failed for exactly that reason.
+                    if ($bodies[$fn] -notmatch "\b$([regex]::Escape($f))\b") { $unreleased += "$f (missing from $fn)" }
+                }
+            }
+            if ($unreleased.Count -gt 0) {
+                Report-Fail ("RemoteGhost pointer field(s) not mentioned in a release path -- the stale-pointer family's next member:`n          " + ($unreleased -join "`n          "))
+            } else {
+                Report-Pass "every RemoteGhost pointer field ($($fields.Count)) is mentioned in both release paths"
+            }
+        }
+    }
+} else {
+    Report-Skip "Pseudoregalia sources not present"
+}
+
 Section "GitHub Action versions agree across workflows"
 
 # WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub

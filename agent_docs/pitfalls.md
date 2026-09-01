@@ -286,3 +286,4 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A diagnostic sweep can be load-bearing: check what it does when it is NOT armed (Pseudoregalia, 2026-08-30, OPEN)
 - Six hypotheses before opening the crash dump (Pseudoregalia, 2026-08-30)
 - A dozen single-run A/Bs against an intermittent bug (Pseudoregalia, 2026-08-31)
+- The reset-to-save crash: two sessions of guards for a bug one symbolized stack named (Pseudoregalia, 2026-08-30 → 09-01, CLOSED)

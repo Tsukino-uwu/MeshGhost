@@ -179,6 +179,8 @@ filed under the right theme, but anything can check that it is listed.
 - Landing dust on a ghost: the echo loop, the swallowed repeats and the mid-body height, all three fixed (2026-08-29)
 - 2026-08-30 — the three ghost-light bugs are fixed, and the fixes ship as defaults
 - 2026-08-30 — a ghost's FACING is interpolated, and the choppy fast spin is gone
+- 2026-09-01 — the reset-to-save crash is FIXED, and its cause was the nametag's stale pointers
+- 2026-09-01 — the 2026-08-30 per-ghost performance win, restated here now that its crash is closed
 
 ## Confirmed facts
 
@@ -4556,3 +4558,45 @@ gets reverted.**
   as position) was OFF in every run here and has never been on screen.
 - Method, the hedged reads, and the interp/extrapolate question the "delayed" observation opens:
   `UNVERIFIED.md`, 2026-08-30. Reasoning: ADR 0043. Flag: `FLAGS.md`.
+
+## 2026-09-01 — the reset-to-save crash is FIXED, and its cause was the nametag's stale pointers
+
+**User, after the second gauntlet: "no crashing, it always kept the nametag now — cross zone,
+reset save, main menu. mixes of these."** Two separate confirmations in one day:
+
+- **The crash.** *Reset to last save* with a peer's ghost (a bug that consumed two sessions,
+  2026-08-30/31, and a dozen guards) no longer crashes: two user gauntlets of mixed same-zone and
+  cross-zone resets, zone changes and menu trips, all clean. Cause: `update_ghost_nametag`'s
+  three component pointers (tag, plate, plate material) were cleared by NO release path, so any
+  teardown left them dangling and the respawned ghost's first tag update ran `ProcessEvent` on
+  freed memory. Found by symbolizing the crash thread's stack from a minidump against our own
+  PDB (`dev-scripts/read-minidump.py --stack` / `--symbolize`). Full story and the transferable
+  rules: `agent_docs/pitfalls/by-lesson.md`, "The reset-to-save crash".
+- **Nametags now survive separation.** Before 2026-09-01 any spell apart from a peer (zone
+  change, cross-zone reset) lost their name for the rest of the game session — the adapter
+  erased it on `despawn_remote`, which fires on a mere area change, and `remote_name` is never
+  re-sent. The name is kept for the session now (the relay never reuses player ids, so the case
+  the erase guarded cannot occur), and the user watched tags survive every mix they tried.
+
+**The teardown spawn holds are REMOVED (both constants 0), and zero is the user-watched value.**
+With `no_spawn_hold.txt` armed, ghosts respawned 60-100ms after InitGameState across at least
+eight mixed-zone reset cycles in the log, no crash — so the ~5 ghostless seconds after every
+load, shipped as mitigation while the cause was unknown, bought nothing and are gone. The window
+machinery remains in the code at zero, one constant away from re-arming.
+
+- Scope: Steam install + `meshghost-fakeadapter` as the peer (relay loopback rig,
+  `-ghost-collision=disabled`), single machine. A two-real-client session has not re-run this
+  gauntlet.
+- Rig note for repeats: the fake peer spawns at ZONE_LowerCastle (4718, 8712, -733) — the user's
+  chosen standing spot, kept for future sessions.
+
+## 2026-09-01 — the 2026-08-30 per-ghost performance win, restated here now that its crash is closed
+
+The user's original report — 144fps alone, 70-80 with one peer, ~40 with three, ~30 with four —
+was **four whole-world `FindAllOf` scans on the tick, not the hooks and not rendering**: unarmed
+dev-toggle sweeps (~3300 us/frame), two whole-world light scans per ghost per tick (~6357
+us/frame — the per-peer multiplier), a mesh sweep every 5th frame (~500), an afterimage scan
+every tick (~1200). Fixes shipped 2026-08-30, user read 141-144fps with a peer; the crash that
+shadowed that session is the nametag residue above, now closed. Numbers and the what-shipped /
+what-reverted table: `UNVERIFIED.md` §"the PERFORMANCE WORK"; method:
+`agent_docs/pitfalls/method.md`, "A ghost cost half the frame rate".
