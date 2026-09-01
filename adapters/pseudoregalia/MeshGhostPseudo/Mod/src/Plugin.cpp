@@ -2904,6 +2904,30 @@ namespace MeshGhostPseudo
             return property->ContainerPtrToValuePtr<T>(object);
         }
 
+        // A BOOL read that respects bitfields, cached like everything above. mg_property_value
+        // <bool> hands back the whole byte, and a bitfield bool then reads true whenever ANY
+        // neighbouring bit is set -- this file's case-filed trap, walked into AGAIN by the
+        // shadow mirror on 2026-09-01 (shadow_on never left 1 while the Lua probe, which masks
+        // correctly, watched the same flag flip on the sit). FBoolProperty knows its own mask;
+        // ask it.
+        auto mg_read_bool(UObject* object, const CharType* name, bool fallback) -> bool
+        {
+            FProperty* property = mg_cached_property(object, name);
+            if (!property)
+            {
+                return fallback;
+            }
+            if (property->GetClass().GetName() == STR("BoolProperty"))
+            {
+                return static_cast<FBoolProperty*>(property)->GetPropertyValueInContainer(object);
+            }
+            if (bool* raw = property->ContainerPtrToValuePtr<bool>(object))
+            {
+                return *raw;
+            }
+            return fallback;
+        }
+
         auto find_local_controller_and_pawn() -> std::pair<UObject*, UObject*>
         {
             if (g_cached_local_controller)
@@ -8360,6 +8384,12 @@ namespace MeshGhostPseudo
                 // user watched the ring linger after a pickup (2026-09-01). The immediate variant
                 // kills live particles too; plain Deactivate stays as the fallback for a build
                 // that lacks it.
+                // Hidden FIRST: this build has no DeactivateImmediate (measured 17:57:54 --
+                // the fallback Deactivate only stops emission, and the ring's live particles
+                // kept rendering through their lifetimes, the "still lingers a bit"). An
+                // invisible component renders nothing from this frame on, whatever its
+                // particles think they are doing.
+                call_set_visibility(remote.weapon_glow_component, false);
                 UFunction* stop_fn = remote.weapon_glow_component->GetFunctionByNameInChain(STR("DeactivateImmediate"));
                 const bool immediate = stop_fn != nullptr;
                 if (!stop_fn)
@@ -8460,7 +8490,21 @@ namespace MeshGhostPseudo
                 {
                     constexpr double WEAPON_DUST_FLOOR_DROP = 38.0; // same measured origin-to-floor as the glow
                     const FVector dust_at(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_DUST_FLOOR_DROP);
-                    spawn_niagara_at_location(remote.ghost, land_dust_asset, dust_at);
+                    UObject* dust_component = spawn_niagara_at_location(remote.ghost, land_dust_asset, dust_at);
+                    // REGISTERED for echo exclusion, like every one-shot the mirror spawns --
+                    // this is the `dl` row's own asset, and unregistered it re-entered the local
+                    // detection as "my player's landing dust" and bounced back onto the OTHER
+                    // ghost (user, 2026-09-01: dust on the idle player's ghost after every sword
+                    // landing). The exact echo the dust mirror already had once, re-made.
+                    if (dust_component)
+                    {
+                        constexpr size_t MAX_TRACKED_ONE_SHOTS = 32;
+                        remote.recent_one_shot_components.push_back(dust_component);
+                        if (remote.recent_one_shot_components.size() > MAX_TRACKED_ONE_SHOTS)
+                        {
+                            remote.recent_one_shot_components.erase(remote.recent_one_shot_components.begin());
+                        }
+                    }
                 }
             }
             if (new_state == LANDED_WEAPON_STATE && !remote.weapon_glow_component && !remote.target_weapon_glow.empty())
@@ -8524,6 +8568,18 @@ namespace MeshGhostPseudo
                 FVector bounce_at(remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z);
                 spawn_niagara_at_location(remote.ghost, bounce_asset, bounce_at);
             }
+        }
+
+        // Keep the landed ring centered under the sword: the 0->3 edge can ride a sample taken
+        // one beat before the sword fully settles, so a spawn-and-forget ring inherits that
+        // sample's error ("not fully centered", user 2026-09-01). Re-seated from the live target
+        // every tick while landed -- one reflected call, zero when nothing is landed.
+        if (remote.weapon_glow_component &&
+            static_cast<uint8_t>(remote.target_weapon_state) == LANDED_WEAPON_STATE)
+        {
+            constexpr double WEAPON_GLOW_FLOOR_DROP_TICK = 38.0;
+            const FVector glow_seat(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_GLOW_FLOOR_DROP_TICK);
+            call_set_component_world_location_and_rotation(remote.weapon_glow_component, glow_seat, FRotator(0.0, 0.0, 0.0));
         }
 
         FVector render_loc(remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z);
@@ -16819,10 +16875,9 @@ namespace MeshGhostPseudo
             int shadow_on = 1;
             if (UObject** shadow_ptr = mg_property_value<UObject*>(pawn, STR("BlobShadow")); shadow_ptr && *shadow_ptr)
             {
-                if (bool* shadow_visible = mg_property_value<bool>((*shadow_ptr), STR("bVisible")))
-                {
-                    shadow_on = *shadow_visible ? 1 : 0;
-                }
+                // mg_read_bool, NOT a byte read: bVisible is a bitfield, and the byte read is
+                // exactly why the first shadow mirror shipped inert (2026-09-01).
+                shadow_on = mg_read_bool(*shadow_ptr, STR("bVisible"), true) ? 1 : 0;
             }
 
             std::string local_state = std::format(
