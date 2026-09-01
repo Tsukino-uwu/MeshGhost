@@ -257,93 +257,25 @@ post-5.5 work, and Crystal) are covered in their own sections further down this 
 
 ## Roadmap
 
-### Phase 0 — Contract on paper
+### Phases 0-5.5 — contract through template extraction, all complete 2026-08-11
 
-Visible outcome: documented schema and interface, plus an empty `agent_docs/verified.md`.
-**Status: complete.** The contract structure (schema, message types, adapter interface,
-transport, tick model) is written in `agent_docs/contract.md`, and every item in that file's
-"Open questions carried from the original Phase 0 backlog" list is now closed with a live
-citation (the last of them by Phase 1/2 work in 2026-08-11, plus the snapshot-frequency
-question re-answered by the 2026-08-15 rate-control ADR).
+Condensed 2026-09-01 to make cap room for the crowd-performance plan; each phase's full
+task-by-task record is its `agent_docs/phases/phaseN.md`, and every confirmed fact is in
+`agent_docs/verified.md` — nothing below ever had its canonical home here.
 
-### Phase 1 — Emerald read-only verification
+| Phase | Delivered |
+| --- | --- |
+| 0 | The contract on paper (`contract.md`); every original open question since closed |
+| 1 | Emerald read-only state via BizHawk Lua, tracking real motion |
+| 2 | Drawn ghost at a hardcoded offset — screen-position math proven pre-network |
+| 3 | Loopback: one client sees itself as a ghost over a real relay round trip |
+| 4 | Two real clients rendering each other; joins/drops |
+| 5 | Template extracted; core proven game-agnostic against a fake adapter |
+| 5.5 | Real gender-correct Emerald sprite art, addresses re-verified on a female save |
 
-Visible outcome: BizHawk Lua prints local player state from actual game memory, and it
-tracks known-direction motion. **Status: complete** (2026-08-11), bike/surf flags deferred.
-See `agent_docs/verified.md`.
-
-### Phase 2 — Fake ghost, no network
-
-Visible outcome: a rendered ghost overlay in Emerald following a hardcoded offset, using
-`gui.drawImage`. Proves the screen-position math (map coords + camera scroll) before network
-code is in the picture. **Status: complete** (2026-08-11) — confirmed tracking the player
-including at a real camera-pinned map edge, plus three transient-rendering findings (battle
-sprite-slot reuse, route-crossing jitter, door-warp jitter) all traced to already-understood
-causes rather than new bugs. See `agent_docs/verified.md`. Detailed record:
-`agent_docs/phases/phase2.md`.
-
-### Phase 3 — Loopback
-
-Visible outcome: one client sends its own state through a local relay and renders its ghost
-trailing itself by ~200ms. Exercises the bridge, the relay protocol, the schema, and the
-interpolation buffer on one machine before a second machine is involved. Implements the
-payload/rate limits from `agent_docs/contract.md` even though no-auth means nothing else
-guards the relay yet. **Status: complete** (2026-08-11) — confirmed on screen: a ghost trails
-the player by ~200ms with `TILE = 16` correct, holding steady across walking/running and
-route/house transitions, with no flicker, over the real relay/core/bridge round trip
-(loopback flag on, not a same-process shortcut). Three real bugs were found via live testing
-and fixed: `core` didn't despawn remotes when its own relay connection dropped, the
-Lua adapter didn't detect its own bridge connection dying, and — the one that made both of
-those look worse than they were — BizHawk's `gui.*` overlay does not auto-clear between
-frames (corrected a wrong assumption stated in `contract.md`'s tick model since Phase 2). See
-`agent_docs/phases/phase3.md` for the full task-by-task record and `agent_docs/verified.md`
-for every confirmed fact.
-
-### Phase 4 — Two players
-
-Visible outcome: two BizHawk clients render each other's ghosts and handle joins/drops.
-First real multiplayer milestone. No-auth per the current ADR — treat the relay address as
-something only shared directly with a friend, not something safe to post publicly, until
-room codes ship (see below). **Status: complete** (2026-08-11) — see
-`agent_docs/phases/phase4.md` for the full task-by-task record and `agent_docs/verified.md`
-for every confirmed fact.
-
-Deferred idea, raised during Phase 4 testing, not scheduled: a ghost in a map connected to the
-local player's current map (an adjacent route/town, seamlessly scrolled between rather than
-warped) currently just doesn't render at all, same as any other different `area_id`, even
-though the two areas are visually contiguous at the shared edge. Rendering it correctly across
-that seam would mean reading and verifying `pokeemerald`'s own map-connection offset data
-(new, unverified addresses) and extending the screen-position formula to place a ghost from a
-different map at the right spot near the boundary — real new work, adapter-side only (does not
-touch the core's `area_id`-is-opaque rule), not attempted.
-
-### Phase 5 — Extract the template
-
-Visible outcome: the core runs independently of the Emerald adapter against a fake adapter
-that moves a ghost in a circle, with no game attached. If it doesn't run cleanly, something
-leaked — check for `if game ==`-style branches in `core` and `relay`.
-Freeze `adapters/_template/` as the reusable adapter stub — this is the real deliverable of
-this phase, not the Emerald adapter itself. **Status: complete** (2026-08-11) — see
-`agent_docs/phases/phase5.md` for the full task-by-task record and `agent_docs/verified.md`
-for the confirmed fact. No `core`/`relay` changes were needed beyond adding
-`Core.RunAdapter`, an in-process driver alongside the existing bridge-wire path — both share
-one diff implementation, so there's no game-specific or protocol-specific branching in either.
-
-### Phase 5.5 — Real Emerald ghost sprite (gender-correct)
-
-Not a numbered milestone in the original game-count sense (doesn't gate Phase 6), but the user
-wants Emerald's ghost rendering "finished" — a real Brendan/May sprite instead of the magenta
-placeholder box, gender advertised in the schema so a remote renders correctly, and every
-Phase 1/2 address re-verified on a female save (previously male-only). **Status: complete**,
-2026-08-11 — see `agent_docs/phases/phase5_5.md` for the full research citations, task list,
-and `agent_docs/verified.md` for every confirmed fact. Real sprite art, gender-correct
-rendering (including a genuinely separate running pose, found live — not a faster walk cycle),
-and female-save re-verification all confirmed live with two real peers. Along the way, also
-fixed real sub-tile position-smoothing and stale-remotes bugs surfaced by testing with a real
-detailed sprite instead of the old placeholder box. Deliberately does not touch bike/surf
-flags, ledge jumps (surfaced during testing, added to the same deferred item), seamless
-route/town rendering, the `coordOffsetEnabled` assumption, the relay-disconnect log spam, or
-the two open contract questions — those stay exactly as already documented, deferred.
+Phase 4's deferred idea — a ghost visible across a seam into an adjacent, contiguous map —
+shipped for Crystal on 2026-08-27 (cross-map ghosts, `crystal/UNVERIFIED.md`); Emerald's own
+seam remains unbuilt.
 
 ### Phase 6 — Second game (TEVI)
 
@@ -843,6 +775,46 @@ measured limits: [hz-ceiling.md](hz-ceiling.md). Neither of the next two is star
   every setting — how the interp delay hid behind a stutter until 2026-08-28. Judged on screen.
 - **STEP 3 — the 100Hz cap, after step 2 only. The problem is not the constant:** the safe rate
   depends on each CLIENT's `interp`, invisible to the relay, so an opt-in wants a NEGOTIATED ceiling.
+
+## Crowds that PLAY, not just survive: the measured optimization ladder (filed 2026-09-01)
+
+**Where this comes from.** The 2026-09-01 peer-ladder session removed three scaling ceilings
+(bounded Welcome, write poisoning, latest-wins drain -- `pitfalls/`, `crowd-limits.md`) and then
+MEASURED where the frame goes at crowd size: ~80% of per-ghost cost is the adapter's own
+every-tick redraw (`loop_tail`, ~320 us/ghost flat to 32 peers, rising with world population),
+plus the engine animating N real pawns. The wire is NOT the fps lever -- peers already sent at
+20Hz while fps fell to 53 at 32 ghosts. Prior art and the levers taxonomy: `scaling.md`'s
+interest-management section (frequency scaling, reduced tier, the TrackMania/MHW notes, each
+marked for provenance). The write-time checklist (`_template/README.md`) governs every step:
+cadence named, number before and after.
+
+**The steps, in order -- each gated on the previous step's measurement:**
+
+1. **Read the tail split.** The instrumented build (four `loop_tail` sub-slots: pose/trace,
+   sweeps, light hold, event mirrors) is DEPLOYED to both installs and has never been run --
+   one 16-peer rung with `perf_report.txt` armed (it is still armed in the Steam install;
+   disarm before judging anything visual) names which block owns the cost. Zero code until
+   this number exists.
+2. **The reflection-property cache**, aimed at the named block: resolve each (UClass*, name)
+   property once, reuse the offset -- behaviour-preserving by construction, teardown-cleared
+   like every cache (the preflight release-check discipline). Verify: a normal 2-ghost session
+   watched for visual regressions, then re-run ladder rungs 16/32/100.
+3. **Redraw LOD by distance** -- the adapter-side version of "half rate beyond 1k units": far
+   ghosts get the full redraw every Nth tick. CHANGES VISUALS (far motion gets steppier), so
+   the user judges the distance band and N on screen; the speed rule still binds (never faster
+   than the game, and the correction never snaps).
+4. **The engine's own distance-based animation-rate optimization** for ghost meshes -- cite the
+   UE documentation page first (`scaling.md`'s provenance rule: the claim it ships by default
+   is stated from memory and not yet good enough to build against).
+5. **Relay rate scaling by distance** (Go side): the drop rule `scaling.md` already ranks
+   cheapest, with its two safety rules (never thin the keepalive floor; never drop the last
+   state before a peer goes still). Buys bandwidth and relay CPU, not client fps -- measured
+   expectations set accordingly, shadow counters before code.
+6. **The reduced tier** (far ghost stops being a pawn), only if steps 2-5 leave crowds still
+   short of PLAYABLE -- it is the TrackMania-shaped answer and the most invasive.
+
+**A two-machine ladder re-run belongs before declaring any step's big-rung numbers real** --
+every 100+ figure so far shared one box with the relay and all N synthetic cores.
 
 ## Links
 

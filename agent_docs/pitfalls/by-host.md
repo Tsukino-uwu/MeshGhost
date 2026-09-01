@@ -1133,3 +1133,16 @@ judgment, and was wrong on both counts.
 the caller and handed to every tag, so the reflected call does not multiply by ghost count. Pitch
 as well as yaw, or it still leans in the axis the user was complaining about. Do not cache the
 camera manager across ticks -- it is exactly the kind of reference a level transition invalidates.
+
+## Disabling a UE4SS mod can take TWO switches, and a reinstall re-arms both (Pseudoregalia, 2026-09-01)
+
+The user reinstalled Archipelago and asked for it disabled; removing `AP_Randomizer/enabled.txt`
+looked complete and was not — the next launch still logged `BPModLoaderMod: Loading mod:
+AP_Randomizer`. A UE4SS "mod" can be two things at once: the dll/Lua half under `ue4ss\Mods\<name>\`
+(governed by `enabled.txt` / `mods.txt` / `mods.json`), and a BLUEPRINT half shipped as pak files
+(`Content\Paks\<name>_p.pak` plus `Content\Paks\LogicMods\<name>.pak`) that `BPModLoaderMod` loads
+with no reference to the folder's enablement at all. Disabling means BOTH: the enabled marker AND
+renaming/removing the paks. A reinstall recreates both live halves next to any `.disabled` copies
+from last time — hash-compare before deleting the fresh ones (they were byte-identical here).
+The tell in the log is which LOADER announces the mod: a line from `BPModLoaderMod` means pak,
+and no amount of Mods-folder surgery touches it.

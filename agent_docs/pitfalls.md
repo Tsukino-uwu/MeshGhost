@@ -277,6 +277,7 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - A fix that depends on an object being REACHABLE breaks when you change that object's LIFETIME (Pseudoregalia, 2026-08-29)
 - A census of what EXISTS beats eleven targeted eliminations (Pseudoregalia, 2026-08-29)
 - A cosmetic ghost fires the world's triggers, and spawn-time overlaps fire inside SpawnActor (Pseudoregalia, 2026-08-29)
+- Disabling a UE4SS mod can take TWO switches, and a reinstall re-arms both (Pseudoregalia, 2026-09-01)
 - The game's own pickup path can reach the local player from a ghost (Pseudoregalia, 2026-08-29, OPEN)
 - When every scalar diff is clean, dump the FUNCTION vocabulary and drive the game's own verbs live (Pseudoregalia, 2026-08-30)
 - A bitfield bool read through a plain byte pointer says true for the whole byte (Pseudoregalia, 2026-08-30)

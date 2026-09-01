@@ -59,10 +59,10 @@ has never been looked at. `verified.md`.
 
 ## Genuinely open items
 
-- **Pseudoregalia PERF: both caches RE-LANDED and the first 4->150 peer ladder is measured
-  (2026-09-01)** — linear to 50 (~30fps), superlinear above; `loop_tail` is the next target. `adapters/pseudoregalia/UNVERIFIED.md`.
-- **A failed write now poisons a stream connection (Go, 2026-09-01)** — 150 peers hit
-  `token too long` from a half-written line; fixed with a regression test, live reconnect unwatched. `transport/transport.go`.
+- **Pseudoregalia crowds: three scaling ceilings removed and user-confirmed, full ladder
+  published (2026-09-01)** — 150 ghosts stable, ~30 above 50fps. `crowd-limits.md`, `pseudoregalia/VERIFIED.md`.
+- **NEXT PSEUDOREGALIA PERF SESSION STARTS AT plans.md "Crowds that PLAY" step 1** — the
+  tail-split build is DEPLOYED and unrun; `perf_report.txt` is still ARMED in the Steam install.
 - **CLOSED 2026-09-01: the reset-to-save crash (nametag stale pointers), the vanished nametags,
   and the ~5s spawn holds (removed).** `pseudoregalia/VERIFIED.md`; method in `pitfalls/by-lesson.md`.
 - **RESOLVED: ghosts freeze/vanish for ONE client — it was the agent's own rig** — a one-sided stream
