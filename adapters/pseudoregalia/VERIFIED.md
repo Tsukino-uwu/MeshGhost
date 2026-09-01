@@ -181,6 +181,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-08-30 — a ghost's FACING is interpolated, and the choppy fast spin is gone
 - 2026-09-01 — the reset-to-save crash is FIXED, and its cause was the nametag's stale pointers
 - 2026-09-01 — the 2026-08-30 per-ghost performance win, restated here now that its crash is closed
+- 2026-09-01 — 150 peers live: stable, recoverable, and the wire is no longer the ceiling
 
 ## Confirmed facts
 
@@ -4600,3 +4601,24 @@ every tick (~1200). Fixes shipped 2026-08-30, user read 141-144fps with a peer; 
 shadowed that session is the nametag residue above, now closed. Numbers and the what-shipped /
 what-reverted table: `UNVERIFIED.md` §"the PERFORMANCE WORK"; method:
 `agent_docs/pitfalls/method.md`, "A ghost cost half the frame rate".
+
+## 2026-09-01 — 150 peers live: stable, recoverable, and the wire is no longer the ceiling
+
+The user watched the whole arc on screen, one fix per rung:
+
+- **150 fake peers joined with zero wire errors** (bounded Welcome relay fix) and rendered as a
+  ring of ghosts, every one wearing its nametag — the name-keep fix visibly working at scale.
+- **The game no longer spirals at 150.** Before the drain collapse: single ticks of 19-45s, 0fps,
+  and 2051 pawns measured alive as the backlog replayed spawn history. After: a stable slideshow
+  (~250ms ticks, bounded, not growing), heavily starvation-amplified by the rig sharing the box.
+- **Removing the crowd recovers.** Before: stuck at 20fps with a ~2000-corpse hangover. After:
+  ~40fps within seconds, climbing to 50-60 — and a *reset to last save* (the crash of two days
+  ago, now the cleanup tool) rebuilt the world and, user: **"put me at max fps again."** The
+  50-60 plateau was transient corpse bloat awaiting GC, not a leak.
+
+- Scope: one machine carrying game + relay + 150 synthetic cores (relay burned 530 CPU-seconds
+  fanning ~450k msg/s); a two-machine run is the honest next measurement. Crowd rig calibration
+  for repeats: ZONE_LowerCastle standing spot, ring z=-545, radius 200.
+- Still open, filed in `UNVERIFIED.md`: `loop_tail` (the reflection redraw) dominates per-ghost
+  cost (~80%), and per-ghost cost rises with world population — the two levers if crowds should
+  ever be PLAYABLE rather than survivable.

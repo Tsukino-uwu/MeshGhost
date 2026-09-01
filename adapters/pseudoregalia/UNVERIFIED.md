@@ -284,11 +284,11 @@ replayed the whole session's spawn history in order, which the fingerprint probe
 **2051 player pawns alive at once** before the queued despawns caught up. Removing the crowd
 left ~20fps of GC hangover from the two thousand corpses. The fix: latest-wins collapse -- the
 drain now keeps only the NEWEST `render_remote` per player (lifecycle lines all still apply in
-order), bounding a tick's work by peer count rather than by how far behind it got. **What to
-watch: 150 peers again -- expect a stable slideshow (~10-15fps) with NO freeze, and instant
-recovery to baseline when the crowd leaves.** Crowd-rig calibration, learned across three
-attempts: spawn ring at the user's spot needs **z = -545** (pawn-center ground is -733; -650 and
--580 both left bodies partly buried) and radius <= 200 to stay on the flat court and in view.
+order), bounding a tick's work by peer count rather than by how far behind it got. **CONFIRMED
+2026-09-01, same session: stable slideshow at 150 (bounded 250ms ticks, rig-starved), recovery
+in seconds when the crowd leaves, and a reset-to-save restored max fps -- moved to
+`VERIFIED.md`.** Crowd-rig calibration for repeats: ring **z = -545**, radius <= 200 at the
+standing spot (pawn-center ground is -733; -650 and -580 both left bodies partly buried).
 
 ### The OPEN defect: ghosts freeze and vanish, one side only
 
