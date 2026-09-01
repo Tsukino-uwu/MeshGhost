@@ -12,19 +12,25 @@ other required-reading class in this repo — ADRs, pitfalls, VERIFIED entries �
 index and a check; phase files were the one class with neither, so a new one could be added and
 never referenced from anywhere. Added 2026-08-25.
 
-| Phase | What it covers | Status |
+| Phase | What it covers | The log is... |
 | --- | --- | --- |
-| [phase1.md](phase1.md) | Emerald read-only verification — the first addresses, confirmed by walking. | Done |
-| [phase2.md](phase2.md) | Fake ghost, no network — proving the screen-position maths offline. | Done |
-| [phase3.md](phase3.md) | Loopback — one client sending state and rendering it back to itself. | Done |
-| [phase4.md](phase4.md) | Two players — joins, drops, and `area_id` mismatch. | Done |
-| [phase5.md](phase5.md) | Extract the template — the core running against a fake adapter, no game. | Done |
-| [phase5_5.md](phase5_5.md) | A real, gender-correct Emerald sprite in place of the magenta box. | Done |
-| [phase6.md](phase6.md) | Second game: TEVI (Unity/Mono, BepInEx). | Done |
-| [phase7.md](phase7.md) | Third game: Pseudoregalia (UE5, UE4SS). The largest record here. | Done |
-| [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Reopened 2026-08-26 (Fly, boat) |
-| [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | **In progress** |
-| [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | **Open-ended by design** |
+| [phase1.md](phase1.md) | Emerald read-only verification — the first addresses, confirmed by walking. | Closed; Emerald continues in phase 8 |
+| [phase2.md](phase2.md) | Fake ghost, no network — proving the screen-position maths offline. | Closed; Emerald continues in phase 8 |
+| [phase3.md](phase3.md) | Loopback — one client sending state and rendering it back to itself. | Closed; the Go side continues in phase 10 |
+| [phase4.md](phase4.md) | Two players — joins, drops, and `area_id` mismatch. | Closed; the Go side continues in phase 10 |
+| [phase5.md](phase5.md) | Extract the template — the core running against a fake adapter, no game. | Closed; the Go side continues in phase 10 |
+| [phase5_5.md](phase5_5.md) | A real, gender-correct Emerald sprite in place of the magenta box. | Closed; Emerald continues in phase 8 |
+| [phase6.md](phase6.md) | Second game: TEVI (Unity/Mono, BepInEx). | Live — TEVI's whole log |
+| [phase7.md](phase7.md) | Third game: Pseudoregalia (UE5, UE4SS). The largest record here. | Live — Pseudoregalia's whole log |
+| [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Live — Emerald's whole log |
+| [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | Live — Crystal's whole log |
+| [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
+
+**There is no "done" column, on purpose (the user's call, 2026-09-02).** A game is never done —
+every shipped adapter is in progress for as long as the game has a state nobody has watched — so a
+per-phase status only ever said "done" about the six early files whose work moved into a dedicated
+log. What a reader needs is which file to APPEND to: a closed log is history, a live log is the
+one that keeps being fed. Current state lives in `status.md`, never here.
 
 **Adding one:** create `phaseN.md`, give it the dated-record note at the top, and add its row
 here. Numbering follows `plans.md`'s roadmap, and a `.5` is legitimate — Phase 5.5 was real work

@@ -3,9 +3,11 @@
 <!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
 **Start here if you want to check this project before hosting a relay or playing with strangers,
-and you do not want to take anyone's word for it.** That is the right instinct. Most of this code
-was written by an AI agent, and networking code is exactly where things work perfectly until
-someone sends the request nobody expected. Nothing below asks you to trust the author, the agent,
+and you do not want to take anyone's word for it.** That is the right instinct. **All of this code
+was written by an AI agent** — the maintainer directs, tests on screen and decides, and has not
+hand-written any of it, and that will stay true until someone else contributes without one. And
+networking code is exactly where things work perfectly until someone sends the request nobody
+expected. Nothing below asks you to trust the author, the agent,
 or the tests. It tells you where to look, what the project claims, and how to run the adversarial
 checks on your own machine so that what you believe is what you saw.
 
