@@ -8355,9 +8355,30 @@ namespace MeshGhostPseudo
             }
             if (remote.weapon_glow_component)
             {
-                if (UFunction* deactivate_fn = remote.weapon_glow_component->GetFunctionByNameInChain(STR("Deactivate")))
+                // DeactivateImmediate, not Deactivate: plain Deactivate only stops EMITTING and
+                // the already-spawned ring particles live out their multi-second lifetimes -- the
+                // user watched the ring linger after a pickup (2026-09-01). The immediate variant
+                // kills live particles too; plain Deactivate stays as the fallback for a build
+                // that lacks it.
+                UFunction* stop_fn = remote.weapon_glow_component->GetFunctionByNameInChain(STR("DeactivateImmediate"));
+                const bool immediate = stop_fn != nullptr;
+                if (!stop_fn)
                 {
-                    remote.weapon_glow_component->ProcessEvent(deactivate_fn, nullptr);
+                    stop_fn = remote.weapon_glow_component->GetFunctionByNameInChain(STR("Deactivate"));
+                }
+                if (stop_fn)
+                {
+                    remote.weapon_glow_component->ProcessEvent(stop_fn, nullptr);
+                }
+                // Which stop actually ran, once -- "still lingers a bit" cannot be attributed
+                // without knowing whether the immediate kill resolved on this build or the
+                // fallback took it (the remainder then being wire latency, ~a sample or two).
+                static bool stop_logged = false;
+                if (!stop_logged)
+                {
+                    stop_logged = true;
+                    Output::send(STR("[MeshGhostPseudo] WEAPONFLY glow teardown via {}\n"),
+                                 immediate ? STR("DeactivateImmediate") : (stop_fn ? STR("Deactivate (no immediate on this build)") : STR("NOTHING -- neither resolved")));
                 }
                 if (UFunction* destroy_fn = remote.weapon_glow_component->GetFunctionByNameInChain(STR("DestroyComponent")))
                 {
@@ -8426,6 +8447,22 @@ namespace MeshGhostPseudo
         {
             remote.last_synced_weapon_state = remote.target_weapon_state;
             const auto new_state = static_cast<uint8_t>(remote.target_weapon_state);
+            // The sword's own landing dust, at the landing (2026-09-01). The game world-spawns
+            // NS_DustLand where the real sword lands; the sender now excludes it from the
+            // player's `dl` counter (it played at the ghost's feet before -- user-reported), and
+            // this is the other half: the burst fires HERE, on the same 0 -> 3 edge, at the
+            // sword's own resting spot. Asset path is the `dl` row's, already measured.
+            if (new_state == LANDED_WEAPON_STATE)
+            {
+                static UObject* land_dust_asset = UObjectGlobals::StaticFindObject<UObject*>(
+                    nullptr, nullptr, STR("/Game/VFX/Systems/NS_DustLand.NS_DustLand"));
+                if (land_dust_asset)
+                {
+                    constexpr double WEAPON_DUST_FLOOR_DROP = 38.0; // same measured origin-to-floor as the glow
+                    const FVector dust_at(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_DUST_FLOOR_DROP);
+                    spawn_niagara_at_location(remote.ghost, land_dust_asset, dust_at);
+                }
+            }
             if (new_state == LANDED_WEAPON_STATE && !remote.weapon_glow_component && !remote.target_weapon_glow.empty())
             {
                 UObject* glow_asset = UObjectGlobals::StaticFindObject<UObject*>(
@@ -8437,7 +8474,26 @@ namespace MeshGhostPseudo
                 }
                 else
                 {
-                    remote.weapon_glow_component = spawn_niagara_attached(glow_asset, remote.weapon_fly_component);
+                    // WORLD-spawned with identity rotation, not attached to the flyer: attached,
+                    // the ring inherited the embedded sword's tilt and stood on edge (user,
+                    // 2026-09-01, screenshot -- "the ground vfx sits sideways", rays displaced
+                    // with it). The real ring is world-aligned however the sword lands; a landed
+                    // sword does not move, so nothing needs to follow. The catch branch's
+                    // Deactivate+DestroyComponent teardown works the same on an unattached
+                    // component.
+                    // 38 units DOWN from the sword's actor origin to the floor it is embedded
+                    // in -- measured, not guessed: every landed sword in the 16:49 capture sat
+                    // at z=-761..-766 over the -800 floor. At the origin itself the ring hovered
+                    // ("a bit too high above the sword", user 2026-09-01).
+                    //
+                    // TARGET position, not the smoothed render position: the landing edge
+                    // arrives while the smoothing still lags the falling sword, so a ring
+                    // spawned at the render position sat high AND off-center by exactly that
+                    // lag (user's side-by-side screenshot, same day). The target in the sample
+                    // that carried the 0->3 edge IS the real sword's resting spot.
+                    constexpr double WEAPON_GLOW_FLOOR_DROP = 38.0;
+                    const FVector glow_at(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_GLOW_FLOOR_DROP);
+                    remote.weapon_glow_component = spawn_niagara_at_location(remote.ghost, glow_asset, glow_at);
                     if constexpr (WEAPON_PROP_TRACE)
                     {
                         Output::send(STR("[MeshGhostPseudo] WEAPONPROP {}: glow spawn '{}' -> {}\n"),
@@ -12978,6 +13034,9 @@ namespace MeshGhostPseudo
             // bounces yet", never as a burst.
             double weapon_bounce_num = 0;
             json_number_field(line, "weapon_bounce", weapon_bounce_num);
+            // Blob-shadow visibility -- absent (older peer) reads as visible, the harmless side.
+            double shadow_on_num = 1;
+            json_number_field(line, "shadow_on", shadow_on_num);
             std::string weapon_class = json_string_field(line, "weapon_class");
             double weapon_state_in = 0;
             json_number_field(line, "weapon_state", weapon_state_in);
@@ -13218,6 +13277,7 @@ namespace MeshGhostPseudo
                 }
                 it->second.target_weapon_thrown = weapon_thrown;
                 it->second.target_weapon_bounce = weapon_bounce_num;
+                it->second.target_shadow_visible = shadow_on_num != 0;
                 if (weapon_thrown && has_weapon_pos && has_weapon_rot)
                 {
                     it->second.target_weapon_x = weapon_x + loopback_offset_x;
@@ -16654,6 +16714,22 @@ namespace MeshGhostPseudo
                             {
                                 continue;
                             }
+                            // **The thrown SWORD's own dust is not the player's (2026-09-01).**
+                            // The game world-spawns NS_DustLand where the sword lands; counted
+                            // here by player proximity, it played at the GHOST's feet on every
+                            // watcher (user-reported). A burst closer to the local thrown sword
+                            // than to the player belongs to the sword -- the receiver plays it
+                            // at the flyer's landing edge instead, where it actually happened.
+                            if (weapon_thrown)
+                            {
+                                const double sx = where->X() - weapon_x;
+                                const double sy = where->Y() - weapon_y;
+                                const double sz = where->Z() - weapon_z;
+                                if ((sx * sx + sy * sy + sz * sz) < (dx * dx + dy * dy + dz * dz))
+                                {
+                                    continue;
+                                }
+                            }
 
                             // **Remember HOW HIGH the game put it, 2026-08-27.** This proximity
                             // test already had the answer in `dz` and was throwing it away, while
@@ -16736,6 +16812,19 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // The player's own blob-shadow visibility, mirrored 1:1 to the ghost's. The game
+            // drives this flag itself -- measured 2026-09-01 (probe_swordthrow/shadow_sit):
+            // BlobShadow.bVisible flips on the chair sit/stand edges, and the ghost's shadow
+            // stayed on while sitting (user-reported). Missing property reads as visible.
+            int shadow_on = 1;
+            if (UObject** shadow_ptr = mg_property_value<UObject*>(pawn, STR("BlobShadow")); shadow_ptr && *shadow_ptr)
+            {
+                if (bool* shadow_visible = mg_property_value<bool>((*shadow_ptr), STR("bVisible")))
+                {
+                    shadow_on = *shadow_visible ? 1 : 0;
+                }
+            }
+
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
@@ -16755,7 +16844,7 @@ namespace MeshGhostPseudo
                 // MaxExtrasBytes = 1024 and an unbounded double can print 17 significant digits.
                 // Measured worst case with this block: ~689 bytes.
                 "\"weapon_thrown\":{},\"weapon_class\":\"{}\",\"weapon_state\":{},\"weapon_glow\":\"{}\",\"recall_glow\":{},"
-                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"weapon_bounce\":{},\"vfx\":\"{}\","
+                "\"weapon_pos\":[{:.1f},{:.1f},{:.1f}],\"weapon_rot\":[{:.1f},{:.1f},{:.1f}],\"weapon_bounce\":{},\"shadow_on\":{},\"vfx\":\"{}\","
                 // Ranged projectile -- one decimal for the same size reason as the weapon
                 // block above, and the class path only crosses the wire while a shot flies.
                 "\"prj\":{},\"prj_vfx\":\"{}\",\"prj_pos\":[{:.1f},{:.1f},{:.1f}],\"prj_rot\":[{:.1f},{:.1f},{:.1f}],\"blink_count\":{},\"death_count\":{},\"hurt_count\":{}}}"
@@ -16800,6 +16889,7 @@ namespace MeshGhostPseudo
                 weapon_yaw,
                 weapon_roll,
                 local_weapon_bounce_count,
+                shadow_on,
                 mirrored_vfx_keys,
                 projectile_active ? 1 : 0,
                 json_escape(projectile_vfx),
@@ -19006,6 +19096,22 @@ namespace MeshGhostPseudo
                 remote.last_synced_weapon_equipped = remote.target_weapon_equipped;
                 remote.weapon_equip_call_armed = true;
             }
+            // The peer's blob-shadow visibility, applied to the ghost's own BlobShadow on
+            // change (2026-09-01) -- the game hides the player's while sitting on a chair
+            // (measured: shadow_sit capture) and the ghost's stayed on. A direct component
+            // visibility write on OUR actor: no game function, nothing to cross-wire.
+            {
+                const int want_shadow = remote.target_shadow_visible ? 1 : 0;
+                if (want_shadow != remote.last_applied_shadow_visible)
+                {
+                    if (UObject** ghost_shadow = mg_property_value<UObject*>(remote.ghost, STR("BlobShadow")); ghost_shadow && *ghost_shadow)
+                    {
+                        call_set_visibility(*ghost_shadow, remote.target_shadow_visible);
+                        remote.last_applied_shadow_visible = want_shadow;
+                    }
+                }
+            }
+
             // Montage mirror -- see RemoteGhost::target_montage. Deliberately NOT tied to the
             // weapon-equip edge above: this is the general "the peer's character started playing
             // an animation montage" path, and the Dream Breaker throw is simply its first

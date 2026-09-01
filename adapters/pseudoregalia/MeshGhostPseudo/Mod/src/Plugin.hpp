@@ -257,6 +257,11 @@ namespace MeshGhostPseudo
         // rule, so a mid-session join never replays bounce history. 2026-09-01.
         double target_weapon_bounce{};
         double last_seen_weapon_bounce{-1.0};
+        // The peer's own blob-shadow visibility, mirrored 1:1 (2026-09-01) -- the game hides the
+        // player's BlobShadow while sitting on a chair (measured: bVisible flips on the
+        // sit/stand edges) and the ghost's stayed on. -1 = not applied yet; edge-gated apply.
+        bool target_shadow_visible{true};
+        int last_applied_shadow_visible{-1};
 
         // The landed sword's glow ring. Sent as the NiagaraSystem asset's own object path, read off
         // the peer's real sword rather than hardcoded, so a build or mod with a different effect
