@@ -2,8 +2,6 @@ package relay
 
 import (
 	"time"
-
-	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // Limits enforced starting Phase 3, per the "Limits" section of
@@ -40,8 +38,8 @@ const (
 	// by MaxMessagesPerSecondFor below, so a relay configured for a faster
 	// send_hz gets proportionally more headroom instead of tripping this
 	// flat number outright. At the default send_hz (protocol.DefaultSendHz,
-	// 20), the computed cap is exactly this constant's historical value —
-	// 120 — so an unconfigured relay's behavior is unchanged. The core does
+	// 15 since 2026-09-01) the scaled term is 90, so this floor is what
+	// applies — the same 120 an unconfigured relay has always enforced. The core does
 	// throttle its own send rate (core.Core.MinSendInterval / the room's
 	// advertised send_hz, added the same session TEVI's uncapped Update()
 	// first tripped this limit for real — see agent_docs/architecture.md's
@@ -51,18 +49,35 @@ const (
 
 	// RateLimitHeadroomMultiple is how many messages per second per client
 	// the relay tolerates for each Hz of the room's configured send rate.
-	// 6x is not a fresh judgement: it is exactly MaxMessagesPerSecond /
-	// protocol.DefaultSendHz (120/20), chosen so a relay left at defaults
-	// computes precisely the historical hardcoded 120 and this scaling
-	// changes nothing for an existing deployment. The headroom covers
-	// ping/pong heartbeats, scheduling jitter against a fixed tumbling
-	// window, and a client that ignores the advertised rate outright — the
-	// flood cap is a resource guard, not enforcement of send_hz (nothing
-	// anywhere makes a client honor Welcome.SendHz).
-	// Derived, not a literal, so the stated relationship can't silently
-	// break if protocol.DefaultSendHz changes (found in a review pass
-	// 2026-08-16: all three were independent literals in two packages).
-	RateLimitHeadroomMultiple = MaxMessagesPerSecond / protocol.DefaultSendHz
+	// 6x covers ping/pong heartbeats, scheduling jitter against a fixed
+	// tumbling window, and a client that ignores the advertised rate
+	// outright — the flood cap is a resource guard, not enforcement of
+	// send_hz (nothing anywhere makes a client honor Welcome.SendHz).
+	//
+	// **A LITERAL AGAIN as of 2026-09-01, and the flip is the point.** It
+	// was written as MaxMessagesPerSecond / protocol.DefaultSendHz (120/20)
+	// in a 2026-08-16 review pass, so that "a relay left at defaults
+	// computes precisely the historical 120" could not silently break. When
+	// DefaultSendHz dropped 20 → 15, that derivation would have kept the
+	// defaults case right (15 × 8 = 120) while quietly RAISING the cap at
+	// every configured rate above the default — a 100Hz room would have gone
+	// from 600 to 800 messages/second per client, loosening a resource guard
+	// as a side effect of a cosmetic smoothness decision nobody connected to
+	// it.
+	//
+	// So the invariant worth protecting turned out to be the CAP's behaviour,
+	// not the arithmetic link: pinned at 6, every configured rate keeps
+	// exactly the cap it had, and the default case is unchanged too — 15 × 6
+	// = 90 falls under the MaxMessagesPerSecond floor, which returns 120, the
+	// same number 20Hz produced. Both properties hold, which is why this is a
+	// literal rather than a redivision.
+	//
+	// The 2026-08-16 lesson still stands where it was aimed (three
+	// independent literals in two packages); what it missed is that a derived
+	// constant transmits a change to places the change was never reasoned
+	// about. A derivation is only safe while every dependant WANTS to move
+	// with the source.
+	RateLimitHeadroomMultiple = 6
 
 	// DefaultHelloTimeout bounds how long an unauthenticated connection may
 	// sit without completing a Hello and joining a room. Without this, a

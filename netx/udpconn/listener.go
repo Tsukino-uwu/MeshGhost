@@ -182,12 +182,37 @@ func (l *Listener) Close() error {
 	l.once.Do(func() {
 		close(l.closed)
 		_ = l.pc.Close()
+
+		// SNAPSHOT UNDER THE LOCK, CLOSE OUTSIDE IT. Holding l.mu across
+		// c.once.Do() is a lock-ordering deadlock, found 2026-09-01 in a
+		// goroutine dump from a test binary that hung for ten minutes:
+		//
+		//   Conn.Close   takes c.once, then calls l.forget() -> wants l.mu
+		//   Listener.Close takes l.mu,  then calls c.once.Do -> wants c.once
+		//
+		// Opposite orders, so a peer disconnecting at the moment the
+		// listener closes wedges both goroutines permanently — a relay that
+		// never finishes shutting down, and (as seen) a whole test package
+		// stuck behind it. Rare because the window is one map iteration
+		// wide, which is exactly why it survived until an unrelated timing
+		// change shook it loose.
+		//
+		// Taking the snapshot first removes the nesting entirely: nothing
+		// here holds l.mu while touching a Conn, so forget()'s l.mu wait is
+		// always against an unheld lock. Emptying the map under the same
+		// lock keeps forget() correct-but-redundant for these conns rather
+		// than racing it.
 		l.mu.Lock()
+		closing := make([]*Conn, 0, len(l.conns))
 		for _, c := range l.conns {
-			c.once.Do(func() { close(c.closed) })
+			closing = append(closing, c)
 		}
 		l.conns = map[string]*Conn{}
 		l.mu.Unlock()
+
+		for _, c := range closing {
+			c.once.Do(func() { close(c.closed) })
+		}
 	})
 	return nil
 }

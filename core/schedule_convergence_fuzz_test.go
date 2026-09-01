@@ -79,7 +79,144 @@ type scheduleActor struct {
 	pos    float64
 }
 
+// fuzzScheduleConfigBytes is how many leading seed bytes describe the room's
+// CONFIGURATION rather than its schedule: send rate, interpolation delay,
+// curve+prediction, keepalive, per-peer receive cap. Added 2026-09-01 -- see
+// FuzzSchedule's own comment for why one pinned configuration was a blind
+// spot.
+const fuzzScheduleConfigBytes = 5
+
+// fuzzScheduleInterps / fuzzScheduleKeepalives are the alphabets for the two
+// timing knobs, and they are deliberately SMALL AND SHORT.
+//
+// The honest constraint is the compressed clock this target already runs on
+// (see fuzzSchedule* above): every value here has to stay well inside
+// fuzzScheduleConvergeWait, or a slow-but-correct configuration reports as a
+// convergence failure and the target starts testing patience instead of code.
+// The shipped 250ms interp is NOT in this list for that reason -- what is
+// being varied is the RELATIONSHIP between the knobs (is the delay above or
+// below the sample gap, is the keepalive above or below the stale window),
+// which is where the seams are, and that relationship is preserved by
+// compression.
+var fuzzScheduleInterps = [4]time.Duration{
+	0, 5 * time.Millisecond, 15 * time.Millisecond, 40 * time.Millisecond,
+}
+
+var fuzzScheduleKeepalives = [4]time.Duration{
+	0, 5 * time.Millisecond, 10 * time.Millisecond, 50 * time.Millisecond,
+}
+
+// scheduleConfig is one room's worth of randomized settings.
+type scheduleConfig struct {
+	rawSendHz    int // as configured, BEFORE clamping -- 0 and out-of-range are legal inputs
+	rawReceiveHz int // per-peer receive cap, 0 meaning uncapped
+	interp       time.Duration
+	keepalive    time.Duration
+	curve        CurveMode
+	predict      PredictMode
+	extrapolate  time.Duration
+}
+
+// String is what a failing corpus entry prints. A configuration nobody can
+// read is a configuration nobody can reproduce -- the same reason scheduleOps
+// exists for the ordering half.
+func (c scheduleConfig) String() string {
+	return fmt.Sprintf("send_hz=%d(->%d) recv_hz=%d(->%d) interp=%v keepalive=%v curve=%s predict=%s extrapolate=%v",
+		c.rawSendHz, protocol.ClampSendHz(c.rawSendHz),
+		c.rawReceiveHz, protocol.ClampReceiveHz(c.rawReceiveHz),
+		c.interp, c.keepalive, c.curve, c.predict, c.extrapolate)
+}
+
+// decodeScheduleConfig turns the seed's config prefix into settings. Every
+// field is derived by masking, never by rejecting, so the engine never wastes
+// an execution on an input this decoder refuses -- the whole byte space maps
+// onto a legal configuration.
+func decodeScheduleConfig(b []byte) scheduleConfig {
+	cfg := scheduleConfig{
+		// Raw and unclamped on purpose: 0 ("unspecified") and >MaxSendHz
+		// ("clamp me") are exactly the inputs a hostile or careless relay
+		// sends, and the room's real rate is whatever ClampSendHz makes of it.
+		rawSendHz: int(b[0]),
+		interp:    fuzzScheduleInterps[b[1]&0x03],
+		keepalive: fuzzScheduleKeepalives[b[3]&0x03],
+		// A receive cap is a per-CLIENT choice, and 0 (uncapped) is the
+		// shipped default, so it gets the low bit of the byte's own value
+		// rather than a separate alphabet: most bytes mean "some cap", and
+		// the exact number is clamped the same way the send rate is.
+		rawReceiveHz: int(b[4]),
+	}
+
+	// Curve and prediction share one byte: two bits pick the curve, two the
+	// prediction mode, one turns extrapolation on. They are packed rather than
+	// given a byte each because they compose -- extrapolation with no curve is
+	// a different proposition from either alone (dev-scripts/README.md's
+	// render-knob section), and the engine mutates one byte at a time.
+	switch b[2] & 0x01 {
+	case 0:
+		cfg.curve = CurveLinear
+	default:
+		cfg.curve = CurveCatmullRom
+	}
+	switch (b[2] >> 1) & 0x03 {
+	case 0:
+		cfg.predict = PredictLinear
+	case 1:
+		cfg.predict = PredictDamped
+	default:
+		cfg.predict = PredictAccelerated
+	}
+	if (b[2]>>3)&0x01 == 1 {
+		// Bounded by the same compressed-clock reasoning as the interp
+		// alphabet: long enough to actually predict past the newest sample,
+		// short enough that a correction lands inside the converge window.
+		cfg.extrapolate = 20 * time.Millisecond
+	}
+	return cfg
+}
+
+// scheduleStaleAfter keeps the stale window COHERENT with the room's send
+// rate instead of pinning it.
+//
+// This is the one place the fuzzer is deliberately not free, and the reason is
+// a property of the system rather than of the test: a stale window shorter
+// than the gap between two sends means "despawn a peer who is sending
+// normally", so such a room churns ghosts forever by design. Fuzzing into it
+// would generate failures that are misconfiguration, not defects, and a target
+// that cries wolf gets muted. Four sample gaps, floored at the compressed
+// clock's own 200ms, keeps every generated room one where convergence is
+// actually required to happen.
+func scheduleStaleAfter(rawSendHz int) time.Duration {
+	gap := time.Second / time.Duration(protocol.ClampSendHz(rawSendHz))
+	if stale := 4 * gap; stale > fuzzScheduleStaleAfter {
+		return stale
+	}
+	return fuzzScheduleStaleAfter
+}
+
+// newScheduleActorWith is newScheduleActor under a fuzzed configuration.
+func newScheduleActorWith(t *testing.T, relayAddr, name string, cfg scheduleConfig) *scheduleActor {
+	t.Helper()
+	return newScheduleActorTuned(t, relayAddr, name, func(c *Core) {
+		c.InterpolationDelay = cfg.interp
+		c.IdleKeepalive = cfg.keepalive
+		c.RemoteStaleAfter = scheduleStaleAfter(cfg.rawSendHz)
+		c.MaxReceiveHz = protocol.ClampReceiveHz(cfg.rawReceiveHz)
+		c.Curve = cfg.curve
+		c.Predict = cfg.predict
+		c.Extrapolate = cfg.extrapolate
+	})
+}
+
 func newScheduleActor(t *testing.T, relayAddr, name string) *scheduleActor {
+	t.Helper()
+	return newScheduleActorTuned(t, relayAddr, name, nil)
+}
+
+// newScheduleActorTuned builds the actor with the compressed clock, then lets
+// tune override whatever the fuzzed configuration wants to vary. Split out
+// 2026-09-01 so the fixed-clock callers and the fuzzed one share one setup
+// rather than drifting into two.
+func newScheduleActorTuned(t *testing.T, relayAddr, name string, tune func(*Core)) *scheduleActor {
 	t.Helper()
 	c, bridgeAddr := startCoreLazyWith(t, relayAddr, "fuzzroom", name, func(c *Core) {
 		c.MinSendInterval = time.Millisecond
@@ -96,6 +233,9 @@ func newScheduleActor(t *testing.T, relayAddr, name string) *scheduleActor {
 		// schedule. The dial timeout is what the code does when the machine is
 		// too slow, so it is the one knob that must not be tightened here.
 		c.DialTimeout = 10 * time.Second
+		if tune != nil {
+			tune(c)
+		}
 	})
 	// A Core has no Close, so one left behind by a finished iteration keeps
 	// its reconnect loop running -- and at the compressed cadence above that
@@ -283,16 +423,41 @@ func FuzzSchedule(f *testing.F) {
 		if len(seed) == 0 {
 			return
 		}
+
+		// THE CONFIGURATION IS PART OF THE SEED, not just the ordering
+		// (2026-09-01, the user: "I want the fuzzer to actually test/randomize
+		// everything, so we actually catch things with it").
+		//
+		// Until then this target pinned MaxSendHz and every render knob at a
+		// single value, so every property it has ever proven -- including the
+		// five ways a ghost went invisible that it found on 2026-08-29 -- was
+		// proven in exactly ONE configuration. The knobs are not inert: the
+		// send rate sets the gap between samples, which races the keepalive,
+		// the stale window and the interpolation buffer's edges, while curve
+		// and prediction change which samples the buffer must still be
+		// holding. Those are the seams this target exists to shake, and it was
+		// shaking them at one setting. Lowering the shipped send rate 20 -> 15
+		// the same day is what made the blind spot obvious -- a whole-system
+		// interval that had never varied under the fuzzer.
+		//
+		// Rates are fed as RAW bytes rather than pre-clamped values: 0 must
+		// mean "unspecified" and out-of-range must clamp, and both paths
+		// deserve the same engine exploring them as everything else.
+		if len(seed) <= fuzzScheduleConfigBytes {
+			return
+		}
+		cfg := decodeScheduleConfig(seed[:fuzzScheduleConfigBytes])
+		seed = seed[fuzzScheduleConfigBytes:]
 		if len(seed) > fuzzScheduleMaxSteps {
 			seed = seed[:fuzzScheduleMaxSteps]
 		}
 
 		s := relay.NewServer()
-		s.SendHz = protocol.MaxSendHz
+		s.SendHz = cfg.rawSendHz
 		relayAddr := startRelayWith(t, s)
 
-		a := newScheduleActor(t, relayAddr, "alice")
-		b := newScheduleActor(t, relayAddr, "bob")
+		a := newScheduleActorWith(t, relayAddr, "alice", cfg)
+		b := newScheduleActorWith(t, relayAddr, "bob", cfg)
 
 		ran := make([]string, 0, len(seed))
 		for _, step := range seed {

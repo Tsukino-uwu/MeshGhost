@@ -98,7 +98,7 @@ func IsPermanentRejectErr(err error) bool {
 // Why a tile game is the demanding case, and why this value should hold for
 // others: a ghost driven by the game's own movement can only START A STEP when
 // it has been told the peer moved, and positions arrive at the room's send rate
-// (DefaultMinSendInterval, 20Hz) rather than per frame. Whatever slack this
+// (DefaultMinSendInterval, 15Hz since 2026-09-01) rather than per frame. Whatever slack this
 // delay does not absorb, the ghost shows as a hitch — and a tile game shows it
 // hardest, because a step is a discrete commitment rather than a nudge an
 // action game can blend away.
@@ -123,7 +123,7 @@ const DefaultInterpolationDelay = 250 * time.Millisecond
 // receiver can be working from a state this client has stopped restating, and
 // choosing anything longer than the delay a ghost is already rendered behind
 // would make the suppression the dominant source of staleness rather than a
-// negligible one. At a 20Hz room it turns an idle player's 20 packets a second
+// negligible one. At a 15Hz room it turns an idle player's 15 packets a second
 // into 4; at the 100Hz dev rig, 100 into 4.
 const DefaultIdleKeepalive = 250 * time.Millisecond
 
@@ -144,9 +144,12 @@ const DefaultRemoteStaleAfter = 3 * time.Second
 // MaxMessagesPerSecond was a hardcoded 120, but a Unity adapter's Update()
 // runs uncapped well above that, so every-frame forwarding got the
 // connection closed by the relay after ~2 minutes (agent_docs/verified.md's
-// Phase 6.4/6.5 entry). 50ms (20Hz) leaves comfortable headroom under the
-// relay's cap regardless of adapter frame rate, and is well above the
-// brief's own 10Hz sync hypothesis. See the ADR in agent_docs/architecture.md
+// Phase 6.4/6.5 entry). ~67ms (15Hz since 2026-09-01, 50ms/20Hz before it)
+// leaves comfortable headroom under the relay's cap regardless of adapter
+// frame rate, and stays above the brief's own 10Hz sync hypothesis -- which
+// the 2026-09-01 ladder retired as a hypothesis: 10Hz is where a watcher
+// starts seeing stutters, which is exactly why the new default sits above it
+// rather than on it. See the ADR in agent_docs/architecture.md
 // for the send/receive rate-control feature that made this a fallback
 // rather than a fixed rate.
 const DefaultMinSendInterval = time.Second / protocol.DefaultSendHz

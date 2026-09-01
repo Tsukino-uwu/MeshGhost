@@ -755,7 +755,7 @@ only when isolated:
 
 ### Ranked by measurement, 2026-08-28 -- and per-field deltas are NOT the biggest win
 
-Measured on the netsim rig: **~136 bytes per state** on the wire, so a shipped 20Hz room costs
+Measured on the netsim rig: **~136 bytes per state** on the wire, so a then-shipped 20Hz room costs
 about **9.8 MB/hour** per uploading player before IP/UDP overhead (another ~30-50 bytes a packet).
 Against that baseline the three candidates rank opposite to intuition, because **relay CPU and
 header overhead scale with PACKET COUNT, not packet size**:

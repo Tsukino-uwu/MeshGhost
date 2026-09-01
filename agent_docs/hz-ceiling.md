@@ -48,7 +48,9 @@ added a time bound (`maxSnapshotAgeMs`) but kept a count. **MEASURED, not derive
 **A LARGER interp delay broke at a LOWER rate** — the counter-intuitive half, and the one that would
 have bitten someone raising `interp` to smooth a bad link while also raising Hz. **A second bug hid
 behind the same constant and needed no high rate at all:** a fixed 600ms window meant any
-interpolation delay above 600ms edge-held at EVERY rate, including the shipped 20Hz. Nobody had
+interpolation delay above 600ms edge-held at EVERY rate, including the then-shipped 20Hz (the
+shipped default is 15Hz since 2026-09-01; every measurement in this file was taken at the rate it
+names, and none was re-run). Nobody had
 configured one that large, which is the only reason it never showed.
 
 ## Where the ceiling actually is now (post-fix, 2026-08-30)

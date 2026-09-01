@@ -296,3 +296,5 @@ on Crystal. `dev-scripts/preflight.ps1` checks that every heading in every body 
 - The turn direction of a fast tumble is not in the samples — three renderers watched, write-through wins (Pseudoregalia, 2026-09-01, CLOSED)
 - A declared-but-never-enforced constant gets calibrated by nobody (Pseudoregalia, 2026-09-01, CLOSED)
 - Interp is sized by the link's wobble plus loss holes, never by raw ping (cross-game, 2026-09-01, CLOSED)
+- A derived constant transmits a change to places nobody reasoned about (Go side, 2026-09-01, CLOSED before shipping)
+- A ten-minute test timeout was a real shipping deadlock — and 240 red herrings sat on top of it (Go side, 2026-09-01, CLOSED)

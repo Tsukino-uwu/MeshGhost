@@ -68,14 +68,38 @@ const (
 	// DefaultSendHz is the room-wide state send rate a relay advertises in
 	// Welcome.SendHz when its operator hasn't configured one, and the rate a
 	// client falls back to when the relay advertises nothing at all (an
-	// older relay). 20Hz, not the brief's original 10Hz hypothesis: 20Hz is
-	// the rate live-confirmed as core.DefaultMinSendInterval across the
-	// three games shipping at the time -- Emerald, TEVI and Pseudoregalia;
-	// Crystal came later (2026-08-18) and is the fourth
-	// (agent_docs/contract.md's Limits section). This constant exists to
-	// keep the two provably equal rather than as a fresh claim about the
-	// "right" rate.
-	DefaultSendHz = 20
+	// older relay).
+	//
+	// **15Hz since 2026-09-01, lowered from 20 on the first evidence anyone
+	// ever gathered for this number.** The 20 was inherited rather than
+	// measured: it was the rate live-confirmed as core.DefaultMinSendInterval
+	// across the games shipping in 2026-08, kept so the two were provably
+	// equal, and explicitly not a claim about the right rate.
+	//
+	// What replaced it (adapters/pseudoregalia/VERIFIED.md, the 2026-09-01
+	// evening entry): a rung-by-rung ladder watched on screen with two real
+	// game instances through meshghost-netsim, then a FIVE-ROUND BLIND A/B of
+	// 15 against 20 with the rate hidden from the watcher -- who scored 2.5/5,
+	// chance, and whose one confident "this is the slow one" tell fired twice
+	// on rounds that were actually 20Hz (it was a renderer bug in the thrown
+	// sword, fixed separately). Below that: 10Hz "some stutters every now and
+	// then", 7Hz "jitter/lag every now and then", 5Hz "constantly snapping",
+	// 3Hz and 1Hz outright teleporting. So the visible floor is near 10 and
+	// 15 carries margin over it, while 20 buys nothing a watcher can see.
+	//
+	// Measured on Pseudoregalia deliberately -- 3D, momentum, long airborne
+	// arcs, the most sample-hungry adapter shipped -- so the other three
+	// inherit a rate proven on the hardest case, and each is still free to
+	// be swept and raised on its own evidence (ADR 0040's per-game principle).
+	// A room that wants more sets server.send_hz; nothing about this being a
+	// default makes it a ceiling.
+	//
+	// Two things deliberately NOT changed with it: MinSendHz stays 10 (the
+	// sub-10 rungs above are why -- they were reached with a temporary dev
+	// build), and relay.RateLimitHeadroomMultiple stopped deriving from this
+	// constant so that lowering the default could not silently widen every
+	// configured room's flood cap. See that constant's own comment.
+	DefaultSendHz = 15
 
 	// MinSendHz / MaxSendHz bound both server.send_hz (a relay's configured
 	// room rate) and client.max_receive_hz_per_player (a client's own

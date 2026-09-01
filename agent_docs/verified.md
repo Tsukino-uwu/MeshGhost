@@ -1341,3 +1341,55 @@ watched each game and said so.
   at all -- `GOMAXPROCS=2` could, in seconds. A concurrency test's parallelism setting is part of
   what it can see.
 - Source: `core/relaysession.go`, `core/handshakedrop_test.go`; CI run 33219562169.
+
+## 2026-09-01 — `DefaultSendHz` lowered 20 → 15 for every adapter, on the first evidence the number ever had
+
+**The change.** `protocol.DefaultSendHz` 20 → 15, plus the shipped `packaging/release/config.json`
+`send_hz`, both operator-facing flag help strings, the release README's whole bandwidth section
+(recomputed, not footnoted), and `contract.md`'s Limits/state-plane statements. `MinSendHz` stays
+10 deliberately: the default now sits ABOVE the visible floor rather than on it.
+
+**Why 15 rather than a guess.** The 20 was inherited — it was whatever `DefaultMinSendInterval`
+already was, kept "provably equal" and explicitly not a claim about the right rate. What replaced
+it is `adapters/pseudoregalia/VERIFIED.md`'s 2026-09-01 evening entry: a rung-by-rung ladder
+(1/3/5/7/10/15/20Hz) watched on two real game instances through `meshghost-netsim`, then a
+**five-round blind A/B of 15 against 20 scored at chance (2.5/5)**. Run on Pseudoregalia
+deliberately — 3D, momentum, long airborne arcs, the most sample-hungry adapter — so the other
+three inherit a rate proven on the hardest case, and each stays free to be swept and raised on its
+own evidence (ADR 0040's per-game principle). The user's call: *"we will test lower/higher for the
+other adapters anyway, but think we can assume 15hz to be a good base/low starting line."*
+
+**The trap this change walked into, caught before it shipped.**
+`relay.RateLimitHeadroomMultiple` was DERIVED as `MaxMessagesPerSecond / protocol.DefaultSendHz`
+(120/20 = 6) by a 2026-08-16 review pass, so that "a relay left at defaults computes exactly the
+historical 120" could not silently break. Lowering the default would have kept that one case right
+(15 × 8 = 120) while **raising the per-client flood cap at every configured rate above the
+default** — a 100Hz room going 600 → 800 messages/second as a side effect of a cosmetic smoothness
+decision nobody connected to it. Pinned back to a literal 6: every rate keeps exactly the cap it
+had, and the defaults case is still 120 (15 × 6 = 90, so the floor applies). The general lesson,
+filed in `pitfalls/by-lesson.md`: **a derivation is only safe while every dependant WANTS to move
+with the source.**
+
+**Verification (Go side, per CLAUDE.md — tools, not a live watch).** `dev-scripts/run-gotests.bat`
+green: build, vet and the whole suite twice including `internal/e2e`, which launches the real
+binaries and drives a real adapter over the bridge. Two new regression tests pin the decision and
+the trap: `protocol/sendhzdefault_test.go` (the value, the floor still 10, default above floor,
+zero-means-default) and `relay/floodcapstable_test.go` (the flood cap unchanged at 10/15/20/50/100Hz
+and the multiple still a literal 6).
+
+**Not claimed:** nobody has watched 15Hz on Emerald, Crystal or TEVI. Each inherits it as a
+starting line, and the per-game sweeps that would confirm or raise it are still open work.
+
+**It also found a real deadlock, which is the most valuable thing about it.** The first full-suite
+run after the change hung the `relay` package for its full 10-minute timeout. It did not reproduce
+(that test alone 5/5, the package `-count=2` green on both this tree and clean `master`), and the
+goroutine dump's loudest feature — 240 goroutines blocked on the test helper's 16-deep channel —
+was leaked read loops from earlier tests, pure noise. Three goroutines underneath were an
+ABBA lock-ordering deadlock in `netx/udpconn` between `Listener.Close` and `Conn.Close`: a peer
+disconnecting as a listener closes wedges both permanently, which in production is **a relay that
+never finishes shutting down**. Pre-existing, unrelated to the rate; the send interval moving
+50ms -> ~67ms merely reshuffled the interleaving enough to hit a one-map-iteration window once.
+Fixed (snapshot conns, release the lock, then close) with a regression test that races the two
+closes 50 times and fails on a timeout rather than hanging — verified to deadlock on the pre-fix
+file and pass on the fixed one. Method and the "read the dump by lock, not by volume" lesson:
+`pitfalls/by-lesson.md`.

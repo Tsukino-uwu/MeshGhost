@@ -5488,3 +5488,75 @@ TEVI 300ms assumed/175ms measured floor). **Lesson for every future adapter swee
 LINK tier as its own axis, judge interp per tier, and expect "constant stutter at any rate" to
 mean the delay budget, not the rate — the rate axis was blind-indistinguishable (above) the whole
 time this looked like a rate problem.
+
+## A DERIVED CONSTANT TRANSMITS A CHANGE TO PLACES NOBODY REASONED ABOUT (Go side, 2026-09-01, CLOSED before shipping)
+
+**The setup, which looked like good practice.** `relay.RateLimitHeadroomMultiple` (how many
+messages/second per client the relay tolerates per Hz of room send rate) was written as
+`MaxMessagesPerSecond / protocol.DefaultSendHz` — 120/20 = 6 — by a 2026-08-16 review pass that
+had just found three independent literals of the same relationship in two packages. The stated
+intent: a relay left at defaults computes exactly the historical flat 120, and that link cannot
+silently break.
+
+**What it did when the source moved.** Lowering `DefaultSendHz` 20 → 15 (a smoothness decision,
+measured on screen, nothing to do with resource guards) would have made the multiple 8. The
+defaults case stays correct — 15 × 8 = 120 — so the property the derivation was written to
+protect still holds, and **nothing fails**. Meanwhile every room configured ABOVE the default
+silently gets a wider flood cap: a 100Hz room goes from 600 to 800 messages/second per client.
+A security-adjacent limit loosened as a side effect, with a green test suite.
+
+**The fix and the general rule.** Pinned back to a literal 6, which keeps every configured rate's
+cap exactly as it was AND the defaults case at 120 (15 × 6 = 90, under the floor, so
+`MaxMessagesPerSecondFor` returns 120). Regression test: `relay/floodcapstable_test.go` asserts
+the cap at 10/15/20/50/100Hz. **The invariant worth protecting was the CAP's behaviour, not the
+arithmetic link** — and those two are only the same thing while the source constant is frozen.
+
+**So: before changing a constant, grep for who DERIVES from it, not just who reads it.** A reader
+is visible at the call site; a derivation silently redefines a second constant's meaning. And when
+writing one, ask the question the 2026-08-16 pass did not: *if this source changes, does every
+dependant want to move with it?* If any dependant would rather stay put, it is not a derivation,
+it is a coincidence that happens to typecheck.
+
+## A TEN-MINUTE TEST TIMEOUT WAS A REAL SHIPPING DEADLOCK — AND 240 RED HERRINGS SAT ON TOP OF IT (Go side, 2026-09-01, CLOSED)
+
+**Symptom.** `dev-scripts/run-gotests.bat` failed once: `FAIL relay 601.203s`, `panic: test timed
+out after 10m0s`, `running tests: TestRelayMixesAllThreeTransportsInOneRoom (9m36s)`. It did not
+reproduce — that test alone passed 5/5, the whole relay package passed at `-count=2` on both the
+working tree and clean `master`, in ~26s each.
+
+**The near-miss.** Everything above says "flake, move on". The dump's most visible feature agreed:
+**240 goroutines blocked on `tc.envs <- env`**, the test helper's 16-deep channel, which reads
+exactly like harness backpressure. It is not — 240 is far more clients than that test creates;
+they are leaked read loops from every earlier test in the package, permanently parked and
+permanently harmless. **The loudest thing in a dump is not the thing holding the lock.**
+
+**The actual cause, three goroutines out of 245:** a lock-ordering (ABBA) deadlock in
+`netx/udpconn`, shipping code, nothing to do with tests:
+
+```
+Conn.Close      takes c.once  -> calls Listener.forget -> wants l.mu
+Listener.Close  takes l.mu    -> calls c.once.Do       -> wants c.once
+```
+
+A peer disconnecting at the moment a listener closes wedges both forever: a relay that never
+finishes shutting down. The window is one map iteration wide, which is why it survived from
+whenever it was written until an unrelated timing change (`DefaultSendHz` 20 -> 15, moving every
+send from 50ms to ~67ms) reshuffled the interleaving enough to hit it once.
+
+**Fix:** `Listener.Close` snapshots its conns under `l.mu`, releases the lock, then closes them —
+no path holds `l.mu` while touching a `Conn`, so the cycle cannot form.
+`netx/udpconn/closedeadlock_test.go` races the two closes 50 times and **fails on a timeout rather
+than hanging**, because a deadlock regression must announce itself as a failed test, not as a
+ten-minute package timeout whose cause lives only in a stack dump. Verified both ways: it
+deadlocks on the pre-fix file (caught at attempt 40) and passes on the fixed one.
+
+**Lessons, in order of how much they cost:**
+1. **A hang is not a flake until you have read the dump.** "Didn't reproduce in three runs" is
+   evidence about probability, not about cause. This one would have been rediscovered later as a
+   relay that hung on shutdown in front of a player.
+2. **Read the dump by LOCK, not by volume**: `grep` the goroutine states, and go straight to
+   `sync.Mutex.Lock` / `chan receive` holders. 240 blocked senders were noise; 3 blocked lockers
+   were the bug.
+3. **A timing change is a concurrency test you did not write.** Anything that moves a system-wide
+   interval — a send rate, a tick, a timeout — reshuffles every interleaving in the process, and
+   the first failure after such a change deserves the dump, not a re-run.

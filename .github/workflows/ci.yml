@@ -2,7 +2,7 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against thirteen targets across five packages (protocol 7,
+# short fuzz campaign against fourteen targets across five packages (protocol 8,
 # bridge 2, relay 2, transport 1, netx/udpconn 1 -- count them with
 # `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
 # this line, which said eleven across four for as long as the two bridge targets
@@ -223,6 +223,15 @@ jobs:
       # legible cause.
       - name: Fuzz protocol - feature normalization is idempotent
         run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzNormalizeFeaturesIsIdempotent 30s
+      # Rate resolution is where a relay's advertised send_hz and a peer's
+      # requested receive cap enter this process, and every caller trusts the
+      # answer without re-checking it: core drives its send loop with it, the
+      # relay sizes a flood cap with it. A resolver that let a value escape
+      # [MinSendHz, MaxSendHz] would put a client at a rate nothing enforces.
+      # Added 2026-09-01 alongside the DefaultSendHz 20 -> 15 change -- a
+      # constant that moves is a constant worth fuzzing around.
+      - name: Fuzz protocol - send and receive rates always resolve in range
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzClampRatesAlwaysLandInRange 20s
       - name: Fuzz transport - framing honours its line limit
         run: bash dev-scripts/ci-fuzz.sh ./transport FuzzReadLoopNeverExceedsItsLineLimit 45s
       # world.v1 (2026-08-17) retains attacker-chosen opaque bytes for a room's

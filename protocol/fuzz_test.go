@@ -291,3 +291,55 @@ func FuzzExtrasSizingMatchesMarshal(f *testing.F) {
 		}
 	})
 }
+
+// FuzzClampRatesAlwaysLandInRange fuzzes the two rate resolvers, which sit on
+// the boundary where a relay's advertised send_hz and a peer's requested
+// receive cap enter this process. Added 2026-09-01 with the DefaultSendHz
+// 20 -> 15 change, on the user's principle that a value crossing the wire
+// deserves the same engine as every other one: "I want the fuzzer to actually
+// test/randomize everything".
+//
+// These are the properties every caller already assumes and none of them
+// re-check -- core trusts ClampSendHz's answer to drive its send loop, and the
+// relay trusts it to size a flood cap. A resolver that returned an
+// out-of-range value would put a client into a send rate nothing enforces.
+func FuzzClampRatesAlwaysLandInRange(f *testing.F) {
+	for _, hz := range []int{0, -1, 1, MinSendHz, DefaultSendHz, 20, MaxSendHz, MaxSendHz + 1, 1 << 20, -(1 << 20)} {
+		f.Add(hz)
+	}
+
+	f.Fuzz(func(t *testing.T, hz int) {
+		send := ClampSendHz(hz)
+		if send < MinSendHz || send > MaxSendHz {
+			t.Fatalf("ClampSendHz(%d) = %d, outside [%d, %d] -- a send rate that escapes the range is one nothing enforces", hz, send, MinSendHz, MaxSendHz)
+		}
+		// Zero and negative mean "unspecified", which is the only case allowed
+		// to invent a number rather than pass one through.
+		if hz <= 0 && send != DefaultSendHz {
+			t.Fatalf("ClampSendHz(%d) = %d, want DefaultSendHz (%d): unspecified must resolve to the default", hz, send, DefaultSendHz)
+		}
+		// An already-legal rate must survive untouched, or a relay's honest
+		// configuration silently becomes something else.
+		if hz >= MinSendHz && hz <= MaxSendHz && send != hz {
+			t.Fatalf("ClampSendHz(%d) = %d: an in-range rate must pass through unchanged", hz, send)
+		}
+		// Idempotent: clamping a clamped value is a no-op, which is what makes
+		// it safe to apply at both ends of the wire.
+		if again := ClampSendHz(send); again != send {
+			t.Fatalf("ClampSendHz is not idempotent: %d -> %d -> %d", hz, send, again)
+		}
+
+		recv := ClampReceiveHz(hz)
+		// Zero is "uncapped" here rather than "use the default" -- the one way
+		// the two resolvers deliberately differ.
+		if recv != 0 && (recv < MinSendHz || recv > MaxSendHz) {
+			t.Fatalf("ClampReceiveHz(%d) = %d, neither 0 (uncapped) nor inside [%d, %d]", hz, recv, MinSendHz, MaxSendHz)
+		}
+		if hz <= 0 && recv != 0 {
+			t.Fatalf("ClampReceiveHz(%d) = %d, want 0: an unset cap means uncapped, never a default rate", hz, recv)
+		}
+		if again := ClampReceiveHz(recv); again != recv {
+			t.Fatalf("ClampReceiveHz is not idempotent: %d -> %d -> %d", hz, recv, again)
+		}
+	})
+}

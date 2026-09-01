@@ -295,8 +295,8 @@ func main() {
 			"anything, in any game). Empty means enabled. Advisory: shipped adapters "+
 			"honor it, but this relay cannot verify that they did")
 	sendHz := flag.Int("send-hz", protocol.DefaultSendHz,
-		"how many times per second every player sends their position to this room (a \"20 tick\" "+
-			"relay = 20Hz = an update every 50ms; higher/lower are the same idea in different "+
+		"how many times per second every player sends their position to this room (a \"15 tick\" "+
+			"relay = 15Hz = an update every ~67ms; higher/lower are the same idea in different "+
 			"units). A client adopts this rate unless it has its own slower local preference, "+
 			"which always wins -- this can only ever make players send MORE often, never override "+
 			"someone who deliberately wants to send less. Valid range 10-100; leave this alone "+

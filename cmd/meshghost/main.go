@@ -412,7 +412,7 @@ func main() {
 	minSend := flag.Duration("min-send", 0,
 		"a FLOOR on how slowly you send your position to the relay -- leave this unset (0) to "+
 			"just adopt whatever rate the relay advertises (see -send-hz on the relay side; "+
-			"defaults to 20Hz/50ms if the relay doesn't advertise one at all). Setting this only "+
+			"defaults to 15Hz/~67ms if the relay doesn't advertise one at all). Setting this only "+
 			"ever makes you send SLOWER than the room, never faster: it's for a poor connection "+
 			"that wants to opt out of a fast room, not a way to exceed what the relay allows. "+
 			"e.g. 100ms means 'send at most 10 times/sec even if this room runs faster'")

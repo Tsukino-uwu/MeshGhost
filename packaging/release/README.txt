@@ -352,10 +352,10 @@ Setup, once:
                something huge without expecting to actually need it.
                See "How many players can I actually host?" below for what
                a given room size actually costs your connection.
-     "send_hz" -- LEAVE THIS AT 20 UNLESS YOU KNOW YOU NEED IT. How many
+     "send_hz" -- LEAVE THIS AT 15 UNLESS YOU KNOW YOU NEED IT. How many
                times per second every player in your room sends their
                position (see "What do Hz/ms/tickrate mean?" just below).
-               20 (the default) is a "20 tick" room; every player already
+               15 (the default) is a "15 tick" room; every player already
                sends at this rate today whether you set this or not.
                Raising it makes every ghost update more often -- but it
                also multiplies every player's network usage by the same
@@ -372,10 +372,10 @@ What do Hz/ms/tickrate mean? (relevant to "send_hz" above and
 These are three ways of writing the same number, and different people
 know different ones -- if you only recognize one of these words, this is
 for you:
-  - Hz (hertz) = how many times per second something happens. "20 Hz"
-    means 20 updates every second.
+  - Hz (hertz) = how many times per second something happens. "15 Hz"
+    means 15 updates every second.
   - ms (milliseconds) = the GAP between updates, the flipped-around way
-    of saying the same thing. 20 Hz = one update every 50 ms. The math:
+    of saying the same thing. 15 Hz = one update every ~67 ms. The math:
     1000 / Hz = ms. Higher Hz means a SMALLER gap between updates, and
     vice versa -- they move in opposite directions, which is the usual
     source of confusion.
@@ -383,7 +383,7 @@ for you:
     or "128 tick" server (Counter-Strike, Valorant, Overwatch, etc.) means
     64 Hz or 128 Hz. If you've ever tuned a game server's tickrate before,
     "send_hz" here is that same setting.
-  In short: 20 Hz = 50 ms between updates = a "20 tick" room. Three
+  In short: 15 Hz = ~67 ms between updates = a "15 tick" room. Three
   labels for one number.
 
 The real cost of raising send_hz -- shown per-hour, not per-second,
@@ -402,33 +402,36 @@ rather than planning to the last megabyte.
 
   YOUR OWN upload (what you personally send out -- same no matter how
   many people are in the room):
-    20 Hz  (default):  about 11.7 KB/s  =  about  41 MB/hour
-    100 Hz (maximum):  about 58.3 KB/s  =  about 205 MB/hour   (5x)
+    15 Hz  (default):  about  8.8 KB/s  =  about  31 MB/hour
+    100 Hz (maximum):  about 58.3 KB/s  =  about 205 MB/hour  (6.7x)
 
   YOUR OWN download (everyone else's positions coming IN to you --
-  scales with how many OTHER players are in the room), at 20 Hz:
-    2-player room:   about  11.7 KB/s  =  about   41 MB/hour
-    4-player room:   about  35.0 KB/s  =  about  123 MB/hour
-    8-player room:   about  81.6 KB/s  =  about  287 MB/hour
-    16-player room:  about 174.9 KB/s  =  about  615 MB/hour
-  At 100 Hz, multiply all four by 5.
+  scales with how many OTHER players are in the room), at 15 Hz:
+    2-player room:   about   8.8 KB/s  =  about   31 MB/hour
+    4-player room:   about  26.3 KB/s  =  about   92 MB/hour
+    8-player room:   about  61.2 KB/s  =  about  215 MB/hour
+    16-player room:  about 131.2 KB/s  =  about  461 MB/hour
+  At 100 Hz, multiply all four by 6.7.
 
   THE HOST'S upload (everyone's position, relayed to everyone else --
   this is what YOUR machine carries if you're hosting; it grows with the
-  SQUARE of room size, not just the number of players), at 20 Hz:
-    2-player room:   about  23.3 KB/s  =  about   82 MB/hour
-    4-player room:   about 139.9 KB/s  =  about  492 MB/hour
-    8-player room:   about 653.0 KB/s  =  about  2.2 GB/hour
-    12-player room:  about   1.5 MB/s  =  about  5.3 GB/hour
-    16-player room:  about   2.7 MB/s  =  about  9.6 GB/hour
-    24-player room:  about   6.3 MB/s  =  about 22.1 GB/hour
-    32-player room:  about  11.3 MB/s  =  about 39.7 GB/hour
-  At 100 Hz, multiply all of these by 5 as well.
+  SQUARE of room size, not just the number of players), at 15 Hz:
+    2-player room:   about  17.5 KB/s  =  about   61 MB/hour
+    4-player room:   about 104.9 KB/s  =  about  369 MB/hour
+    8-player room:   about 489.8 KB/s  =  about  1.7 GB/hour
+    12-player room:  about   1.1 MB/s  =  about  4.0 GB/hour
+    16-player room:  about   2.0 MB/s  =  about  7.2 GB/hour
+    24-player room:  about   4.7 MB/s  =  about 16.6 GB/hour
+    32-player room:  about   8.5 MB/s  =  about 29.8 GB/hour
+  At 100 Hz, multiply all of these by 6.7 as well.
 
-Bottom line: going from 20 to 100 multiplies EVERYONE's bandwidth by 5,
-for a visual improvement that's small and gets smaller the higher you
-go -- your client already smooths motion between updates ("interp"
-above), so 20/second already looks smooth to begin with. If you're
+Bottom line: going from 15 to 100 multiplies EVERYONE's bandwidth by
+nearly 7, for a visual improvement that's small and gets smaller the
+higher you go -- your client already smooths motion between updates
+("interp" above), so 15/second already looks smooth to begin with. That
+is measured, not assumed: in a blind test where the rate was hidden from
+the person watching, 15 and 20 were indistinguishable, and the stutter a
+watcher can actually see only starts appearing below about 10. If you're
 hosting, look at the host row first; that's what your own machine has to
 carry. Only raise this if you have a specific reason to.
 
@@ -450,15 +453,15 @@ quadruples your upload. That's why the jump from 8 to 16 costs so much
 more than the jump from 2 to 4.
 
 Here's the same host-upload numbers as above, in the units your internet
-plan is sold in (megabits per second), at the default 20 Hz and for the
+plan is sold in (megabits per second), at the default 15 Hz and for the
 heaviest game:
 
-    4 players:    about  1.2 Mbps upload
-    8 players:    about  5.4 Mbps upload   (the default)
-    12 players:   about 12.6 Mbps upload
-    16 players:   about 22.9 Mbps upload
-    24 players:   about 52.7 Mbps upload
-    32 players:   about 94.8 Mbps upload
+    4 players:    about  0.9 Mbps upload
+    8 players:    about  4.1 Mbps upload   (the default)
+    12 players:   about  9.5 Mbps upload
+    16 players:   about 17.2 Mbps upload
+    24 players:   about 39.5 Mbps upload
+    32 players:   about 71.1 Mbps upload
 
 To use this: run any internet speed test, look at the UPLOAD number (not
 download -- they're often very different, and upload is usually the much
@@ -469,7 +472,7 @@ start stuttering for everyone at once.
 
 Two things worth knowing before you raise it:
 
-  - Raising send_hz multiplies every number above by up to 5. Raising
+  - Raising send_hz multiplies every number above by up to 6.7. Raising
     BOTH send_hz and max_clients together is what actually gets people
     into trouble. Change one at a time.
   - These are network numbers only. Your own game also has to draw every

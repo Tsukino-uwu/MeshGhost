@@ -25,6 +25,6 @@
     "only_game": "",
     "ghost_collision": "enabled",
     "max_clients": 8,
-    "send_hz": 20
+    "send_hz": 15
   }
 }

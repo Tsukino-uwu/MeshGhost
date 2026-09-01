@@ -69,8 +69,8 @@ has never been looked at. `verified.md`.
   stall, unexplained. `adapters/pseudoregalia/UNVERIFIED.md`.
 - **The Pseudoregalia rate/interp sweep is DONE (2026-09-01): sub-10Hz floor watched, 15-vs-20
   blind-indistinguishable, interp-per-link measured; 375ms ships.** `pseudoregalia/VERIFIED.md`.
-- **DECISION PENDING: `DefaultSendHz` 20 -> 15 for all adapters** — evidence gathered and supports
-  it (blind test + ocean tier); the change itself was deliberately not made. `pseudoregalia/VERIFIED.md`.
+- **DONE 2026-09-01: `DefaultSendHz` is 15 for every adapter** — measured on Pseudoregalia, inherited
+  by the other three UNWATCHED; the flood-cap derivation trap it exposed is fixed. `verified.md`.
 - **TEVI's shipped interp was raised 175 -> 300ms on a stated, untested assumption (2026-09-01)** —
   one netsim ocean run confirms or refutes the additive model. `tevi/UNVERIFIED.md`.
 - **Wall-kick mirror v1 watched once, hedged; the sword's mid-air snap is OPEN and unattributed;

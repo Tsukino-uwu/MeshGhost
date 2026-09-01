@@ -414,7 +414,7 @@ a specific game's adapter at cosmetic — reserved 2026-08-11, built 2026-08-17 
 
 **Two planes, kept structurally separate:**
 
-- **State plane** (`state` messages) — lossy, latest-wins, ~20Hz, cosmetic, interpolated by the
+- **State plane** (`state` messages) — lossy, latest-wins, ~15Hz, cosmetic, interpolated by the
   core. This plane does not grow new fields for deeper features; it stays exactly what it is
   now.
 - **Event plane** (`event` messages) — reliable, ordered, addressed. Its payload is **fully
@@ -853,13 +853,16 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`MaxMessagesPerSecondFor`,
   `relay/limits.go`) — the relay closes, rather than throttles, a connection that
   exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
-  feature (see the ADR in `architecture.md`). At the default `send_hz` (20), this computes to
-  exactly the historical flat **120** — unchanged for an unconfigured relay. The cap **only ever
+  feature (see the ADR in `architecture.md`). At the default `send_hz` (**15** since 2026-09-01,
+  20 before it) the scaled term is 90, so the flat **120** floor applies — the same number an
+  unconfigured relay has always enforced, and the `× 6` multiple is now a pinned literal
+  precisely so that lowering the default could not widen the cap at every other rate
+  (`relay/floodcapstable_test.go` is the regression test). The cap **only ever
   scales up**, never down: a relay turned *down* to a slower room rate must not start
-  disconnecting older clients still sending at their own built-in 20Hz default.
+  disconnecting older clients still sending at their own built-in default.
   **Client-side enforced since Phase 6** (TEVI): `core.Core.MinSendInterval` (left at
   zero by `core.New()` since the rate-control ADR, so the relay's advertised rate wins by
-  default; `DefaultMinSendInterval`, 50ms / 20Hz, is the last-resort fallback when neither a
+  default; `DefaultMinSendInterval`, ~67ms / 15Hz, is the last-resort fallback when neither a
   local preference nor a relay advertisement exists) caps how often `forwardLocalState` actually sends to the
   relay, independent of how often the adapter calls in — since the rate-control feature, the
   actual cap is `effectiveSendInterval()`, the slower of this and the relay's advertised
@@ -868,8 +871,12 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   wrong for a frame-driven game with no engine-level cap, and the connection was closed by the
   relay after about two minutes of real play (see `agent_docs/verified.md`'s Phase 6.4/6.5 entry
   and the ADR in `architecture.md`). The brief's 10Hz hypothesis is still not what's enforced by
-  default — 20Hz was chosen for headroom under the relay's cap, not as a claim that 20Hz is the
-  "right" sync rate.
+  default. **Superseded 2026-09-01:** the rate is now **15Hz**, and for the first time it rests
+  on evidence rather than headroom arithmetic — a watched ladder (1/3/5/7/10/15/20Hz on two real
+  game instances through `meshghost-netsim`) plus a five-round blind A/B of 15 against 20 that
+  the watcher scored at chance. 10Hz is where stutter becomes visible, so the default sits above
+  the floor rather than on it. See `adapters/pseudoregalia/VERIFIED.md`, the 2026-09-01 evening
+  entry.
 - `send_hz` / `max_receive_hz_per_player` clamping (`protocol.ClampSendHz` /
   `protocol.ClampReceiveHz`): absent, zero, or negative resolves to the field's own "unspecified"
   default (`protocol.DefaultSendHz` for `send_hz`; uncapped for `max_receive_hz_per_player`); a
@@ -952,15 +959,17 @@ never from memory.
       `gObjectEvents[gPlayerAvatar.objectEventId].facingDirection`. See `agent_docs/
       verified.md` (`gObjectEvents`/facing-direction entry).
 - [x] Local snapshot frequency: **answered, not by confirming the brief's 10Hz hypothesis, but
-      by superseding it.** The real enforced rate is `core.DefaultMinSendInterval` = 50ms / 20Hz,
-      live-confirmed across the three games shipping at the time (Emerald, TEVI, Pseudoregalia; Crystal
-      came later, 2026-08-18) — see the
-      "Limits" section above. 20Hz was chosen for headroom under the relay's 120 msg/sec cap
-      (found live: TEVI's frame-driven `Update()` runs uncapped well above 120Hz with no
-      engine-level throttle), not as a claim that 20Hz is the objectively "right" sync rate for
-      tile-grid movement. Still 20Hz by default; now operator-configurable per relay
-      (`server.send_hz`, 10–100) as of the send/receive rate-control feature — see the subsection
-      above and the ADR in `architecture.md`.
+      by superseding it.** The real enforced rate is `core.DefaultMinSendInterval` = **~67ms /
+      15Hz** (2026-09-01; 50ms / 20Hz from Phase 6 until then). The original 20 was chosen for
+      headroom under the relay's 120 msg/sec cap (found live: TEVI's frame-driven `Update()` runs
+      uncapped well above 120Hz with no engine-level throttle) and was live-confirmed across the
+      games shipping at the time, but was never a claim about the right rate. **15 is measured**:
+      a rung-by-rung ladder watched on screen and a blind 15-vs-20 A/B scored at chance, run on
+      Pseudoregalia as the most sample-hungry adapter so the other three inherit a rate proven on
+      the hardest case — `adapters/pseudoregalia/VERIFIED.md`. The brief's 10Hz is now known to be
+      *below* the visible floor rather than merely unconfirmed. Operator-configurable per relay
+      (`server.send_hz`, 10–100) and per game as of the send/receive rate-control feature — see
+      the subsection above and the ADR in `architecture.md`.
 - [x] `seq`/`timestamp` semantics: does `seq` reset on reconnect? Is `timestamp` wall-clock
       or client-relative? **Decided (already true of the implementation, not a new choice):**
       `seq` is a `Core`-lifetime counter (`atomic.AddUint64(&c.seq, 1)`) that never resets —
