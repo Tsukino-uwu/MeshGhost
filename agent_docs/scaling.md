@@ -223,6 +223,23 @@ animation rather than networking, and it is standard enough that Unreal ships it
 (skinned-mesh update-rate optimization: evaluate less often with distance, interpolate between).
 The principle behind every lever: SPEND DETAIL WHERE ATTENTION IS.
 
+**TrackMania's 100+ ghosts at no visible cost** (user's question, 2026-09-01; same
+stated-from-memory provenance as the rest of this section): a TM ghost is a RIGID car mesh driven
+by a locally stored replay curve — no skeleton, no animation graph, no collision, no gameplay
+registration, no network arrival to smooth. Sampling a curve and writing one transform is O(1)
+and instancing-friendly. Our ghosts are the opposite ON PURPOSE — real player-pawn clones running
+the game's own systems, which is what makes 1:1 animation and effects free — so TM is not
+evidence we are slow; it is the existence proof for the REDUCED TIER above: a far ghost does not
+need to be a pawn.
+
+**2026-09-01, the ladder ANSWERED which term binds for Pseudoregalia — the client's own CPU,
+exactly as the MMO note above guessed.** Peers already send at 20Hz and fps still fell to ~53 at
+32 ghosts: ~80% of per-ghost cost is the adapter's own every-tick redraw (`loop_tail`, now
+sub-instrumented) plus the engine animating N pawns. So the levers apply ADAPTER-side first for
+frame rate — redraw LOD by distance (the every-Nth-tick idea, applied to our own tick) and the
+engine's own skinned-mesh update-rate optimization — with relay rate scaling still worth having
+for bandwidth and relay CPU. Numbers: `crowd-limits.md`, Pseudoregalia.
+
 **Unreal's networking is the reference design** — a cull distance beyond which an actor is not
 replicated, a per-actor update frequency, and a priority score used to spend a fixed per-connection
 bandwidth budget each tick. **We cannot use it and should not try.** It needs the game running as a
