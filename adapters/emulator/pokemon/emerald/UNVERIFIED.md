@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- DONE 2026-09-02 — the interp ladder on a 100-200ms lossy link, judged by the user: same shape as Crystal's, the shipped 250ms stands
 - WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
 - WATCHED 2026-09-02 — `extras.gender` accepts only `male`/`female` (adversarial review): a female save drew May on all three tiers
 - MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
@@ -696,3 +697,24 @@ frees, zero refusals.
 - [ ] The `hw area change` and `tile free SKIPPED` lines stay in as low-rate diagnostics (they fire
       per area change and per skipped free, never per frame).
 
+## [DONE] The interp ladder on a 100–200ms lossy link, judged by the user (2026-09-02): same shape as Crystal's, the shipped 250ms stands
+
+**Rig:** vanilla Emerald in shipped mode (adapter on the command line, one loopback ghost), relay 15Hz,
+`meshghost-netsim` at 75ms ±25ms each way with 2% loss on the same seed Crystal's ladder used
+(`1788359927364670300`), loss cover on, fast-forward off. The user walked and biked a square.
+
+| Interp | Loss | User's read |
+|---|---|---|
+| 100ms | 2% | *"its gliding around a bit"* |
+| 250ms (shipped) | 2% | *"still noticing some glide ... seems to be the same issues"* as Crystal |
+| 300ms | 2% | *"still some glide at 300ms. so yes same as crystal"* |
+| 300ms | off | *"think its good enough, same as crystal"* |
+
+**Verdict:** identical to Crystal's ladder the same day (`crystal/UNVERIFIED.md`): delay alone is fine at
+the shipped interp; what remains with loss on is the residual quic-after-a-loss glide filed in
+`ideas.md`. **250ms stays shipped** for the same loopback reason (a loopback ghost's samples make the
+round trip). The RATE was not swept on Emerald — 15Hz is still inherited from the Pseudoregalia and
+Crystal judgements. **Rig note:** with the adapter's autostart on, a core restarted for a new interp
+loses the race to the adapter's own spawn, which runs from the REPO ROOT and reads `config.json`
+there — the ladder's last steps were driven through a temporary root `config.json` (`connect_to`
+127.0.0.2, `interp`), deleted at teardown; never commit one.

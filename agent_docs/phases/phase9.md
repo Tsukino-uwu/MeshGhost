@@ -908,4 +908,9 @@ is in the adapter queues with the user's words; this is the running log.
   and the method is in `_template/probes.md`. Open from it: the attach nametag burst (core never prunes
   names across relay reconnects; the adapter times out its hello under the burst), rung churn, and the
   drawn rung's text-box clipping, unexercised.
+- **Emerald's interp ladder** on the same lossy link and seed, last thing: the same shape as Crystal's, the same
+  verdict (*"good enough, same as crystal"* with loss off at 300ms), 250ms stays shipped. The gender guard was
+  watched on a fresh May save: all three tiers drew May. A BizHawk Reboot Core with the adapter's memory
+  callback registered crashed the front end (BizHawk's bug, recorded as a procedure rule).
 - **Go side:** suite and race green after ADR 0045; binaries deployed to every install copy.
+- **Not reached today:** TEVI and Pseudoregalia's post-review runs. Next session starts there.
