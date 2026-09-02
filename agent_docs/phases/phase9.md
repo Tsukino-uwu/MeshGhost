@@ -972,4 +972,4 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
   visually worse"*) — `crystal/UNVERIFIED.md`, one look owed. **450ms ships everywhere, ADR 0046**: the core
   constant, the release config and template, no per-game override (the mechanism stays for a future game),
   the three READMEs rewritten with the measured tiers.
-- **Not reached:** Crystal's worst-case look.
+- **Crystal's 450ms recorded as verified on the user's explicit exception** (*"just put it as verified/confirmed. an exception this time as all adapters share this value now"*), the entry saying so. Rig torn down and verified gone; root binaries rebuilt; pushed at the user's request.

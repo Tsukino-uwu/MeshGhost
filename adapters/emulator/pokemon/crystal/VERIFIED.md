@@ -128,7 +128,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-27 — Crystal: ghosts are visible across a route seam
 - CONFIRMED ON SCREEN 2026-08-27 — Crystal: three of four facings were drawing mirrored
 - CONFIRMED ON SCREEN 2026-08-28 — Crystal survives relay-side area filtering, and the reject line finally tells the truth
-
+- Crystal: 450ms interp at 15Hz on the worst-case link -- the user's explicit exception to this file's gate (2026-09-02)
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2348,3 +2348,15 @@ That fallback exists only for a source tree; a release ships Crystal its own `li
 release's bundled LuaSocket for Crystal is still unexercised**. Everything above holds for the
 adapter logic, which is byte-identical in both copies.
 
+## Crystal: 450ms interp at 15Hz on the worst-case link -- the user's explicit exception to this file's gate (2026-09-02)
+
+**Recorded on the user's instruction, not on an on-screen look, and this entry says so.** TEVI,
+Pseudoregalia and Emerald were each climbed the same night on `run-netsim.bat`'s no-arg worst-case
+profile (NA<->EU ping plus bad wifi: ~200 ping peer to peer, 5% loss, 3% reorder, a one-second blackout
+every 45s) at the 15Hz room rate and all three landed on 450ms (their `VERIFIED.md`s; ADR 0046). The
+user, asked whether Crystal should have its own run: *"just put it as verified/confirmed. an exception
+this time as all adapters share this value now"*, and earlier *"assumed to work, as it has worked on all
+other adapters. and a higher interp wouldn't make anything visually worse either way."* So 450ms is
+Crystal's shipped and confirmed value by the user's call. **This is the one entry in this file whose
+evidence is the other three games rather than this one on screen**; if a Crystal run on that link ever
+shows a stutter at 450ms, this entry is the first thing to reopen.
