@@ -2203,6 +2203,8 @@ local function drainBridge()
             return
         else
             recvPartial = ""
+            logFile(string.format("bridge receive failed: %s (partial %d bytes)", tostring(err),
+                partial and #partial or 0))
             resetBridge()
             remotes = {}
             return
@@ -4024,6 +4026,27 @@ function queueTileFree(entry)
     genderFrames.deferredTileFrees[#genderFrames.deferredTileFrees + 1] = entry
 end
 
+-- NOBODY ELSE MAY BE DRAWING FROM A RANGE WE ARE ABOUT TO FREE. "The bits are still set" is not
+-- ownership: a range released by one tier and re-taken by another (or by the engine, for an NPC
+-- arriving at a seam) reads exactly the same in the bitmap. Freeing it then hands the same tiles
+-- out twice, and the two owners write their frames over each other -- a ghost with its hat row
+-- missing in an NPC's colours, watched 2026-09-02 (tiles 212..227 ours, the NPC at 216). The
+-- sprite table is the identity: a live sprite whose tile number falls inside the range says the
+-- range is in use by someone, and a free that would leak is better than one that corrupts.
+-- Scans 64 entries; only ever runs at a free, never per frame per peer.
+genderFrames.rangeDrawnByLiveSprite = function(start, count, exceptSprId)
+    for i = 0, MAX_SPRITES - 1 do
+        if i ~= exceptSprId then
+            local d = sprAddr(i)
+            if (r8(d + 0x3e) & 0x01) == 1 then
+                local t = r16(d + 0x04) & 0x3ff
+                if t >= start and t < start + count then return true end
+            end
+        end
+    end
+    return false
+end
+
 local function freeGhostTiles(g)
     -- NEVER FREE ACROSS A STATE LOAD. The load rewinds the engine's allocation bitmap to the
     -- save-time session's state, so the ranges our records name no longer correspond to bits we
@@ -4248,7 +4271,11 @@ tiering = {
     slide = { step = 0, legs = 0, paused = 0 },
     blockedFrame = nil,
     lastLogFrame = nil,
-    drawn = MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW"),
+    -- ON BY DEFAULT since 2026-09-02 (user's call: the shipped ladder is spawned -> OAM -> drawn;
+    -- "0" turns it off). It is the LAST rung and the expensive one -- the user's own read is that
+    -- painting "ate fps like crazy" -- so it only ever takes a peer both engine tiers refused,
+    -- which a room at the shipped 8 seats never produces on a map with slots to spare.
+    drawn = (MESHGHOST_EMERALD_DRAWN_OVERFLOW or os.getenv("MESHGHOST_EMERALD_DRAWN_OVERFLOW") or "1") ~= "0",
     hysteresis = 3,
     reserve = 1,
     castMax = {},
@@ -4636,7 +4663,14 @@ local function spawnGhost(playerId, mapX, mapY, orientation, wantGfx)
     local tileCount = info.tileCount
     local tileStart = allocSpriteTiles(tileCount)
     if not tileStart then
-        console.log("MeshGhost: no run of free OBJ tiles for a ghost.")
+        -- Throttled, and to the FILE: this fired thousands of times a second on 2026-09-02 when
+        -- OBJ VRAM ran dry (the hardware tier's weather stand-down was leaking tiles), and
+        -- console.log is a GUI append on the emulator thread -- the line itself took the game to
+        -- 6fps (adapters/emulator/CLAUDE.md prices ONE console line a second at ~7fps).
+        if (emu.framecount() - (tiering.noTilesAt or -999)) >= 300 then
+            tiering.noTilesAt = emu.framecount()
+            logFile("MeshGhost: no run of free OBJ tiles for a ghost (repeats suppressed for 5s).")
+        end
         return nil
     end
 
@@ -7453,7 +7487,10 @@ local function syncGhost(playerId, remote)
     -- WHICH BRANCH DECIDED, once a second. Three edits have been made to this path on reports
     -- alone; the question "why did the ghost not move" has a finite set of answers and this prints
     -- which one it was.
-    if COMPARE_TIERS and frameCounter % 15 == 0 then
+    -- MESHGHOST_EMERALD_HOP_TRACE, not COMPARE_TIERS (moved 2026-09-02): four lines a second PER
+    -- PEER is a crowd's worth of string.format on the emulator thread, and compare mode is the dev
+    -- default rather than a request for this trace.
+    if (MESHGHOST_EMERALD_HOP_TRACE or os.getenv("MESHGHOST_EMERALD_HOP_TRACE")) and frameCounter % 15 == 0 then
         logFile(string.format("HOP act=%s inPlace=%s travels=%s latch=%s d=%d,%d idle=%s "
             .. "ghostAct=%d held=%02X orient=%s gFace=%d",
             tostring(remote.act), tostring(inPlace and true or false),
@@ -8272,7 +8309,9 @@ end
 -- not misbehave at runtime: the script fails to PARSE. Caught by bizhawk-syntax-check.lua the first
 -- time this tier was compiled, 2026-08-21, exactly as the tiering table's own header warns.
 tiering.hw = {
-    on = MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW"),
+    -- ON BY DEFAULT since 2026-09-02 (user's call, the same day: "we have watched OAM a lot" --
+    -- its two limits, underwater and fog, are the stand-downs recorded in VERIFIED.md). "0" turns it off.
+    on = (MESHGHOST_EMERALD_HW_OVERFLOW or os.getenv("MESHGHOST_EMERALD_HW_OVERFLOW") or "1") ~= "0",
     base = 0x030022f8 + 64 * 8, -- gMain.oamBuffer[64]; gMain 0x030022c0 + 0x038 (verified.md)
     slots = 56,                 -- entries 64..119. 120..127 is margin: 125 is the game's own.
     -- THREE POOLS, BECAUSE DEPTH HERE IS THE ENTRY NUMBER AND NOTHING ELSE.
@@ -8378,7 +8417,7 @@ function hwReleaseAll(freeTiles)
     -- already freed every range, so the records are dropped without clearing bits we no longer own.
     if freeTiles ~= false then
         for _, t in pairs(tiering.hw.fxTiles) do
-            if t.start then
+            if t.start and not genderFrames.rangeDrawnByLiveSprite(t.start, t.tiles, nil) then
                 for i = t.start, t.start + t.tiles - 1 do setTileAllocated(i, false) end
             end
         end
@@ -9036,7 +9075,15 @@ tiering.chooseHardware = function(localAreaId, playerX, playerY, spawnSet)
     -- predicate -- weather is not a place, and the next such effect would have been a third bug.
     if not MESHGHOST_EMERALD_HW_PRIORITY
         and genderFrames.screenCoveredBySemiTransparentSprites() then
-        if next(tiering.hw.byPeer) then hwReleaseAll(false) end
+        -- RELEASE AND FREE. This was hwReleaseAll(false) -- the map-change form, which keeps the
+        -- tile bitmap untouched because the engine's ResetSpriteData has already reclaimed it --
+        -- and under weather the map has NOT changed: the bitmap is still ours, so every stand-down
+        -- leaked one body's worth of OBJ tiles per peer. Walking in and out of the Route 111
+        -- sandstorm with a 24-peer crowd (2026-09-02): the third swap ran OBJ VRAM dry, spawned
+        -- ghosts logged "no run of free OBJ tiles" thousands of times a second, the game fell to
+        -- 6fps, and the sandstorm's own sprite corrupted because it was fighting us for tiles.
+        -- `true` takes the deferred, area-stamped free that every other same-map release uses.
+        if next(tiering.hw.byPeer) then hwReleaseAll(true) end
         return set
     end
     local ranked = {}
@@ -9101,8 +9148,60 @@ function renderHardwareGhosts(localAreaId, playerMapX, playerMapY, hwSet)
     -- which frees all sprite tile ranges and hands them to the new map's NPCs. Ours went with them,
     -- so the records are dropped WITHOUT clearing bits we no longer own.
     if tiering.hw.area ~= localAreaId then
-        hwReleaseAll(false)
-        tiering.hw.area = localAreaId
+        -- A SEAM IS NOT A WARP. Crossing a map CONNECTION changes the area id while the engine
+        -- keeps every sprite and its tile bitmap exactly as they were -- only a warp runs
+        -- ResetSpriteData. Forgetting the tiles here on a seam therefore leaked one body's worth
+        -- per peer per crossing: measured 2026-09-02 with a 24-peer crowd on Route 111, the bitmap
+        -- read 1020/1024 bits set with 8 live sprites after a few crossings, and nothing --
+        -- ours or the sandstorm's own sprite -- could get tiles again until the next warp.
+        -- xmapRebase runs earlier in this same frame (genderFrames.xmapTick, before this tier)
+        -- and only ever fires for a connection, so it is the seam signal: free on a seam, forget
+        -- on a warp. The area is stamped BEFORE the seam release so the deferred frees carry the
+        -- area that now stands and the service point honours them.
+        -- Two seam signals, either suffices: the rebase (which needs the cross-map table armed,
+        -- and it is not yet on the FIRST crossing after a script load -- measured 2026-09-02,
+        -- "rebase never", 12 bodies forgotten), or any spawned ghost of ours still alive across
+        -- the change -- the engine keeps every object across a connection and clears them all on
+        -- a warp, so one survivor is proof the bitmap survived too.
+        local survivor = false
+        for _, g in pairs(ghosts) do
+            if ghostAlive(g) then survivor = true break end
+        end
+        -- The third signal is the one that needs nothing armed and no ghost spawned: the
+        -- game never left the overworld between the two areas. A warp fades through frames
+        -- outside CB2_Overworld; a seam does not. Measured 2026-09-02: before the cross-map
+        -- table armed, every crossing read "rebase never, survivor=false" (the spawned tier
+        -- despawns and respawns everything at a seam, so no survivor exists at this instant)
+        -- and 10-12 bodies were forgotten per crossing.
+        local stayedInOverworld = tiering.lastNonOverworldAt == nil
+            or (frameCounter - tiering.lastNonOverworldAt) > 30
+        local seam = tiering.hw.area ~= nil
+            and ((frameCounter - (genderFrames.xmap.rebasedAt or -999)) <= 10 or survivor
+                or stayedInOverworld)
+        logFile(string.format("hw area change %s -> %s: seam=%s (rebase %s frames ago, survivor=%s, stayedInOverworld=%s) records=%d",
+            tostring(tiering.hw.area), tostring(localAreaId), tostring(seam),
+            genderFrames.xmap.rebasedAt and tostring(frameCounter - genderFrames.xmap.rebasedAt) or "never",
+            tostring(survivor), tostring(stayedInOverworld),
+            (function() local n = 0 for _ in pairs(tiering.hw.byPeer) do n = n + 1 end return n end)()))
+        if seam then
+            -- Frees still pending from BEFORE the crossing carry the old area's stamp and would
+            -- be dropped as "not ours" by the service point -- the last of the seam leaks, 16
+            -- tiles per pending release, caught by the SKIPPED instrument on 2026-09-02. The
+            -- bitmap survived the seam, so those ranges are ours exactly as much as they were.
+            for _, e in ipairs(genderFrames.deferredTileFrees) do
+                if e.hwArea == tiering.hw.area then e.hwArea = localAreaId end
+            end
+            tiering.hw.area = localAreaId
+            hwReleaseAll(true)
+            -- hwReleaseAll ends by blanking the area. Left blank, the NEXT frame reads "nil ->
+            -- this area", takes the warp branch and forgets whatever re-acquired in between --
+            -- measured 2026-09-02: "seam=true records=2" followed one frame later by "nil -> 0:27
+            -- seam=false records=2", two bodies leaked per crossing.
+            tiering.hw.area = localAreaId
+        else
+            hwReleaseAll(false)
+            tiering.hw.area = localAreaId
+        end
     end
 
     -- Anyone no longer in the set gives their slot and tiles back this frame, not eventually.
@@ -10274,11 +10373,18 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                         -- show the hat" is exactly the shape of a clip that kept nothing.
                         local wwet = genderFrames.reflectiveSpans(screenX, wtop,
                             FRAME_WIDTH_PX, FRAME_HEIGHT_PX, "reflection")
-                        -- COMPARE_TIERS only, on CHANGE only: what the ground test decided and
-                        -- where it was asked. A reflection that does not appear is either a gate
-                        -- that said no or a decode that returned nothing, and those two have
-                        -- different fixes -- this line says which, without another guess.
-                        if COMPARE_TIERS then
+                        -- MESHGHOST_EMERALD_REFL_TRACE only (it was COMPARE_TIERS until
+                        -- 2026-09-02), on CHANGE only: what the ground test decided and where it
+                        -- was asked. A reflection that does not appear is either a gate that said
+                        -- no or a decode that returned nothing, and those two have different
+                        -- fixes -- this line says which, without another guess. Moved off the
+                        -- compare flag because compare mode is the dev DEFAULT, and with a crowd
+                        -- walking, "on change" is every peer's every tile: ~150 lines a second
+                        -- with 31 peers even after the per-peer key fix below, all of it
+                        -- string.format on the emulator's thread while the drawn tier was being
+                        -- judged for cost (adapters/CLAUDE.md: probes come off when they are not
+                        -- answering a question).
+                        if MESHGHOST_EMERALD_REFL_TRACE or os.getenv("MESHGHOST_EMERALD_REFL_TRACE") then
                             local wk = string.format("%s:%s:%s:%s:%d,%d", tostring(playerId),
                                 tostring(wpal), tostring(wruns ~= nil),
                                 tostring(wwet and next(wwet) ~= nil),
@@ -10288,10 +10394,18 @@ local function drawRemotes(localAreaId, playerMapX, playerMapY, skipSpawned, com
                             -- change-keyed line can only ever catch the moment something moved,
                             -- and the question here is what the STEADY state looks like while a
                             -- ghost stands still.
-                            if genderFrames.wReflKey ~= wk
-                                or (frameCounter - (genderFrames.wReflAt or 0)) >= 120 then
-                                genderFrames.wReflKey = wk
-                                genderFrames.wReflAt = frameCounter
+                            -- PER PEER, not one shared key: with one key, a crowd of N peers
+                            -- changes it N times a frame and this line fires N times a frame --
+                            -- ~1100 lines a second with 31 peers on 2026-09-02, which was the
+                            -- "performance is chugging" the user saw while judging the drawn
+                            -- tier. The instrument was the cost (CLAUDE.md: a diagnostic can
+                            -- break the thing it measures).
+                            genderFrames.wRefl = genderFrames.wRefl or {}
+                            local wr = genderFrames.wRefl[playerId]
+                            if not wr then wr = { key = nil, at = 0 }; genderFrames.wRefl[playerId] = wr end
+                            if wr.key ~= wk or (frameCounter - wr.at) >= 120 then
+                                wr.key = wk
+                                wr.at = frameCounter
                                 logFile(string.format(
                                     "WALKER REFL %s pal=%s kind=%s runs=%s tile=%d,%d gfx=%s pose=%s/%s"
                                     .. " | painted body=%d refl=%d | hw body=%s refl=%s arc=%d"
@@ -10779,8 +10893,16 @@ local function runFrame()
                 -- sprite"* on the ghosts, and the banner showing *"an egg instead of sharpedo"*.
                 -- Several despawn paths can queue the same range (blob, shadow, body, hardware
                 -- release), so idempotence has to be enforced here rather than assumed.
-                if stillOurs and inOverworld() and tileIsAllocated(e.start) then
+                local drawn = genderFrames.rangeDrawnByLiveSprite(e.start, e.count, e.g and e.g.sprId)
+                if stillOurs and inOverworld() and tileIsAllocated(e.start) and not drawn then
                     for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
+                else
+                    -- INSTRUMENT (2026-09-02): a skipped free is a leak by another name, so say why.
+                    local why = (not stillOurs) and "notOurs" or (not inOverworld()) and "notOverworld"
+                        or (not tileIsAllocated(e.start)) and "alreadyFree" or "drawnByLive"
+                    logFile(string.format("tile free SKIPPED %s: %s start=%d count=%d hwArea=%s area=%s",
+                        why, e.hwArea ~= nil and "hw" or "spawned", e.start, e.count,
+                        tostring(e.hwArea), tostring(tiering.hw.area)))
                 end
                 -- Not ours any more (world rebuilt, ghost gone): dropped, never freed.
             else
@@ -10890,6 +11012,10 @@ local function runFrame()
     -- draw it when the map comes back. Waiting up to 60 frames to notice is what made it visible.
     -- Sweeping on the transition itself costs one array scan per battle and closes the window.
     local nowOverworld = inOverworld()
+    -- The seam-versus-warp signal the hardware tier needs (renderHardwareGhosts): a warp always
+    -- passes through frames outside CB2_Overworld (the fade and the load), a connection crossing
+    -- never leaves it. Recorded here, before that tier runs in this same frame.
+    if not nowOverworld then tiering.lastNonOverworldAt = frameCounter end
     if avatarAddrConfirmed and nowOverworld and not tiering.wasOverworld
         and #genderFrames.pendingTileFrees > 0 then
         -- Back in the overworld: settle anything a battle stopped us freeing. If the slot still
@@ -10898,7 +11024,12 @@ local function runFrame()
         -- long since somebody else's, so the only safe thing is to forget it.
         for i = 1, #genderFrames.pendingTileFrees do
             local p = genderFrames.pendingTileFrees[i]
-            if p.tileStart and r8(objAddr(p.objId) + 0x08) == GHOST_LOCAL_ID then
+            -- The marker on the object slot is not identity for the RANGE: through a warp the
+            -- engine rebuilt everything, a new ghost of ours may sit in the same slot wearing the
+            -- same marker, and this range may now belong to it or to an NPC. Watched 2026-09-02
+            -- after a cave warp: two of our ghosts sharing tiles 132..143, drawn over each other.
+            if p.tileStart and r8(objAddr(p.objId) + 0x08) == GHOST_LOCAL_ID
+                and not genderFrames.rangeDrawnByLiveSprite(p.tileStart, p.tileCount, nil) then
                 for t = p.tileStart, p.tileStart + p.tileCount - 1 do setTileAllocated(t, false) end
             end
             genderFrames.pendingTileFrees[i] = nil
@@ -11331,6 +11462,13 @@ MESHGHOST_DEV_UNLOAD = function()
     --  * the GHOSTS. They are objects in the game; nothing else will ever clear them.
     --  * the LOG FILE, a real OS handle -- leaking it locks the file on disk.
     -- resetBridge() covers the first two (it despawns ghosts as part of dropping the connection).
+    -- hwReleaseAll(true) -- called inside resetBridge, and again below -- queues the hardware
+    -- tier's ranges as deferred frees stamped with the tier's area, and then CLEARS that area, so
+    -- the flush further down judged every one of them "no longer ours" and leaked ~13 bodies x 16
+    -- tiles per hot reload (measured 2026-09-02 with the tile probe: +208 bits per reload with a
+    -- crowd up; a first fix captured the area AFTER resetBridge and measured the same +200).
+    -- Remember the area before anything releases; a range stamped with it was ours until now.
+    local hwAreaAtUnload = tiering.hw.area
     pcall(resetBridge)
     pcall(hwReleaseAll, true)
     -- FLUSH THE DEFERRED FREES -- the queue's service point dies with this script, so anything
@@ -11340,9 +11478,10 @@ MESHGHOST_DEV_UNLOAD = function()
     pcall(function()
         for _, e in ipairs(genderFrames.deferredTileFrees or {}) do
             local stillOurs
-            if e.hwArea ~= nil then stillOurs = tiering.hw.area == e.hwArea
+            if e.hwArea ~= nil then stillOurs = (e.hwArea == hwAreaAtUnload) or (tiering.hw.area == e.hwArea)
             else stillOurs = ghostAlive(e.g) end
-            if stillOurs and inOverworld() and tileIsAllocated(e.start) then
+            if stillOurs and inOverworld() and tileIsAllocated(e.start)
+                    and not genderFrames.rangeDrawnByLiveSprite(e.start, e.count, e.g and e.g.sprId) then
                 for t = e.start, e.start + e.count - 1 do setTileAllocated(t, false) end
             end
         end

@@ -272,3 +272,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - `MaxClients` counted seats, not sockets — and everything before the hello was free (Go side, 2026-09-02, CLOSED) [CHECK: netx.LimitListener tests]
 - A PowerShell identifier check is case-insensitive unless you say otherwise -- and reported a bug that did not exist (2026-09-02) [RULE: checklists/before-trusting-a-reading.md]
 - Archipelago coexistence on Emerald: fixed EWRAM addresses shift under the patch, pointer-relative reads do not (2026-08-11 → 2026-08-18, moved out of risks.md 2026-09-02) [RULE: checklists/before-a-probe.md]
+- A seam is not a warp: forget tiles only when the engine rebuilt the world (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
+- A free needs the identity of the RANGE, and "the bits are still set" is not it (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
+- A dev-mode trace keyed by ONE shared "last value" fires once per peer per frame with a crowd (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
+

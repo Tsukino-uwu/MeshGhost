@@ -5810,3 +5810,31 @@ Archipelago's own writes.
   entry ~45 lines above it** — which records the user reloading `meshghost_emerald.lua` and
   watching a loopback ghost spawn and follow correctly on **both** Archipelago-patched seeds and
   the vanilla ROM. The rendering consequence is watched, not inferred. Corrected 2026-08-18.
+
+## A seam is not a warp: forget tiles only when the engine rebuilt the world (Emerald, 2026-09-02)
+
+**Symptom:** OBJ VRAM ran dry after a few route crossings or weather changes with a crowd up; ghosts stopped
+spawning, the game fell to 6fps, and the sandstorm's own sprite corrupted. **Cause:** the hardware tier
+treated every area change as a map load and "forgot" its tile ranges without clearing bits — right after a
+warp (ResetSpriteData reclaimed them) and wrong on a connection crossing or a weather stand-down, where the
+bitmap is untouched. **Fix:** free unless the engine demonstrably rebuilt the world; the signal that needs
+nothing armed is "the game never left CB2_Overworld between the two areas". **Method:** a probe that counts
+the bitmap's set bits against the live sprite table (`dev-scripts/objtiles_probe.lua`) — 1020/1024 set with
+8 live sprites is a leak in one line, and unloading the adapter with the probe still loaded is the A/B.
+
+## A free needs the identity of the RANGE, and "the bits are still set" is not it (Emerald, 2026-09-02)
+
+**Symptom:** an NPC drawing the player's frames through its own palette with the hat row missing; two
+ghosts sharing tiles. **Cause:** a free queued twice for one range, or queued through a warp, was applied
+after a new owner had allocated the same tiles — the bitmap looks identical either way. **Fix:** before
+clearing a range, scan the sprite table for a live sprite whose tile number falls inside it and skip with
+a logged reason; a free that leaks is better than one that corrupts. **Method:** the `tile free SKIPPED`
+line names the reason (`drawnByLive`, `notOurs`, `alreadyFree`) and turns a corruption into a count.
+
+## A dev-mode trace keyed by ONE shared "last value" fires once per peer per frame with a crowd (Emerald, 2026-09-02)
+
+**Symptom:** *"performance is chugging"* while judging the drawn tier: ~1100 log lines a second. **Cause:**
+a compare-mode "on change" trace kept a single change key, so N peers changed it N times a frame. **Fix:**
+key per peer, and move a per-peer trace off the flag that is the dev DEFAULT onto its own probe flag.
+**Method:** `wc -l` the adapter log twice five seconds apart before believing any cost judgement.
+

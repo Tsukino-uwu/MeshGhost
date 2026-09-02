@@ -27,3 +27,7 @@
 - Below the mid-step return is where peer state goes to die -- third instance (Crystal, 2026-08-26) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A RELATIVE path in the dev loader's control file fails as a "LuaSocket is missing" error — [by-lesson.md](../pitfalls/by-lesson.md)
 - THE LUA and/or TERNARY CANNOT CARRY A BOOLEAN (Crystal, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A seam is not a warp: free a resource unless the engine demonstrably rebuilt the world — "never left the overworld" is the signal that needs nothing armed (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A free needs the identity of the RANGE: scan the sprite table for a live owner before clearing bits, and log why a free was skipped (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A dev-mode "on change" trace with ONE shared key fires per peer per frame with a crowd; key per peer and give it its own flag (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
+

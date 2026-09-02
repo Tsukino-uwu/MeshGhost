@@ -12,6 +12,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 - 2026-09-02 **HIGH PRIORITY: all four games need ONE RUN EACH to watch the adversarial review's adapter-side changes**, Crystal first — each queue's "This run" block; ADR 0044.
 - 2026-09-02 **Emerald Fly is bandaged, not finished; the boat is built and never watched; rails are unbuilt** — `emerald/BANDAGES.md` §4, `emerald/UNVERIFIED.md`.
+- 2026-09-02 **Emerald ships spawned -> OAM -> drawn (user's call); three tile leaks and a double-free found and fixed with a crowd, watched clean; OPEN: the attach nametag burst (core never prunes names, adapter hello times out), rung churn, drawn clipping under a text box unexercised** — `emerald/UNVERIFIED.md`.
 - 2026-09-02 **Crystal's next run: hop a ledge THEN cast a rod in one session (shared vtile `$fc`); reproduce the savestate-load crash; Teleport is the last unbuilt action class** — `crystal/UNVERIFIED.md`.
 - 2026-09-02 **Two shipped settings do nothing: `ghost_collision` reaches no adapter, nametags reach one of four** — the plan is `plans.md`, "Settings: defined once, honoured everywhere".
 - 2026-09-02 **TEVI's shipped interp went 175 → 300ms on an untested assumption; one netsim ocean run decides it** — `tevi/UNVERIFIED.md`.

@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
 - Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
 - MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
 - Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
@@ -638,3 +639,57 @@ table, or a string naming a `genderFrames` method — made `drawRemotes` error e
 peer sorted after the hostile one in `pairs(remotes)` stopped drawing. Now falls back to `male`,
 the same as a missing value. `luac -p` clean; not run. Watch: a female-trainer peer still draws
 with the female frames. ADR 0044, `docs/security.md`.
+
+## [READY] WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
+
+**The decision, the user's:** *"Spawned -> OAM -> drawn should be the 'default shipped' preference ...
+spawned works everywhere, OAM should be preferred everywhere whenever possible, Drawn should be used
+underwater or whenever OAM can't render due to fog"*, and *"any weather overlay, desert, fog, underwater.
+is where OAM breaks. but it perform way better than drawn everywhere else in the game"*. Both overflow
+rungs default ON since today (`FLAGS.md`); the stand-down under a screen-covering overlay is the
+fall-through to drawn, and the desert's sandstorm triggers it like fog and the underwater haze do.
+
+**The rig that watched it:** vanilla Emerald, dev loader, compare mode, `meshghost-fakeadapter` with 24
+synthetic peers circling the player at radius 5 on Route 111 (`-area-id 0:26`), the hitch meter, and
+two new read-only probes (`dev-scripts/objtiles_probe.lua`: the engine's OBJ tile bitmap against the
+live sprite table; `dev-scripts/ghostobjs_probe.lua`: every object wearing our marker and every
+hardware OAM entry). The counts, from the adapter's status line: in the sand 13 spawned / 0 OAM / 19
+painted; outside it 13 spawned / 13 OAM / 1 painted — the ladder, on screen, at 60fps.
+
+**Three leaks and one corruption, all found by the bitmap probe, all fixed and re-watched:**
+1. **Weather stand-down forgot its tiles.** `hwReleaseAll(false)` (the map-change form) under an
+   overlay leaked one body per peer per stand-down; the third sand pass ran OBJ VRAM dry, the game
+   fell to 6fps and the sandstorm's own sprite corrupted. Now released WITH the deferred free.
+2. **A seam is not a warp.** The tier forgot its tiles on every area change; a connection crossing
+   keeps the bitmap. Three seam signals now (the cross-map rebase, a surviving spawned ghost, and
+   "never left CB2_Overworld" — the last is the one that needs nothing armed); pending frees are
+   re-stamped to the new area; the helper's area-blanking no longer triggers a second, forgetting
+   pass one frame later.
+3. **Hot reload leaked the hardware tier's ranges** (~208 tiles a reload): the unload flush judged
+   them "not ours" because the release had already blanked the area. Captured before the release.
+4. **A double-queued free cleared bits a NEW owner had taken** — an NPC drawing Brendan's frames
+   through its own green palette with the hat row missing (tiles 212..227 ours, the NPC at 216).
+   Every free now checks the sprite table for a live owner first (`rangeDrawnByLiveSprite`) and
+   skips with a logged reason rather than corrupt; the warp-time pending frees got the same guard.
+
+**Also fixed on the way:** two compare-mode traces (`WALKER REFL`, `HOP`) fired per peer per frame or
+per tile and read as *"performance is chugging"* — moved behind their own probe flags; the "no run of
+free OBJ tiles" console line throttled to the file. **User's final read after the full cycle** (cave,
+four seam crossings, four sand passes): *"didn't see any weird/glitched sprites now"*, *"now it looks
+like all are moving, even after crossing routes"*. Bitmap flat at 444/1024 across it, zero skipped
+frees, zero refusals.
+
+**Open, from the same session:**
+- [ ] **The attach burst.** A core that remembers many nametags (103 today, one per synthetic peer per
+      crowd restart, never pruned across relay reconnects) pushes them all at attach and the adapter
+      gives up on its hello ("never answered") — a loop of attach/drop every 3s until the core was
+      restarted. Two halves: the core should drop names the roster no longer holds (Go), and the
+      adapter should not time out its hello while lines are arriving (Lua). Neither built.
+- [ ] **Rung churn.** With a crowd walking, peers at the spawned/OAM boundary swap rungs every ~14
+      frames (217 hardware acquires in two minutes). Harmless now that frees are correct, but each
+      swap is a tile allocation and a frame load; a stickier boundary is an efficiency item.
+- [ ] **Drawn clipping under a text box and the START menu** with a painted crowd — the caveat the
+      drawn rung was held back for — was not exercised today.
+- [ ] The `hw area change` and `tile free SKIPPED` lines stay in as low-rate diagnostics (they fire
+      per area change and per skipped free, never per frame).
+

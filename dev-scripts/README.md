@@ -662,6 +662,14 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
   into a known position without asking anyone to press a key. **Load it BEFORE the adapter, not
   beside it** — `crystal/UNVERIFIED.md` records a savestate load killing the adapter, and a rig has
   no need to find out whether that is still true.
+- `objtiles_probe.lua` — READ-ONLY, Emerald: the engine's OBJ tile allocation bitmap (set bits out of
+  1024) against every live sprite's tile number, once a second. A big gap is orphaned bits — a leak in
+  one line. Unloading the adapter with this still loaded is the A/B. Found three leaks on 2026-09-02.
+- `ghostobjs_probe.lua` — READ-ONLY, Emerald: every object event wearing our marker (localId 255) with
+  its sprite, tile and palette, and every hardware OAM entry 64..119 in use. Compare its `ours=` with the
+  adapter's `status: ghosts=`; a tile inside another owner's range is the corruption you are looking at.
+- `where_emerald.lua` — READ-ONLY, Emerald: the player's `area_id` and tile in the adapter's own form,
+  once a second — what `meshghost-fakeadapter` needs for `-area-id`/`-center` to put a crowd on screen.
 - `bizhawk-hitch-meter.lua` — **standing rig for any "it feels choppy" question**, game-agnostic
   and read-only. Reports frames over 20ms, frames over 33ms, and the worst gap, because **frame
   RATE is an average and an average cannot see a hitch**: ten frames lost inside one second still

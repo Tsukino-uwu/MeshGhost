@@ -2151,3 +2151,16 @@ Lua (which masks bitfield bools correctly) is NOT the flag C++ reads through a b
 a measurement can be right while the mirror built from it is wrong (`pitfalls/by-lesson.md`,
 the third bitfield case).
 
+## Count the ALLOCATION BITMAP against the LIVE OWNERS, and A/B it by unloading yourself (Emerald, 2026-09-02)
+
+Any resource the engine hands out through a bitmap — sprite tiles, palette slots, object slots — can leak
+without a single error: the game just runs out later, somewhere else. The measurement that turns that
+into a number is a read-only probe that prints, once a second, **how many units the bitmap says are taken
+against how many a live owner actually references** (`dev-scripts/objtiles_probe.lua` reads Emerald's
+OBJ tile bitmap against `gSprites`' tile numbers). 1020/1024 set with 8 live sprites is a leak in one line.
+Two moves that make it conclusive: **unload your adapter with the probe still loaded** — if the count
+stays, the bits are orphans, and if a warp then clears them the engine was never the one leaking; and
+**read it across the exact transition you suspect** (a seam, a weather change, a hot reload), where a step
+in the count names the path. Three leaks and a double-free were found this way in one evening, none of
+which any log line reported.
+
