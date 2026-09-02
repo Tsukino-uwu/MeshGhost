@@ -34,6 +34,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01) [RULE: checklists/before-a-network-change.md]
 - Failure signatures [RULE: checklists/before-declaring-a-fix.md]
 - An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02) [CHECK: netx/limit_test.go, TestLimitListenerKeepsTheUnreliableWrite]
+- An inline heredoc plus a bypassing PowerShell in one bash command is a Defender trojan signature (2026-09-03) [RULE: checklists/before-a-scripted-edit.md]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 

@@ -1240,3 +1240,17 @@ the same movement) before any theory, and a fake peer (`meshghost-fakeadapter`) 
 without a person at the keyboard. And on the day a wrapper is written: assert for the optional methods
 on the wrapped result. `agent_docs/verified.md`, "The limiter hid WriteUnreliable". [RULE:
 checklists/before-a-network-change.md] [CHECK: netx/limit_test.go TestLimitListenerKeepsTheUnreliableWrite]
+
+## An inline heredoc plus a bypassing PowerShell in one bash command is a Defender trojan signature (2026-09-03)
+
+**Symptom:** the Bash tool failed with `EPERM: operation not permitted, uv_spawn bash.exe`, and the user saw
+Microsoft Defender raise **Trojan:Win32/PowhidSubExec.B**, alert level Severe, status Active, on the
+command line itself. **Cause:** one bash call that piped a multi-line Python edit through
+`python - <<'PYEOF'` and, in the same line, ran `powershell -NoProfile -ExecutionPolicy Bypass -File
+dev-scripts/stage-release.ps1` — "PowerShell hidden sub-execution", a heuristic on the shape of the
+command (a shell spawning a bypassing PowerShell inside a long, heavily quoted payload), not on any
+file. Nothing ran; nothing was quarantined; the user allowed it after checking the affected item was
+the command line. **Fix:** the same edit written to a scratchpad `.py` and run by path passed at once.
+**Rule:** edit scripts live in files; `.ps1` scripts run from the PowerShell tool; inline bash stays
+short. The agent's own memory carries the same rule. [RULE: checklists/before-a-scripted-edit.md]
+
