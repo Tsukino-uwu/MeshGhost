@@ -32,6 +32,11 @@ Pseudoregalia `main.dll`. No game-derived binary has ever been tracked.
 **Standing rule: read a project's license before reading its source, and record the result
 here before consulting that project for anything.** If a project isn't in the table below,
 its license hasn't been checked yet — do not use it as a reference until it is.
+**Mechanical since 2026-09-02:** `dev-scripts/preflight.ps1`'s "Licensing gate" fails a
+`github.com/<owner>/<repo>` cited in any living doc that this file does not name. **Exempt, on the
+user's call: `ideas.md`, `candidate-games.md` and `security-design.md`** — brainstorm citations
+need no check, and the moment anything from a project there is USED, it is checked and recorded here
+first. Records (`phases/`, `pitfalls/`, the `VERIFIED.md` files, `doc-history.md`) are exempt too.
 
 **Standing rule: a source that cannot be cited cannot be used as a source.** A private,
 invite-only, shared-in-confidence or otherwise unpublishable project is **not recorded in the table

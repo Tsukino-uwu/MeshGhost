@@ -34,10 +34,14 @@ one that keeps being fed. Current state lives in `status.md`, never here.
 here. Numbering follows `plans.md`'s roadmap, and a `.5` is legitimate — Phase 5.5 was real work
 that did not warrant its own integer.
 
-**A phase file is the FULL history of its adapter — keep it fed while the work happens** (the
-user's call, 2026-09-01). Every phase file above had gone days-to-weeks stale while the work was
-recorded only in VERIFIED/pitfalls; each now carries a dated catch-up section at its end, and the
-next session should append to the phase file in the same pass that closes the work, not later.
+**A phase file is the COMPLETE running log of its adapter, appended EVERY SESSION** — the user's
+call, 2026-09-01 and again 2026-09-02, when every live log had become a catch-up summary written after
+the fact ("Catch-up record, written 2026-09-01 — the active phase's missing week"). Before a session ends, append a dated entry to the active
+phase file: what was tried, what happened, what the user said, and links to the VERIFIED, UNVERIFIED
+and pitfalls entries it produced. Facts and lessons still live in their records; this is the timeline
+that ties them together. **Never split a phase file, and never edit a past entry** — append a dated
+correction. `dev-scripts/preflight.ps1`'s "Phase log freshness" fails a live log once its adapter has
+three commits the log does not mention, so the check catches the missed session, not the missed week.
 
 **Go-side (core/relay/protocol/transport) work logs in [phase10.md](phase10.md)** — created
 2026-09-01 on the user's call, the same way Emerald got its own file (phase 8) after being built

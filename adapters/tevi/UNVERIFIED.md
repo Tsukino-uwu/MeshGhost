@@ -34,7 +34,25 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
+## This run — watch these first
+
+**The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
+like; answer each with a plain yes or no at the end of the run. Every entry in this file carries
+**READY** (built, waits for your eyes), **OPEN** (not fixed, parked as work) or **DONE** (kept for its
+mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
+entry without one.
+
+- Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
+- Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
+- MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
+- Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
+- Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
+- Pending -- the cold start LOADS; one VISUAL detail is unwatched (2026-08-28)
+- Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
+- Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
+- PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+
+## [READY] Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 
 **The feature is confirmed and lives in [`VERIFIED.md`](VERIFIED.md)** -- three pooled effects, the
 hitstop hold, animation phase, and facing captured at fire time, all watched on screen. What stays
@@ -70,7 +88,7 @@ star, hold and slam, at the same heights, on the same sides.
 the one trail branch nobody has seen. It needs somewhere with enemies (user). Slide and quickdrop
 are both confirmed.
 
-## Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
+## [READY] Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 
 **The defect was observed, not theorised.** Both instances sat logging
 `bridge connection ended: ... actively refused` for minutes while their own cores were alive and
@@ -106,7 +124,7 @@ path is reasoned from the code, and the log line it would emit
 **What to look at:** if a session ever shows repeated refusals again, that line appearing within
 ~8s is the fix working; its absence means this is still open.
 
-## Pending -- the cold start LOADS; one VISUAL detail is unwatched (2026-08-28)
+## [READY] Pending -- the cold start LOADS; one VISUAL detail is unwatched (2026-08-28)
 
 **The hot-reload half is CONFIRMED and moved to [`VERIFIED.md`](VERIFIED.md)** -- the reload works
 and leaves no orphan ghost, watched in a two-instance session. What is left here is everything
@@ -143,7 +161,7 @@ attach** -- only that the port answers. `../../agent_docs/environment.md`.
 the doorstop flag is one line in a local install, and `packaging/release/` carries only the
 rebuilt DLL. The pdb the dev loop needs is deployed by `tevi-hotreload.ps1`, never staged.
 
-## Open -- a predicted ghost can sink into the floor; the fix is asking the GAME where the ground is (2026-08-28)
+## [OPEN] Open -- a predicted ghost can sink into the floor; the fix is asking the GAME where the ground is (2026-08-28)
 
 **The one residual the render-knob sweep could not close** (`../../agent_docs/verified.md`, "The
 render-knob sweep"): with prediction on, a descending ghost is carried a little below the ground
@@ -155,7 +173,7 @@ is inside ground (the game's own collision query) and clamps the render. Game-sp
 same "let the game do the work" posture as everything else here. Until then the sink ships as a
 known cosmetic limit of prediction -- and prediction itself is opt-in config, off by default.
 
-## Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
+## [READY] Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
 
 **The half that is confirmed moved to [`VERIFIED.md`](VERIFIED.md)**: ghosts animate normally with
 `IsPlayableAnimName` live, which is the regression this could have caused (every ghost frozen in
@@ -168,7 +186,7 @@ either; that reasoning is what the entry rests on, not a run. **What it would lo
 four `ignored an animation name no local controller has` lines per peer, and no Unity animator
 warnings at all. `../../agent_docs/ideas.md`, "The ACE audit", gap 2.
 
-## Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
+## [READY] Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
 
 **The defect was real and is described below as it stood.** `UpdateRemoteMapMarker` ran only from
 inside `UpsertRemoteGhost`, which runs only when a `render_remote` arrives, so the marker was
@@ -211,7 +229,7 @@ this did not work. It has still never been run ([PROBES.md](PROBES.md)).
 Detail and the line numbers as they were: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap
 list.
 
-## PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+## [READY] PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
 
 **Watched the same day it was built**, in a two-game session: TEVI beside vanilla Crystal on one
 loopback relay. The user, on TEVI: *"TEVI seems to work"*, *"can see the loopback ghost and
@@ -239,7 +257,7 @@ named the walk's **cursor** instead of the port the **connection** was on. Full 
 copies, and whether a single-game launch (nothing else holding 7778) converges immediately — the
 session above never tested that, because Crystal was up first by design.
 
-## Original entry — the bridge_ready send gate and the 8-port walk (built 2026-08-27)
+## [DONE] Original entry — the bridge_ready send gate and the 8-port walk (built 2026-08-27)
 
 Built in this session and **never run in the game**. Both bring TEVI up to the bridge shape
 `../_template/PROTOCOL.md` defines and the other three adapters already implement.
@@ -260,7 +278,7 @@ settled on, and reports waiting for `bridge_ready` before its first send rather 
 start two TEVI copies with no `BridgePort` set in either config, and each should land on its own
 core (7778 and 7779) rather than one failing or both talking to the same one.
 
-## Pending -- two of the six probes have never been run
+## [OPEN] Pending -- two of the six probes have never been run
 
 `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` are still written-but-never-run, which is their honest
 state ([PROBES.md](PROBES.md)). Neither is part of the shipped mod; both are compiled out while
@@ -275,7 +293,7 @@ A probe here is a `DIAG_*` block inside `Plugin.cs`. Corrected 2026-08-28.
 Nothing to confirm here yet: a probe that has never run proves nothing, and its own log is not
 evidence either (`../../agent_docs/testing.md`).
 
-## MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
+## [READY] MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
 
 **Here because the evidence is a log this agent read.** What the user saw and confirmed -- two
 instances rendering each other, and the ghosts returning after the relay was restarted -- is in
@@ -313,7 +331,7 @@ carry the guard -- Crystal since 2026-08-19, the other two added 2026-08-28 -- a
 it could not have worked before that day's separate fix, because the rejection it branches on was
 being discarded before anything could read it.
 
-## OPEN, user-reported 2026-08-29 — a portal keeps its awake VISUAL after the last ghost leaves
+## [OPEN] OPEN, user-reported 2026-08-29 — a portal keeps its awake VISUAL after the last ghost leaves
 
 **The user watched this and it is wrong; nothing below is measured.** A ghost disconnecting while
 standing on a portal leaves the portal awake — the *visual* you get standing next to one, the
@@ -367,7 +385,7 @@ that peer's game outright. The portal should settle on its own within about a se
 touching it. **The control that makes it meaningful** is the same run with the peer walking off the
 portal normally before disconnecting — that path already works today, and must still work after.
 
-## Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
+## [READY] Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
 
 The user's call, made explicitly as a guess with stated reasoning: Pseudoregalia's ocean-profile
 sweep (netsim ~200 ping / ±40ms jitter / 5% loss) measured that its same-continent value needed
@@ -381,7 +399,7 @@ profile at 300ms -- smooth ghosts confirms the transfer; stutter refutes the add
 the number needs its own sweep. Until then every TEVI ghost on ANY link is drawn 125ms later than
 the measured pick, which a same-continent player can undo per the README.
 
-## Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
+## [READY] Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
 
 `BridgeClient.cs`: the two peer floats that reach the Animator (`anim_t` → `Animator.Play`'s
 normalized time and the phase catch-up speed; `pause` → `anim.speed`) now go through

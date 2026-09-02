@@ -35,7 +35,26 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
+## This run — watch these first
+
+**The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
+like; answer each with a plain yes or no at the end of the run. Every entry in this file carries
+**READY** (built, waits for your eyes), **OPEN** (not fixed, parked as work) or **DONE** (kept for its
+mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
+entry without one.
+
+- Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
+- MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
+- 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
+- 2026-08-27 — Crystal: the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
+- Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
+- 2026-08-26/27 — the mixed vanilla + Archipelago session: what was measured, fixed and left open
+- 2026-08-26 — Crystal: running and the faster bike on a patched build (MEASURED, unwatched)
+- 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
+- 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
+- 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+
+## [READY] Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
 The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like
 the player, indoors and out. What is still unwatched is the case the lookup exists for.
@@ -47,7 +66,7 @@ the player, indoors and out. What is still unwatched is the case the lookup exis
       yourself — and indoors it falls back to your own sprite rather than drawing garbage.
       **The adapter prints `PROBE FLAG IN USE` while this is set; clear it afterwards.**
 
-## Pending — Crystal: re-check the battle and the door after the fixes (2026-08-19)
+## [READY] Pending — Crystal: re-check the battle and the door after the fixes (2026-08-19)
 
 Both were WATCHED and both were broken — see `verified.md` for what was seen. Fixed the same
 session; the fixes themselves have not been watched.
@@ -57,7 +76,7 @@ session; the fixes themselves have not been watched.
 - [ ] **Out of Elm's lab.** *Correct:* the ghost square on its tile, not a few pixels off it.
 - [ ] **In and out of a door generally**, since the placement code changed for every case.
 
-## Pending — Crystal's drawn tier (2026-08-19)
+## [READY] Pending — Crystal's drawn tier (2026-08-19)
 
 The screen-filling half is **confirmed** (`verified.md`); these landed after that and have not
 been watched. All of them concern peers past the engine's cap, which are painted rather than
@@ -89,7 +108,7 @@ spawned.
       machine's player"** — for the drawn tier. A spawned ghost still needs tiles the hardware can
       reach, so it keeps the old behaviour.
 
-## Crystal's drawn tier does NOT clip the PHONE-CALL panel at the TOP of the screen (2026-08-19)
+## [OPEN] Crystal's drawn tier does NOT clip the PHONE-CALL panel at the TOP of the screen (2026-08-19)
 
 **Reported by the user, watching the Archipelago Crystal instance:** *"there is a 'text box/ui'
 thing at the top. think we forgot that one earlier for the gui draw, as it only appears when
@@ -146,7 +165,7 @@ half of the screen earlier that day. A generalised test needs the visibility hal
 third check (the far end of the row) happens to fail on the leftover tiles; that is luck, not
 design. **Log-line evidence, agent-verified; no visual claim.**
 
-## Pending — Crystal's drawn tier: what a crowd on VANILLA showed (2026-08-19)
+## [READY] Pending — Crystal's drawn tier: what a crowd on VANILLA showed (2026-08-19)
 
 The queue above ("Pending — Crystal's drawn tier") asks for five things. This is what a synthetic
 crowd could establish without the user, on **vanilla Crystal in New Bark Town**, ~60 peers offered
@@ -201,7 +220,7 @@ the numbers, and the two entries below rest on them rather than on any image.
 bookkeeping stops when the peers' `area_id` no longer matches, which is the leak fixed earlier that
 day still holding. Log-line evidence.
 
-## Pending — Crystal: a drawn ghost no longer paints over a full-screen menu (2026-08-19)
+## [READY] Pending — Crystal: a drawn ghost no longer paints over a full-screen menu (2026-08-19)
 
 **The user reported this while watching:** *"the ghost is being drawn while in the menu's."* The
 cause was not the menu clipping being broken in general — the START menu was always clipped
@@ -224,7 +243,7 @@ and the drawn tier resuming normally on exit.
       text box open. *Correct:* ghosts still visible above the text box exactly as before — the fix
       must not have turned into "hide everything whenever anything is open".
 
-## Pending -- Crystal: a drawn ghost inside a BATTLE (2026-08-19)
+## [READY] Pending -- Crystal: a drawn ghost inside a BATTLE (2026-08-19)
 
 **The user, watching the Archipelago instance:** *"ap crystal is showing a ghost inside of the
 battle and stuffs now. think its a drawn one?"* Same defect as the menu report, and now handled by
@@ -242,7 +261,7 @@ value. Both in `pitfalls.md`.
       Archipelago agent's memory reads rather than on a run of the fixed build.
 
 
-## Pending — Crystal: four changes from 2026-08-21, none confirmed on screen
+## [READY] Pending — Crystal: four changes from 2026-08-21, none confirmed on screen
 
 All four were made in one session while the user watched a loopback session. Each is **measured but
 not confirmed**: the measurements are mine, so per `CLAUDE.md` none of this is verified until the
@@ -277,7 +296,7 @@ sprite. The first version of that rule was wrong in a way worth recording — it
 peer was demoted and the spawned tier was silently off. Caught by the adapter's own drawn-tier line
 reading `0 spawned as real objects`.
 
-## Pending — Crystal's hardware tier (2026-08-21)
+## [READY] Pending — Crystal's hardware tier (2026-08-21)
 
 Built on the user's request as the middle rung of **spawned -> hardware -> drawn**, behind
 `MESHGHOST_CRYSTAL_OAM_OVERFLOW` (off by default). What is **measured**, by me, and therefore not
@@ -303,7 +322,7 @@ the decomp that the screen may well refute:
    right. Each copy is pinned to one rung — without that the hardware tier claims the drawn copy
    too and the comparison silently becomes a renderer against itself.
 
-## Pending — Crystal, after the 2026-08-22 session
+## [READY] Pending — Crystal, after the 2026-08-22 session
 
 1. **The drawn tier's STRIDE animation is unconfirmed.** With the facing fixed, only one frame per
    facing was ever captured in the runs watched, and the tier's own summary line has read
@@ -336,7 +355,7 @@ the decomp that the screen may well refute:
    ghost. `probes/action_watch.lua` has now shown STAND, STEP and BUMP reaching the player's own
    object during ordinary play; FISHING, SPIN, EMOTE and SKYFALL were never produced in that run.
 
-## Crystal's two anti-stuck passability rules have never been watched (2026-08-22)
+## [READY] Crystal's two anti-stuck passability rules have never been watched (2026-08-22)
 
 `shouldBlock` makes a peer passable two ways, and both were held OFF during the collision
 confirmation in `verified.md` because a frozen ghost trips them within seconds:
@@ -351,7 +370,7 @@ Both are shipped behaviour on the tier most peers actually get. To test them, cl
 `MESHGHOST_CRYSTAL_FREEZE_STATE` — it forces `shouldBlock` true precisely to keep them out of the
 way of a hitbox test.
 
-## Crystal: the spawned ghost starts each step ~4 frames after the peer (2026-08-22)
+## [READY] Crystal: the spawned ghost starts each step ~4 frames after the peer (2026-08-22)
 
 Measured with both step machines watched at once, counting between actual tile changes with no
 `OBJECT_WALKING` gate (every earlier instrument had one, and it hid the frames where the
@@ -383,7 +402,7 @@ the engine acts on the following frame.
 
 Neither is scheduled. Both are measured, and the numbers above are what any fix has to beat.
 
-## Crystal's drawn tier at the SHIPPED 250ms: the stutter, and what it turned out to be — 2026-08-23
+## [READY] Crystal's drawn tier at the SHIPPED 250ms: the stutter, and what it turned out to be — 2026-08-23
 
 **Status: measured and fixed in code, NOT confirmed on screen.** The user reported it live —
 *"the drawn ghost still looks a bit stuttery/jittery while moving around"* — while playing the
@@ -445,7 +464,7 @@ values. The model never fell more than 20px behind a 16px step and **never once 
   a distance now, which has no sign to get wrong. This is a candidate explanation for the
   directional complaints (*"still doing right a bit fast sometimes"*) and is not confirmed as such.
 
-## Crystal's drawn tier: what the 2026-08-23 confirmation does NOT cover
+## [READY] Crystal's drawn tier: what the 2026-08-23 confirmation does NOT cover
 
 The user confirmed the drawn tier clean — *"i think this one looks perfect now"* — at the **dev rig's
 settings** (`verified.md`). Everything below is measured, not confirmed, and the first item is the
@@ -469,7 +488,7 @@ one the session originally set out to answer.
 6. **The `x` (perpendicular) and `>` (large) marks that remain in the screen trace** cluster at lap
    transitions and 8px camera frames. Small, unexplained, and now visible to the instrument.
 
-## Crystal: the trainer-clone hang — fixed, NOT yet confirmed on screen (2026-08-23)
+## [READY] Crystal: the trainer-clone hang — fixed, NOT yet confirmed on screen (2026-08-23)
 
 A spawned ghost raised the trainer `!` and wedged the game's script engine. Cause, fix and method:
 `pitfalls.md`, "a spawned ghost was a TRAINER". The ghost was cloned from a map object whose type
@@ -497,7 +516,7 @@ outcome of almost any session, fixed or not — it is exactly what the two sight
 by before. What WOULD confirm it is the standing check above going quiet on a route known to offer
 a trainer donor, which is a thing to watch for rather than a thing to conclude.
 
-## Crystal: what the source says about ghost collision, unused as of 2026-08-23
+## [OPEN] Crystal: what the source says about ghost collision, unused as of 2026-08-23
 
 Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet:
 
@@ -514,7 +533,7 @@ Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet
 
 Whether the trade is worth taking is undecided; it is written down so the option is not rediscovered.
 
-## Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left (2026-08-23)
+## [READY] Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left (2026-08-23)
 
 **Fixed and judged better by the user.** Two independent causes of the end-of-walk snap, both of
 which only fire when the camera parks — which is only when the player stops:
@@ -557,7 +576,7 @@ paired with OAM timing) while `camA` is current. If the aging is ever absent or 
 two references differ by however far the player moved in that window — which would present exactly
 as a walk-proportional bleed. Checkable from the existing log; no new probe needed.
 
-## Crystal: the "206px continuous bleed" was a counter artefact, and the bleed has an identity (2026-08-23)
+## [READY] Crystal: the "206px continuous bleed" was a counter artefact, and the bleed has an identity (2026-08-23)
 
 Two results, both from reading the adapter rather than running it, both correcting the entry above
 ("Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left").
@@ -614,7 +633,7 @@ open item is about something else; if W grows with the length of the walk, the m
 a path where the camera block did not run or rejected real motion, and the places that can happen
 are enumerable (no drawn peer that frame, the UI latch, the settle window, a >128px sample gap).
 
-## Crystal's drawn tier: three real bugs behind the residual jitter — measured, NOT confirmed (2026-08-23)
+## [READY] Crystal's drawn tier: three real bugs behind the residual jitter — measured, NOT confirmed (2026-08-23)
 
 Continues the entry above ("the '206px continuous bleed' was a counter artefact"). All three were
 found by measurement against a source citation, all three are deployed on the shipped-settings rig
@@ -709,7 +728,7 @@ worse: that one was tried while drift was large and continuous, so suppressing r
 to 16px. With drift at ~1px there is nothing left to accumulate. Untried, and not to be added
 speculatively.
 
-## Crystal: the camera addresses bypass the adapter's own per-build table (2026-08-23)
+## [READY] Crystal: the camera addresses bypass the adapter's own per-build table (2026-08-23)
 
 Opened by the camera fix above, deliberately not closed in the same pass — the fix had just been
 judged good on screen and a refactor at that moment would have made a regression impossible to
@@ -732,7 +751,7 @@ there (correlation across real tile steps — sweeps 0,2,4..254 within a step, m
 then move both pairs into the `ADDRESSES` tables. Until then, the drawn tier's camera clock on the
 Archipelago build rests on an assumption, and the AP build has not been run since the change.
 
-## Crystal: the spawned ghost's step lag was measured wrong, and the jitter has a mechanism (2026-08-23)
+## [READY] Crystal: the spawned ghost's step lag was measured wrong, and the jitter has a mechanism (2026-08-23)
 
 **Supersedes the 2026-08-22 entry above** ("Crystal: the spawned ghost starts each step ~4 frames
 after the peer"), whose split — *"the wire is 1.5 frames of the 4.3 ... the rest is the adapter's own
@@ -785,7 +804,7 @@ from loopback, and CLAUDE.md's bar is what happens on screen — a spread of thr
 16px step, and whether that is the stutter or merely a true thing about the pipeline is a question
 only a real session answers.
 
-## Crystal: a dev-loader flag file cannot turn a flag OFF by deleting the line (2026-08-23)
+## [READY] Crystal: a dev-loader flag file cannot turn a flag OFF by deleting the line (2026-08-23)
 
 Cost a full run today and reads as a completely different fault, so it is written down rather than
 re-learned. `dev-scripts/bizhawk-dev-loader.lua` drops and re-loads script FILES; it does not reset
@@ -802,7 +821,7 @@ which looks like a spawn failure, a budget problem or a sprite-residency problem
 adapter's own tier-refusal line (`stays on the drawn tier -- wearable=... blocking=...`, under
 `MESHGHOST_CRYSTAL_STEP_LAG`) is what named it, after three wrong guesses off a zero counter.
 
-## Crystal: the adapter was compiling at exactly Lua's 200-local ceiling (2026-08-23)
+## [READY] Crystal: the adapter was compiling at exactly Lua's 200-local ceiling (2026-08-23)
 
 Found by adding ONE local and watching the whole file stop compiling — `too many local variables
 (limit is 200) in main function`, which in a real session is a silent non-load, not an error. Emerald
@@ -815,7 +834,7 @@ on this machine that can answer "does this file even parse?"; it can be run with
 `EmuHawk.exe --lua=<it>` and reading `bizhawk-syntax-check.log`. **Run it after any edit to an adapter,
 not just before shipping** — one added `local` is enough.
 
-## Crystal: the spawned ghost now steps off the peer's PROGRESS, not its tile — measured, NOT confirmed (2026-08-23)
+## [READY] Crystal: the spawned ghost now steps off the peer's PROGRESS, not its tile — measured, NOT confirmed (2026-08-23)
 
 Built on the measurement above. `STEP_TRIGGER_PROG = 4`: the ghost waits until the peer is four
 pixels of sixteen into its step before taking one, instead of stepping the moment the peer's
@@ -850,7 +869,7 @@ quantity to lean on. **Judge this at shipped settings only** — `run-relay-loop
 spread is invisible and six frames was the stutter is a question only a real session answers, and the
 honest possibility is that the user was looking at something else entirely.
 
-## Crystal: shoving a MOVING ghost aside could never work — fixed, NOT confirmed (2026-08-23)
+## [READY] Crystal: shoving a MOVING ghost aside could never work — fixed, NOT confirmed (2026-08-23)
 
 The open item said a walking peer reaches neither shipped passable rule. Half of that turns out to be
 a plain bug rather than a missing feature.
@@ -871,7 +890,7 @@ tile, which a walking peer still cannot reach — that half of the item stands.
 about half a second you should pass through. `MESHGHOST_CRYSTAL_GHOSTS_PASSABLE` must be UNSET for
 this to mean anything — it short-circuits the whole rule.
 
-## Crystal: the promotion blink was a one-frame hole, not an overlap — fixed, NOT confirmed (2026-08-23)
+## [READY] Crystal: the promotion blink was a one-frame hole, not an overlap — fixed, NOT confirmed (2026-08-23)
 
 **The user, on the rig:** *"the spawned ghost still 'flicker' whenever it has been idle/despawned, and
 then moves 1 tile"*, and, asked to place it, *"at the start of moving from idle to another tile"*.
@@ -931,7 +950,7 @@ The first two versions of the OAM probe produced confident numbers that were art
 from.** Both wrong versions returned a boolean, and a boolean cannot be sanity-checked. The third
 printed the OAM table, and the two missing rows were simply there to see.
 
-## Crystal: the drawn tier renders a BUMP — measured, user says it looks good (2026-08-23)
+## [READY] Crystal: the drawn tier renders a BUMP — measured, user says it looks good (2026-08-23)
 
 **The user, watching the compare rig:** *"when standing idle, and walking into a wall. the drawn
 ghost is not doing the 'walking' animation like the player & spawned ghost does"*. After a first
@@ -994,7 +1013,7 @@ and the bump would have looked simply not to work **on the exact rig used to jud
 sit above every use. Fourth time this file has hit that trap; `dev-scripts/lua-forward-refs.py` does
 not catch it because both the use and the declaration are inside one function.
 
-## Crystal: the residual promotion flicker was a 2px backward hop, not a missing frame (2026-08-23)
+## [READY] Crystal: the residual promotion flicker was a 2px backward hop, not a missing frame (2026-08-23)
 
 **The user, after the frame-gap fix:** *"lets fix the spawned ghost 'flickering' slightly whenever it
 moves 1 tile after having being despawned/respawned"*, and, placing it exactly, *"it only happens
@@ -1037,7 +1056,7 @@ promotion frame"* -- was exactly that mistake, from an instrument that cannot se
 the live OAM count on the SAME line so the paint clock and the engine clock can be compared without
 aligning two logs. That pairing is what produced the answer above in one run.
 
-## Crystal: a fresh ghost wore the DONOR's facing, and a later change made it visible (2026-08-23)
+## [READY] Crystal: a fresh ghost wore the DONOR's facing, and a later change made it visible (2026-08-23)
 
 **The user, immediately after the handover hop was fixed:** *"the facing direction is a bit weird when
 its happening now, but i think the flicker is gone"*.
@@ -1061,7 +1080,7 @@ was one frame wide, and no test would have caught it. Widening a window is a way
 not only of causing them — when a timing change produces a new visual report, check what is now on
 screen for longer before assuming the change itself is wrong.
 
-## Crystal: the periodic whole-TILE drift, and the state it happens in (2026-08-23)
+## [OPEN] Crystal: the periodic whole-TILE drift, and the state it happens in (2026-08-23)
 
 Found by the 9x9 square run: the spawned tier's standing re-anchor corrects the ghost by a **whole
 tile** — `+16,+0` px, always on one axis — four times in 375 steps, evenly spaced about 13 seconds
@@ -1098,7 +1117,7 @@ log `OBJECT_MOVEMENT_TYPE` and `MAPOBJECT_MOVEMENT` on the same line as the drif
 damage to one tile, so this is visible as an occasional snap rather than a runaway — which is why it
 survived a session that was otherwise clean.
 
-## 2026-08-25 — Crystal: the rest of the action classes on the drawn tier
+## [READY] 2026-08-25 — Crystal: the rest of the action classes on the drawn tier
 
 **Built and not watched. Nothing below is confirmed.** The bump case (2026-08-23) was the first row
 of `phase9.md`'s 2026-08-19 animation enumeration; this is the rest of it — spin (which includes
@@ -1142,7 +1161,7 @@ reads `FishingRodGFX` from ROM (`41:4560` on our own hash-verified `pokecrystal`
 the sprite table it has no cheap signature check, which is why the gate is ROM identity. On any
 other build the rod is simply absent.
 
-## DRAINED 2026-08-26 — fishing, the bite and the "!"
+## [DONE] DRAINED 2026-08-26 — fishing, the bite and the "!"
 
 **Everything this queue held about fishing left it in one pass**, on the user's confirmation:
 *"okay now it worked perfectly, Fishing is complete/verified."* Five entries: the offline
@@ -1195,7 +1214,7 @@ interpolation at 0, so the drawn ghost can be judged against the player frame fo
 head at all; the spawned tier's spin runs on the engine's own clock rather than the peer's phase;
 and no Fly landing at all, per the above.
 
-## 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
+## [READY] 2026-08-25 — Crystal: `jsonDecode` could loop forever on truncated input
 
 **Fixed, and unconfirmed in BizHawk's own Lua.** Crystal's decoder was the only one of the repo's
 seven copies written fresh rather than from the guarded shape the other six use, and it had neither
@@ -1220,7 +1239,7 @@ milliseconds instead of hanging. **That was a desktop Lua, not BizHawk's** — t
 there too, but the check that matters is that the adapter still loads and connects in a real
 session, which is part of the live test below.
 
-## DRAINED 2026-08-25 (evening) — surf, the bike, movement, the promotion seam, and the lag
+## [DONE] DRAINED 2026-08-25 (evening) — surf, the bike, movement, the promotion seam, and the lag
 
 **Sixteen entries left this queue in one pass**, on the user's confirmation at the end of that
 session: *"moving perfect, surf working, bike working etc etc"*, and, riding a 9x9 on the bike with
@@ -1246,7 +1265,7 @@ cases, and the hardware tier. The movement and gait work is done until a real tw
 says otherwise: every number behind the confirmation is loopback, whose echo is smaller than any
 network peer's.
 
-## 2026-08-26 — Crystal: the SPAWNED tier never applied the peer's `yoff` at all
+## [READY] 2026-08-26 — Crystal: the SPAWNED tier never applied the peer's `yoff` at all
 
 **Fixed by reading, not by watching, and nothing below has been on screen.** `yoff`
 (`OBJECT_SPRITE_Y_OFFSET`) went on the wire with fishing earlier the same day and the drawn tier
@@ -1277,7 +1296,7 @@ the same day killed it. See "the Fly landing is not on the player's object at al
 left of this entry is the bite wiggle and a ledge hop's arc, which are real and still unwatched.
 **No new top-level local was spent** — the file is still 197 of 200 (`emulator/CLAUDE.md`).
 
-## 2026-08-26 — Crystal: the Fly landing is not on the player's object at all, and two fixes from it
+## [READY] 2026-08-26 — Crystal: the Fly landing is not on the player's object at all, and two fixes from it
 
 **All of this is measured, none of it is confirmed on screen.** The user, after the morning's
 `yoff` work went live: *"fly looks really broken on the ghosts, also the spawned ghost goes
@@ -1351,7 +1370,7 @@ where it is** — worth knowing before either is proposed again:
 4. **The Fly itself is not under test.** Expect the ghost to do nothing sensible during the
    animation; that is the measured gap above, not a regression.
 
-## 2026-08-26 — Crystal: the menu rectangle is a SHARED SCRATCH SLOT, and the Fly fix was in the wrong place
+## [READY] 2026-08-26 — Crystal: the menu rectangle is a SHARED SCRATCH SLOT, and the Fly fix was in the wrong place
 
 **Both measured live in the failing states, neither fix confirmed on screen.** Two reports on the
 first re-test of the morning's Fly fixes: *"a weird sprite showed up in my pokemon inventory when i
@@ -1394,7 +1413,7 @@ one.
 3. **The START menu and ordinary text boxes still clip** — the list must not have broken the
    single-rectangle cases confirmed 2026-08-19.
 
-## 2026-08-26 — Crystal: a peer that arrives by Fly now drops out of the sky (BUILT, unwatched)
+## [READY] 2026-08-26 — Crystal: a peer that arrives by Fly now drops out of the sky (BUILT, unwatched)
 
 **The user's call**, choosing between this and a plain teleport-in, after pushing back on "the
 ghost can't do fly" — correctly: the parity rule stands, the missing piece was only a SIGNAL. What
@@ -1481,7 +1500,7 @@ the event that mattered. The pattern, and the one-sentence check for it, are in
 same-town case now does. Same-town must still work. And a promotion (a ghost appearing as you start
 walking, no fly involved) must still be a plain appearance with no fall.
 
-## 2026-08-26 — Crystal: a flying peer should wear its POKEMON, and does not (NOT BUILT)
+## [READY] 2026-08-26 — Crystal: a flying peer should wear its POKEMON, and does not (NOT BUILT)
 
 **Spotted by the user while testing the drop:** *"both same/different town teleports are not
 changing their sprites to the 'pokemon that used fly' like the player does."* Correct, and it is a
@@ -1575,7 +1594,7 @@ work already queued above, plus the cosine descent in place of the fall.
 you start walking) never drops, and that a door or Dig arrival never does either — the envelope is
 gated on MAPSETUP_FLY, so neither should, and neither has been checked.
 
-## 2026-08-26 — Crystal: the garbled fly sprite was TWO faults, both measured (FIXED, unwatched)
+## [READY] 2026-08-26 — Crystal: the garbled fly sprite was TWO faults, both measured (FIXED, unwatched)
 
 **The user, after the drop itself was working:** *"same town fly sprites still look a bit
 glitchy/broken"*, then, crucially, *"'was' garbled, it goes back to the normal sprite once landing.
@@ -1706,7 +1725,7 @@ never appears it is dead weight. A later session can delete it on evidence rathe
 our guesses. **Two theories in a row about this sprite were wrong; the deciding measurement in both
 cases was one that had been read out of the wrong place.**
 
-## 2026-08-26 — Crystal: the REAL fly landing, and the bandage retired (BUILT, unwatched)
+## [READY] 2026-08-26 — Crystal: the REAL fly landing, and the bandage retired (BUILT, unwatched)
 
 **The user's call:** *"try to fix the 'pokemon sprite & landing animation, for a different town' so
 we don't have to use the 'falling' bandage anymore"*, after reporting that same-town already looked
@@ -1764,7 +1783,7 @@ Three faults stood between the species arriving and the icon painting, each meas
    object is now released for the drop and the ordinary promotion machinery re-adopts the peer
    when it next moves.
 
-## 2026-08-26 — Crystal: the painted tier is gated on the game's own sprite-engine byte (SELF-TESTED)
+## [READY] 2026-08-26 — Crystal: the painted tier is gated on the game's own sprite-engine byte (SELF-TESTED)
 
 **The user's diagnosis, verbatim:** ghosts appeared over the party menu and the fly map screen
 after an adapter reload — *"so probly no check if they can't spawn/show there? just a check that
@@ -1782,7 +1801,7 @@ unmeasured build, where behaviour is unchanged.
 nothing painted over it (screenshot), landing still runs, ghost back afterwards. The rectangle
 machinery stays for PARTIAL menus (START, text boxes), which never disable the sprite engine.
 
-## DRAINED 2026-08-26 (evening) — the whole Fly chain
+## [DONE] DRAINED 2026-08-26 (evening) — the whole Fly chain
 
 **Everything above about Fly left this queue in one pass**, on the user's confirmation: *"both
 same/different town fly works correctly now, and yes no ghosts showed up on the 'fly' menu when
@@ -1805,7 +1824,7 @@ Not summarised here, because that would be an index of an index. Where each went
 **Still open on Fly, and deliberately:** a remote peer's landing has never been watched, and a peer
 flying tile-to-same-tile in a watcher's view gets no descent because no signal for it exists.
 
-## 2026-08-26 — Crystal: the SPIN class, and two fixes of which only one is proven to matter
+## [READY] 2026-08-26 — Crystal: the SPIN class, and two fixes of which only one is proven to matter
 
 **The spin itself looks DONE on both tiers**, on the user's own watching: the drawn ghost is
 *"spinning around properly in the whirlpool"*, and the spawned one *"does spin on the whirlpool
@@ -1982,7 +2001,7 @@ walk/stype/duration while a tile waits, one line per 15 blocked frames — the l
 frozen `dur=3`). `probes/whirlpool_drive.lua` now drives the FAILING cycle (Up 120 frames, idle
 180), not the passing hold.
 
-## 2026-08-26 — Crystal: the "wrong trainer sprite" is NOT ours, and not a fault
+## [READY] 2026-08-26 — Crystal: the "wrong trainer sprite" is NOT ours, and not a fault
 
 **Settled by an A/B on the user's own repro** (`probes/trainer_check.lua`, savestate 3, walk left
 then down on Route 40 — map 22:1). Run A with the adapter NOT loaded and run B with it loaded are
@@ -2020,7 +2039,7 @@ and the walk ran from the wrong tile (now waits for the position to change, then
 saw as *"walking way too far left"*. Timeouts are now sized to the walk asked for, and every tile
 crossed is logged so an overshoot is visible rather than inferred.
 
-## DRAINED 2026-08-26 — ICE
+## [DONE] DRAINED 2026-08-26 — ICE
 
 **Confirmed on screen** (*"ice works now. confirmed"*) and moved to [`VERIFIED.md`](VERIFIED.md)
 with the four things it does NOT cover — a remote peer above all, plus the bike, which shares
@@ -2028,7 +2047,7 @@ gait group 2 with a glide. The measurement that refuted the obvious fix, and the
 drawn/spawned split located it in one report, are in `../../../../agent_docs/pitfalls/by-lesson.md`;
 how the GAME does an ice glide is in [`documentation.md`](documentation.md).
 
-## 2026-08-26 — Crystal: `goto_map`'s group ids were off by two, and it warped the user twice
+## [READY] 2026-08-26 — Crystal: `goto_map`'s group ids were off by two, and it warped the user twice
 
 **Not a game fault and not the adapter's** -- a probe bug, recorded because it cost live cycles.
 Deriving group numbers by counting `newgroup` lines in `constants/map_constants.asm` also counts
@@ -2049,7 +2068,7 @@ is group 24 (`documentation.md` says so independently) and `ROUTE_40` is `22:1` 
 running game by `trainer_check.lua`). Both are now cited in `goto_map.lua` beside the table, along
 with the corrected entries and the retracted dark-cave explanation.
 
-## DRAINED 2026-08-26 — Crystal: Dig / Escape Rope, and the ledge-hop emote
+## [DONE] DRAINED 2026-08-26 — Crystal: Dig / Escape Rope, and the ledge-hop emote
 
 **Both confirmed on screen and moved out.** The user, on Dig/Escape Rope: *"yes also confirmed, it
 looked fine"* — after an earlier hedged read that was deliberately left here rather than promoted,
@@ -2062,7 +2081,7 @@ cover** are in [`VERIFIED.md`](VERIFIED.md), "Dig / Escape Rope, both tiers".
 `OBJECT_SPRITE_Y_OFFSET`. **Teleport remains unmeasured and unwatched** and is now the last
 action class.
 
-## DRAINED 2026-08-26 — Crystal: ledge hops
+## [DONE] DRAINED 2026-08-26 — Crystal: ledge hops
 
 **Confirmed on screen and moved out**, the same day it was built. The user: *"i saw the shadow on
 both ghosts, that is why i confirmed ledge hops being done"*. The entry, what it took (the "!", the
@@ -2077,7 +2096,7 @@ than hopped, and the drawn tier's shadow is vanilla-V1.0-only.
 predictions were all resolved: the arc did not work for free, the spawned ghost was not refused at
 the ledge, and both tiers now have a shadow.
 
-## 2026-08-26 — Crystal: loading a savestate killed the adapter
+## [READY] 2026-08-26 — Crystal: loading a savestate killed the adapter
 
 **Fixed, and the fix is UNPROVEN against its own trigger.** The user: *"think me reloading a
 savestate broke the script ?"* — it did, and the loader log named the line.
@@ -2099,7 +2118,7 @@ reproduction that is missing.
 **This is the second door into that dereference**, after the map-change crash closed earlier the
 same day. `pitfalls/by-lesson.md` has the general lesson.
 
-## 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+## [READY] 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
 
 **Not a leak, and not the unload hook failing.** The adapter's `MESHGHOST_DEV_UNLOAD` does call
 `disconnect`, which despawns every ghost it TRACKS, and `event.onexit` does the same. The leftover
@@ -2128,7 +2147,7 @@ local player's sprite, `WONT_DELETE`, stationary past the adapter's own release 
 session that made it, and that ghost will appear in every run of that probe forever. If a driven
 run shows one more character than it should, suspect the savestate before the adapter.
 
-## 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
+## [READY] 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
 
 **Nothing is known to be wrong here. This is a named risk with a named test**, logged at the user's
 request rather than left as a line in `status.md`.
@@ -2165,7 +2184,7 @@ at all is a different fault (the ROM gate declining on a non-vanilla build), not
 **Scope: vanilla V1.0.** Both reads are gated on `classifyRom()` returning `known`, so on any other
 build both are simply absent and this risk does not arise.
 
-## 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
+## [READY] 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
 
 **Status: not implemented, not measured, not watched.** Every other action class is confirmed
 (walk, bump, turn, spin tiles, ice, surf, bike, fishing, Fly, ledge hops, Dig/Escape Rope). This is
@@ -2227,7 +2246,7 @@ says generated, and that would also get the phase timing for free
 **The instrument already exists**: `probes/fly_probe.lua` answers "does the player's object carry
 this" in one run, read-only, and it is what settled both Fly and Dig.
 
-## 2026-08-26 — Crystal: running and the faster bike on a patched build (MEASURED, unwatched)
+## [READY] 2026-08-26 — Crystal: running and the faster bike on a patched build (MEASURED, unwatched)
 
 The Archipelago Crystal patch adds two movement modes vanilla does not have — running on foot,
 and a second, faster bike speed. Both are now supported, and the whole of it turned on one
@@ -2342,7 +2361,7 @@ and letting a vanilla and an Archipelago player share a room is the entire point
    12–15, so group 3 is unreachable there — but `paceable` and the `gfx` gate are both new terms
    in paths every vanilla session runs, and a vanilla-to-vanilla loopback run is the cheap check.
 
-## 2026-08-26/27 — the mixed vanilla + Archipelago session: what was measured, fixed and left open
+## [READY] 2026-08-26/27 — the mixed vanilla + Archipelago session: what was measured, fixed and left open
 
 A single session with two BizHawk instances in one room — instance 1 an Archipelago seed, instance
 2 vanilla V1.0 — relay on loopback, two cores, `-interp=0ms -min-send=10ms`. The first mixed-build
@@ -2428,7 +2447,7 @@ made a standing peer move twice as far as the world.
   compiles because new functions were hung on existing tables. `agent_docs/ideas.md` has the
   modules refactor.
 
-## Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
+## [READY] Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
 
 The user added that line to `README.md`'s build story by hand, as build-story step 25, and
 **deliberately left it without a description**. So the date and the words are theirs; the scope is
@@ -2454,7 +2473,7 @@ includes. Then step 25 gets their wording and this entry is deleted.
 
 ---
 
-## 2026-08-27 — Crystal: the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
+## [READY] 2026-08-27 — Crystal: the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
 
 **What this is for.** Crystal has never had cross-map ghosts. A peer whose `area_id` is not
 byte-equal to ours is hidden in both tiers ([`meshghost_crystal.lua`](meshghost_crystal.lua), the
@@ -2555,7 +2574,7 @@ has the player exactly one tile outside our own bounds.
 
 ---
 
-## 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
+## [READY] 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
 
 The confirmed half of this session is in [VERIFIED.md](VERIFIED.md). This is the remainder: what
 nobody has looked at, and the fixes that were built, measured, and turned out to be wrong. The
@@ -2637,7 +2656,7 @@ the fault. What finally worked, in order — the general form is now in
 longer than one frame.** An earlier run showing a clean result was discarded because the user had a
 "repel ran out" text box open during it; it was re-taken from the savestate.
 
-## MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
+## [READY] MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
 
 **Here rather than in `VERIFIED.md` because the evidence is a log this agent read**, from a
 staged-release run it drove itself. Nothing below was watched on screen.
@@ -2673,7 +2692,7 @@ above — before the fix, that address could not even have been reached to fail.
 **What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no tier
 handover was part of this run.
 
-## Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
+## [READY] Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
 
 `meshghost_crystal.lua`, three changes, `luac -p` clean, not run:
 

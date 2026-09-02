@@ -4,7 +4,7 @@ A fix is a claim. These are the ways a claim has looked true here while being fa
 
 **Read the three in bold, then skim the rest: one line each, the title IS the lesson, the link is the record.**
 
-- **Run the same test without the fix, and reproduce a regression on the last-known-good build FIRST.** A regression report is a hypothesis; bisect real commits; a flag flip is not a revert.
+- **Run the same test without the fix, and reproduce a regression on the last-known-good build FIRST.** A regression report is a hypothesis; bisect real commits; a flag flip is not a revert ([method.md](../pitfalls/method.md)).
 - **Two guessed fixes failing the same way is a stop signal.** After ~3 single-variable negatives, run the union, then subtract from a working state.
 - **Validate on the REPORTED path, not its neighbour**, and ask what is true where a fix works — a fix named after a place gets re-found somewhere else.
 

@@ -33,6 +33,13 @@ considered done/fixed until i actually confirm it as such."*
 
 - The agent adds an item the moment it believes something works, with **what to look at** and
   **what correct looks like** — enough that the user can judge it without re-deriving anything.
+- **Every entry's heading carries a state: `[READY]`, `[OPEN]` or `[DONE]`.** READY is built and
+  waits for the user's eyes; OPEN is not fixed and is parked as work, never counted as awaiting
+  confirmation; DONE is kept only for its mechanism. **A `## This run — watch these first` block
+  at the top lists at most ten READY entries, newest first** — that block is what a confirmation
+  session works down, and the agent asks a plain yes/no per entry at the end of the run. Added
+  2026-09-02 because a 132-entry queue with no head was doing two jobs and draining neither.
+  `dev-scripts/preflight.ps1` fails an entry without a state.
 - The user works down the list and answers each **confirm** or **decline**. Decline is a normal
   answer, not a failed handover.
 - **On confirm:** move it to [`VERIFIED.md`](VERIFIED.md) with the date, and delete it here.

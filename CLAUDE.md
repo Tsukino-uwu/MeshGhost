@@ -187,15 +187,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   theory, and cannot be fooled by a partial revert. Both cases, dated: `pitfalls.md`.
 - **Cite dates, not durations — INCLUDING for emphasis** ("for months", "long-standing"). Repo born
   2026-08-11, so they are false on arrival; preflight's invented-durations check fails the common ones.
-- **Test instructions use plain directions (up/down/left/right), never compass points.** User
-  preference, about talking to them — compass points stay fine in code and comments.
+- **Test instructions use plain directions (up/down/left/right), never compass points** — user
+  preference about talking to them; compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
   relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
   up and that the right transport/bridge was actually chosen, and hand over a game that is ready
-  to play. Never ask the user to run a `.bat`. Start them **hidden** (`environment.md`).
-  **Then close every process you started, and verify they are gone** — leaving relays alive is how a later run silently binds the wrong port. If the
-  test is still pending after a long wait, or has just been confirmed, **use `/loop` to re-check
-  and close them** rather than trusting that you will remember. User preference, 2026-08-16.
+  to play. Never ask the user to run a `.bat`. Start them **hidden** (`environment.md`). **Then
+  close every process you started and verify they are gone** — a relay left alive is how a later run
+  binds the wrong port; `/loop` the re-check rather than trusting memory. User preference, 2026-08-16.
+- **Before a session ends, append a dated entry to the active phase file** — what was tried, what
+  happened, what the user said, links to the records it produced. `agent_docs/phases/README.md`.
 - **HOT RELOAD IS THE DEFAULT LOOP; a manual game restart is the LAST resort.** Ask a running
   game questions with a **Lua probe**, change behaviour with a **dev toggle file** the built mod
   already reads, and rebuild the C++/C# adapter only when the change must ship in it. **Check

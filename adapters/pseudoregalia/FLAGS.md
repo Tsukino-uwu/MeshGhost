@@ -373,3 +373,32 @@ listed so that turning a probe on does not also mean re-deriving how often it sh
 | `COLOR_MATCH_EPSILON`, `COLOR_EPSILON`, `ULTRA_EPSILON` | `0.01f`, `0.002f`, `0.0001` | float comparison tolerances for colour and ultra-hop detection. |
 | `MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS` | `4` | the montage divergence check. |
 | `HIJACK_EXCLUDE_KEYWORDS`, `NEEDLE`, `RELEASE_CANDIDATES` | name lists | leftovers of the retired hijack design and of the crouch-release input search. |
+
+### Dev traces the register had never heard of (added 2026-09-02)
+
+Found by preflight's "FLAGS.md completeness" check on its first run: **19 `constexpr bool` switches in
+`Plugin.cpp` with no row here**, every one a diagnostic shipping `false`. Listed so the register is
+complete — `CLAUDE.md` says the register wins over the code, which is only safe if it knows every
+switch. Descriptions point at the code comment rather than restating it, so nothing here can drift.
+
+| Flag | Shipped | What it is |
+|---|---|---|
+| `ABILITY_FIELD_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1071`; not a shipping switch. |
+| `AFTERIMAGE_CENSUS` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1763`; not a shipping switch. |
+| `ANIM_PULSE_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:771`; not a shipping switch. |
+| `ANIM_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1177`; not a shipping switch. |
+| `BLINK_FX_SEARCH` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1012`; not a shipping switch. |
+| `DAMAGE_FIELD_CENSUS` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1574`; not a shipping switch. |
+| `GHOST_ALL_FUNCTIONS_DUMP` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:175`; not a shipping switch. |
+| `GHOST_SLIDE_DIFF` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:166`; not a shipping switch. |
+| `HEALTH_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:848`; not a shipping switch. |
+| `OUTFIT_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1330`; not a shipping switch. |
+| `OUTLINE_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:578`; not a shipping switch. |
+| `POLE_ROTATION_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:950`; not a shipping switch. |
+| `SLIDE_PROPERTY_DIFF` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:162`; not a shipping switch. |
+| `TRAIL_COLOR_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:9359`; not a shipping switch. |
+| `TRAIL_COVERAGE_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:892`; not a shipping switch. |
+| `TRAIL_TRIGGER_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:830`; not a shipping switch. |
+| `WALLRIDE_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:799`; not a shipping switch. |
+| `WEAPON_LANDING_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1458`; not a shipping switch. |
+| `WEAPON_SYNC_TRACE` | `false` | Dev trace / census / dump. Its purpose and cost are the comment above `Plugin.cpp:1103`; not a shipping switch. |

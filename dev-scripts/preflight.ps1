@@ -298,6 +298,11 @@ $oneLine = @(
     @{ Path = 'agent_docs/checklists/before-spawning-in-unreal.md';    From = '^## Every lesson'; To = '' }
     @{ Path = 'agent_docs/checklists/before-touching-lua.md';          From = '^## Every lesson'; To = '' }
     @{ Path = 'agent_docs/checklists/before-a-network-change.md';      From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/status.md';                                  From = '';          To = '' }
+    @{ Path = 'adapters/emulator/pokemon/crystal/UNVERIFIED.md';       From = '^## This run'; To = '^## ' }
+    @{ Path = 'adapters/emulator/pokemon/emerald/UNVERIFIED.md';       From = '^## This run'; To = '^## ' }
+    @{ Path = 'adapters/pseudoregalia/UNVERIFIED.md';                  From = '^## This run'; To = '^## ' }
+    @{ Path = 'adapters/tevi/UNVERIFIED.md';                           From = '^## This run'; To = '^## ' }
 )
 $oneLineBad = @()
 $oneLineBullets = 0
@@ -709,7 +714,7 @@ $canon = @(
     @{ Name = "a flag flip is not a revert"
        Pattern = 'flag flip is not a revert'
        Home = 'agent_docs/pitfalls/method.md'
-       LinkTo = 'pitfalls.md' }
+       LinkTo = 'pitfalls' }   # the index (pitfalls.md) or the record (pitfalls/method.md) -- either is one hop from the home
     @{ Name = "the eight after-the-fact bandage tells"
        Pattern = 'tells that only show up later'
        Home = 'adapters/_template/BANDAGES.md'
@@ -723,6 +728,16 @@ $canon = @(
        Pattern = 'two lines per item'
        Home = 'agent_docs/claude-md-cap.md'
        LinkTo = 'claude-md-cap.md' }
+    @{ Name = "the UNVERIFIED READY/OPEN/DONE state rule"
+       Pattern = 'READY\*\* \(built'
+       Home = 'adapters/_template/UNVERIFIED.md'
+       HomePattern = 'carries a state'
+       LinkTo = '_template/UNVERIFIED.md' }
+    @{ Name = "the phase file is the complete running log"
+       Pattern = 'append.{0,40}(active|its) phase file'
+       Home = 'agent_docs/phases/README.md'
+       HomePattern = 'running log'
+       LinkTo = 'phases/README.md' }
 )
 foreach ($rule in $canon) {
     $homePat = if ($rule.HomePattern) { $rule.HomePattern } else { $rule.Pattern }
@@ -1004,6 +1019,211 @@ if ($adapterDirs.Count -eq 0) {
     if ($missingFiles.Count -eq 0 -and $unindexed.Count -eq 0) {
         Report-Pass "all $($adapterDirs.Count) adapters carry the mandated file set, and every probe folder is indexed"
     }
+}
+
+# ---------------------------------------------------------------------------
+Section "status.md is current"
+
+# status.md is an index of what is open, and it has failed as one twice: 50 -> 628 lines under a flat
+# cap (2026-08-14), then 296 lines / 105 items with 54 undated and six open since before 2026-08-20
+# under a two-lines-per-item rule with nothing checking when an item LEAVES (2026-09-02). The user's
+# diagnosis: it worked while it was enforced, and it never was. So, mechanically: every item carries
+# the date it was last re-checked, and an item more than two days older than this file's own last
+# commit fails -- at this project's pace, two days ago is not current (user's call, 2026-09-02). Age
+# is measured against the file's last commit (or now, if it has uncommitted changes), never against
+# the wall clock, so a quiet repo does not go red on its own; re-dating an item at the start of a
+# session IS the re-check, and moving the rest out is the triage.
+$statusPath = "agent_docs/status.md"
+$statusMaxAgeDays = 2
+if (-not (Test-Path -LiteralPath $statusPath)) {
+    Report-Fail "$statusPath is missing"
+} else {
+    $dirty = @(& git status --porcelain -- $statusPath)
+    if ($dirty.Count -gt 0) { $refDate = (Get-Date).Date } else {
+        $ts = & git log -1 --format=%ct -- $statusPath
+        $refDate = if ($ts) { ([DateTimeOffset]::FromUnixTimeSeconds([int64]$ts)).LocalDateTime.Date } else { (Get-Date).Date }
+    }
+    $sLines = @(Get-Content -LiteralPath $statusPath)
+    $undated = @(); $stale = @(); $items = 0
+    for ($i = 0; $i -lt $sLines.Count; $i++) {
+        $l = $sLines[$i]
+        if ($l -notmatch '^- ') { continue }
+        $items++
+        $dates = [regex]::Matches($l, '20\d\d-\d\d-\d\d') | ForEach-Object { $_.Value }
+        if (-not $dates) { $undated += "$($i + 1): $($l.Substring(0, [math]::Min(70, $l.Length)))"; continue }
+        $newest = ($dates | Sort-Object | Select-Object -Last 1)
+        $age = ($refDate - [datetime]::ParseExact($newest, 'yyyy-MM-dd', $null)).TotalDays
+        if ($age -gt $statusMaxAgeDays) { $stale += "$($i + 1): $newest ($([int]$age) days) $($l.Substring(0, [math]::Min(60, $l.Length)))" }
+    }
+    if ($items -eq 0) {
+        Report-Fail "$statusPath lists no items -- the currency check would pass vacuously"
+    }
+    if ($undated.Count -gt 0) {
+        Report-Fail "$($undated.Count) status item(s) carry no date -- every item says when it was last re-checked:"
+        $undated | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($stale.Count -gt 0) {
+        Report-Fail "$($stale.Count) status item(s) are more than $statusMaxAgeDays days old against $($refDate.ToString('yyyy-MM-dd')) -- re-date what is still current, move the rest to plans.md / ideas.md / the adapter's UNVERIFIED.md / risks.md:"
+        $stale | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($items -gt 0 -and $undated.Count -eq 0 -and $stale.Count -eq 0) {
+        Report-Pass "$items status item(s), all dated within $statusMaxAgeDays days of $($refDate.ToString('yyyy-MM-dd'))"
+    }
+}
+
+# ---------------------------------------------------------------------------
+Section "UNVERIFIED entries carry a state"
+
+# A queue that holds both "built, waiting for the user's eyes" and "not fixed, parked" is doing two
+# jobs and draining neither: Crystal's held 132 entries / 2,694 lines, larger than its VERIFIED
+# record, with no head saying what to watch first (2026-09-02, the user's own observation that some
+# entries were already fixed and only their confirmation was unclear). Every '## ' entry now carries
+# [READY], [OPEN] or [DONE], and a "This run -- watch these first" block lists at most ten READY
+# entries. The rule's home is adapters/_template/UNVERIFIED.md.
+$queueFiles = @(& git ls-files -- 'adapters/*/UNVERIFIED.md' 'adapters/emulator/pokemon/*/UNVERIFIED.md') | Where-Object { $_ -notlike 'adapters/_template/*' }
+$untaggedQ = @(); $noHead = @(); $qEntries = 0
+foreach ($q in $queueFiles) {
+    $ql = @(Get-Content -LiteralPath $q)
+    if (-not ($ql | Select-String -Pattern '^## This run' -Quiet)) { $noHead += $q }
+    for ($i = 0; $i -lt $ql.Count; $i++) {
+        $l = $ql[$i]
+        if ($l -notmatch '^## ') { continue }
+        if ($l -match '^## This run') { continue }
+        $qEntries++
+        if ($l -notmatch '^## \[(READY|OPEN|DONE)\] ') { $untaggedQ += "$q`:$($i + 1): $($l.Substring(0, [math]::Min(70, $l.Length)))" }
+    }
+}
+if ($queueFiles.Count -lt 4) {
+    Report-Fail "only $($queueFiles.Count) UNVERIFIED queue(s) found -- the adapter file set says four; this check would pass vacuously"
+} elseif ($untaggedQ.Count -gt 0 -or $noHead.Count -gt 0) {
+    if ($untaggedQ.Count -gt 0) {
+        Report-Fail "$($untaggedQ.Count) UNVERIFIED entr(y/ies) carry no state -- start the heading with [READY], [OPEN] or [DONE] (_template/UNVERIFIED.md):"
+        $untaggedQ | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($noHead.Count -gt 0) {
+        Report-Fail "$($noHead.Count) queue(s) have no '## This run -- watch these first' block: $($noHead -join ', ')"
+    }
+} else {
+    Report-Pass "$qEntries UNVERIFIED entries across $($queueFiles.Count) queues carry a state, every queue has a 'This run' block"
+}
+
+# ---------------------------------------------------------------------------
+Section "Phase log freshness"
+
+# The user's call, 2026-09-02: a phase file holds ALL the history of its adapter, as a running log
+# appended every session -- not a catch-up summary written days later, which is what every live
+# phase file had become ("Catch-up record, written 2026-09-01 -- the active phase's missing week";
+# phase7.md got 6 commits in the fortnight the Pseudoregalia queue got 54). The rule lives in
+# agent_docs/phases/README.md; this makes it mechanical the way "_template back-port freshness"
+# does: for each live phase, count the commits that touched its adapter since the last commit that
+# touched the phase file. Three or more is a session's worth of work with no log line. FAIL, not
+# WARN: a warning here was the state of affairs the rule replaces.
+$phaseMap = [ordered]@{
+    'agent_docs/phases/phase6.md'  = @('adapters/tevi')
+    'agent_docs/phases/phase7.md'  = @('adapters/pseudoregalia')
+    'agent_docs/phases/phase8.md'  = @('adapters/emulator/pokemon/emerald')
+    'agent_docs/phases/phase9.md'  = @('adapters/emulator/pokemon/crystal')
+    'agent_docs/phases/phase10.md' = @('core', 'relay', 'protocol', 'transport', 'bridge', 'netx', 'cmd', 'internal')
+}
+$phaseLagMax = 3
+$phaseStale = @()
+foreach ($pf in $phaseMap.Keys) {
+    if (-not (Test-Path -LiteralPath $pf)) { Report-Fail "$pf is in the phase map but does not exist"; continue }
+    $last = & git log -1 --format=%H -- $pf
+    if (-not $last) { continue }
+    $args = @('rev-list', '--count', "$last..HEAD", '--') + $phaseMap[$pf]
+    $n = [int](& git @args)
+    if ($n -ge $phaseLagMax) {
+        $phaseStale += "$pf -- $n commit(s) to $($phaseMap[$pf] -join ', ') since its last entry"
+    }
+}
+if ($phaseStale.Count -gt 0) {
+    Report-Fail "$($phaseStale.Count) live phase log(s) have fallen behind their adapter -- a phase file is the COMPLETE running log of its work; append this session's dated entry (agent_docs/phases/README.md):"
+    $phaseStale | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every live phase log is within $phaseLagMax adapter commits of its last entry"
+}
+
+# ---------------------------------------------------------------------------
+Section "Licensing gate"
+
+# licensing.md's standing rule: a project not listed there has not had its licence checked, and is
+# not used until it has. That was prose, and 2026-09-02 found 16 repos cited in the repo's own docs
+# and absent from the table -- all of them in ideas.md, where the user ruled that brainstorm
+# citations need no check. So the gate covers LIVING docs and exempts the three brainstorm files and
+# the records: every github.com/<owner>/<repo> cited in scope must appear (owner/repo,
+# case-insensitive) in licensing.md.
+$licText = Get-Content -Raw -LiteralPath 'agent_docs/licensing.md'
+$licExempt = @('agent_docs/ideas.md', 'agent_docs/candidate-games.md', 'agent_docs/security-design.md', 'agent_docs/doc-history.md')
+$licScope = @($trackedMd | Where-Object {
+    ($_ -like 'agent_docs/*' -and $_ -notlike 'agent_docs/phases/*' -and $_ -notlike 'agent_docs/pitfalls/*') -or
+    $_ -like 'docs/*' -or $_ -eq 'README.md' -or $_ -like '*CLAUDE.md' -or $_ -like 'adapters/_template/*' -or
+    $_ -like 'adapters/*/README.md' -or $_ -like 'adapters/*/documentation.md' -or $_ -like 'adapters/emulator/pokemon/*/README.md' -or $_ -like 'adapters/emulator/pokemon/*/documentation.md'
+} | Where-Object { $licExempt -notcontains $_ -and $_ -notlike '*VERIFIED.md' })
+$unlicensed = @(); $cited = 0
+foreach ($md in $licScope) {
+    $t = Get-Content -Raw -LiteralPath $md
+    foreach ($m in [regex]::Matches($t, 'github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)')) {
+        $repo = $m.Groups[1].Value -replace '\.git$', ''
+        if ($repo -match '/MeshGhost$') { continue }   # this project's own URL is not a third party
+        $cited++
+        if ($licText -notmatch [regex]::Escape($repo)) { $unlicensed += "$md -- $repo" }
+    }
+}
+if ($licScope.Count -eq 0) {
+    Report-Fail "the licensing gate found no files in scope -- it would pass vacuously"
+} elseif ($unlicensed.Count -gt 0) {
+    Report-Fail "$($unlicensed.Count) repo citation(s) in living docs are not in agent_docs/licensing.md -- read the licence and record it before using the project (CLAUDE.md):"
+    $unlicensed | Sort-Object -Unique | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every repo cited in $($licScope.Count) living doc(s) ($cited citation(s)) is recorded in licensing.md"
+}
+
+# ---------------------------------------------------------------------------
+Section "FLAGS.md completeness"
+
+# CLAUDE.md: "when a flag's comment and its value disagree, the register and the value win." That
+# points the wrong way when the register is INCOMPLETE -- Pseudoregalia's code held 19 flags the
+# register never heard of (all dev traces) on 2026-09-02. So: every compile-time switch in an
+# adapter's source must be named in its FLAGS.md. Pseudoregalia: `constexpr bool NAME`; TEVI:
+# `const bool` / `static readonly bool NAME`; the Lua adapters: a file-scope `local NAME = true|false`
+# or bare `NAME = true|false` in the adapter script itself (column 0 -- per-frame scratch globals set
+# inside functions are not flags).
+$flagSets = @(
+    @{ Adapter = 'adapters/pseudoregalia'; Register = 'adapters/pseudoregalia/FLAGS.md'
+       Files = @('adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp', 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp')
+       Pattern = 'constexpr\s+bool\s+([A-Za-z_][A-Za-z0-9_]*)' }
+    @{ Adapter = 'adapters/tevi'; Register = 'adapters/tevi/FLAGS.md'
+       Files = @('adapters/tevi/MeshGhostTevi/*.cs')
+       Pattern = '(?:const|static\s+readonly)\s+bool\s+([A-Za-z_][A-Za-z0-9_]*)' }
+    @{ Adapter = 'adapters/emulator/pokemon/emerald'; Register = 'adapters/emulator/pokemon/emerald/FLAGS.md'
+       Files = @('adapters/emulator/pokemon/emerald/meshghost_emerald.lua')
+       Pattern = '^(?:local\s+)?([A-Z][A-Z0-9_]{3,})\s*=\s*(?:true|false)\b' }
+    @{ Adapter = 'adapters/emulator/pokemon/crystal'; Register = 'adapters/emulator/pokemon/crystal/FLAGS.md'
+       Files = @('adapters/emulator/pokemon/crystal/meshghost_crystal.lua')
+       Pattern = '^(?:local\s+)?([A-Z][A-Z0-9_]{3,})\s*=\s*(?:true|false)\b' }
+)
+$flagMissing = @(); $flagsSeen = 0
+foreach ($fs in $flagSets) {
+    if (-not (Test-Path -LiteralPath $fs.Register)) { Report-Fail "$($fs.Register) is missing"; continue }
+    $reg = Get-Content -Raw -LiteralPath $fs.Register
+    $srcFiles = @(& git ls-files -- $fs.Files)
+    foreach ($f in $srcFiles) {
+        foreach ($line in (Get-Content -LiteralPath $f)) {
+            if ($line -cmatch $fs.Pattern) {
+                $name = $Matches[1]; $flagsSeen++
+                if ($reg -notmatch [regex]::Escape($name)) { $flagMissing += "$($fs.Register) lacks $name ($f)" }
+            }
+        }
+    }
+}
+if ($flagsSeen -eq 0) {
+    Report-Fail "no compile-time flags found in any adapter source -- the FLAGS.md check would pass vacuously"
+} elseif ($flagMissing.Count -gt 0) {
+    Report-Fail "$($flagMissing.Count) flag(s) exist in code and not in the register -- the register only wins over the code if it is complete (CLAUDE.md):"
+    $flagMissing | Sort-Object -Unique | Select-Object -First 20 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "$flagsSeen compile-time flag(s) across four adapters are all named in their FLAGS.md"
 }
 
 # ---------------------------------------------------------------------------

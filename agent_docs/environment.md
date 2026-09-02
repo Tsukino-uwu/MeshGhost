@@ -1096,3 +1096,40 @@ executing.
 **The `CrashContext.runtime-xml`'s `<CallStack>` is usually EMPTY on this game.** Do not read that
 as "the dump has nothing" -- it is the reason a whole investigation went guess-first on 2026-08-30.
 Method and the cost: `adapters/_template/probes.md`, "READ THE CRASH DUMP FIRST".
+
+## Rig notes carried out of `status.md` (2026-09-02)
+
+`status.md` is an index of what is open, held to one dated line per item; these are how two rigs were
+set up and which savestate slots hold what, which is rig knowledge, not status. Moved here verbatim on
+2026-09-02. **Slot assignments drift** — re-read the adapter's `UNVERIFIED.md` before trusting one.
+
+- **The Emerald Fly rig** (everything verified down at the end of 2026-08-26: both EmuHawk instances, both cores
+  and the relay stopped, both loader targets set to `none`). The Emerald rig was relay
+  (loopback, `-send-hz=100`, `-ghost-collision=disabled`) + two cores (7778 and 7779) + two
+  BizHawk instances on VANILLA Emerald: instance 1 the FLYER with the dev loader, compare tiers
+  and the OAM tier, instance 2 the WATCHER with the dev loader but SHIPPED rendering, so what it
+  shows is what a real player sees. **A dev loader on the watcher changes nothing visual** — it
+  only lets a probe be swapped without relaunching, which is what made the second half
+  measurable. `emerald/probes/fly_probe.lua` runs on both (`MESHGHOST_FLY_OBSERVE` on the
+  watcher). Emerald savestates, the user's: **flyer 5 same-town, 6 different-town; watcher 3 and
+  4 for the two towns** — pair them so the watcher is where the flyer LANDS, or a run comes back
+  clean with the bug still in it (it did, twice). **`run-relay-loopback.bat` has no
+  `cd /d "%~dp0"`** — launch with the working directory set, or the exe directly.
+
+- **DRIVE IT YOURSELF.** The user's savestates make a Fly self-testable: slot 8 same-town, slot 9
+  cross-town, both "press A to fly", driven by `crystal/probes/fly_drive.lua`. Ask for an
+  equivalent state before grinding live cycles at any other expensive-to-reach case — it is what
+  ended the 2026-08-26 deadlock (`_template/probes.md`).
+- **Savestate slots on that rig, REWRITTEN AGAIN 2026-08-27 — slots 5, 7 and 8 are now the SEAM
+  states and no longer what the 08-26 list says:** 1 the user's, **5 one tile north of the Route 40
+  / Route 41 seam (on the water, Surf up — encounters possible)**, **7 Route 40 one tile west of
+  the Olivine seam (walk LEFT to cross)**, **8 Olivine one tile east of it (walk RIGHT to cross)**,
+  **9 a LEDGE HOP (walk down one tile)**, **10 one tile below a WHIRLPOOL (hold Up to re-enter)**,
+  **3 the wrong-trainer route**. The fishing and fly states that 7 and 8 used to hold are GONE —
+  ask for them again rather than driving the old probes at these. **A log from a savestate-driving probe only means anything against the slot
+  as it was that hour** — check before trusting an old one. **And a savestate BAKES IN any ghost
+  that was on screen when it was made**, so a driven run showing one character too many is the
+  state's fault, not the adapter's; `orphan_sweep.lua` or any door clears it. `crystal/UNVERIFIED.md`. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its
+  hardcoded 8 would eat the fly state. The savestate-is-not-a-save trap: `environment.md`.
+  **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
+

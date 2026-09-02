@@ -8,7 +8,7 @@ means a story with no transferable rule yet; **a repeat of a RECORD lesson force
 past one line. The reading path is [../checklists/](../checklists/); this file is for finding the
 record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 
-## Method, and instruments that lie — [pitfalls/method.md](pitfalls/method.md)
+## Method, and instruments that lie — [method.md](method.md)
 
 - A symptom word can name more than one subsystem — confirm which before probing (2026-08-16) [RULE: checklists/before-a-probe.md]
 - Gating a handshake on its own result (deadlock, twice in one day) (2026-08-16) [RULE: checklists/before-a-network-change.md]
@@ -34,7 +34,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01) [RULE: checklists/before-a-network-change.md]
 - Failure signatures [RULE: checklists/before-declaring-a-fix.md]
 
-## By host and subsystem — [pitfalls/by-host.md](pitfalls/by-host.md)
+## By host and subsystem — [by-host.md](by-host.md)
 
 - Pitfalls by theme [RECORD]
 - BizHawk Lua: `event.onframeend` outlives its script; use a `frameadvance` loop [RULE: checklists/before-touching-lua.md]
@@ -68,7 +68,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Pooling cuts both ways: a retirement move reads as a birth (2026-08-16) [RULE: checklists/before-mirroring-state.md]
 - Cross-game comparison [RECORD]
 
-## By lesson, in the order they were found — [pitfalls/by-lesson.md](pitfalls/by-lesson.md)
+## By lesson, in the order they were found — [by-lesson.md](by-lesson.md)
 
 - A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into (2026-08-18) [RULE: checklists/before-touching-lua.md]
 - BizHawk accepts a GBA cheat code it cannot decrypt, and silently activates the garbage (2026-08-18) [RULE: checklists/before-touching-lua.md]

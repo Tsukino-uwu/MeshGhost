@@ -34,7 +34,26 @@ declined ones go back to being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending — BOTH INSTANCES HARD-CRASHED seconds after `curve catmull-rom` was switched on (2026-08-30)
+## This run — watch these first
+
+**The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
+like; answer each with a plain yes or no at the end of the run. Every entry in this file carries
+**READY** (built, waits for your eyes), **OPEN** (not fixed, parked as work) or **DONE** (kept for its
+mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
+entry without one.
+
+- Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
+- Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
+- Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
+- The ghost's FACING is now interpolated, and nobody has watched it (2026-08-30)
+- Pending — the PERFORMANCE WORK: what it bought, what it broke, and what is unwatched (2026-08-30)
+- The RENDER SWEEP on netsim: the interp ladder, the rate axis, and what was NOT taken (2026-08-30)
+- Pending — `bb`, `hw` and `hew` got the one-shot counter treatment and were never watched (2026-08-29)
+- BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
+- Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
+- Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [OPEN] Pending — BOTH INSTANCES HARD-CRASHED seconds after `curve catmull-rom` was switched on (2026-08-30)
 
 **What happened.** On the two-instance netsim rig (relay 60Hz, both clients interp 250ms,
 `predict damped`, through `meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder), the curve was
@@ -85,7 +104,7 @@ was enabled to test, because the session ended before either player could look a
 
 ---
 
-## The RENDER SWEEP on netsim: the interp ladder, the rate axis, and what was NOT taken (2026-08-30)
+## [READY] The RENDER SWEEP on netsim: the interp ladder, the rate axis, and what was NOT taken (2026-08-30)
 
 **The rig**, which is the part that makes the numbers mean anything: **two real game instances**
 (the user's call -- *"think i used 2 clients when testing with tevi, also easier to spot that way"*
@@ -157,7 +176,7 @@ to enable) and the ghost's own animation being driven by arriving state rather t
 
 ---
 
-## Pending — the PERFORMANCE WORK: what it bought, what it broke, and what is unwatched (2026-08-30)
+## [READY] Pending — the PERFORMANCE WORK: what it bought, what it broke, and what is unwatched (2026-08-30)
 
 **The problem, user-reported:** one peer took the game from 144fps to 70-80; two real clients the
 same; three ~40; four ~30. *"The game becomes unplayable with even just 2-3 players."*
@@ -504,7 +523,7 @@ Written down because each one produced a symptom the user then had to judge:
 
 ---
 
-## Pending — a NAMETAG SAT TOO LOW on a friend's machine, never reproduced here (2026-08-30)
+## [OPEN] Pending — a NAMETAG SAT TOO LOW on a friend's machine, never reproduced here (2026-08-30)
 
 **Reported second-hand**, which is the most important fact about this entry: *"nametag sitting too
 low, it works fine on my machine. but on a friends machine they had one of the nametags appear
@@ -583,7 +602,7 @@ are filed together only because they are the same reporter and the same feature.
 
 ---
 
-## Pending — LANDING DUST is not working properly, user-reported (2026-08-30)
+## [OPEN] Pending — LANDING DUST is not working properly, user-reported (2026-08-30)
 
 **User-reported, live, on the two-instance netsim rig** (relay 20Hz no `-loopback`, both clients
 through `meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder, both installs at 250ms interp /
@@ -618,7 +637,7 @@ what actually spawned, on whom, and when, rather than reasoning from the table.
 
 ---
 
-## The ghost's FACING is now interpolated, and nobody has watched it (2026-08-30)
+## [READY] The ghost's FACING is now interpolated, and nobody has watched it (2026-08-30)
 
 **What changed.** A ghost's facing used to STEP at the send rate. Orientation is opaque to the
 core by contract, so `core/interp.go` never interpolated it — it held the older bracketing
@@ -696,7 +715,7 @@ and that half has never been on screen in any form.
 
 ---
 
-## DRAINED 2026-08-27 — the health bar, and the ghost that could damage the player
+## [DONE] DRAINED 2026-08-27 — the health bar, and the ghost that could damage the player
 
 Both halves of what used to sit here were closed and user-confirmed the same day, so the entry is
 gone rather than left to rot. Where each piece went:
@@ -714,7 +733,7 @@ gone rather than left to rot. Where each piece went:
 Left here as a one-time marker because the entry was cited from `status.md` while it was open;
 delete it freely once nothing points at it.
 
-## Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
+## [OPEN] Pending — a BLACK FLASH when a ghost appears, cause unknown after two negatives (2026-08-27)
 
 **User-reported:** *"'black flash' on the screen whenever a ghost appears, is this something the
 ghost is taking/applying from the player as well when they spawn in? similar to the health hud/ui
@@ -740,7 +759,7 @@ worth keeping: an unconfirmable symptom was turned into two clean measurements.
    examined; a light popping on for a frame can read as a flash.
 3. Level streaming around the spawn, which nothing has looked at.
 
-## Pending — the ghost FLOATS UP slightly during a melee sword attack — SEEN ONCE, never since (2026-08-27)
+## [OPEN] Pending — the ghost FLOATS UP slightly during a melee sword attack — SEEN ONCE, never since (2026-08-27)
 
 **User-reported, live.** While the peer swings the sword, the ghost rises a little.
 
@@ -770,7 +789,7 @@ shape of problem and the same place to measure.
 **Do NOT fix this with an offset.** That is precisely the bandage this adapter already removed
 once, and the register records what it cost.
 
-## RESOLVED — "heal" IS healing; the table row is correctly labelled (2026-08-27)
+## [DONE] RESOLVED — "heal" IS healing; the table row is correctly labelled (2026-08-27)
 
 Asked because `NS_Healing` bracketed every single charge across two runs, which fitted "the charge
 has a body aura the game happens to have named NS_Healing" at least as well as it fitted "this is
@@ -786,7 +805,7 @@ Worth keeping rather than deleting: the anomaly was real, the two readings neede
 and **the thing that settled it was a question a person could answer without naming an asset**.
 That is cheaper than any probe and should be reached for first.
 
-## Pending — the FRotator float/double fix is generalised, and the ghost transform path moved onto it
+## [READY] Pending — the FRotator float/double fix is generalised, and the ghost transform path moved onto it
 
 `write_struct_triple` + `write_vector_param` / `write_rotator_param` (`Plugin.cpp`) now carry the
 version branch and inner-field resolution that the vendored SDK gets wrong for `FRotator`, and
@@ -802,7 +821,7 @@ denormal symptom — or a new `refusing to call it` warning in the log.
 Behaviour-preserving by construction and it compiles, but neither is the standard this project
 holds adapter changes to, so it sits here until a ghost is actually seen.
 
-## Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+## [READY] Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 
 `GHOST_COLLISION_ENABLED` is `false` again at the user's request, reversing the 2026-08-15
 keep-it-on decision. No new evidence prompted it; the feature worked as described. Built and
@@ -832,7 +851,7 @@ still firing with no visible effect pins it on the precondition rather than the 
 Also worth a glance in the same session, for the same reason: the ledge-grab self-start behaviour,
 which a 2026-08-15 run showed happens with collision off *too*, so it should be unchanged.
 
-## Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
+## [READY] Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 
 The walk itself now runs on every launch and is confirmed: autostart binds 7778 and connects
 (`VERIFIED.md`, 2026-08-27), and the sweep's free-port test was rewritten from "did it refuse us" to
@@ -843,7 +862,7 @@ at all.
 core one port up while the first keeps 7778. Nothing this session ran two instances. Expect the
 second to log `bridge connected on port 7779` with the first unaffected.
 
-## Pending — a hard crash mid-session after the pause menu opened twice (2026-08-17)
+## [OPEN] Pending — a hard crash mid-session after the pause menu opened twice (2026-08-17)
 
 **Not root-caused, and not attributable to MeshGhost on the evidence available.** Seen once. It is
 here rather than in `VERIFIED.md` because nothing about it is established: not the trigger, not the
@@ -885,7 +904,7 @@ the probe-suspicion recorded against the earlier recurrence is withdrawn: the us
 back/forth plus a quit on a probe-free build with no crash, and the crashes that did happen are now
 attributed to the prop.
 
-## Pending — a `Fatal Error!` on game exit, seen once, never root-caused
+## [OPEN] Pending — a `Fatal Error!` on game exit, seen once, never root-caused
 
 Distinct from the 2026-08-16 level-transition crash, which is fixed and confirmed. Seen once on
 exit; no repro, no cause, no attribution.
@@ -916,7 +935,7 @@ occurrence must be on a probe-free build to be worth anything"**. Do not record 
 one — `CLAUDE.md`'s rule about numbers gathered while a heavy probe was live applies to crashes as
 much as to measurements.
 
-## Pending — every probe under the three UE4SS mod directories predates this queue
+## [OPEN] Pending — every probe under the three UE4SS mod directories predates this queue
 
 `PROBES.md` indexes them (three directories, six scripts). They are the record of how each fact was
 established, and several were run before this file existed — so the honest statement is that nothing
@@ -925,7 +944,7 @@ in this queue depends on them, and none of their logs is evidence for anything n
 
 Kept as an entry so that the *next* probe run has somewhere to land before it is confirmed.
 
-## THE SCENE LATCH IS FIXED AND SHIPPED — moved to `VERIFIED.md` 2026-08-30; this section stays for the mechanism and the failed-fix table
+## [DONE] THE SCENE LATCH IS FIXED AND SHIPPED — moved to `VERIFIED.md` 2026-08-30; this section stays for the mechanism and the failed-fix table
 
 **Final state**: all three light fixes are SHIPPED DEFAULTS (globals initialize true; the toggle
 files are no longer read and were deleted from both installs). The full acceptance run — latch
@@ -982,7 +1001,7 @@ lighting and both stay dev-only.
 - Every `<bool>` byte read OUTSIDE `snapshot_scalar_properties` (the `bVisible` sweeps above all)
   is still the bitfield-blind read — convert before trusting any of those subtractions again.
 
-## CAUSE FOUND 2026-08-29 (evening session) — BOTH light bugs are the ghost's `BP_DynamicVertexLight_C`, and this supersedes the whole section below it
+## [DONE] CAUSE FOUND 2026-08-29 (evening session) — BOTH light bugs are the ghost's `BP_DynamicVertexLight_C`, and this supersedes the whole section below it
 
 **The two bugs the section below separates have ONE cause, watched live by the user through a
 subtraction toggle.** This game's dark-area lighting is not lights at all: every pawn's
@@ -1056,7 +1075,7 @@ question are both resolved (shipped defaults; ghosts never glow, mirror filed in
 **Step 3 — the pickup cross-wire — is the one that remains open.** The toggle files named above
 were deleted from both installs; three are no longer even read.
 
-## SUPERSEDED by the section above — kept for its measurements (2026-08-29, long session)
+## [DONE] SUPERSEDED by the section above — kept for its measurements (2026-08-29, long session)
 
 **Read the section above before touching the ghost-light problem again.** The entries further down
 were written while the cause was still believed to be the ghost's `PointLight`; that belief is now
@@ -1134,7 +1153,7 @@ committed build. They gate `keep_custom_depth.txt`, `ghost_light_on.txt`, `hide_
 DLL, plus a property diff on every ghost spawn. Harmless to a player (the files never exist) but
 they are instruments, and `../../CLAUDE.md` says instruments ship off.
 
-## ONE ghost cosmetic the user saw wrong on screen (2026-08-28) — the LIGHT half only
+## [DONE] ONE ghost cosmetic the user saw wrong on screen (2026-08-28) — the LIGHT half only
 
 > **The DUST half of this entry is DONE and user-confirmed (2026-08-29)** — four stacked defects,
 > all fixed and watched on screen. It has moved to `VERIFIED.md`, "Landing dust on a ghost".
@@ -1194,7 +1213,7 @@ character's `MovementMode` transition. The run is built around the user's own re
 jumps, the other stands still, and a dust burst logged on the still instance is the defect caught
 next to the landing that did not happen. Nothing here is measured until that log exists.
 
-## MEASURED 2026-08-29 — the ghost's PointLight is at 5000 while the player's is at 0
+## [DONE] MEASURED 2026-08-29 — the ghost's PointLight is at 5000 while the player's is at 0
 
 **This is an agent measurement, so it lives here and not in `VERIFIED.md`.** It was read out of a
 live two-instance session in `ZONE_Dungeon` by `probe_dustlight/`, one census line per character:
@@ -1230,7 +1249,7 @@ before reaching the `ChildActorComponent` census.
 with `GHOST_HOLD_OUTLINE_OFF`. Nothing here tested it. Write it once, then watch whether the game
 puts it back the next time it touches the weapon.
 
-## BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
+## [READY] BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 
 `GHOST_HOLD_LIGHT_OFF` in `Plugin.cpp`, built straight off the measurement above and deployed to
 the Steam install. **Nothing about it has been seen on screen.**
@@ -1295,7 +1314,7 @@ line never appears, the sweep is not reaching the component and the attach-chain
 where to look; if it appears repeatedly for the same component across a session, the game IS putting
 the light back and the hold is doing the work the entry above predicted it might have to.
 
-## THE PROBE CRASHED THE GAME TWICE — `probe_dustlight/` is DISABLED and must not be re-run as-is
+## [OPEN] THE PROBE CRASHED THE GAME TWICE — `probe_dustlight/` is DISABLED and must not be re-run as-is
 
 **Both crashes were caused by the agent, during the user's session.** `Fatal error!`,
 `EXCEPTION_ACCESS_VIOLATION` reading `0x20`, with a callstack ~15 frames deep inside UE4SS's own
@@ -1327,7 +1346,7 @@ enumeration at once, and it only ever needed the pawn's own components. The ligh
 from two lines of its output. A version that enumerates a CHARACTER's components rather than the
 WORLD's would have produced the same answer without ever touching an object it does not own.
 
-## WATCHED LIVE 2026-08-29 and it FAILED — a second instance never starts its own core
+## [OPEN] WATCHED LIVE 2026-08-29 and it FAILED — a second instance never starts its own core
 
 **This is the first live look at Pseudoregalia's bridge port walk** (`status.md` had it as "built
 but not yet watched"). Two instances of the game, one install, the shipped `config.json`
@@ -1363,7 +1382,7 @@ does not explain step 3, where the busy port is skipped by its cooldown and the 
 the sweep decided — index, port, `try_port` result, `refused`, `port_is_bindable`. Two instances
 reproduce it in under a minute, so this is cheap. Do that before changing anything.
 
-## Pending — `bb`, `hw` and `hew` got the one-shot counter treatment and were never watched (2026-08-29)
+## [READY] Pending — `bb`, `hw` and `hew` got the one-shot counter treatment and were never watched (2026-08-29)
 
 The dust fix moved every `world_spawned` row in `MIRRORED_EFFECTS` from presence-mirroring to a
 counter, because they are all one-shot bursts and all lost repeats the same way. **Only `dl` was
@@ -1384,7 +1403,7 @@ show on all four.
 the first heal/death after joining should fire like any other. That was a real bug for `dl` and is
 fixed by the same mechanism, but only `dl` was confirmed.
 
-## LOGGED, NOT BEING FIXED — a ghost may be stiffer than the game's own model ("model wiggle", 2026-08-29)
+## [OPEN] LOGGED, NOT BEING FIXED — a ghost may be stiffer than the game's own model ("model wiggle", 2026-08-29)
 
 **The user's own framing, and the reason this is filed as a question rather than a defect:** *"ik
 we are doing all animations & vfx, but unsure if a model 'draggin itself out/wiggling a bit'
@@ -1419,7 +1438,7 @@ two models' bone transforms logged over the same motion before forming a theory.
 future stiffness report arrives there is a dated note saying it was noticed on 2026-08-29 and left
 alone on purpose.
 
-## Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
+## [READY] Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
 
 **What shipped.** A ghost's wall kick now plays both measured systems (six-kick capture via the
 `probe_slashvfx` shape, logged in `UE4SS.log` 18:42): `wk` = `NS_WallKickHit`, the impact burst,
@@ -1444,7 +1463,7 @@ wrong"* -- a hedged positive, kept here rather than promoted until it holds thro
 **Also unwatched:** both rows' first-of-session baseline behaviour, and `wk` on a watcher who has
 never wall-kicked (fallback height, no learned value).
 
-## OPEN — the thrown sword still SNAPS occasionally mid-arc, cause unattributed (2026-09-01)
+## [OPEN] OPEN — the thrown sword still SNAPS occasionally mid-arc, cause unattributed (2026-09-01)
 
 Survived every change made tonight, which is what makes it worth its own entry: seen at the old
 EMA renderer, at the segment glide, and AFTER `WEAPON_SNAP_DISTANCE` was raised 400 -> 1500 (so
@@ -1458,7 +1477,7 @@ clamp makes the glide sprint the whole hole's distance in 400ms -- reads as a lu
 IS a deliberate snap); (3) a genuine target jump. A one-line log at the snap site (gap length,
 distance, primed state) settles all three in one throw session; measure before theorising.
 
-## FILED — a smooth ghost tumble needs SENDER-side spin data; receiver-side guessing is exhausted (2026-09-01)
+## [OPEN] FILED — a smooth ghost tumble needs SENDER-side spin data; receiver-side guessing is exhausted (2026-09-01)
 
 Three rotation renderers were watched in one evening (full verdicts: `VERIFIED.md`, the
 2026-09-01 evening entry; mechanism comments at the render site in `Plugin.cpp`). The conclusion
@@ -1468,7 +1487,7 @@ degrees between arrivals, so its direction and turn count are simply not in the 
 SENDER must ship the spin (rate or phase) in extras, where it knows it exactly. Until then
 write-through is the settled state and matches the game's own deliberately steppy spin.
 
-## Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
+## [READY] Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
 
 **What changed.** The 2026-08-27 ACE audit's "a peer can NAME a thing" gap is closed, and it had
 grown since the audit: five resolve sites, not one -- `target_montage` (play + divergence-restore),
@@ -1498,7 +1517,7 @@ no LoadAsset fallback -- `StaticFindObject` also only ever found loaded objects 
 mod on both machines" worked before and works now (the catalog is YOUR game, mods included), and
 "a mod only the peer has" never worked on your screen either way; the refusal is just explicit now.
 
-## Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
+## [READY] Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
 
 `Plugin.cpp`, three changes, all of the shape "a peer's field reaches the game unchecked" (ADR
 0044, `docs/security.md`). Built with `build-pseudoregalia.bat` and deployed to both installs
@@ -1516,3 +1535,19 @@ mod on both machines" worked before and works now (the catalog is YOUR game, mod
 
 Regression on the Go side (`core/roster_cap_test.go`) bounds how many ids a relay can announce at
 512, so the "unbounded pawn clones" finding is closed above this mod rather than in it.
+
+## [OPEN] Four items that need a real two-machine session, carried out of `status.md` (opened 2026-08-16/17, moved 2026-09-02)
+
+Two real players on two machines were confirmed on 2026-08-16 (`../../agent_docs/verified.md`), and these
+four were written down that week as needing re-judging once a peer's state genuinely differs from the
+local player's — which loopback can never show. None has been looked at since; each keeps its original
+pointer.
+
+- **Ghost collision: answered as a setting, not a yes/no.** ADR 2026-08-19 in `architecture.md`
+  makes it a host-set room policy with a one-way client override; decided, not implemented.
+- **Killing a ghost leaves the player respawning at 0/empty health** — player melee only; the HUD
+  is fine, the value isn't. Suspect shared health state. `verified.md` 2026-08-17.
+- **Ghost vanishes while a peer is on a pole**, then returns stuck in a climb pose. Cause unknown,
+  two suspects ruled out; `phase7.md`. (Pole *rotation* was the separate item, cleared 2026-08-16.)
+- **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real
+  bug; a two-machine session settles it. `verified.md`.

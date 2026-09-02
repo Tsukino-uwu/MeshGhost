@@ -35,7 +35,26 @@ being work. An entry still here has not been confirmed.
 
 ---
 
-## Pending — Emerald: what 2026-08-20 left unwatched (2026-08-20)
+## This run — watch these first
+
+**The READY entries below, newest first, at most ten.** Each says what to look at and what correct looks
+like; answer each with a plain yes or no at the end of the run. Every entry in this file carries
+**READY** (built, waits for your eyes), **OPEN** (not fixed, parked as work) or **DONE** (kept for its
+mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
+entry without one.
+
+- Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
+- MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
+- Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
+- Emerald compiles again, but has not been RUN since the fix (2026-08-22)
+- 2026-08-21 (ice/fog/cave session) — what the user has NOT confirmed
+- 2026-08-21 (dive session, evening) — the surf transition work, and what remains unjudged
+- 2026-08-21 (dive session) — what the user has NOT confirmed
+- 2026-08-21 (water/warp session) — what was NOT confirmed
+- Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
+- Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
+
+## [READY] Pending — Emerald: what 2026-08-20 left unwatched (2026-08-20)
 
 Everything else from that session is user-confirmed and in `verified.md`. These are the leftovers,
 each with what to look at and what correct looks like.
@@ -49,7 +68,7 @@ the likely fault; that guess is written up in `pitfalls.md` as its own lesson.)
       when the muddy slope reverses a peer mid-tile the ghost finishes its current tile first.
       Measured, not yet judged on screen -- it may read as nothing.
 
-## Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
+## [READY] Pending — Emerald: a ghost cannot abandon a step it has started (2026-08-20)
 
 Found while fixing the muddy slope, and it is the general form of the corner-snapping seen on the
 bike square. A ghost's step is engine-driven and runs to completion, so a peer whose direction
@@ -63,7 +82,7 @@ step ends. Measured: during 514 frames of the peer sliding back, the ghost's act
       and the fix is not obvious -- interrupting a held movement is what broke the ghost twice
       before (`BANDAGES.md`, the parked-hitbox experiments).
 
-## Pending — Emerald: what the two-renderer comparison left open (2026-08-19)
+## [READY] Pending — Emerald: what the two-renderer comparison left open (2026-08-19)
 
 `MESHGHOST_COMPARE_TIERS` found a dozen real defects in one session. **Most are already confirmed
 and live in `verified.md`** — network-paced movement, the turn animation, cutscene sliding, the
@@ -92,7 +111,7 @@ brightness, and a smooth run. These are what is left:
   `currentCoords`. Elevation is not the mechanism either: 0, 1 and 15 all block.
   `MESHGHOST_EMERALD_NO_COLLISION` therefore frees a STANDING ghost and nothing more.
 
-## Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
+## [READY] Pending — Emerald: no ghost until you are actually in the game (2026-08-19)
 
 The question above ("should the adapter be broadcasting from the main menu?") is **answered** — the
 user, 2026-08-19: *"it should not show/send the ghost for other people if you are in the main
@@ -116,7 +135,7 @@ the peers would have seen. What a log cannot show is the other player's screen.
       **Needs two clients.** *What to look at:* the ghost, while the other player resets back to
       the title. *Correct:* it vanishes within about a second. Wrong: it stands there frozen.
 
-## Pending — Emerald: a room bigger than the map (2026-08-19)
+## [READY] Pending — Emerald: a room bigger than the map (2026-08-19)
 
 Measured with synthetic peers, not with people: the engine's 16-entry object array is shared with
 the map's own NPCs, so a town holding the player and two NPCs fits exactly **13 ghosts** (measured
@@ -132,7 +151,7 @@ re-measured at 59.7-59.8fps with 24 and 36 peers offered. See `pitfalls.md` for 
       that fit look and move like ghosts always have, and the map's own NPCs are all still there
       and still walking their routes. Extra peers being invisible is expected, not a fault.
 
-## Pending — Emerald: two tiers of ghost, so nobody is missing (2026-08-19)
+## [READY] Pending — Emerald: two tiers of ghost, so nobody is missing (2026-08-19)
 
 Phase 9.1's Emerald half. Peers now fall into two tiers: real spawned object events up to what the
 map can spare (**nearest peers win**, with a 3-tile hysteresis band so ghosts do not swap tiers
@@ -166,7 +185,7 @@ show one-per-tile.
       smoothly and is not hidden by scenery. **Expected wrong, and the reason the flag is off:**
       a painted ghost will draw on top of a text box or the START menu.
 
-## Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
+## [READY] Pending — peer graphics: bikes, surfing, fishing (2026-08-18)
 
 Turned OFF by default (`MESHGHOST_GHOST_PEER_GFX`), because it is incomplete — see below.
 
@@ -184,7 +203,7 @@ on screen (`verified.md`: the Acro Bike is FINISHED 2026-08-21, surfing and divi
 2026-08-21). `MESHGHOST_GHOST_PEER_GFX` being "off by default because it is incomplete" is the
 2026-08-18 state and has not been true since. Kept for the corruption diagnosis above.
 
-## Known incomplete — do NOT confirm, these are not finished
+## [OPEN] Known incomplete — do NOT confirm, these are not finished
 
 - **CLOSED — surfing and diving are DONE on every tier, user-confirmed 2026-08-21**
   (`verified.md`, "SURFING AND DIVING ARE DONE"). The spawned tier closed 2026-08-19; the drawn
@@ -210,7 +229,7 @@ on screen (`verified.md`: the Acro Bike is FINISHED 2026-08-21, surfing and divi
     (OCEAN_WATER)`, collision 0, elevation 1, player at elevation 3 adjacent. **Not confirmed on
     screen, and no rod has successfully been cast on it yet.**
 
-## Pending — Emerald: what a BLOCKED rider actually does (2026-08-20)
+## [READY] Pending — Emerald: what a BLOCKED rider actually does (2026-08-20)
 
 A ghost on a bike no longer performs the walker's bump (`BUMP_ACTION`, the walk-in-place slow
 shuffle from `PlayerNotOnBikeCollide`) when it has nowhere to go -- it stands still instead. That
@@ -222,7 +241,7 @@ bit"*) but standing still is a placeholder, not a measured answer.
       shape to copy -- drive it, log the player's object per frame. Until then a blocked ghost on a
       bike is silent where the player is not.
 
-## Pending — Emerald: two edges the mount/dismount fixes may have (2026-08-20)
+## [READY] Pending — Emerald: two edges the mount/dismount fixes may have (2026-08-20)
 
 The transitions themselves are user-confirmed 1:1. These are the trades the fixes made, believed
 invisible, not yet watched for deliberately:
@@ -237,7 +256,7 @@ invisible, not yet watched for deliberately:
       *Correct:* nobody notices, because a cast starts from a standstill. If a cast ever reads as
       laggy, the offset-pairing problem the hold solves has to be solved another way first.
 
-## Pending — Emerald: cross-map ghosts, what still needs the user's eye (2026-08-20)
+## [READY] Pending — Emerald: cross-map ghosts, what still needs the user's eye (2026-08-20)
 
 The feature is user-confirmed working (peers visible across a seam, followers crossing with the
 player). These are the specific leftovers:
@@ -254,7 +273,7 @@ player). These are the specific leftovers:
       off and crossings tear down the old way. Live it reads as "the first crossing after a load
       reloads the ghosts once"; if that ever bothers, the scan result could be cached to a file.
 
-## Pending — Emerald: a reversal while hopping leaves the SPAWNED ghost facing the old way (2026-08-20)
+## [READY] Pending — Emerald: a reversal while hopping leaves the SPAWNED ghost facing the old way (2026-08-20)
 
 **User, 2026-08-20:** *"when i was going right, the spawned ghost was still facing left, and hopping
 backwards"*, and, asked which tier: *"the drawn ghost was fine, only the spawned one had this
@@ -274,7 +293,7 @@ turnaround the ghost held `act=0x72 dir=west` for ~16 frames while the player wa
       the ghost overshot. Both are measurable from the same capture.
 
 
-## Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
+## [READY] Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
 
 The tier is built, measured and **confirmed as a renderer** -- *"and yes the OAM looks fine now"*,
 judged in the three-way compare (`verified.md`). It ships **off** (`MESHGHOST_EMERALD_HW_OVERFLOW`)
@@ -294,7 +313,7 @@ until the list below is closed. Four things are open, and the first is the one t
    NPCs. Predicted, recorded in the ADR, never watched. Worth one look to confirm it is as harmless
    as expected.
 
-## Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
+## [READY] Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
 
 **Shipped, user-confirmed code changed underneath.** `glideRemote` now measures target speed over an
 8-frame window instead of frame-to-frame (`verified.md`, `pitfalls.md`). That was a real defect --
@@ -320,7 +339,7 @@ what hid the defect (`pitfalls.md`, trap 4). **To actually test it, turn compare
 -- then the painted copy is placed from the glide like a real peer, and running speed is where any
 difference lives.
 
-## 2026-08-21 (water/warp session) — what was NOT confirmed
+## [READY] 2026-08-21 (water/warp session) — what was NOT confirmed
 
 Everything else from that session is user-confirmed and in `verified.md`. These are not:
 
@@ -343,7 +362,7 @@ Everything else from that session is user-confirmed and in `verified.md`. These 
   `probes/fpshold.lua` run was made afterwards.** Frame rate is a shipping requirement; this is the
   first thing the next session should measure, against a bare control.
 
-## 2026-08-21 (dive session) — what the user has NOT confirmed
+## [READY] 2026-08-21 (dive session) — what the user has NOT confirmed
 
 Four changes went into the Emerald adapter this session. **None of the on-screen outcomes is
 confirmed** — the measurements behind them are in `verified.md`, and they are measurements of the
@@ -369,7 +388,7 @@ at the start of surfing. The painted tier falls back to a walker rather than van
 pop-out needs a different explanation than the one that covered the other two tiers.
 
 
-## 2026-08-21 (dive session, evening) — the surf transition work, and what remains unjudged
+## [READY] 2026-08-21 (dive session, evening) — the surf transition work, and what remains unjudged
 
 The mount and dismount of surfing were rebuilt across the whole evening, defect by user-reported
 defect. **User-confirmed on screen**: the dismount (blobs park in the water, riders jump ashore
@@ -386,7 +405,7 @@ Records in `verified.md`; methods in `pitfalls.md`.
   underwater (only the loopback ghost has been seen), and the painted tier's cost when it carries
   peers the hardware tier would otherwise have taken (the underwater exception in `FLAGS.md`).
 
-## 2026-08-21 (ice/fog/cave session) — what the user has NOT confirmed
+## [READY] 2026-08-21 (ice/fog/cave session) — what the user has NOT confirmed
 
 Ice, the fog fallback and the cave-darkness clip are all **confirmed** and live in `verified.md`.
 What that session left untested:
@@ -398,7 +417,7 @@ What that session left untested:
   particular question. Used once and put back; the defaults are unchanged, so nothing shipped
   should differ — but the shipped default path has not been re-watched since the globals went in.
 
-## Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
+## [READY] Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
 
 **The 2026-08-21 entry this replaces recorded the ferry and rails as assumptions, and had the boat
 wrong.** It named the S.S. Tidal. The ride the user actually meant is **Mr. Briney's**, the one
@@ -526,7 +545,7 @@ flag. What shipped instead is the one state that provably cannot be served witho
 run with the flag set once the boat and the fly have been judged**, not before — two changes at once
 is how a working fix gets blamed for a broken one.
 
-## Emerald compiles again, but has not been RUN since the fix (2026-08-22)
+## [READY] Emerald compiles again, but has not been RUN since the fix (2026-08-22)
 
 The adapter had crossed Lua's 200-local ceiling and failed to compile as committed — `too many
 local variables (limit is 200)`, which in a real session is a silent non-load. Fixed by folding
@@ -545,7 +564,7 @@ watched since. **Before Emerald is next used for anything, load it and surf**; a
 here reads as nil and would show up as a missing or misplaced blob rather than an error.
 
 
-## MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
+## [READY] MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
 
 **Here rather than in `VERIFIED.md` because the evidence is a log this agent read**, from a
 staged-release run it drove itself. Nothing below was watched on screen, and none of it changes
@@ -612,7 +631,7 @@ written it.
 **What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no
 sprite was part of this run.
 
-## Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
+## [READY] Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
 
 `meshghost_emerald.lua`, the remote's gender read: anything but those two strings — a number, a
 table, or a string naming a `genderFrames` method — made `drawRemotes` error every frame, and every
