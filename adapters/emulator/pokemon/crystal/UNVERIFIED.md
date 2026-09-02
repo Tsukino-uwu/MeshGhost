@@ -2832,3 +2832,30 @@ square, stop and start, cross a seam.
       (it should stay 0 with netsim's loss off).
 - [ ] Nothing changed on the clean rig: same look at 40ms ±20ms / 2% loss as this morning.
 
+**WATCHED the same evening — the cover works, and the interp ladder was re-run on it.** Same rig,
+one netsim seed (`1788359927364670300`) replayed for every row so the dice were identical, cover on
+unless said, walking in a square because that is where the position glide shows:
+
+| Interp | Cover | User's read |
+|---|---|---|
+| 100ms | on | *"looks like its sliding around every time i turn while walking in a circle/square"* |
+| 100ms | **off** (`-loss-cover=false`) | *"think its sliding around way more now"* — the A/B: the cover helps, the glide is the link |
+| 150ms | on | *"better, still looks like the position is gliding a bit, like a char facing right but gliding/moving downwards while its trying to catchup"* — *"position gliding, animations correct"* |
+| 200ms | on | *"better, but still has the position glide happening when walking in a square"* |
+| 250ms (shipped) | on | *"it feels precise ... something small happening ... during the turns. but it looks fine"* |
+| 300ms | on | *"think its fine? don't really spot any issues now. its just delayed as intended"* |
+
+Stats on the 100ms run: 458 states carried their predecessor, 11 recovered — the 2% loss rate, so
+the cover inserts only what was actually lost. The teleport at a stop did not recur on any row; what
+remained below 250ms is a different thing: samples arriving LATE, not lost, and the painted model
+catching up along the straight line between two tile samples while the facing and the walk animation
+stay right.
+
+**A rig fact that shapes the numbers, noted here so nobody re-derives it:** a LOOPBACK ghost's samples
+make the round trip (core -> netsim -> relay -> netsim -> core), so on this 75ms ±25ms link they land
+~150ms ±50 old. A real peer's samples make ONE trip and land ~75ms old. Every row above therefore
+overstates the interp a real peer needs on the same link by roughly one-way latency: the 300ms that
+was clean here is ~225ms for a friend on a 150ms ping, which the shipped 250ms already covers. So
+**250ms stays the shipped default**; the user floated 275–300ms, and the answer is to re-judge that
+with two real clients on netsim rather than on a loopback (`plans.md` two-machine session).
+

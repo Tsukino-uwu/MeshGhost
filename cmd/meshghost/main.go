@@ -409,6 +409,10 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
+	lossCover := flag.Bool("loss-cover", true,
+		"carry the previous sample inside every state sent at 25Hz or slower, so one lost packet costs "+
+			"the receiver nothing (ADR 0045). On by default; -loss-cover=false is the A/B switch for a "+
+			"dev run, not a setting a player needs")
 	minSend := flag.Duration("min-send", 0,
 		"a FLOOR on how slowly you send your position to the relay -- leave this unset (0) to "+
 			"just adopt whatever rate the relay advertises (see -send-hz on the relay side; "+
@@ -612,6 +616,9 @@ func main() {
 	c.TLS = tlsChoice
 	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
+	if !*lossCover {
+		c.RedundancyMinInterval = -1
+	}
 	c.MinSendInterval = *minSend
 	c.IdleKeepalive = *keepalive
 	c.Extrapolate = *extrapolate
