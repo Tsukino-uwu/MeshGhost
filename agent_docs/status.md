@@ -10,7 +10,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
-- 2026-09-02 **The post-review run is DONE on Crystal, Emerald and TEVI; Pseudoregalia still needs its run on the fixed relay** — each queue's "This run" block; ADR 0044.
+- 2026-09-02 **The post-review run is DONE on all four games; Crystal's and Emerald's interp verdicts were judged on the broken relay and want a re-run on the fixed one** — each queue's "This run" block; ADR 0044.
 - 2026-09-02 **The review's connection limiter hid `WriteUnreliable`: every relayed quic/udp state rode the reliable stream until `341a768`; watched fixed on TEVI, Pseudoregalia and the Pokemon games unwatched since** — `verified.md`, "The limiter hid WriteUnreliable".
 - 2026-09-02 **Emerald Fly is bandaged, not finished; the boat is built and never watched; rails are unbuilt** — `emerald/BANDAGES.md` §4, `emerald/UNVERIFIED.md`.
 - 2026-09-02 **Emerald ships spawned -> OAM -> drawn (user's call); three tile leaks and a double-free found and fixed with a crowd, watched clean; OPEN: the attach nametag burst (core never prunes names, adapter hello times out), rung churn, drawn clipping under a text box unexercised** — `emerald/UNVERIFIED.md`.
@@ -19,7 +19,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 - 2026-09-02 **The port walk's dead end (a live child on a port the walk left): fixed in all four launchers and the template; reproduced and recovered on TEVI, UNWATCHED on Pseudoregalia, Emerald and Crystal** — each adapter's `UNVERIFIED.md`.
 - 2026-09-02 **Pseudoregalia open faults: the sword's mid-air snap, the black flash on spawn, two unattributed crashes, `curve catmull-rom` crashing both instances** — `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-02 **Pseudoregalia crowds: step 2 (reflection cache, −59% tick) and the re-run ladder are UNWATCHED; `ls_rest` is the next split** — `crowd-limits.md`.
-- 2026-09-02 **`DefaultSendHz` is 15 everywhere; watched on Pseudoregalia, Crystal and TEVI; the INTERP ladder is CONFIRMED on TEVI (300ms) on the fixed relay, while Crystal's and Emerald's 250ms verdicts were judged on the broken one and want a re-run; Pseudoregalia's 15Hz ladder is unrun** — each adapter's `UNVERIFIED.md`.
+- 2026-09-02 **`DefaultSendHz` is 15 everywhere; watched on Pseudoregalia, Crystal and TEVI; the INTERP ladder is CONFIRMED on TEVI and Pseudoregalia (300ms on the 60/25/2/2 proxy) on the fixed relay, while Crystal's and Emerald's 250ms verdicts were judged on the broken one and want a re-run** — each adapter's `UNVERIFIED.md`.
 - 2026-09-02 **Relay cross-area filtering is UNWATCHED on screen; Emerald seam crossings are the check** — ADR 0041, `emerald/UNVERIFIED.md`.
 - 2026-09-02 **Loss cover (ADR 0045) WATCHED on Crystal: A/B on one netsim seed, cover off is worse, no teleport at any interp; shipped 250ms stands (loopback overstates by one-way latency), 275–300ms to be re-judged with two real clients** — `crystal/UNVERIFIED.md`.
 - 2026-09-02 **Go side: the `internal/e2e` port reservation TOCTOU flakes under `-race`; `encoding/json` is ~58% of relay per-state CPU; `curve catmull-rom` bends on uneven spacing** — `testing.md` Traps, `scaling.md`, `core/curvespacing_test.go`.

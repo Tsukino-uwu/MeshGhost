@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
+- MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
 - Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
 - Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
 - Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
@@ -55,6 +55,14 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 
 ## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
+
+**Reproduced and recovered here too, the same night (agent, from `UE4SS.log`):** both installs put on one
+port base (6700) and launched 3 seconds apart; the main install's core was taken by the Copy, the main
+logged `the core this mod started (pid 2292, port 6700) is serving another game -- leaving it to that game
+and starting another on port 6701`, then `core on port 6701 accepted us`; both games rendered each other.
+The custom bases (6700/6800, the user's 2026-08-30 test numbers) were then removed from both installs --
+*"shouldn't those be 7778 as well?"* -- and a relaunch 3 seconds apart walked normally: main on 7778, the
+Copy `busy` there and accepted on 7779. What is left for eyes: the two ghosts after such a start.
 
 **Mirrored from TEVI, 2026-09-02, unwatched here.** "My child process is alive" was read as "I have a
 core": two copies launched a few seconds apart can each spawn on the base port, one core wins the

@@ -183,7 +183,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
 - 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
 - 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
-
+- Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 ## Confirmed facts
 
 ### Phase 7.1: Pseudoregalia local player pawn/position/rotation/level read confirmed live via UE4SS Lua probe
@@ -4721,3 +4721,21 @@ EU<->NA-on-bad-Wi-Fi grade, the user's target for a shipped default).
 - Scope: one machine, two instances, simulated faults, walking/jumping/sword-throwing. The
   cross-adapter `DefaultSendHz` 20->15 change was deliberately NOT made tonight -- evidence
   supports it, decision pending.
+
+## Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
+
+**User, on screen, two real instances** (the main install and the Copy), both through `meshghost-netsim` at
+60ms/±25ms/2% loss/2% reorder (~125ms one-way peer to peer, the proxy is crossed twice), relay at the
+shipped 15Hz with loss cover on, quic, the relay carrying the limiter fix (`341a768`). Climbed from 250ms
+with the core's `buffer dry` counter beside each rung:
+
+| Interp | Dry renders (render time past a moving peer's newest sample) | The user |
+|---|---|---|
+| 250ms | 8%, max 163ms past | *"saw 1 stutter"* |
+| 300ms | 0.5%, max 135ms past | *"I don't see anything bad/stutter etc."* |
+
+**How this sits with the shipped 375ms:** that pick (`956790c`, 2026-09-01, before the limiter existed) was
+made on the HARSHER ocean profile (~200 ping / ±40ms / 5% loss) and stands for that link; the README's
+250ms same-continent line was measured at 20Hz on 2026-08-30. Tonight's profile sits between the two, and
+at 15Hz it wants 300ms -- the same number TEVI settled on the same night on the same link
+(`adapters/tevi/VERIFIED.md`). Nothing in the shipped config changed on this run.
