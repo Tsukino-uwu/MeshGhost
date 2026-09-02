@@ -5838,3 +5838,14 @@ a compare-mode "on change" trace kept a single change key, so N peers changed it
 key per peer, and move a per-peer trace off the flag that is the dev DEFAULT onto its own probe flag.
 **Method:** `wc -l` the adapter log twice five seconds apart before believing any cost judgement.
 
+## Reboot Core in BizHawk 2.11 crashes the front end when a Lua memory callback is registered (Emerald, 2026-09-02)
+
+**Symptom:** File > Reboot Core (a hard reset) with the Emerald adapter loaded threw
+`NullReferenceException` in `MGBAMemoryCallbackSystem.Remove` from `LuaConsole.Restart`, an unhandled
+dialog over the game. **Cause:** rebooting the core restarts the Lua console, which disables every script
+and unregisters its callbacks; on the mGBA core that removal dereferences a callback container the reboot
+already tore down. Ours is the `event.onmemoryexecute` fishing-alignment hook (`MESHGHOST_EMERALD_NO_FISH_HOOK`
+turns it off). BizHawk's bug, our trigger. **Fix (procedure, not code):** never Reboot Core with an adapter
+loaded — drop the loader target to `none` first, or use the GAME's own soft reset (A+B+Start+Select), which
+never touches the core; the process survives the dialog (Continue), but the loader may be gone afterwards,
+so check the loader log before trusting the next reading.

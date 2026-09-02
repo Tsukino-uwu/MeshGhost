@@ -275,4 +275,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A seam is not a warp: forget tiles only when the engine rebuilt the world (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - A free needs the identity of the RANGE, and "the bits are still set" is not it (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - A dev-mode trace keyed by ONE shared "last value" fires once per peer per frame with a crowd (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
-
+- Reboot Core in BizHawk 2.11 crashes the front end when a Lua memory callback is registered (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]

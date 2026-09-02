@@ -30,4 +30,4 @@
 - A seam is not a warp: free a resource unless the engine demonstrably rebuilt the world — "never left the overworld" is the signal that needs nothing armed (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A free needs the identity of the RANGE: scan the sprite table for a live owner before clearing bits, and log why a free was skipped (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A dev-mode "on change" trace with ONE shared key fires per peer per frame with a crowd; key per peer and give it its own flag (Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
-
+- Never Reboot Core with an adapter that registers a memory callback loaded; drop the target to `none` first, or use the game's own soft reset (BizHawk 2.11 + mGBA, Emerald, 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)
