@@ -1,7 +1,5 @@
 # Bandages — the canonical guide
 
-<!-- line-cap: 350 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **This file is the guide, not the thing you copy.** A new adapter's register lives at
 `adapters/<game>/BANDAGES.md` and carries a compact form that links back here. Start it from the
 stub at the bottom of this file. Every shipped register but one has that exact shape;

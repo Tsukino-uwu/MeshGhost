@@ -1,7 +1,5 @@
 # Probe index — TEMPLATE
 
-<!-- line-cap: 150 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **This is the template. Copy it to `<your-adapter>/probes/README.md`, fix the title, delete
 everything above the horizontal rule below.**
 
@@ -21,8 +19,6 @@ is a per-adapter index of what actually exists, and it is copied and filled in.
 ---
 
 # &lt;Game&gt; probes
-
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
 
 Every script here is a **development tool**, not part of the shipped adapter. They are kept
 because they are the record of *how each fact was established* — the addresses and recipes cited

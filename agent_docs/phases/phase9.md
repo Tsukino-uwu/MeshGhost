@@ -1,7 +1,5 @@
 # Phase 9 — Pokémon Crystal (GBC), spawn-based rather than drawn
 
-<!-- line-cap: none -- dated record of one phase; closed files do not grow and open ones grow with the work. Why: agent_docs/claude-md-cap.md. -->
-
 **Status: in progress**, started 2026-08-17. The fourth game, and the first that renders a peer by
 **spawning a real in-game object** instead of drawing an overlay over the emulator.
 

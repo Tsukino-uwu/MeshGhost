@@ -1,7 +1,5 @@
 # How the networking layer actually works
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 This file explains the Go client/server layer: what the relay process *is*, what happens on a
 connection from the first byte to the last, and — where it isn't obvious — *why* it was built
 that way. It is written for someone who is about to read or change `relay`,

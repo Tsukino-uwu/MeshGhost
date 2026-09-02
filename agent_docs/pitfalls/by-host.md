@@ -1,7 +1,5 @@
 # Pitfalls — by host and subsystem
 
-<!-- line-cap: none -- incident record; its control is the index in ../pitfalls.md plus preflight's coverage check, not a line count. Why: agent_docs/claude-md-cap.md. -->
-
 Grouped by what you are touching — BizHawk Lua, UE4SS/Unreal, Unity, memory probing, overlay
 rendering, vendored runtimes. Reach for this one when you know the subsystem and want to know what
 has already gone wrong in it. Ends with the cross-game comparison table.

@@ -1,7 +1,5 @@
 # "My antivirus flagged it"
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 MeshGhost's client and server are unsigned Go binaries, and two different things flag them. They
 are separate causes with separate answers, so they are worth telling apart rather than lumping
 together as "it's a false positive, trust me."

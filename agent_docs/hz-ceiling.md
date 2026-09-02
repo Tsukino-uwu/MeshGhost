@@ -1,7 +1,5 @@
 # The high-rate ceiling — how fast can a room actually run?
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **Read this before raising `send_hz`, changing `maxSnapshots`/`defaultSnapshotAgeMs`, or answering
 "could we run at 144/240/480Hz to match a game's frame rate?".** Split out of
 [scaling.md](scaling.md) on 2026-08-30, which was at its cap and where this had become the largest

@@ -1,7 +1,5 @@
 # Pitfalls — method, and instruments that lie
 
-<!-- line-cap: none -- incident record; its control is the index in ../pitfalls.md plus preflight's coverage check, not a line count. Why: agent_docs/claude-md-cap.md. -->
-
 How to diagnose, and the ways an instrument reports something that is not true. This is the half
 read *before* trouble rather than during it: the diagnostic methodology, the failure signatures, and
 the two entries about confirming what you are actually looking at before you probe it.

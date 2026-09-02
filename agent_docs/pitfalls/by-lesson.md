@@ -1,7 +1,5 @@
 # Pitfalls — by lesson, in the order they were found
 
-<!-- line-cap: none -- incident record; its control is the index in ../pitfalls.md plus preflight's coverage check, not a line count. Why: agent_docs/claude-md-cap.md. -->
-
 The chronological half, and the larger one. These cut across hosts: the titles ARE the lessons,
 which is why they are indexed rather than re-filed under themes. A lesson found in Emerald is here
 so it is findable while working on Crystal — that property is the whole point, and any per-game

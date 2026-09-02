@@ -1,10 +1,5 @@
 # Scaling and efficiency — what the Go side can carry
 
-<!-- line-cap: 1000 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first.
-     Set to 800 on 2026-08-30 before this file had content, then to 900 and to 1000 the same day
-     on the user's call, as its first sections landed. The budget is settled now: from here the
-     rule applies as written, and something comes out to make room. -->
-
 **Read this before proposing efficiency or scale work on `core`, `relay`, `transport` or the wire.**
 It holds the standing principle, the measured numbers, the ranking those numbers produce, and the
 decisions already ratified — so a session proposes the next thing rather than re-deriving the last

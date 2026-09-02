@@ -1,7 +1,5 @@
 # Current status
 
-<!-- line-cap: none -- capped PER ITEM instead (two lines each) -- a flat cap was tried here and failed. Why: agent_docs/claude-md-cap.md. -->
-
 ## Active status
 
 **Active phase: 9 — Crystal, with Emerald reopened for two states.** Feature complete 2026-08-21,

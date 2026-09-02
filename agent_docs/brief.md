@@ -1,8 +1,5 @@
 # GhostSync — project brief
 
-<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Frozen file: it should never grow
-     toward this cap, since the only permitted edit is recording that something was superseded. -->
-
 (renamed to MeshGhost, after a lot of back/forth thinking to be something more unique)
 
 **THIS FILE IS HISTORIC AND FROZEN (declared 2026-08-30).** It is the idea and plan the project

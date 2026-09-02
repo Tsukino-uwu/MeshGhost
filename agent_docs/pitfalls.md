@@ -1,7 +1,5 @@
 # Adapter pitfalls
 
-<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 This file is the durable record of **adapter-specific** issues: things that went wrong while
 building a game adapter, how they were tracked down, and what fixed them. It exists so the
 next game adapter starts from the lessons already paid for instead of re-learning them.

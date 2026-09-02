@@ -1,7 +1,5 @@
 # Crystal — bandage register
 
-<!-- line-cap: none -- register; growth is a smell you must be able to SEE, never one to hide by trimming. Why: agent_docs/claude-md-cap.md. -->
-
 **It was empty until 2026-08-19, and that was the point.** Phase 9 exists because the user's call
 was to build this adapter without starting from a compensation: *"i want to actually spawn in as
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*

@@ -1,7 +1,5 @@
 # MeshGhost
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
 independent copy of the game; friends show up as "ghosts" — live position, facing and animation,
 with an optional nametag in a colour of their choosing — while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by

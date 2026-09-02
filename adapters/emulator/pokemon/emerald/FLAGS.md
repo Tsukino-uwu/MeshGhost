@@ -1,7 +1,5 @@
 # Pokémon Emerald — flag register
 
-<!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
-
 **A Lua adapter has no compile step**, so nothing here is a `constexpr` and nothing is compiled
 out. Its switches are three kinds instead: local `false` constants that gate a diagnostic, values
 read from the environment (or from a global set by the dev loader) at load time, and a runtime

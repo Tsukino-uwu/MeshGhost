@@ -1,7 +1,5 @@
 # Verified facts — Pseudoregalia
 
-<!-- line-cap: none -- append-only human-gated record. Why: agent_docs/claude-md-cap.md. -->
-
 Facts about this adapter and this game, **confirmed by watching a running game**. Split out of
 `agent_docs/verified.md` on 2026-08-25, verbatim and in their original order; that file had
 reached 10,174 lines with four games and the Go side interleaved chronologically, and was the most

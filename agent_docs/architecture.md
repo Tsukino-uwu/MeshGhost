@@ -1,7 +1,5 @@
 # Architecture
 
-<!-- line-cap: 250 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 System shape and the rationale behind decisions that aren't obvious from the code or the
 brief alone. The standing prohibitions (no addresses from memory, human-gated verified.md,
 etc.) live in `CLAUDE.md`, not here — this file is reference, not rules.

@@ -1,7 +1,5 @@
 # Dev scripts
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 Developer/testing launchers used while building MeshGhost itself — not what an end user
 wanting to play needs. If you just want to play with friends, use the pre-built release
 instead: see [packaging/README.md](../packaging/README.md) and the repo's Releases page.

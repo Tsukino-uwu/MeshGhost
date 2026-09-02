@@ -1,7 +1,5 @@
 # Pokémon Emerald
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 **Status: feature complete 2026-08-21 — the user's call**, in their words: *"i consider the
 game to be fully synced up animation and effect wise now."* Every way this game moves a character
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game

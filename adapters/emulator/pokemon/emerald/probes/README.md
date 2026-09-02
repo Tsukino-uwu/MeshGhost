@@ -1,7 +1,5 @@
 # Emerald probes
 
-<!-- line-cap: 300 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Every script here is a **development tool**, not part of the shipped adapter — the release ships
 `meshghost_emerald.lua` and `lib/`, nothing from this folder. They are kept as the record of how
 each fact was established. The four `avatar_*` probes in particular are a **reusable template**:

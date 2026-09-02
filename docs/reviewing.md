@@ -1,7 +1,5 @@
 # Reviewing this yourself
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 A guide for auditing this project before hosting a relay or playing with strangers: which code
 runs where, what the project claims about it, and how to run the adversarial checks on your own
 machine. Nothing here asks for trust in the author or the tests; it points at what to read and what

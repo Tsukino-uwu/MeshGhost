@@ -1,7 +1,5 @@
 # TEVI probes
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Every probe here is a **development tool**, not part of what the mod does for a player. They are
 the record of how a fact about TEVI was established — read this rather than guessing which flag
 answers which question.

@@ -1,7 +1,5 @@
 # Phase 10 — the online stack: relay, client core, protocol, transports
 
-<!-- line-cap: none -- dated record of one phase; closed files do not grow and open ones grow with the work. Why: agent_docs/claude-md-cap.md. -->
-
 **Status: open-ended, by design.** Created 2026-09-01 on the user's call: the Go side had no phase
 file of its own, so its history lived scattered across ADRs, `scaling.md`, `hz-ceiling.md` and
 `testing.md` with no single place to look back on how and when things were made. This file is that

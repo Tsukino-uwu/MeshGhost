@@ -1,7 +1,5 @@
 # `<game>` — flag register
 
-<!-- line-cap: 250 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Every adapter accumulates switches. They look alike and they are not alike, and mistaking one
 class for another costs real time. This file is the index: which switch is which kind, what the
 shipped value is, and which ones must not be touched alone.

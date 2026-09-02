@@ -1,7 +1,5 @@
 # Unverified — the queue waiting on the user
 
-<!-- line-cap: none -- index to the per-game queues; size tracks what is unconfirmed. Why: agent_docs/claude-md-cap.md. -->
-
 **Split per game on 2026-08-25.** This file held 1,670 lines and 56 entries, and — unlike
 `verified.md` — was already 100% per-game: Crystal and Emerald only, with no Pseudoregalia, TEVI or
 Go-side entries by design. Every entry moved verbatim and in its original order to a queue beside

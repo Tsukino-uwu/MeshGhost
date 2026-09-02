@@ -1,7 +1,5 @@
 # How Pseudoregalia works
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 ## Before adding anything to this file
 
 **Explain facts; never reproduce expression.** Measured numbers, timings, field/function/type

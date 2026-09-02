@@ -1,11 +1,9 @@
 # Verified facts — TEMPLATE
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **This is the template. Copy it to `<your-adapter>/VERIFIED.md`, fix the title and the relative
-link depths, delete this paragraph and everything above the horizontal rule below.** The copy is
-an append-only record and declares `<!-- line-cap: none -->`; this template is a guide and is
-capped like one.
+link depths, delete this paragraph and everything above the horizontal rule below.** Neither the
+copy nor this template carries a line cap: caps apply only to files that load as instructions
+(`agent_docs/claude-md-cap.md`), and a record grows with what it holds.
 
 **Why a template exists at all.** `_template/README.md`'s folder-convention table has mandated a
 `VERIFIED.md` in every adapter since it was written, and said "no template — see any shipped
@@ -20,8 +18,6 @@ depth from the nearest shipped adapter at your own level rather than counting, a
 ---
 
 # Verified facts — &lt;Game Name&gt;
-
-<!-- line-cap: none -- append-only human-gated record. Why: agent_docs/claude-md-cap.md. -->
 
 Facts about this adapter and this game, **confirmed by watching a running game**.
 

@@ -1,7 +1,5 @@
 # Risks and assumptions
 
-<!-- line-cap: none -- risk register; entries close in place rather than being deleted. Why: agent_docs/claude-md-cap.md. -->
-
 ## Current assumptions
 
 - The core/adapter/relay split, with an out-of-process Go core, is the right long-term

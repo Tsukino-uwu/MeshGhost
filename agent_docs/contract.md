@@ -1,7 +1,5 @@
 # The contract
 
-<!-- line-cap: 1000 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 This is the durable artifact of the project. Everything else — phases, adapters, the relay
 implementation — is disposable and gets rewritten. This file is not. If a change here breaks
 an adapter, that is a contract revision with an ADR in `adr/`, indexed in `architecture.md`.

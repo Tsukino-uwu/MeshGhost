@@ -1,7 +1,5 @@
 # agent_docs — internal project documentation
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Internal documentation for MeshGhost: architecture, planning, licensing, and verification.
 
 ## Files
@@ -18,8 +16,8 @@ Internal documentation for MeshGhost: architecture, planning, licensing, and ver
   until 2026-08-25 and was left behind by the split three lines below; following it literally
   produced the wrong artifact.)
 - [architecture.md](architecture.md) — system shape, package boundaries, and **the index to the
-  decision log**. (No line count here on purpose: the header's own `line-cap` is the budget, and
-  a count restated in a second file is a number nothing updates — this one had already drifted.)
+  decision log**. (No line count here on purpose: a count restated in a second file is a number
+  nothing updates — this one had already drifted.)
 - `adr/` — **one file per ADR**, plus the CelesteNet prior-art notes several were
   researched against. Split out of `architecture.md` 2026-08-25, where they had grown to 2,332 of
   its 2,501 lines. The index stayed behind in `architecture.md` because every citation in this repo

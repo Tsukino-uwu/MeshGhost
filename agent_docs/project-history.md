@@ -1,7 +1,5 @@
 # Project history: how MeshGhost actually got built
 
-<!-- line-cap: 60 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 A retrospective, written from memory rather than derived from logs or commits. It exists
 because it's fun to look back on and because it's a useful reference for scoping the next
 game adapter — not as a source of truth for exact dates or facts (see `verified.md` and the

@@ -1,7 +1,5 @@
 # Pseudoregalia probes
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Every script here is a **development tool**, not part of the shipped adapter — the release ships
 `main.dll` built from `MeshGhostPseudo/`, and nothing from these folders. They are kept because
 they are the record of *how each fact was established*: the pawn/position/rotation discovery, the

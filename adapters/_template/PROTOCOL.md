@@ -1,7 +1,5 @@
 # Adapter protocol stub
 
-<!-- line-cap: 600 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Language-agnostic. Every real adapter (BizHawk Lua, TEVI's BepInEx plugin, Pseudoregalia's
 UE4SS/C++ mod) implements this same shape by dialing the local core's bridge port and speaking
 NDJSON — see

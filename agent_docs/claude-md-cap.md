@@ -1,6 +1,5 @@
 # Why CLAUDE.md is capped at 300 lines
 
-<!-- line-cap: 140 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
 <!-- Raised from 100 on 2026-08-27, deliberately and once: the fourth case took this file to exactly
      100/100, and a file pinned at its ceiling pays for the next case by deleting an old one. This
      file is four cases and each is load-bearing, so nothing was the right thing to remove. 140
@@ -126,3 +125,32 @@ went in as six lines pointing at `pitfalls/method.md`, not as the full account.
 
 **Everything else keeps its cap**, including the nested `CLAUDE.md`s, which genuinely do load
 without being asked.
+
+## The sixth case: the reversal — caps only on instruction files (2026-09-02)
+
+**The user's call**, asked whether every file should keep its cap: *"I originally had it only in
+claude.md, but it got added onto other files at some point without me really saying that they should
+be there ... my original plan was at least to only have the cap for claude.md."* The repo-wide rule
+was an agent's generalisation, and the fourth and fifth cases above are the two times the user had
+already pushed part of it back.
+
+**What the repo-wide rule did in its eight days (2026-08-25 → 2026-09-02).** Ten files sat at
+exactly 100% of their number: `CLAUDE.md`, `agent_docs/README.md`, `contract.md`, `scaling.md`,
+`environment.md`, `testing.md`, `crowd-limits.md`, `adapters/CLAUDE.md`, `_template/BANDAGES.md`
+and Crystal's probe index. A reference doc has nothing removable — a contract field or a
+measurement cannot come out to make room — so growth was met by raising the number: `scaling.md`
+went 800 → 900 → 1000 on 2026-08-30 alone. And "declare a cap or declare none; silence is a
+failure" put a header on about ninety files to serve a check that mattered for seven.
+
+**The argument was always about instruction load.** A cap is a budget on what an agent carries as
+instructions, which is exactly what the fourth and fifth cases said. That is the root `CLAUDE.md`,
+the four nested ones that load on contact, and the two skills. Nothing else loads that way: a
+contract is read by section, a record by link, a guide once and deliberately.
+
+**So, from 2026-09-02:** numeric caps on those seven files only, declared in their headers and
+enforced as a fixed list in `dev-scripts/preflight.ps1`; a cap header on any other file is a FAIL,
+because it claims an enforcement that is not there. **The stack a session loads gets its own
+budget** (root + `adapters/CLAUDE.md` + the host file), since three individually green files summed
+to 787 lines for an emulator session. **Indexes and queues are held to one line per entry** by a
+check instead of a total — this file's own "cap the thing that actually grows", applied to the
+thing that grows. The third, fourth and fifth cases stand as history; their remedy is now the rule.

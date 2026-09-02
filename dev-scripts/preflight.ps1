@@ -182,72 +182,139 @@ Report-GrepGate $LASTEXITCODE $durations `
 # ---------------------------------------------------------------------------
 Section "Reading budgets"
 
-# RULE 0's 300-line cap on CLAUDE.md holds BECAUSE this script checks it. Every other file the
-# project mandates as required reading had no such backstop, and the inventory on 2026-08-25 was
-# ~1,701 lines before an ordinary session and ~14,500-18,500 before a new adapter's first file.
-# Prose alone does not hold a budget -- status.md went from 50 to 628 lines with a cap nominally
-# in force.
+# RULE 0's 300-line cap on CLAUDE.md holds BECAUSE this script checks it. Prose alone does not
+# hold a budget -- status.md went from 50 to 628 lines with a cap nominally in force.
 #
-# A file declares its own cap in its header, so adding a mandated file does not mean editing this
-# script:   <!-- line-cap: N -->
+# SCOPE, narrowed 2026-09-02 on the user's call. A cap is a budget on an agent's INSTRUCTION load,
+# so it applies to the files that load as instructions without being asked -- the root CLAUDE.md,
+# the nested CLAUDE.md files, and the skills -- and to nothing else. From 2026-08-25 to 2026-09-02
+# every tracked .md had to declare a cap or an exemption. The result: ten files pinned at exactly
+# 100% of their number (a reference doc has nothing removable, so growth was met by RAISING the
+# number -- scaling.md went 800 -> 900 -> 1000 in one day), and a header on ~90 files serving a
+# check that mattered for seven. Records, references and people-facing docs are now uncapped;
+# indexes and queues are held to ONE LINE PER ENTRY by the section below instead -- "cap the
+# thing that actually grows", applied. agent_docs/claude-md-cap.md carries the argument and the
+# reversal.
+#
+# The budgeted set is THIS LIST, not whoever happens to carry a header. Each file still declares
+# its own number in its header (<!-- line-cap: N -->); a listed file without one is a FAIL, and a
+# header on any OTHER tracked .md is a FAIL too -- it is a leftover of the repo-wide rule and
+# tells the reader a budget is being enforced when none is.
 #
 # (Get-Content).Count, NOT Measure-Object -Line: the latter counts only NON-EMPTY lines, so it
 # reported 288 for a 300-line file and would have passed a CLAUDE.md sitting 12+ lines over the
 # cap. The rules are stated in terms of `wc -l`, and this must measure the same thing they do.
-# SINCE 2026-08-25 A FILE MUST DECLARE ONE OR THE OTHER, and silence is a FAIL. Checking only the
-# files that happened to declare a cap made an unbudgeted file invisible to this check, which is
-# how ~21,000 lines across the nine largest documents came to have no backstop at all while the
-# 15 that did sat at 92-97% full. "It has no cap" and "nobody gave it one" looked identical.
-#
-#   <!-- line-cap: N -->     bounded content an AGENT loads: rules, reference, a guide, an index
-#   <!-- line-cap: none -- reason -->    a record, register or queue -- OR a document for people
-#
-# The exemption is not a loophole, it is the other half of the rule. claude-md-cap.md's argument
-# is "cap the thing that actually grows" -- and for a LOG the thing that grows is the number of
-# entries, which is real signal about the project. Capping VERIFIED.md would mean deleting
-# evidence in order to add evidence; capping a BANDAGES.md would hide the exact smell it exists to
-# show. A record is bounded by SPLITTING it, the way the ADR log was, never by refusing entries.
-#
-# THIRD CATEGORY, added 2026-08-27 on the user's call: a cap is a budget on the AGENT's instruction
-# budget, so a file no agent loads has none to spend. Each game's README.md and documentation.md,
-# docs/, packaging/ and dev-scripts/ READMEs are written for people and are exempt for that reason,
-# not because they are records. Everything an agent auto-loads or is told to read end to end stays
-# capped. claude-md-cap.md's fourth case is the argument; this comment is only the pointer.
-$capped = 0
+$budgeted = @(
+    'CLAUDE.md',
+    'adapters/CLAUDE.md',
+    'adapters/emulator/CLAUDE.md',
+    'adapters/tevi/CLAUDE.md',
+    'adapters/pseudoregalia/CLAUDE.md',
+    '.claude/skills/new-adapter/SKILL.md',
+    '.claude/skills/write-a-probe/SKILL.md'
+)
 $withinCap = 0
-$exempt = 0
-$undeclared = @()
-foreach ($md in $trackedMd) {
-    # agent_docs/adr/ is exempt as a directory rather than 39 near-identical marker lines: one ADR
-    # is one decision, immutable once written, and its own index check above already governs it.
-    if ($md -like 'agent_docs/adr/*') { $exempt++; continue }
-
+$lineCount = @{}
+foreach ($md in $budgeted) {
+    if (-not (Test-Path -LiteralPath $md)) { Report-Fail "$md is in the budgeted set but does not exist"; continue }
     $head = @(Get-Content -LiteralPath $md -TotalCount 15)
     $decl = $head | Select-String -Pattern '<!--\s*line-cap:\s*(\d+)' | Select-Object -First 1
-    $none = $head | Select-String -Pattern '<!--\s*line-cap:\s*none' | Select-Object -First 1
-    if ($none) { $exempt++; continue }
-    if (-not $decl) { $undeclared += $md; continue }
-
+    if (-not $decl) { Report-Fail "$md is in the budgeted set but declares no <!-- line-cap: N --> in its first 15 lines"; continue }
     $cap = [int]$decl.Matches[0].Groups[1].Value
     $n = @(Get-Content -LiteralPath $md).Count
-    $capped++
+    $lineCount[$md] = $n
     if ($n -gt $cap) {
-        $over = $n - $cap
-        Report-Fail "$md is $n lines, $over over its declared $cap-line cap. Something must come out first."
+        Report-Fail "$md is $n lines, $($n - $cap) over its declared $cap-line cap. Something must come out first."
     } else {
         $withinCap++
     }
 }
-if ($undeclared.Count -gt 0) {
-    Report-Fail "$($undeclared.Count) tracked .md file(s) declare neither a line-cap nor an exemption -- an unbudgeted file is invisible to this check:"
-    $undeclared | Select-Object -First 15 | ForEach-Object { Write-Host "          $_" }
+if ($withinCap -eq $budgeted.Count) {
+    Report-Pass "all $($budgeted.Count) instruction files within their declared caps"
 }
-if ($capped -eq 0) {
-    Report-Fail "no file declared a line-cap -- the budget check found nothing to enforce, which is not a clean result"
-} elseif ($withinCap -eq $capped -and $undeclared.Count -eq 0) {
-    Report-Pass "$capped file(s) within their declared reading budgets, $exempt declared exempt"
+
+$strayCaps = @()
+foreach ($md in $trackedMd) {
+    if ($budgeted -contains $md) { continue }
+    $head = @(Get-Content -LiteralPath $md -TotalCount 15)
+    if ($head | Select-String -Pattern '<!--\s*line-cap:' -Quiet) { $strayCaps += $md }
+}
+if ($strayCaps.Count -gt 0) {
+    Report-Fail "$($strayCaps.Count) file(s) outside the budgeted set still carry a line-cap header -- only instruction files are capped (claude-md-cap.md, 2026-09-02):"
+    $strayCaps | Select-Object -First 15 | ForEach-Object { Write-Host "          $_" }
 } else {
-    Report-Pass "$withinCap of $capped capped file(s) within budget, $exempt declared exempt"
+    Report-Pass "no line-cap header outside the $($budgeted.Count) budgeted files"
+}
+
+# THE STACK. The research the cap rests on (150-200 followable instructions, degradation uniform
+# past that) is about what a model carries at once, and a session in an adapter folder carries
+# the root CLAUDE.md, adapters/CLAUDE.md AND that host's file together. Per-file caps let the
+# stack reach 787 lines for an emulator session (2026-09-02) with every file individually green.
+# So the stack has its own number. WARN rather than FAIL until the pitfalls funnel lands
+# (planned 2026-09-02): the trim that gets the emulator stack under 700 is "lines whose lesson is
+# now a preflight check come out", and those checks do not exist yet. Flip to Report-Fail in the
+# commit that adds them; a stack over budget after that is a regression.
+$stackCap = 700
+$stacks = [ordered]@{
+    'emulator'      = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/emulator/CLAUDE.md')
+    'tevi'          = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/tevi/CLAUDE.md')
+    'pseudoregalia' = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/pseudoregalia/CLAUDE.md')
+}
+$stacksOk = 0
+foreach ($k in $stacks.Keys) {
+    $sum = 0
+    foreach ($f in $stacks[$k]) { if ($lineCount.ContainsKey($f)) { $sum += $lineCount[$f] } }
+    if ($sum -gt $stackCap) {
+        Report-Warn "the $k session stack loads $sum lines of rules, $($sum - $stackCap) over the $stackCap-line stack budget (root + adapters/ + host)"
+    } else { $stacksOk++ }
+}
+if ($stacksOk -eq $stacks.Count) { Report-Pass "all $($stacks.Count) session stacks within the $stackCap-line stack budget" }
+
+# ---------------------------------------------------------------------------
+Section "One-line entries"
+
+# The control that fits a LIST. For an index or a queue the thing that grows is the number of
+# entries -- real signal -- and what must NOT grow is the size of each one. status.md proved it
+# 2026-08-14..16: a flat 50-line cap was defeated by items averaging three lines each (peak 628),
+# and the fix that held was "two lines per item". This is that rule made mechanical, at one line:
+# a bullet in one of these blocks may not be followed by an indented continuation line. Files join
+# this list as they are re-cut to comply (status.md, pitfalls/INDEX.md and agent_docs/README.md's
+# file list are planned, 2026-09-02); the VERIFIED index blocks already comply and go first.
+#   Path  -- the file
+#   From  -- regex for the heading that opens the block ('' = whole file)
+#   To    -- regex for the heading that closes it ('' = end of file)
+$oneLine = @(
+    @{ Path = 'agent_docs/verified.md';                        From = '^## Index'; To = '^## ' }
+    @{ Path = 'adapters/tevi/VERIFIED.md';                     From = '^## Index'; To = '^## ' }
+    @{ Path = 'adapters/pseudoregalia/VERIFIED.md';            From = '^## Index'; To = '^## ' }
+    @{ Path = 'adapters/emulator/pokemon/emerald/VERIFIED.md'; From = '^## Index'; To = '^## ' }
+    @{ Path = 'adapters/emulator/pokemon/crystal/VERIFIED.md'; From = '^## Index'; To = '^## ' }
+)
+$oneLineBad = @()
+$oneLineBullets = 0
+foreach ($spec in $oneLine) {
+    if (-not (Test-Path -LiteralPath $spec.Path)) { Report-Fail "$($spec.Path) listed for the one-line check does not exist"; continue }
+    $lines = @(Get-Content -LiteralPath $spec.Path)
+    $in = ($spec.From -eq '')
+    $prevBullet = $false
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if (-not $in) { if ($l -match $spec.From) { $in = $true }; continue }
+        if ($spec.To -ne '' -and $l -match $spec.To) { break }
+        if ($l -match '^- ') { $oneLineBullets++; $prevBullet = $true; continue }
+        if ($prevBullet -and $l -match '^\s+\S' -and $l -notmatch '^\s+- ') {
+            $oneLineBad += "$($spec.Path):$($i + 1)"
+        }
+        $prevBullet = $false
+    }
+}
+if ($oneLineBullets -eq 0) {
+    Report-Fail "the one-line check found no bullets in any listed block -- it would pass vacuously. Not a clean result."
+} elseif ($oneLineBad.Count -gt 0) {
+    Report-Fail "$($oneLineBad.Count) index/queue entries run past one line -- an entry says WHAT and WHERE, the detail lives at the link:"
+    $oneLineBad | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "$oneLineBullets index/queue entries across $($oneLine.Count) block(s) are one line each"
 }
 
 # ---------------------------------------------------------------------------

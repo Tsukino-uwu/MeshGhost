@@ -1,7 +1,5 @@
 # Ideas — unscheduled feature backlog
 
-<!-- line-cap: none -- backlog; its size is how much is unscheduled, which is real signal. Drains into plans.md. Why: agent_docs/claude-md-cap.md. -->
-
 This file is deliberately **not** `plans.md`. `plans.md` is the roadmap: what's committed,
 in progress, or done. This file is the opposite — things worth doing someday, researched enough
 to act on when picked, not committed to any phase. Nothing here is scheduled until it's moved

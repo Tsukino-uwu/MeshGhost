@@ -1,7 +1,5 @@
 # Doc restructuring — the record
 
-<!-- line-cap: none -- append-only record of doc restructuring passes; it QUOTES canonical rules verbatim, which is why preflight exempts it from the canonical-source check. Why a record is exempt: agent_docs/claude-md-cap.md. -->
-
 **What this is:** the dated record of every pass that has restructured this project's
 documentation — what was changed, what was deliberately left alone and why, and the measurements
 behind each decision. Split out of `ideas.md` on 2026-08-25.

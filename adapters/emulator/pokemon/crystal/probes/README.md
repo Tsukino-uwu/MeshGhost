@@ -1,7 +1,5 @@
 # Crystal probes
 
-<!-- line-cap: 200 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Every script here is a **development tool**, not part of the shipped adapter — the release ships
 `meshghost_crystal.lua` and nothing else from this folder. They are kept because they are the
 record of *how each fact was established*: the addresses and the spawn recipe in

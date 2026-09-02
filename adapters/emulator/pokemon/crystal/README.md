@@ -1,7 +1,5 @@
 # Pokémon Crystal
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 **Status: shipping, and under active work — Phase 9.** `meshghost_crystal.lua` dials the bridge,
 spawns a real in-game object event for each peer, walks it with the game's own step mechanism, and
 ships in the release (`release.yml` runs `dev-scripts/stage-release.ps1`, which stages it into

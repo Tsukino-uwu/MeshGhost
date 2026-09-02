@@ -1,7 +1,5 @@
 # Phases — the index
 
-<!-- line-cap: 100 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **One file per phase, kept after the phase ends as a work log.** `status.md` and `plans.md` are
 the current-state summary; these are not. **Read every one as a dated record, not as current
 fact** — a phase file says what was true while that phase ran, which is exactly why the paths in

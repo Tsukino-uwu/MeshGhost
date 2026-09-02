@@ -1,7 +1,5 @@
 # Pseudoregalia
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 **Status: FEATURE COMPLETE, declared by the user 2026-08-27** — *"i think we can consider
 pseudoregalia 'feature complete' at this point as well"*. **That declaration has a written scope**,
 recorded the same day in [VERIFIED.md](VERIFIED.md) along with what it explicitly does *not* cover,

@@ -1,7 +1,5 @@
 # Changing a mod without restarting the game
 
-<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
-
 MeshGhost supports several games, and each one is reached by a small piece of code — an
 **adapter** — that runs *inside* that game: a Lua script in an emulator, a plugin in Unity, a mod
 in Unreal. Nothing in this file is something a player installs or runs. It is here because the

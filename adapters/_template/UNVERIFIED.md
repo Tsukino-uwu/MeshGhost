@@ -1,10 +1,9 @@
 # Unverified — TEMPLATE
 
-<!-- line-cap: 175 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **This is the template. Copy it to `<your-adapter>/UNVERIFIED.md`, fix the title and the relative
-link depths, delete everything above the horizontal rule below.** The copy is a queue and declares
-`<!-- line-cap: none -->`; this template is a guide and is capped like one.
+link depths, delete everything above the horizontal rule below.** Neither the copy nor this
+template carries a line cap: caps apply only to files that load as instructions
+(`agent_docs/claude-md-cap.md`), and a queue's size is how much the user has not seen yet.
 
 **When to create it:** with the adapter. **Every adapter carries this file** — the user's call,
 2026-08-27, and `preflight.ps1` fails an adapter without one. This said "not before ... an adapter
@@ -19,8 +18,6 @@ adapter at your own level and let preflight's markdown-link check confirm it.
 ---
 
 # Unverified — &lt;Game Name&gt;'s queue waiting on the user
-
-<!-- line-cap: none -- queue that drains; size is how much the user has not seen yet. Why: agent_docs/claude-md-cap.md. -->
 
 **What this is.** [`VERIFIED.md`](VERIFIED.md) is the append-only record of what is *confirmed*.
 This is its waiting room: things the agent believes work, has self-tested as far as it can, and

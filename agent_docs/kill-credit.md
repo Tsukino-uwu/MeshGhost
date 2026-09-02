@@ -1,7 +1,5 @@
 # Kill credit and participation — the foundation under any enemy sync
 
-<!-- line-cap: 500 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 **Nothing here is scheduled, and nothing here is approval.** This is the concept layer for one
 problem, sitting under `beyond-cosmetic.md` the way that file sits under `plans.md`'s depth ladder.
 Anything past Tier 2 still needs its own per-game ADR in `adr/` and the memory-write

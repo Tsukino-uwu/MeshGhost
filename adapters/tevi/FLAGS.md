@@ -1,7 +1,5 @@
 # TEVI — flag register
 
-<!-- line-cap: none -- register; size is the number of switches that exist. Why: agent_docs/claude-md-cap.md. -->
-
 TEVI is the smallest of the shipped adapters, and its switch list is small to match: six
 diagnostic bools, a handful of constants, and one setting a player can actually change. It gets a
 register anyway, for the reason `adapters/_template/FLAGS.md` gives — an absent register says

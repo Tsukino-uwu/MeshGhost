@@ -1,7 +1,5 @@
 # Playing the game, and looking at it
 
-<!-- line-cap: 400 -- enforced by dev-scripts/preflight.ps1. Over it? Something comes out first. -->
-
 Everything an agent may do to a running game: what it is permitted to change, how to drive input,
 how to find its way, and how to use pictures. Split out of `environment.md` on 2026-08-19, when it
 had grown to a third of that file — a toolchain record nobody rereads is worse than two files.
