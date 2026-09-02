@@ -272,6 +272,13 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   handshake-then-upgrade path inside the proxy — a different port number would silently route the
   upgrade *around* it, and the session would look perfectly healthy while testing nothing.
 
+  **Every client you point at the proxy crosses it TWICE on the way to a peer** -- once into the
+  relay and once out -- so `-latency 60ms -jitter 25ms` is a ~120ms +/-50ms one-way path between
+  two players, ~125ms measured (the core's `transit:` stat, 2026-09-02), not the 60ms on the
+  command line. Size an interp verdict by the measured transit, and say "through the proxy on both
+  sides" when recording one: the 60/25/2/2 profile every sweep used is the ocean tier, not the
+  same-continent one its numbers suggest.
+
   Start a relay as usual, run this, then point a client at `127.0.0.2:7777`. **The seed is printed
   at startup** — pass it back with `-seed` to replay a fault sequence, which is the difference
   between a bug report and an anecdote. Note `-loss`/`-duplicate`/`-reorder` are udp-only —

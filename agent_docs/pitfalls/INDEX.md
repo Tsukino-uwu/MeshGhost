@@ -33,6 +33,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Nothing that can block goes before a handshake completes — and a change with no proven benefit is not free (2026-08-29) [CHECK: schedule fuzzer in internal/e2e]
 - An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01) [RULE: checklists/before-a-network-change.md]
 - Failure signatures [RULE: checklists/before-declaring-a-fix.md]
+- An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02) [CHECK: netx/limit_test.go, TestLimitListenerKeepsTheUnreliableWrite]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 

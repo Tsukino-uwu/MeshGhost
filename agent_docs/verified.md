@@ -119,6 +119,7 @@ filed under the right theme, but anything can check that it is listed.
 - Two more from the same campaign, and CI's Windows runner found them (2026-08-29)
 - 2026-09-01 — `DefaultSendHz` lowered 20 → 15 for every adapter, on the first evidence the number ever had
 - 2026-09-02 — The first adversarial review: seven Go-side findings fixed, each with a test that failed first
+- 2026-09-02 — The limiter hid WriteUnreliable: every relayed quic/udp state rode the reliable stream from 01:28 to 21:45, and two new meters found it
 
 
 ## Split per game — 2026-08-25
@@ -1435,3 +1436,45 @@ deployed with `meshghost.exe` to every live install, hash-verified as UPDATED.
 
 **Not claimed:** that the relay is now secure. One pass by one kind of reviewer; the known gaps it
 chose to leave are listed in `docs/security.md`. And nothing adapter-side has been watched.
+
+## 2026-09-02 — The limiter hid WriteUnreliable: every relayed quic/udp state rode the reliable stream from 01:28 to 21:45, and two new meters found it
+
+**Go side, confirmed with the tools (a qlog trace, a regression test, the suite and `-race`); the
+on-screen half is the user's, in `adapters/tevi/UNVERIFIED.md`.** `netx.LimitListener` (ADR 0044,
+committed 01:28 that day) wraps each accepted connection in `limitedConn{net.Conn}`. Embedding the
+INTERFACE hides every method the concrete connection has beyond `net.Conn` — including the
+`WriteUnreliable` that `transport.SendUnreliable` discovers by type assertion. The assertion failed,
+the transport fell back to `Send`, and on the relay→client hop every state rode quic's ordered stream
+(udp's reliable path likewise). One lost or reordered packet then held every sample behind it for a
+round trip. Fixed in `341a768`: `limitedLossyConn` forwards the method when the inner connection has
+it; `TestLimitListenerKeepsTheUnreliableWrite` fails without the fix (checked by stashing it).
+
+**What it looked like, and the numbers that closed it** — TEVI, two real instances, both through
+`meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder (≈125ms one-way peer to peer: the proxy is crossed
+twice), relay 15Hz, a fake peer moving in a circle so the meters ran without anyone at the keyboard:
+
+| | Broken relay | Fixed relay |
+|---|---|---|
+| receiving core, renders past the newest sample of a moving peer | 2.9%, max 259ms past | 0.3%, max 41ms past |
+| worst sample transit | 503ms (770ms in an earlier run) | 218ms — the proxy's own ceiling |
+| datagram frames sent by the relay, per server connection (qlog) | 0 | 996 |
+
+**The A/B that pointed at the transport before any trace existed:** on the same movement, tcp through
+the proxy (which gets delay and jitter but never loss) had 0 dry renders and a 218ms worst transit;
+quic had 4.9% and 770ms; udp 1.0% and 348ms. quic-go v0.61.0 vs v0.62.0 made no difference, and the
+v0.62.0 notes touch nothing in datagrams or congestion — so the bump that landed the same day was
+ruled out by measurement, not by reading.
+
+**The two meters, kept on the stats line (`-stats`, or `stats` in config.json), game-agnostic:**
+`buffer dry on N of M moving renders (avg, max past the newest sample)` — `core.dryMeter`, counting
+only while the peer's last two samples differ, because an idle peer's keepalive spacing puts its
+newest sample behind the render time by design; with stats on, one line a second names the seqs and
+timestamps either side of the hole. `transit: N samples, avg, max, K over 200ms` — `core.transitMeter`,
+arrival time minus the sender's timestamp. **How to read them together:** dry lines with consecutive
+seqs and a normal transit mean interp is short for the link (climb the ladder); a transit far above
+what the link can add means the transport is stalling (trace it). `QLOGDIR=<dir>` now makes the quic
+transport write a qlog per connection (`netx/quicconn`, nil tracer when unset).
+
+**The one-line lesson, filed in `pitfalls/method.md` and `checklists/before-a-network-change.md`:** a
+wrapper that embeds an interface silently drops the optional methods the code behind it is chosen for
+— assert for them on the wrapped result in a test, on the day the wrapper is written.

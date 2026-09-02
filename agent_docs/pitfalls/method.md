@@ -1220,3 +1220,23 @@ text carries no limit value and no offending bytes, so every reader assumed the 
 site before theorizing about what exceeded it.** And the design half: any message that grows
 with room membership will cross ANY fixed line limit eventually — bound the message (the Welcome
 now lists 32 members and hands the rest over as ordinary Joins), don't raise the limit.
+
+## An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02)
+
+**Symptom:** TEVI ghosts snapped every few seconds through `meshghost-netsim` at 2% loss, at 175, 250 and
+300ms interp alike, with the loss cover on or off. **Wrong theories that looked right:** interp too short
+for the link (the documented lesson, and 175ms really was); the loss cover, landed that day (A/B'd off:
+same snaps); the quic-go bump, also that day (v0.61.0 built and run: same). **What settled it:** two
+meters on the core's stats line — `buffer dry` (renders past a MOVING peer's newest sample) and
+`transit` (arrival minus the sender's timestamp). Transit hit 770ms on a proxy that adds ~230ms at most,
+so a stall, not a short buffer; tcp on the same proxy never exceeded its ceiling; a QLOGDIR-gated qlog
+trace then showed the relay sending zero datagram frames on every server connection. **Cause:**
+`netx.LimitListener`'s `limitedConn{net.Conn}` embeds the INTERFACE, so the concrete connection's
+`WriteUnreliable` was hidden and `transport.SendUnreliable`'s type assertion fell back to the stream.
+**Fix:** `341a768`, a wrapper that forwards the method, with a test that fails without it.
+
+**What to reach for first next time:** the meters before the ladder, a transport A/B (tcp/udp/quic on
+the same movement) before any theory, and a fake peer (`meshghost-fakeadapter`) so the measurement runs
+without a person at the keyboard. And on the day a wrapper is written: assert for the optional methods
+on the wrapped result. `agent_docs/verified.md`, "The limiter hid WriteUnreliable". [RULE:
+checklists/before-a-network-change.md] [CHECK: netx/limit_test.go TestLimitListenerKeepsTheUnreliableWrite]

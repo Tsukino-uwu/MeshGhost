@@ -1335,6 +1335,8 @@ namespace MeshGhostTevi
         // matching OnTriggerEnter/Exit semantics rather than re-asserting every frame, which would
         // fight Update's own clearing of them.
         private readonly HashSet<int> warpsWithGhostInside = new HashSet<int>();
+        // Scratch for pruning warpsWithGhostInside; a set cannot be modified while enumerated.
+        private readonly List<int> staleWarpIds = new List<int>();
 
         private static readonly FieldInfo WarpReadyOpenField =
             typeof(WarpDevice).GetField("readyopen", BindingFlags.NonPublic | BindingFlags.Instance);
@@ -1383,7 +1385,40 @@ namespace MeshGhostTevi
             }
             if (warpDevices.Length == 0)
             {
+                // No devices in this scene: nothing can be inside one, and an entry left over
+                // from the previous scene would otherwise keep the scan alive forever.
+                warpsWithGhostInside.Clear();
                 return;
+            }
+
+            // Forget devices that no longer exist. Entries are keyed by instance id, devices are
+            // re-scanned every WarpScanInterval, and a scene change hands out new ids -- so an
+            // entry that matches no current device is a leak, and with the caller now running
+            // this scan while the set is non-empty, a leak would mean a per-frame scan for the
+            // rest of the session.
+            if (warpsWithGhostInside.Count > 0)
+            {
+                staleWarpIds.Clear();
+                foreach (int id in warpsWithGhostInside)
+                {
+                    bool present = false;
+                    for (int i = 0; i < warpDevices.Length; i++)
+                    {
+                        if (warpDevices[i] != null && warpDevices[i].GetInstanceID() == id)
+                        {
+                            present = true;
+                            break;
+                        }
+                    }
+                    if (!present)
+                    {
+                        staleWarpIds.Add(id);
+                    }
+                }
+                foreach (int id in staleWarpIds)
+                {
+                    warpsWithGhostInside.Remove(id);
+                }
             }
 
             for (int i = 0; i < warpDevices.Length; i++)
@@ -2373,7 +2408,15 @@ namespace MeshGhostTevi
 
             // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,
             // without going near the trigger that would save, heal and mark the local minimap.
-            if (remoteVisuals.Count > 0)
+            //
+            // ALSO while a device still thinks a ghost is inside it. The only code that closes a
+            // portal is the transition branch inside the scan, and with the guard on ghost count
+            // alone the LAST ghost leaving -- a disconnect, a despawn, an area change -- dropped
+            // the count to zero on the same frame, so the scan stopped running before that branch
+            // could fire. The portal stayed on its "assembling" glow until somebody walked on and
+            // off it again. User-reported 2026-08-29 and again 2026-09-02 (a ghost disconnecting on
+            // a portal); the set drains on the next scan and the guard falls back to zero cost.
+            if (remoteVisuals.Count > 0 || warpsWithGhostInside.Count > 0)
             {
                 UpdateWarpDevicesForGhosts();
             }

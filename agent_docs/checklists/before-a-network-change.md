@@ -6,6 +6,7 @@ The Go side is confirmed with tools, never by watching. These are the shapes the
 
 - **Nothing that can block goes before a handshake completes**, and every step that PRODUCES the answer is gated on the transport, never on the answer.
 - **When one component blames another, read the accused side's log at the accusing timestamp** before believing either.
+- **A wrapper that embeds an interface hides every optional method behind it** — when you wrap a `net.Conn` (or any interface), assert on the WRAPPED result for each method the code reaches by type assertion (`WriteUnreliable`), in a test, the day you write it; and read the core's `transit:` and `buffer dry` stats before touching interp.
 - **Grep who DERIVES from a constant before changing it**, keep interp at or above the link's jitter, and put anything a renderer must draw smoothly in `position`, never `extras`.
 
 ## Every lesson filed here
@@ -15,6 +16,7 @@ The Go side is confirmed with tools, never by watching. These are the shapes the
 - An answer that ARRIVED and was never READ -- a control-plane message parsed behind a gameplay gate (2026-08-28) — [method.md](../pitfalls/method.md)
 - An interpolation delay below the link's jitter converts smoothing into chop (2026-08-28) — [method.md](../pitfalls/method.md)
 - An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01) — [method.md](../pitfalls/method.md)
+- An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02) — [method.md](../pitfalls/method.md)
 - Running two instances of the same emulator/game silently collide on a shared default port — [by-host.md](../pitfalls/by-host.md)
 - A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance (2026-08-19) — [by-lesson.md](../pitfalls/by-lesson.md)
 - `extras` is opaque, so nothing that must be SMOOTH can ride in it (2026-08-21) — [by-lesson.md](../pitfalls/by-lesson.md)

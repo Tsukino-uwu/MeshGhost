@@ -85,6 +85,16 @@ note in `agent_docs/README.md`.
   (`c16441f`). The relay stops dropping invalid states silently (`StateRejectReason`, throttled
   logging) after a silent drop hid a Pseudoregalia `extras` overflow.
 
+- **2026-09-02 — loss cover, and the review's own regression found the same night.** Every state at 25Hz
+  and slower carries the sample before it as a delta (ADR 0045, `abcbad1`), with `-loss-cover=false` as
+  the A/B switch (`e5a6865`). Then TEVI's post-review run: ghosts snapping at every interp through
+  `meshghost-netsim`, and the adversarial review's `netx.LimitListener` (`d91f8a8`, 01:28) turned out to
+  embed `net.Conn` as an interface, hiding `WriteUnreliable` — every state the relay forwarded over quic
+  or udp rode the reliable stream from 01:28 until `341a768` (21:45). Found with two new stats-line
+  meters (`buffer dry`, `transit`) and a `QLOGDIR`-gated qlog tracer on `netx/quicconn`; regression test
+  `TestLimitListenerKeepsTheUnreliableWrite`. Suite and `-race` green. `agent_docs/verified.md`, "The
+  limiter hid WriteUnreliable".
+
 ## Open
 
 What is open on this stack at any moment is `agent_docs/status.md`'s job, not this file's —

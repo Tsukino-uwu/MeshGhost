@@ -914,3 +914,42 @@ is in the adapter queues with the user's words; this is the running log.
   callback registered crashed the front end (BizHawk's bug, recorded as a procedure rule).
 - **Go side:** suite and race green after ADR 0045; binaries deployed to every install copy.
 - **Not reached today:** TEVI and Pseudoregalia's post-review runs. Next session starts there.
+
+## 2026-09-02 (late) — TEVI's post-review run found the review's own regression: the limiter hid the datagram path
+
+**Asked:** *"Lets check Tevi and pseudo after all the server/client changes."* Two real TEVI instances on the
+netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both installs on the rebuilt client.
+
+- **175ms: *"bad/laggy"*; 250ms: *"kinda smooth, but it also teleport/snap sometimes"*.** Loss cover off as
+  the A/B: *"still snapping/stuttering"*, so the cover was innocent. Rather than climb further, two counters
+  went on the core's stats line: **`buffer dry`** (render time past a MOVING peer's newest sample) and
+  **`transit`** (arrival minus the sender's timestamp). 300ms still read 3.3% dry; transit hit 502ms and
+  770ms on a proxy that adds ~230ms at most — so a stall, not an interp question.
+- **Transport A/B on the same movement:** tcp 0 dry / 218ms worst (*"no stutter, but felt slower"* — same
+  average delay, minus the snaps); udp 1% / 348ms (*"1 stutter"*); quic on v0.61.0 2.9% / 380ms (*"3-4
+  stutters"*) — so not the quic-go bump. A `QLOGDIR`-gated qlog tracer on `netx/quicconn`, and a fake peer
+  circling so nobody had to move: the fake's own sends were metronomic (743 datagrams, worst gap 84ms) and
+  **every server-side trace showed the relay sending ZERO datagram frames.** Reading `netx/limit.go`
+  (ADR 0044, that morning): `limitedConn{net.Conn}` embeds the interface and hides `WriteUnreliable`, so
+  `transport.SendUnreliable` fell back to the stream. Fix + regression test: `341a768`. Re-run: 0.3% dry,
+  218ms worst, 996 datagrams sent. Suite green; `-race` run.
+- **The ladder again on the fixed relay:** 175ms 38% dry *"stuttering constantly"*; 250ms 3.5% *"smooth/delayed
+  + rare stutters"* (the 2% loss holes, all consecutive seqs); **300ms 0.5% *"think its smooth all the time
+  now, didn't see any stutter"* — the shipped 300ms stands, hedged, in `tevi/UNVERIFIED.md`.** The user's
+  call on rate: *"15hz even held properly for pseudo so probly good to have it as the default baseline
+  everywhere and just tweak the interp properly."*
+- **Also reported:** *"if a ghost disconnect on top of the warp/portal it stays visually active"* — the
+  2026-08-29 entry's named suspect (the scan guarded on ghost count alone); fixed at the call site and the
+  set pruned, `build-tevi.bat` run, deploy and watch pending on a TEVI relaunch.
+- **Recorded on the way:** the proxy is crossed twice per peer path, so the 60ms profile is ~125ms one-way
+  (`dev-scripts/README.md`); the meters, the reading rule and the qlog switch (`verified.md`,
+  `pitfalls/method.md`, `checklists/before-a-network-change.md`).
+- **The portal, watched:** the standalone's character on a warp, the standalone closed, the Steam copy
+  watched — *"yee the warp/portal thing is fixed"* (`tevi/VERIFIED.md`). On the way there, a relaunch
+  cross-wired the two copies (a ready check that matched the previous launch's log): the standalone's
+  core took 7778, the Steam copy attached to it, and the standalone's adapter walked 7779–7785 forever
+  because its launcher would not spawn while its child lived. Fixed in `CoreLauncher.cs` (a child the walk
+  has moved off is forgotten, not killed), built and deployed, unwatched. **Feedback recorded:** I launched
+  Pseudoregalia unasked while TEVI was still open — *"you moved on before i said we were done"*, *"let me
+  start the games"*.
+- **Not reached:** Pseudoregalia's run on the fixed relay; the user starts those games.

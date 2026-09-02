@@ -425,3 +425,12 @@ is the complete running log and preflight now fails one that falls behind its ad
 - `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (21/1/0), a "This run" block added; the Fly/boat items lead it.
 - `probes/README.md` renamed `PROBES.md` (one name for every adapter, the user's call) and its links fixed in `README.md`, `FLAGS.md`; `emulator/CLAUDE.md` trimmed for the stack budget and pointed at the Lua and probe checklists; the Archipelago risk narrative moved from `risks.md` into the pitfalls record.
 - The Fly rig's setup and savestate slots moved from `status.md` to `agent_docs/running-the-rig.md`.
+
+## 2026-09-02 (evening) — pointer: the day's three Emerald commits are logged in phase9
+
+`32a0a32` (spawned -> OAM -> drawn ships; three tile leaks and a double-free found with a crowd), `5863aff`
+(the gender guard watched on a female save) and `a13858e` (the interp ladder: 250ms stands) were run as
+part of the cross-game post-review check and are recorded in
+[phase9.md](phase9.md), "2026-09-02 (afternoon and evening)". Their outcomes live in
+`adapters/emulator/pokemon/emerald/UNVERIFIED.md` and `VERIFIED.md`. Entry added so this file stays the
+complete log for its adapter (preflight's phase-lag check).

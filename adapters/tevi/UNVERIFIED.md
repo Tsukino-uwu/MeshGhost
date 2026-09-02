@@ -42,8 +42,9 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — the launcher forgets a child the port walk has moved off, so a cross-wired second copy gets its own core (built 2026-09-02, unwatched)
+- WATCHED ONCE 2026-09-02, hedged — the shipped 300ms interp: *"think its smooth all the time now"*, 0.5% dry
 - Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
-- Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
 - MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
 - Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
 - Pending -- the peer animation bound is SHIPPED and half-confirmed (2026-08-28)
@@ -229,6 +230,22 @@ this did not work. It has still never been run ([PROBES.md](PROBES.md)).
 Detail and the line numbers as they were: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap
 list.
 
+## [READY] the port walk's dead end, SEEN 2026-09-02 and fixed in the launcher: a child alive on a port the walk left behind
+
+**Seen live, twice in one relaunch.** Two copies launched close together (my ready check had matched the
+previous launch's log): the standalone's core bound 7778 first, the Steam copy's adapter attached to it,
+and the standalone's own adapter got "busy" on 7778 and walked -- 7779 through 7785, four refusals each,
+for minutes. Nothing ever spawned at the cursor, because `CoreLauncher.TickDisconnected` returns while
+its child process is alive, and its child WAS alive: serving the other game. "My child is running" was
+read as "I have a core". **Fix (`CoreLauncher.cs`):** the launcher remembers the port it started its child
+on; when the walk's cursor is on a different port while that child still lives, the child is forgotten
+(never killed -- a game is using it) and a fresh core is started at the cursor. Built with
+`build-tevi.bat` and deployed to both installs 2026-09-02, unwatched.
+
+**What to watch:** launch the standalone FIRST and the Steam copy a few seconds later, or both at once;
+both must reach `bridge ready`, on different ports, without anyone killing a core. The log line to look
+for in the copy that lost the race: `the core this adapter started ... is serving another game`.
+
 ## [READY] PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
 
 **Watched the same day it was built**, in a two-game session: TEVI beside vanilla Crystal on one
@@ -331,7 +348,18 @@ carry the guard -- Crystal since 2026-08-19, the other two added 2026-08-28 -- a
 it could not have worked before that day's separate fix, because the rejection it branches on was
 being discarded before anything could read it.
 
-## [OPEN] OPEN, user-reported 2026-08-29 — a portal keeps its awake VISUAL after the last ghost leaves
+## [DONE] user-reported 2026-08-29 and 2026-09-02 — a portal keeps its awake VISUAL after the last ghost leaves; FIXED and WATCHED 2026-09-02 (`VERIFIED.md`, "a portal settles")
+
+**Reported again 2026-09-02 with the trigger named:** *"if a ghost disconnect on top of the warp/portal it
+stays visually active, even if no player/ghost is on it anymore."* **The fix is the shape this entry
+predicted** (`Plugin.cs`, the `UpdateWarpDevicesForGhosts` call site): the scan now also runs while
+`warpsWithGhostInside` is non-empty, so the frame after the last ghost is gone the close branch fires
+and the set drains; and the scan prunes ids that match no current device (and clears the set when a
+scene has no devices), so a stale id from an earlier scene cannot keep it running. Built with
+`build-tevi.bat` 2026-09-02; deploy needs both games closed. **The watch is the one written below:**
+a peer standing on a portal, its game closed outright; the portal should settle within about a second.
+The control -- the peer walking off normally first -- must still close it.
+
 
 **The user watched this and it is wrong; nothing below is measured.** A ghost disconnecting while
 standing on a portal leaves the portal awake — the *visual* you get standing next to one, the
@@ -385,7 +413,31 @@ that peer's game outright. The portal should settle on its own within about a se
 touching it. **The control that makes it meaningful** is the same run with the peer walking off the
 portal normally before disconnecting — that path already works today, and must still work after.
 
-## [READY] Pending — the shipped interp default was RAISED 175ms -> 300ms on an untested assumption (2026-09-01)
+## [READY] WATCHED ONCE 2026-09-02, hedged — the shipped interp default of 300ms: the ladder climbed on a fixed relay
+
+**The run this entry asked for happened 2026-09-02, after a transport bug was fixed under it.** Two real
+TEVI instances, both through `meshghost-netsim` at 60ms/±25ms/2%/2% (which is ~125ms one-way peer to
+peer, the proxy is crossed twice -- `dev-scripts/README.md`), relay at the shipped 15Hz with loss cover
+on, quic, climbed from the bad end. The core's new `buffer dry` counter (how often the render time ran
+past a moving peer's newest sample) sat beside every rung:
+
+| Interp | Dry renders | The user |
+|---|---|---|
+| 175ms | 38% | *"stuttering constantly"* |
+| 250ms | 3.5%, max 158ms past | *"smooth/delayed + rare stutters"* |
+| 300ms | 0.5%, max 69ms past | *"think its smooth all the time now, didn't see any stutter"* |
+
+**So 300ms stands, and it is no longer an assumption -- but the user's words carry a "think", so it is
+recorded here and not in `VERIFIED.md` until it holds on a second run.** The dry lines at 250ms all
+showed consecutive seqs with normal transit: the 2% loss holes, where the lost sample only lands
+67-83ms later inside the next packet. 300ms is the first rung with room for one lost sample at 15Hz.
+Why every EARLIER rung that day was invalid: the relay's connection limiter (ADR 0044's review, that
+morning) had hidden the quic connections' unreliable write, so every forwarded state rode the reliable
+stream and stalled up to 770ms behind a lost packet -- `agent_docs/verified.md`, "The limiter hid
+WriteUnreliable". Both TEVI installs carry `interp 300ms` now.
+
+**What the entry said before the run, kept for the reasoning:**
+
 
 The user's call, made explicitly as a guess with stated reasoning: Pseudoregalia's ocean-profile
 sweep (netsim ~200 ping / ±40ms jitter / 5% loss) measured that its same-continent value needed

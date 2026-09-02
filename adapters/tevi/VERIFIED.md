@@ -72,6 +72,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI stops sending what a ghost can derive: 70% of its states suppressed, and it looks identical (2026-08-28)
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 - TEVI: two release instances, a relay outage, and both ghosts back without touching anything (2026-08-28)
+- TEVI: a portal settles after the last ghost disconnects on it (2026-09-02)
 
 ## Confirmed facts
 
@@ -853,3 +854,23 @@ stripped at creation, and this adapter does not handle `session_policy` at all. 
 collission on the player, and we will most likely never add it."* See ADR 0035's 2026-08-28
 amendment, which records the wider correction -- collision is a per-adapter capability, not the
 global one it was designed as.
+
+## TEVI: a portal settles after the last ghost disconnects on it (2026-09-02)
+
+**User, on screen, two real instances through `meshghost-netsim`:** the standalone's character standing on
+a warp device, the standalone closed outright, the Steam copy watched -- *"yee the warp/portal thing is
+fixed."* The portal that used to stay on its "assembling" glow until somebody walked on and off it
+(user-reported 2026-08-29, again 2026-09-02) now settles on its own.
+
+**What was wrong, and how it was found.** The `UNVERIFIED.md` entry had named the suspect from reading the
+code on 2026-08-29: the only code that closes a portal is the transition branch inside
+`UpdateWarpDevicesForGhosts`, and its call site was guarded by `remoteVisuals.Count > 0` -- so the frame
+the last ghost left, the count hit zero, the scan stopped running, and the branch never fired. The
+user's second report named the trigger (*"if a ghost disconnect on top of the warp/portal"*), which is
+that exact frame. **Fix** (`Plugin.cs`): the scan also runs while `warpsWithGhostInside` is non-empty, so
+the close branch drains it one frame later and the guard falls back to zero cost; ids that match no
+current device are pruned (a scene change hands out new ids), and the set is cleared in a scene with no
+devices, so a stale id cannot keep the scan alive. Built with `build-tevi.bat`, deployed to both installs.
+
+**Not re-watched tonight, still claimed from 2026-08-28:** the control -- a ghost walking OFF a portal
+normally closes it.
