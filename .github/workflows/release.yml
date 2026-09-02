@@ -40,7 +40,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
           cache: true
 
       # Same suite the Windows job runs. These are separate artifacts now, so nothing else
@@ -104,7 +104,7 @@ jobs:
 
       - uses: actions/setup-go@v7
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Validate version input
         shell: pwsh

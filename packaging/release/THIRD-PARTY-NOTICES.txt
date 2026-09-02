@@ -12,7 +12,7 @@ The list below is what actually linked, read from the built binary with
 rather than from go.mod -- go.mod also lists modules used only for tests and
 tooling, which never reach these executables. Re-check this file whenever the
 quic-go version moves, since its dependency set can change with it.
-Last verified 2026-08-16 against quic-go v0.61.0.
+Last verified 2026-09-02 against quic-go v0.62.0 (and 2026-08-16 against v0.61.0; the linked set did not change between them).
 
 Note golang.org/x/net appears in go.mod but does NOT link into these
 binaries, so it is deliberately absent here.
@@ -32,7 +32,7 @@ source compiled against BepInEx and the game's own assemblies, neither of which
 is redistributed here.
 
 ----------------------------------------------------------------------
-github.com/quic-go/quic-go v0.61.0 -- MIT
+github.com/quic-go/quic-go v0.62.0 -- MIT
   Used for the "quic" transport (see the Transports section in the Windows
   download's README.txt; the Linux and macOS tarballs ship a shorter
   platform-specific README.txt instead).
