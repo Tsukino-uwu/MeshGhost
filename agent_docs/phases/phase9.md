@@ -878,3 +878,34 @@ is the complete running log and preflight now fails one that falls behind its ad
 - `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (51/3/6), a "This run" block added; the `pcall` main-loop change from the adversarial review heads it.
 - `probes/README.md` renamed `PROBES.md` and its links fixed in `README.md`, `FLAGS.md`, `documentation.md`.
 - The seam/ledge/whirlpool savestate slot list moved from `status.md` to `agent_docs/running-the-rig.md`.
+
+## 2026-09-02 (afternoon and evening) — the post-review check across the games, and what it turned into
+
+The session's ask was one run per game after the adversarial review (ADR 0044) and the big client and
+server changes. Crystal and Emerald were run; TEVI and Pseudoregalia were not reached. Everything below
+is in the adapter queues with the user's words; this is the running log.
+
+- **Crystal, first run:** *"things are still working properly"*; the user then watched the spawned ghost
+  snap when IT crossed a seam and the painted one walk it clean, and called it: **drawn only ships,
+  spawned stays as the dev opt-in** (`c10f3e3`; `MESHGHOST_CRYSTAL_SPAWN_TIER`, implied by compare mode;
+  the switch rides on the `COMPARE` table because `luac` refused a 201st local).
+- **The rate ladder** on Crystal: 15Hz the default, 10Hz the lowest still playable (occasional stutter
+  or slide), below it constant snaps — recorded with the correction the user made to the first draft.
+- **The interp ladder on a 100–200ms link** found that LOSS, not delay, snaps the ghost, on quic and udp
+  alike; the user's question *"would this help quic as well?"* caught the wrong first reading (quic's
+  state plane is datagrams). **Loss cover built the same evening, ADR 0045** (`abcbad1`): every state at
+  25Hz and slower carries the sample before it as a delta; watched on one netsim seed with
+  `-loss-cover=false` as the A/B — cover off is worse — and the shipped 250ms stands (`e5a6865`,
+  `e045d6a`; a loopback ghost's samples make the round trip, so loopback interp numbers overstate a
+  real peer's by one-way latency). A hint of glide on quic after a loss where udp had none is filed
+  as a measurement to make (quic-go's datagrams are congestion-controlled), not a change.
+- **Emerald:** the user set the ladder **spawned -> OAM -> drawn as the shipped default** (both overflow
+  rungs on; OAM watched already, standing down under any weather overlay). A 24-peer synthetic crowd on
+  Route 111 then found three OBJ-tile leaks and a double-free (weather stand-down, seam-as-warp, hot
+  reload; a free applied to a range a new owner held), all fixed and re-watched clean across cave,
+  seams and sand (`32a0a32`). Two compare-mode traces that fired per peer per frame moved behind their
+  own flags. Found with two new read-only probes (`dev-scripts/objtiles_probe.lua`, `ghostobjs_probe.lua`)
+  and the method is in `_template/probes.md`. Open from it: the attach nametag burst (core never prunes
+  names across relay reconnects; the adapter times out its hello under the burst), rung churn, and the
+  drawn rung's text-box clipping, unexercised.
+- **Go side:** suite and race green after ADR 0045; binaries deployed to every install copy.
