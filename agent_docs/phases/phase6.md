@@ -358,3 +358,12 @@ is the complete running log and preflight now fails one that falls behind its ad
 - `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (9/3/1) and a "This run — watch these first" block added at the top; the interp 175→300ms item and the portal-visual item are the READY/OPEN heads.
 - `CLAUDE.md` (Unity host rules) compressed its cap paragraph and gained the pointer to `agent_docs/checklists/before-mirroring-state.md`.
 - `PROBES.md` link fixes for the one-name-everywhere rename.
+
+## 2026-09-02 (late) — pointer: TEVI's night is logged in phase9
+
+The full session is [phase9.md](phase9.md), "2026-09-02 (late)". What touched this adapter: the portal that
+stayed awake after the last ghost disconnected, fixed and watched (`8d6a67a`, `tevi/VERIFIED.md`); the
+launcher that forgets a child the port walk has moved off, written, reproduced and recovered, then revised
+to "wait on your own child, forget it only on busy" (`8d6a67a`, `e3c11dc`, `9b79429`); the interp ladder on
+the fixed relay (300ms on the milder proxy, `e33f31f`) and again on the worst-case proxy (450ms, `4e619b5`,
+`tevi/VERIFIED.md`); 450ms shipped for every game (ADR 0046, `0cd52a9`).

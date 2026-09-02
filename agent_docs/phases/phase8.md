@@ -434,3 +434,12 @@ part of the cross-game post-review check and are recorded in
 [phase9.md](phase9.md), "2026-09-02 (afternoon and evening)". Their outcomes live in
 `adapters/emulator/pokemon/emerald/UNVERIFIED.md` and `VERIFIED.md`. Entry added so this file stays the
 complete log for its adapter (preflight's phase-lag check).
+
+## 2026-09-02 (late) — pointer: Emerald's night is logged in phase9
+
+The full session is [phase9.md](phase9.md), "2026-09-02 (late)". What touched this adapter: the launcher
+rule mirrored into `startCore` with the spawn port riding on `coreSpawnFrame` (`e3c11dc`); two instances
+whose cores restarted together then chased each other's fresh cores and the every-frame sweep of blocking
+connects put the emulator at 3fps, so the sweep now waits on its own child, forgets it only on busy, and
+runs every 30 frames (`9b79429`); the interp ladder on the worst-case proxy, 375 then 450ms, watched by the
+user (`0cd52a9`, `emerald/VERIFIED.md`); 450ms shipped for every game (ADR 0046).

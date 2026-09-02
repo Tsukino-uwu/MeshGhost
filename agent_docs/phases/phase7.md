@@ -1975,3 +1975,12 @@ is the complete running log and preflight now fails one that falls behind its ad
 - `FLAGS.md`: 19 dev traces the register had never heard of (`*_TRACE`, `*_CENSUS`, the dumps), found by the new preflight completeness check, listed with a pointer to their code comment.
 - `CLAUDE.md` (Unreal host rules) trimmed for the 700-line stack budget and pointed at `agent_docs/checklists/before-spawning-in-unreal.md`; preflight now ratchets the bitfield-bool read.
 - `PROBES.md` link fixes for the rename.
+
+## 2026-09-02 (late) — pointer: Pseudoregalia's night is logged in phase9
+
+The full session is [phase9.md](phase9.md), "2026-09-02 (late)". What touched this adapter: the launcher
+rule mirrored from TEVI into `CoreLauncher.cpp` and reproduced here with both installs on one port base
+(`e3c11dc`), then revised with the bridge sweep waiting on its own child and forgetting it only on busy
+(`9b79429`); the custom port bases 6700/6800 removed from both installs, back to the shipped 7778; the
+interp ladder on the fixed relay (300ms on the milder proxy, `d2b6496`) and on the worst-case proxy
+(450ms, `1164853`, `pseudoregalia/VERIFIED.md`); 450ms shipped for every game (ADR 0046, `0cd52a9`).
