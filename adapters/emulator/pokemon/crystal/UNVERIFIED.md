@@ -2859,3 +2859,20 @@ was clean here is ~225ms for a friend on a 150ms ping, which the shipped 250ms a
 **250ms stays the shipped default**; the user floated 275–300ms, and the answer is to re-judge that
 with two real clients on netsim rather than on a loopback (`plans.md` two-machine session).
 
+**Then the BIKE, at 300ms, same seed — three more rows that separate loss from rate from transport:**
+
+| Link | Transport | User's read |
+|---|---|---|
+| 2% loss | quic | *"still glides around a bit on the bike"* |
+| loss OFF | quic | *"yee looks perfect now"* ... *"or well, a small glide towards the end of a square. but looks good"* |
+| 2% loss | udp (pinned) | *"hard to tell if its glide or just the delay. but i think it visually looks fine"* |
+
+**Reading, hedged as the user hedged it.** A bike tile is 4 frames (~67ms), one packet at 15Hz, so
+one late sample is a whole tile. With loss off quic is clean; with loss on, quic glides where udp
+does not (or not visibly). The single carried sample covers a lost packet on both, so the difference
+is what quic does AFTER a loss that udp does not: its congestion controller shrinks the window and
+paces the datagrams that follow, so for a moment samples leave late rather than lost — and late is
+the one thing neither the cover nor more interp answers. **Not measured, only seen**: the instrument
+is a receiver-side log of sample timestamp vs arrival time, quic against udp on one seed, and it is
+`ideas.md`'s next entry. Nothing to change in the shipped defaults from this.
+

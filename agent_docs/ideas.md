@@ -27,6 +27,7 @@ is USED, that project is checked and recorded there first.
 - TEVI: ghost collision investigation
 - Pseudoregalia
 - Go side: carry the previous state in every unreliable packet, quic datagrams and udp alike (loss redundancy, 2026-09-02)
+- Go side: quic datagrams are congestion-controlled, so a loss paces the samples after it — measure, then decide (2026-09-02)
 - The bandage register (audited 2026-08-16) — moved
 - Slide: the render-Z bandage is gone — DONE 2026-08-17
 - Relay-steered transport per game — possible, but the wrong lever (Tier 0, no blockers)
@@ -2147,4 +2148,21 @@ keepalive on udp only (cheaper, weaker), or send the terminal "stopped" sample t
 **BUILT the same day — ADR 0045**, as a rate-gated delta (`protocol/prev.go`); this entry stays as the record of why. What it needed, and got: a contract note (the `prev` field), a change at `core/sending.go` and its receiver (not in either netx package — the redundancy is above the transport), and the
 loss-injection e2e in `internal/e2e` to show the teleport before and its absence after. Judged on
 screen the same way, on the same rig.
+
+## Go side: quic datagrams are congestion-controlled, so a loss paces the samples after it — measure, then decide (2026-09-02)
+
+**Seen, not measured** (`crystal/UNVERIFIED.md`, the bike rows of the loss-cover entry): at 300ms interp
+on a 75ms ±25ms loopback link with 2% loss, the bike glided a little on quic and looked fine on udp, and
+was clean on quic with loss off. The loss cover (ADR 0045) covers a LOST sample on both transports
+equally, so the difference is what happens after a loss: quic-go sends DATAGRAM frames inside ordinary
+packets, which are subject to the connection's congestion controller, so a loss shrinks the window and
+the next few samples are paced out late. udp has no controller and sends the moment the core asks.
+
+**Measure first.** A receiver-side instrument: per state, `arrival - timestamp` (the core already has
+the clock offset), logged around each recovered sample, quic against udp on one netsim seed. If quic
+shows a late cluster after every loss and udp does not, the theory holds. Only then decide between:
+sending datagrams outside the controller (quic-go has no public switch for that; check its
+`Config` before assuming), a larger initial window, or accepting it and saying so in `docs/`. Not a
+reason to change the default transport: quic is the default for encryption and spoof resistance, and a
+hint of glide after a lost packet on a bike at 15Hz is the price so far.
 
