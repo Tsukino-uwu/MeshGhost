@@ -44,7 +44,7 @@ mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.m
 entry without one.
 
 - WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
-- Pending — `extras.gender` accepts only `male`/`female` (2026-09-02 adversarial review), unwatched
+- WATCHED 2026-09-02 — `extras.gender` accepts only `male`/`female` (adversarial review): a female save drew May on all three tiers
 - MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
 - Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
 - Emerald compiles again, but has not been RUN since the fix (2026-08-22)
@@ -637,8 +637,11 @@ sprite was part of this run.
 `meshghost_emerald.lua`, the remote's gender read: anything but those two strings — a number, a
 table, or a string naming a `genderFrames` method — made `drawRemotes` error every frame, and every
 peer sorted after the hostile one in `pairs(remotes)` stopped drawing. Now falls back to `male`,
-the same as a missing value. `luac -p` clean; not run. Watch: a female-trainer peer still draws
-with the female frames. ADR 0044, `docs/security.md`.
+the same as a missing value. ADR 0044, `docs/security.md`.
+
+**WATCHED 2026-09-02, the same evening:** the user started a fresh save as May with a 24-peer crowd up and
+read all three tiers at once: *"OAM, drawn & spawned all look like May"*. The guarded path draws the female
+frames; the review change cost nothing visible.
 
 ## [READY] WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
 
