@@ -80,7 +80,7 @@ networking fault. Hit four times in one Crystal session (2026-08-21) and again 2
 
 | adapter | top-level locals, re-measured 2026-08-28 |
 |---|---|
-| Crystal | **197 of 200** — compiles with 3 added, fails with 4 |
+| Crystal | **200 of 200** (2026-09-02: `luac` refused a 201st; the tier switch rides on `COMPARE`) |
 | Emerald | **199 of 200** — compiles with 1 added, fails with 2 |
 
 **A number nothing re-measures is a number that WAS true** — re-measure before planning around the

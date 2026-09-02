@@ -43,6 +43,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
+- Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
 - Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
 - MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
 - 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
@@ -2709,3 +2711,124 @@ handover was part of this run.
 - **A non-object `extras` is treated as absent** at the top of `renderRemote`.
 
 ADR 0044, `docs/security.md`.
+
+## [OPEN] User-reported 2026-09-02 — the SPAWNED ghost snaps a little when IT crosses a seam; the drawn one does not
+
+**Seen on screen by the user, on the first run after ADR 0044** (vanilla Crystal, netsim rig at
+40ms ±20ms / 2% loss, shipped 250ms interp, compare mode: painted copy two tiles left, spawned copy
+three tiles right). Their words: *"the spawned ghost snap a tiny bit when crossing the seam, not
+when the player walks through it but if the ghost itself is crossing the seam before/after the
+player does. the drawn ghost don't do this."*
+
+So the case is the one the 2026-08-27 cross-map arithmetic entry above left unwatched: a peer
+whose tile is on the OTHER side of a connection while the local player is still on this one, on
+the spawned tier only. The painted tier walks the same peer through the same seam cleanly, which
+narrows it to the spawned object's re-placement (the connection offset applied to a real object
+struct) rather than to the wire or the core. Nothing measured yet — `MESHGHOST_CRYSTAL_XTRACE`
+around a seam crossing with the ghost leading is the first instrument.
+
+The same run raised the question of shipping Crystal DRAWN-ONLY; that is a decision for the user,
+recorded in `phases/phase9.md` for 2026-09-02 when made.
+
+## [READY] Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
+
+**Decided on the first run after ADR 0044**, with both tiers side by side in compare mode: the
+spawned ghost snapped a little whenever it crossed a seam ahead of or behind the player and the
+painted one did not, and the user's call was *"we make drawn only the shipped default, and dev still
+keeps 'spawned' and don't remove it ... only using drawn makes sense for this game specifically,
+while spawned/OAM are really important in emerald for performance where drawn was way more demanding."*
+
+**What changed** (`meshghost_crystal.lua`, `FLAGS.md`): one switch, `COMPARE.spawnTier`, read from
+`MESHGHOST_CRYSTAL_SPAWN_TIER` and implied by `MESHGHOST_COMPARE_TIERS`; off, the tier decision in
+`renderRemote` sends every peer to the painted tier before the three engine terms are consulted. No
+spawned code was removed. The adapter names its tier in its first log lines (`drawn tier only` /
+`spawned tier ON`).
+
+**What to watch, as SHIPPED** — i.e. a dev launcher WITHOUT compare mode, or the release folder:
+- [ ] Exactly ONE loopback ghost, painted, two tiles to the side; no spawned copy, and no
+      `tier: ... spawned -> painted` line ever (nothing is ever spawned to hand over).
+- [ ] The same walk/bike/surf/seam/ledge/door checklist as the compare run, on the painted ghost alone.
+- [ ] Route 39 or any full map: peers no longer wait for an engine slot, so a crowd renders in full.
+
+**Not changed:** compare mode still shows both tiers (the dev default), so the seam-snap item above
+can still be chased; Emerald keeps spawned -> OAM -> drawn.
+
+## [DONE] The send-rate floor, judged on Crystal by the user (2026-09-02): 15Hz is the default, 10Hz is "playable" and costs a little
+
+**Rig:** vanilla Crystal, one BizHawk, loopback relay through `meshghost-netsim` (40ms ±20ms, 2% udp
+loss, quic), compare mode (painted copy left, spawned copy right), drawn-only shipped default in the
+file. Climbed from the bad end, one variable per step:
+
+| Relay rate | Interp | User's read |
+|---|---|---|
+| 10Hz | 50ms | *"looks mostly fine but some stutters every now and then"* — same as Pseudoregalia at 10Hz |
+| 10Hz | 150ms | *"think this looked a bit better? but still had the player slide instead of walk in some parts"* — and the verdict: *"10hz still 'playable' but shouldn't be used unless bandwidth is a real concern as it does impact visuals a tiny bit ... 15hz is probly the lowest to go without any real compromises"* |
+| 15Hz | 250ms (shipped) | the run's baseline, judged fine at the top of the session |
+
+**Verdict, the user's:** *"15hz default"* — and, corrected by them when this entry first read it as a
+bandwidth-only option: **10Hz is the LOWEST rate they would still call playable at all.** It shows
+some small stutter or slide every now and then, and that is the whole cost; everything below 10Hz
+(the Pseudoregalia sweeps) had constant snaps and teleports. The relay's own floor is 10 for the same reason. So `DefaultSendHz` = 15 is now watched on two of four
+games (Pseudoregalia 2026-08-30, Crystal today); Emerald and TEVI still inherit it unwatched. The
+50ms step is not evidence about the rate: at 10Hz a packet lands every 100ms, so 50ms of interp
+starves by construction — the 150ms step is the one that isolates the rate, and it still cost a
+little: **a slide instead of a walk, in places.** That is the rate's own signature on this game — a walk
+is a 16-frame beat, a 10Hz packet lands every 100ms, so some steps arrive as one position jump and
+the painted model glides the distance rather than stepping it. More interp cannot buy that back. Kept here rather than `VERIFIED.md` because a rate is a taste judged on one link's dice roll
+(`dev-scripts/README.md`, "one netsim run is one dice roll"); the file's own number is the record.
+
+## [DONE] The interp ladder on a 100–200ms link, judged on Crystal by the user (2026-09-02): 250ms stands, prediction stays off
+
+**Rig:** vanilla Crystal in SHIPPED mode (adapter on the command line, no dev loader, no compare
+copy, drawn only), one painted loopback ghost two tiles right; relay 15Hz; `meshghost-netsim` at
+75ms ±25ms each way and 2% udp loss, so the loopback round trip is 100–200ms. One variable per step,
+climbed from the bad end; the user rode the bike in a square because that is where it shows.
+
+| Interp | Extrapolate | User's read |
+|---|---|---|
+| 50ms | off | *"snaps/glides a bit on the bike"* |
+| 100ms | off | *"mostly fine, think it still did it sometimes when i was going in a circle/square"* |
+| 50ms | 100ms, `-predict=damped` | *"looks smooth/instant, but i guess it also makes it feel like its teleporting around a bit. lets drop prediction again. linear does look better in all games i guess"* |
+| 150ms | off | *"looks mostly fine, but im also just testing vanilla not with ap where the bike goes way faster"* |
+| 250ms (shipped) | off | the user's call: *"we just yank it up to 250ms to hopefully cover that"* |
+
+**What it settles.** The shipped 250ms and `-curve linear` with no extrapolation survive a
+100–200ms link on this game; the 150ms step was already acceptable on the VANILLA bike, and the
+extra 100ms is headroom bought for the Archipelago build's 8px-a-tick bike, which nobody rode in
+this session — that is the one open cell. Extrapolation is judged as it was on the other games:
+it hides the delay and shows the corrections instead, and the user prefers the delay.
+
+**And then the 250ms step still snapped sometimes — which turned out to be the LOSS, not the delay.**
+Same link, one variable at a time, shipped 250ms interp throughout:
+
+| Link | Transport | User's read |
+|---|---|---|
+| 75ms ±25ms each way, 2% loss | quic (auto) | *"still lagging after/snapping sometimes"* |
+| same delay, loss OFF | quic (auto) | *"Think this looks fine? im not spotting anything bad"* (stats: rtt 113ms) |
+| same delay, 2% loss | udp (pinned) | *"it snaps/glide around now, and sometimes teleport"* — WORSE than quic |
+
+**Reading — corrected the same hour.** The first reading blamed quic's retransmits; that was wrong. The
+state plane rides QUIC DATAGRAMS (RFC 9221, `netx/quicconn`, `core/sending.go`'s `SendUnreliable`),
+which are fire-and-forget exactly like plain udp — so on BOTH transports a lost state is simply
+lost, and the two runs differ by the dice, not by the mechanism. The mechanism is the same on both:
+the client suppresses unchanged states (68% of frames in that run), so losing the ONE packet that said
+"stopped here" leaves the ghost walking on until the 250ms keepalive lands — a glide, then a teleport
+— and losing a mid-walk sample is a 133ms hole the interp mostly bridges. Go-side idea, not built:
+`ideas.md`, "Carry the previous state in every unreliable packet" — it helps quic and udp alike
+because they share the frame. Neither transport's behaviour under loss had been watched on screen
+before today.
+
+## [READY] Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
+
+**What changed (Go side, confirmed with the tools):** at 25Hz and slower every state carries the
+sample before it as a delta; a receiver that missed a packet gets the sample from the next one. The
+mechanism and the bandwidth reasoning: `agent_docs/adr/0045-...md`.
+
+**What to watch — the exact rig that found it:** shipped mode Crystal, relay 15Hz, `meshghost-netsim`
+at 75ms ±25ms each way with 2% loss, core at the shipped 250ms interp, `-stats=10s`. Ride the bike in a
+square, stop and start, cross a seam.
+- [ ] No teleport at a stop, and no glide after one — the case the user saw on udp and quic before.
+- [ ] The stats line's `loss cover: N carried, M recovered` shows M climbing on the lossy link
+      (it should stay 0 with netsim's loss off).
+- [ ] Nothing changed on the clean rig: same look at 40ms ±20ms / 2% loss as this morning.
+

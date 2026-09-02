@@ -93,6 +93,19 @@ local LOOPBACK_OFFSET_X = (os.getenv("MESHGHOST_LOOPBACK_TRAIL") and 0)
 -- duplicated -- and it supplies its own +2 for the spawned side when no offset was set, since two
 -- ghosts stacked on the player is the comparison this exists to avoid.
 local COMPARE_TIERS = (MESHGHOST_COMPARE_TIERS or os.getenv("MESHGHOST_COMPARE_TIERS")) and true or false
+-- THE SHIPPED TIER IS DRAWN ONLY (user's call, 2026-09-02). The spawned tier -- a real object
+-- event the engine walks -- stays in the file as a DEV opt-in: MESHGHOST_CRYSTAL_SPAWN_TIER=1,
+-- or compare mode, whose whole point is the two tiers side by side. Why drawn, for THIS game and
+-- not Emerald: on the first run after ADR 0044 the user watched the spawned ghost snap a little
+-- whenever IT crossed a map seam ahead of or behind the player, and the painted one walk the same
+-- seam clean; the painted tier also keeps a faster-cartridge peer at the right speed where the
+-- engine cannot, never flaps between tiers mid-walk, and has no engine slot to run out of (Route
+-- 39 leaves 2). What it gives up is the engine's own collision and scenery ordering, which the
+-- shipped cosmetic default never promised. Cost is not the reason either way: 12 painted peers
+-- measure the same as an empty screen (`crowd-limits.md`). Emerald keeps spawned -> OAM -> drawn
+-- because there the drawn tier IS the expensive one. Registered in FLAGS.md. It lives as
+-- `COMPARE.spawnTier` (below, beside the tier layout) and not as a local of its own: this main
+-- chunk is AT Lua's 200-local limit -- `luac` refused the 201st on 2026-09-02.
 -- MESHGHOST_CRYSTAL_STEP_LAG — WHERE THE SPAWNED GHOST'S 4.3 FRAMES GO. Off by default.
 --
 -- 2026-08-22 measured that a spawned ghost begins each step a mean 4.3 frames after the peer did
@@ -176,6 +189,10 @@ end
 -- { drawn = -3, spawned = -2, hw = -5, dy = -1 } and reverted to this on the user's call. Read the
 -- trap at peerPixY before changing it: the shift belongs at the source, applied once.
 local COMPARE = { drawn = -2, spawned = 3, hw = -4, dy = 0 }
+-- The spawned-tier switch (see the SHIPPED TIER note above COMPARE_TIERS): compare mode implies
+-- it, MESHGHOST_CRYSTAL_SPAWN_TIER=1 (global first, then environment) opts in without it.
+COMPARE.spawnTier = COMPARE_TIERS
+	or (MESHGHOST_CRYSTAL_SPAWN_TIER or os.getenv("MESHGHOST_CRYSTAL_SPAWN_TIER")) == "1"
 -- The drawn copy lives in `overflow` under a key of its own, so it animates frame to frame like
 -- any other drawn peer while never colliding with the spawned copy's entry under the real id.
 function COMPARE.key(id) return id .. " (drawn copy)" end
@@ -2023,6 +2040,13 @@ end
 if COMPARE_TIERS then
 	log("PROBE FLAG IN USE: MESHGHOST_COMPARE_TIERS -- the loopback ghost is rendered TWICE, "
 		.. "spawned 2 tiles right and painted 2 tiles left. Two ghosts is the flag, not a bug.")
+end
+if COMPARE.spawnTier then
+	log("MeshGhost: spawned tier ON (" .. (COMPARE_TIERS and "compare mode" or "MESHGHOST_CRYSTAL_SPAWN_TIER")
+		.. ") -- a peer that can be a real object is one; the shipped default is drawn only.")
+else
+	log("MeshGhost: drawn tier only (the shipped default since 2026-09-02); "
+		.. "MESHGHOST_CRYSTAL_SPAWN_TIER=1 re-enables spawned ghosts.")
 end
 
 local function applyPeerSprite(g, id)
@@ -8354,7 +8378,7 @@ ENGINE.xmap.build(here) end
 	-- is actually on, and a run that produces no spawned steps looks identical to a run where the
 	-- lag is zero. So the refusal names itself, once a second, rather than being inferred from a
 	-- count of zero.
-	if stepLag.on and (not wearable or not blocking or not paceable)
+	if stepLag.on and (not COMPARE.spawnTier or not wearable or not blocking or not paceable)
 		and policyFrames - (stepLag.whyAt or -999) >= 60 then
 		stepLag.whyAt = policyFrames
 		local a = activity[id]
@@ -8367,7 +8391,9 @@ ENGINE.xmap.build(here) end
 			a and tostring((a.passableUntil or 0) - policyFrames) or "?"))
 	end
 
-	if not wearable or not blocking or not paceable then
+	-- The tier switch first: the shipped default never spawns, and the three engine terms only
+	-- matter once someone has opted the spawned tier back in (dev, or compare mode).
+	if not COMPARE.spawnTier or not wearable or not blocking or not paceable then
 		if ghosts[id] then
 			-- NAME THE TRANSITION. The user saw the same peer rendered twice for a few frames while
 			-- walking (2026-08-21): a peer flapping between the spawned and painted tiers passes
