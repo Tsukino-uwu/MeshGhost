@@ -129,13 +129,13 @@ foreach ($f in $modFolders) {
         throw 'packaging\release\config.json has no "client": { ... }, block shaped the way staging expects'
     }
     $text = "{`n" + $root.Substring($cStart, $cEnd - $cStart) + "`n  }`n}`n"
-    # A per-game file carries only what a player might touch: the basics, collision, the render
-    # group and keepalive. Everything else (rate caps, transport and tls pins, the machine-local
+    # A per-game file carries only what a player might touch: the basics, collision and the render
+    # group. Everything else (keepalive, rate caps, transport and tls pins, the machine-local
     # bridge, diagnostics, the protocol-level trio) is ABSENT and takes the built-in default, which
     # equals the shipped value; the root config.json keeps the complete set for the server and the
     # hand-run client, and README.txt's ADVANCED list says a missing key can be added to a game's
     # file. The user's call, 2026-09-03: no good reason for a player to turn tls off or pick udp.
-    $hidden = @('min_send', 'max_receive_hz_per_player', 'transport', 'tls', 'tls_fingerprint',
+    $hidden = @('keepalive', 'min_send', 'max_receive_hz_per_player', 'transport', 'tls', 'tls_fingerprint',
                 'local_game_bridge', 'stats', 'game', 'game_version', 'features')
     foreach ($h in $hidden) {
         $text = [regex]::Replace($text, '(?m)^\s*"' + [regex]::Escape($h) + '"\s*:.*\r?\n', '')

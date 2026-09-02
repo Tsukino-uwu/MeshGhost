@@ -284,8 +284,8 @@ Setup, once:
                shipped game uses. A wrong value here refuses the room
                rather than degrading the session.
    The config.json inside a game's folder carries only the settings a
-   player might touch: the basics, "ghost_collision", the render group
-   and "keepalive". Every other key above is simply absent there and
+   player might touch: the basics, "ghost_collision" and the render
+   group. Every other key above is simply absent there and
    takes the same default this file ships -- add one to a game's file
    if you ever need it, same spelling, same place in the "client" block.
    Only edit the text between the quotes -- keep the quotes, colons, and
