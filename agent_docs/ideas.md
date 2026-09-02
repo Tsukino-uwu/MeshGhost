@@ -2186,6 +2186,13 @@ edits, applied at load, no in-game menu built and no UI toolkit pulled into a mo
 the one every extra key has carried so far: a name to keep spelled the same across the file, the
 README and the mod, and a restart to apply it.
 
+**The user's examples, same morning:** *"could have things like 'online enemies', 'online items'
+true/false etc. just probly a good/simple way to handle it if we ever do make bigger changes to a game,
+to easily swap/change things by the user afterwards."* That is the opt-in switch for the deeper planes
+(`beyond-cosmetic.md`: events, leases, world custody) expressed per game in the player's own file --
+`"online_enemies": false` shipped, flipped by the player who wants it, no menu -- and it is the shape
+the `features` key already has at the protocol level.
+
 **The rule if it happens:** game-specific keys live in that game's file only, never in the root
 `config.json` (which every game is cut from), documented in that game's `README.txt` under the
 same ADVANCED heading; a mod that reads a key logs the value it read once, the way the launcher
