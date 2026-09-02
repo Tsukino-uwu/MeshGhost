@@ -138,36 +138,47 @@ func TestTCPListenAndDialRoundTrip(t *testing.T) {
 //
 // A retry keeps the assertion exactly as strong: if the two port spaces were
 // NOT independent, every attempt would fail, not merely some.
+//
+// Twenty retries all drawing from TCP were not enough (CI's Windows runner,
+// 2026-09-02, on a comment-only push): Windows hands out ephemeral ports in
+// order, so twenty consecutive TCP draws can all land inside one excluded UDP
+// range. Now every other attempt lets UDP choose the port -- a port UDP could
+// bind is by definition not in a UDP-excluded range -- and TCP follows, so one
+// excluded range on either side cannot exhaust the attempts.
 func TestTCPAndUDPShareAPortNumber(t *testing.T) {
-	const attempts = 20
+	const attempts = 40
 	var lastErr error
 
 	for i := 0; i < attempts; i++ {
-		tcpLn, err := Listen(TCP, "127.0.0.1:0")
+		first, second := TCP, UDP
+		if i%2 == 1 {
+			first, second = UDP, TCP
+		}
+		firstLn, err := Listen(first, "127.0.0.1:0")
 		if err != nil {
-			t.Fatalf("tcp listen: %v", err)
+			t.Fatalf("%s listen: %v", first, err)
 		}
 
-		_, port, err := net.SplitHostPort(tcpLn.Addr().String())
+		_, port, err := net.SplitHostPort(firstLn.Addr().String())
 		if err != nil {
-			tcpLn.Close()
+			firstLn.Close()
 			t.Fatalf("split host/port: %v", err)
 		}
 
-		udpLn, err := Listen(UDP, net.JoinHostPort("127.0.0.1", port))
+		secondLn, err := Listen(second, net.JoinHostPort("127.0.0.1", port))
 		if err != nil {
 			// Almost certainly an OS-reserved range. Draw another port.
-			lastErr = fmt.Errorf("port %s: %w", port, err)
-			tcpLn.Close()
+			lastErr = fmt.Errorf("port %s (%s first): %w", port, first, err)
+			firstLn.Close()
 			continue
 		}
 
-		got, want := udpLn.Addr().String(), tcpLn.Addr().String()
-		udpLn.Close()
-		tcpLn.Close()
+		got, want := secondLn.Addr().String(), firstLn.Addr().String()
+		secondLn.Close()
+		firstLn.Close()
 
 		if got != want {
-			t.Fatalf("udp bound %s, want the same address as tcp (%s)", got, want)
+			t.Fatalf("%s bound %s, want the same address as %s (%s)", second, got, first, want)
 		}
 		return // the claim holds: one port number served both.
 	}
