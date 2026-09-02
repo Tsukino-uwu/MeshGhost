@@ -90,7 +90,14 @@ namespace MeshGhostPseudo
         // failed, so a core the player started themselves -- or a native one on the Linux
         // side of a Proton prefix, which this mod could never have spawned or killed -- is
         // simply used, and never duplicated.
-        auto tick_disconnected(uint16_t spawn_port) -> void;
+        auto tick_disconnected(uint16_t spawn_port, uint16_t busy_port) -> void;
+
+        // The port of the child this launcher started and that is still running, 0 otherwise --
+        // for BridgeClient::set_own_core_port, so the sweep waits on it instead of past it.
+        auto child_port() const -> uint16_t
+        {
+            return child_still_running() ? last_spawn_port : 0;
+        }
 
         // Call on a tick where the bridge IS connected, so the next disconnection is treated
         // as fresh rather than as a continuation of an old spawn's cooldown.

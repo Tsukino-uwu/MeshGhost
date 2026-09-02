@@ -20580,6 +20580,8 @@ namespace MeshGhostPseudo
             // BridgeClient stays what it says it is (a socket, nothing else) and the launcher
             // never runs unless a connect has actually failed -- which is what makes reusing an
             // already-running core the default rather than a special case.
+            // While our own child lives and nobody has claimed it, the sweep waits on its port.
+            bridge->set_own_core_port(core_launcher->child_port());
             if (bridge->is_connected())
             {
                 core_launcher->tick_connected();
@@ -20592,7 +20594,7 @@ namespace MeshGhostPseudo
                 uint16_t spawn_on = 0;
                 if (bridge->spawnable_port(spawn_on))
                 {
-                    core_launcher->tick_disconnected(spawn_on);
+                    core_launcher->tick_disconnected(spawn_on, bridge->last_busy_port_answered());
                 }
                 else if (tick_count % LOG_INTERVAL_TICKS == 0)
                 {

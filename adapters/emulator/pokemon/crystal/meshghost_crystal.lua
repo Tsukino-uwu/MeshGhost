@@ -9422,7 +9422,11 @@ local function startCore(port)
 	-- Pseudoregalia's, mirrored here. The child is forgotten, never killed: a game is using it.
 	-- The port rides in coreSpawnFrame (a table since 2026-09-02) because this file cannot afford
 	-- another local (the 200-local ceiling, emulator/CLAUDE.md).
-	if coreStillRunning() and coreSpawnFrame and port and coreSpawnFrame.port ~= port then
+	-- Forgotten ONLY when that port answered "busy" (coreSpawnFrame.busy, set by the reject
+	-- handler), never because the cursor moved on -- the first version forgot the child on
+	-- silence too, and two instances restarting together then chased each other's fresh cores
+	-- round the range (Emerald, 2026-09-02: three cores for two games, the emulator at 3fps).
+	if coreStillRunning() and coreSpawnFrame and coreSpawnFrame.busy and port then
 		console.log(string.format("MeshGhost: the core this script started on port %d is serving another instance -- leaving it and starting another on port %d.", coreSpawnFrame.port, port))
 		coreChild = nil
 	end
@@ -9512,6 +9516,9 @@ local function handle(msg)
 		-- The reason is carried rather than guessed at: every rejection used to be reported as
 		-- "already has an adapter", so the line above could print the truth and this one
 		-- contradict it. Not BRANCHING on a reason is the rule; inventing one is not.
+		if reason:find("busy", 1, true) and coreSpawnFrame and currentPort == coreSpawnFrame.port then
+			coreSpawnFrame.busy = true -- our own child has another game: startCore may forget it
+		end
 		markPortBusy(currentPort, "refused us (" .. reason .. ")")
 		disconnect(nil)
 	elseif t == "render_remote" then
@@ -9911,7 +9918,14 @@ local function tick()
 		sinceRetry = sinceRetry + 1
 		if sinceRetry >= RECONNECT_FRAMES then
 			sinceRetry = 0
-			connect()
+			if coreChild and coreSpawnFrame and coreSpawnFrame.port and not coreSpawnFrame.busy
+				and coreStillRunning() then
+				-- OUR OWN CHILD IS ALIVE: wait on its port, never sweep past it (Emerald, 2026-09-02:
+				-- sweeping is how a second instance attaches to a core the first just started).
+				tryPort(coreSpawnFrame.port)
+			else
+				connect()
+			end
 			-- Only after a full sweep found nothing to join. A core already running -- started by
 			-- hand, by a dev script, or by another copy of the game -- is used as-is, which is
 			-- what stops autostart from ever producing a second one.

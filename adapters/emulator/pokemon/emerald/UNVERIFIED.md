@@ -43,7 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
+- MEASURED 2026-09-02 (logs) — two instances 1s and 3s apart both found their own core (7778, then busy -> 7779); the forgotten-child path itself is not reachable by launch timing here
 - DONE 2026-09-02 — the interp ladder on a 100-200ms lossy link, judged by the user: same shape as Crystal's, the shipped 250ms stands
 - WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
 - WATCHED 2026-09-02 — `extras.gender` accepts only `male`/`female` (adversarial review): a female save drew May on all three tiers
@@ -59,6 +59,14 @@ entry without one.
 
 ## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
 
+**Tried the same night (agent, from `logs/meshghost_emerald_*.log`):** two vanilla instances launched 3s
+apart and then 1s apart, no `MESHGHOST_BRIDGE_PORT` set. Both times the second found 7778 `busy`, skipped it
+and spawned its own core on 7779 -- the normal walk, twice. The cross-wire that hit TEVI and Pseudoregalia
+needs the second adapter to reach the first's freshly spawned core before the first does, and this
+adapter sweeps the whole range before spawning while EmuHawk boots 5-7s apart even when launched a
+second apart, so that window does not open by launch timing. The fix stays in as insurance (a hand-run
+core or a slower machine could open it); nothing about it is watched beyond the normal walk.
+
 **Mirrored from TEVI, 2026-09-02, unwatched here.** "My child process is alive" was read as "I have a
 core": two copies launched a few seconds apart can each spawn on the base port, one core wins the
 bind, the OTHER copy's adapter can reach it first, and the spawner is answered `busy` on its own
@@ -66,6 +74,17 @@ child's port and walks on while its launcher never spawns again. Watched on TEVI
 there and recovered (`adapters/tevi/UNVERIFIED.md`, "the port walk's dead end"). The fix here is the same
 shape: `meshghost_emerald.lua`'s `startCore` keeps the spawn port inside `coreSpawnFrame` (now a table, because this file is one local from Lua's ceiling) and forgets `coreChild` when the cursor has moved off it. **What to watch:** two instances launched a few seconds apart both reach a ghost, with
 nobody killing a core; the log line in the copy that lost the race is `the core this script started on port P is serving another instance`.
+
+
+**REVISED the same night, after Emerald showed the first version's flaw (2026-09-02, ~23:00).** Forgetting the
+child whenever the walk moved off its port was too eager: two instances whose cores were restarted
+together each spawned on the base port, each adapter's sweep attached to the OTHER's fresh core first,
+each then took `busy` on its own child, forgot it, spawned again -- three cores for two games, and the
+emulator at 3fps under the connect storm (Emerald's sweep ran every frame, eight blocking 50ms connects
+each). The rule is now two-part in all four launchers: **a spawner waits on its own child's port and never
+sweeps past it while that child lives; the child is forgotten only when its port answers "busy"**, never
+on silence. Emerald's sweep also runs every 30 frames instead of every frame. Built and deployed (TEVI,
+Pseudoregalia DLLs; both Lua files); unwatched beyond one Emerald reload that reattached cleanly.
 
 ## [READY] Pending — Emerald: what 2026-08-20 left unwatched (2026-08-20)
 

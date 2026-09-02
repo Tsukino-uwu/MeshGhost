@@ -132,6 +132,14 @@ namespace MeshGhostPseudo
         // A port in the range where nothing was listening at all, if the last sweep found one --
         // i.e. somewhere a new core could be started. Distinct from a port that answered and said
         // it was busy, which is somebody else's core and must be left alone.
+        auto last_busy_port_answered() const -> uint16_t
+        {
+            return last_busy_port;
+        }
+        auto set_own_core_port(uint16_t port) -> void
+        {
+            own_core_port = port;
+        }
         auto spawnable_port(uint16_t& out) const -> bool
         {
             if (!have_spawnable_port)
@@ -190,6 +198,15 @@ namespace MeshGhostPseudo
         // Where the last sweep found nothing listening, for CoreLauncher to spawn on.
         uint16_t spawnable{0};
         bool have_spawnable_port{false};
+        // The last port whose core answered "busy" (another game is attached), 0 until one
+        // does. CoreLauncher compares it with the port it spawned on: that, and only that, is
+        // the signal its child now belongs to someone else (2026-09-02).
+        uint16_t last_busy_port{0};
+        // The port of the core THIS mod spawned and still owns (0 when none). While set and not
+        // yet answered "busy", the sweep tries only it: sweeping is how a second instance
+        // attaches to a core the first one just started, and the two then chase each other's
+        // spawns round the range (watched on Emerald, 2026-09-02).
+        uint16_t own_core_port{0};
         // Handshake state for the current connection: set when the hello goes out, cleared by an
         // answer or by close_socket().
         std::chrono::steady_clock::time_point hello_sent_at{};

@@ -223,21 +223,23 @@ namespace MeshGhostPseudo
         }
     }
 
-    auto CoreLauncher::tick_disconnected(uint16_t spawn_port) -> void
+    auto CoreLauncher::tick_disconnected(uint16_t spawn_port, uint16_t busy_port) -> void
     {
         if (spawn_disabled)
         {
             return;
         }
-        if (child_still_running() && last_spawn_port != 0 && spawn_port != last_spawn_port)
+        if (child_still_running() && last_spawn_port != 0 && busy_port == last_spawn_port)
         {
-            // THE WALK MOVED OFF OUR OWN CHILD'S PORT WHILE THE CHILD IS ALIVE: another copy of
-            // the game reached it first and it answered us "busy". Read as "my child is running,
-            // so I have a core", nothing below would ever spawn again, and the walk would find
-            // silence on every other port for the rest of the session -- watched on TEVI's
-            // launcher 2026-09-02 (two copies launched a few seconds apart), fixed there the same
-            // night and mirrored here. The child is not terminated: a game is using it. Forget
-            // it, so a fresh core starts at the cursor below.
+            // OUR OWN CHILD'S PORT ANSWERED "BUSY" WHILE THE CHILD IS ALIVE: another copy of the
+            // game reached it first. Read as "my child is running, so I have a core", nothing
+            // below would ever spawn again, and the walk would find silence on every other port
+            // for the rest of the session -- watched on TEVI's launcher 2026-09-02 (two copies
+            // launched a few seconds apart), fixed there the same night and mirrored here. The
+            // child is not terminated: a game is using it. Forget it, so a fresh core starts at
+            // the cursor below. ONLY on "busy": the first version also forgot it when the sweep
+            // merely moved on, and two instances restarting together then chased each other's
+            // fresh cores round the range (Emerald, the same night).
             Output::send(STR("[MeshGhostPseudo] the core this mod started (pid {}, port {}) is serving another game -- leaving it to that game and starting another on port {}.\n"),
                          child_pid, last_spawn_port, spawn_port);
             CloseHandle(static_cast<HANDLE>(child_handle));

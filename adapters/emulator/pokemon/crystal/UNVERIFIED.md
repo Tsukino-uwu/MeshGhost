@@ -67,6 +67,17 @@ there and recovered (`adapters/tevi/UNVERIFIED.md`, "the port walk's dead end").
 shape: `meshghost_crystal.lua`'s `startCore`, the same table trick, because this file is AT the ceiling. **What to watch:** two instances launched a few seconds apart both reach a ghost, with
 nobody killing a core; the log line in the copy that lost the race is `the core this script started on port P is serving another instance`.
 
+
+**REVISED the same night, after Emerald showed the first version's flaw (2026-09-02, ~23:00).** Forgetting the
+child whenever the walk moved off its port was too eager: two instances whose cores were restarted
+together each spawned on the base port, each adapter's sweep attached to the OTHER's fresh core first,
+each then took `busy` on its own child, forgot it, spawned again -- three cores for two games, and the
+emulator at 3fps under the connect storm (Emerald's sweep ran every frame, eight blocking 50ms connects
+each). The rule is now two-part in all four launchers: **a spawner waits on its own child's port and never
+sweeps past it while that child lives; the child is forgotten only when its port answers "busy"**, never
+on silence. Emerald's sweep also runs every 30 frames instead of every frame. Built and deployed (TEVI,
+Pseudoregalia DLLs; both Lua files); unwatched beyond one Emerald reload that reattached cleanly.
+
 ## [READY] Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
 The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like

@@ -1099,7 +1099,11 @@ local function startCore(port)
     -- Pseudoregalia's, mirrored here. The child is forgotten, never killed: a game is using it.
     -- The port rides in coreSpawnFrame (a table since 2026-09-02) because this file cannot afford
     -- another local (the 200-local ceiling, emulator/CLAUDE.md).
-    if coreStillRunning() and coreSpawnFrame and port and coreSpawnFrame.port ~= port then
+    -- Forgotten ONLY when that port answered "busy" (coreSpawnFrame.busy, set by the reject
+    -- handler), never because the cursor moved on: the first version forgot the child on silence
+    -- too, and two instances restarting together then chased each other's fresh cores round the
+    -- range (three cores for two games, and the emulator at 3fps under the connect storm).
+    if coreStillRunning() and coreSpawnFrame and coreSpawnFrame.busy and port then
         console.log(string.format("MeshGhost: the core this script started on port %d is serving another instance -- leaving it and starting another on port %d.", coreSpawnFrame.port, port))
         coreChild = nil
     end
@@ -2039,6 +2043,9 @@ local function handleBridgeLine(line)
             relayDown.until_ = frameCounter + relayDown.frames
             resetBridge()
             return
+        end
+        if reason:find("busy", 1, true) and coreSpawnFrame and currentPort == coreSpawnFrame.port then
+            coreSpawnFrame.busy = true -- our own child has another game: startCore may forget it
         end
         markPortBusy(currentPort, "refused us (" .. reason .. ")")
         resetBridge()
@@ -10966,7 +10973,22 @@ local function runFrame()
         if frameCounter < relayDown.until_ then
             return
         end
-        connectBridge()
+        -- Every 30 frames, not every frame: each probe below is a blocking 50ms connect, and
+        -- sweeping eight ports per frame while nothing answers is the 3fps the user saw on
+        -- 2026-09-02. (The field rides on relayDown -- no spare local, emulator/CLAUDE.md.)
+        if frameCounter < (relayDown.nextConnect or 0) then
+            return
+        end
+        relayDown.nextConnect = frameCounter + 30
+        if coreChild and coreSpawnFrame and coreSpawnFrame.port and not coreSpawnFrame.busy
+            and coreStillRunning() then
+            -- OUR OWN CHILD IS ALIVE: wait on its port, never sweep past it. Sweeping is how a
+            -- second instance attaches to a core the first one just started, and the two then
+            -- chase each other's spawns round the range.
+            tryPort(coreSpawnFrame.port)
+        else
+            connectBridge()
+        end
         -- Only after a full sweep found nothing. A core that is already running -- started by
         -- hand, by a dev script, or left by a previous session -- is used as-is and nothing is
         -- spawned; that ordering is what stops autostart from ever producing a second core.

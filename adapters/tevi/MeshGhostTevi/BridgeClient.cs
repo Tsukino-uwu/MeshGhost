@@ -237,6 +237,10 @@ namespace MeshGhostTevi
         // The port this instance is currently dialling or connected to. Logged, because "which
         // core am I talking to" is the first question a two-instance session asks.
         public int CurrentPort => basePort + walkOffset;
+        // The last port whose core answered "busy" (another game is attached), 0 until one does.
+        // CoreLauncher compares it with the port it spawned on: that, and only that, is the
+        // signal its child now belongs to someone else. Volatile: written on the read thread.
+        public volatile int LastBusyPort;
 
         // True once the core has answered our hello with bridge_ready. Nothing may be sent before
         // this: _template/PROTOCOL.md requires local_state to wait for it.
@@ -784,6 +788,10 @@ namespace MeshGhostTevi
                                 break;
                             }
                             portCooldownUntil[refusedPort] = DateTime.UtcNow + BusyPortCooldown;
+                            if (reason != null && reason.IndexOf("busy", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                LastBusyPort = refusedPort;
+                            }
                             Log($"MeshGhost: the core on port {refusedPort} rejected this adapter " +
                                 $"({reason}) -- walking to the next bridge port.");
                             connected = false;

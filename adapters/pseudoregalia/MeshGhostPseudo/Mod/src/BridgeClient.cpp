@@ -164,6 +164,10 @@ namespace MeshGhostPseudo
             }
 
             uint16_t candidate = static_cast<uint16_t>(base_port + i);
+            if (own_core_port != 0 && own_core_port != last_busy_port && candidate != own_core_port)
+            {
+                continue; // our own child is alive and not yet claimed by anyone: wait on it
+            }
             bool refused = false;
             if (try_port(candidate, refused))
             {
@@ -481,6 +485,10 @@ namespace MeshGhostPseudo
                     if (source_port >= base_port && source_port < base_port + BRIDGE_PORT_COUNT)
                     {
                         busy_until[source_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
+                    }
+                    if (line.find("busy") != std::string::npos)
+                    {
+                        last_busy_port = source_port;
                     }
                     Output::send(STR("[MeshGhostPseudo] core on port {} refused us ({}) -- trying another port.\n"),
                                  source_port,

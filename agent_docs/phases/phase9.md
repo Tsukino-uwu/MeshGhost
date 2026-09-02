@@ -958,4 +958,12 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
   maybe, that all future adapters should do it as well?"*): all three had the same gate; mirrored into
   `CoreLauncher.cpp` (built, deployed), both Lua adapters (the port rides in `coreSpawnFrame`, now a table,
   because Crystal is at the local ceiling) and `_template/README.md`. Unwatched on those three.
-- **Not reached:** Pseudoregalia's run on the fixed relay; the user starts those games.
+- **The launcher rule revised the same night.** Two Emerald instances with their cores restarted together
+  chased each other's fresh cores round the range (three cores for two games, the emulator at 3fps under
+  Emerald's every-frame sweep of blocking connects): forgetting the child whenever the walk moved on was too
+  eager. Now in all four: wait on your own child's port, forget it only on `busy`, and Emerald sweeps every
+  30 frames. Both DLLs rebuilt and deployed, both Lua files updated. **Worst-case verdicts** (the profile the
+  user then made the only one: NA<->EU ping plus bad wifi): Pseudoregalia 450ms, TEVI 450ms, both confirmed;
+  the Pokemon pair at 450 under judgement. User feedback recorded: the second client stands still during an
+  interp read; Steam copy first; the user starts games and calls the switch.
+- **Not reached:** Crystal's worst-case run.

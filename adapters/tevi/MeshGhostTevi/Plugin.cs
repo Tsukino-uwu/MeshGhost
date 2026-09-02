@@ -2255,7 +2255,7 @@ namespace MeshGhostTevi
                 // instance, having been refused on the base port and walked to the next, would spawn
                 // its core back onto the first instance's port and fail there instead. Changed with
                 // the walk on 2026-08-27.
-                launcher.TickDisconnected(bridge.CurrentPort);
+                launcher.TickDisconnected(bridge.CurrentPort, bridge.LastBusyPort);
             }
             bridge.SendHelloIfNeeded(GameId, PluginVersion);
 

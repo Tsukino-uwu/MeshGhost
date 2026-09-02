@@ -72,6 +72,17 @@ there and recovered (`adapters/tevi/UNVERIFIED.md`, "the port walk's dead end").
 shape: `CoreLauncher.cpp` remembers `last_spawn_port`; a live child on a port the walk has moved off is forgotten (never terminated) and a fresh core starts at the cursor. Built with `build-pseudoregalia.bat`, deployed to both installs. **What to watch:** two instances launched a few seconds apart both reach a ghost, with
 nobody killing a core; the log line in the copy that lost the race is `the core this mod started (pid N, port P) is serving another game`.
 
+
+**REVISED the same night, after Emerald showed the first version's flaw (2026-09-02, ~23:00).** Forgetting the
+child whenever the walk moved off its port was too eager: two instances whose cores were restarted
+together each spawned on the base port, each adapter's sweep attached to the OTHER's fresh core first,
+each then took `busy` on its own child, forgot it, spawned again -- three cores for two games, and the
+emulator at 3fps under the connect storm (Emerald's sweep ran every frame, eight blocking 50ms connects
+each). The rule is now two-part in all four launchers: **a spawner waits on its own child's port and never
+sweeps past it while that child lives; the child is forgotten only when its port answers "busy"**, never
+on silence. Emerald's sweep also runs every 30 frames instead of every frame. Built and deployed (TEVI,
+Pseudoregalia DLLs; both Lua files); unwatched beyond one Emerald reload that reattached cleanly.
+
 ## [OPEN] Pending — BOTH INSTANCES HARD-CRASHED seconds after `curve catmull-rom` was switched on (2026-08-30)
 
 **What happened.** On the two-instance netsim rig (relay 60Hz, both clients interp 250ms,

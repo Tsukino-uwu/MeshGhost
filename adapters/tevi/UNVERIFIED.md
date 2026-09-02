@@ -256,6 +256,17 @@ on; when the walk's cursor is on a different port while that child still lives, 
 both must reach `bridge ready`, on different ports, without anyone killing a core. The log line to look
 for in the copy that lost the race: `the core this adapter started ... is serving another game`.
 
+
+**REVISED the same night, after Emerald showed the first version's flaw (2026-09-02, ~23:00).** Forgetting the
+child whenever the walk moved off its port was too eager: two instances whose cores were restarted
+together each spawned on the base port, each adapter's sweep attached to the OTHER's fresh core first,
+each then took `busy` on its own child, forgot it, spawned again -- three cores for two games, and the
+emulator at 3fps under the connect storm (Emerald's sweep ran every frame, eight blocking 50ms connects
+each). The rule is now two-part in all four launchers: **a spawner waits on its own child's port and never
+sweeps past it while that child lives; the child is forgotten only when its port answers "busy"**, never
+on silence. Emerald's sweep also runs every 30 frames instead of every frame. Built and deployed (TEVI,
+Pseudoregalia DLLs; both Lua files); unwatched beyond one Emerald reload that reattached cleanly.
+
 ## [READY] PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
 
 **Watched the same day it was built**, in a two-game session: TEVI beside vanilla Crystal on one

@@ -48,17 +48,21 @@ namespace MeshGhostTevi
 
         // Called every frame while the bridge is NOT connected. Cheap: it returns immediately in
         // every case except the one where a spawn is actually due.
-        internal void TickDisconnected(int bridgePort)
+        internal void TickDisconnected(int bridgePort, int lastBusyPort)
         {
-            // THE WALK MOVED OFF OUR OWN CHILD'S PORT, AND THE CHILD IS STILL ALIVE. That means
-            // another game reached it first and it answered us "busy" (two copies launched close
-            // together: the second's core bound the shared base port before the first's, and the
-            // first attached to it). "My child is running" was read as "I have a core" and no
-            // spawn ever followed, so the walk found silence on every other port and looped
-            // forever -- the standalone copy sat like that for minutes on 2026-09-02. The child
-            // is not killed: a game is using it. It is FORGOTTEN, so a fresh core is started at
-            // the cursor, which is what the walk exists to reach.
-            if (ChildStillRunning() && childPort != 0 && bridgePort != childPort)
+            // OUR OWN CHILD'S PORT ANSWERED "BUSY" WHILE THE CHILD IS STILL ALIVE. That means
+            // another game reached it first (two copies launched close together: the second's
+            // core bound the shared base port before the first's, and the first attached to it).
+            // "My child is running" was read as "I have a core" and no spawn ever followed, so the
+            // walk found silence on every other port and looped forever -- the standalone copy
+            // sat like that for minutes on 2026-09-02. The child is not killed: a game is using
+            // it. It is FORGOTTEN, so a fresh core is started at the cursor.
+            //
+            // ONLY on "busy", never because the cursor moved on: the first version of this also
+            // forgot the child when the walk left its port on silence, and two instances
+            // restarting together then chased each other's fresh cores round the range (watched
+            // on Emerald the same night: three cores for two games).
+            if (ChildStillRunning() && childPort != 0 && lastBusyPort == childPort)
             {
                 log($"MeshGhost: the core this adapter started (pid {child.Id}, port {childPort}) is serving " +
                     $"another game -- leaving it to that game and starting another on port {bridgePort}.");
