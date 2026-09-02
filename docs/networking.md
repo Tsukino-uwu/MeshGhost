@@ -570,6 +570,36 @@ entirely is still the write timeout's job: the outbox absorbs a stall, the timeo
   understanding the game. See `agent_docs/contract.md`'s Extensibility section and
   `agent_docs/beyond-cosmetic.md`.
 
+## 9. Hosting it
+
+What the relay process actually needs from the machine it runs on, so a host can decide how to
+contain it.
+
+- **No privilege.** Run it as an ordinary user, never as administrator or root. Its port (7777 by
+  default) is above 1024, and nothing it does needs more than that. A relay run with privilege turns
+  any future bug into the host's problem for no benefit.
+- **Two files.** It reads `config.json` from its working directory and appends to
+  `meshghost-server.log` beside it, rotating that to `.log.1` at 1 MiB (one generation kept, both
+  at startup and while running). Nothing else on disk is read or written; a read-only folder costs
+  it the log file and nothing more.
+- **No outbound connections.** It never dials anything — not a peer, not an update check, not a
+  telemetry endpoint. Its only sockets are the listeners it announces at startup. A firewall rule
+  allowing inbound on its port and nothing outbound is correct.
+- **What the log shows.** One line per join, leave, refused hello (with the reason), flood-cap
+  trip, and — at most once a second — connections refused past the open-connection cap. Nothing
+  logs a successful connection's address; the only address that can appear is a TLS refusal's
+  (`security.md`). A stranger probing the port shows up as refused hellos and hello timeouts, which
+  is what those lines are for.
+- **There is no kick and no ban, on purpose.** A ban needs something durable to ban — an address
+  — and the relay never reads one, which is the privacy property the whole design keeps. A kick
+  without a ban is theatre, since the kicked player rejoins a second later, so it is bans or
+  nothing, and it is nothing. The host's tools are the room code — change it and restart, and the
+  room is empty — and `only_game`.
+- **Running it as a service** (systemd, NSSM, a scheduled task) is the host's own setup; the
+  binary has no daemon mode and needs none — it is one foreground process that exits on a fatal
+  error and is safe to restart at any time, since it holds no state a restart loses beyond the
+  current rooms.
+
 ## Where to go next
 
 - Threat model and what's still open → [`docs/security.md`](security.md)

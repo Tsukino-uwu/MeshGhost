@@ -125,6 +125,25 @@ go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./brid
 The full list is `grep -rn '^func Fuzz' --include=*_test.go .`, and CI counts the targets the
 same way rather than trusting a written list.
 
+**Verify a release binary came from this source.** Releases are built with `-trimpath` and no cgo,
+so a build of the same tag with the same Go version is byte-identical to the shipped file. The
+shipped file says how it was built:
+
+```sh
+go version -m meshghost-server.exe     # prints the Go version, the module version and the build flags
+```
+
+Then, on any machine, with that Go version installed:
+
+```sh
+git checkout v1.2.3
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
+sha256sum meshghost-server.exe         # compare with the digest GitHub shows beside the release asset
+```
+
+A matching digest means the asset is exactly this source; a mismatch means either a different Go
+version (check the first command) or a file that is not what the tag builds.
+
 **Drive a relay by hand.** The tcp transport is newline-delimited JSON and, unless the host set
 `"tls": "required"`, plaintext on the same port, so `nc host 7777` and typing is a valid attack.
 The protocol is in `agent_docs/contract.md`; the reject reasons you will get back are in
@@ -138,9 +157,38 @@ the author's model of the input, so the useful question when reading one is what
 a size it truncates, a case it skips, a value it canonicalises first. Each of those is a class of
 input the suite has not tried.
 
-**Past reviews.** `agent_docs/adr/` holds every review and hardening pass as a dated record of what
-was found, what was fixed, and what was deliberately left alone. Reading the most recent one first
-shows where the last reviewer looked, and therefore where the next one should look instead.
+## The decision records worth reading
+
+`agent_docs/adr/` is the full decision log, one dated file per decision, and it is long. These are
+the ones that carry security weight, in the order a reviewer would want them:
+
+- [0044 — the first adversarial review](../agent_docs/adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md):
+  what hostile readers found, what was fixed, what was left alone and why. Read this first; it
+  shows where the last review looked, so the next one can look elsewhere.
+- [0013 — room-code auth and the game-version check](../agent_docs/adr/0013-2026-08-14-add-room-code-auth-and-a-peer-game-version-check.md)
+  and [0015 — the two review passes that hardened the relay](../agent_docs/adr/0015-2026-08-14-two-review-passes-across-the-go-layer-and-all.md):
+  the first hardening, and why auth is a relay-side check rather than a client-side one.
+- [0023 — the handshake is always tcp](../agent_docs/adr/0023-2026-08-16-revision-the-handshake-is-always-tcp-transport.md),
+  [0021 — selectable transports](../agent_docs/adr/0021-2026-08-16-selectable-transport-tcp-udp-quic.md),
+  [0022 — transport discovery](../agent_docs/adr/0022-2026-08-16-transport-discovery-transport-auto.md):
+  why the room code crosses tcp whatever a session ends up on, and what that means for TLS.
+- [0024 — the udp per-connection token](../agent_docs/adr/0024-2026-08-16-udp-per-connection-token-the-second-half-of-the.md):
+  the two-part udp admission design (cookie, then token), and what it does and does not defend.
+- [0042 — every client gets its own outbound queue](../agent_docs/adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)
+  and [0020 — the transport loses no message before the read loop starts](../agent_docs/adr/0020-2026-08-16-transport-ndjsonconn-loses-no-message-before.md):
+  how one stalled peer is kept from freezing a room, and the framing layer's guarantees.
+- [0030 — rooms are keyed by game and name](../agent_docs/adr/0030-2026-08-17-rooms-are-keyed-by-game-id-and-name-so-a-server.md):
+  why two games cannot collide on a room name, and the first-joiner rule that fixes a room's
+  version and features (the room-squatting gap in `security.md` follows from it).
+- [0028 — the planes past cosmetic](../agent_docs/adr/0028-2026-08-17-the-planes-past-cosmetic-event-routing-sequencer.md)
+  and [0031 — world custody](../agent_docs/adr/0031-2026-08-17-world-custody-the-relay-holds-the-world-and-four.md):
+  the opt-in features no shipped game uses yet, which is where the relay first started retaining
+  one client's bytes for another. Relevant only if a host enables a game that negotiates them.
+- [0006 — the relay ran unauthenticated through the early phases](../agent_docs/adr/0006-2026-08-11-relay-runs-unauthenticated-through-phases-3-4.md):
+  the starting posture everything above was added to, for context.
+
+The rest of the folder is rendering, adapter and workflow decisions, and can be skipped for a
+security review.
 
 ## Reporting a finding
 

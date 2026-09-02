@@ -58,8 +58,8 @@ jobs:
           set -e
           # -s -w as in the Windows job below: same size saving, same unchanged stack traces.
           build() { # build <goos> <goarch> <label> <staging dir>
-            GOOS=$1 GOARCH=$2 go build -ldflags="-s -w" -o "$4/meshghost-$3" ./cmd/meshghost
-            GOOS=$1 GOARCH=$2 go build -ldflags="-s -w" -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
+            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="-s -w" -o "$4/meshghost-$3" ./cmd/meshghost
+            GOOS=$1 GOARCH=$2 go build -trimpath -ldflags="-s -w" -o "$4/meshghost-server-$3" ./cmd/meshghost-relay
           }
 
           mkdir -p stage/linux stage/macos
@@ -142,11 +142,19 @@ jobs:
       #
       # Worth it because this binary is shipped several times over (root, plus whatever a user
       # copies beside a mod): 9.4 MB -> 6.5 MB on disk, and 5.1 MB -> 2.6 MB inside the zip.
+      #
+      # -trimpath (2026-09-02) strips the runner's filesystem paths from the binary, which is the
+      # last thing that varied between two builds of the same tag. With it, anyone can check out
+      # the tag, build with the same Go version (`go version -m` on the shipped file prints it,
+      # along with these exact flags) and get a byte-identical file -- so the digest GitHub shows
+      # beside each asset proves the asset came from this source, not merely that it downloaded
+      # intact. docs/reviewing.md carries the recipe. Stack traces are unaffected: paths in them
+      # become module-relative, which is what a bug report wants anyway.
       - name: Build meshghost.exe
-        run: go build -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
+        run: go build -trimpath -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
 
       - name: Build meshghost-server.exe
-        run: go build -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
+        run: go build -trimpath -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
 
 
       - name: Verify the committed TEVI plugin isn't stale

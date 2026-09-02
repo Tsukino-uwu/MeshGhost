@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -76,7 +77,81 @@ func OpenLogFile(name, prog string) io.Writer {
 		log.Printf("%s: warning: could not open log file %s: %v (log output will only appear in this window)", prog, name, err)
 		return nil
 	}
-	return f
+	size := int64(0)
+	if fi, err := f.Stat(); err == nil {
+		size = fi.Size()
+	}
+	return &rotatingLog{name: name, prog: prog, f: f, size: size}
+}
+
+// rotatingLog is the writer OpenLogFile hands back: the file, plus the same
+// rotation the opener performs, applied WHILE RUNNING. Until 2026-09-02 the cap
+// was checked only at open, so a long-running relay -- the normal life of a
+// relay -- grew its log without bound, and under a connection flood that is a
+// disk filled from outside (the 2026-09-02 adversarial review, ADR 0044). A
+// write that would carry the file past MaxLogBytes first closes it, renames it
+// to .1 and reopens, so the bound holds for the life of the process rather than
+// for its first second. Best-effort like the opener: if the rename fails (a
+// locked .1, an odd filesystem) the log keeps appending to the same file, and
+// if the reopen fails the writer says so once and drops output rather than
+// crashing the program for its log. The mutex is defence in depth -- the log
+// package already serialises its writes -- so a second writer added later is
+// not a silent race.
+type rotatingLog struct {
+	mu   sync.Mutex
+	name string
+	prog string
+	f    *os.File
+	size int64
+	dead bool
+}
+
+func (r *rotatingLog) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dead {
+		return len(p), nil
+	}
+	if r.size > 0 && r.size+int64(len(p)) > MaxLogBytes {
+		r.rotateLocked()
+		if r.dead {
+			return len(p), nil
+		}
+	}
+	n, err := r.f.Write(p)
+	r.size += int64(n)
+	return n, err
+}
+
+// Close releases the file. Neither binary calls it (the log lives as long as the
+// process), but a test that opens one in a temp directory must, or Windows
+// refuses to delete the directory.
+func (r *rotatingLog) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dead || r.f == nil {
+		return nil
+	}
+	r.dead = true
+	return r.f.Close()
+}
+
+func (r *rotatingLog) rotateLocked() {
+	// Windows refuses to rename an open file, so close first.
+	_ = r.f.Close()
+	_ = os.Rename(r.name, r.name+".1")
+	f, err := os.OpenFile(r.name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		log.Printf("%s: warning: could not reopen log file %s after rotating it: %v (log output will only appear in this window from now on)", r.prog, r.name, err)
+		r.dead = true
+		return
+	}
+	r.f = f
+	r.size = 0
+	if fi, err := f.Stat(); err == nil {
+		// A failed rename leaves the old contents in place; count them.
+		r.size = fi.Size()
+	}
 }
 
 // ExplicitFlags reports which flags were actually typed on the command line, as

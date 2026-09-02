@@ -157,6 +157,27 @@ jobs:
       - name: Test with race detector
         run: go test -race -count=3 ./...
 
+  vuln:
+    name: Known vulnerabilities in dependencies
+    # govulncheck (2026-09-02) matches the module's dependency graph -- one direct dependency,
+    # quic-go, plus its golang.org/x set and the standard library itself -- against the Go
+    # vulnerability database, and reports only vulnerabilities in code this module actually
+    # CALLS, not everything present in a dependency. A hit here is a reason to bump go.mod (or
+    # the Go version) before the next release, and the answer to "are your dependencies current"
+    # before anyone has to ask. Installed at latest on purpose: the database and the tool move
+    # together, and pinning the tool would pin the question to an old answer.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
   fuzz:
     name: Fuzz the parsers
     runs-on: ubuntu-latest

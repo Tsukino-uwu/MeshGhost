@@ -27,17 +27,13 @@ runs in that same prefix.
 
 ## Games
 
-| Game | Runs in | What a ghost is | Where it stands |
-| --- | --- | --- | --- |
-| [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md) (GBA) | BizHawk, Lua | A real character on a real tile, with the game's own walk, run, bike, surf and field-effect animations mirrored | Feature complete (2026-08-21); Fly is partly done and the boat has not been watched yet |
-| [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md) (GBC) | BizHawk, Lua | A real object the engine itself walks, animates and hides behind things; falls back to a drawn sprite where it can't spawn one | Shipping and under active work; cross-map ghosts on a route seam work |
-| [TEVI](adapters/tevi/README.md) | BepInEx, C# | The player's own sprite and animations, played back for the ghost, with its weapon glow, trail and effects | Shipped (2026-08-13), live-tested two-player |
-| [Pseudoregalia](adapters/pseudoregalia/README.md) | UE4SS, C++ | A clone of the player's pawn: same mesh, outfit, animations, afterimages and effects, with a nametag plate | Feature complete (2026-08-27); still labelled experimental in the package because testing breadth is thin |
+- [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md)
+- [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md)
+- [TEVI](adapters/tevi/README.md)
+- [Pseudoregalia](adapters/pseudoregalia/README.md)
 
 Each link goes to that adapter's own README: how it reads its game, how it was built, and what it
-can show today. Every one of them says on its first screen what has been confirmed on screen and
-what has not — `VERIFIED.md` and `UNVERIFIED.md` sit beside each README, and nothing goes in the
-first without a person watching it happen.
+can show today.
 
 **One server hosts every game at once**, with nothing to set up for it: a single
 `meshghost-server.exe` carries Emerald, Crystal, TEVI and Pseudoregalia sessions simultaneously
@@ -70,13 +66,7 @@ Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 
 ### Good to know
 
-- Up to 8 players per server by default, counted across all rooms — the host can raise it
-  (`server.max_clients`).
-- **Smoothness is three knobs, and the shipped values are the ones to start from.** The host sets
-  how often everyone sends (`server.send_hz`, 15 a second); a player can cap what they receive per
-  peer (`client.max_receive_hz_per_player`, 0 for no cap) and how far behind live a ghost is drawn
-  (`client.interp`, 250ms — the delay that lets a ghost move smoothly through the gaps between
-  updates instead of jumping). Ghosts are never predicted ahead of what was actually received.
+- Up to 8 players per server by default, counted across all rooms — the host can raise it.
 - Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret.
 - **Nametags are opt-in and cosmetic.** Set `client.name` (and optionally `client.name_color`) in

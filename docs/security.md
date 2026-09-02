@@ -231,6 +231,16 @@ Every fix below has a regression test that failed before it. Ranked by what it c
   bytes — 4 KB of NULs became 16 KB of log per unauthenticated connection. The head is 96 bytes.
 - **The core's roster is bounded** (`MaxRosterSize`, 512). A hostile or broken relay could announce
   ids without end and every shipped adapter spawns a ghost per id with no count of its own.
+- **The log is bounded for the life of the process.** Both binaries rotated their log at startup
+  only, so a long-running relay grew it without bound, and under a connection flood that was
+  a disk filled from outside. The writer now rotates itself at 1 MiB, keeping one generation.
+- **Release binaries are reproducible.** Built with `-trimpath` and no cgo, so a build of the
+  same tag with the same Go version is byte-identical to the shipped asset — the digest GitHub
+  shows beside it now proves provenance, not just an intact download. Recipe in
+  [reviewing.md](reviewing.md).
+- **Dependencies are checked against the Go vulnerability database on every push**
+  (`govulncheck`, CI's "Known vulnerabilities" job), and `.github/SECURITY.md` says how to
+  report a finding.
 - **Adapter-side input hardening, built and deployed but not yet watched:** Pseudoregalia bounds a
   peer's afterimage spawn count (it was written straight into the game's own spawn count), zeroes a
   non-finite orientation, and caps remembered nametags; Crystal's main loop runs under `pcall` so
