@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
 - Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
 - Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
 - Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
@@ -55,6 +56,16 @@ entry without one.
 - 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
 - 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
 - 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+
+## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
+
+**Mirrored from TEVI, 2026-09-02, unwatched here.** "My child process is alive" was read as "I have a
+core": two copies launched a few seconds apart can each spawn on the base port, one core wins the
+bind, the OTHER copy's adapter can reach it first, and the spawner is answered `busy` on its own
+child's port and walks on while its launcher never spawns again. Watched on TEVI, reproduced on purpose
+there and recovered (`adapters/tevi/UNVERIFIED.md`, "the port walk's dead end"). The fix here is the same
+shape: `meshghost_crystal.lua`'s `startCore`, the same table trick, because this file is AT the ceiling. **What to watch:** two instances launched a few seconds apart both reach a ghost, with
+nobody killing a core; the log line in the copy that lost the race is `the core this script started on port P is serving another instance`.
 
 ## [READY] Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 

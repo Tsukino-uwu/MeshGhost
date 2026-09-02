@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — the launcher forgets a child the port walk has moved off, so a cross-wired second copy gets its own core (built 2026-09-02, unwatched)
+- MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
 - Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
 - MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
 - Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
@@ -229,7 +229,18 @@ this did not work. It has still never been run ([PROBES.md](PROBES.md)).
 Detail and the line numbers as they were: `../../agent_docs/ideas.md`, entry 2 of the HUD/minimap
 list.
 
-## [READY] the port walk's dead end, SEEN 2026-09-02 and fixed in the launcher: a child alive on a port the walk left behind
+## [READY] the port walk's dead end, SEEN 2026-09-02, fixed in the launcher and REPRODUCED-AND-RECOVERED the same night: a child alive on a port the walk left behind
+
+**Reproduced deliberately after the fix (agent, from logs -- the plumbing side):** Steam copy launched,
+the standalone 3 seconds later (Steam first always: it refuses to start behind a running standalone,
+user 2026-09-02). The Steam copy's core bound 7778, the standalone's adapter reached it first and
+attached, the Steam adapter got `busy`, and the new line fired: `the core this adapter started (pid
+6212, port 7778) is serving another game -- leaving it to that game and starting another on port
+7779`, then `bridge ready on port 7779`. Both copies reached a ghost, nobody killed a core. A 1.5s gap
+did not cross-wire (the Steam copy's own core lost the bind and its adapter walked normally), so the
+race needs the Steam adapter to reach 7778 first; ~3s did it once. **What is left for eyes:** that both
+windows show the other's ghost after such a start -- cheap, any two-instance launch.
+
 
 **Seen live, twice in one relaunch.** Two copies launched close together (my ready check had matched the
 previous launch's log): the standalone's core bound 7778 first, the Steam copy's adapter attached to it,

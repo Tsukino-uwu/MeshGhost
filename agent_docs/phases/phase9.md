@@ -952,4 +952,10 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
   has moved off is forgotten, not killed), built and deployed, unwatched. **Feedback recorded:** I launched
   Pseudoregalia unasked while TEVI was still open — *"you moved on before i said we were done"*, *"let me
   start the games"*.
+- **The launcher fix reproduced on purpose and recovered** (Steam copy first -- Steam refuses to start behind a
+  running standalone, user's rule -- the standalone 3s later): `is serving another game`, a fresh core on
+  7779, both copies at a ghost. The user asked whether Pseudoregalia and the BizHawk adapters need it (*"_template
+  maybe, that all future adapters should do it as well?"*): all three had the same gate; mirrored into
+  `CoreLauncher.cpp` (built, deployed), both Lua adapters (the port rides in `coreSpawnFrame`, now a table,
+  because Crystal is at the local ceiling) and `_template/README.md`. Unwatched on those three.
 - **Not reached:** Pseudoregalia's run on the fixed relay; the user starts those games.

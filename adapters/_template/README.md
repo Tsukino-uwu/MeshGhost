@@ -1402,6 +1402,16 @@ and then rejected you is not free.
 by a dev script, or by another copy of the game — must be used as-is. That ordering is the whole
 reason autostart cannot produce a pile of processes.
 
+**And forget a child the walk has moved off.** "My child process is alive" is not "I have a core":
+two copies launched a few seconds apart can each spawn on the base port, one core wins the bind,
+and the OTHER copy's adapter can reach it first and attach — so the spawner is answered `busy` on its
+own child's port and walks on, while its launcher, seeing a live child, never spawns again. The walk
+then finds silence on every port for the rest of the session. Remember the port the child was
+started on; when the cursor is on a different port while that child still lives, forget it (never
+kill it — a game is using it) and spawn at the cursor. Watched on TEVI 2026-09-02, then reproduced
+on purpose and recovered; mirrored into Pseudoregalia's C++ and both BizHawk Lua adapters the same
+night. `adapters/tevi/UNVERIFIED.md`, "the port walk's dead end".
+
 **How to spawn with no window depends on the host:**
 
 | Host | Mechanism |

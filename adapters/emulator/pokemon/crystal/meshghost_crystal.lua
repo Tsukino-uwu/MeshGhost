@@ -9415,6 +9415,17 @@ local function coreStillRunning()
 end
 
 local function startCore(port)
+	-- THE WALK MOVED OFF OUR OWN CHILD'S PORT WHILE THE CHILD IS ALIVE: another instance reached
+	-- it first and it answered us busy. Read as "my child is running, so I have a core", nothing
+	-- below would ever spawn again and the walk would find silence on every other port for the
+	-- rest of the session -- watched on TEVI's launcher 2026-09-02, fixed there and in
+	-- Pseudoregalia's, mirrored here. The child is forgotten, never killed: a game is using it.
+	-- The port rides in coreSpawnFrame (a table since 2026-09-02) because this file cannot afford
+	-- another local (the 200-local ceiling, emulator/CLAUDE.md).
+	if coreStillRunning() and coreSpawnFrame and port and coreSpawnFrame.port ~= port then
+		console.log(string.format("MeshGhost: the core this script started on port %d is serving another instance -- leaving it and starting another on port %d.", coreSpawnFrame.port, port))
+		coreChild = nil
+	end
 	if not AUTOSTART or coreSpawnFailed or coreStillRunning() then
 		return
 	end
@@ -9424,7 +9435,7 @@ local function startCore(port)
 	end
 	-- A core takes a moment to bind. Spawning again before then is how you get a pile of
 	-- processes fighting over one port.
-	if coreSpawnFrame and (bridgeFrames - coreSpawnFrame) < 300 then
+	if coreSpawnFrame and (bridgeFrames - coreSpawnFrame.frame) < 300 then
 		return
 	end
 
@@ -9436,7 +9447,7 @@ local function startCore(port)
 		return
 	end
 
-	coreSpawnFrame = bridgeFrames
+	coreSpawnFrame = { frame = bridgeFrames, port = port }
 	local ok, err = pcall(function()
 		luanet.load_assembly("System") -- without this, import_type returns nil
 		local Process = luanet.import_type("System.Diagnostics.Process")

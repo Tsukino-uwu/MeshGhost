@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
 - Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
 - Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
 - Pending — the WALL-KICK mirror v1: watched once, hedged, with two stated limits (2026-09-01)
@@ -52,6 +53,16 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
+
+**Mirrored from TEVI, 2026-09-02, unwatched here.** "My child process is alive" was read as "I have a
+core": two copies launched a few seconds apart can each spawn on the base port, one core wins the
+bind, the OTHER copy's adapter can reach it first, and the spawner is answered `busy` on its own
+child's port and walks on while its launcher never spawns again. Watched on TEVI, reproduced on purpose
+there and recovered (`adapters/tevi/UNVERIFIED.md`, "the port walk's dead end"). The fix here is the same
+shape: `CoreLauncher.cpp` remembers `last_spawn_port`; a live child on a port the walk has moved off is forgotten (never terminated) and a fresh core starts at the cursor. Built with `build-pseudoregalia.bat`, deployed to both installs. **What to watch:** two instances launched a few seconds apart both reach a ghost, with
+nobody killing a core; the log line in the copy that lost the race is `the core this mod started (pid N, port P) is serving another game`.
 
 ## [OPEN] Pending — BOTH INSTANCES HARD-CRASHED seconds after `curve catmull-rom` was switched on (2026-08-30)
 
