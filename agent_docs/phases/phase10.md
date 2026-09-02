@@ -95,6 +95,10 @@ note in `agent_docs/README.md`.
   `TestLimitListenerKeepsTheUnreliableWrite`. Suite and `-race` green. `agent_docs/verified.md`, "The
   limiter hid WriteUnreliable".
 
+- **2026-09-02 (late) — `DefaultInterpolationDelay` 250 → 450ms (ADR 0046)**, the user's call after all four
+  games were climbed on the worst-case proxy at 15Hz; the release config, the template and the READMEs
+  follow, `shippedconfig_test.go` keeps them in step, no per-game override remains.
+
 ## Open
 
 What is open on this stack at any moment is `agent_docs/status.md`'s job, not this file's —

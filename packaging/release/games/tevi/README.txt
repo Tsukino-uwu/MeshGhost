@@ -71,18 +71,17 @@ How far behind is a ghost drawn? ("interp" in config.json)
    size. Bigger = smoother but more behind; smaller = more immediate but every network
    hiccup shows as a stutter.
 
-   TEVI ships at 300ms, sized so the default survives a genuinely bad connection -- think
-   ~200 ping with wobble or packet loss, EU<->NA on mediocre Wi-Fi. (Honesty note: that
-   number is extrapolated from measuring another game on a simulated link that bad, not
-   from watching TEVI there -- but a too-large buffer only adds delay, never stutter, so
-   it cannot make ghosts choppier than a smaller one.)
+   TEVI ships at 450ms, sized so the default survives a genuinely bad connection -- think
+   ~200 ping with wobble, 5% packet loss and the odd Wi-Fi dropout, EU<->NA on mediocre
+   Wi-Fi. That is measured on TEVI itself on a simulated link exactly that bad: 375ms still
+   stuttered once or twice a minute there, 450ms did not.
 
-   Playing on a good same-continent connection (up to ~120 ping)? This one IS measured:
+   Playing on a good same-continent connection (up to ~120 ping)? Measured there too:
 
-       "interp": "175ms"
+       "interp": "300ms"   clean with a little packet loss
+       "interp": "175ms"   clean on a good link with no loss; 150ms sat at the edge of stutter
 
-   was tested clean on a simulated link that grade -- 150ms sat at the edge of visible
-   stutter -- so it is the sensible floor. Values in between behave in between. The tuning
+   Values in between behave in between. The tuning
    loop: ghosts stutter = raise it; ghosts feel too far behind on a good connection = lower
    it until you see stutter, then step one notch back. Both players set their own -- it
    only affects what YOUR screen shows.

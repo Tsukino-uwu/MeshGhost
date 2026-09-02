@@ -110,8 +110,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Any dated fact recorded in `agent_docs/` — a license check, a tool/mod version, a closed
   risk, a memory address — is true as of that date, not a permanent guarantee.** Tools, mods,
   ROM patches and external repos drift without this repo changing; re-check before a new use.
-- **Small runnable steps only.** Every unit needs a visible outcome: "connect and heartbeat",
-  "echo to self", "see on second client" — never "implement the network layer".
+- **Small runnable steps only**, each with a visible outcome ("echo to self", "see on second client").
 - **Ask before touching anything outside `C:\dev\MeshGhost`.**
 - **Commit freely; never create a branch; push only with explicit permission, asked for every
   time.** The user normally pushes themselves. Pushing is allowed when they say so in that
@@ -156,14 +155,12 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   flag bits and dispatch order are all sitting there. **Measurement is for CONFIRMING what the
   source says, not for discovering it**, and a probe cannot tell you what a byte MEANS. Live
   2026-08-23: a ghost cloned a trainer and hung the game; the source named it. `pitfalls.md`.
-- **The netsim rig is ALWAYS the worst case a shipped default must survive — NA↔EU ping PLUS bad wifi,
-  `run-netsim.bat`'s no-arg profile — and a rate/interp verdict is made on nothing milder** (user,
-  2026-09-02: two ladders judged on 60/25/2/2 had to be redone). Name the profile in every handoff.
+- **The netsim rig is ALWAYS the worst case a shipped default must survive (NA↔EU ping PLUS bad wifi:
+  `run-netsim.bat`'s no-arg profile); a rate/interp verdict is made on nothing milder** — user, 2026-09-02.
 - **A clean light test does not close a risk that depends on sustained load.** Exercise the real
   rate/duration before marking it closed — found live: a single successful round trip closed a risk
   that reopened the same day once real sustained traffic was tried.
-- **Treat "access denied" as a question to research, not a wall** — who gates it, how do people
-  get past it — before investing in a workaround.
+- **Treat "access denied" as a question to research (who gates it, how people get past it), not a wall.**
 - **Anything on `PATH` may resolve to the wrong install — and bare `cmd` is NEVER safe here: a
   `.bat` runs via `& $env:ComSpec /c`, every time.** Thrice live, all a devkitPro/MSYS2 shadow
   (2026-08-13 `cmake`; 2026-08-17 and 2026-09-01 `cmd`: exit 0, EMPTY output, nothing ran). Preflight
@@ -188,10 +185,10 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   cost still runs. Verify the flag disables the cost, or revert the commit. **When a regression
   appears, bisect real commits early**: last-known-good, confirm, halve — mechanical, needs no
   theory, and cannot be fooled by a partial revert. Both cases, dated: `pitfalls.md`.
-- **Cite dates, not durations — INCLUDING for emphasis** ("for months", "long-standing"). Repo born
-  2026-08-11, so they are false on arrival; preflight's invented-durations check fails the common ones.
-- **Test instructions use plain directions (up/down/left/right), never compass points** — user
-  preference about talking to them; compass points stay fine in code and comments.
+- **Cite dates, not durations, INCLUDING for emphasis** ("for months"): repo born 2026-08-11, so they
+  are false on arrival; preflight fails the common ones.
+- **Test instructions use plain directions (up/down/left/right), never compass points** (user
+  preference); compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
   relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
   up and that the right transport/bridge was actually chosen, and hand over a game that is ready

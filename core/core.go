@@ -88,6 +88,14 @@ func IsPermanentRejectErr(err error) bool {
 // DefaultInterpolationDelay is how far behind the most recent samples the
 // core renders remotes by default, to smooth over network jitter.
 //
+// 450ms SINCE 2026-09-02 (ADR 0046), the user's call after all four games were climbed on the
+// worst-case proxy the rig now defaults to (NA<->EU ping plus bad wifi: ~200 ping peer to
+// peer, 5% loss, a one-second blackout every 45s) at the 15Hz room rate: TEVI, Pseudoregalia
+// and Emerald each stuttered at 375ms and were smooth at 450ms; Crystal adopted it on the
+// same reasoning. The default serves the worst link a shipped build must survive; a player on
+// a same-continent link lowers it (each game's README.txt). The paragraphs below are the
+// 2026-08-19 measurement that set the previous 250ms and still explain what the number does.
+//
 // MEASURED, 2026-08-19, and no longer the guess this comment used to admit to.
 // Emerald was run with both renderers on screen at once
 // (MESHGHOST_COMPARE_TIERS) and judged by the user at each setting: at 100ms an
@@ -110,12 +118,12 @@ func IsPermanentRejectErr(err error) bool {
 //
 // CHANGING THIS MEANS CHANGING THREE FILES, not one: packaging/release/config.json and
 // packaging/release/games/client-config-template.json carry explicit values that OVERRIDE this for
-// every packaged player. Raising it here and not there is a default nobody receives -- which is
+// every packaged player (and the per-game client-config-overrides.json files, when one differs). Raising it here and not there is a default nobody receives -- which is
 // exactly what happened on 2026-08-19 until the user asked what the release actually ships.
 // cmd/meshghost/shippedconfig_test.go now fails when they disagree.
 //
 // Overridable per-Core (see Core.InterpolationDelay).
-const DefaultInterpolationDelay = 250 * time.Millisecond
+const DefaultInterpolationDelay = 450 * time.Millisecond
 
 // DefaultIdleKeepalive is how often an UNCHANGED state is sent anyway once
 // change suppression has started dropping repeats. 250ms is deliberately the

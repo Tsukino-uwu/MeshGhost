@@ -199,7 +199,7 @@ filed under the right theme, but anything can check that it is listed.
 - Emerald survives relay-side area filtering, confirmed from the RELEASE files (2026-08-28)
 - Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
 - CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
-
+- Emerald: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), on the fixed relay (2026-09-02)
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -3770,3 +3770,14 @@ attach time. A deliberate 25-second relay outage mid-session added only 12 log l
 reconnect churn — but that is the graceful mid-session path, not the attach path. **The attach-time
 backoff remains unconfirmed** and is recorded as such in `UNVERIFIED.md`.
 
+## Emerald: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), on the fixed relay (2026-09-02)
+
+**User, on screen, two vanilla instances** (theirs and a second standing still in the same town from
+savestate slot 3), both through `meshghost-netsim` on `run-netsim.bat`'s no-arg worst-case profile (100ms
+±50ms one-way per pass, ~200 ping peer to peer, 5% loss, 3% reorder, a one-second blackout every 45s),
+relay at the shipped 15Hz with loss cover on, quic, the limiter fix in. The user moved and watched their
+own ghost in the other window: at 375ms *"felt fine i think? except the wifi drop that caused teleport"*,
+at 450ms *"I think 450ms looks fine ... its been a good value for all 4 adapters at this point."* The
+core's meter at 450: 3.1% of moving renders dry, transit avg 204ms, the blackouts accounting for the
+worst figures (max 771ms past the newest sample). **450ms is the pick, the same as TEVI's and
+Pseudoregalia's on this link.** The 250ms verdict from the afternoon was on the broken relay and is void.

@@ -966,4 +966,10 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
   user then made the only one: NA<->EU ping plus bad wifi): Pseudoregalia 450ms, TEVI 450ms, both confirmed;
   the Pokemon pair at 450 under judgement. User feedback recorded: the second client stands still during an
   interp read; Steam copy first; the user starts games and calls the switch.
-- **Not reached:** Crystal's worst-case run.
+- **Emerald at 450 on the worst case:** *"I think 450ms looks fine ... its been a good value for all 4
+  adapters at this point"* (`emerald/VERIFIED.md`); **Crystal adopted 450 on the user's call** without a run
+  (*"assumed to work, as it has worked on all other adapters. and a higher interp wouldn't make anything
+  visually worse"*) — `crystal/UNVERIFIED.md`, one look owed. **450ms ships everywhere, ADR 0046**: the core
+  constant, the release config and template, no per-game override (the mechanism stays for a future game),
+  the three READMEs rewritten with the measured tiers.
+- **Not reached:** Crystal's worst-case look.

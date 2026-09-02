@@ -186,7 +186,7 @@ Setup, once:
                and TEVI and Pseudoregalia are told theirs by their own mod,
                so nothing reads this in normal play (see "two people on the
                SAME machine" below).
-     "interp" -- how far behind real-time (e.g. "250ms", "150ms") you render
+     "interp" -- how far behind real-time (e.g. "450ms", "300ms") you render
                OTHER players' ghosts, to smooth out network jitter. This is
                entirely YOUR OWN client's setting -- it doesn't affect what
                anyone else sees, and different players in the same session

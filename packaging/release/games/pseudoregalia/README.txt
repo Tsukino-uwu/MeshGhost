@@ -118,14 +118,16 @@ How far behind is a ghost drawn? ("interp" in config.json)
    A ghost is deliberately drawn a fraction of a second behind where its player really is --
    that buffer is what absorbs the internet between you, and "interp" in config.json is its
    size. Bigger = smoother but more behind; smaller = more immediate but every network
-   hiccup shows as a stutter. Pseudoregalia ships at 375ms, which was picked by testing on
-   a deliberately bad simulated connection (about 200 ping with wobble and packet loss --
-   think bad Wi-Fi playing across the Atlantic): anything lower stuttered constantly there.
+   hiccup shows as a stutter. Pseudoregalia ships at 450ms, which was picked by testing on
+   a deliberately bad simulated connection (about 200 ping with wobble, 5% packet loss and
+   a one-second Wi-Fi dropout every so often -- think bad Wi-Fi playing across the
+   Atlantic): 375ms still stuttered now and then there, 450ms did not.
 
    If your sessions have better ping than that, you can lower it for a more immediate ghost:
 
-       "interp": "375ms"   default -- smooth even at ~200 ping with loss (EU<->NA, bad Wi-Fi)
-       "interp": "250ms"   smooth at up to ~120 ping on a decent connection (same continent)
+       "interp": "450ms"   default -- smooth even at ~200 ping with loss and Wi-Fi dropouts
+       "interp": "300ms"   smooth at up to ~120 ping with a little loss (same continent)
+       "interp": "250ms"   smooth at up to ~120 ping on a clean connection
 
    Values in between behave in between. The rule of thumb from measuring: the worse your
    ping WOBBLES (not how big it is -- how much it varies, plus any packet loss), the more

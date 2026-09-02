@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- USER'S CALL 2026-09-02, not yet on screen here — 450ms interp ships for Crystal too (*"lets go with that for crystal as well ... its been a good value for all 4 adapters"*); one worst-case look still owed
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
 - Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
 - Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
@@ -56,6 +57,16 @@ entry without one.
 - 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
 - 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
 - 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+
+## [READY] 450ms interp on the worst-case proxy — the user's call for Crystal from the other three games (2026-09-02), unwatched here
+
+TEVI, Pseudoregalia and Emerald were each climbed on `run-netsim.bat`'s no-arg worst-case profile the same
+night and all three landed on 450ms at 15Hz (their `VERIFIED.md`s). The user then decided for Crystal
+without a run: *"I think 450ms looks fine, so yee lets go with that for crystal as well. verified/confirmed
+by me. its been a good value for all 4 adapters at this point."* Recorded here rather than in
+`VERIFIED.md` because that file's gate is an on-screen look, and Crystal has not had one on this link.
+**What to watch, cheap:** one Crystal two-instance session on the worst-case profile at 450ms; smooth apart
+from the blackout's teleport confirms it, a stutter is the first sign this game differs from Emerald.
 
 ## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
 
