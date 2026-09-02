@@ -73,6 +73,7 @@ filed under the right theme, but anything can check that it is listed.
 - Post-sweep regression check across all three games, confirmed live -- and TEVI's loopback offset found too small
 - TEVI: two release instances, a relay outage, and both ghosts back without touching anything (2026-08-28)
 - TEVI: a portal settles after the last ghost disconnects on it (2026-09-02)
+- TEVI: 300ms interp at the 15Hz relay on the ocean-tier proxy, the ladder climbed on a fixed relay (2026-09-02)
 
 ## Confirmed facts
 
@@ -874,3 +875,23 @@ devices, so a stale id cannot keep the scan alive. Built with `build-tevi.bat`, 
 
 **Not re-watched tonight, still claimed from 2026-08-28:** the control -- a ghost walking OFF a portal
 normally closes it.
+
+## TEVI: 300ms interp at the 15Hz relay on the ocean-tier proxy, the ladder climbed on a fixed relay (2026-09-02)
+
+**User, on screen, two real instances,** both through `meshghost-netsim` at 60ms/±25ms/2% loss/2% reorder
+(~125ms one-way peer to peer: the proxy is crossed twice, `dev-scripts/README.md`), relay at the shipped
+15Hz with loss cover on, quic, the relay carrying the limiter fix (`341a768`). Climbed from the bad end,
+with the core's `buffer dry` counter beside each rung:
+
+| Interp | Dry renders (render time past a moving peer's newest sample) | The user |
+|---|---|---|
+| 175ms | 38% | *"stuttering constantly"* |
+| 250ms | 3.5%, max 158ms past | *"smooth/delayed + rare stutters"* |
+| 300ms | 0.5%, max 69ms past | *"think its smooth all the time now, didn't see any stutter"*, then asked to confirm: *"it was smooth and i didn't see anything"* |
+
+**So the shipped 300ms (`packaging/release/games/tevi/MeshGhost/config.json`) is watched, not assumed.**
+The 250ms dry lines all showed consecutive seqs with normal transit -- the 2% loss holes, where the lost
+sample lands 67-83ms later inside the next packet; 300ms is the first rung with room for one lost sample
+at 15Hz on this link. Every rung judged earlier that night was on the broken relay and is void
+(`agent_docs/verified.md`, "The limiter hid WriteUnreliable"). The same-continent number for TEVI at 15Hz
+has not been measured; the README's 175ms line predates both the rate change and this run.

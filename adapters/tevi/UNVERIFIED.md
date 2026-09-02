@@ -43,7 +43,6 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - READY — the launcher forgets a child the port walk has moved off, so a cross-wired second copy gets its own core (built 2026-09-02, unwatched)
-- WATCHED ONCE 2026-09-02, hedged — the shipped 300ms interp: *"think its smooth all the time now"*, 0.5% dry
 - Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
 - MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
 - Pending -- the FullMap peer marker was update-driven; the refresh is now FRAME-DRIVEN (2026-08-28)
@@ -413,7 +412,7 @@ that peer's game outright. The portal should settle on its own within about a se
 touching it. **The control that makes it meaningful** is the same run with the peer walking off the
 portal normally before disconnecting — that path already works today, and must still work after.
 
-## [READY] WATCHED ONCE 2026-09-02, hedged — the shipped interp default of 300ms: the ladder climbed on a fixed relay
+## [DONE] the shipped interp default of 300ms: the ladder climbed on a fixed relay, CONFIRMED 2026-09-02 (`VERIFIED.md`, "300ms interp at the 15Hz relay")
 
 **The run this entry asked for happened 2026-09-02, after a transport bug was fixed under it.** Two real
 TEVI instances, both through `meshghost-netsim` at 60ms/±25ms/2%/2% (which is ~125ms one-way peer to
@@ -427,8 +426,8 @@ past a moving peer's newest sample) sat beside every rung:
 | 250ms | 3.5%, max 158ms past | *"smooth/delayed + rare stutters"* |
 | 300ms | 0.5%, max 69ms past | *"think its smooth all the time now, didn't see any stutter"* |
 
-**So 300ms stands, and it is no longer an assumption -- but the user's words carry a "think", so it is
-recorded here and not in `VERIFIED.md` until it holds on a second run.** The dry lines at 250ms all
+**So 300ms stands. Asked to settle the "think", the user did: *"it was smooth and i didn't see anything"* --
+recorded in `VERIFIED.md`; this entry stays for the ladder's numbers.** The dry lines at 250ms all
 showed consecutive seqs with normal transit: the 2% loss holes, where the lost sample only lands
 67-83ms later inside the next packet. 300ms is the first rung with room for one lost sample at 15Hz.
 Why every EARLIER rung that day was invalid: the relay's connection limiter (ADR 0044's review, that
