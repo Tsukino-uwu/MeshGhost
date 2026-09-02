@@ -58,6 +58,7 @@ import (
 	"time"
 
 	quic "github.com/quic-go/quic-go"
+	"github.com/quic-go/quic-go/qlog"
 
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 )
@@ -111,6 +112,14 @@ func clientTLSConfig() *tls.Config {
 func quicConfig() *quic.Config {
 	return &quic.Config{
 		EnableDatagrams: true,
+		// Dev diagnostics only: quic-go writes a qlog trace of every packet,
+		// loss declaration, congestion-window change and pacing pause for the
+		// connection when the QLOGDIR environment variable names a directory,
+		// and this tracer returns nil (no trace, no cost) when it is unset --
+		// which is the shipped state. Added 2026-09-02 to read why datagrams
+		// stalled for up to 770ms through meshghost-netsim at 2% loss while
+		// tcp on the same proxy never exceeded its configured delay.
+		Tracer: qlog.DefaultConnectionTracer,
 		// This protocol is one bidirectional stream per connection plus
 		// datagrams, so nothing else is granted. quic-go's defaults (100
 		// bidirectional, 100 unidirectional, 512 KiB per stream, 1.5 MiB per

@@ -68,6 +68,9 @@ const maxHistoryMs = 4000
 // tick model in agent_docs/contract.md.
 type remoteBuffer struct {
 	snapshots []protocol.State
+	// lastTransitMs is how long the newest sample took to arrive (dev
+	// diagnostics, see transitMeter); printed by the dry log.
+	lastTransitMs int64
 
 	// historyMs is how far back this buffer must reach, in milliseconds --
 	// the FUNCTIONAL bound, derived from the Core's render settings rather
@@ -722,3 +725,91 @@ const (
 	// is going.
 	PredictDamped PredictMode = "damped"
 )
+
+// dryMeter answers "how often did the render time run PAST the newest sample
+// while the peer was moving" -- the buffer running dry. With prediction off
+// that render holds the newest sample, and the next sample to land moves the
+// ghost by everything that happened in the gap: seen on screen as a hitch,
+// then a snap. Added 2026-09-02 on TEVI, where "snapping/stuttering every now
+// and then" at 250ms interp survived switching the loss cover off, to decide
+// between "interp is too short for this link's holes" (this counter is
+// non-zero) and "the adapter snaps on its own" (it is zero). Guarded by
+// Core.mu like extrapolationMeter. A dry render while the peer is standing
+// still is NOT counted: the keepalive spacing puts the newest idle sample
+// behind the render time by design, and holding it moves nothing.
+// transitMeter answers "how long did samples take to get here" -- arrival
+// time minus the sender's timestamp, in this machine's clock. Same guard and
+// the same 2026-09-02 TEVI reason as dryMeter: at 300ms interp the buffer
+// still ran dry on a link that adds at most ~230ms, which only fits if
+// delivery itself stalls in bursts. Counts every sample; keeps the max, the
+// mean, and how many took longer than slowTransitMs.
+type transitMeter struct {
+	count   uint64
+	totalMs uint64
+	maxMs   int64
+	slow    uint64
+}
+
+const slowTransitMs = 200
+
+func (m *transitMeter) record(ms int64) {
+	m.count++
+	if ms > 0 {
+		m.totalMs += uint64(ms)
+	}
+	if ms > m.maxMs {
+		m.maxMs = ms
+	}
+	if ms > slowTransitMs {
+		m.slow++
+	}
+}
+
+type dryMeter struct {
+	renders uint64 // every render of a moving peer, dry or not
+	dry     uint64
+	totalMs uint64
+	maxMs   int64
+}
+
+// dryBy reports how far (ms) renderTime sits past the newest sample when the
+// sender was moving between its last two samples, or 0 when the render is
+// covered or the peer is idle.
+func (b *remoteBuffer) dryBy(renderTime int64) (past int64, moving bool) {
+	n := len(b.snapshots)
+	if n < 2 {
+		return 0, false
+	}
+	last, before := b.snapshots[n-1], b.snapshots[n-2]
+	if len(last.Position) != len(before.Position) {
+		return 0, false
+	}
+	for i := range last.Position {
+		if last.Position[i] != before.Position[i] {
+			moving = true
+			break
+		}
+	}
+	if !moving {
+		return 0, false
+	}
+	if renderTime > last.Timestamp {
+		past = renderTime - last.Timestamp
+	}
+	return past, true
+}
+
+func (m *dryMeter) record(past int64, moving bool) {
+	if !moving {
+		return
+	}
+	m.renders++
+	if past <= 0 {
+		return
+	}
+	m.dry++
+	m.totalMs += uint64(past)
+	if past > m.maxMs {
+		m.maxMs = past
+	}
+}

@@ -467,6 +467,16 @@ type Core struct {
 	// remoteStatesAt already holds when it updates this. See extrapolationMeter.
 	extrapolation extrapolationMeter
 
+	// How often the buffer ran dry under a moving peer. Same guard. See dryMeter.
+	dry dryMeter
+	// How long samples take to arrive. Same guard. See transitMeter.
+	transit transitMeter
+	// DryLog, when set, receives one line per second at most naming the samples
+	// around a dry render (dev diagnostics; nil in shipping use). dryLoggedAt is
+	// the render time of the last line, guarded by mu.
+	DryLog      func(string)
+	dryLoggedAt int64
+
 	// Curve picks how a position BETWEEN two samples is computed -- straight
 	// line (the default) or a Catmull-Rom spline through four of them. Empty
 	// means CurveLinear. See CurveMode: this is the second of the two render

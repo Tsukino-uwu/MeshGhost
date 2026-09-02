@@ -10,6 +10,7 @@ package core
 // despawn, not a judgement about what an area contains.
 
 import (
+	"fmt"
 	"log"
 	"sync/atomic"
 	"time"
@@ -63,6 +64,8 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// Extrapolate are public fields a caller may change while running, and a
 	// window derived once would then be wrong for the rest of the session.
 	b.historyMs = c.requiredHistoryMsLocked()
+	b.lastTransitMs = c.nowMsLocked() - st.Timestamp
+	c.transit.record(b.lastTransitMs)
 	// LOSS COVER (ADR 0045): a state may carry the sample sent before it. If
 	// that sample never arrived here, it goes into the buffer first, in its
 	// own timestamp order, so the ghost walks through it instead of over the
@@ -180,6 +183,15 @@ func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[
 		var st protocol.State
 		var br orientBracket
 		var ok bool
+		past, moving := buf.dryBy(renderTime)
+		c.dry.record(past, moving)
+		if past > 0 && c.DryLog != nil && renderTime-c.dryLoggedAt > 1000 {
+			c.dryLoggedAt = renderTime
+			n := len(buf.snapshots)
+			last, before := buf.snapshots[n-1], buf.snapshots[n-2]
+			c.DryLog(fmt.Sprintf("core: buffer dry for %s: render time %dms past newest sample seq %d (t=%d); the one before was seq %d (t=%d), %dms earlier; %d samples held; the newest took %dms to arrive",
+				id, past, last.Seq, last.Timestamp, before.Seq, before.Timestamp, last.Timestamp-before.Timestamp, n, buf.lastTransitMs))
+		}
 		if c.adapterWantsOrientBracket {
 			st, br, ok = buf.atBracket(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
 		} else {

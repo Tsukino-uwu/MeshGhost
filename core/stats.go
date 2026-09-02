@@ -117,6 +117,21 @@ type Stats struct {
 	ExtrapolatedAvgMs    float64
 	ExtrapolatedMaxMs    int64
 
+	// The buffer running dry under a MOVING peer (see dryMeter): renders of a
+	// moving peer, how many of them found the render time past the newest
+	// sample, and how far past on average and at worst.
+	MovingRenders uint64
+	DryRenders    uint64
+	DryAvgMs      float64
+	DryMaxMs      int64
+
+	// Sample transit (see transitMeter): samples timed, mean and worst arrival
+	// delay, and how many took longer than slowTransitMs.
+	TransitSamples uint64
+	TransitAvgMs   float64
+	TransitMaxMs   int64
+	TransitSlow    uint64
+
 	// PeersKnown is roster size (everyone the relay says is in the room);
 	// PeersRendered is how many are currently being drawn. The gap between
 	// them is almost always the area filter.
@@ -182,6 +197,18 @@ func (c *Core) Stats() Stats {
 	if c.extrapolation.count > 0 {
 		s.ExtrapolatedAvgMs = float64(c.extrapolation.totalMs) / float64(c.extrapolation.count)
 	}
+	s.MovingRenders = c.dry.renders
+	s.DryRenders = c.dry.dry
+	s.DryMaxMs = c.dry.maxMs
+	if c.dry.dry > 0 {
+		s.DryAvgMs = float64(c.dry.totalMs) / float64(c.dry.dry)
+	}
+	s.TransitSamples = c.transit.count
+	s.TransitMaxMs = c.transit.maxMs
+	s.TransitSlow = c.transit.slow
+	if c.transit.count > 0 {
+		s.TransitAvgMs = float64(c.transit.totalMs) / float64(c.transit.count)
+	}
 	s.PeersKnown = len(c.roster)
 	s.RelayRTTMs = c.clock.bestRTTMs
 	s.ClockOffsetMs = c.clock.offsetMs
@@ -214,6 +241,14 @@ func (s Stats) String() string {
 	if s.ExtrapolatedRenders > 0 {
 		out += fmt.Sprintf(" | predicted %d renders (avg %.0fms ahead, max %dms, %d hit the cap)",
 			s.ExtrapolatedRenders, s.ExtrapolatedAvgMs, s.ExtrapolatedMaxMs, s.ExtrapolationsCapped)
+	}
+	if s.MovingRenders > 0 {
+		out += fmt.Sprintf(" | buffer dry on %d of %d moving renders (avg %.0fms, max %dms past the newest sample)",
+			s.DryRenders, s.MovingRenders, s.DryAvgMs, s.DryMaxMs)
+	}
+	if s.TransitSamples > 0 {
+		out += fmt.Sprintf(" | transit: %d samples, avg %.0fms, max %dms, %d over %dms",
+			s.TransitSamples, s.TransitAvgMs, s.TransitMaxMs, s.TransitSlow, slowTransitMs)
 	}
 	if s.StatesSuppressed > 0 {
 		out += fmt.Sprintf(" | %d frames suppressed as unchanged (%.0f%% of what would have been sent, %d brackets)",

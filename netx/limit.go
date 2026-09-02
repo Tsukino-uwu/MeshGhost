@@ -56,7 +56,11 @@ func (l *limitListener) Accept() (net.Conn, error) {
 			l.noteRefusal()
 			continue
 		}
-		return &limitedConn{Conn: c, release: func() { l.open.Add(-1) }}, nil
+		lc := &limitedConn{Conn: c, release: func() { l.open.Add(-1) }}
+		if uw, ok := c.(unreliableWriter); ok {
+			return &limitedLossyConn{limitedConn: lc, uw: uw}, nil
+		}
+		return lc, nil
 	}
 }
 
@@ -82,4 +86,32 @@ func (c *limitedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(c.release)
 	return err
+}
+
+// unreliableWriter is the state plane's fire-and-forget escape hatch, as the
+// transport package discovers it: by type assertion on the net.Conn, which is
+// exactly what an embedded-interface wrapper defeats.
+type unreliableWriter interface {
+	WriteUnreliable(p []byte) (int, error)
+}
+
+// limitedLossyConn is limitedConn for a connection that also has an
+// unreliable write -- the quic and udp transports. It exists because
+// limitedConn embeds net.Conn as an INTERFACE, so the underlying
+// connection's WriteUnreliable is hidden behind it: transport.SendUnreliable
+// asserts for the method, finds nothing, and falls back to the reliable
+// stream. That is what happened the night the limiter shipped (2026-09-02):
+// every state the relay forwarded over quic rode the ordered stream, so one
+// lost or reordered packet stalled every sample behind it for a round trip,
+// and a TEVI ghost through meshghost-netsim at 2% loss snapped every few
+// seconds at any interpolation delay. The datagram path is the reason quic
+// is worth serving at all (quicconn's package doc), and this wrapper is what
+// keeps it reachable through the limiter. Test: TestLimitListenerKeepsTheUnreliableWrite.
+type limitedLossyConn struct {
+	*limitedConn
+	uw unreliableWriter
+}
+
+func (c *limitedLossyConn) WriteUnreliable(p []byte) (int, error) {
+	return c.uw.WriteUnreliable(p)
 }

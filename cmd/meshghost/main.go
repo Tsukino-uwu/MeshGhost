@@ -691,6 +691,10 @@ func main() {
 	}
 
 	if *stats > 0 {
+		// With stats on, a dry render also gets its own line (at most one a
+		// second): which samples sat either side of the hole. The line is
+		// written from the render path under c.mu, so keep it to log.Print.
+		c.DryLog = func(line string) { log.Print(line) }
 		// Its own goroutine rather than folded into an existing tick: this is
 		// a diagnostic, and it must not be able to slow the state path down or
 		// change its timing. Stats() takes c.mu only briefly and reads the
