@@ -156,6 +156,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   flag bits and dispatch order are all sitting there. **Measurement is for CONFIRMING what the
   source says, not for discovering it**, and a probe cannot tell you what a byte MEANS. Live
   2026-08-23: a ghost cloned a trainer and hung the game; the source named it. `pitfalls.md`.
+- **The netsim rig is ALWAYS the worst case a shipped default must survive — NA↔EU ping PLUS bad wifi,
+  `run-netsim.bat`'s no-arg profile — and a rate/interp verdict is made on nothing milder** (user,
+  2026-09-02: two ladders judged on 60/25/2/2 had to be redone). Name the profile in every handoff.
 - **A clean light test does not close a risk that depends on sustained load.** Exercise the real
   rate/duration before marking it closed — found live: a single successful round trip closed a risk
   that reopened the same day once real sustained traffic was tried.

@@ -77,7 +77,9 @@ and the `-shipped` pair are separate files (see `run-core.bat`'s own header).
 ## The default dev rig is NETSIM, not a clean loopback (user's call, 2026-08-28)
 
 The clean 100Hz/`-interp=0` rig is only for FIRST matching a game's movement 1:1; after that,
-everything runs through `run-netsim.bat` with a bad link, to show how it will actually look. Rule and recipes:
+everything runs through `run-netsim.bat` with a bad link, to show how it will actually look -- **and since
+2026-09-02 that link is the bat's no-arg WORST-CASE profile (NA<->EU ping plus bad wifi) for every rate or
+interp verdict; a milder profile is a comparison, never a verdict.** Rule and recipes:
 `agent_docs/testing.md` ("Running a session over a bad network") and `dev-scripts/README.md`
 ("The two-rig doctrine"). Why: one netsim session found three shipped bugs and a timing flaw the
 clean rig structurally could not show.

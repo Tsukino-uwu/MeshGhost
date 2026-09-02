@@ -470,8 +470,10 @@ bugs and a timing flaw that months of clean-loopback testing could never have sh
   own scoping: *"should only be used when first trying to match movement/make sure the game moves
   1:1 correctly"*. Zero network in the way is the point -- any difference you see is the
   renderer's. Once movement matches, this rig has answered its question.
-- **After that, EVERYTHING runs on the netsim rig** (`run-netsim.bat`, e.g. `-latency 60ms
-  -jitter 25ms -loss 0.02 -reorder 0.02`, shipped-like interp): timing, sync, effects, hitstop,
+- **After that, EVERYTHING runs on the netsim rig** (`run-netsim.bat` with NO flags -- its built-in
+  profile is the worst case a shipped default must survive, NA<->EU ping plus bad wifi, and since
+  2026-09-02 a rate/interp verdict is made on nothing milder; the `60ms/25ms/2%/2%` profile the first
+  sweeps used is now a comparison you type on purpose): timing, sync, effects, hitstop,
   transitions, reconnects -- *"to actually show how they will look/work"*. On a clean link,
   arrival and phase coincide, so any coupling of an effect to message arrival looks correct and
   is not; 2026-08-28's charged-attack timing "looked fine" for a whole prior session that way.

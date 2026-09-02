@@ -184,6 +184,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
 - 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
+- Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
 
 ### Phase 7.1: Pseudoregalia local player pawn/position/rotation/level read confirmed live via UE4SS Lua probe
@@ -4739,3 +4740,23 @@ made on the HARSHER ocean profile (~200 ping / ±40ms / 5% loss) and stands for 
 250ms same-continent line was measured at 20Hz on 2026-08-30. Tonight's profile sits between the two, and
 at 15Hz it wants 300ms -- the same number TEVI settled on the same night on the same link
 (`adapters/tevi/VERIFIED.md`). Nothing in the shipped config changed on this run.
+
+## Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
+
+**User, on screen, two real instances,** both through `meshghost-netsim` on the profile that is now
+`run-netsim.bat`'s no-arg default and the only one a verdict is made on (user's rule that night): 100ms
+±50ms one-way per pass (~200 ping peer to peer, the proxy is crossed twice), 5% loss, 3% reorder, a
+one-second blackout every 45s. Relay at the shipped 15Hz with loss cover on, quic, the limiter fix in.
+Climbed from 300 with the core's `buffer dry` counter beside each rung; "small-hole seconds" are the
+rate-limited dry lines under 150ms past the newest sample, "outages" those over 500ms (the blackouts):
+
+| Interp | Meter | The user |
+|---|---|---|
+| 300ms | dry on 20-40% of moving renders, transit avg 208ms | *"stutters"* |
+| 375ms | 12 small-hole seconds in ~3 min, 3 outages | *"looked fine, but then it started to lag/stutter a lot for a tiny bit, also some small stutters here and there but overall fine?"* |
+| 450ms | 6 small-hole seconds, 1 outage | *"Yee i think it looked good now, except for the big drop that was probly the wifi drop"* |
+
+**So on the worst case Pseudoregalia wants 450ms at 15Hz; the one-second freeze every 45s is the blackout
+itself and no interp value covers it.** The 300ms verdict from earlier the same night was on the milder
+60/25/2/2 profile and stands only for that link. The shipped `375ms` was NOT changed on this run -- whether
+450 ships is the user's call once all four games have their worst-case number.

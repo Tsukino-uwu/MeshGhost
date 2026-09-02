@@ -10,8 +10,16 @@ REM handshake-then-upgrade path inside the proxy. A different port number
 REM would route the upgrade around it and the session would look fine while
 REM testing nothing.
 REM
+REM THE NO-ARG PROFILE IS THE WORST CASE A SHIPPED DEFAULT MUST SURVIVE, and it is
+REM the ONLY profile a rate/interp verdict is made on (user's rule, 2026-09-02):
+REM NA<->EU ping plus bad wifi. 100ms one-way per pass (the proxy is crossed twice
+REM per peer path, so ~200 ping peer to peer), +/-50ms jitter, 5% loss, 3% reorder,
+REM and a one-second blackout every 45s for the wifi dropout. A milder profile answers
+REM a question nobody asked: on 2026-09-02 two games' interp ladders were judged on
+REM 60/25/2/2 and had to be redone. Pass explicit flags ONLY to compare against this.
+REM
 REM Usage:
-REM   run-netsim.bat                 (defaults below: light loss + jitter)
+REM   run-netsim.bat                 (the worst-case profile above)
 REM   run-netsim.bat -loss 0.1 -latency 80ms -jitter 40ms
 REM   run-netsim.bat -partition-every 20s -partition-for 3s
 REM
@@ -30,7 +38,7 @@ REM tcp, so every real session needs tcp mirrored. The tool only refuses the
 REM combination that does nothing at all -- those flags with NO udp ports.
 setlocal
 if "%~1"=="" (
-  "%~dp0..\meshghost-netsim.exe" -tcp=7777 -udp=7777,7780 -loss 0.02 -latency 40ms -jitter 20ms
+  "%~dp0..\meshghost-netsim.exe" -tcp=7777 -udp=7777,7780 -latency 100ms -jitter 50ms -loss 0.05 -reorder 0.03 -partition-every 45s -partition-for 1s
 ) else (
   "%~dp0..\meshghost-netsim.exe" %*
 )
