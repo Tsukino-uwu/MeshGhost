@@ -27,13 +27,17 @@ runs in that same prefix.
 
 ## Games
 
-- [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md)
-- [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md)
-- [TEVI](adapters/tevi/README.md)
-- [Pseudoregalia](adapters/pseudoregalia/README.md)
+| Game | Runs in | What a ghost is | Where it stands |
+| --- | --- | --- | --- |
+| [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md) (GBA) | BizHawk, Lua | A real character on a real tile, with the game's own walk, run, bike, surf and field-effect animations mirrored | Feature complete (2026-08-21); Fly is partly done and the boat has not been watched yet |
+| [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md) (GBC) | BizHawk, Lua | A real object the engine itself walks, animates and hides behind things; falls back to a drawn sprite where it can't spawn one | Shipping and under active work; cross-map ghosts on a route seam work |
+| [TEVI](adapters/tevi/README.md) | BepInEx, C# | The player's own sprite and animations, played back for the ghost, with its weapon glow, trail and effects | Shipped (2026-08-13), live-tested two-player |
+| [Pseudoregalia](adapters/pseudoregalia/README.md) | UE4SS, C++ | A clone of the player's pawn: same mesh, outfit, animations, afterimages and effects, with a nametag plate | Feature complete (2026-08-27); still labelled experimental in the package because testing breadth is thin |
 
 Each link goes to that adapter's own README: how it reads its game, how it was built, and what it
-can show today.
+can show today. Every one of them says on its first screen what has been confirmed on screen and
+what has not — `VERIFIED.md` and `UNVERIFIED.md` sit beside each README, and nothing goes in the
+first without a person watching it happen.
 
 **One server hosts every game at once**, with nothing to set up for it: a single
 `meshghost-server.exe` carries Emerald, Crystal, TEVI and Pseudoregalia sessions simultaneously
@@ -59,14 +63,20 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
 TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` copied into
 that mod's folder once, and they read the `config.json` that sits beside it rather than the one in
 the folder you unzipped. Emerald and Crystal run from the release folder itself and need neither.
-Setting `MESHGHOST_NO_AUTOSTART` in your environment turns autostart off in all four, if you would
-rather run the client by hand.
+Setting `MESHGHOST_NO_AUTOSTART` in your environment turns autostart off in every game, if you
+would rather run the client by hand.
 
 Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 
 ### Good to know
 
-- Up to 8 players per server by default, counted across all rooms — the host can raise it.
+- Up to 8 players per server by default, counted across all rooms — the host can raise it
+  (`server.max_clients`).
+- **Smoothness is three knobs, and the shipped values are the ones to start from.** The host sets
+  how often everyone sends (`server.send_hz`, 15 a second); a player can cap what they receive per
+  peer (`client.max_receive_hz_per_player`, 0 for no cap) and how far behind live a ghost is drawn
+  (`client.interp`, 250ms — the delay that lets a ghost move smoothly through the gaps between
+  updates instead of jumping). Ghosts are never predicted ahead of what was actually received.
 - Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 - `room` is a label, not a password. `room_code` is the optional actual secret.
 - **Nametags are opt-in and cosmetic.** Set `client.name` (and optionally `client.name_color`) in
@@ -121,17 +131,21 @@ startup, and a player who pastes it into `"tls_fingerprint"` authenticates **the
 is the leg carrying the `room_code`, so it is the one worth closing. It does not extend to the quic
 session, which uses a separate certificate and is encrypted-but-unverified either way. Pinning is
 opt-in, nothing distributes the fingerprint for you, and the relay generates a new certificate on
-every restart. Full posture: [docs/security.md](docs/security.md). Why it works this way:
-[agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs. **Want to check
-any of this yourself before hosting?** [docs/reviewing.md](docs/reviewing.md) says which code a
-host actually runs and how to run the fuzzers and the race detector on your own machine.
+every restart. Full posture: [docs/security.md](docs/security.md), which also carries a dated
+changelog of every hardening pass — including an adversarial review of the relay, its transports
+and the peer-to-adapter path (2026-09-02) — and the known gaps each one chose to leave. Why it
+works this way: [agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs.
+**To check any of this yourself before hosting**, [docs/reviewing.md](docs/reviewing.md) says
+which code a host actually runs, where the bytes go, and how to run the fuzzers and the race
+detector on your own machine.
 
 ## How it works
 
 - **Relay** — a small, game-agnostic server that forwards position/area/animation snapshots
   between clients. Never runs or touches the game.
 - **Core client** — game-agnostic logic: talks to the relay, buffers and interpolates remote
-  player state. Never touches game memory or rendering.
+  player state, and re-checks everything the relay sends (sizes, finite numbers, a bounded roster,
+  sanitized names) before the adapter sees any of it. Never touches game memory or rendering.
 - **Adapter** — the game-specific layer. Reads the local game's position/area/animation and draws
   the ghost. Never touches the network directly.
 
@@ -156,8 +170,8 @@ interfaces), [agent_docs/architecture.md](agent_docs/architecture.md) (system sh
 
 **Any language: run it beside your game.** `meshghost.exe` does all the networking as its own
 process; your game connects a TCP socket to it on localhost and exchanges one JSON object per
-line. There is no library to link — which is why the four shipped adapters are written in three
-unrelated languages (Lua, C#, C++) and share no code. Rust, Python, Godot, Java: same shape.
+line. There is no library to link — which is why the shipped adapters are written in unrelated
+languages (Lua, C#, C++) and share no code. Rust, Python, Godot, Java: same shape.
 [docs/integrating.md](docs/integrating.md) is the guide, with a conformance checklist and a
 worked example.
 
@@ -198,7 +212,8 @@ MeshGhost/
 ├── bridge/               # the adapter <-> local core messages
 ├── netx/                 # transport selection: tcp | udp | quic
 │
-├── internal/e2e/         # e2e tests only — deliberately not importable
+├── internal/             # not importable: the e2e suite that drives the real binaries, config
+│                         #   loading, and the check that keeps the Go side game-blind
 ├── adapters/             # one folder per game; _template/ is the starting point for a new one
 ├── docs/                 # for people using MeshGhost
 ├── agent_docs/           # design brief, contract, architecture, roadmap, verified facts
@@ -218,18 +233,24 @@ is the internal working record of how it got built.
 
 - [integrating.md](docs/integrating.md) — putting MeshGhost in your own game, in any language.
 - [security.md](docs/security.md) — the security and privacy posture: what is already
-  checked-safe, and the gaps that remain.
+  checked-safe, the gaps that remain, and a dated changelog of every hardening pass.
+- [reviewing.md](docs/reviewing.md) — auditing it yourself: which code a host runs, where the
+  bytes go, and how to run the fuzzers and race detector on your own machine.
 - [networking.md](docs/networking.md) — how the relay and client actually work, traced through
   the real code.
 - [live-reload.md](docs/live-reload.md) — how a code change reaches a running game without
-  restarting it, and why the three games solved it three different ways.
+  restarting it, and why each host (BizHawk, BepInEx, UE4SS) needed its own answer.
 - [antivirus.md](docs/antivirus.md) — why the binaries get flagged, and what you can check.
 
 **`agent_docs/`**
 
 - [README.md](agent_docs/README.md) — **the full index.** Start here if what you want is not below.
 - [brief.md](agent_docs/brief.md) — the design brief and reasoning.
-- [plans.md](agent_docs/plans.md) — the phase-by-phase roadmap.
+- [contract.md](agent_docs/contract.md) — the implemented contract: wire protocol, bridge, limits.
+- [architecture.md](agent_docs/architecture.md) — the system shape, and the index of every
+  decision record in [adr/](agent_docs/adr/).
+- [plans.md](agent_docs/plans.md) — the phase-by-phase roadmap; [phases/](agent_docs/phases/)
+  holds one work log per phase and per game.
 - [status.md](agent_docs/status.md) — one-screen summary of where things stand.
 - [pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues, and how they were diagnosed.
 - [risks.md](agent_docs/risks.md) — known risks and open assumptions.

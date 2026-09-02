@@ -6,7 +6,7 @@
 everything above the horizontal rule below.**
 
 **When to create it:** once `probes/` holds more than a couple of scripts, and `preflight.ps1`
-fails a probe folder holding more than two that has no index. All three shipped adapters with
+fails a probe folder holding more than two that has no index. Every shipped adapter with
 probes now have one — Crystal and Emerald in `probes/README.md`, Pseudoregalia in a `PROBES.md` at
 its adapter root, because **UE4SS loads a Lua mod from a fixed `<ModName>/Scripts/main.lua`, so
 each probe is its own mod directory and there is no `probes/` folder to index from the inside.**

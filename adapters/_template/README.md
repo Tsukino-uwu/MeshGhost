@@ -10,7 +10,7 @@
 shipped adapters learned the hard way (last swept 2026-08-17, against `agent_docs/contract.md`,
 `bridge`, and the four shipped adapters' own docs; last recount 2026-08-18, when Crystal
 shipped and every "three" in this folder became wrong at once; re-swept later the same day against
-all four adapters' sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
+every adapter's sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
 -stats`, the relay's `-introspect`; staleness-swept again 2026-08-21 against the Go source, the
 four adapters' sources and `.gitignore`). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
@@ -21,7 +21,7 @@ to run as-is.
 
 ## What is in this file, and what you can safely read later
 
-**This file is long because it is the accumulated cost of four adapters. It is not all urgent.**
+**This file is long because it is the accumulated cost of every adapter shipped so far. It is not all urgent.**
 Nothing below is optional once you are building, but the ORDER matters and the whole thing does not
 have to be read in one pass. Read the hard rules first — they are the ones written because
 something already went wrong.
@@ -220,7 +220,7 @@ the provenance sentence at the top — `agent_docs/licensing.md`'s audit greps f
 stay there.** Not a link to it — the text itself. A rule that lives one click away is read once,
 when the file is created, and then not again at the moment it matters: someone pasting something in
 long after they have forgotten it exists. `_template/documentation.md` carries it as a `## Before adding anything to this file`
-section, marked KEEP; copying that file forward is what propagates it. All four shipped adapters
+section, marked KEEP; copying that file forward is what propagates it. Every shipped adapter
 carry it (added 2026-08-18, on the user's instruction: *"so we always guarantee that we don't
 accidently add something wrong/bad anywhere"*).
 
@@ -261,7 +261,7 @@ deliberately no template, since a stub with no content would go stale immediatel
 6. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
    methodology" section (one diagnostic at a time, never log the value you just wrote, run the
    test without the fix, two identical failures means stop guessing). It's the most transferable
-   content in the repo, and the rest of the file is the log of what the four existing adapters
+   content in the repo, and the rest of the file is the log of what the existing adapters
    got wrong so you don't have to.
 7. Follow this project's verification standard ([CLAUDE.md](../../CLAUDE.md)): no address,
    hook, or API call from memory — everything traceable to a source, and nothing in
@@ -365,7 +365,7 @@ lets MeshGhost run on top of an Archipelago seed instead of fighting it.
 
 ## First, work out what you will be able to READ
 
-Do this before estimating anything. The four shipped adapters differed enormously in difficulty,
+Do this before estimating anything. The shipped adapters differed enormously in difficulty,
 and the best predictor was not the engine, the language or the modding framework — it was **how much
 readable source existed about the game before work started.**
 
@@ -745,7 +745,7 @@ because from the player's chair an invisible friend and a disconnected friend lo
 
 **Also state the access model up top**, as a bullet alongside platform and adapter language:
 **"How the game is read: ..."** — decompilation, self-documenting artifact, runtime reflection,
-modding API, and so on, per the section above. All four shipped adapters carry this bullet. It is
+modding API, and so on, per the section above. Every shipped adapter carry this bullet. It is
 the single fact that best explains why an adapter is the size and shape it is, it tells a reader
 immediately how much of the code is discovery scaffolding versus feature work, and it sets
 expectations for anyone picking the adapter up later.
@@ -785,7 +785,7 @@ Region variants, exact file names and hashes are a separate question and belong 
 **The other sections every shipped README carries**, and which the build story alone doesn't cover:
 
 - **A bold `**Status:**` line as line 3** — the phase, what's done, what the last live
-  confirmation was and when. All four shipped adapters open this way, and it is the line a reader
+  confirmation was and when. Every shipped adapter open this way, and it is the line a reader
   checks first. **Rewrite it the day the adapter's state changes, not the day someone notices.**
   Crystal's still said "groundwork only, there is no adapter yet" while a ~1000-line adapter that
   renders ghosts, opens a socket, writes RAM and ships in the release sat beside it — the single
@@ -793,7 +793,7 @@ Region variants, exact file names and hashes are a separate question and belong 
   a reader trusts most.
 - **"Further work past 'good enough'"** — what is still open, with `agent_docs/status.md` named as
   the authoritative list. This is the section that stops the numbered story turning into a status
-  file: anything still open goes here, not into a step. All four shipped adapters carry it
+  file: anything still open goes here, not into a step. Every shipped adapter carry it
   (Crystal's was the last to land).
 - **"Custom features"** — anything this adapter does that isn't required of an adapter (TEVI and
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
@@ -1378,7 +1378,7 @@ breaking something instead of by reading.
 ## Every adapter starts the client, and stops it again
 
 **This is expected of a new adapter, not optional.** MeshGhost should feel like part of starting
-the game, not a second program to remember. All four shipped adapters do it as of 2026-08-18 --
+the game, not a second program to remember. Every shipped adapter do it as of 2026-08-18 --
 Pseudoregalia since 2026-08-16, TEVI, Emerald and Crystal added the same day this was written.
 
 The rule has two halves and the second is the one people forget:
@@ -1552,8 +1552,8 @@ file move.
 The core bounds what it forwards (sizes, finite positions, a roster cap of 512 ids, sanitized
 names), and that is ALL it can do: `extras`, `anim`, `area_id` and `orientation` are opaque to it
 by contract, so their CONTENTS reach your adapter exactly as a peer wrote them — and a hostile
-relay can write anything at all. The 2026-09-02 adversarial review (ADR 0044) read all four
-shipped adapters with that in mind and found the same shapes in each. Start with these, or you
+relay can write anything at all. The 2026-09-02 adversarial review (ADR 0044) read every
+shipped adapter with that in mind and found the same shapes in each. Start with these, or you
 will be adding them after a peer finds them for you:
 
 - **Type-check before you index.** `extras` may be a number; `extras.gender` may be a table or a
@@ -1670,7 +1670,7 @@ the shared half stays in the core and only the shape-specific half is yours:
 
 The reference implementation is `lerp_angle_deg` plus its call site in Pseudoregalia's `Plugin.cpp`
 (`GHOST_ROTATION_SLERP`). It is ~15 lines and has no dependencies — **copy it rather than trying to
-share it**, since the four adapters are in three different languages and this repo has no
+share it**, since the adapters are in different languages and this repo has no
 cross-adapter code layer. What is genuinely shared is the core half, and that is already done.
 
 **Three rules that came out of doing it, all non-obvious:**

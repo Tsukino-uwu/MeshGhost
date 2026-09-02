@@ -62,7 +62,7 @@ reconnection, buffering, interpolation, the relay conversation. Your game connec
 to it on `127.0.0.1:7778` and exchanges **one JSON object per line**. Nothing of ours is linked
 into your binary and nothing of yours into ours.
 
-This is not a fallback, it is how MeshGhost is actually built: the four shipped adapters are
+This is not a fallback, it is how MeshGhost is actually built: the shipped adapters are
 written in **Lua, C# and C++**, share no library and no linked code — the two BizHawk Lua ones do
 follow the same structure, since they solve the same problem in the same host — and each is a few
 hundred lines. Rust, Python, Godot, Java, Zig — all the same shape.

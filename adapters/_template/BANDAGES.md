@@ -4,7 +4,7 @@
 
 **This file is the guide, not the thing you copy.** A new adapter's register lives at
 `adapters/<game>/BANDAGES.md` and carries a compact form that links back here. Start it from the
-stub at the bottom of this file. Three of the four shipped registers have that exact shape;
+stub at the bottom of this file. Every shipped register but one has that exact shape;
 Crystal's diverges (it heads its first section "Shipped compensations" and carries no "Borderline"),
 which is the cost being warned about — a register that does not match its siblings is harder to
 read across games, and harder to audit in one pass.

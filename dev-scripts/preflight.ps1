@@ -1167,6 +1167,34 @@ if ($unannotated.Count -eq 0) {
     Report-Fail ("raw-pointer cache(s) with no stale-safe: annotation -- say why it cannot dangle (hook-cleared and never freed mid-level, or per-use validated), or hold FWeakObjectPtr instead: " + ($unannotated -join "; "))
 }
 
+Section "No hard-coded adapter or game counts in living docs"
+
+# WHY THIS EXISTS. "All four adapters", "the four shipped games": true the day it is written and
+# false the day the fifth game lands, with nothing to flag it -- the user's call, 2026-09-02:
+# "good hygiene, and it prevents things from going stale". Say "every shipped adapter". Covers the
+# people-facing docs and the template (which every new adapter copies from); a line carrying a
+# date is a record of that day and is skipped, the same rule as every other dated fact here.
+$countFiles = @(Get-ChildItem -LiteralPath (Join-Path $root "docs") -Filter *.md) +
+    @(Get-ChildItem -LiteralPath (Join-Path $root "adapters\_template") -Filter *.md) +
+    @(Get-Item -LiteralPath (Join-Path $root "README.md"))
+$countHits = @()
+foreach ($f in $countFiles) {
+    $n = 0
+    foreach ($line in Get-Content -LiteralPath $f.FullName) {
+        $n++
+        if ($line -match '20\d\d-\d\d-\d\d') { continue }
+        if ($line -match '(?i)\b(all|the|our|these) (three|four|five|six|seven|eight|3|4|5|6|7|8) (shipped |existing |current )?(adapters|games|mods)\b|\b(three|four|five|six|seven|eight) shipped (adapters|games|mods)\b') {
+            $countHits += "$($f.FullName.Substring($root.Length + 1)):$n"
+        }
+    }
+}
+if ($countHits.Count -eq 0) {
+    Report-Pass "no living doc counts the adapters or games (say 'every shipped adapter')"
+} else {
+    Report-Fail "$($countHits.Count) line(s) count the adapters/games -- a count is stale the day the next game lands; say 'every shipped adapter', or date the line if it is a record:"
+    $countHits | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+}
+
 Section "GitHub Action versions agree across workflows"
 
 # WHY THIS EXISTS. On 2026-08-17 every workflow was moved off the Node 20 runtime, because GitHub

@@ -6,7 +6,7 @@ MeshGhost supports several games, and each one is reached by a small piece of co
 **adapter** — that runs *inside* that game: a Lua script in an emulator, a plugin in Unity, a mod
 in Unreal. Nothing in this file is something a player installs or runs. It is here because the
 answer to "how do you develop that?" turned out to be more interesting than expected, and because
-the three games solved it three different ways for reasons worth knowing.
+each host (BizHawk, BepInEx, UE4SS) needed a different answer, for reasons worth knowing.
 
 **The one-line version:** on all three, a code change reaches the running game in about two
 seconds, with the game never closing and nobody pressing anything.

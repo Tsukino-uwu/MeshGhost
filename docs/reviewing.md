@@ -122,8 +122,8 @@ go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./prot
 go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./bridge
 ```
 
-The full list is `grep -rn '^func Fuzz' --include=*_test.go .` — fourteen targets across five
-packages at the time of writing, and CI counts them the same way rather than trusting a list.
+The full list is `grep -rn '^func Fuzz' --include=*_test.go .`, and CI counts the targets the
+same way rather than trusting a written list.
 
 **Drive a relay by hand.** The tcp transport is newline-delimited JSON and, unless the host set
 `"tls": "required"`, plaintext on the same port, so `nc host 7777` and typing is a valid attack.
