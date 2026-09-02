@@ -7,27 +7,20 @@
 whose game runs inside an emulator; per-game facts live in each adapter's own `documentation.md`,
 `FLAGS.md` and `BANDAGES.md`.
 
-**Capped at 200 lines, for the reason the root `CLAUDE.md` is capped** — this file loads without
-being asked, so it spends the same instruction budget, and an uncapped auto-loading file
-recreates the problem the cap exists to prevent. `agent_docs/claude-md-cap.md` has the argument.
-Before adding: what comes out to make room?
+**Capped, and part of the emulator session's rule STACK** (`agent_docs/claude-md-cap.md`): this
+file loads without being asked. Before adding: what comes out?
+
+**Before touching a Lua file here, read `agent_docs/checklists/before-touching-lua.md`; before a
+probe, `before-a-probe.md`.** The lessons that used to sit in `pitfalls.md` live there, one line each.
 
 **This file never restates the root `CLAUDE.md` or `../CLAUDE.md`.** A rule with two homes drifts.
 
 ## How this file is split, and why
 
-Every adapter under here today is BizHawk (Crystal, Emerald), so BizHawk rules and
-emulator-in-general rules currently live in one file. They are kept under **two separate
-headings** so the difference stays visible:
-
-- **Part 1** is true of any emulator host — it would survive a Dolphin, mGBA or DuckStation
-  adapter unchanged.
-- **Part 2** is BizHawk's own API, and the GBA/GB hardware the two current games run on. A
-  Dolphin adapter would need its own equivalents, not these.
-
-**That division is the cut line.** Per `../CLAUDE.md`'s create-a-level-on-demand rule, a second
-emulator is what creates `emulator/bizhawk/` — and when it does, Part 2 is what moves down into it
-while Part 1 stays here. Sorting it now means that move is a cut, not a re-derivation.
+Every adapter here today is BizHawk, so BizHawk rules and emulator-in-general rules share one file
+under **two headings**: **Part 1** would survive a Dolphin, mGBA or DuckStation adapter unchanged;
+**Part 2** is BizHawk's own API and the GB/GBA hardware. Per `../CLAUDE.md`'s create-a-level-on-demand
+rule, a second emulator creates `emulator/bizhawk/`, and Part 2 is what moves down into it.
 
 ---
 
@@ -51,23 +44,13 @@ what it costs: the 2026-08-21 ADR in `agent_docs/architecture.md`.
 
 ### A per-second log line is a per-second stall — and it ships
 
-**A rule the new adapter starts with, because both existing Lua adapters got it wrong.** Writing to
-the log is not free: one `console.log` plus one `flush` was measured at **63–83ms** on 2026-08-21 —
-four to five frames — on the emulator's own thread. Crystal's drawn tier wrote one summary line a
-second whenever peers were present, so a shipped session lost that every second, and Emerald
-wrapped the global `console.log` so every console line flushed to disk too.
-
-So: **open the log buffered (`setvbuf("full", …)`), never flush per line, flush on a timer, and keep
-the front end's own console call for the rare line somebody actually needs to see.**
-[probes.md](../_template/probes.md) has said "buffer, and flush in batches" since the drawn tier was
-built — what failed was reading it as advice about *probes*. It is not. It is about anything that
-runs every frame, shipped code first.
-
-**And when anyone says "choppy", measure PACING, not rate.** An average cannot see a hitch: ten
-frames lost inside one second still reads as 58fps, which is why this cost a whole session before it
-was found. `dev-scripts/bizhawk-hitch-meter.lua` is standing rig for exactly that — game-agnostic,
-attach it to any performance question, and it reports frames over 20ms, frames over 33ms and the
-worst gap rather than an average that hides all three.
+One `console.log` plus one `flush` measured at **63–83ms** — four to five frames — on the emulator's
+own thread (2026-08-21), and both Lua adapters shipped a per-second line. So: **open the log buffered
+(`setvbuf("full", …)`), never flush per line, flush on a timer, and keep the front end's console for
+the rare line somebody needs to see** — for anything that runs every frame, shipped code first. The
+cost rule and the numbers are `../CLAUDE.md`'s. **And when anyone says "choppy", measure PACING, not
+rate**: `dev-scripts/bizhawk-hitch-meter.lua` reports frames over 20ms, over 33ms and the worst gap,
+all of which an average hides.
 
 ### A memory-write breakpoint is the only instrument that sees BETWEEN frames
 
@@ -89,59 +72,35 @@ BizHawk's:
 
 ### Lua's 200-local ceiling will stop your adapter loading, silently
 
-**A Lua chunk may declare at most 200 locals in its main body.** Past that the file does not load at
-all: BizHawk reports `too many local variables (limit is 200) in main function`, the dev loader
-prints one `LOAD FAILED` line, and the adapter is simply absent. Nothing else says so — the game
-runs normally with no ghosts, which reads as a networking fault or a dead relay.
+**A Lua chunk may declare at most 200 locals in its main body.** Past that the file does not load:
+BizHawk reports `too many local variables (limit is 200) in main function`, the dev loader prints one
+`LOAD FAILED` line, and the adapter is simply absent — the game runs with no ghosts, which reads as a
+networking fault. Hit four times in one Crystal session (2026-08-21) and again 2026-08-26; preflight's
+"Lua parses" now fails the tree the moment a file crosses it, so the cost is a red check, not a cycle.
 
-**Measured 2026-08-21, and it is not theoretical**: Crystal hit it four times in a single session,
-and each time cost a reload cycle to identify. Re-counted 2026-08-27:
+| adapter | top-level locals, re-measured 2026-08-28 |
+|---|---|
+| Crystal | **197 of 200** — compiles with 3 added, fails with 4 |
+| Emerald | **199 of 200** — compiles with 1 added, fails with 2 |
 
-| adapter | lines (2026-09-01) | top-level locals |
-|---|---|---|
-| Crystal | 10,295 | **197 of 200** (re-measured 2026-08-28: compiles with 3 added, fails with 4) |
-| Emerald | 11,364 | **199 of 200** (re-measured 2026-08-28: compiles with 1 added, fails with 2) |
-
-**Crystal is three names from the wall and Emerald is ONE.** Crystal's row read 188 for one day and was
-already stale when it was read: adding two plain constants for a feature stopped the file loading
-outright (2026-08-26, the fourth time). **A number nothing re-measures is a number that WAS true**
-— so re-measure before planning around the headroom, and expect the answer to be worse. Neither
-adapter has solved this, and the constants-onto-tables consolidation
-that bought Emerald its last few names is a bandage, not a fix. The fix is modules, each with its
-own 200-local budget — `agent_docs/ideas.md`'s deferred-refactor list.
-
-**Measure the headroom, do not count `local` lines.** Lua's limit is on NAMES, so
-`local a, b, c` spends three and `grep -c '^local '` undercounts badly. Append N throwaway locals
-to a copy and compile it, halving N until it flips:
+**A number nothing re-measures is a number that WAS true** — re-measure before planning around the
+headroom, and expect worse. **Measure the headroom, do not count `local` lines**: the limit is on
+NAMES, so `local a, b, c` spends three. Append N throwaway locals to a copy and compile it, halving N
+until it flips, and read the headroom off the PASSING count (`used = 200 - N`):
 
 ```sh
 C:/msys64/mingw64/bin/luac.exe -p <copy-with-N-extra-locals.lua>
 ```
 
-Both figures above were confirmed that way. Re-measured 2026-08-28: **Crystal compiles with 3 added
-and fails with 4; Emerald compiles with ONE and fails with 2** -- Emerald moved a name that same day
-(the relay-down backoff), and the row here said 198 for several hours while the file was at 199,
-which is this section's own warning happening to this section. Read it off the PASSING count
-— `used = 200 - N` where N is the largest number that still compiles — because taking it off the
-failing one is off by one in the reassuring direction.
+**The fix is modules, each with its own budget** (`agent_docs/ideas.md`'s deferred refactors), with one
+trap paid for twice: a file loaded with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE
+path, so a shared module that calls `scriptDir()` resolves to `"."` and `package.loadlib` then resolves
+a DLL against BizHawk's process directory. **A shared module never resolves its own directory: the
+host adapter resolves `SCRIPT_DIR` and passes it in.**
 
-**The modules fix has one trap already paid for twice, and it must be designed around.** A file
-loaded with `dofile` sees `debug.getinfo(1,"S").source` as a RELATIVE path, so a shared module that
-calls `scriptDir()` itself resolves to `"."` — which passes the absolute-path guard's sibling branch,
-skips the pwd fallback, and then fails where it actually matters, because `package.loadlib` resolves
-a relative DLL path against BizHawk's process directory and never the working directory. Both
-adapters' own `scriptDir()` carries the dated warning (2026-08-18, twice in one day). **So a shared
-module never resolves its own directory: the host adapter resolves `SCRIPT_DIR` and passes it in.**
-
-**So group by default, from the first file.** Related constants and state go on one table
-(`local oam = {...}`, `local COMPARE = {...}`), not one name each. Field offsets, addresses, tier
-state and per-frame scratch are all natural groups. Retrofitting this under pressure — which is how
-both existing adapters got their tables — means doing it while chasing a bug, which is the worst
-time.
-
-**And when a change to a big adapter mysteriously does nothing, check the loader log for
-`LOAD FAILED` before anything else.** It is one line, it scrolls away, and it looks nothing like a
-bug in the change you just made.
+**So group by default, from the first file** — related constants and state on one table (`local oam =
+{...}`), not one name each. **And when a change to a big adapter mysteriously does nothing, check the
+loader log for `LOAD FAILED` before anything else.** It is one line, and it scrolls away.
 
 ---
 

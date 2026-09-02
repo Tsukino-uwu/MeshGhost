@@ -250,10 +250,9 @@ if ($strayCaps.Count -gt 0) {
 # past that) is about what a model carries at once, and a session in an adapter folder carries
 # the root CLAUDE.md, adapters/CLAUDE.md AND that host's file together. Per-file caps let the
 # stack reach 787 lines for an emulator session (2026-09-02) with every file individually green.
-# So the stack has its own number. WARN rather than FAIL until the pitfalls funnel lands
-# (planned 2026-09-02): the trim that gets the emulator stack under 700 is "lines whose lesson is
-# now a preflight check come out", and those checks do not exist yet. Flip to Report-Fail in the
-# commit that adds them; a stack over budget after that is a regression.
+# So the stack has its own number, and it FAILS: the pitfalls funnel (2026-09-02) trimmed every
+# rule file by turning stories into dates and pointers and by dropping lines whose lesson is now a
+# preflight check, so a stack over budget after that is a regression, not a backlog.
 $stackCap = 700
 $stacks = [ordered]@{
     'emulator'      = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/emulator/CLAUDE.md')
@@ -265,7 +264,7 @@ foreach ($k in $stacks.Keys) {
     $sum = 0
     foreach ($f in $stacks[$k]) { if ($lineCount.ContainsKey($f)) { $sum += $lineCount[$f] } }
     if ($sum -gt $stackCap) {
-        Report-Warn "the $k session stack loads $sum lines of rules, $($sum - $stackCap) over the $stackCap-line stack budget (root + adapters/ + host)"
+        Report-Fail "the $k session stack loads $sum lines of rules, $($sum - $stackCap) over the $stackCap-line stack budget (root + adapters/ + host). Something comes out -- a line whose lesson is now a check first."
     } else { $stacksOk++ }
 }
 if ($stacksOk -eq $stacks.Count) { Report-Pass "all $($stacks.Count) session stacks within the $stackCap-line stack budget" }
@@ -278,8 +277,9 @@ Section "One-line entries"
 # 2026-08-14..16: a flat 50-line cap was defeated by items averaging three lines each (peak 628),
 # and the fix that held was "two lines per item". This is that rule made mechanical, at one line:
 # a bullet in one of these blocks may not be followed by an indented continuation line. Files join
-# this list as they are re-cut to comply (status.md, pitfalls/INDEX.md and agent_docs/README.md's
-# file list are planned, 2026-09-02); the VERIFIED index blocks already comply and go first.
+# this list as they are re-cut to comply (status.md and agent_docs/README.md's file list are
+# planned, 2026-09-02). The VERIFIED index blocks, pitfalls/INDEX.md and every checklists/ page's
+# lesson list are in: a checklist grows by lessons, never by verbosity.
 #   Path  -- the file
 #   From  -- regex for the heading that opens the block ('' = whole file)
 #   To    -- regex for the heading that closes it ('' = end of file)
@@ -289,6 +289,15 @@ $oneLine = @(
     @{ Path = 'adapters/pseudoregalia/VERIFIED.md';            From = '^## Index'; To = '^## ' }
     @{ Path = 'adapters/emulator/pokemon/emerald/VERIFIED.md'; From = '^## Index'; To = '^## ' }
     @{ Path = 'adapters/emulator/pokemon/crystal/VERIFIED.md'; From = '^## Index'; To = '^## ' }
+    @{ Path = 'agent_docs/pitfalls/INDEX.md';                  From = '';          To = '' }
+    @{ Path = 'agent_docs/checklists/before-a-probe.md';               From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-trusting-a-reading.md';    From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-declaring-a-fix.md';       From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-a-scripted-edit.md';       From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-mirroring-state.md';       From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-spawning-in-unreal.md';    From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-touching-lua.md';          From = '^## Every lesson'; To = '' }
+    @{ Path = 'agent_docs/checklists/before-a-network-change.md';      From = '^## Every lesson'; To = '' }
 )
 $oneLineBad = @()
 $oneLineBullets = 0
@@ -501,6 +510,115 @@ if (-not (Test-Path $luac)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Lua globals resolve"
+if ($TreeOnly) { Report-Skip "needs luac, a working copy" } else {
+
+# The fifth-occurrence lesson (pitfalls: "A local declared BELOW a function, and a bare name that
+# becomes a global"; "Lua: a use above its local is a silent nil"; "A local declared below its use,
+# inside one function"). A name used above its `local` compiles as a GLOBAL read, so the file parses,
+# loads, and hands back nil on the first frame that path runs -- and the dev loader then unloads the
+# whole adapter, which reads as a networking fault. `luac -p` cannot see it; `luac -l -l` can: it
+# lists every function's locals and every `_ENV "name"` access. A name that appears in BOTH sets is
+# the bug, exactly -- no allowlist needed, which matters because both adapters deliberately declare
+# functions as globals to stay under the 200-local ceiling. Zero hits across 212 tracked files when
+# this was written (2026-09-02); dev-scripts/lua-forward-refs.py checked file scope only and nothing
+# ran it. Negative-tested against a planted use-above-local before it was trusted.
+if (-not (Test-Path $luac)) {
+    Report-Warn "luac not found at $luac -- skipping the Lua globals check"
+} else {
+    $luaFiles = @(& git ls-files '*.lua')
+    $shadowed = @()
+    foreach ($f in $luaFiles) {
+        $listing = & $luac -l -l -p $f 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }   # "Lua parses" already reports this file
+        # Case-SENSITIVE on purpose: Lua names are, and PowerShell's @{} keys and -match are not --
+        # the first run of this check paired a probe's `local IO` (the GBA register base) with the
+        # global `io` and reported a bug that did not exist. Ordinal sets, or the check lies.
+        $locals = New-Object 'System.Collections.Generic.HashSet[string]'
+        $env = New-Object 'System.Collections.Generic.HashSet[string]'
+        $inLocals = $false
+        foreach ($line in $listing) {
+            if ($line -match '^locals \(') { $inLocals = $true; continue }
+            if ($line -match '^(upvalues|constants) \(|^(main|function) <') { $inLocals = $false }
+            if ($inLocals -and $line -match '^\s*\d+\s+([A-Za-z_][A-Za-z0-9_]*)\s') { [void]$locals.Add($Matches[1]) }
+            if ($line -match '\t(GETTABUP|SETTABUP)\s.*_ENV "([A-Za-z_][A-Za-z0-9_]*)"') { [void]$env.Add($Matches[2]) }
+        }
+        $both = @($env | Where-Object { $locals.Contains($_) } | Sort-Object)
+        if ($both.Count -gt 0) { $shadowed += "$f -- $($both -join ', ')" }
+    }
+    if ($luaFiles.Count -eq 0) {
+        Report-Fail "no tracked .lua files found -- the globals check would pass vacuously"
+    } elseif ($shadowed.Count -gt 0) {
+        Report-Fail "$($shadowed.Count) Lua file(s) reach a name as a GLOBAL that is also declared local -- a use above its local, or a bare assignment (agent_docs/checklists/before-touching-lua.md):"
+        $shadowed | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "no tracked .lua file reaches a declared local through _ENV ($($luaFiles.Count) files)"
+    }
+}
+}
+
+# ---------------------------------------------------------------------------
+Section "Reflected bools use the property mask (Pseudoregalia)"
+
+# UE packs many UPROPERTY bools as bitfields sharing a byte, and RE-UE4SS's
+# GetValuePtrByPropertyNameInChain<bool> hands back the containing BYTE -- so seven flags read true
+# when one is set, and a census whose bools all agree is not measuring them. Three cases by
+# 2026-09-01 (pitfalls: "A bitfield bool read through a plain byte pointer"; "the bitfield bool,
+# third case"). Every read in Mod/src goes through FBoolProperty::GetPropertyValueInContainer now;
+# this is the ratchet that keeps it so. A raw <bool> read is a FAIL unless the line says why it is
+# safe with a `bitfield-safe:` note. Comment lines are skipped -- the lesson is allowed to name it.
+$boolFiles = @(& git ls-files -- 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp' 'adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp')
+$rawBool = @()
+foreach ($f in $boolFiles) {
+    $lines = @(Get-Content -LiteralPath $f)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -notmatch 'GetValuePtrByPropertyNameInChain<bool>') { continue }
+        if ($l -match '^\s*//') { continue }
+        if ($l -match 'bitfield-safe:') { continue }
+        $rawBool += "$f`:$($i + 1)"
+    }
+}
+if ($boolFiles.Count -eq 0) {
+    Report-Fail "no Pseudoregalia Mod/src files found -- the reflected-bool check would pass vacuously"
+} elseif ($rawBool.Count -gt 0) {
+    Report-Fail "$($rawBool.Count) raw <bool> reflection read(s) -- a reflected bool is a bitfield, read it through FBoolProperty::GetPropertyValueInContainer or say why not (bitfield-safe:):"
+    $rawBool | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "no raw GetValuePtrByPropertyNameInChain<bool> read in $($boolFiles.Count) Pseudoregalia source file(s)"
+}
+
+# ---------------------------------------------------------------------------
+Section "No bare interpreter on PATH in dev-scripts"
+
+# The wrong-install-on-PATH trap, four times live (cmake 2026-08-13, git 2026-08-15, cmd 2026-08-17
+# and again 2026-09-01 -- exit 0, empty output, nothing ran). CLAUDE.md's rule covers an agent's own
+# tool calls, which nothing can check; this covers the scripts, which can be. A dev-script line that
+# invokes cmd, cmake, lua or luac by bare name -- rather than $env:ComSpec, an absolute path, or a
+# variable holding one -- is a FAIL. Comment lines and `echo` text are skipped.
+$scriptFiles = @(& git ls-files -- 'dev-scripts/*.ps1' 'dev-scripts/*.bat')
+$bareCalls = @()
+foreach ($f in $scriptFiles) {
+    $lines = @(Get-Content -LiteralPath $f)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match '^\s*(#|::|rem\s|echo\s)' ) { continue }
+        # bare name at the start of a command: line start, after `&`, `|`, `;`, `(`, or `call `
+        if ($l -match '(^|[&|;(]\s*|\bcall\s+)(cmd|cmake|lua|luac)(\.exe)?(\s|$)') {
+            $bareCalls += "$f`:$($i + 1): $($l.Trim())"
+        }
+    }
+}
+if ($scriptFiles.Count -eq 0) {
+    Report-Fail "no dev-scripts .ps1/.bat found -- the bare-interpreter check would pass vacuously"
+} elseif ($bareCalls.Count -gt 0) {
+    Report-Fail "$($bareCalls.Count) bare interpreter invocation(s) in dev-scripts -- use `$env:ComSpec or an absolute path (CLAUDE.md, the PATH rule):"
+    $bareCalls | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "no bare cmd/cmake/lua/luac invocation across $($scriptFiles.Count) dev-scripts"
+}
+
+# ---------------------------------------------------------------------------
 Section "LF-pinned sources"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 
@@ -684,64 +802,75 @@ if ($lagging.Count -gt 0) {
 # ---------------------------------------------------------------------------
 Section "pitfalls index coverage"
 
-# pitfalls.md carries two structures on purpose -- host/subsystem groups for part of it, and
-# lesson-shaped chronological entries for the rest -- with one index over both. An index survives
-# where the half-finished taxonomy did not, because adding an entry costs ONE line, and because a
-# check can verify it. Nothing can mechanically verify "is this filed under the right theme",
-# which is why the taxonomy was not finished (decided 2026-08-25).
+# The pitfalls record lives in agent_docs/pitfalls/{method,by-host,by-lesson}.md, its index in
+# agent_docs/pitfalls/INDEX.md, and its READING PATH in agent_docs/checklists/ (one page per
+# moment). Reworked 2026-09-02: the index used to live in agent_docs/pitfalls.md and carried no
+# outcome per lesson, and 14 of 226 titles admitted to being repeats -- every lesson that stopped
+# recurring had a mechanical check, every one that recurred three times was only a title. Now every
+# index line ends in its outcome: [CHECK: ...] (a check enforces it), [RULE: <file>] (one line where
+# the mistake is made), or [RECORD] (no transferable rule yet; a repeat forces promotion).
 #
-# SPLIT 2026-08-25: the index stayed in pitfalls.md and the entries moved to pitfalls/, so reading
-# the lessons costs 200 lines instead of 5,180. The index did not move, because ~17 files link to
-# agent_docs/pitfalls.md and every one of them still resolves. Same shape as architecture.md and
-# its adr/ directory. This check therefore scans the DIRECTORY and looks the headings up in the
-# index file -- an entry added to a body file without an index line is one nobody will find.
-$pit = "agent_docs/pitfalls.md"
-$pitBodies = @(Get-ChildItem -LiteralPath "agent_docs/pitfalls" -Filter '*.md' | Sort-Object Name)
-$pitLines = @(Get-Content -LiteralPath $pit)
-$idxStart = ($pitLines | Select-String -Pattern '^## Index — every entry in this file$').LineNumber
-if (-not $idxStart) {
-    Report-Fail "$pit has no index section -- every heading is supposed to be listed in one"
+# Three things are checked: every '## ' heading in a body file appears in INDEX.md (an entry nobody
+# can find is an entry nobody reads); every index line carries a tag (an outcome nobody decided is
+# RECORD by accident); and every [RULE: checklists/<page>] names a page that exists.
+$pitIndex = "agent_docs/pitfalls/INDEX.md"
+$pitBodies = @(Get-ChildItem -LiteralPath "agent_docs/pitfalls" -Filter '*.md' | Where-Object { $_.Name -ne 'INDEX.md' } | Sort-Object Name)
+if (-not (Test-Path -LiteralPath $pitIndex)) {
+    Report-Fail "$pitIndex is missing -- every pitfalls heading is supposed to be listed there with its outcome"
 } elseif ($pitBodies.Count -eq 0) {
-    Report-Fail "agent_docs/pitfalls/ holds no .md files -- the entries are supposed to live there"
+    Report-Fail "agent_docs/pitfalls/ holds no body files -- the entries are supposed to live there"
 } else {
+    $pitLines = @(Get-Content -LiteralPath $pitIndex)
     $indexed = @{}
-    for ($i = $idxStart; $i -lt $pitLines.Count; $i++) {
-        if ($pitLines[$i] -match '^- (.+)$') {
-            # Index lines may be a bare title or a [title](link); take the title either way.
-            $entry = $Matches[1].Trim()
+    $untagged = @()
+    $badPage = @()
+    for ($i = 0; $i -lt $pitLines.Count; $i++) {
+        $l = $pitLines[$i]
+        if ($l -notmatch '^- (.+)$') { continue }
+        $entry = $Matches[1].Trim()
+        if ($entry -match '^(.*\S)\s+\[(CHECK: [^\]]+|RULE: [^\]]+|RECORD)\]$') {
+            $title = $Matches[1].Trim()
+            $tag = $Matches[2]
+            if ($title -match '^\[([^\]]+)\]\(') { $title = $Matches[1].Trim() }
+            $indexed[$title] = $true
+            if ($tag -match '^RULE: checklists/([A-Za-z0-9._-]+\.md)$' -and -not (Test-Path -LiteralPath "agent_docs/checklists/$($Matches[1])")) {
+                $badPage += "$($i + 1): $tag"
+            }
+        } else {
+            $untagged += "$($i + 1): $entry"
             if ($entry -match '^\[([^\]]+)\]\(') { $entry = $Matches[1].Trim() }
             $indexed[$entry] = $true
         }
     }
-    # WIDENED 2026-08-27: pitfalls.md's own headings are checked too, and an ENTRY there is a FAIL
-    # rather than something to index. This check scanned only the directory, so 10 full entries that
-    # had been appended straight into pitfalls.md were governed by nothing -- none was in its own
-    # index, while the file's header claims "this file IS the index" and README.md promises preflight
-    # fails an unindexed entry. Both were true of pitfalls/ and neither of pitfalls.md.
     $missing = @()
-    $strays = @($pitLines | Select-String -Pattern '^## ' | Where-Object {
-        $_.Line -ne '## Index — every entry in this file'
-    })
-    if ($strays.Count -gt 0) {
-        Report-Fail "$($strays.Count) entry heading(s) in $pit itself -- it is the INDEX; entries go at the end of pitfalls/by-lesson.md:"
-        $strays | Select-Object -First 12 | ForEach-Object { Write-Host "          $($_.LineNumber): $($_.Line)" }
-    }
     foreach ($b in $pitBodies) {
         $lines = @(Get-Content -LiteralPath $b.FullName)
         for ($i = 0; $i -lt $lines.Count; $i++) {
             $l = $lines[$i]
-            # Entry-level only: a '### ' under a '## ' entry is part of that entry, not an entry of
-            # its own, and indexing those would make the index longer than useful.
+            # Entry-level only: a '### ' under a '## ' entry is part of that entry. by-host.md's
+            # grouped section is the one place '### ' headings are entries; they were indexed by hand.
             if ($l -notmatch '^## ') { continue }
             $title = ($l -replace '^## ', '').Trim()
             if (-not $indexed.ContainsKey($title)) { $missing += "$($b.Name):$($i+1): $title" }
         }
     }
+    if ($indexed.Count -lt 100) {
+        Report-Fail "$pitIndex lists only $($indexed.Count) entr(ies) -- the index is broken, so coverage would pass vacuously"
+    }
     if ($missing.Count -gt 0) {
-        Report-Fail "$($missing.Count) pitfalls heading(s) missing from $pit -- add one line each:"
+        Report-Fail "$($missing.Count) pitfalls heading(s) missing from $pitIndex -- add one tagged line each:"
         $missing | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
-    } else {
-        Report-Pass "every pitfalls heading across $($pitBodies.Count) file(s) ($($indexed.Count) indexed) appears in $pit"
+    }
+    if ($untagged.Count -gt 0) {
+        Report-Fail "$($untagged.Count) index line(s) carry no outcome -- end each with [CHECK: ...], [RULE: <file>] or [RECORD] (agent_docs/pitfalls.md):"
+        $untagged | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($badPage.Count -gt 0) {
+        Report-Fail "$($badPage.Count) index line(s) name a checklist page that does not exist:"
+        $badPage | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($missing.Count -eq 0 -and $untagged.Count -eq 0 -and $badPage.Count -eq 0 -and $indexed.Count -ge 100) {
+        Report-Pass "every pitfalls heading across $($pitBodies.Count) body file(s) is indexed with an outcome ($($indexed.Count) lines)"
     }
 }
 

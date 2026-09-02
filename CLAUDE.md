@@ -123,36 +123,22 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   for the opposite every session. If a branch somehow exists, `git merge --ff-only` it back onto
   `master` and delete it — fast-forward keeps history linear and loses nothing.
 - **After changing source for something CI can't build itself, rebuild it before calling the
-  change done.** TEVI's and Pseudoregalia's mod DLLs are committed precisely because CI can't
-  build them (proprietary game DLLs / a private UE4SS dependency — see `packaging/README.md`
-  and each `build-*.bat`'s own header) — a source edit alone leaves the shipped/testable
-  artifact stale. Run `dev-scripts/build-tevi.bat` or `dev-scripts/build-pseudoregalia.bat`
-  right after editing that adapter's source, not just before a release. Found live 2026-08-14:
-  changed both mods' source in one session and left them unbuilt, which would have silently
-  blocked live testing later.
+  change done** — TEVI's and Pseudoregalia's mod DLLs are committed because CI cannot build them
+  (`packaging/README.md`). Run `dev-scripts/build-tevi.bat` / `build-pseudoregalia.bat` right after
+  the edit; preflight's DLL-vs-source and deployed-copies checks catch a stale one. Live 2026-08-14.
 - **This is a public repo — no personal username, home-directory path, or other
-  machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize it
-  (a placeholder a new user edits, an environment variable) or make it relative (scripts under
-  `adapters/` resolve their own directory). Cite files outside the repo by filename only. Suspect
-  pasted tool output above all. **`.githooks/pre-commit` refuses such a commit and CI re-scans the
-  tree — `git config core.hooksPath .githooks` once per clone, and never `--no-verify` past it.**
-  A placeholder makes a file safe to WRITE and unsafe to COPY. Why this rule alone was not enough,
-  and all four live cases: `agent_docs/pitfalls.md`. `environment.md` — prefer a version to a path.
-- **Never let a scripted edit write CRLF into the LF-pinned adapter sources.** `.gitattributes`
-  pins TEVI's `*.cs`/`*.csproj` and Pseudoregalia's `Mod/src/*.cpp|hpp`/`CMakeLists.txt` to
-  `eol=lf`, because the release staleness gate hashes them on a Windows runner that defaults to
-  `core.autocrlf=true`. A `python`/`perl`/heredoc edit that emits `\r\n` leaves the working tree
-  disagreeing with what git stores, so the hash the build bakes into `*-built-from.txt` can never
-  match CI's checkout — the gate then fails claiming the DLL is stale when it is perfectly fresh,
-  and rebuilding "to fix it" just re-bakes the same wrong hash. **Order matters: normalize first,
-  then build, then commit.** After any scripted edit to those files, `file <path>` must not say
-  CRLF (`perl -pi -e 's/\r\n/\n/g'` fixes it). Prefer the Edit tool, which respects the existing
-  endings. Found live twice, most recently 2026-08-15.
-- **Rebuild the Go binaries before testing via a `.bat` launcher, not just before shipping.**
-  `go build ./...`/`go vet`/`go test` don't refresh `meshghost.exe`/`meshghost-relay.exe`/
-  `meshghost-fakeadapter.exe`/`meshghost-netsim.exe` at the repo root — `dev-scripts/*.bat` launches those exact named
-  binaries. Rebuild explicitly with `-o` first. Found live 2026-08-14: a bug repro ran against
-  binaries a full day stale.
+  machine-identifying detail in any tracked file. Prose counts, not just code.** Genericize or make
+  relative; cite files outside the repo by filename only; suspect pasted tool output above all.
+  **`.githooks/pre-commit` refuses such a commit, CI and preflight re-scan the tree — `git config
+  core.hooksPath .githooks` once per clone, never `--no-verify` past it.** Four cases: `pitfalls.md`.
+- **Never let a scripted edit write CRLF into the LF-pinned adapter sources** (`.gitattributes`:
+  TEVI `*.cs`/`*.csproj`, Pseudoregalia `Mod/src/*.cpp|hpp`/`CMakeLists.txt`). The release
+  staleness gate hashes them, so a CRLF tree bakes a hash CI can never match and the DLL reads as
+  stale forever. **Normalize (`file <path>`; `perl -pi -e 's/\r\n/\n/g'`), THEN build, THEN
+  commit.** Preflight's LF-pinned check catches it; prefer the Edit tool. Live twice, last 2026-08-15.
+- **Rebuild the Go binaries before testing via a `.bat` launcher** — `go build ./...`/`go test` do
+  not refresh the root `meshghost*.exe` the launchers run; build with `-o` first. Preflight's
+  root-binaries check catches a stale one. Live 2026-08-14: a repro ran against binaries a day stale.
 - **Never log the value you just wrote as proof it worked — this covers your own EDITS.** Read back
   independently: a real getter, not the local you wrote; and **grep the RESULT** after any scripted
   edit — an unmatched pattern fails silently. 2026-08-21: "fixed in both" was false. **One edit per
@@ -162,12 +148,9 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Two guessed fixes failing the same way is a signal.** Isolate by subtraction, never a third guess.
 - **After ~3 failed live-test iterations, STOP and write the results as a table (config vs
   outcome) before building anything else — and try the untested COMBINATION.** "A alone does
-  nothing, B alone does nothing" never implies A+B does nothing; game code is full of
-  preconditions. Every live cycle costs the user a real game launch, so grinding one-variable
-  changes at them is expensive in *their* time. Found live 2026-08-17: ten cycles into the slide
-  pose, the user asked "have we tried a run with everything put together, if they need each other
-  to work?" — and the one run with both the capsule mirror and the crouch input on was the only
-  one that ever worked. It had been sitting in my own results for several cycles.
+  nothing, B alone does nothing" never implies A+B does nothing; game code is full of preconditions,
+  and every live cycle costs the user a real game launch. Live 2026-08-17: ten cycles into the slide
+  pose, the only run that ever worked was the union, and it had sat in my own results for several cycles.
 - **If a game has a cleared decompilation, READ IT FIRST.** `licensing.md` clears all four `pret`
   decomps for facts-with-a-citation and `environment.md` records them built locally — field names,
   flag bits and dispatch order are all sitting there. **Measurement is for CONFIRMING what the
@@ -179,24 +162,16 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **Treat "access denied" as a question to research, not a wall** — who gates it, how do people
   get past it — before investing in a workaround.
 - **Anything on `PATH` may resolve to the wrong install — and bare `cmd` is NEVER safe here: a
-  `.bat` runs via `& $env:ComSpec /c`, every time.** Confirm the real copy (`$env:ComSpec`,
-  `C:\Program Files\CMake\bin`) before believing a build failure. Thrice live, all a
-  devkitPro/MSYS2 shadow: 2026-08-13 `cmake`, 2026-08-17 `cmd`, 2026-09-01 `cmd` again — exit 0,
-  EMPTY output, nothing ran, "open with" popups at the user. Failure mode: green. `pitfalls.md`.
-- **Don't use worktree-isolated parallel agents for testing work here.** The test loop is "make
-  a change, then watch it live in a running BizHawk/game session" — a git worktree can't share
-  that live, stateful session, so parallelizing testing across worktrees doesn't fit how this
-  project is actually verified.
-- **Keep working through to completion; don't suggest stopping partway.** Only pause to ask if
-  genuinely blocked — a real technical dead end, or a decision only the user can make — not as
-  a default checkpoint.
+  `.bat` runs via `& $env:ComSpec /c`, every time.** Thrice live, all a devkitPro/MSYS2 shadow
+  (2026-08-13 `cmake`; 2026-08-17 and 2026-09-01 `cmd`: exit 0, EMPTY output, nothing ran). Preflight
+  fails a bare interpreter in `dev-scripts/`; your own tool calls are on you. `pitfalls.md`.
+- **Don't use worktree-isolated parallel agents for testing work here.** The test loop is "change,
+  then watch it live in a running game", and a worktree cannot share that stateful session.
 - **NEVER suggest stopping, pausing, or resuming later — including as one option among several.**
   Never invoke the clock, session length, or attempt count. Banned: "it's late", "good place to
-  stop", "pick it up fresh", "stop here for tonight", and every variation, in prose OR as an
-  `AskUserQuestion` choice. **Offering it as a choice is suggesting it**; that loophole was used
-  the same day the rule was written (2026-08-17), reasoning that a menu entry is not a suggestion.
-  **Silence means keep going until it actually works** — the user says when to stop. If genuinely
-  blocked, name the blocker and the next measurement instead.
+  stop", "pick it up fresh", and every variation, in prose OR as an `AskUserQuestion` choice —
+  **offering it as a choice is suggesting it** (the loophole was used 2026-08-17, the day the rule
+  was written). **Silence means keep going until it works**; if blocked, name the blocker and the next measurement.
 - **A diagnostic can break the thing it measures — and then every reading agrees with itself.**
   Keep probes off by default, audit their cost before trusting their output, and re-run with them
   off before believing a result. Never leave a probe that *spawns* an effect enabled while judging
@@ -210,9 +185,8 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   cost still runs. Verify the flag disables the cost, or revert the commit. **When a regression
   appears, bisect real commits early**: last-known-good, confirm, halve — mechanical, needs no
   theory, and cannot be fooled by a partial revert. Both cases, dated: `pitfalls.md`.
-- **Cite dates, not durations — INCLUDING a duration used only for emphasis** ("for months",
-  "long-standing"). Repo born 2026-08-11, so these are false on arrival and worse with age. Live
-  2026-08-16 ×3; 2026-08-21, "for months" about a two-day-old rule; 2026-08-23, "for days".
+- **Cite dates, not durations — INCLUDING for emphasis** ("for months", "long-standing"). Repo born
+  2026-08-11, so they are false on arrival; preflight's invented-durations check fails the common ones.
 - **Test instructions use plain directions (up/down/left/right), never compass points.** User
   preference, about talking to them — compass points stay fine in code and comments.
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
@@ -223,16 +197,14 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
   test is still pending after a long wait, or has just been confirmed, **use `/loop` to re-check
   and close them** rather than trusting that you will remember. User preference, 2026-08-16.
 - **HOT RELOAD IS THE DEFAULT LOOP; a manual game restart is the LAST resort.** Ask a running
-  game questions with a **Lua probe** (`adapters/*/probe_*/`), change behaviour with a **dev toggle
-  file** the built mod already reads, and rebuild the C++/C# adapter only when the change must ship
-  in it. **Check `EnableHotReloadSystem = 1` in each install's `UE4SS-settings.ini` before a session
-  that will iterate.** It sat at 0 through 2026-08-30 and nobody looked: ~20 relaunches, a ~4-minute
-  build each, to answer questions Lua answers in seconds. User's rule, 2026-08-31.
+  game questions with a **Lua probe**, change behaviour with a **dev toggle file** the built mod
+  already reads, and rebuild the C++/C# adapter only when the change must ship in it. **Check
+  `EnableHotReloadSystem = 1` in each install's `UE4SS-settings.ini` before a session that will
+  iterate** — it sat at 0 through 2026-08-30: ~20 relaunches at ~4 minutes each. User's rule, 2026-08-31.
 - **The game process is the session signal — watch it, don't ask.** `EmuHawk`, `TEVI`,
   `pseudoregalia` appearing means the test has started; **it exiting means the user is done or the
-  game crashed, and either way the scaffolding above should be shut down.** Poll with
-  `Get-Process`, or arm a `Monitor` on it so the exit wakes you. Do not sit waiting to be told a
-  run has finished when the process list already says so. User preference, 2026-08-16.
+  game crashed, and either way shut the scaffolding down.** Poll `Get-Process` or arm a `Monitor`
+  so the exit wakes you; never wait to be told what the process list already says. User preference, 2026-08-16.
 - **Report the handoff, not the plumbing: "deployed, the scaffolding is running, launch the game"
   plus what to look for.** Monitors, loops, hash checks, port checks and process restarts are your
   business — do them, don't narrate them. The user needs one line telling them it is their turn.
@@ -284,11 +256,12 @@ loaded and that index is not, so a trigger kept here still fires and a descripti
 - A change to `contract.md` is a contract revision: record it as a new file in `agent_docs/adr/`,
   indexed in `architecture.md` (the ADRs moved out of that file 2026-08-25).
 - **Invoke `/new-adapter` before a new game's adapter exists — before you create its first file —
-  and `/write-a-probe` before writing any probe.** Each sequences the required reading in the
-  order the work needs it. **Then read `adapters/_template/README.md` END TO END; `wc -l` it, and
-  if you have not reached the last line you have not read it.** Reading the top and starting work
-  is THE failure mode — it happened twice on 2026-08-17, both times with the answer sitting
-  further down the file. **Answers are at the bottom as often as the top.**
+  and `/write-a-probe` before writing any probe.** Each sequences the required reading. **Then read
+  `adapters/_template/README.md` END TO END; `wc -l` it, and if you have not reached the last line
+  you have not read it** — twice on 2026-08-17 the answer sat further down the file.
+- **`agent_docs/checklists/` — read the page for what you are about to do** (a probe, a reading, a
+  fix, a scripted edit, mirroring state, Unreal, Lua, the network) BEFORE doing it. That is where
+  the lessons live now; `agent_docs/pitfalls.md` says how a new one is filed and where it ends up.
 - **`adapters/CLAUDE.md` and `adapters/emulator/CLAUDE.md` load themselves** on first contact with
   those folders — the every-adapter hard rules and the BizHawk host rules. Do not restate either
   here, or in `_template/`: a rule with two homes drifts, and this repo can show that twice.

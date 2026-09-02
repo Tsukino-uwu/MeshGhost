@@ -7,8 +7,9 @@ split would destroy it (decided 2026-08-25).
 
 **New entries go at the end of this file.** Appending never touches an existing one.
 
-**The index over every entry in every one of these files is [../pitfalls.md](../pitfalls.md).**
-Add an entry here, add its one line there — `dev-scripts/preflight.ps1` fails if you do not.
+**The index over every entry in every one of these files is [INDEX.md](INDEX.md), one tagged line
+each; the reading path is [../checklists/](../checklists/).** Add an entry here, add its line there
+with its outcome — `dev-scripts/preflight.ps1` fails if you do not. How: [../pitfalls.md](../pitfalls.md).
 
 ## A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into (2026-08-18)
 
@@ -5612,3 +5613,24 @@ accept errors with backoff. `netx/limit_test.go`, `relay/serve_test.go`. ADR 004
 limit covers it — including the states BEFORE any identity exists, which are the ones nobody
 names because there is nothing to name them by. And a "fatal on any error" accept loop turns
 every resource limit the kernel enforces into a remote shutdown switch.
+
+## A PowerShell identifier check is case-insensitive unless you say otherwise -- and reported a bug that did not exist (2026-09-02)
+
+**Symptom.** The new preflight section "Lua globals resolve" flagged two Emerald probes for reaching
+`io` as a global while declaring it local. Neither declares `local io`; both declare `local IO`, the
+GBA register base. The Python prototype of the same logic had found zero hits across all 212 files.
+
+**Cause.** PowerShell's `@{}` hashtable keys and its `-match` operator are case-insensitive by default.
+Lua identifiers are not. A check that intersects two sets of names therefore pairs `IO` with `io` and
+calls it a defect -- an instrument reporting something that is not there, in the first minute of its
+life, on the very class of bug it was written to catch.
+
+**Fix.** Ordinal sets: `New-Object 'System.Collections.Generic.HashSet[string]'` for both sides
+(case-sensitive by default), and the intersection done with `.Contains`. Zero hits after; the planted
+use-above-local still caught.
+
+**The rule.** Any check that compares identifiers, paths or names from a case-sensitive world in
+PowerShell must say so explicitly -- `-cmatch`, `-ceq`, an ordinal comparer -- or it lies in the
+direction of false positives, which is the direction that trains people to ignore it. And the
+negative test is not enough on its own: plant a positive AND check the clean tree really is clean
+for the right reason, by reading what a hit actually names.

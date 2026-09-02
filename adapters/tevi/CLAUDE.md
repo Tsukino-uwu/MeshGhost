@@ -11,9 +11,9 @@
 game is what creates one, and this file is what moves up into it. Nothing below is about TEVI
 specifically; it is about Unity/Mono and BepInEx.
 
-**Capped at 150 lines, for the reason the root `CLAUDE.md` is capped** — this file loads without
-being asked, so it spends the same instruction budget (`agent_docs/claude-md-cap.md`). Before
-adding: what comes out? **It never restates the root `CLAUDE.md` or `../CLAUDE.md`.**
+**Capped, and part of this session's rule STACK** (`agent_docs/claude-md-cap.md`): it loads unasked.
+Before adding: what comes out? **It never restates the root `CLAUDE.md` or `../CLAUDE.md`.**
+**Before mirroring any state onto a ghost, read `agent_docs/checklists/before-mirroring-state.md`.**
 
 **This file is short, and that is honest rather than incomplete.** TEVI is the smallest adapter
 here and fewer host-level rules have been paid for on Unity than on the emulator or Unreal hosts.

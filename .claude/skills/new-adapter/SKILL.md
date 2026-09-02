@@ -93,6 +93,7 @@ Read these when you reach them, not up front:
 
 | When | Read |
 |---|---|
+| about to do anything on the list | `agent_docs/checklists/` — a page per moment (probe, reading, fix, edit, mirroring, Unreal, Lua, network) |
 | starting effect/VFX work | `agent_docs/effect-investigation.md` — before it goes wrong, not after |
 | the game may not hold many ghosts | `agent_docs/crowd-limits.md` — ask it early |
 | about to compensate for something | `adapters/_template/BANDAGES.md` — is this a bandage? |

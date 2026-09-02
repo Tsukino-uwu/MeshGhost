@@ -10,7 +10,8 @@ description: Read before writing a probe for a MeshGhost adapter — a script th
 
 A probe is a question asked of a running game, and **most of them fail as questions rather than as
 code.** The method lives in `adapters/_template/probes.md`; this is the order to reach for it in.
-Read the three below first — they are not optional and they are why this skill exists.
+Read the three below first — they are not optional and they are why this skill exists. **Then
+`agent_docs/checklists/before-a-probe.md` and `before-trusting-a-reading.md`**: every lesson, one line each.
 
 ## The three that cost the most
 

@@ -7,16 +7,14 @@
 `FLAGS.md`, `BANDAGES.md` and `PLAYER_FIELDS.md`.
 
 **These are HOST rules, sitting at game scope for now.** Pseudoregalia is the only Unreal game
-here, so per `../CLAUDE.md`'s create-a-level-on-demand rule there is no `adapters/unreal/` yet —
-a second Unreal game is what creates one, and this file is what moves up into it. Nothing below is
-about Pseudoregalia specifically; it is about UE5 and RE-UE4SS.
+here, so per `../CLAUDE.md`'s create-a-level-on-demand rule there is no `adapters/unreal/` yet; a
+second Unreal game creates one and this file moves up into it. Nothing below is about Pseudoregalia.
 
-**Capped at 175 lines, for the reason the root `CLAUDE.md` is capped** — this file loads without
-being asked, so it spends the same instruction budget (`agent_docs/claude-md-cap.md`). Before
-adding: what comes out? **It never restates the root `CLAUDE.md` or `../CLAUDE.md`.**
+**Capped, and part of this session's rule STACK** (`agent_docs/claude-md-cap.md`): it loads unasked.
+Before adding: what comes out? **It never restates the root `CLAUDE.md` or `../CLAUDE.md`.**
 
-Each rule below is the imperative; the symptom→diagnosis→cause→fix evidence stays in
-`agent_docs/pitfalls.md`, which is its one home.
+Each rule below is the imperative; the evidence is in `agent_docs/pitfalls/`. **Before spawning or
+touching an actor, read `agent_docs/checklists/before-spawning-in-unreal.md`** — the rest of the lessons.
 
 ## Probe in LUA, iterate by hot reload — the C++ mod is for SHIPPING only
 
@@ -105,10 +103,9 @@ still sees means widen the subsystem".
 
 ## Destroying the ghost pawn: check the build, don't assume either way
 
-`K2_DestroyActor()` silently no-opped on the ghost pawn on one build, which produced the
-park-it-offscreen bandage (`BANDAGES.md`). **That was reversed on 2026-08-18 — it is not a
-constraint any more.** Recorded because the shape recurs: a destroy call that fails silently
-looks exactly like one that worked, so confirm the actor is gone rather than trusting the call.
+`K2_DestroyActor()` silently no-opped on the ghost pawn on one build (reversed 2026-08-18, not a
+constraint now). Kept because the shape recurs: a destroy call that fails silently looks exactly
+like one that worked, so confirm the actor is gone rather than trusting the call.
 
 ## An actor that spawns with a visual already ON cannot be fixed reactively
 

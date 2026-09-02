@@ -4,8 +4,9 @@ How to diagnose, and the ways an instrument reports something that is not true. 
 read *before* trouble rather than during it: the diagnostic methodology, the failure signatures, and
 the two entries about confirming what you are actually looking at before you probe it.
 
-**The index over every entry in every one of these files is [../pitfalls.md](../pitfalls.md).**
-Add an entry here, add its one line there — `dev-scripts/preflight.ps1` fails if you do not.
+**The index over every entry in every one of these files is [INDEX.md](INDEX.md), one tagged line
+each; the reading path is [../checklists/](../checklists/).** Add an entry here, add its line there
+with its outcome — `dev-scripts/preflight.ps1` fails if you do not. How: [../pitfalls.md](../pitfalls.md).
 
 ## A symptom word can name more than one subsystem — confirm which before probing (2026-08-16)
 

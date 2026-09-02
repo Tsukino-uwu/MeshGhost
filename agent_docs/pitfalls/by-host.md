@@ -4,8 +4,9 @@ Grouped by what you are touching — BizHawk Lua, UE4SS/Unreal, Unity, memory pr
 rendering, vendored runtimes. Reach for this one when you know the subsystem and want to know what
 has already gone wrong in it. Ends with the cross-game comparison table.
 
-**The index over every entry in every one of these files is [../pitfalls.md](../pitfalls.md).**
-Add an entry here, add its one line there — `dev-scripts/preflight.ps1` fails if you do not.
+**The index over every entry in every one of these files is [INDEX.md](INDEX.md), one tagged line
+each; the reading path is [../checklists/](../checklists/).** Add an entry here, add its line there
+with its outcome — `dev-scripts/preflight.ps1` fails if you do not. How: [../pitfalls.md](../pitfalls.md).
 
 ## Pitfalls by theme
 
@@ -14,8 +15,8 @@ deliberate.** Resolved 2026-08-25: this is not one taxonomy left half-done, it i
 principles that each work. The sections below group by **host and subsystem** — what you want when
 you already know what you are touching. From the Gold/Silver GameShark entry onward, entries are
 **lesson-shaped** and cut across hosts, and their titles state the lesson, so an index over them
-beats re-filing them. **The index in [../pitfalls.md](../pitfalls.md) covers every file** — use it rather than
-guessing at a theme, and add one line to it when you add an entry.
+beats re-filing them. **The index in [INDEX.md](INDEX.md) covers every file** — use it rather than
+guessing at a theme, and add one tagged line to it when you add an entry.
 
 
 ### BizHawk Lua: `event.onframeend` outlives its script; use a `frameadvance` loop

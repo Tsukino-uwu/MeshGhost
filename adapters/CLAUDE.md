@@ -7,15 +7,12 @@ You do not have to go and find it, and it costs nothing on a session that never 
 adapter. Host rules live in the nearest `CLAUDE.md` below this one; per-game facts live in
 each adapter's own `documentation.md`, `FLAGS.md` and `BANDAGES.md`.
 
-**Capped at 300 lines**, for the reason the root `CLAUDE.md` is: this loads without being asked,
-so it spends the same instruction budget, and an uncapped auto-loading file recreates the problem
-the cap exists to prevent (`agent_docs/claude-md-cap.md`). Before adding: what comes out?
+**Capped, and part of every adapter session's rule STACK** (`agent_docs/claude-md-cap.md`): it
+loads without being asked. Before adding: what comes out?
 
-**This file never restates the root `CLAUDE.md`.** Anything already there stays there — a rule
-with two homes is a rule that drifts, which this repo can already demonstrate in two places.
+**This file never restates the root `CLAUDE.md`** — a rule with two homes drifts, twice shown here.
 
-Moved verbatim from `adapters/_template/README.md` on 2026-08-25, where they were reachable only
-by reading the whole file — 1,723 lines *as it stood that day*. `_template/` keeps a headed pointer at each site.
+Moved from `adapters/_template/README.md` on 2026-08-25; `_template/` keeps a headed pointer at each site.
 
 ## How this folder is arranged: create a level only when two things share it
 
@@ -30,37 +27,23 @@ creates `unity/`. Until then the host rules sit at the level that exists — whi
 `tevi/CLAUDE.md` and `pseudoregalia/CLAUDE.md` hold Unity and Unreal rules at *game* scope, and
 each says so at the top.
 
-**Do not sort adapters by anything a reader would have to look up.** Sorting by engine was
-considered and rejected on the user's call: nobody should need to know what a game was built in to
-find it, and the release the player actually installs is flat and named by game
-(`packaging/release/games/<game>/`) precisely because that knowledge is ours, not theirs.
-Commercial category (indie/AAA) was rejected for the same reason and a worse one — it predicts
-nothing about the adapter. Where access difficulty genuinely differs, that is an **access model**,
-and `agent_docs/access-models.md` is its one home.
+**Do not sort adapters by anything a reader would have to look up.** Engine and commercial category
+were both rejected (user's call): the release a player installs is flat and named by game. Where
+access genuinely differs, that is an **access model** — `agent_docs/access-models.md` is its one home.
 
 ## Hard rule: build the live-reload loop BEFORE the first feature, on every host
 
 **User, 2026-08-28:** *"this should probly be done before starting any adapter, on any kind of
 engine. it speeds up development a lot"*.
 
-Every host here can reload adapter code into a RUNNING game — BizHawk via this repo's dev loader,
-Unity via BepInEx's ScriptEngine, UE4SS via its own hot reload for Lua mods (a UE4SS **C++** mod is
-the one exception and must be relaunched). Doing it first is not a convenience: it is the difference
-between a change costing a relaunch-and-navigate and costing seconds, and it compounds over every
-iteration of every feature afterwards.
-
-**Two things the loop can never test, so it does not replace a cold start:** a bug that only appears
-on a COLD START is invisible to it, and a reload ORPHANS whatever the old instance parented into the
-scene — a ghost is usually a clone in the world, not a child of your component, so despawn
-everything you spawned in your teardown or you gain one orphan per reload.
-
-**On a NEW host, the question is not what the engine is — it is WHERE THE ADAPTER RUNS.** Inside
-the host (Lua script, plugin, mod) means depending on that host to reload it, which is every current
-adapter. As its own process over IPC means reload is free by construction, because it is our program
-to restart — prefer that shape where a host offers it. `/new-adapter` carries the detail.
-
-Full guidance, the per-host table, and the three traps that each reported success while doing
-nothing: [_template/README.md](_template/README.md), "BUILD THE LIVE-RELOAD LOOP FIRST".
+Every host here can reload adapter code into a RUNNING game (BizHawk via this repo's dev loader,
+Unity via BepInEx's ScriptEngine, UE4SS hot reload for Lua; a UE4SS **C++** mod must be relaunched).
+It is the difference between a change costing a relaunch-and-navigate and costing seconds, compounded
+over every iteration. **Two things it can never test:** a COLD-START bug, and the orphans a reload
+leaves in the scene — despawn everything you spawned in your teardown. **On a NEW host, ask WHERE
+THE ADAPTER RUNS**: as its own process over IPC, reload is free by construction; prefer that shape.
+Per-host table and the three traps that reported success while doing nothing:
+[_template/README.md](_template/README.md), "BUILD THE LIVE-RELOAD LOOP FIRST"; `/new-adapter` has the detail.
 
 ## Hard rule: anything the player can do, anything else should be able to do
 
@@ -131,13 +114,10 @@ half a player notices first.
   other games.
 - **If the extras are not done, say the state is not done.** "The animation plays" is not "the
   state is reproduced", and the difference is exactly what a person sees.
-- **Hang the extra on EVERY path into the state, and remove it on the way out.** Emerald again,
-  2026-08-19: the blob was created only where a ghost is built from scratch, while a peer walking
-  into water reaches the same state by having its graphic *patched in place* — so the code was
-  correct and never ran in the case it existed for, and the ghost rode on nothing while its log
-  said the state was right. Enumerate the doors into a state before deciding one of them is the
-  door. The exit matters as much: Emerald's blob follows an object id stored in its own data, so
-  one left behind swims along under a peer walking down a road.
+- **Hang the extra on EVERY path into the state, and remove it on the way out.** Emerald, 2026-08-19:
+  the blob was created only where a ghost is built from scratch; a peer walking into water has its
+  graphic patched in place, so the code never ran in the case it existed for. Enumerate the doors
+  into a state; the exit matters as much — a blob left behind swims along under a peer on a road.
 - **Build the extra by DIFFING it against a live one the game made**, never from the template
   alone — a constructor computes fields no description contains, and the same blob spent a day
   drawn a tile out of place because of one of them. Method: [probes.md](_template/probes.md), "Diff what you
@@ -189,12 +169,9 @@ not. Only the mechanism and the numbers inside it are per-game, and those number
 adapter's `FLAGS.md`, never in the player's config.
 
 **An adapter that genuinely cannot honour one must log that once, at startup, rather than silently
-appearing to comply.** Nothing checks and nothing can — the log line is the only signal anyone
-gets. Live proof this is not theoretical: `session_policy` is handled by ZERO of the four adapters,
-so `ghost_collision` does nothing in every game while its config key, its ADR and the relay's own
-startup line all say otherwise, and no adapter logs the gap either. `remote_name` reaches one of
-four. Both went unnoticed because `_template/PROTOCOL.md` did not document either message —
-fixed 2026-08-30. See `agent_docs/plans.md`, "Settings: defined once, honoured everywhere".
+appearing to comply** — the log line is the only signal anyone gets. Live proof: `session_policy` is
+handled by ZERO of four adapters, so `ghost_collision` does nothing anywhere while its config key,
+ADR and relay startup line all say otherwise (`_template/PROTOCOL.md` fixed 2026-08-30; `plans.md`).
 
 ## Hard rule: the adapter may not cost the game its frame rate
 
