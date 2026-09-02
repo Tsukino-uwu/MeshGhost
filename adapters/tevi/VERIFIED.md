@@ -74,7 +74,7 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI: two release instances, a relay outage, and both ghosts back without touching anything (2026-08-28)
 - TEVI: a portal settles after the last ghost disconnects on it (2026-09-02)
 - TEVI: 300ms interp at the 15Hz relay on the ocean-tier proxy, the ladder climbed on a fixed relay (2026-09-02)
-
+- TEVI: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
 
 ### TEVI Phase 6.1 — BepInEx plugin loads and coexists with the Randomizer
@@ -895,3 +895,24 @@ sample lands 67-83ms later inside the next packet; 300ms is the first rung with 
 at 15Hz on this link. Every rung judged earlier that night was on the broken relay and is void
 (`agent_docs/verified.md`, "The limiter hid WriteUnreliable"). The same-continent number for TEVI at 15Hz
 has not been measured; the README's 175ms line predates both the rate change and this run.
+
+## TEVI: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
+
+**User, on screen, two real instances,** both through `meshghost-netsim` on `run-netsim.bat`'s no-arg
+worst-case profile (100ms ±50ms one-way per pass, ~200 ping peer to peer, 5% loss, 3% reorder, a
+one-second blackout every 45s), relay at the shipped 15Hz with loss cover on, quic, the limiter fix in.
+Climbed from 375 (300 is arithmetically short here: transit averages 203ms), with the core's `buffer
+dry` counter beside each rung; "small-hole seconds" are the rate-limited dry lines under 150ms past the
+newest sample:
+
+| Interp | Meter (the copy rendering the moving peer) | The user |
+|---|---|---|
+| 375ms | 13 small-hole seconds, 3.3% of moving renders dry, transit avg 204ms | *"1-2 stutters, and then a teleport during the wifi drop"* |
+| 450ms | 7 small-hole seconds, 1.9% dry | *"no stutter, just the big wifi drop"* |
+
+**So on the worst case TEVI wants 450ms at 15Hz -- the same number Pseudoregalia settled on the same night
+on the same link.** The blackout shows as a teleport here: with prediction off the ghost holds its last
+sample through the outage and jumps to the first one after it; no interp value changes that, only a
+catch-up rule would, and that is a separate decision. The 300ms verdict earlier the same night was on
+the milder 60/25/2/2 profile and stands only for that link. The shipped `300ms` was NOT changed on this
+run -- the user decides once all four games have their worst-case number.
