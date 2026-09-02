@@ -181,7 +181,7 @@ jobs:
       # A newer quic-go is a NOTICE, never a failure: the module is pinned in go.mod on purpose
       # (quic-go is v0.x and moves its API between minors), and an update is a deliberate change
       # that gets the full suite and a release, not something a push should be red over. What
-      # this prevents is silent staleness -- nobody re-checking for a year because nothing said
+      # this prevents is silent staleness -- nobody re-checking because nothing said
       # to. govulncheck above is the one that fails, and only for a version with a known hole.
       - name: Newer quic-go available?
         run: |
