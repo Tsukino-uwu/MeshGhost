@@ -1,5 +1,7 @@
 # Security policy
 
+<!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
+
 **Reporting.** Open a GitHub issue. If you would rather not disclose the details publicly first,
 open the issue with just "security, details on request" and the maintainer will reach out. There is
 no bug bounty and no embargo process; this is a hobby project with one maintainer.

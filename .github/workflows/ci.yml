@@ -178,6 +178,21 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
+      # A newer quic-go is a NOTICE, never a failure: the module is pinned in go.mod on purpose
+      # (quic-go is v0.x and moves its API between minors), and an update is a deliberate change
+      # that gets the full suite and a release, not something a push should be red over. What
+      # this prevents is silent staleness -- nobody re-checking for a year because nothing said
+      # to. govulncheck above is the one that fails, and only for a version with a known hole.
+      - name: Newer quic-go available?
+        run: |
+          latest=$(go list -m -u -f '{{if .Update}}{{.Update.Version}}{{end}}' github.com/quic-go/quic-go)
+          current=$(go list -m -f '{{.Version}}' github.com/quic-go/quic-go)
+          if [ -n "$latest" ]; then
+            echo "::warning title=quic-go $latest is out::go.mod pins $current. Bump deliberately: go get github.com/quic-go/quic-go@$latest, run dev-scripts/run-gotests.bat and the race suite, then release."
+          else
+            echo "quic-go $current is the latest release."
+          fi
+
   fuzz:
     name: Fuzz the parsers
     runs-on: ubuntu-latest
