@@ -283,9 +283,11 @@ Setup, once:
                and "features" is for capabilities beyond ghosts that no
                shipped game uses. A wrong value here refuses the room
                rather than degrading the session.
-   The config.json inside a game's mod folder carries the same keys
-   (Pseudoregalia's adds "local_game_bridge"); the values shipped there
-   are the ones measured for that game.
+   The config.json inside a game's folder carries only the settings a
+   player might touch: the basics, "ghost_collision", the render group
+   and "keepalive". Every other key above is simply absent there and
+   takes the same default this file ships -- add one to a game's file
+   if you ever need it, same spelling, same place in the "client" block.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
    Notepad is fine for this. If you use something else, save the file as
