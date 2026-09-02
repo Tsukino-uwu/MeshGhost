@@ -56,6 +56,14 @@ type coreStats struct {
 	statesSuppressed uint64
 	bracketsSent     uint64
 
+	// prevCarried counts sent states that carried the sample before them
+	// (loss cover, ADR 0045); prevRecovered counts received states whose
+	// carried prev filled a hole this client had not seen. Recovered is the
+	// number that says the link is losing packets, and that the cover is
+	// paying: on a clean link it stays 0 while carried climbs with every send.
+	prevCarried   uint64
+	prevRecovered uint64
+
 	// remotesAgedOut counts peers dropped for going silent rather than for
 	// leaving -- see remoteStatesAt. A non-zero value in a healthy session
 	// means Leaves are not arriving, which is worth knowing on its own.
@@ -88,6 +96,11 @@ type Stats struct {
 	// sent on resume to keep interpolation exact.
 	StatesSuppressed uint64
 	BracketsSent     uint64
+	// PrevCarried is how many sent states carried their predecessor as loss
+	// cover; PrevRecovered how many received states' carried predecessor
+	// filled a sample this client never got. See ADR 0045.
+	PrevCarried   uint64
+	PrevRecovered uint64
 
 	// RemotesAgedOut is how many peers were despawned for silence rather than
 	// for a Leave.
@@ -157,6 +170,8 @@ func (c *Core) Stats() Stats {
 		DespawnsSent:         atomic.LoadUint64(&c.stats.despawnsSent),
 		StatesSuppressed:     atomic.LoadUint64(&c.stats.statesSuppressed),
 		BracketsSent:         atomic.LoadUint64(&c.stats.bracketsSent),
+		PrevCarried:          atomic.LoadUint64(&c.stats.prevCarried),
+		PrevRecovered:        atomic.LoadUint64(&c.stats.prevRecovered),
 		RemotesAgedOut:       atomic.LoadUint64(&c.stats.remotesAgedOut),
 	}
 	s.PeersRendered = int(atomic.LoadInt64(&c.renderedNow))
@@ -203,6 +218,10 @@ func (s Stats) String() string {
 	if s.StatesSuppressed > 0 {
 		out += fmt.Sprintf(" | %d frames suppressed as unchanged (%.0f%% of what would have been sent, %d brackets)",
 			s.StatesSuppressed, s.SuppressedShare()*100, s.BracketsSent)
+	}
+	if s.PrevCarried > 0 || s.PrevRecovered > 0 {
+		out += fmt.Sprintf(" | loss cover: %d states carried their predecessor, %d lost samples recovered from it",
+			s.PrevCarried, s.PrevRecovered)
 	}
 	if s.StatesReceived > 0 {
 		out += fmt.Sprintf(" | %.0f%% of remote states discarded as cross-area",

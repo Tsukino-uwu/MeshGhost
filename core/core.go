@@ -135,6 +135,19 @@ const DefaultIdleKeepalive = 250 * time.Millisecond
 // being irrelevant here -- that is what this exists to stop waiting for.
 const DefaultRemoteStaleAfter = 3 * time.Second
 
+// DefaultRedundancyMinInterval is the send interval at and above which every
+// state also carries the sample before it (protocol.StatePrev, ADR 0045) --
+// loss cover for the unreliable state plane. 40ms means "at 25Hz or slower":
+// the shipped 15Hz room carries it, the 100Hz dev rig does not. The gate is
+// the send INTERVAL rather than a transport, because that is what decides
+// whether a single lost packet is visible: at 15Hz a lost sample is a 67ms
+// hole and a lost LAST sample leaves the ghost a whole bike tile short until
+// the keepalive; at 60Hz both are a frame. The bytes it costs are roughly the
+// changed fields of one sample per packet, and at the rates where it is off
+// they would have bought nothing. A Core's RedundancyMinInterval overrides it;
+// negative disables the cover at every rate.
+const DefaultRedundancyMinInterval = 40 * time.Millisecond
+
 // DefaultMinSendInterval is this Core's fallback send interval when neither
 // the relay advertised a rate nor this Core's own MinSendInterval was set
 // (see effectiveSendInterval) — an older relay that predates
@@ -427,6 +440,17 @@ type Core struct {
 	// agent_docs/architecture.md for the send/receive rate-control feature.
 	MinSendInterval time.Duration
 	lastSendAt      time.Time
+
+	// RedundancyMinInterval gates the loss cover (DefaultRedundancyMinInterval
+	// when zero; negative turns it off): a state carries the sample before it
+	// as a delta only when the effective send interval is at least this long.
+	RedundancyMinInterval time.Duration
+	// lastSentWire is the last state actually handed to the transport, seq
+	// and timestamp included, so the next one can carry it as its prev. Under
+	// sendMu, which forwardLocalState holds from stamping through sending so
+	// two adapter frames cannot interleave their packets.
+	sendMu       sync.Mutex
+	lastSentWire *protocol.State
 
 	// RemoteStaleAfter is how long a peer may go without sending anything
 	// before its ghost is despawned. Zero means DefaultRemoteStaleAfter;

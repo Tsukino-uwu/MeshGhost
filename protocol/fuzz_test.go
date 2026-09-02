@@ -58,6 +58,8 @@ func FuzzValidateStateIsStableAcrossTheWire(f *testing.F) {
 	f.Add([]byte(`{"position":[1e7,-1e7]}`))
 	f.Add([]byte(`{"position":[0.1,0.2,0.30000000000000004]}`))
 	f.Add([]byte(`{"orientation":{"x":1},"extras":{"k":"v"}}`))
+	f.Add([]byte(`{"position":[1,2],"prev":{"seq":1,"timestamp":5,"position":[0,2],"extras":{"k":null},"orientation":null}}`))
+	f.Add([]byte(`{"position":[1,2],"prev":{"position":[1e308]}}`))
 	f.Add([]byte(`{"position":[]}`))
 
 	f.Fuzz(func(t *testing.T, data []byte) {

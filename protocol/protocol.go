@@ -48,6 +48,12 @@ type State struct {
 	Anim string `json:"anim"`
 	// Extras is free-form, game-specific, and opaque to the core.
 	Extras map[string]any `json:"extras,omitempty"`
+	// Prev is the sender's PREVIOUS sample as a delta against this one --
+	// loss cover for the unreliable state plane, attached by the core at low
+	// send rates and undone by the receiving core (prev.go, ADR 0045). The
+	// relay forwards it untouched and never stores it: a late joiner gets the
+	// newest sample, not its predecessor. Optional; older peers ignore it.
+	Prev *StatePrev `json:"prev,omitempty"`
 }
 
 // MessageType identifies the payload shape of an Envelope.

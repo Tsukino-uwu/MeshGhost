@@ -127,13 +127,23 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 
 	c.lastSendAt = time.Now()
 	playerID := c.playerID
+	carryPrev := c.redundancyOnLocked(interval)
 	c.mu.Unlock()
+
+	// From here to the end: one adapter frame's packets go out together and
+	// in order, and each records itself as the next one's predecessor. The
+	// loss cover (ADR 0045) is only correct if "previous" means the packet
+	// sent immediately before, so this section is serialized on its own
+	// mutex rather than c.mu, which nowMs needs.
+	c.sendMu.Lock()
+	defer c.sendMu.Unlock()
 
 	if bracket != nil {
 		bs := *bracket
 		bs.PlayerID = playerID
 		bs.Seq = atomic.AddUint64(&c.seq, 1)
 		bs.Timestamp = c.nowMs() - 1
+		c.attachPrev(&bs, carryPrev)
 		c.sendState(relay, bs)
 		atomic.AddUint64(&c.stats.bracketsSent, 1)
 	}
@@ -148,7 +158,32 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	// matters is that every member of a room measures against the same one,
 	// not that any of them is right about the real time.
 	st.Timestamp = c.nowMs()
+	c.attachPrev(&st, carryPrev)
 	c.sendState(relay, st)
+}
+
+// redundancyOnLocked says whether a state sent at this interval carries the
+// sample before it. Caller holds c.mu (the interval came from under it).
+func (c *Core) redundancyOnLocked(interval time.Duration) bool {
+	gate := c.RedundancyMinInterval
+	if gate == 0 {
+		gate = DefaultRedundancyMinInterval
+	}
+	return gate > 0 && interval >= gate
+}
+
+// attachPrev makes st carry the last state sent (as a delta) when the cover is
+// on, and records st as the next state's predecessor either way. Caller holds
+// c.sendMu. The recorded copy never carries a prev of its own, so a delta is
+// always against a plain sample.
+func (c *Core) attachPrev(st *protocol.State, carry bool) {
+	if carry && c.lastSentWire != nil {
+		st.Prev = protocol.BuildPrev(c.lastSentWire, st)
+		atomic.AddUint64(&c.stats.prevCarried, 1)
+	}
+	kept := *st
+	kept.Prev = nil
+	c.lastSentWire = &kept
 }
 
 // sendHeartbeats sends a Ping on conn every Core.HeartbeatInterval

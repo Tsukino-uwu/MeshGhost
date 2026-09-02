@@ -142,6 +142,7 @@ Unchanged from the brief:
 | `orientation` | optional. Facing direction, angle, or quaternion. Opaque to the core. Never interpolated by it either, for the same reason — see the tick model's rotation exception (2026-08-30), which is a BRIDGE addition and changes nothing here. |
 | `anim` | opaque string tag. |
 | `extras` | small free-form dict for game-specific data. |
+| `prev` | **optional, since 2026-09-02 (ADR 0045).** The sender's previous sample as a delta against this one: its `seq` and `timestamp`, plus only the fields that differ (`orientation: null`, `position_none`, an extras key set to `null`, or `extras_none` mean "the previous sample did not have this"). Attached by the core at send rates of 25Hz and slower as loss cover for the unreliable state plane; the receiving core reconstructs it and keeps it only if that sample never arrived. The relay forwards it untouched and never stores it. An older peer ignores it. |
 
 ```json
 {
@@ -845,6 +846,9 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   the core on receive (`core.go`), added in the 2026-08-14 relay-safety hardening pass.
 - Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
   any real representation (a handful of floats).
+- A carried `prev` (ADR 0045) meets every bound above on its own fields (`protocol.validPrev`,
+  called from `ValidateState` at both enforcement points) and cannot nest; the line cap bounds the
+  whole message.
 - Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
 - Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
   `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them

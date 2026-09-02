@@ -188,6 +188,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-28 — Every client gets its own outbound queue and writer](adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)
 - [2026-08-30 — The core hands the adapter its orientation bracket, and rotation gets interpolated for the first time](adr/0043-2026-08-30-the-core-hands-the-adapter-its-orientation-bracket.md)
 - [2026-09-02 — The first adversarial review, and what it changed](adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md)
+- [2026-09-02 — Every state carries the sample before it (loss cover for the state plane)](adr/0045-2026-09-02-every-state-carries-the-sample-before-it.md)
 
 ## Prior art
 

@@ -145,6 +145,19 @@ func (b *remoteBuffer) add(s protocol.State) {
 // buffered range, the nearest edge snapshot is returned unchanged -- unless
 // extrapolateAhead is positive, which is the opt-in prediction described on
 // extrapolate below. ok is false only if no snapshots have been added yet.
+// hasSeq reports whether a sample with this sender seq is already held. Used
+// by the loss cover (ADR 0045) so a carried previous sample is inserted only
+// when its own packet never arrived; the buffer is at most maxSnapshots long,
+// so a linear scan is cheaper than any index it could keep.
+func (b *remoteBuffer) hasSeq(seq uint64) bool {
+	for i := range b.snapshots {
+		if b.snapshots[i].Seq == seq {
+			return true
+		}
+	}
+	return false
+}
+
 // newestTimestamp is when this remote last said anything, or 0 if it never
 // has. Used to age out a peer that stopped sending without leaving -- see
 // remoteStatesAt.

@@ -63,6 +63,19 @@ func (c *Core) storeRemoteState(st protocol.State) {
 	// Extrapolate are public fields a caller may change while running, and a
 	// window derived once would then be wrong for the rest of the session.
 	b.historyMs = c.requiredHistoryMsLocked()
+	// LOSS COVER (ADR 0045): a state may carry the sample sent before it. If
+	// that sample never arrived here, it goes into the buffer first, in its
+	// own timestamp order, so the ghost walks through it instead of over the
+	// hole. Seen already (the common case on a clean link) it is dropped, so
+	// the cover costs a receiver one seq comparison per state. The carrying
+	// state is stored WITHOUT it: the buffer holds samples, not packets.
+	if st.Prev != nil {
+		if prev, ok := protocol.ApplyPrev(&st); ok && !b.hasSeq(prev.Seq) {
+			b.add(prev)
+			atomic.AddUint64(&c.stats.prevRecovered, 1)
+		}
+		st.Prev = nil
+	}
 	b.add(st)
 }
 

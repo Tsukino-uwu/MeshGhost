@@ -272,7 +272,11 @@ func TestGoSideImportsStayGeneric(t *testing.T) {
 // is free to put whatever it likes inside an opaque field it already has (`extras`, an event
 // payload) without the core ever knowing.
 var frozenProtocolFields = map[string][]string{
-	"State":    {"anim", "area_id", "extras", "orientation", "player_id", "position", "seq", "timestamp"},
+	// prev (2026-09-02, ADR 0045) qualifies under the SECOND test: it is the sender's previous
+	// sample as a delta of the SAME opaque fields, built and undone by protocol.BuildPrev/ApplyPrev
+	// without reading any of them. The core learns nothing new from it -- it fills a hole in a
+	// buffer of samples it already treats as opaque.
+	"State":    {"anim", "area_id", "extras", "orientation", "player_id", "position", "prev", "seq", "timestamp"},
 	"Envelope": {"payload", "type"},
 	// own_area_only (2026-08-28) qualifies under the SECOND test above: it is a bare bool
 	// asking the relay to compare two area_ids for equality and forward accordingly. The relay

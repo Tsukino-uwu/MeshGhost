@@ -76,7 +76,13 @@ func (r *Room) forwardState(senderID string, payload []byte) (protocol.State, bo
 	// with the newest sample, not the newest one that happened to be
 	// forwarded to somebody. Recorded for every room, not only ones
 	// that asked for snapshots -- see recordState.
-	prevArea := r.recordState(senderID, st)
+	// Remembered WITHOUT the carried previous sample (ADR 0045): a late
+	// joiner is seeded with the newest sample, and the one before it is a
+	// hole-filler for a receiver that was listening at the time, which a
+	// joiner was not. The forwarded line above keeps it.
+	recorded := st
+	recorded.Prev = nil
+	prevArea := r.recordState(senderID, recorded)
 	r.forwardLine(line, r.stateRecipients(senderID, st.AreaID, prevArea, len(statePayload), time.Now()), true)
 	if prevArea != "" && prevArea != st.AreaID {
 		r.seedArrivalInto(senderID, st.AreaID)

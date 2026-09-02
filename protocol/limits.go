@@ -232,7 +232,12 @@ func ValidateState(st State) bool {
 	// this function put together. Nothing observes WHICH check rejected a state
 	// — both call sites drop it either way — so ordering the cheap ones first
 	// is invisible for an accepted state and pure profit for a rejected one.
-	return extrasWithinLimit(st.Extras)
+	if !extrasWithinLimit(st.Extras) {
+		return false
+	}
+	// A carried previous sample meets every bound above, on its own fields
+	// (prev.go). It is last because it is absent on most states.
+	return validPrev(st.Prev)
 }
 
 // StateRejectReason names which ValidateState check st fails, or "" if it
@@ -261,6 +266,9 @@ func StateRejectReason(st State) string {
 			return fmt.Sprintf("extras %d bytes, %d over the %d cap", len(b), len(b)-MaxExtrasBytes, MaxExtrasBytes)
 		}
 		return fmt.Sprintf("extras over the %d-byte cap", MaxExtrasBytes)
+	}
+	if !validPrev(st.Prev) {
+		return "carried previous sample (prev) fails the same bounds"
 	}
 	return ""
 }

@@ -26,6 +26,7 @@ is USED, that project is checked and recorded there first.
 - Emerald: VRAM/sprite injection investigation (draw vs. inject)
 - TEVI: ghost collision investigation
 - Pseudoregalia
+- Go side: carry the previous state in every unreliable packet, quic datagrams and udp alike (loss redundancy, 2026-09-02)
 - The bandage register (audited 2026-08-16) — moved
 - Slide: the render-Z bandage is gone — DONE 2026-08-17
 - Relay-steered transport per game — possible, but the wrong lever (Tier 0, no blockers)
@@ -2122,3 +2123,28 @@ debugging-tool-vs-player-feature fork the entry above already names.
 **Still unscheduled, and the UI is the real cost.** The recording and the speed control are small;
 "feels nice to use" is a menu, a scrub bar and per-adapter input handling, and that is where the
 work actually is.
+
+## Go side: carry the previous state in every unreliable packet, quic datagrams and udp alike (loss redundancy, 2026-09-02)
+
+**Where it came from.** Watched on Crystal on 2026-09-02 (`crystal/UNVERIFIED.md`, the interp ladder
+entry): on a 100–200ms link with 2% loss and the shipped 250ms interp, the ghost snapped on quic and
+snapped, glided and teleported on udp. **Same mechanism on both**: the state plane is unreliable on
+each (a QUIC datagram is fire-and-forget like a udp packet; only hello/control ride the stream), and
+the client suppresses unchanged states, so the one packet carrying "I stopped here" has no successor
+until the 250ms keepalive, and losing it leaves the ghost walking on and then jumping. How the user
+views the three transports, in their own words the same day, *"at least how i view the 3 protocols
+personally"*: quic is the default, tcp is there *"to bypass things"*, and udp is *"just fun/optional
+... similar to how we allow people to easily change the hz"* — kept because removing an opt-in feels
+bad, not something to invest in on its own. So this is worth doing ONLY because it fixes the default
+quic path in the same change.
+
+**The idea.** Every unreliable state frame — quic datagram or udp packet, they share the shape — also
+carries the previous state (or the last N). A single lost packet then costs nothing — the next one re-delivers what was missed — and only a
+run of losses shows. It is the standard trick for unreliable game transports and costs roughly one
+extra state per packet (~2x state-plane bytes on both transports). Alternatives: lower the
+keepalive on udp only (cheaper, weaker), or send the terminal "stopped" sample twice.
+
+**BUILT the same day — ADR 0045**, as a rate-gated delta (`protocol/prev.go`); this entry stays as the record of why. What it needed, and got: a contract note (the `prev` field), a change at `core/sending.go` and its receiver (not in either netx package — the redundancy is above the transport), and the
+loss-injection e2e in `internal/e2e` to show the teleport before and its absence after. Judged on
+screen the same way, on the same rig.
+

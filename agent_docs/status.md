@@ -18,10 +18,11 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 - 2026-09-02 **TEVI: a portal keeps its awake visual after the last ghost leaves (user-reported 2026-08-29)** — `tevi/UNVERIFIED.md`.
 - 2026-09-02 **Pseudoregalia open faults: the sword's mid-air snap, the black flash on spawn, two unattributed crashes, `curve catmull-rom` crashing both instances** — `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-02 **Pseudoregalia crowds: step 2 (reflection cache, −59% tick) and the re-run ladder are UNWATCHED; `ls_rest` is the next split** — `crowd-limits.md`.
-- 2026-09-02 **`DefaultSendHz` is 15 everywhere, measured on Pseudoregalia only and inherited UNWATCHED by the other three** — each adapter's `UNVERIFIED.md`.
+- 2026-09-02 **`DefaultSendHz` is 15 everywhere; watched on Pseudoregalia and Crystal (user: 15 default; 10 the lowest still playable, occasional stutter/slide; below it constant snaps), inherited UNWATCHED by Emerald and TEVI** — each adapter's `UNVERIFIED.md`.
 - 2026-09-02 **Relay cross-area filtering is UNWATCHED on screen; Emerald seam crossings are the check** — ADR 0041, `emerald/UNVERIFIED.md`.
+- 2026-09-02 **Loss cover is BUILT (ADR 0045: every state at ≤25Hz carries the sample before it; Go side green) and UNWATCHED — the Crystal netsim run at 2% loss that found the teleport is the check** — `crystal/UNVERIFIED.md`.
 - 2026-09-02 **Go side: the `internal/e2e` port reservation TOCTOU flakes under `-race`; `encoding/json` is ~58% of relay per-state CPU; `curve catmull-rom` bends on uneven spacing** — `testing.md` Traps, `scaling.md`, `core/curvespacing_test.go`.
-- 2026-09-02 **Crystal is 3 names and Emerald 1 from Lua's 200-local ceiling; modules are the fix** — `emulator/CLAUDE.md`, `ideas.md`.
+- 2026-09-02 **Crystal is AT Lua's 200-local ceiling (`luac` refused a 201st on 2026-09-02; new switches ride on existing tables) and Emerald is 1 from it; modules are the fix** — `emulator/CLAUDE.md`, `ideas.md`.
 - 2026-09-02 **Nothing is running** — every rig was verified down at the end of 2026-08-26; rig setups and savestate slots: `environment.md`, "Rig notes".
 - 2026-09-02 **The 2026-09-02 doc pass is DONE, parts A–D; what changed, what was measured and what was left alone: `doc-history.md`.** Ages out of here on its own.
 
