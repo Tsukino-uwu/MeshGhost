@@ -699,8 +699,8 @@ check below.
    through to the INSERT path and produces a duplicate key holding a string — which fails to
    unmarshal and takes that game's whole config down. (b) Inserted keys are anchored on
    `"connect_to"`, so they land in the first tier of the file regardless of where they belong.
-2. **Restructure both shipped config files into two tiers**, basic first, then an
-   `_comment_ADVANCED` divider, with the complete set below it. Presentation only — no schema
+2. **DONE 2026-09-02 (no divider and NO comments at all, the user's later call: explanations live in README.txt, a blank line separates the tiers).** Restructure both shipped config files into two tiers, basic first, then
+   the complete set below it. Presentation only — no schema
    change, no nested block, so config files players have already edited keep working. The tiers and
    their ORDER are the user's, 2026-08-30. Client basic: `connect_to`, `name`, `name_color`,
    `room`, `room_code`, `show_console`. Server basic: `listen_on`, `max_clients`, `room_code`,
@@ -723,7 +723,7 @@ check below.
    cannot honour `disabled` logs it once instead of appearing to comply.
 5. **`remote_name` honoured by Emerald, Crystal and TEVI** — after the 240x160 text question is
    answered by the user.
-6. **THEN the relay ships `ghost_collision: "disabled"` by default** (the user's call, 2026-08-30).
+6. **DONE 2026-09-02** — the relay ships `ghost_collision: "disabled"` by default (the user's call, 2026-08-30; the flag default, the server config and the client template all say so).
    Order matters: flipped before step 4 it is a no-op that looks done — the same "a setting that
    looks real and is not" failure this whole item is about. Note the resolution rule when doing it:
    either side asking for disabled wins, so leaving the CLIENT default at `enabled` is what lets a

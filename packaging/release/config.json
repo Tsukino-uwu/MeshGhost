@@ -1,30 +1,48 @@
 {
   "client": {
     "connect_to": "127.0.0.1:7777",
+    "name": "",
+    "name_color": "",
+    "room": "default",
+    "room_code": "",
+    "show_console": false,
+
+    "ghost_collision": "disabled",
+
+    "interp": "450ms",
+    "curve": "linear",
+    "extrapolate": "0s",
+    "predict": "damped",
+
+    "keepalive": "250ms",
+    "min_send": "0s",
+    "max_receive_hz_per_player": 0,
+
     "transport": "auto",
     "tls": "auto",
     "tls_fingerprint": "",
-    "room": "default",
-    "room_code": "",
-    "_comment_name": "Your nametag, shown above your ghost to other players. EMPTY BY DEFAULT and empty means no nametag is drawn for you at all -- set it only if you want to be labelled. It is sanitized before anyone sees it: control characters, text-direction overrides and invisible characters are removed, and it is capped at 24 characters. It is NOT an identity -- two players can use the same name, and nothing in MeshGhost treats it as who you are.",
-    "name": "",
-    "_comment_name_color": "Colour for your nametag, as a hex code like \"#F54927\" (\"#F00\" shorthand works too). Ignored unless \"name\" is set, since with no name there is no tag to colour. Blank means no coloured box behind your name, just the name itself. Anything that is not a hex colour is ignored and the game's own default is used -- a bad value here never stops you connecting.",
-    "name_color": "#A89975",
-    "ghost_collision": "enabled",
+
     "local_game_bridge": "127.0.0.1:7778",
-    "interp": "450ms",
-    "max_receive_hz_per_player": 0
+    "stats": "0s",
+
+    "game": "",
+    "game_version": "",
+    "features": []
   },
   "server": {
     "listen_on": "0.0.0.0:7777",
-    "listen_quic": "",
-    "listen_udp": "",
-    "transport": "tcp,quic",
-    "tls": "auto",
+    "max_clients": 8,
     "room_code": "",
     "only_game": "",
-    "ghost_collision": "enabled",
-    "max_clients": 8,
-    "send_hz": 15
+    "send_hz": 15,
+
+    "ghost_collision": "disabled",
+
+    "transport": "tcp,quic",
+    "listen_quic": "",
+    "listen_udp": "",
+    "tls": "auto",
+
+    "resume_grace_seconds": 0
   }
 }

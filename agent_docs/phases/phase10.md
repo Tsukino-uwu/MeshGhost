@@ -99,6 +99,14 @@ note in `agent_docs/README.md`.
   games were climbed on the worst-case proxy at 15Hz; the release config, the template and the READMEs
   follow, `shippedconfig_test.go` keeps them in step, no per-game override remains.
 
+- **2026-09-02 (late) — the shipped configs restructured and `ghost_collision` disabled by default.** The
+  user's 2026-08-30 tiers (plans.md, "Settings: defined once") finally staged: basics, a blank line,
+  the advanced set, and NO comments — every explanation moved to `packaging/release/README.txt`'s
+  "THE BASICS" / "ADVANCED" lists, which now cover every key the client and relay read (`min_send`,
+  `stats`, `resume_grace_seconds`, `curve`/`extrapolate`/`predict` included). The relay's
+  `-ghost-collision` default is `disabled` and the e2e expectation follows; `stage-release.ps1` inserts
+  an added override key at the END of the client block instead of the top.
+
 ## Open
 
 What is open on this stack at any moment is `agent_docs/status.md`'s job, not this file's —

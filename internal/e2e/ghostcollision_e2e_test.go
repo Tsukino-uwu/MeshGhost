@@ -60,7 +60,8 @@ func TestGhostCollisionPolicyCrossesTheRealBinaries(t *testing.T) {
 	}{
 		{"host disables it room-wide", []string{"-ghost-collision", "disabled"}, nil, protocol.GhostCollisionDisabled},
 		{"host leaves it alone", []string{"-ghost-collision", "enabled"}, nil, protocol.GhostCollisionEnabled},
-		{"neither side says anything", nil, nil, protocol.GhostCollisionEnabled},
+		// The relay ships disabled since 2026-09-02 (the user's call), so silence on both sides is off.
+		{"neither side says anything", nil, nil, protocol.GhostCollisionDisabled},
 		{
 			"a player opts out under a permissive host",
 			[]string{"-ghost-collision", "enabled"},

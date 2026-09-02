@@ -1,24 +1,30 @@
 {
-  "_comment": "MeshGhost settings for this game. The mod starts meshghost.exe for you and it reads THIS file, not the config.json in the release folder you unzipped -- that one is for the server and for running the client by hand. Edit connect_to to your host's address, and make sure room matches everyone else's.",
-  "_comment_no_bridge_here": "local_game_bridge is absent by default. Adding it moves where the bridge port range starts, and since 2026-08-28 ALL FOUR adapters read it and pass the result to the core they launch, so one value has one owner. Add it as host:port -- for example 127.0.0.1:7780 -- and the whole 8-port walk moves with it. MESHGHOST_BRIDGE_PORT still overrides it for a single run, and TEVI's own BridgePort setting wins over it when that has been changed from the default. Before this, editing it here genuinely did nothing on any game, which a user reported as -- setting the config to 7780 it still starts at 7778.",
-  "_comment_render": "interp, curve and extrapolate decide how a ghost MOVES. interp is how far behind live it is drawn (250ms smooths out the network; lower feels more immediate and shows every hitch). curve is linear or catmull-rom, which fits a curve through the samples -- better for a game with momentum, worse for one that moves on a fixed grid. extrapolate keeps a ghost moving past its newest sample for up to this long, which hides the delay and costs a correction whenever the guess was wrong; 0s is off. predict is how that guess is made -- damped (the measured best: full prediction on an axis moving steadily, reduced on one changing direction), linear, or accelerated (looked worse everywhere it was tried). It only matters when extrapolate is on. One hard rule from measuring: never set interp below your connection's jitter, or ghosts turn choppy. These are per-GAME tastes, which is why they live in the game's own file.",
-  "_comment_keepalive": "keepalive is how often your position is re-sent when NOTHING about it changed. Identical updates are otherwise skipped, so standing still costs almost nothing. 0 sends every frame like older versions did.",
-  "_comment_show_console": "\"show_console\" is deliberately NOT listed below, because absent means 'decide for me' and that is the useful behaviour: hidden on Windows, where the mod starts and stops MeshGhost for you, and VISIBLE under Proton/Wine, where that cleanup is unproven -- so the process is something you can see and close yourself if the game doesn't. Adding \"show_console\": false here would switch that off everywhere, including where it is a safety net. Add it (true or false) only if you want to decide for yourself on every platform.",
   "client": {
     "connect_to": "127.0.0.1:7777",
-    "transport": "auto",
+    "name": "",
+    "name_color": "",
     "room": "default",
     "room_code": "",
-    "_comment_name": "Your nametag, shown above your ghost to other players. EMPTY BY DEFAULT and empty means no nametag is drawn for you at all -- set it only if you want to be labelled. It is sanitized before anyone sees it: control characters, text-direction overrides and invisible characters are removed, and it is capped at 24 characters. It is NOT an identity -- two players can use the same name, and nothing in MeshGhost treats it as who you are.",
-    "name": "",
-    "_comment_name_color": "Colour for your nametag, as a hex code like \"#F54927\" (\"#F00\" shorthand works too). Ignored unless \"name\" is set, since with no name there is no tag to colour. Blank means no coloured box behind your name, just the name itself. Anything that is not a hex colour is ignored and the game's own default is used -- a bad value here never stops you connecting.",
-    "name_color": "#A89975",
-    "ghost_collision": "enabled",
+    "show_console": false,
+
+    "ghost_collision": "disabled",
+
     "interp": "450ms",
     "curve": "linear",
     "extrapolate": "0s",
     "predict": "damped",
+
     "keepalive": "250ms",
-    "max_receive_hz_per_player": 0
+    "min_send": "0s",
+    "max_receive_hz_per_player": 0,
+
+    "transport": "auto",
+    "tls": "auto",
+    "tls_fingerprint": "",
+
+    "stats": "0s",
+
+    "game_version": "",
+    "features": []
   }
 }

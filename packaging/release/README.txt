@@ -121,110 +121,108 @@ who starts it, and whether the exe has to sit somewhere specific.
 
 Setup, once:
 1. Open config.json in a text editor (Notepad is fine).
-2. Under "client":
+2. Under "client". The file has two tiers: the handful of settings at the
+   top are the ones a player normally touches; everything below the blank
+   line is advanced and ships at values that were measured -- leave those
+   alone unless a section below tells you when to change one.
+
+   THE BASICS
      "connect_to" -- the HOST's IP:port -- they'll give you this.
                "127.0.0.1:7777" only works if YOU are also the host, on the
-               same machine.
-     "room"  -- whatever your group agrees on; everyone must use the SAME
-               room name to end up in the same session. This is a label,
-               not a password -- it doesn't stop someone else from also
-               using that name. If the host set a "room_code" (below),
-               enter it here too.
-     "room_code" -- only needed if your host told you they set one. Leave
-               it as "" if they didn't -- most hosts won't have, since it's
-               off by default. If they did set one, you must enter it
-               exactly or you'll be refused.
-     "name"  -- whatever you want your ghost to show as to others, as a
-               floating nametag (in games whose mod draws one). Empty --
-               the default -- means no nametag at all. Capped at 24
-               characters and cleaned up by the server either way.
+               same PC.
+     "name"  -- your nametag, shown above your ghost to other players.
+               EMPTY by default, and empty means no nametag is drawn for
+               you at all -- set it only if you want to be labelled. It is
+               cleaned up before anyone sees it (control characters,
+               invisible characters and text-direction tricks are removed;
+               24 characters at most) and it is NOT an identity: two
+               players can use the same name.
      "name_color" -- optional colour for that nametag, as "#RRGGBB"
-               (e.g. "#00c8ff"). Leave "" for a plain name with no
-               coloured box behind it.
+               (e.g. "#00c8ff"; "#F00" shorthand works too). Leave "" for
+               a plain name with no coloured box behind it. Ignored unless
+               "name" is set. A bad value is ignored, never a reason the
+               client refuses to connect.
+     "room"  -- the room name everyone in your group agrees on. Players
+               only ever see ghosts in the same room.
+     "room_code" -- only needed if your host told you they set one. Leave
+               "" otherwise.
+     "show_console" -- false (the default) keeps the client the game
+               started invisible; true opens a real window for it so you
+               can watch it work instead of reading meshghost.log. Windows
+               only -- under Proton/Wine there is no console to open.
+
+   ADVANCED
      "ghost_collision" -- whether other players' ghosts can be solid in
-               YOUR game -- bumped into, stood on, in the way. "enabled"
-               (the default) accepts whatever the host chose. "disabled"
-               turns it off for you no matter what the host set, which is
-               the one thing this setting can do that theirs can't: a host
-               can take collision away from everyone, but cannot force it
-               on you. Whether a ghost was ever solid in the first place
-               depends on the game -- see the note at the end of this file.
-     "tls"   -- LEAVE THIS AS "auto". It encrypts the first contact your
-               client makes with the host, which is the part that carries
-               your room_code. "auto" uses encryption whenever the host
-               supports it and still connects to hosts that don't (saying
-               so in meshghost.log). "required" refuses to talk to a host
-               that can't encrypt -- stricter, but a friend on an older
-               version then can't host for you. "off" is plaintext.
-     "tls_fingerprint" -- leave empty unless your host gave you a long
-               string of letters and numbers. Encryption on its own hides
-               your traffic from anyone watching; it does not prove the
-               server you reached is really your friend's. Pasting the
-               fingerprint they read out of their own server window is
-               what proves that. Note it CHANGES every time they restart
-               their server, so you'd need the new one each time -- which
-               is why it's optional and off by default.
-     "transport" -- LEAVE THIS AS "auto" unless you have a reason not to.
-               "auto" takes the best your host offers, preferring "quic",
-               which is the only one that ENCRYPTS your session (including
-               your room_code). It never picks "udp" on its own, because
-               udp cannot be encrypted at all.
-               "connect_to" above is still the only address you need -- and
-               it does need the port on the end, as shown. What you do NOT
-               need is to know which transports your host runs, or which
-               ports they use for them: your client always makes
-               contact on that one address over tcp first, asks what they
-               serve, and only then switches. If they offer nothing better
-               you simply stay on tcp and everything still works.
-               Put "quic" here instead if you want your room_code
-               encrypted -- but your host has to be serving quic for that
-               to happen (ask them). "tcp" keeps you on the plain, most
-               predictable one. There's a full pros/cons rundown in
-               "Transports -- tcp vs udp vs quic" near the bottom.
-     "local_game_bridge" -- internal, on your own PC only. Leave this
-               alone. Emerald and Crystal pick a free port by themselves,
-               and TEVI and Pseudoregalia are told theirs by their own mod,
-               so nothing reads this in normal play (see "two people on the
-               SAME machine" below).
-     "interp" -- how far behind real-time (e.g. "450ms", "300ms") you render
-               OTHER players' ghosts, to smooth out network jitter. This is
-               entirely YOUR OWN client's setting -- it doesn't affect what
-               anyone else sees, and different players in the same session
-               can use different values.
+               YOUR game -- bumped into, stood on, in the way. "disabled"
+               (the default, on the host's side too) means no ghost blocks
+               anything in any game. "enabled" accepts whatever the host
+               chose. The strictest side wins: a host can take collision
+               away from everyone, and you can turn it off for yourself,
+               but nobody can force it on you. Whether a ghost was ever
+               solid in the first place depends on the game -- see the
+               note at the end of this file.
+     "interp" -- how far behind real-time you render OTHER players' ghosts,
+               to smooth over the network between you. This is entirely
+               YOUR OWN client's setting; different players in the same
+               session can use different values.
 
-               Not sure? Leave it at "250ms" -- that's the default if you
-               leave this out entirely, and it is a MEASURED value rather
-               than a guess: with both a ghost and the real character on
-               screen together, 100ms visibly stuttered an emulated game's
-               ghost while 250ms did not (2026-08-19). The cost is that a
-               ghost is drawn a quarter-second behind where that player
-               really is -- a little over one tile at walking pace.
+               "450ms" (the default) was picked by testing every game on
+               a deliberately bad simulated connection -- about 200 ping
+               with wobble, 5% packet loss and a one-second Wi-Fi dropout
+               now and then, think EU<->NA on mediocre Wi-Fi. Below it a
+               ghost stuttered every few seconds there; at it only the
+               dropout itself showed. The cost is that a ghost is drawn
+               about half a second behind where that player really is.
 
-               Rough guide if you want to tune it (not scientifically
-               measured for this game, just general rules of thumb -- feel
-               free to experiment):
-                 "250ms"          -- default, and what smooth motion was
-                                     measured at. Fine for a typical home
-                                     connection playing with friends, and
-                                     for a rough one too.
-                 "300ms"-"400ms"  -- a badly unstable connection (flaky
-                                     wifi, playing across the world).
-                                     Smoother still, and visibly delayed.
-                 "100ms"-"150ms"  -- if you would rather have ghosts closer
-                                     to where players really are and can
-                                     live with less smooth movement. On a
-                                     tile-based game (Pokemon) this is where
-                                     stutter starts to show, because each
-                                     step is a discrete hop rather than a
-                                     smooth slide.
-                 below "70ms"     -- not recommended, even on a great
-                                     connection: your own client only sends
-                                     its position about once every 67ms (15
-                                     times/second) no matter what, so a
-                                     lower value doesn't get you fresher
-                                     data -- it just leaves less buffer to
-                                     smooth over, and will likely look
-                                     stuttery/snappy instead of smooth.
+               On a better connection you can lower it for a more
+               immediate ghost; measured tiers (each game's own README.txt
+               has its numbers):
+                 "450ms"  -- default; smooth even at ~200 ping with loss
+                             and Wi-Fi dropouts
+                 "300ms"  -- smooth at up to ~120 ping with a little loss
+                             (same continent)
+                 "250ms"  -- smooth at up to ~120 ping on a clean link
+                 below that -- ghosts start to stutter, and a tile-based
+                             game (Pokemon) shows it first, because each
+                             step is a hop rather than a slide
+               The rule of thumb: the worse your ping WOBBLES (how much it
+               varies, plus any packet loss), the more interp you need. A
+               steady 200 ping needs less than an unstable 100. Ghosts
+               stutter = raise it; ghosts feel too far behind on a good
+               connection = lower it until you see stutter, then step one
+               notch back.
+     "curve" -- how a ghost moves BETWEEN two received positions: "linear"
+               (the default, a straight line) or "catmull-rom" (a curve
+               fitted through the samples). Better for a game with real
+               momentum, worse for one that moves on a grid; on a
+               straight path the two look identical.
+     "extrapolate" -- keeps a ghost moving PAST its newest position for up
+               to this long, guessing from its last velocity. "0s" (the
+               default) is off. It hides delay and costs a correction
+               whenever the guess was wrong -- a jumping ghost can land
+               late or sink into the floor. It only does anything when
+               "interp" is small enough for the render time to reach the
+               newest sample: with the default 450ms it never does, so
+               setting it alone changes nothing.
+     "predict" -- HOW that guess is made when "extrapolate" is on:
+               "damped" (the default and the measured best: full
+               prediction on an axis moving steadily, reduced on one that
+               is changing direction), "linear", or "accelerated" (looked
+               worse everywhere it was tried).
+               A low-delay setup, if you want one on a fast relay: a host
+               running "send_hz": 60 or more, and here "interp": "0s",
+               "extrapolate": "100ms", "predict": "damped". Judge it while
+               the other player stops, turns and lands, not while they
+               run in a straight line -- that is where prediction shows
+               its cost.
+     "keepalive" -- how often your position is re-sent when NOTHING about
+               it changed. Identical updates are otherwise skipped, so
+               standing still costs almost nothing. "250ms" is the
+               default; "0s" sends every frame like older versions did.
+     "min_send" -- a FLOOR on how slowly you send your position. "0s" (the
+               default) just adopts the host's rate. Setting it only ever
+               makes you send SLOWER than the room, never faster: for a
+               poor upload connection or a data cap.
      "max_receive_hz_per_player" -- LEAVE THIS AT 0 UNLESS YOU KNOW YOU
                NEED IT. Caps how often you want OTHER players' positions
                sent to YOU, one at a time (see "What do Hz/ms/tickrate
@@ -244,10 +242,50 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
-     The config.json inside a game's mod folder may carry a few more keys
-     ("keepalive", "curve", "extrapolate", "predict") -- rendering knobs
-     already tuned per game. Leave them as shipped; each one's own
-     _comment line in the file says what it does.
+     "transport" -- LEAVE THIS AS "auto" unless you have a reason not to.
+               It picks HOW your client talks to the host after the first
+               contact: "auto" takes the best the host offers (quic,
+               which is encrypted, when it's there; tcp otherwise; never
+               plain udp unless it's all there is). "tcp", "udp" and
+               "quic" pin one. See "Transports -- tcp vs udp vs quic" near
+               the bottom.
+     "tls"   -- LEAVE THIS AS "auto". It encrypts the first contact your
+               client makes with the host, which is the part that carries
+               your room_code. "auto" uses encryption whenever the host
+               supports it and still connects to hosts that don't (saying
+               so in meshghost.log). "required" refuses to talk to a host
+               that can't encrypt -- stricter, but a friend on an older
+               version then can't host for you. "off" is plaintext.
+     "tls_fingerprint" -- leave empty unless your host gave you a long
+               string of letters and numbers. Encryption on its own hides
+               your traffic from anyone watching the network; this is the
+               extra step that proves the server you reached is really
+               your host's. They get it from their server's startup log
+               and it changes every time they restart, so you'd be
+               updating it each session -- worth it only if you have a
+               reason to distrust the network between you.
+     "local_game_bridge" -- internal, on your own PC only. Leave this
+               alone. Emerald and Crystal pick a free port by themselves,
+               TEVI is told its port by its own mod, and Pseudoregalia
+               reads this key from its mod folder's config.json to decide
+               where its port range starts (see "two people on the SAME
+               machine" below).
+     "stats" -- "0s" (the default) is off. Any other duration, e.g. "10s",
+               logs a one-line summary that often to meshghost.log: link
+               health (round trip, clock offset), how many players are
+               known versus actually drawn, bytes sent and received with
+               an hourly rate, how often the ghost buffer ran dry, and how
+               long positions took to arrive. Turn it on when a session
+               feels wrong and you want numbers rather than a feeling.
+     "game", "game_version", "features" -- protocol-level. Leave them
+               empty: the game is announced by whichever mod or script
+               you load, "game_version" is set by the mods that need it,
+               and "features" is for capabilities beyond ghosts that no
+               shipped game uses. A wrong value here refuses the room
+               rather than degrading the session.
+   The config.json inside a game's mod folder carries the same keys
+   (Pseudoregalia's adds "local_game_bridge"); the values shipped there
+   are the ones measured for that game.
    Only edit the text between the quotes -- keep the quotes, colons, and
    commas exactly as they are, or the file won't parse.
    Notepad is fine for this. If you use something else, save the file as
@@ -259,54 +297,25 @@ Setup, once:
    that out automatically from whichever game's mod/script you load (see
    "Playing" below). Switching games just means loading a different one and
    restarting meshghost.exe -- nothing in config.json to change.
-3. If you're hosting, also edit "server":
+3. If you're hosting, also edit "server". Same two tiers: the basics on
+   top, the advanced set below the blank line.
+
+   THE BASICS
      "listen_on" -- what port to accept connections on. "0.0.0.0:7777"
                (the default) means "accept from anywhere," which is what
                you want. Only change the port number if you need to.
-     "tls"   -- "auto" (the default) encrypts tcp connections for players
-               whose client asks for it, while still accepting ones that
-               don't -- including plain tools you might use to test. This
-               matters even though quic is already encrypted: EVERY player
-               makes first contact over tcp, and that is where their
-               room_code is sent. "required" refuses unencrypted players
-               outright; "off" is plaintext.
-               When this is on, your server window prints a "tls
-               certificate fingerprint:" line at startup. That string is
-               how a player can verify they reached YOUR server and not
-               someone pretending -- send it to them some other way (chat,
-               not through the server) and they put it in
-               "tls_fingerprint". It changes every restart. Nobody has to
-               do this; without it the traffic is still encrypted, just
-               not proven to be yours.
-     "transport" -- "tcp,quic" (the default), or "tcp", "udp", "quic", or
-               any list of them. The default serves quic alongside tcp so
-               your players get an ENCRYPTED session without anyone doing
-               anything, and both sit on the SAME port number -- so you
-               forward one number, 7777, for both TCP and UDP (they are
-               separate rules on most routers). Players find whatever you
-               turn on by themselves, so you do NOT need to tell them which
-               to use -- a player on the default picks up quic
-               automatically, and falls back to tcp if you don't serve it.
-               tcp is always served whether you list it or not, because
-               that is how every client makes first contact.
-               Adding "udp" is the one case that needs more: udp takes the
-               same UDP port quic wants, so you must also set
-               "listen_udp" (it defaults to 7780) and forward that too --
-               quic keeps the shared port, because it is served by default
-               and plain udp is not.
-               The server refuses to start and tells you if you forget.
-               Pros/cons of each are in "Transports -- tcp vs udp vs quic"
-               near the bottom, along with which ports you need to forward
-               for each.
-     "listen_quic" -- leave it as "" (the default). quic then shares
-               "listen_on"'s port number, so hosting stays one number to
-               forward. It keeps that number even when plain "udp" is
-               served too: udp is the one that moves aside.
-     "listen_udp" -- leave it as "" (the default) unless you serve plain
-               "udp". With quic served as well it moves itself to 7780,
-               because the two cannot share a udp port and quic is the
-               one everybody gets by default. Set it to place udp
-               yourself, and forward whatever you choose.
+     "max_clients" -- how many players this relay accepts in total,
+               including you -- across every room, if your group ever
+               uses more than one room name on the same relay at once. 8
+               by default. The relay only ever sends a player's position
+               to other players in that SAME room, never to a different
+               room -- but you can still raise this and end up with one
+               big room, and a bigger room means more network traffic for
+               YOUR machine (the host) to handle, since everyone in it
+               gets sent everyone else's position. Don't set this to
+               something huge without expecting to actually need it.
+               See "How many players can I actually host?" below for what
+               a given room size actually costs your connection.
      "room_code" -- OPTIONAL. Leave as "" to keep the old behavior: anyone
                who has your address can join. Set it to a word or phrase
                to require everyone to also enter that same code in their
@@ -342,28 +351,6 @@ Setup, once:
                silently ignores this setting and keeps hosting every game
                with no warning. If in doubt, re-download the latest
                release.
-     "ghost_collision" -- whether ghosts may be solid for players in your
-               rooms. "enabled" (the default) leaves each game to its own
-               behavior. "disabled" turns it off for EVERYONE in every
-               room, which is what you want if a crowd keeps blocking
-               people in doorways or you'd rather ghosts were purely
-               something you look at. Players can each turn it off for
-               themselves as well; they cannot turn it back on if you
-               turned it off. Your server prints which one it read on
-               startup. See the note at the end of this file for what it
-               actually does per game.
-     "max_clients" -- how many players this relay accepts in total,
-               including you -- across every room, if your group ever
-               uses more than one room name on the same relay at once. 8
-               by default. The relay only ever sends a player's position
-               to other players in that SAME room, never to a different
-               room -- but you can still raise this and end up with one
-               big room, and a bigger room means more network traffic for
-               YOUR machine (the host) to handle, since everyone in it
-               gets sent everyone else's position. Don't set this to
-               something huge without expecting to actually need it.
-               See "How many players can I actually host?" below for what
-               a given room size actually costs your connection.
      "send_hz" -- LEAVE THIS AT 15 UNLESS YOU KNOW YOU NEED IT. How many
                times per second every player in your room sends their
                position (see "What do Hz/ms/tickrate mean?" just below).
@@ -377,6 +364,67 @@ Setup, once:
                than this if their own connection needs it (their client's
                own setting always wins over yours if theirs is slower) --
                but nobody can send faster than what you set here.
+
+   ADVANCED
+     "ghost_collision" -- whether ghosts may be solid for players in your
+               rooms. "disabled" (the default) turns it off for EVERYONE in
+               every room: ghosts are purely something you look at, and
+               a crowd can never block anyone in a doorway. "enabled"
+               leaves each game to its own behavior. Players can each turn it off for
+               themselves as well; they cannot turn it back on if you
+               turned it off. Your server prints which one it read on
+               startup. See the note at the end of this file for what it
+               actually does per game.
+     "transport" -- "tcp,quic" (the default), or "tcp", "udp", "quic", or
+               any list of them. The default serves quic alongside tcp so
+               your players get an ENCRYPTED session without anyone doing
+               anything, and both sit on the SAME port number -- so you
+               forward one number, 7777, for both TCP and UDP (they are
+               separate rules on most routers). Players find whatever you
+               turn on by themselves, so you do NOT need to tell them which
+               to use -- a player on the default picks up quic
+               automatically, and falls back to tcp if you don't serve it.
+               tcp is always served whether you list it or not, because
+               that is how every client makes first contact.
+               Adding "udp" is the one case that needs more: udp takes the
+               same UDP port quic wants, so you must also set
+               "listen_udp" (it defaults to 7780) and forward that too --
+               quic keeps the shared port, because it is served by default
+               and plain udp is not.
+               The server refuses to start and tells you if you forget.
+               Pros/cons of each are in "Transports -- tcp vs udp vs quic"
+               near the bottom, along with which ports you need to forward
+               for each.
+     "listen_quic" -- leave it as "" (the default). quic then shares
+               "listen_on"'s port number, so hosting stays one number to
+               forward. It keeps that number even when plain "udp" is
+               served too: udp is the one that moves aside.
+     "listen_udp" (it defaults to 7780) and forward that too --
+               quic keeps the shared port, because it is served by default
+               and plain udp is not.
+               The server refuses to start and tells you if you forget.
+               Pros/cons of each are in "Transports -- tcp vs udp vs quic"
+               near the bottom, along with which ports you need to forward
+               for each.
+     "tls"   -- "auto" (the default) encrypts tcp connections for players
+               whose client asks for it, while still accepting ones that
+               don't -- including plain tools you might use to test. This
+               matters even though quic is already encrypted: EVERY player
+               makes first contact over tcp, and that is where their
+               room_code is sent. "required" refuses unencrypted players
+               outright; "off" is plaintext.
+               When this is on, your server window prints a "tls
+               certificate fingerprint:" line at startup. That string is
+               how a player can verify they reached YOUR server and not
+               someone pretending -- send it to them some other way (chat,
+               not through the server) and they put it in
+               "tls_fingerprint". It changes every restart. Nobody has to
+               do this; without it the traffic is still encrypted, just
+               not proven to be yours.
+     "resume_grace_seconds" -- how long a player who dropped out keeps their
+               place before the room is told they left: 0 (the default)
+               means 20 seconds. Only matters for rooms that negotiated
+               session resumption, which no shipped game does yet.
 
 What do Hz/ms/tickrate mean? (relevant to "send_hz" above and
 "max_receive_hz_per_player" earlier)

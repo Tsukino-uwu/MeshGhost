@@ -289,10 +289,10 @@ func main() {
 			"default) means 20s. Only used by rooms whose members negotiated resume.v1 -- a "+
 			"cosmetic room holds nothing and this changes nothing for it. Higher hides a flaky "+
 			"connection better; lower frees a genuinely departed player's keys sooner")
-	ghostCollision := flag.String("ghost-collision", "",
-		"room-wide ghost collision policy advertised to every client: \"enabled\" "+
-			"(each adapter's own defaults stand) or \"disabled\" (no ghost blocks "+
-			"anything, in any game). Empty means enabled. Advisory: shipped adapters "+
+	ghostCollision := flag.String("ghost-collision", protocol.GhostCollisionDisabled,
+		"room-wide ghost collision policy advertised to every client: \"disabled\" (the "+
+			"default since 2026-09-02, the user's call: no ghost blocks anything, in any game) "+
+			"or \"enabled\" (each adapter's own defaults stand). Advisory: shipped adapters "+
 			"honor it, but this relay cannot verify that they did")
 	sendHz := flag.Int("send-hz", protocol.DefaultSendHz,
 		"how many times per second every player sends their position to this room (a \"15 tick\" "+
@@ -587,7 +587,7 @@ func main() {
 			"Advisory -- shipped adapters honor it, but nothing here can verify a game did.")
 	default:
 		log.Printf("meshghost-relay: ghost collision: enabled -- each game's own defaults stand " +
-			"(set server.ghost_collision to \"disabled\" to turn it off room-wide)")
+			"(\"disabled\", the shipped default, turns it off room-wide)")
 	}
 	if *loopback {
 		log.Printf("meshghost-relay: -loopback enabled — dev-only, do not use with real peers")

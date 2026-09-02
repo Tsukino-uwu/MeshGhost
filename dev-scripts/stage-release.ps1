@@ -94,13 +94,14 @@ $modFolders = @(
 )
 foreach ($f in $modFolders) {
     # The shared template, with this game's own overrides applied on top if it has any. The
-    # overrides file holds ONLY the keys that differ, so the template stays the single copy of the
-    # long explanatory comments a player actually reads -- duplicating a whole config per game
-    # would guarantee the two drift, and the comments are the half most likely to rot.
+    # overrides file holds ONLY the keys that differ, so the template stays the single copy --
+    # duplicating a whole config per game would guarantee the two drift. Since 2026-09-02 the
+    # files carry NO comments at all (the user's call: explanations live in README.txt), and the
+    # layout is two tiers, basics then a blank line then the advanced set.
     #
     # Applied as a targeted text replacement rather than by parsing and re-emitting JSON:
     # round-tripping through ConvertTo-Json reorders the keys and reflows the file, which would
-    # churn the very comments this exists to preserve.
+    # lose the tier layout.
     $text = Get-Content packaging\release\games\client-config-template.json -Raw
     $game = Split-Path (Split-Path $f -Parent) -Leaf
     if ($game -eq 'Mods') { $game = 'pseudoregalia' }   # the UE tree is deeper than TEVI's
@@ -126,10 +127,13 @@ foreach ($f in $modFolders) {
             # nothing. That protection is kept in a different form: an addition is REPORTED as
             # "(added)" in this script's output, so a misspelled key shows up as a new setting
             # appearing rather than an existing one changing. Watch that line.
-            $anchor = '"connect_to"'
+            # Anchored on the LAST key of the client block, so an added key lands in the advanced
+            # tier at the bottom (the tiers are the user's, 2026-08-30) rather than at the top of
+            # the basics, which is where the old "connect_to" anchor put it.
+            $anchor = '"features"'
             $at = $text.IndexOf($anchor)
             if ($at -lt 0) {
-                throw "$ovPath adds '$($prop.Name)' but client-config-template.json has no `"connect_to`" line to anchor the insertion to."
+                throw "$ovPath adds '$($prop.Name)' but client-config-template.json has no `"features`" line to anchor the insertion to."
             }
             $lineStart = $text.LastIndexOf("`n", $at) + 1
             $indent = ($text.Substring($lineStart) -replace '(?s)^(\s*).*', '$1')
