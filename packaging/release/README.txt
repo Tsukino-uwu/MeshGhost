@@ -51,24 +51,21 @@ Two ways to run the client -- pick either:
      nothing is wrong with your install -- just open the client yourself
      instead. Option 1 does exactly the same job; the only thing you lose is
      not having to open and close it yourself.
-     There is also a switch that tells the mods to stop trying, so you do
-     not have to uninstall anything -- see "The MESHGHOST_NO_AUTOSTART
-     switch" below.
+     There is also a setting that tells the mods to stop trying, so you do
+     not have to uninstall anything: "autostart": false in that game's
+     config.json -- see "Turning autostart off" below.
 
      The pairing rule applies here too: a copy in a mod folder reads the
      config.json next to IT, not this one, so that is the file you edit for
      your host's address.
 
-The MESHGHOST_NO_AUTOSTART switch (only if you want it):
+Turning autostart off (only if you want it):
 
-  WHAT IT IS. An environment variable -- a named setting you give to Windows
-  itself rather than a line in any of MeshGhost's files. Programs can read it
-  when they start.
-
-  WHAT IT DOES. Every game's mod checks for it before starting the client. If
-  it is set, the mod does not start anything: it just uses whichever client is
-  already running, and never touches meshghost.exe. Nothing else changes --
-  ghosts, config and everything else behave exactly the same.
+  WHAT IT DOES. Every game's mod checks the config.json it uses before
+  starting the client. With "autostart": false in it, the mod does not
+  start anything: it just uses whichever client is already running, and
+  never touches meshghost.exe. Nothing else changes -- ghosts, config and
+  everything else behave exactly the same.
 
   WHEN YOU WANT IT. When your antivirus objects to the game launching the
   client, when you want to watch the client's window, or when you want to
@@ -78,18 +75,24 @@ The MESHGHOST_NO_AUTOSTART switch (only if you want it):
   YOU MAY NOT NEED IT AT ALL. For TEVI and Pseudoregalia, the mod only starts
   the client because you copied meshghost.exe into the mod folder -- do not
   copy it in (or take it out again) and there is nothing to switch off. The
-  switch matters most for the two Pokemon games, where the script looks for
+  setting matters most for the two Pokemon games, where the script looks for
   the client in the MeshGhost root and finds it whether you want it to or not.
 
-  HOW TO SET IT ON WINDOWS. Press Start, type "environment variables", and
-  choose "Edit the system environment variables", then "Environment
-  Variables...". Under "User variables", click "New...", enter
-  MESHGHOST_NO_AUTOSTART as the name and 1 as the value, and click OK. Any
-  value works -- the mods only check whether it exists. Start the game after
-  that, since programs read it when they launch.
+  HOW. Open that game's config.json (games\<your game>\...\config.json,
+  or this folder's for a client you run by hand), change
 
-  TO UNDO IT, delete that entry the same way, and the mods go back to starting
-  the client for you.
+      "autostart": true,
+  to
+      "autostart": false,
+
+  and start the game after saving. To undo it, put true back.
+
+  THE OLD WAY STILL WORKS. Earlier versions used an environment variable
+  instead -- a named setting you give to Windows itself. If you set
+  MESHGHOST_NO_AUTOSTART back then it still counts as "no", so you can leave
+  it; to be rid of it, press Start, type "environment variables", open "Edit
+  the system environment variables" > "Environment Variables...", and delete
+  it under "User variables".
 
 Windows, Linux and macOS:
 
@@ -150,6 +153,11 @@ Setup, once:
                started invisible; true opens a real window for it so you
                can watch it work instead of reading meshghost.log. Windows
                only -- under Proton/Wine there is no console to open.
+     "autostart" -- true (the default) lets the game's mod start the
+               client for you and close it with the game. false means it
+               starts nothing and uses whichever client is already running
+               -- you double-click meshghost.exe yourself. See "Turning
+               autostart off" above for when you'd want that.
 
    ADVANCED
      "ghost_collision" -- whether other players' ghosts can be solid in
@@ -587,11 +595,10 @@ Playing, every session (everyone, including the host):
    above -- the warning will say what's wrong.
 
    Prefer to run the client yourself (an antivirus that objects to one
-   program starting another, or you just want to watch its window)? Set
-   the MESHGHOST_NO_AUTOSTART switch -- explained under "The
-   MESHGHOST_NO_AUTOSTART switch" above, including how to set it -- and
-   double-click meshghost.exe before starting the game as before. That
-   path is unchanged and fully supported in all four games.
+   program starting another, or you just want to watch its window)? Put
+   "autostart": false in that game's config.json -- see "Turning autostart
+   off" above -- and double-click meshghost.exe before starting the game
+   as before. That path is unchanged and fully supported in all four games.
 3. Walk around. Once a friend joins the same server in the same room,
    you'll see their character as a ghost -- correct sprite/model, facing,
    and movement, tracking their real position. No shared world state:
@@ -642,10 +649,10 @@ Common things to check:
   MeshGhostPseudo folder. No log file means the mod never started the
   client: look in ue4ss\UE4SS.log, which will say whether meshghost.exe was
   missing (antivirus is a real possibility -- see the note below) or the
-  start itself failed. Also make sure the MESHGHOST_NO_AUTOSTART switch
-  isn't set (see its section above) -- that deliberately tells the mod not to
-  start the client, so it is the expected result rather than a fault if
-  somebody set it earlier and forgot.
+  start itself failed. Also make sure "autostart" is not false in that
+  config.json (and that the old MESHGHOST_NO_AUTOSTART variable isn't set)
+  -- either deliberately tells the mod not to start the client, so it is the
+  expected result rather than a fault if somebody set it earlier and forgot.
 - Edited config.json and nothing changed? Open meshghost.log and find the
   "config loaded from ..." line -- it prints the full path of the file it
   actually read. With a mod that starts MeshGhost for you, that's the copy
@@ -695,9 +702,9 @@ What you can do:
    the build is public.
 
 2. If it is specifically the Pseudoregalia mod STARTING meshghost.exe that
-   your scanner objects to, set the environment variable
-   MESHGHOST_NO_AUTOSTART to anything and start meshghost.exe yourself
-   instead. That path is unchanged and fully supported.
+   your scanner objects to, put "autostart": false in the mod folder's
+   config.json and start meshghost.exe yourself instead. That path is
+   unchanged and fully supported.
 
 3. If a file has already been quarantined or deleted, that is worth knowing:
    the mod's log (ue4ss\UE4SS.log for Pseudoregalia) will say it could not

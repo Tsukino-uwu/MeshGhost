@@ -6,6 +6,7 @@
     "room": "default",
     "room_code": "",
     "show_console": false,
+    "autostart": true,
 
     "ghost_collision": "disabled",
 

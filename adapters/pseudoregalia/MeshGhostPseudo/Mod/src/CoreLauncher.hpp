@@ -57,6 +57,8 @@ namespace MeshGhostPseudo
     // Returns the default rather than failing on anything unparseable: a typo in a cosmetic port
     // setting must not stop a game's mod from loading.
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t;
+    // True when the config.json the mod's client reads carries "autostart": false (2026-09-03).
+    auto config_disables_autostart() -> bool;
 
     // "Is there a file of this name sitting beside this DLL?" -- the dev-toggle question, answered
     // without a second copy of the module-directory dance that resolve_bridge_base_port already

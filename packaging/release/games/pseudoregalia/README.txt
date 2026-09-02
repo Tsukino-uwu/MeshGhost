@@ -104,12 +104,10 @@ Prefer to run it yourself? Two ways, and the first needs no settings at all:
 
   - Do not copy meshghost.exe into the MeshGhostPseudo folder (or take it back out). With
     nothing there to start, the mod uses whichever client is already running.
-  - Or set MESHGHOST_NO_AUTOSTART and leave the exe where it is. That is an environment
-    variable: a named setting you give Windows rather than a line in a MeshGhost file.
-    Every game's mod checks for it before starting a client, and if it exists the mod
-    starts nothing and uses whichever client is already running. Any value works -- the
-    mods only check whether it exists. The main README in the folder you unzipped has
-    step-by-step instructions under "The MESHGHOST_NO_AUTOSTART switch".
+  - Or put "autostart": false in this folder's config.json and leave the exe where it is.
+    The mod checks that line before starting a client; with it set to false the mod starts
+    nothing and uses whichever client is already running. The main README in the folder you
+    unzipped has the details under "Turning autostart off".
 
 Either way, double-click meshghost.exe yourself before launching the game -- and remember
 it reads the config.json sitting next to it, so keep the two together.

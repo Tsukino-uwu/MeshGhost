@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — two instances 1s and 3s apart both found their own core (7778, then busy -> 7779); the forgotten-child path itself is not reachable by launch timing here
 - DONE 2026-09-02 — the interp ladder on a 100-200ms lossy link, judged by the user: same shape as Crystal's, the shipped 250ms stands
 - WATCHED 2026-09-02 — the ladder spawned -> OAM -> drawn is the shipped default now, and the three tile leaks it exposed are fixed; what the user saw, what is left
@@ -56,6 +57,16 @@ entry without one.
 - 2026-08-21 (water/warp session) — what was NOT confirmed
 - Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
 - Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
+
+## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
+
+The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
+The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
+same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `AUTOSTART` is now the variable check AND an inline scan of `config.json` in the script's folder, then the release root, then a source checkout's root (an IIFE: no local to spare). **What to watch:**
+with `false` in the file, the game comes up with no client started and the log line naming the reason;
+with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten
+around the key ("Turning autostart off").
 
 ## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
 

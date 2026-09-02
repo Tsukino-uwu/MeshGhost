@@ -367,3 +367,13 @@ launcher that forgets a child the port walk has moved off, written, reproduced a
 to "wait on your own child, forget it only on busy" (`8d6a67a`, `e3c11dc`, `9b79429`); the interp ladder on
 the fixed relay (300ms on the milder proxy, `e33f31f`) and again on the worst-case proxy (450ms, `4e619b5`,
 `tevi/VERIFIED.md`); 450ms shipped for every game (ADR 0046, `0cd52a9`).
+
+## 2026-09-03 — `"autostart"` moves into config.json (TEVI)
+
+The user's ask, the morning after the config restructure: the "don't start a client" switch was an
+environment variable, and *"even me that is somewhat tech savvy, has no clue what 'an environment
+variable' means"*. All four launchers now read `"autostart"` from the config.json the client will read,
+the variable still counts, the READMEs are rewritten around the key. Built and deployed, unwatched
+(`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
+in-game menus -- is filed in `ideas.md`.
+

@@ -164,6 +164,48 @@ namespace MeshGhostPseudo
         return fallback;
     }
 
+    // "autostart": false in the config.json the mod's client reads says "do not start a client;
+    // use whichever one is running" -- the user's call 2026-09-03: MESHGHOST_NO_AUTOSTART did the
+    // same job, but "environment variable" means nothing to most players and a line in the file
+    // they already edit does. Same two directories and the same hand parse as
+    // resolve_bridge_base_port. Absent, or anything but false, means autostart.
+    auto config_disables_autostart() -> bool
+    {
+        std::wstring dirs[2];
+        dirs[1] = module_directory();
+        dirs[0] = dirs[1];
+        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
+        {
+            dirs[0].resize(slash);
+        }
+        for (const std::wstring& dir : dirs)
+        {
+            if (dir.empty())
+            {
+                continue;
+            }
+            std::ifstream f(dir + L"\\config.json");
+            if (!f)
+            {
+                continue;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const std::string key = "\"autostart\"";
+            const size_t k = text.find(key);
+            if (k == std::string::npos)
+            {
+                return false; // the first config.json found decides, key or no key
+            }
+            size_t i = k + key.size();
+            while (i < text.size() && (text[i] == ' ' || text[i] == ':' || text[i] == '\t'))
+            {
+                ++i;
+            }
+            return text.compare(i, 5, "false") == 0;
+        }
+        return false;
+    }
+
     CoreLauncher::CoreLauncher()
     {
         // Env var read once at construction: it's a launch-time decision, and re-reading it
@@ -174,6 +216,12 @@ namespace MeshGhostPseudo
         {
             spawn_disabled = true;
             Output::send(STR("[MeshGhostPseudo] MESHGHOST_NO_AUTOSTART is set -- not starting a core. "
+                             "Start meshghost.exe yourself.\n"));
+        }
+        else if (config_disables_autostart())
+        {
+            spawn_disabled = true;
+            Output::send(STR("[MeshGhostPseudo] \"autostart\": false in config.json -- not starting a core. "
                              "Start meshghost.exe yourself.\n"));
         }
     }

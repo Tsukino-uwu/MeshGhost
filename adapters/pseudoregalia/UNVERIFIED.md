@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
 - Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
 - Pending — every peer-named asset now resolves through the CATALOG GATE, built and unwatched (2026-09-01)
@@ -53,6 +54,16 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
+
+The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
+The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
+same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `config_disables_autostart()` beside `resolve_bridge_base_port`, checked in the constructor after the variable; the log line is `"autostart": false in config.json -- not starting a core`. **What to watch:**
+with `false` in the file, the game comes up with no client started and the log line naming the reason;
+with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten
+around the key ("Turning autostart off").
 
 ## [READY] the launcher forgets a child the port walk has moved off — mirrored from TEVI 2026-09-02, unwatched
 

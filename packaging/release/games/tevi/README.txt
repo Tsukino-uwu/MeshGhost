@@ -56,12 +56,10 @@ two ways, and the first needs no settings at all:
 
   - Take meshghost.exe back out of the MeshGhost plugin folder. With nothing there to
     start, the mod simply uses whichever client is already running.
-  - Or set MESHGHOST_NO_AUTOSTART and leave the exe where it is. That is an environment
-    variable -- a named setting you give Windows rather than a line in a MeshGhost file --
-    which every game's mod checks before starting a client; if it exists, the mod starts
-    nothing and uses whichever client is already running. Any value works, and the main
-    README two folders up has step-by-step instructions under "The MESHGHOST_NO_AUTOSTART
-    switch".
+  - Or put "autostart": false in this folder's config.json and leave the exe where it is.
+    The mod checks that line before starting a client; with it set to false the mod starts
+    nothing and uses whichever client is already running. The main README two folders up
+    has the details under "Turning autostart off".
 
 Either way, open meshghost.exe yourself before you play.
 

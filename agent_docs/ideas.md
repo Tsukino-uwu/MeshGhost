@@ -48,6 +48,7 @@ is USED, that project is checked and recorded there first.
 - A "share items" room toggle, in the shape of the collision one — filed 2026-08-20
 - Split releases: platform-only and per-category bundles beside the full one — filed 2026-08-20
 - "Hide every ghost, but still be one" — a client-only invisibility setting — filed 2026-08-20
+- Adapter-specific settings in the per-game config.json, read by the mod itself, instead of in-game menus — filed 2026-09-03
 - Scaling and efficiency — MOVED to `scaling.md` (2026-08-30)
 - BUG: with MESHGHOST_BRIDGE_PORT set, a rejected adapter hot-loops and its own log line is a lie (2026-08-28)
 - Sweep: rules that live in one code path and are missing from their sibling
@@ -2165,4 +2166,28 @@ sending datagrams outside the controller (quic-go has no public switch for that;
 `Config` before assuming), a larger initial window, or accepting it and saying so in `docs/`. Not a
 reason to change the default transport: quic is the default for encryption and spoof resistance, and a
 hint of glide after a lost packet on a bike at 15Hz is the price so far.
+
+## Adapter-specific settings in the per-game config.json, read by the mod itself, instead of in-game menus — filed 2026-09-03
+
+**The user's thought, the night `"autostart"` moved from an environment variable into the config:**
+*"this is maybe how we can add more 'adapter specific' settings later as well? like enabling the
+clients own config to change game related things? so we can avoid making in game menu's to apply
+changes."*
+
+**What already works this way.** Every game's `config.json` is one file two readers share: the
+client (`meshghost.exe`) reads the keys it knows and ignores the rest, and the mod or script reads
+the keys IT knows before the client exists -- `autostart` in all four (2026-09-03), and
+`local_game_bridge` in Pseudoregalia (2026-08-28). Both are hand-parsed with a regex or a string
+scan, so no JSON library entered any adapter, and a key the client does not know costs nothing.
+
+**What it would mean.** A game-specific knob -- a ghost tint, a nametag font size, the drawn tier
+on Emerald, whether a TEVI ghost's effects play -- becomes a line in the file a player already
+edits, applied at load, no in-game menu built and no UI toolkit pulled into a mod. The cost is
+the one every extra key has carried so far: a name to keep spelled the same across the file, the
+README and the mod, and a restart to apply it.
+
+**The rule if it happens:** game-specific keys live in that game's file only, never in the root
+`config.json` (which every game is cut from), documented in that game's `README.txt` under the
+same ADVANCED heading; a mod that reads a key logs the value it read once, the way the launcher
+logs its port and its autostart decision, so a typo shows up as a wrong value rather than silence.
 

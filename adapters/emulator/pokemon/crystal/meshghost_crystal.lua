@@ -9382,7 +9382,22 @@ end
 -- control). GetCurrentProcess().Id is EmuHawk's pid, so -exit-with-pid gives auto-close for free.
 -- See agent_docs/environment.md and dev-scripts/bizhawk-spawn-probe.lua.
 local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
-local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil
+-- ... and "autostart": false in config.json says the same thing in the file a player already
+-- edits (the user's call 2026-09-03: "environment variable" means nothing to most players).
+-- Own folder first, then the release root, then a source checkout's root -- the same order the
+-- core's config is found in. The first config.json found decides, key or no key. An IIFE, not a
+-- helper: this file has no local to spare (the 200-local ceiling).
+local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
+    for _, dir in ipairs({ SCRIPT_DIR, SCRIPT_DIR .. "../../../", SCRIPT_DIR .. "../../../../" }) do
+        local f = io.open(dir .. "config.json", "rb")
+        if f then
+            local text = f:read("*a") or ""
+            f:close()
+            return not text:find('"autostart"%s*:%s*false')
+        end
+    end
+    return true
+end)()
 
 -- meshghost.exe is not shipped inside game folders (9 MB, once per game), so look where it
 -- actually lives: the release root is three levels up from games/pokemon/crystal, a source

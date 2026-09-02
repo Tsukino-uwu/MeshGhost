@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
 - Pending — `anim_t`/`pause` are read as finite-or-absent (2026-09-02 adversarial review), built and deployed, unwatched
 - MEASURED, not watched: the relay-down backoff, seen working for the first time (2026-08-28)
@@ -51,6 +52,16 @@ entry without one.
 - Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 - Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 - PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+
+## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
+
+The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
+The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
+same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `CoreLauncher.ConfigSaysNoAutostart`, checked right after the variable in `TickDisconnected`; the log line is `"autostart": false in config.json -- not starting a core`. **What to watch:**
+with `false` in the file, the game comes up with no client started and the log line naming the reason;
+with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten
+around the key ("Turning autostart off").
 
 ## [READY] Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 

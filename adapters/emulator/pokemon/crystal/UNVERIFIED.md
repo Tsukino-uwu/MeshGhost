@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
 - Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
 - Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
@@ -56,6 +57,16 @@ entry without one.
 - 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
 - 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
 - 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+
+## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
+
+The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
+The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
+same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `AUTOSTART` is now the variable check AND an inline scan of `config.json` in the script's folder, then the release root, then a source checkout's root (an IIFE: this file is at the local ceiling). **What to watch:**
+with `false` in the file, the game comes up with no client started and the log line naming the reason;
+with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten
+around the key ("Turning autostart off").
 
 ## [DONE] 450ms interp on the worst-case proxy — the user's call for Crystal from the other three games (2026-09-02), recorded in `VERIFIED.md` as the user's explicit exception
 

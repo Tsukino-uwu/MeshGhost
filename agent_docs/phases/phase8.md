@@ -449,3 +449,13 @@ user (`0cd52a9`, `emerald/VERIFIED.md`); 450ms shipped for every game (ADR 0046)
 The script now points the core it starts at a `config.json` beside itself when one exists (own folder first,
 the release root's otherwise, the choice logged), staged from the root `config.json`'s client block like every
 other game's; `plans.md` "Settings" step 3. Unwatched: the Lua Console line naming the path is the check.
+
+## 2026-09-03 — `"autostart"` moves into config.json (Emerald)
+
+The user's ask, the morning after the config restructure: the "don't start a client" switch was an
+environment variable, and *"even me that is somewhat tech savvy, has no clue what 'an environment
+variable' means"*. All four launchers now read `"autostart"` from the config.json the client will read,
+the variable still counts, the READMEs are rewritten around the key. Built and deployed, unwatched
+(`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
+in-game menus -- is filed in `ideas.md`.
+

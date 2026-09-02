@@ -84,6 +84,12 @@ namespace MeshGhostTevi
                 log($"MeshGhost: {NoAutostartEnv} is set -- not starting a core. Start meshghost.exe yourself.");
                 return;
             }
+            if (ConfigSaysNoAutostart())
+            {
+                disabled = true;
+                log("MeshGhost: \"autostart\": false in config.json -- not starting a core. Start meshghost.exe yourself.");
+                return;
+            }
 
             string exe = FindCoreExe();
             if (exe == null)
@@ -189,6 +195,36 @@ namespace MeshGhostTevi
         // Parsed by hand rather than with a JSON library: the shape is fixed ("host:port", quoted)
         // and this assembly deliberately carries no JSON dependency. Anything unrecognised falls
         // through to the caller's fallback rather than throwing.
+        // "autostart": false in the config.json beside meshghost.exe says "do not start a client;
+        // use whichever one is running". The user's call 2026-09-03: the environment variable
+        // above did the same job, but "environment variable" means nothing to most players and
+        // a line in the file they already edit does. Same search order and the same hand parse
+        // as ResolveBridgeBasePort, for the same reasons; absent, or anything but false, means
+        // autostart. The variable still works -- either one saying no is a no.
+        public static bool ConfigSaysNoAutostart()
+        {
+            try
+            {
+                foreach (string dir in CoreSearchDirs())
+                {
+                    if (string.IsNullOrEmpty(dir))
+                    {
+                        continue;
+                    }
+                    string cfg = Path.Combine(dir, "config.json");
+                    if (!File.Exists(cfg))
+                    {
+                        continue;
+                    }
+                    return Regex.IsMatch(File.ReadAllText(cfg), "\"autostart\"\\s*:\\s*false");
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
         public static int ResolveBridgeBasePort(int fallback)
         {
             // The environment wins, and it is the same variable name the two Lua adapters use, so

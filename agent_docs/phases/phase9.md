@@ -979,3 +979,13 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
 Same change as Emerald's (`phase8.md`): own-folder-first config for the core the script starts, staged from
 the root `config.json`'s client block; the client template is gone; the shipped configs are two tiers with no
 comments and every explanation in `README.txt`; collision ships disabled (`phase10.md`, 2026-09-02 late).
+
+## 2026-09-03 — `"autostart"` moves into config.json (Crystal)
+
+The user's ask, the morning after the config restructure: the "don't start a client" switch was an
+environment variable, and *"even me that is somewhat tech savvy, has no clue what 'an environment
+variable' means"*. All four launchers now read `"autostart"` from the config.json the client will read,
+the variable still counts, the READMEs are rewritten around the key. Built and deployed, unwatched
+(`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
+in-game menus -- is filed in `ideas.md`.
+

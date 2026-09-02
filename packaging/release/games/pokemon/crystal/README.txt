@@ -39,14 +39,9 @@ Running the client -- two ways, pick either:
      and the Lua Console says which.)
 
      If an antivirus objects to one program starting another -- or you simply want to
-     watch the client's window -- use option 1 instead, and set MESHGHOST_NO_AUTOSTART
-     so the script stops trying to start one.
-
-     That is an environment variable: a named setting you give Windows rather than a
-     line in any MeshGhost file. Every game's mod checks for it and, if it exists, uses
-     whichever client is already running instead of starting its own. Any value works.
-     The main README (three folders up) has step-by-step instructions for setting it
-     under "The MESHGHOST_NO_AUTOSTART switch".
+     watch the client's window -- use option 1 instead, and put "autostart": false in
+     this folder's config.json so the script stops trying to start one (the main README
+     in the folder you unzipped explains it under "Turning autostart off").
 
 Either way, the Lua Console prints what happened, including the
 "connected to relay ... in room ..." line that means it worked.
