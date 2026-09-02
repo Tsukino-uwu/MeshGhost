@@ -973,3 +973,9 @@ netsim rig (60/25/2/2, relay at the shipped 15Hz with loss cover, quic), both in
   constant, the release config and template, no per-game override (the mechanism stays for a future game),
   the three READMEs rewritten with the measured tiers.
 - **Crystal's 450ms recorded as verified on the user's explicit exception** (*"just put it as verified/confirmed. an exception this time as all adapters share this value now"*), the entry saying so. Rig torn down and verified gone; root binaries rebuilt; pushed at the user's request.
+
+## 2026-09-02 (late) — Crystal's own config.json, and the shipped configs restructured
+
+Same change as Emerald's (`phase8.md`): own-folder-first config for the core the script starts, staged from
+the root `config.json`'s client block; the client template is gone; the shipped configs are two tiers with no
+comments and every explanation in `README.txt`; collision ships disabled (`phase10.md`, 2026-09-02 late).

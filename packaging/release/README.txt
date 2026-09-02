@@ -571,8 +571,10 @@ Playing, every session (everyone, including the host):
    README: once you drag the mod into your game, that's the copy it reads.
 
    Emerald and Crystal run from this folder. The script finds
-   meshghost.exe and config.json right here on its own, so there is
-   nothing to copy and nothing to edit anywhere else.
+   meshghost.exe right here on its own, and each game has its own
+   settings in games\pokemon\<game>\config.json -- that is the file you
+   edit for those two. (If that file is missing, the script falls back
+   to the config.json next to this README, and says so in its console.)
 2. Open your game and load its MeshGhost mod/script -- see games\<your
    game>\README.txt for exactly how (BizHawk Lua Console for Emerald and
    Crystal; BepInEx for TEVI and UE4SS for Pseudoregalia, both of which

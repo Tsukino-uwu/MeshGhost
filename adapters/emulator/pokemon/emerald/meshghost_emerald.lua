@@ -1148,7 +1148,19 @@ local function startCore(port)
         --
         -- TEVI (WorkingDirectory) and Pseudoregalia (CreateProcessW's lpCurrentDirectory) have
         -- always set this; these two adapters were the pair that did not.
-        si.WorkingDirectory = (exe:gsub("meshghost%.exe$", ""))
+        --
+        -- OWN FOLDER FIRST (2026-09-02, plans.md "Settings" step 3, the user's ask): a config.json
+        -- beside THIS script wins, so each Pokemon game carries its own settings the way TEVI and
+        -- Pseudoregalia do; with none there, the exe's folder (the release root) as before. One
+        -- file wins entirely, never a merge; the core logs which path it loaded, and meshghost.log
+        -- lands in the same folder as the config it read.
+        do
+            local own = io.open(SCRIPT_DIR .. "config.json", "rb")
+            if own then own:close() end
+            si.WorkingDirectory = own and SCRIPT_DIR or (exe:gsub("meshghost%.exe$", ""))
+            console.log("MeshGhost: the core reads " .. si.WorkingDirectory .. "config.json"
+                .. (own and " (this game's own)" or " (the release root's; put a config.json beside this script to give this game its own)"))
+        end
         si.UseShellExecute = false
         si.CreateNoWindow = true
         coreChild = Process.Start(si)

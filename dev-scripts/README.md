@@ -545,9 +545,10 @@ verdicts, each the user's on-screen read (`agent_docs/verified.md`, "The render-
   the only real fix and is deliberately not built yet.
 
 **Per game, the settings live in that game's own client `config.json`** -- the file its mod's
-launcher reads (`packaging/release/games/client-config-template.json` is the template, and the keys
-are `interp`, `curve`, `extrapolate`). Nothing new was needed to make them per-game; what is
-missing is somebody sitting in front of each game and picking.
+launcher reads (staged from the root `config.json`'s client block plus that game's
+`client-config-overrides.json`, and the keys are `interp`, `curve`, `extrapolate`). Nothing new
+was needed to make them per-game; what is missing is somebody sitting in front of each game and
+picking.
 
 ## Running the TEVI two-instance rig, start to finish (2026-08-28)
 

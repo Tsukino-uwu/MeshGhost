@@ -710,7 +710,7 @@ check below.
    refuses the room rather than degrading the session. Adds `min_send`, `stats` and
    `resume_grace_seconds`, which exist in code and appear in no shipped file. Short comments in the
    basic tier, the full paragraphs below the divider.
-3. **A config per game, generated from the one template.** Emerald and Crystal currently read the
+3. **DONE 2026-09-02 (both Pokemon folders go through the same staging loop as the mod folders, overrides included; own-folder-first in both scripts with the chosen path logged; fall back to root).** A config per game, generated from the one template. Emerald and Crystal currently read the
    ROOT `config.json`, which is why they cannot have different values from each other — exactly the
    two games whose render settings have never been measured. Each gets its own under
    `games/pokemon/<game>/`, read by pointing the spawned core at it (working directory, so the log

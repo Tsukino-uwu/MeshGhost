@@ -443,3 +443,9 @@ whose cores restarted together then chased each other's fresh cores and the ever
 connects put the emulator at 3fps, so the sweep now waits on its own child, forgets it only on busy, and
 runs every 30 frames (`9b79429`); the interp ladder on the worst-case proxy, 375 then 450ms, watched by the
 user (`0cd52a9`, `emerald/VERIFIED.md`); 450ms shipped for every game (ADR 0046).
+
+## 2026-09-02 (late) — pointer: Emerald's own config.json
+
+The script now points the core it starts at a `config.json` beside itself when one exists (own folder first,
+the release root's otherwise, the choice logged), staged from the root `config.json`'s client block like every
+other game's; `plans.md` "Settings" step 3. Unwatched: the Lua Console line naming the path is the check.

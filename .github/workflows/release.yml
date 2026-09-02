@@ -294,8 +294,8 @@ jobs:
           #
           # -NoBuild: the two .exe files are built by this job's own earlier steps, with the same
           # -ldflags, and other steps expect them at the repo root.
-          # -ForRelease: removes the tracked config template from the staged tree, which only a
-          # real release should do.
+          # -ForRelease: kept for compatibility, a no-op since 2026-09-02 -- every game's
+          # config.json is cut from the root config.json's client block, no template to remove.
           pwsh dev-scripts/stage-release.ps1 -NoBuild -ForRelease
 
           # "full" rather than "windows", for two reasons. It says what is actually in here

@@ -103,21 +103,6 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 	}
 }
 
-// The per-game template is a THIRD copy of the client half, read by the client a mod starts. It
-// drifts for the same reason and is easier to forget, since it lives under games/.
-func TestPerGameTemplateTracksInterp(t *testing.T) {
-	cfg := loadShippedConfig(t,
-		filepath.Join("packaging", "release", "games", "client-config-template.json"))
-	interp, err := time.ParseDuration(cfg.Client.Interp)
-	if err != nil {
-		t.Fatalf("template interp %q does not parse: %v", cfg.Client.Interp, err)
-	}
-	if interp != core.DefaultInterpolationDelay {
-		t.Errorf("per-game template interp is %v but core.DefaultInterpolationDelay is %v",
-			interp, core.DefaultInterpolationDelay)
-	}
-}
-
 // Where the release deliberately does NOT match a flag default. Each is a decision with a reason,
 // and pinning them here means the reason has to be revisited to change them rather than quietly
 // eroded. A failure is not necessarily a bug — it means read the reason and decide again.

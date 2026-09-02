@@ -33,8 +33,10 @@ Running the client -- two ways, pick either:
      the script finds it there by itself: it starts it with no window when you load
      the script and shuts it down when you close the emulator. That folder is the
      BizHawk equivalent of a mod folder -- it is where the script looks, and the only
-     place this works from. It reads the config.json next to it, so there is nothing
-     to copy and nothing to edit anywhere else.
+     place this works from. The client reads the config.json in THIS folder, next to
+     the script, so this game's settings are separate from every other game's. (If
+     this folder has no config.json, it reads the one next to meshghost.exe instead,
+     and the Lua Console says which.)
 
      If an antivirus objects to one program starting another -- or you simply want to
      watch the client's window -- use option 1 instead, and set MESHGHOST_NO_AUTOSTART

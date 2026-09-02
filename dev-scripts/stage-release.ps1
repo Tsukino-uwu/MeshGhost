@@ -24,9 +24,9 @@ Skip building the two .exe files. release.yml passes this because it builds them
 earlier steps (with the same -ldflags) and needs them at the repo root for other jobs.
 
 .PARAMETER ForRelease
-Remove games\client-config-template.json from the staged tree after copying it into each mod
-folder. Only a real release does this: the template is a TRACKED file, and deleting it during a
-local dry run would show up as a deletion in git status.
+Accepted for release.yml's sake and currently a no-op. It used to remove the client config
+template after staging; since 2026-09-02 there is no template -- every game's config.json is
+cut from the root config.json's "client" block -- so there is nothing to remove.
 
 .EXAMPLE
 pwsh dev-scripts\stage-release.ps1
@@ -88,11 +88,26 @@ Copy-Binary 'meshghost-server.exe'
 # client -- the mod starts the client from beside its own DLL, and shipping a 9 MB binary per
 # game was rejected on 2026-08-18. The player copies meshghost.exe in once per game, which is
 # the one manual step in the install and is called out in each game's README.txt.
+# Every folder that gets a config.json from the template. Emerald and Crystal joined on
+# 2026-09-02 (the user's ask; plans.md "Settings" step 3): their scripts point the core they
+# start at the config beside the script, so each Pokemon game carries its own settings the way
+# TEVI and Pseudoregalia do, and an overrides file beside the script works for them the same way.
 $modFolders = @(
     'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo',
-    'packaging\release\games\tevi\MeshGhost'
+    'packaging\release\games\tevi\MeshGhost',
+    'packaging\release\games\pokemon\emerald',
+    'packaging\release\games\pokemon\crystal'
 )
+# Where each folder's overrides live: games\<game>\ for the mod-folder games (the mod folder is a
+# level or more below), the folder itself for the Pokemon pair (the script IS the folder).
+$overridesFor = @{
+    'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo' = 'packaging\release\games\pseudoregalia\client-config-overrides.json'
+    'packaging\release\games\tevi\MeshGhost' = 'packaging\release\games\tevi\client-config-overrides.json'
+    'packaging\release\games\pokemon\emerald' = 'packaging\release\games\pokemon\emerald\client-config-overrides.json'
+    'packaging\release\games\pokemon\crystal' = 'packaging\release\games\pokemon\crystal\client-config-overrides.json'
+}
 foreach ($f in $modFolders) {
+    New-Item -ItemType Directory -Force $f | Out-Null
     # The shared template, with this game's own overrides applied on top if it has any. The
     # overrides file holds ONLY the keys that differ, so the template stays the single copy --
     # duplicating a whole config per game would guarantee the two drift. Since 2026-09-02 the
@@ -102,19 +117,32 @@ foreach ($f in $modFolders) {
     # Applied as a targeted text replacement rather than by parsing and re-emitting JSON:
     # round-tripping through ConvertTo-Json reorders the keys and reflows the file, which would
     # lose the tier layout.
-    $text = Get-Content packaging\release\games\client-config-template.json -Raw
-    $game = Split-Path (Split-Path $f -Parent) -Leaf
-    if ($game -eq 'Mods') { $game = 'pseudoregalia' }   # the UE tree is deeper than TEVI's
-    $ovPath = "packaging\release\games\$game\client-config-overrides.json"
+    # The source is the root config.json's "client" block, verbatim -- one copy of the client
+    # settings for the whole release (the separate template it used to be cut from was dropped
+    # on 2026-09-02, the user's call, once no comments needed a home of their own). Two keys in
+    # it are meaningless for some games (local_game_bridge, game) and harmless: an adapter that
+    # passes -bridge overrides the first, and an empty game is "unset".
+    $root = Get-Content packaging\release\config.json -Raw
+    $cStart = $root.IndexOf('  "client": {')
+    $cEnd = if ($cStart -ge 0) { $root.IndexOf("`n  },", $cStart) } else { -1 }
+    if ($cStart -lt 0 -or $cEnd -lt 0) {
+        throw 'packaging\release\config.json has no "client": { ... }, block shaped the way staging expects'
+    }
+    $text = "{`n" + $root.Substring($cStart, $cEnd - $cStart) + "`n  }`n}`n"
+    $game = Split-Path $f -Leaf
+    $ovPath = $overridesFor[$f]
     if (Test-Path $ovPath) {
         $ov = Get-Content $ovPath -Raw | ConvertFrom-Json
         $applied = @()
         foreach ($prop in $ov.PSObject.Properties) {
             if ($prop.Name -like '_comment*') { continue }
             $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)"[^"]*"'
-            $before = $text
-            $text = [regex]::Replace($text, $pattern, ('${1}"' + $prop.Value + '"'))
-            if ($text -ne $before) {
+            # A real match test, not "did the text change": an override whose value equals the
+            # source's (Pseudoregalia's local_game_bridge, once the root config carried it) used
+            # to read as "not found" and be INSERTED a second time -- a duplicate key that JSON
+            # parsers resolve silently. Found by the dry run on 2026-09-02.
+            if ([regex]::IsMatch($text, $pattern)) {
+                $text = [regex]::Replace($text, $pattern, ('${1}"' + $prop.Value + '"'))
                 $applied += "$($prop.Name) (replaced)"
                 continue
             }
@@ -133,7 +161,7 @@ foreach ($f in $modFolders) {
             $anchor = '"features"'
             $at = $text.IndexOf($anchor)
             if ($at -lt 0) {
-                throw "$ovPath adds '$($prop.Name)' but client-config-template.json has no `"features`" line to anchor the insertion to."
+                throw "$ovPath adds '$($prop.Name)' but config.json's client block has no `"features`" line to anchor the insertion to."
             }
             $lineStart = $text.LastIndexOf("`n", $at) + 1
             $indent = ($text.Substring($lineStart) -replace '(?s)^(\s*).*', '$1')
@@ -143,18 +171,14 @@ foreach ($f in $modFolders) {
         Write-Host "  $game config: overrode $($applied -join ', ')"
     }
     # WriteAllText with an explicit no-BOM encoder, NOT Set-Content -Encoding utf8: PowerShell
-    # 5.1 writes a BOM for that, and the tracked template has none. internal/cfg.StripBOM means a
-    # BOM would in fact load fine -- it exists because Windows editors save them -- but a staged
-    # file that differs from its own template by three invisible bytes is a difference nobody
-    # wants to rediscover.
+    # 5.1 writes a BOM for that, and the tracked config.json has none. internal/cfg.StripBOM means
+    # a BOM would in fact load fine -- it exists because Windows editors save them -- but a staged
+    # file that differs from its source by three invisible bytes is a difference nobody wants to
+    # rediscover.
     [System.IO.File]::WriteAllText((Join-Path (Resolve-Path $f) 'config.json'), $text, (New-Object System.Text.UTF8Encoding $false))
 }
-if ($ForRelease) {
-    Remove-Item packaging\release\games\client-config-template.json
-}
-
-# Emerald and Crystal are not in $modFolders at all: their scripts load from the release folder
-# itself, so they reach the root exe and config with no copy of anything.
+# Emerald and Crystal: the scripts, and the LuaSocket build beside each. Their config.json was
+# staged by the loop above; the exe stays at the release root, where the scripts look for it.
 New-Item -ItemType Directory -Force packaging\release\games\pokemon\emerald | Out-Null
 Copy-Item adapters\emulator\pokemon\emerald\meshghost_emerald.lua packaging\release\games\pokemon\emerald\ -Force
 # Remove any staged lib\ from a previous run first: Copy-Item -Recurse into an EXISTING

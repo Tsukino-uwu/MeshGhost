@@ -116,9 +116,9 @@ func IsPermanentRejectErr(err error) bool {
 // the user took (2026-08-19) on the grounds that this is the first time anyone
 // had actually measured how the setting looks.
 //
-// CHANGING THIS MEANS CHANGING THREE FILES, not one: packaging/release/config.json and
-// packaging/release/games/client-config-template.json carry explicit values that OVERRIDE this for
-// every packaged player (and the per-game client-config-overrides.json files, when one differs). Raising it here and not there is a default nobody receives -- which is
+// CHANGING THIS MEANS CHANGING TWO PLACES, not one: packaging/release/config.json carries an
+// explicit value that OVERRIDES this for every packaged player (its client section is what every
+// game's config.json is staged from), and a per-game client-config-overrides.json can differ. Raising it here and not there is a default nobody receives -- which is
 // exactly what happened on 2026-08-19 until the user asked what the release actually ships.
 // cmd/meshghost/shippedconfig_test.go now fails when they disagree.
 //

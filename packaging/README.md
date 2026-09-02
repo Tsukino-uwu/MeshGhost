@@ -5,11 +5,11 @@ What actually goes in a release, and why it's laid out the way it is. Consumed b
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
 builds the Go `.exe`s and then delegates the assembly to `dev-scripts/stage-release.ps1`
 (also the local dry-run/rehearsal path), which copies the Emerald and Crystal adapter files in,
-and drops a `config.json` into each mod folder that installs into a game (TEVI's and
-Pseudoregalia's) — built by merging that game's `client-config-overrides.json` onto
-`client-config-template.json`, which is why the three shipped `config.json`s differ (TEVI ships
-`interp: 300ms`, Pseudoregalia `375ms`, both `ghost_collision: disabled`); the template itself is
-then removed from the staged tree. The workflow zips the whole `packaging/release/` folder as the
+and drops a `config.json` into every game's folder (TEVI's and Pseudoregalia's mod folders,
+`games/pokemon/emerald/` and `games/pokemon/crystal/`) — the root `config.json`'s `client` block
+with that game's `client-config-overrides.json` merged on top. Since 2026-09-02 they all carry the
+same values (450ms interp, collision disabled) and no game overrides anything; the two
+`client-config-overrides.json` files are empty and stay for the day a game needs its own value. The workflow zips the whole `packaging/release/` folder as the
 Windows release asset. It does **not** stage a copy of the client beside those mods — see "One
 copy of the client, copied in by hand" below. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
@@ -104,7 +104,7 @@ the game. That changed what packaging has to do, in two different directions for
 adapter:
 
 - **TEVI and Pseudoregalia install INTO the game**, out of reach of the release folder, so each
-  mod folder gets its own `config.json` (from `client-config-template.json`) and needs a
+  mod folder gets its own `config.json` (cut from the root `config.json`) and needs a
   `meshghost.exe` beside the DLL. The workflow ships the config — 1 KB — and leaves the exe as a
   **one-time manual copy**, called out in each game's `README.txt`.
 - **Emerald and Crystal load from the release folder itself.** Their Lua walks up to the release
