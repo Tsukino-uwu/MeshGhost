@@ -868,3 +868,13 @@ log; evidence in `adapters/emulator/pokemon/crystal/VERIFIED.md`, `UNVERIFIED.md
 - **2026-08-28** — cross-map ghosts survive the relay's cross-area filter, measured at a 76%
   cross-area room (`8eb0b20` — the adapter-side counterpart of ADR 0041), and the bridge-port
   config landed with the other adapters (`15b2715`).
+
+## 2026-09-02 — the documentation pass, as it touched Crystal's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-02) reworked the
+documentation mechanisms; this is what it did to this adapter's files, logged here because a phase file
+is the complete running log and preflight now fails one that falls behind its adapter.
+
+- `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (51/3/6), a "This run" block added; the `pcall` main-loop change from the adversarial review heads it.
+- `probes/README.md` renamed `PROBES.md` and its links fixed in `README.md`, `FLAGS.md`, `documentation.md`.
+- The seam/ledge/whirlpool savestate slot list moved from `status.md` to `agent_docs/running-the-rig.md`.

@@ -29,7 +29,7 @@
 --
 -- UNLOAD IT BEFORE JUDGING ANYTHING ON SCREEN. It holds the d-pad, and in a loopback session the
 -- ghost IS the local player echoed, so a probe steering the player steers the ghost too -- which
--- has already cost this adapter a round of diagnosis once (`probes/README.md`).
+-- has already cost this adapter a round of diagnosis once (`PROBES.md`).
 --
 -- Addresses are vanilla V1.0, from meshghost_crystal.lua's own table (itself from a hash-verified
 -- local `pokecrystal` build): OBJECT_STRUCTS 0xD4D6, stride 0x28. Field offsets from the decomp's

@@ -321,7 +321,7 @@ See [phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
 
 ## Dev tools
 
-Everything lives in [probes/](probes/), and **[probes/README.md](probes/README.md) is the full
+Everything lives in [probes/](probes/), and **[PROBES.md](PROBES.md) is the full
 index** — including the scripts that WRITE, one of which alters the save. Read that before running
 any of them. The adapter's own switches are in [FLAGS.md](FLAGS.md), and
 [adapters/_template/probes.md](../../../_template/probes.md) is the probe method itself.

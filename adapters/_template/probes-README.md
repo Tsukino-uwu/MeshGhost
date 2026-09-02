@@ -1,12 +1,13 @@
 # Probe index — TEMPLATE
 
-**This is the template. Copy it to `<your-adapter>/probes/README.md`, fix the title, delete
-everything above the horizontal rule below.**
+**This is the template. Copy it to `<your-adapter>/PROBES.md` — at the adapter ROOT, one name for every
+adapter (the user's call, 2026-09-02) — fix the title, delete everything above the horizontal rule below.**
+This template is not itself named `PROBES.md` because `probes.md`, the probe METHOD, sits beside it and
+the two cannot coexist on a case-insensitive filesystem; the copy has no such neighbour.
 
 **When to create it:** once `probes/` holds more than a couple of scripts, and `preflight.ps1`
 fails a probe folder holding more than two that has no index. Every shipped adapter with
-probes now have one — Crystal and Emerald in `probes/README.md`, Pseudoregalia in a `PROBES.md` at
-its adapter root, because **UE4SS loads a Lua mod from a fixed `<ModName>/Scripts/main.lua`, so
+probes now have one, `PROBES.md` at the adapter root — root-level because **UE4SS loads a Lua mod from a fixed `<ModName>/Scripts/main.lua`, so
 each probe is its own mod directory and there is no `probes/` folder to index from the inside.**
 That is a host constraint, not a per-adapter exception: any future UE4SS adapter inherits it.
 (This said "Pseudoregalia indexes none of them" until 2026-08-27 — `PROBES.md` closed that on

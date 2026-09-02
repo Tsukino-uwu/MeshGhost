@@ -271,3 +271,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A fuzzer that clips its inputs to the limit under test cannot find the overflow (Go side, 2026-09-02, CLOSED) [CHECK: FuzzListenerSurvivesArbitraryDatagrams with a 64 KiB read buffer]
 - `MaxClients` counted seats, not sockets — and everything before the hello was free (Go side, 2026-09-02, CLOSED) [CHECK: netx.LimitListener tests]
 - A PowerShell identifier check is case-insensitive unless you say otherwise -- and reported a bug that did not exist (2026-09-02) [RULE: checklists/before-trusting-a-reading.md]
+- Archipelago coexistence on Emerald: fixed EWRAM addresses shift under the patch, pointer-relative reads do not (2026-08-11 → 2026-08-18, moved out of risks.md 2026-09-02) [RULE: checklists/before-a-probe.md]

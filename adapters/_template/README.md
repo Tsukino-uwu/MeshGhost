@@ -146,7 +146,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
 | `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
-| `probes/README.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
+| `PROBES.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 
 **`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
 exceptions.** Create all three when the folder is created.
@@ -798,7 +798,7 @@ Region variants, exact file names and hashes are a separate question and belong 
   Pseudoregalia both have one). Keeps game-specific extras out of the build story.
 - **"Dev tools"** — an index of the probe scripts the adapter accumulated. Emerald's dozen-plus
   probes are only findable because its README lists them; write an index the moment you have more
-  than two. **Past roughly a dozen, move the index out to `probes/README.md` instead of growing a
+  than two. **Past roughly a dozen, move the index out to `PROBES.md` instead of growing a
   README section** — Crystal has 76 probes and indexes them there, which is the better shape at
   that size and is why it has no "Dev tools" section at all. Either location satisfies this; no
   index does not.

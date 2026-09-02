@@ -34,7 +34,7 @@
 -- READ-ONLY except for the savestate load and the controller. It writes no game memory.
 --
 -- UNLOAD IT BEFORE JUDGING ANYTHING ON SCREEN -- it holds the d-pad, and in loopback the ghost IS
--- the local player echoed, so a probe steering the player steers the ghost (`probes/README.md`).
+-- the local player echoed, so a probe steering the player steers the ghost (`PROBES.md`).
 --
 -- Addresses are vanilla V1.0, from meshghost_crystal.lua's own table. Field offsets from the
 -- decomp's struct listing (constants/map_object_constants.asm); SWIMMING is bit 5 of

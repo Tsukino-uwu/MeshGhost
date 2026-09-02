@@ -356,7 +356,7 @@ The full 0x28 (`constants/map_object_constants.asm:3-37`), fields not covered el
 
 **Game Boy WRAM is banked**, and the HRAM byte above sits outside that space entirely — so *where*
 a value lives decides how it has to be reached, and a bank-1 address is not reachable the same way
-as an HRAM one. [`probes/README.md`](probes/README.md) names the probe behind each field here.
+as an HRAM one. [`PROBES.md`](PROBES.md) names the probe behind each field here.
 
 ## How many characters the game can hold at once
 

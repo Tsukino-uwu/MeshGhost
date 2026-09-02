@@ -749,3 +749,71 @@ and the ghost-load/despawn rigs stop needing a human to aim them.
 
 **Not scheduled.** Nothing here is committed until it moves into `plans.md`. The method notes for
 writing such a probe belong in `adapters/_template/probes.md`, which carries the pointer.
+
+## The purpose audit and the funnel (2026-09-02)
+
+**The question that started it**, from the user: is there anything else like `pitfalls.md` that is not
+doing what it is intended for? The structure dated from the first weeks and had been fact-checked and
+lightly refactored (the three 2026-08-25 passes above) but never audited against purpose. This pass
+measured each mechanism against its own header and fixed the ones that failed, in four commits.
+
+**What the audit found, measured 2026-09-02.** Pitfalls: 14 of 226 titles admitted to being a repeat;
+every lesson that stopped recurring had a mechanical check, every lesson that recurred three times was
+a title in a chronological index nobody read at the moment it applied. `ideas.md` said it drains into
+`plans.md`; zero entries ever had. `status.md` said one screen; 296 lines, 105 items, 54 undated, six
+open since before 2026-08-20. The UNVERIFIED queues held both "built, waiting for eyes" and "not fixed,
+parked" with no head; Crystal's was 132 entries and larger than its VERIFIED record. `licensing.md` said
+"not listed, not used" with 16 unlisted repos cited, all in `ideas.md`. Pseudoregalia's `FLAGS.md` lacked
+19 flags the code had. The nested `CLAUDE.md` stack loaded 787 lines in an emulator session against a
+research ceiling of 150–200 instructions. Ten agent-loaded files sat at exactly 100% of a cap, and
+`scaling.md` had had its cap raised 800→900→1000 in one day. Phase files were catch-up summaries.
+Working as intended: `risks.md` (19 closed / 15 open), `BANDAGES.md` where the adapter was active,
+`VERIFIED.md`, `documentation.md`, the ADRs, this file, the phase/ADR/dev-scripts indexes, CI.
+
+**Part A — caps only on instruction files (the user's original scope).** Numeric caps stay on the root
+`CLAUDE.md`, the four nested ones and the two skills; every other `line-cap` header was removed (89
+files) and a header anywhere else is a FAIL. The STACK a session loads (root + `adapters/` + host) got a
+700-line budget; indexes and queues are held to one line per entry by a check instead of a total. Both
+new checks negative-tested. `claude-md-cap.md` §6 records the reversal.
+
+**Part B — the pitfalls funnel.** All 254 index lines carry an outcome (36 CHECK, 183 RULE, 35
+RECORD); the index moved to `pitfalls/INDEX.md`; eight `checklists/` pages are the reading path, one
+per moment, wired into the nested rule files and both skills; `pitfalls.md` is the filing rule. Three
+checks the repeats demanded: "Lua globals resolve" (a name both declared local and reached through
+`_ENV` — the use-above-local class, fifth occurrence; zero hits on 212 files), the bitfield-bool ratchet,
+and no bare interpreter in `dev-scripts/`. The rule files were trimmed to bring the stacks to 697 and
+700: stories became dates and pointers, lines whose lesson is now a check shrank to the imperative. One
+lesson was paid for building the Lua check and filed by the new rule in the same commit (PowerShell's
+case-insensitive matching paired `local IO` with the global `io`).
+
+**Part C — the other mechanisms.** `status.md` to 32 lines, one dated line per item, an item dated
+more than 2 days before the file's last commit fails (the user: at this pace, 2026-08-31 is already
+not current on 2026-09-02); rig notes to `environment.md`, two-machine items to the Pseudoregalia queue, twelve Go-side
+gaps with no other home to `risks.md`. Every UNVERIFIED entry tagged READY/OPEN/DONE with a "This run"
+head of the ten newest READY entries (Crystal 51/3/6, Emerald 21/1/0, Pseudoregalia 11/14/7, TEVI
+9/3/1). Phase files are the complete running log, appended every session, with a freshness check that
+fails a live log three adapter commits behind. `ideas.md` says what it is (the user's words), gained a
+title index, and lost ~1,900 lines to `security-design.md` and `candidate-games.md`; the four
+struck-through done ideas are archived at the end of this file. The licensing rule is a gate exempting
+the three brainstorm files (the user's call). FLAGS completeness is checked and the 19 rows filled. The
+canonical-source register grew by two rules.
+
+**Part D — the structural moves.** `agent_docs/README.md` regrouped by kind, one line per file.
+`scaling.md` → `culling.md` (~570 lines, one topic). `environment.md` → `running-the-rig.md` (~300
+lines), with seven subheadings cut into the 500-line BizHawk section. `contract.md`'s closed Phase 0
+questions → `project-history.md`. The 168-line Archipelago narrative in `risks.md` → the pitfalls
+record, leaving a five-line risk. `PROBES.md` at every adapter's root, one name (Emerald and Crystal
+renamed, the template renamed, preflight mandates it). New `docs/config.md` (every key, its shipped
+value, who reads it) and a Contributing paragraph in the root README (hooks, preflight, the suite).
+
+**Deliberately NOT done, each for a stated reason.** `pitfalls/by-lesson.md` was not split by theme:
+once the checklists are the reading path, the record's shape stops mattering, and `phase7.md` links it.
+No phase file was split or edited past appending — the user's rule: they hold ALL history. The
+`docs/`-for-people documents keep growing uncapped. Incident narrative inside several ADRs stays (a
+rewrite of dated decisions). `testing.md` was not split; its seam is written down for when it is
+needed. `by-lesson.md`'s entries that repeated were promoted, not deleted.
+
+**Measurements not to re-derive.** Instruction load per session after the trim: emulator 697 lines,
+Pseudoregalia 700, TEVI 622. Preflight sections: 28 → 37. Pitfalls outcomes as above. `ideas.md` 4,007
+→ 2,124 lines. `status.md` 296 → 32. Every new check was negative-tested against a planted defect
+before being trusted; the phase-freshness logic against today's tree at threshold 1.

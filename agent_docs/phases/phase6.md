@@ -348,3 +348,13 @@ This file sat unwritten while the work happened; backfilled from the commit log 
 
 The phase's open question is therefore CLOSED; what remains open for TEVI lives in
 `adapters/tevi/UNVERIFIED.md` and `agent_docs/status.md`, not here.
+
+## 2026-09-02 — the documentation pass, as it touched TEVI's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-02) reworked the
+documentation mechanisms; this is what it did to this adapter's files, logged here because a phase file
+is the complete running log and preflight now fails one that falls behind its adapter.
+
+- `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (9/3/1) and a "This run — watch these first" block added at the top; the interp 175→300ms item and the portal-visual item are the READY/OPEN heads.
+- `CLAUDE.md` (Unity host rules) compressed its cap paragraph and gained the pointer to `agent_docs/checklists/before-mirroring-state.md`.
+- `PROBES.md` link fixes for the one-name-everywhere rename.

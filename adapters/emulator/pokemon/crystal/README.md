@@ -300,7 +300,7 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
   hunt, the spawn recipe worked out one failure at a time, the Archipelago re-measurement, and the
   savestate-driven rigs that make an expensive state (a fly, a ledge, a whirlpool) repeatable.
   **Twenty of them WRITE and seventeen hold the controller**; they are indexed, one line each, in
-  [probes/README.md](probes/README.md) — read that rather than the folder listing.
+  [PROBES.md](PROBES.md) — read that rather than the folder listing.
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying
   text out of the Lua Console; `.gitignore` covers every `.log`, because a run once read belongs

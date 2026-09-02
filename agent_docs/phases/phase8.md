@@ -415,3 +415,13 @@ after it. Backfilled from the commit log; evidence in
 - **2026-08-28** — Emerald spent a session at 5fps because its own fix had been written in
   Crystal (`583647a`); all four adapters started reading the bridge-port config, two having read
   no config at all (`15b2715`).
+
+## 2026-09-02 — the documentation pass, as it touched Emerald's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-02) reworked the
+documentation mechanisms; this is what it did to this adapter's files, logged here because a phase file
+is the complete running log and preflight now fails one that falls behind its adapter.
+
+- `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (21/1/0), a "This run" block added; the Fly/boat items lead it.
+- `probes/README.md` renamed `PROBES.md` (one name for every adapter, the user's call) and its links fixed in `README.md`, `FLAGS.md`; `emulator/CLAUDE.md` trimmed for the stack budget and pointed at the Lua and probe checklists; the Archipelago risk narrative moved from `risks.md` into the pitfalls record.
+- The Fly rig's setup and savestate slots moved from `status.md` to `agent_docs/running-the-rig.md`.

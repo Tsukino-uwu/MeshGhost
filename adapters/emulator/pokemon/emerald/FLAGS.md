@@ -12,7 +12,7 @@ one says what it costs.
 
 **Everything here lives in `meshghost_emerald.lua`.** Probe scripts have their own switches, and
 they are documented in each probe's own header and indexed in
-[probes/README.md](probes/README.md).
+[PROBES.md](PROBES.md).
 
 **Keep it in step with the code.** Add a switch, add its row. Change a default, fix its row in the
 same edit.

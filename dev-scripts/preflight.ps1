@@ -277,9 +277,9 @@ Section "One-line entries"
 # 2026-08-14..16: a flat 50-line cap was defeated by items averaging three lines each (peak 628),
 # and the fix that held was "two lines per item". This is that rule made mechanical, at one line:
 # a bullet in one of these blocks may not be followed by an indented continuation line. Files join
-# this list as they are re-cut to comply (status.md and agent_docs/README.md's file list are
-# planned, 2026-09-02). The VERIFIED index blocks, pitfalls/INDEX.md and every checklists/ page's
-# lesson list are in: a checklist grows by lessons, never by verbosity.
+# this list as they are re-cut to comply. In as of 2026-09-02: the VERIFIED index blocks,
+# pitfalls/INDEX.md, every checklists/ page's lesson list, status.md, the queues' "This run" blocks
+# and agent_docs/README.md's file list -- an index grows by entries, never by verbosity.
 #   Path  -- the file
 #   From  -- regex for the heading that opens the block ('' = whole file)
 #   To    -- regex for the heading that closes it ('' = end of file)
@@ -299,6 +299,7 @@ $oneLine = @(
     @{ Path = 'agent_docs/checklists/before-touching-lua.md';          From = '^## Every lesson'; To = '' }
     @{ Path = 'agent_docs/checklists/before-a-network-change.md';      From = '^## Every lesson'; To = '' }
     @{ Path = 'agent_docs/status.md';                                  From = '';          To = '' }
+    @{ Path = 'agent_docs/README.md';                                  From = '^## The rules'; To = '^## How to use' }
     @{ Path = 'adapters/emulator/pokemon/crystal/UNVERIFIED.md';       From = '^## This run'; To = '^## ' }
     @{ Path = 'adapters/emulator/pokemon/emerald/UNVERIFIED.md';       From = '^## This run'; To = '^## ' }
     @{ Path = 'adapters/pseudoregalia/UNVERIFIED.md';                  From = '^## This run'; To = '^## ' }
@@ -982,10 +983,13 @@ if ($adapterDirs.Count -eq 0) {
     # never true. A queue is created with the adapter now.
     #
     # Probe indexes ARE checked, because an unindexed probe folder hides writing tools -- see
-    # _template/probes-README.md. A probe directory is one whose name starts with "probe"; it
-    # needs an index once it holds more than two scripts, and that index may be its own README.md
-    # or a PROBES.md at the adapter root (Pseudoregalia's case: UE4SS forces one mod directory per
-    # probe, so there is no single probes/ folder to index from the inside).
+    # _template/probes-README.md (the template for <adapter>/PROBES.md; it cannot be named PROBES.md
+    # itself because probes.md, the method, sits beside it on a case-insensitive filesystem). A probe
+    # directory is one whose name starts with "probe"; an adapter holding one with more than two
+    # scripts needs a PROBES.md at ITS ROOT -- one name for every adapter (the user's call,
+    # 2026-09-02; Emerald and Crystal used probes/README.md until then). Root-level is the only
+    # shape that works everywhere: UE4SS forces one mod directory per probe, so Pseudoregalia has
+    # no probes/ folder to index from the inside.
     $unindexed = @()
     foreach ($d in $adapterDirs) {
         $probeScripts = @{}
@@ -1003,7 +1007,7 @@ if ($adapterDirs.Count -eq 0) {
         $rootIndex = (Test-Path -LiteralPath "$d/PROBES.md")
         foreach ($pd in $probeScripts.Keys) {
             if ($probeScripts[$pd] -le 2) { continue }
-            if ($rootIndex -or (Test-Path -LiteralPath "$d/$pd/README.md")) { continue }
+            if ($rootIndex) { continue }
             $unindexed += "$d/$pd ($($probeScripts[$pd]) scripts)"
         }
     }
@@ -1017,7 +1021,7 @@ if ($adapterDirs.Count -eq 0) {
         $unindexed | ForEach-Object { Write-Host "          $_" }
     }
     if ($missingFiles.Count -eq 0 -and $unindexed.Count -eq 0) {
-        Report-Pass "all $($adapterDirs.Count) adapters carry the mandated file set, and every probe folder is indexed"
+        Report-Pass "all $($adapterDirs.Count) adapters carry the mandated file set, and every adapter with probes has a root PROBES.md"
     }
 }
 

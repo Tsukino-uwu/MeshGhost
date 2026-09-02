@@ -14,7 +14,7 @@ compensations, which is `BANDAGES.md`. A switch can appear in both; this one say
 one says what it costs.
 
 **Everything here lives in `meshghost_crystal.lua`.** The probes have their own switches,
-documented in each probe's header and indexed in [probes/README.md](probes/README.md).
+documented in each probe's header and indexed in [PROBES.md](PROBES.md).
 
 ## Runtime switches
 

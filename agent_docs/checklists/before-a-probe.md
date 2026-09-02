@@ -31,3 +31,4 @@ A probe is a question asked of a running game, and most fail as questions. `/wri
 - A census of what EXISTS beats eleven targeted eliminations (Pseudoregalia, 2026-08-29) — [by-lesson.md](../pitfalls/by-lesson.md)
 - When every scalar diff is clean, dump the FUNCTION vocabulary and drive the game's own verbs live (Pseudoregalia, 2026-08-30) — [by-lesson.md](../pitfalls/by-lesson.md)
 - The code already said which field was broken — reading it beat every planned measurement (Pseudoregalia, 2026-08-30) — [by-lesson.md](../pitfalls/by-lesson.md)
+- Archipelago coexistence on Emerald: fixed EWRAM addresses shift under the patch, pointer-relative reads do not (2026-08-11 → 2026-08-18, moved out of risks.md 2026-09-02) — [by-lesson.md](../pitfalls/by-lesson.md)

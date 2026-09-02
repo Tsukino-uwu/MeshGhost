@@ -1964,3 +1964,14 @@ is in `adapters/pseudoregalia/VERIFIED.md` (entries through 2026-09-01), `UNVERI
 
 Open items from this stretch live in `adapters/pseudoregalia/UNVERIFIED.md` and
 `agent_docs/status.md`; the crowd plan is `agent_docs/crowd-limits.md`.
+
+## 2026-09-02 — the documentation pass, as it touched Pseudoregalia's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-02) reworked the
+documentation mechanisms; this is what it did to this adapter's files, logged here because a phase file
+is the complete running log and preflight now fails one that falls behind its adapter.
+
+- `UNVERIFIED.md`: every entry tagged READY/OPEN/DONE (11/14/7), a "This run" block added, and the four two-machine items from `status.md` (collision as a setting, 0-health after killing a ghost, the pole vanish, the sword near a save crystal) filed as one OPEN entry.
+- `FLAGS.md`: 19 dev traces the register had never heard of (`*_TRACE`, `*_CENSUS`, the dumps), found by the new preflight completeness check, listed with a pointer to their code comment.
+- `CLAUDE.md` (Unreal host rules) trimmed for the 700-line stack budget and pointed at `agent_docs/checklists/before-spawning-in-unreal.md`; preflight now ratchets the bitfield-bool read.
+- `PROBES.md` link fixes for the rename.

@@ -6,7 +6,7 @@ they are the record of *how each fact was established*: the pawn/position/rotati
 auto-possess diagnosis, and the whole socket-capability answer in `agent_docs/phases/phase7.md`
 were each settled by something in this list.
 
-**Why this file is `PROBES.md` at the adapter root, and not `probes/README.md`.** UE4SS loads a
+**Why this file is `PROBES.md` at the adapter root, and not `PROBES.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
 — there is no single `probes/` folder to index from the inside. Eleven directories, seventeen
 scripts, one index (2026-09-01 count; six directories and nine scripts when this was written

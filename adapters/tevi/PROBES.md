@@ -4,7 +4,7 @@ Every probe here is a **development tool**, not part of what the mod does for a 
 the record of how a fact about TEVI was established — read this rather than guessing which flag
 answers which question.
 
-**Why this file is `PROBES.md` at the adapter root, and not `probes/README.md` holding scripts.**
+**Why this file is `PROBES.md` at the adapter root, and not `PROBES.md` holding scripts.**
 The host decides the shape, the same way it does for Pseudoregalia. BepInEx loads compiled plugins;
 it has **no equivalent of BizHawk's Lua console**, so there is nothing to attach a standalone
 script to and no `probes/` folder for one to live in. A probe for TEVI is therefore a block inside

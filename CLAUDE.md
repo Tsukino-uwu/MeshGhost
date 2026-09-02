@@ -192,7 +192,7 @@ stays here, its reasoning goes to `agent_docs/`, with a one-line pointer. Full e
 - **You run the scaffolding for a live test; the user only opens and closes the game.** Start the
   relay, the core, and any `dev-scripts` launcher yourself, confirm from the logs that they came
   up and that the right transport/bridge was actually chosen, and hand over a game that is ready
-  to play. Never ask the user to run a `.bat`. Start them **hidden** (`environment.md`). **Then
+  to play. Never ask the user to run a `.bat`. Start them **hidden** (`running-the-rig.md`). **Then
   close every process you started and verify they are gone** — a relay left alive is how a later run
   binds the wrong port; `/loop` the re-check rather than trusting memory. User preference, 2026-08-16.
 - **Before a session ends, append a dated entry to the active phase file** — what was tried, what

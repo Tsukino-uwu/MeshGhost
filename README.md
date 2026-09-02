@@ -219,6 +219,7 @@ is the internal working record of how it got built.
 
 **`docs/`**
 
+- [config.md](docs/config.md) — every `config.json` key: its shipped value, what it does, which program reads it.
 - [integrating.md](docs/integrating.md) — putting MeshGhost in your own game, in any language.
 - [security.md](docs/security.md) — the security and privacy posture: what is already
   checked-safe, the gaps that remain, and a dated changelog of every hardening pass.
@@ -248,6 +249,16 @@ is the internal working record of how it got built.
 - [licensing.md](agent_docs/licensing.md) — what prior-art projects were checked and how they may
   be used, including the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation
   consulted for Emerald memory facts only, never for source or assets.
+
+## Contributing
+
+Two things before the first commit, both once per clone: `git config core.hooksPath .githooks`, so the
+pre-commit hook can refuse a machine-specific path before it reaches the public tree, and a run of
+`dev-scripts/preflight.ps1`, which checks the docs, the adapter file sets and the built artifacts and
+says what a change is expected to keep true. For anything under `core`, `relay`, `transport`, `bridge`
+or `cmd`, `dev-scripts/run-gotests.bat` is the whole suite; CI runs the same plus the fuzzers and the
+race detector on every push. The rules the project is built under are `CLAUDE.md`, and
+`agent_docs/README.md` is the map of everything else.
 
 ## Licence
 
