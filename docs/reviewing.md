@@ -2,14 +2,15 @@
 
 <!-- line-cap: none -- written for people, not for an agent's instruction budget. Why: agent_docs/claude-md-cap.md. -->
 
-**Start here if you want to check this project before hosting a relay or playing with strangers,
-and you do not want to take anyone's word for it.** That is the right instinct. **All of this code
-was written by an AI agent** — the maintainer directs, tests on screen and decides, and has not
-hand-written any of it, and that will stay true until someone else contributes without one. And
-networking code is exactly where things work perfectly until someone sends the request nobody
-expected. Nothing below asks you to trust the author, the agent,
-or the tests. It tells you where to look, what the project claims, and how to run the adversarial
-checks on your own machine so that what you believe is what you saw.
+A guide for auditing this project before hosting a relay or playing with strangers: which code
+runs where, what the project claims about it, and how to run the adversarial checks on your own
+machine. Nothing here asks for trust in the author or the tests; it points at what to read and what
+to run.
+
+Two facts a reviewer should have up front. The code in this repository is written entirely by an
+AI agent, directed and tested by the maintainer. And the relay is internet-facing, so the standard
+that matters is the one for network code: not "does it work" but "what happens on the input nobody
+planned for".
 
 ## What runs on which machine
 
@@ -67,7 +68,8 @@ you can start reading at the right line instead of the top of the file.
    every field, and re-sanitizes names (`core/remotenames.go`).
 6. What survives is written to the bridge (`bridge/bridge.go`, localhost only) as `render_remote`
    and friends, and the adapter renders it. The adapter never sees the relay. What each adapter
-   does with each field is the part reviewed last (ADR 0044's peer-to-adapter section).
+   does with each field is its own review; the adapter reviews in `agent_docs/adr/` carry
+   per-field tables.
 
 **Dependencies.** One: `github.com/quic-go/quic-go`, plus its `golang.org/x` transitive set. TLS,
 HMAC, JSON and the UDP socket are the Go standard library. There is no dependency for the wire
@@ -80,8 +82,8 @@ host, what each transport does and does not protect, every limit and where it is
 known-gaps section that says what is deliberately not defended. Each claim there names the file
 and, where one exists, the test that pins it. Treat it as a list of things to disprove: a written
 claim that turns out false is worth more to you than a vague codebase, because it tells you at once
-how much to trust the rest. The claims were last checked against the code, line by line, on
-2026-09-02, and the date is on the section.
+how much to trust the rest. Each section there carries the date it was last checked against the
+code; the older the date, the more of the check is yours to redo.
 
 [networking.md](networking.md) explains the transports and the limits from the operator's side.
 [agent_docs/contract.md](../agent_docs/contract.md) is the wire protocol itself, and its Limits
@@ -98,7 +100,7 @@ a real adapter over the bridge:**
 go build ./... && go vet ./... && go test -count=2 ./...
 ```
 
-**The race detector**, which is what caught the most recent relay bug before anyone did:
+**The race detector** (CI runs it on every push; it has found real relay bugs local runs missed):
 
 ```sh
 go test -race -count=3 ./...
@@ -128,22 +130,20 @@ packages at the time of writing, and CI counts them the same way rather than tru
 The protocol is in `agent_docs/contract.md`; the reject reasons you will get back are in
 `protocol/protocol.go`.
 
-## Read the tests with the right question
+## Reading the tests
 
-Every regression test in this repository was watched failing before its fix was kept — that is a
-rule (`CLAUDE.md`), and the tests' own comments say what they failed on and when. But a test
-written by the author proves the author's model of the input, and the honest question for a
-reviewer is not "does this test pass" but **"what does this test never send?"** That question is
-how the 2026-09-02 review found that the UDP fuzzer had been truncating its own inputs to the very
-limit whose overflow crashed the relay. `agent_docs/adr/0044-*.md` is that review in full: what was
-found, what was fixed, what was left alone and why. It is the most useful thing to read after this
-page, because it shows you what the last set of hostile eyes found and therefore what the next set
-should look past.
+A regression test here is kept only after it has been seen failing without its fix (a rule in
+`CLAUDE.md`), and each test's comment says what it failed on and when. A test still only proves
+the author's model of the input, so the useful question when reading one is what it never sends:
+a size it truncates, a case it skips, a value it canonicalises first. Each of those is a class of
+input the suite has not tried.
 
-## If you find something
+**Past reviews.** `agent_docs/adr/` holds every review and hardening pass as a dated record of what
+was found, what was fixed, and what was deliberately left alone. Reading the most recent one first
+shows where the last reviewer looked, and therefore where the next one should look instead.
 
-Open an issue, or say so wherever you found the project. A confirmed finding gets a fix with a
-test that fails without it, a line in `security.md`'s changelog with the date, and your name on it
-if you want it there. The maintainer verifies every game-side change by watching it on screen and
-the Go side with the commands above; a report that includes the input that triggers it is one that
-can be turned into a regression test the same day.
+## Reporting a finding
+
+Open an issue, with the input that triggers it if you have one. A confirmed finding gets a fix with
+a test that fails without it and a dated line in `security.md`'s changelog. Game-side changes are
+verified by the maintainer on screen; Go-side changes with the commands above.
