@@ -26,6 +26,7 @@ package core
 // point for remote state appears.
 
 import (
+	"archive/zip"
 	"bufio"
 	"compress/gzip"
 	"encoding/json"
@@ -87,8 +88,25 @@ func (rc *replayClip) duration() time.Duration {
 	return time.Duration(rc.samples[len(rc.samples)-1].Timestamp-rc.t0) * time.Millisecond
 }
 
-// loadReplay reads one file. A name ending in .gz is gunzipped.
+// loadReplay reads one file: a plain .ndjson, a .ndjson.gz, or a .zip holding
+// one of those.
+//
+// ZIP IS FOR PEOPLE, NOT FOR THE RECORDER. Nothing here ever writes one -- a
+// recording ends when the game closes, and an archive cut short there is refused
+// whole by every ordinary tool (ADR 0051, learned the hard way). What a player
+// does with a finished clip afterwards is a different question, and zipping one
+// up to send it is the obvious thing to do on Windows, so reading them costs one
+// function and saves the recipient a step.
+//
+// No decompression bomb worry beyond what already applies: nothing is extracted
+// to disk, and parseReplay bounds what it will accept by line length
+// (protocol.MaxLineBytes) and sample count (replayMaxSamples) whatever the
+// stream underneath claims about its size.
 func loadReplay(path string) (*replayClip, error) {
+	name := filepath.Base(path)
+	if strings.HasSuffix(strings.ToLower(path), ".zip") {
+		return loadReplayZip(path, name)
+	}
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -98,12 +116,101 @@ func loadReplay(path string) (*replayClip, error) {
 	if strings.HasSuffix(strings.ToLower(path), ".gz") {
 		gz, err := gzip.NewReader(f)
 		if err != nil {
-			return nil, fmt.Errorf("%s: not a gzip file: %w", filepath.Base(path), err)
+			return nil, fmt.Errorf("%s: not a gzip file: %w", name, err)
 		}
 		defer gz.Close()
 		r = gz
 	}
-	return parseReplay(r, filepath.Base(path))
+	return parseReplay(r, name)
+}
+
+// loadedClip is one clip and the name it should be known by -- the file's own
+// name, or "<archive>/<entry>" for one that came out of a zip.
+type loadedClip struct {
+	name string
+	clip *replayClip
+}
+
+// loadReplayAll reads every clip in one file. A plain .ndjson or .ndjson.gz is
+// one; a zip is however many it holds.
+//
+// A ZIP OF THREE CLIPS IS THREE GHOSTS, which is the answer to the obvious
+// question and the only one that is not a trap: replay/active/ already means
+// "everything in here plays", so a zip behaves like a folder that happens to be
+// one file. Taking only the first would leave someone who zipped two clips
+// watching one ghost with nothing anywhere saying why.
+func loadReplayAll(path string) ([]loadedClip, error) {
+	name := filepath.Base(path)
+	if !strings.HasSuffix(strings.ToLower(path), ".zip") {
+		clip, err := loadReplay(path)
+		if err != nil {
+			return nil, err
+		}
+		return []loadedClip{{name: name, clip: clip}}, nil
+	}
+
+	zr, err := zip.OpenReader(path)
+	if err != nil {
+		return nil, fmt.Errorf("%s: not a zip file: %w", name, err)
+	}
+	defer zr.Close()
+
+	var out []loadedClip
+	// The archive's own order, not sorted: a zip made from a selection keeps
+	// the order the person made it in, and StartReplays sorts the FILES it
+	// found anyway. An entry that is not a clip -- a readme, a screenshot, the
+	// folder itself -- is skipped rather than refused, because someone zipping
+	// a clip to send it will put other things in beside it.
+	for _, entry := range zr.File {
+		if entry.FileInfo().IsDir() {
+			continue
+		}
+		lower := strings.ToLower(entry.Name)
+		if !strings.HasSuffix(lower, ".ndjson") && !strings.HasSuffix(lower, ".ndjson.gz") {
+			continue
+		}
+		inner := name + "/" + filepath.Base(entry.Name)
+		clip, err := readZipEntry(entry, inner)
+		if err != nil {
+			// One bad entry does not condemn the archive: the others still play,
+			// and the log says which one was dropped.
+			log.Printf("core: replay skipped: %v", err)
+			continue
+		}
+		out = append(out, loadedClip{name: inner, clip: clip})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%s: no .ndjson inside", name)
+	}
+	return out, nil
+}
+
+func readZipEntry(entry *zip.File, name string) (*replayClip, error) {
+	rc, err := entry.Open()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	defer rc.Close()
+	var r io.Reader = rc
+	if strings.HasSuffix(strings.ToLower(entry.Name), ".gz") {
+		gz, err := gzip.NewReader(rc)
+		if err != nil {
+			return nil, fmt.Errorf("%s: not a gzip file: %w", name, err)
+		}
+		defer gz.Close()
+		r = gz
+	}
+	return parseReplay(r, name)
+}
+
+// loadReplayZip reads the FIRST clip in a zip, for the one caller that plays
+// exactly one file (the replay-last hotkey).
+func loadReplayZip(path, name string) (*replayClip, error) {
+	all, err := loadReplayAll(path)
+	if err != nil {
+		return nil, err
+	}
+	return all[0].clip, nil
 }
 
 // parseReplay is loadReplay on a stream, and the fuzz target's entry.
@@ -591,8 +698,15 @@ func (c *Core) StartReplays() int {
 			continue
 		}
 		lower := strings.ToLower(e.Name())
-		if strings.HasSuffix(lower, ".ndjson") || strings.HasSuffix(lower, ".ndjson.gz") {
+		if strings.HasSuffix(lower, ".ndjson") || strings.HasSuffix(lower, ".ndjson.gz") ||
+			strings.HasSuffix(lower, ".zip") {
 			names = append(names, e.Name())
+		}
+		if strings.HasSuffix(lower, ".7z") || strings.HasSuffix(lower, ".rar") {
+			// Said out loud rather than skipped in silence: a player who put one
+			// here is watching for a ghost that will never come, and the fix is
+			// one right-click away.
+			log.Printf("core: replay %s ignored: only .ndjson, .ndjson.gz and .zip are read -- re-zip it as .zip", e.Name())
 		}
 	}
 	sort.Strings(names)
@@ -607,24 +721,31 @@ func (c *Core) StartReplays() int {
 		// filepath.Join of the LISTING's own name, cleaned: nothing inside a
 		// file ever chooses a path, and a listing entry cannot escape dir.
 		path := filepath.Join(dir, filepath.Base(name))
-		clip, err := loadReplay(path)
+		loaded, err := loadReplayAll(path)
 		if err != nil {
 			log.Printf("core: replay skipped: %v", err)
 			continue
 		}
-		if game != "" && clip.header.Game != "" && clip.header.Game != game {
-			log.Printf("core: replay %s skipped: recorded for game %q, this is %q", name, clip.header.Game, game)
-			continue
+		for _, lc := range loaded {
+			name, clip := lc.name, lc.clip
+			if len(c.replays) >= maxActiveReplays {
+				log.Printf("core: replay %s skipped: %d replays are already active (the cap)", name, maxActiveReplays)
+				continue
+			}
+			if game != "" && clip.header.Game != "" && clip.header.Game != game {
+				log.Printf("core: replay %s skipped: recorded for game %q, this is %q", name, clip.header.Game, game)
+				continue
+			}
+			if clip.header.Game == "" && game != "" {
+				log.Printf("core: replay %s names no game; assuming it is for %q", name, game)
+			}
+			id := localPeerReplayPrefix + name
+			p := newReplayPlayer(c, id, clip)
+			if c.replays == nil {
+				c.replays = make(map[string]*replayPlayer)
+			}
+			c.replays[id] = p
 		}
-		if clip.header.Game == "" && game != "" {
-			log.Printf("core: replay %s names no game; assuming it is for %q", name, game)
-		}
-		id := localPeerReplayPrefix + name
-		p := newReplayPlayer(c, id, clip)
-		if c.replays == nil {
-			c.replays = make(map[string]*replayPlayer)
-		}
-		c.replays[id] = p
 	}
 	n := len(c.replays)
 	if n > 0 {

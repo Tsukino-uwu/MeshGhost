@@ -345,6 +345,16 @@ Setup, once:
                    ghost when you next play, starting when you are in
                    the game. Take it out to stop. ctrl+shift+F11 plays
                    the newest recording right now without moving it.
+                 * Sending a clip to someone? A .zip works in there
+                   too, so you can right-click a recording, "Send to >
+                   Compressed (zipped) folder", and hand over the zip
+                   as it is -- they drop it straight into their own
+                   "replay\active" without unpacking anything. A zip
+                   holding SEVERAL recordings plays all of them, one
+                   ghost each. That folder reads .ndjson, .ndjson.gz
+                   and .zip; other archives (.7z, .rar) are skipped,
+                   and the log says so rather than leaving you waiting
+                   for a ghost that is never coming.
                  * ctrl+shift+F5 restarts the ghost, F6 rewinds, F7
                    fast-forwards ("seek" seconds each). The ghost jumps
                    rather than slides on a seek.

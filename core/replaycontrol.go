@@ -132,7 +132,11 @@ func (c *Core) replayLast() error {
 			continue
 		}
 		lower := strings.ToLower(e.Name())
-		if !strings.HasSuffix(lower, ".ndjson") && !strings.HasSuffix(lower, ".ndjson.gz") {
+		// .zip too, since replay/active takes them and a person who put one
+		// here means it. This path plays exactly ONE clip, so a zip of several
+		// gives its first -- the folder is where a pack belongs.
+		if !strings.HasSuffix(lower, ".ndjson") && !strings.HasSuffix(lower, ".ndjson.gz") &&
+			!strings.HasSuffix(lower, ".zip") {
 			continue
 		}
 		info, err := e.Info()
