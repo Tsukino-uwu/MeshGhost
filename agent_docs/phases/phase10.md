@@ -164,3 +164,41 @@ the duplicate-modifier refusal it found on its first campaign), `cmd/meshghost` 
 hand-edited config, and the shipped `name_color` pinned as a deliberate divergence), `.github` (three
 fuzz entries; eighteen targets CI now runs). Detail and the findings: `phase11.md`, same day; the
 trap: `testing.md`. Whole suite and race detector clean locally at each commit.
+
+## 2026-09-03 (evening) — FuzzEverything had never once loaded a clip; the seam it was written to reach was dead
+
+Picking up the three fuzzing/clock entries from `ideas.md` and planning them out properly first (that
+plan corrected two of my own claims in the entries before a line was written). The first item was
+meant to be small: add the two ops the replay-schedule entry names, plus seeds for the seam shapes.
+
+**What actually turned up.** Adding a seam seed meant reading the `-v` log to check the seam ran, and
+every single seed printed `replay skipped: f01.ndjson: line 1 is not a replay header: json: cannot
+unmarshal string into ... speed`. `fuzzEverythingClip` read nine header keys from the whole step byte,
+but the op is selected with `b&0x1F`, so bits 0-4 are pinned to `file.valid`'s index and `speed`
+— read from bits 3..1 — was always the string `"fast"`. Every clip that function had ever produced was
+refused. **Playback-from-a-file had never run in the target that exists to fuzz it**, and the 2s
+recorded gap written into that function to produce a seam had never executed. Replays only ever
+started through `ctl.replayLast`/`ctl.saveLast` on a real recording, which is why the logs looked busy.
+
+**Fixed in `b7205acb`:** eight deliberate clip shapes off the three bits that are genuinely free,
+five the loader must accept and three it must refuse, pinned by a new
+`TestFuzzEverythingClipShapesAreWhatTheyClaim` so the split cannot rot silently again. The cheap route
+to a seam is `skip_gaps`, which collapses a 2s recorded gap to one millisecond while still marking a
+forced seam, so the path costs about a millisecond instead of two seconds.
+
+**Also in that commit.** `clock.backStep`, riding the parameter bits the `relay.forget` slot does not
+use — the second op the entry asked for (`relay.reset`) turned out redundant, because a forget already
+lands under a live replay, and it clears `c.clock` and `c.lastNowMs`, so it RESETS `nowMsLocked`'s
+never-go-backwards clamp rather than driving it. Only a back-step that keeps the session up does that.
+`nowMs` monotonicity is now an invariant checked after every step. Two seeds: the collapsed-gap seam,
+and a back-step landing between two seeks under a live replay.
+
+**Corrected in the record, not just the code.** The entry's third ask, race coverage, was already
+satisfied — `go test` without `-fuzz` runs the seed corpus and the race job runs `./...` at
+`-count=3`. And my own earlier correction to `ideas.md`, that the replay seam was already reachable,
+was wrong for a subtler reason than the original claim: the code to reach it existed and was dead. The
+chaser seam is separately unreachable, on live timestamps, and that one does want the virtual clock.
+Lesson filed: `pitfalls/method.md`, "A fuzz target that exercises nothing passes exactly like one that
+exercises everything".
+
+`dev-scripts/run-gotests.bat` green, including `internal/e2e`.

@@ -1254,3 +1254,34 @@ the command line. **Fix:** the same edit written to a scratchpad `.py` and run b
 **Rule:** edit scripts live in files; `.ps1` scripts run from the PowerShell tool; inline bash stays
 short. The agent's own memory carries the same rule. [RULE: checklists/before-a-scripted-edit.md]
 
+
+## A fuzz target that exercises nothing passes exactly like one that exercises everything (2026-09-03)
+
+**Symptom:** none, for as long as the bug existed. `FuzzEverything` was green in every campaign, in
+every `go test`, and under the race job at `-count=3`. It was found by reading the `-v` log while
+adding a seed, not by a failure.
+
+**Cause:** the target picks its op with `b&0x1F`, so a step byte reaching `fuzzEverythingClip` has
+its low five bits pinned to `file.valid`'s index. That function then read nine clip-header keys out
+of the whole byte as though all eight bits were free — and `speed` came from `(b>>1)&0x07`, which is
+bits 3..1, every one of them pinned. It therefore always selected the string `"fast"`, the loader
+always refused the header with `line 1 is not a replay header`, and **playback-from-a-file had never
+once run** in the target that exists to fuzz it. A deliberate 2s recorded gap sitting in that
+function, written to produce a seam, had never executed either. Replays only ever started via
+`ctl.replayLast`/`ctl.saveLast` on a real recording, which is why the target still looked busy in
+its logs.
+
+**The general shape, which is the transferable part:** a generator whose output is silently rejected
+downstream produces a target that passes for the wrong reason. Absence of a crash proves the input
+was handled; it never proves the input was the one you meant. This is the fuzzing form of "it ran
+without errors is not evidence", and of an instrument that logs only its success path.
+
+**Fix:** eight bits of pretend entropy replaced by eight deliberate shapes off the three bits that
+are actually free, five of which the loader must accept and three it must refuse. The count and the
+split are pinned by `TestFuzzEverythingClipShapesAreWhatTheyClaim`, which also asserts the
+cheap-seam shape carries exactly one forced seam and spans milliseconds rather than seconds. Commit
+`b7205acb`.
+
+**Rule:** when a fuzz generator builds a structured input, assert the SHAPE it produces, not just
+that nothing crashed — and check at least once that the thing downstream actually accepted it.
+[CHECK: core.TestFuzzEverythingClipShapesAreWhatTheyClaim]

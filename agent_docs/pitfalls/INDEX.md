@@ -15,6 +15,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Diagnostic methodology [RULE: checklists/before-declaring-a-fix.md]
 - A reference is not the thing — clearing a pointer removes nothing (2026-08-27) [RULE: checklists/before-declaring-a-fix.md]
 - An instrument that logs only its success path proves nothing (2026-08-27) [RULE: checklists/before-trusting-a-reading.md]
+- A fuzz target that exercises nothing passes exactly like one that exercises everything (2026-09-03) [CHECK: core.TestFuzzEverythingClipShapesAreWhatTheyClaim]
 - An aggregate over a mixed series invents a defect that is not there (2026-08-25) [RULE: checklists/before-trusting-a-reading.md]
 - A deploy that reports success can deploy nothing — three ways, one loop (2026-08-28) [RULE: checklists/before-declaring-a-fix.md]
 - Owning a live core you cannot reach — a walk that never advances past an empty port (2026-08-28) [RULE: checklists/before-a-network-change.md]

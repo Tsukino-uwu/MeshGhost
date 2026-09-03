@@ -58,7 +58,7 @@ is USED, that project is checked and recorded there first.
 - Four refactors still deferred from the 2026-08-18 audit-and-refactor pass
 - Doc restructuring: what was done — moved to `doc-history.md` (2026-08-25)
 - Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
-- Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03)
+- Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03; DONE 2026-09-03, and it found that every generated clip was being refused)
 - Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
 - A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
@@ -2207,7 +2207,7 @@ same ADVANCED heading; a mod that reads a key logs the value it read once, the w
 logs its port and its autostart decision, so a typo shows up as a wrong value rather than silence.
 
 
-## Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03)
+## Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03, DONE 2026-09-03)
 
 **The user's question, on the day CI's race job caught a test-ordering race the local runs missed:**
 *"don't we fuzz things in random order as well? ... can we actually just randomize EVERYTHING possible for
@@ -2235,39 +2235,53 @@ frame, a seek already arrives during a chaser's spawn window, and a detach alrea
 Five of the six are reachable today; a separate `FuzzReplaySchedule` would be `FuzzEverything`
 minus the relay ops, so **fold the remainder in rather than building a second target.**
 
-**What is genuinely NOT reachable, and why.** The seam. `replayGapSeamMs = 1500`
-(`core/replay.go:56`) is a package CONSTANT, not a per-`Core` field, so the compressed clock the
-config decoder builds cannot shrink it — every other timing in `fuzzEverythingCfg` is a field and
-compresses, this one does not. A fuzz step's largest gap is 350ms
-(`everything_fuzz_test.go`'s gap alphabet), so **no seed can ever reach a live gap long enough to
-produce a seam**, and the end-of-clip hold and the lap boundary are in the same position. The
-seam-and-hold paths are covered only by the hand-written tests (`TestReplayLoopsWithOneSeamPerLap`,
-`TestReplayGapIsASeamAndAFullRunPlaysThrough`, `TestChaserSeamsOnALiveGapAndIsOffByDefault`), which
-each run one fixed shape. The same is true of `DefaultRemoteStaleAfter = 3 * time.Second`
-(`core/core.go:144`) as a floor, though `stale` at least is a field.
+**CORRECTED 2026-09-03, while building it — the paragraph below was wrong twice over.** The claim
+was that no seed can reach a seam because `replayGapSeamMs = 1500` (`core/replay.go:56`) is a
+package constant the compressed clock cannot shrink, and a fuzz step's largest gap is 350ms. Both
+halves need splitting apart, because the two seams are not measured the same way:
 
-**Three steps, in order.**
+- **The REPLAY seam is measured on the clip's RECORDED timestamps** (`replay.go:471`), not on wall
+  time, so a clip carrying a 2s gap between two samples crosses the threshold instantly and the
+  compressed clock has nothing to do with it. `fuzzEverythingClip` has always written exactly such
+  a gap. **It was unreachable for a completely different reason: every clip that function produced
+  was REFUSED by the loader**, because `speed` was read from bits the op index pins and always came
+  out as the string `"fast"`. Playback-from-a-file had never run in this target at all. Fixed in
+  `b7205acb`, with the eight shapes now deliberate and `TestFuzzEverythingClipShapesAreWhatTheyClaim`
+  pinning them. The cheap route to the seam is `skip_gaps`, which collapses a 2s recorded gap to one
+  millisecond while still marking a forced seam — the path runs for ~1ms rather than two seconds.
+- **The CHASER seam is measured on the LIVE stream** (`chaser.go:89`, the same 1500ms constant
+  against `s.Timestamp - prevTs` on nowMs-stamped frames). That one really is gated by wall time,
+  a step's gap really does cap at 350ms, and a frame is sent after every step — so it stays
+  unreachable, and it is the virtual clock that fixes it, not a field promotion.
 
-1. **Make the seam reachable.** Either promote `replayGapSeamMs` to a per-`Core` field defaulting
-   to the constant — the pattern every other timing here already follows, and a small change — or
-   wait for the virtual clock below, which makes a 2s gap free instead of cheap. The field is the
-   lower-risk half and does not block on the clock; do it first and the clock makes it moot later.
-2. **Add the two missing ops**, both about the relay's clock rather than the replay's:
-   a `clock.backStep` op that moves the session offset backwards the way a relay session reset
-   does (the `nowMs` back-step the entry names — `nowMsLocked` at `core/online.go:107` has an
-   explicit never-go-backwards guard that nothing currently fuzzes), and a `relay.reset` op that
-   drops and re-establishes the session under an active replay.
-3. **Race coverage is already done, and the entry above was wrong to ask for it.** `go test` without
-   `-fuzz` runs a target against its seed corpus, `FuzzEverything` carries four `f.Add` seeds
-   (`everything_fuzz_test.go:151-154`), and the race job runs `go test -race -count=3 ./...`
-   (`ci.yml:158`). So the replay lifecycle has been running under the race detector three times per
-   push since the target landed. **What is worth doing instead: add a seed for each shape the
-   hand-written seam tests cover**, once step 1 makes seams reachable, so those paths get the same
-   free race coverage rather than only appearing in a lucky `-fuzz` campaign.
+**The lesson worth keeping, because it is the general one:** a fuzz target that silently exercises
+nothing passes exactly like one that exercises everything. Nothing failed here for as long as the
+bug existed; it was found by reading a `-v` log. Assert the SHAPE of what a generator produces, not
+just the absence of a crash.
 
-**Sequencing across the three 2026-09-03 fuzzing entries:** this one and the virtual clock overlap
-at exactly one point, the seam. If only one gets built, build the clock — it subsumes step 1 here
-and unlocks the day-long shapes as well. The adapter fuzzers below are independent of both.
+
+**Three steps — all DONE 2026-09-03 in `b7205acb`, kept here with what each turned out to be.**
+
+1. ~~**Make the seam reachable** by promoting `replayGapSeamMs` to a per-`Core` field.~~ **Not
+   needed, and it would not have worked.** The replay seam was blocked by the refused-clip bug
+   above, not by the constant; fixing the clip shapes reached it. The chaser seam is genuinely
+   wall-time gated and wants the virtual clock, which no field promotion substitutes for.
+2. **The missing ops — one, not two.** `clock.backStep` is built, riding the parameter bits the
+   `relay.forget` slot does not use. The second proposed op, a `relay.reset` under an active
+   replay, is **redundant**: `forgetRelaySessionLocked` already drops the session, and it can
+   already land while replays run. What it does NOT do is test the clamp — it clears `c.clock` and
+   `c.lastNowMs`, so a forget RESETS `nowMsLocked`'s never-go-backwards guard rather than driving
+   it. Only a back-step that keeps the session up does that. `nowMs` monotonicity is now an
+   invariant checked after every step.
+3. **Race coverage was already done, and the entry above was wrong to ask for it.** `go test`
+   without `-fuzz` runs a target against its seed corpus, and the race job runs
+   `go test -race -count=3 ./...` (`ci.yml:158`), so the replay lifecycle has run under the race
+   detector three times per push since the target landed. What was worth doing instead — seeds for
+   the seam shapes — is done: a cheap collapsed-gap seam and a clock back-step under a live replay.
+
+**Sequencing across the three 2026-09-03 fuzzing entries:** the remaining overlap with the virtual
+clock is the CHASER seam only, which needs wall time compressed and nothing else. The adapter
+fuzzers are independent of both.
 
 ## Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
 
