@@ -24,12 +24,16 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 
 	// Drain, so the socket buffer filling up cannot turn into a write error
 	// that ends the measurement early.
+	// One deadline for the whole drain, set BEFORE the measurement: a
+	// SetReadDeadline per read allocates a time value on this goroutine, and
+	// testing.AllocsPerRun counts the whole process, so the drain itself was
+	// contributing to the number it exists to keep out of the way.
 	done := make(chan struct{})
+	_ = server.SetReadDeadline(time.Now().Add(testTimeout))
 	go func() {
 		defer close(done)
 		buf := make([]byte, MaxDatagramBytes)
 		for {
-			_ = server.SetReadDeadline(time.Now().Add(testTimeout))
 			if _, err := server.Read(buf); err != nil {
 				return
 			}
@@ -46,17 +50,38 @@ func TestWriteUnreliableDoesNotAllocatePerCall(t *testing.T) {
 		t.Fatalf("warm-up write: %v", err)
 	}
 
+	// The MINIMUM over several batches, not one batch. AllocsPerRun counts
+	// every allocation in the process during its window -- the listener's
+	// goroutines, the runtime, whatever the scheduler lets run -- and under
+	// whole-suite load one batch reported 4.0 twice on 2026-09-03 while the
+	// same test passed 40 of 40 on its own. A regression in WriteUnreliable
+	// allocates on EVERY call and so in every batch; a stray allocation from
+	// somewhere else lands in some batches and not others. The minimum tells
+	// those apart, which a single batch never could.
 	got := testing.AllocsPerRun(200, func() {
 		if _, err := client.WriteUnreliable(payload); err != nil {
 			t.Fatalf("write: %v", err)
 		}
 	})
-	// Not asserted as exactly zero: the write syscall itself may allocate
-	// inside the runtime on some platforms, and this test is about the framing
-	// buffer, which was one guaranteed allocation on every single call.
-	if got > 1 {
-		t.Fatalf("WriteUnreliable allocated %.1f times per call, want at most 1 "+
-			"(the reusable framing buffer should account for none of them)", got)
+	for i := 0; i < 4; i++ {
+		if again := testing.AllocsPerRun(200, func() {
+			if _, err := client.WriteUnreliable(payload); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+		}); again < got {
+			got = again
+		}
+	}
+	// Below one, not "at most one". The regression this pins -- a fresh
+	// framing buffer per call -- measures exactly 1.00, and the real code
+	// 0.00 (measured 2026-09-03 by removing the reuse on purpose); the old
+	// "got > 1" therefore let the very thing it was written for pass. The
+	// minimum over batches is what makes a strict bound safe: a stray
+	// allocation from another goroutine cannot turn every batch's 0 into 1.
+	t.Logf("WriteUnreliable: %.2f allocations per call (minimum of 5 batches)", got)
+	if got >= 1 {
+		t.Fatalf("WriteUnreliable allocated %.2f times per call (minimum of 5 batches), want 0 "+
+			"-- the framing buffer is meant to be reused, not allocated per call", got)
 	}
 }
 
