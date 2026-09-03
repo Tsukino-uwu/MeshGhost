@@ -61,6 +61,21 @@ is `playing.md`; **who the USER is lives in agent memory, outside the repo, and 
 
 ## `../docs/` — written for people using MeshGhost
 
+**Two standing rules for everything a player reads** — this section, the root `README.md`, the
+release `README.txt` and each game's own README. Both are the user's, and both are easy to break
+without noticing:
+
+- **Describe our features on their own terms. Never name or compare against another game or
+  product** (2026-09-04): *"this is 'our' own feature, we should keep it generic/stale for our
+  project, not mention/compare it to others. but we should ofc still explain what it does/how it
+  works"*. A generic term for a KIND of thing is fine and often clearer — a replay ghost is
+  something you can race, the way a time-trial ghost is — but the sentence may not lean on anyone
+  else's name to do its explaining. This is separate from `licensing.md`'s citation gate, which is
+  about sources rather than prose, and it holds even where a comparison would be perfectly legal.
+- **The root `README.md` stays minimal**: a stale fact is fixed in place, and nothing grows new
+  sections or tables. Its plainness is deliberate, not an omission — a new feature earns a
+  paragraph in the existing flow, or a line in `docs/config.md`, not a heading of its own.
+
 - [../docs/config.md](../docs/config.md) — every `config.json` key, its shipped value, what it does, which program reads it.
 - [../docs/networking.md](../docs/networking.md) — how the relay and client actually work, traced through the code: connections, state messages, concurrency, transports, limits.
 - [../docs/security.md](../docs/security.md) — the security and privacy posture: what is checked-safe versus the known gaps, per transport.
