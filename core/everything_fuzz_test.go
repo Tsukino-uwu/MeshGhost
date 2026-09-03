@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -43,6 +44,7 @@ import (
 //     relay transport (the never-on-the-wire rule, ADR 0047);
 //   - the roster never exceeds protocol.MaxRosterSize, and local ghosts never
 //     exceed maxActiveReplays;
+//   - the relay clock never runs backwards, however the offset moves;
 //   - after the last step the core still answers an adapter frame.
 //
 // The compressed clock is the shipped code path with shorter per-Core
@@ -111,36 +113,76 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 	}
 }
 
-// fuzzEverythingClip is a random VALID clip: the length, spacing, areas and a
-// gap come from the byte.
+// fuzzEverythingClip builds one clip from the step byte's THREE FREE BITS, and
+// the reason it is written this way is a bug this function used to have.
+//
+// The op is chosen with b&0x1F, so a byte that reaches here has its low five
+// bits pinned to file.valid's index (01010) and only bits 5-7 vary. The
+// original version read nine header keys out of the whole byte as though all
+// eight bits were free — but `speed` came from (b>>1)&0x07, which is bits 3..1,
+// all pinned, and always selected the STRING "fast". So every clip this
+// function ever produced was refused by the loader with
+//
+//	line 1 is not a replay header: json: cannot unmarshal string into ... speed
+//
+// and playback-from-a-file was dead the whole time: the only way a replay ever
+// started in this target was ctl.replayLast / ctl.saveLast on a real recording.
+// The deliberate 2s-gap seam below had never once run. Found 2026-09-03 while
+// adding a seam seed, by reading the -v log rather than by a failure — a
+// passing fuzz target that silently exercises nothing looks exactly like a
+// passing one that does.
+//
+// So: eight bits of pretend entropy are replaced by eight DELIBERATE shapes.
+// Three bits is genuinely all a single step byte has left, and naming the
+// shapes is honest where hashing a pinned byte was not.
 func fuzzEverythingClip(b byte) []byte {
-	n := 2 + int(b&0x0F)
-	step := int64(10 + 30*int(b>>4&0x03))
+	k := b >> 5
+
+	// Body: length, spacing, an area change, and a recorded gap.
+	n := []int{4, 12, 6, 8, 5, 3, 7, 9}[k]
+	step := []int64{10, 10, 20, 40, 100, 10, 30, 10}[k]
+	areaChange := k == 2 || k == 6
+	// k=1 collapses its gap via skip_gaps (cheap); k=3 leaves it raw but plays
+	// at 4x, so the uncollapsed seam path costs ~500ms rather than two seconds.
+	recordedGap := k == 1 || k == 3
+
 	var states []protocol.State
 	ts := int64(1_000_000)
 	for i := 0; i < n; i++ {
 		area := "a"
-		if b&0x40 != 0 && i > n/2 {
+		if areaChange && i > n/2 {
 			area = "b"
 		}
-		if b&0x80 != 0 && i == n/2 {
-			ts += 2000 // a recorded gap: a seam on playback
+		if recordedGap && i == n/2 {
+			ts += 2000 // > replayGapSeamMs: a seam on playback
 		}
 		states = append(states, protocol.State{Timestamp: ts, AreaID: area, Position: []float64{float64(i), 0}, Anim: "run"})
 		ts += step
 	}
-	// Every player-editable header key, from the byte: in-range, out-of-range
-	// and nonsense values alike, since the loader must clamp or refuse each.
+
+	// Header. Five shapes the loader must ACCEPT, so playback actually runs,
+	// and three (5, 6, 7) it must refuse: a string speed, a NaN speed, and
+	// durations that trim the clip out of existence. A clip file is
+	// player-editable, so both halves are real inputs. The split is pinned by
+	// TestFuzzEverythingClipShapesAreWhatTheyClaim.
 	hdr := map[string]any{
-		"name":        []string{"F", "", "‮evil", "AVeryLongGhostNameIndeedItIs"}[b&0x03],
-		"color":       []string{"#FF8800", "red", "", "#12"}[(b>>2)&0x03],
-		"speed":       []any{0.25, 1, 4, 99, -3, "fast", 0, math.NaN()}[(b>>1)&0x07],
-		"loop":        b&0x20 != 0,
-		"anchor":      []string{"launch", "start", "area", "sideways"}[(b>>5)&0x03],
-		"start_delay": []string{"0s", "40ms", "-5s", "abc"}[b&0x03],
-		"trim_start":  []string{"0s", "auto", "20ms", "1h"}[(b>>3)&0x03],
-		"trim_end":    []string{"0s", "10ms", "-1s", "99h"}[(b>>4)&0x03],
-		"skip_gaps":   []string{"0s", "1s", "1ms", "x"}[(b>>6)&0x03],
+		"name":        []string{"F", "F", "F", "F", "", "F", "‮evil", "AVeryLongGhostNameIndeedItIs"}[k],
+		"color":       []string{"#FF8800", "#FF8800", "#FF8800", "#FF8800", "red", "", "#12", "#FF8800"}[k],
+		"speed":       []any{1, 1, 1, 4, 0.25, "fast", math.NaN(), 99}[k],
+		"loop":        k == 2,
+		"anchor":      []string{"launch", "launch", "start", "area", "start", "launch", "sideways", "launch"}[k],
+		"start_delay": []string{"0s", "0s", "0s", "0s", "40ms", "-5s", "0s", "abc"}[k],
+		"trim_start":  []string{"0s", "0s", "0s", "20ms", "0s", "auto", "0s", "1h"}[k],
+		"trim_end":    []string{"0s", "0s", "0s", "10ms", "0s", "0s", "0s", "-1s"}[k],
+		// k=1 is the CHEAP seam: applySkipGaps collapses the 2s gap to one
+		// millisecond and marks a forcedSeam, so the seam path runs without
+		// two seconds of wall time. The threshold sits BETWEEN the clip's 10ms
+		// spacing and its 2s gap deliberately — at "1ms" every ordinary step
+		// would collapse too and the clip becomes one long seam, which
+		// exercises the path but is no longer a clip with a seam in it. k=7
+		// leaves the gap raw, so the expensive path stays reachable too, at
+		// one shape in eight rather than half of them.
+		"skip_gaps": []string{"0s", "1s", "0s", "0s", "0s", "0s", "0s", "x"}[k],
 	}
 	return clipBytes(hdr, states)
 }
@@ -152,6 +194,17 @@ func FuzzEverything(f *testing.F) {
 	f.Add([]byte{2, 1, 4, 0, 1, 0x39, 3, 0x0a, 8, 0, 0, 0, 0, 0, 28, 3, 3, 3, 0, 0, 0, 0, 29})
 	f.Add([]byte{0, 0, 3, 0, 0, 0x00, 0, 0x00, 8, 4, 5, 6, 7, 0, 0, 24, 26, 25, 27, 0, 0})
 	f.Add([]byte{3, 2, 5, 1, 2, 0x07, 4, 0x4f, 8, 10, 14, 0, 0, 20, 0, 21, 0, 19, 0, 9, 8, 0, 0})
+	// A REPLAY SEAM, cheaply. Step byte 42 is file.valid (42&0x1F == 10) at
+	// clip shape k=1 (42>>5), the one whose 2s recorded gap is collapsed to a
+	// millisecond by skip_gaps while still marking a forcedSeam — so the seam
+	// path runs for about a millisecond instead of two seconds. 124 is a
+	// 350ms gap, ample for playback to reach the seam at ~51ms in.
+	f.Add([]byte{2, 1, 4, 0, 2, 0x00, 1, 0x00, 8, 42, 14, 124, 0, 124})
+	// THE CLOCK STEPPING BACK UNDER A LIVE REPLAY. Byte 59 is relay.forget's
+	// slot with bit 5 set, i.e. the clock.backStep variant, landing between two
+	// seeks so the player's own re-base path (replay.go's prevNow check) runs
+	// against a clamped clock rather than a rewound one.
+	f.Add([]byte{2, 1, 4, 0, 2, 0x00, 1, 0x00, 8, 42, 14, 59, 17, 124, 59, 18, 0})
 
 	f.Fuzz(func(t *testing.T, seed []byte) {
 		if len(seed) <= fuzzEverythingConfigBytes {
@@ -230,8 +283,18 @@ func FuzzEverything(f *testing.F) {
 		files := 0
 		ran := make([]string, 0, len(steps))
 
+		// The relay clock must never run backwards, whatever the offset does.
+		// nowMsLocked clamps it (online.go's "Never go backwards"), and the
+		// clock.backStep variant below is what tries to break that clamp.
+		var lastNow int64
+
 		check := func(step string) {
 			t.Helper()
+			if now := c.nowMs(); now < lastNow {
+				t.Fatalf("after %s: nowMs went backwards, %d -> %d (%s; ran %s)", step, lastNow, now, cfg, strings.Join(ran, " "))
+			} else {
+				lastNow = now
+			}
 			// Roster and local-ghost caps.
 			c.mu.Lock()
 			roster, local := len(c.roster), len(c.localPeers)
@@ -333,12 +396,38 @@ func FuzzEverything(f *testing.F) {
 				relayMsg(protocol.TypeState, protocol.State{PlayerID: "replay:f01.ndjson", Timestamp: c.nowMs(), AreaID: "a", Position: []float64{9, 9}})
 				relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: "chaser:1", Nametag: &protocol.Nametag{Name: "evil"}})
 			case "relay.forget":
-				c.mu.Lock()
-				c.forgetRelaySessionLocked()
-				c.relay = rt
-				c.playerID = "self"
-				c.relayGame = "emerald"
-				c.mu.Unlock()
+				// TWO VARIANTS, from a parameter bit this slot does not
+				// otherwise use. Both are "the relay's clock moved", and they
+				// are the two ways it moves:
+				//
+				//   forget    — the whole session drops. This already clears
+				//               c.clock and c.lastNowMs, so the monotonic
+				//               clamp is RESET rather than tested.
+				//   backStep  — the session STAYS UP and the offset shrinks,
+				//               which is what happens when a better (lower-RTT)
+				//               ping sample arrives. This is the only path that
+				//               actually drives nowMsLocked's clamp, and until
+				//               now nothing fuzzed it.
+				if b&0x20 == 0 {
+					ran[len(ran)-1] = "relay.forget"
+					c.mu.Lock()
+					c.forgetRelaySessionLocked()
+					c.relay = rt
+					c.playerID = "self"
+					c.relayGame = "emerald"
+					c.mu.Unlock()
+				} else {
+					ran[len(ran)-1] = "clock.backStep"
+					c.mu.Lock()
+					// clock.v1 must be active or clockAdjustLocked returns 0
+					// and the offset is inert.
+					c.activeFeatures = []string{protocol.FeatureClockV1}
+					// Backwards by a decreasing amount, so a schedule with
+					// several of these keeps stepping the offset down instead
+					// of landing on one value.
+					c.clock = clockSync{offsetMs: -int64(b>>6+1) * 1000, bestRTTMs: 1}
+					c.mu.Unlock()
+				}
 			case "gap":
 				// Long enough to cross the compressed stale window and the
 				// chaser seam sometimes (stale can be 5ms..300ms, the seam
@@ -379,4 +468,55 @@ func FuzzEverything(f *testing.F) {
 		}
 		check("end")
 	})
+}
+
+// TestFuzzEverythingClipShapesAreWhatTheyClaim pins fuzzEverythingClip's eight
+// shapes, and exists because the version before 2026-09-03 produced clips the
+// loader refused EVERY TIME: `speed` was read from bits the op index pins, so
+// it was always the string "fast" and playback-from-a-file never once ran in
+// this target. The fuzz target still passed, because a target that exercises
+// nothing passes exactly like one that exercises everything.
+//
+// So the shapes are asserted here rather than trusted. Four must load (or the
+// replay path is dead again), four must be refused or clamped (or the hostile
+// header coverage is gone), and k=1 must carry exactly one forced seam (or the
+// cheap-seam seed stops reaching the seam).
+func TestFuzzEverythingClipShapesAreWhatTheyClaim(t *testing.T) {
+	// b is a file.valid step byte: the op index in the low five bits, the
+	// shape in the top three, exactly as the fuzz loop produces it.
+	shape := func(k byte) byte { return 10 | k<<5 }
+
+	// 5, 6 and 7 are the hostile headers: a string speed, a NaN speed, and
+	// durations that trim the clip out of existence. All three must be refused.
+	wantLoads := map[byte]bool{0: true, 1: true, 2: true, 3: true, 4: true, 5: false, 6: false, 7: false}
+	loaded := 0
+	for k := byte(0); k < 8; k++ {
+		b := shape(k)
+		if got := b & 0x1F; got != 10 {
+			t.Fatalf("k=%d: byte %d is op index %d, not file.valid (10)", k, b, got)
+		}
+		clip, err := parseReplay(bytes.NewReader(fuzzEverythingClip(b)), "f.ndjson")
+		if wantLoads[k] != (err == nil) {
+			t.Fatalf("k=%d: loads=%v, want %v (err %v)", k, err == nil, wantLoads[k], err)
+		}
+		if err != nil {
+			continue
+		}
+		loaded++
+		if len(clip.samples) < 2 {
+			t.Fatalf("k=%d: %d sample(s), a clip that short cannot play", k, len(clip.samples))
+		}
+		if k == 1 {
+			if len(clip.forcedSeam) != 1 {
+				t.Fatalf("k=1 is the cheap-seam shape: %d forced seam(s), want exactly 1 (skip_gaps must sit between the 10ms spacing and the 2s gap)", len(clip.forcedSeam))
+			}
+			// Cheap: the collapsed clip must be milliseconds, not seconds.
+			if d := clip.duration(); d > 500*time.Millisecond {
+				t.Fatalf("k=1 spans %v: the 2s gap was not collapsed, so this shape costs wall time on every run", d)
+			}
+		}
+	}
+	if loaded < 5 {
+		t.Fatalf("only %d of 8 shapes load; playback-from-a-file needs several or the target silently stops testing it", loaded)
+	}
 }
