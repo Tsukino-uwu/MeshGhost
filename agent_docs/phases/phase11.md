@@ -404,3 +404,26 @@ goodbye now goes first and the local ghosts are torn down after — the relay mu
 before anything that can wait. The lesson beside the earlier two: anything added to a disconnect
 path goes AFTER the message that releases the identity, and a loaded runner is where that ordering
 shows.
+
+## 2026-09-03 (evening) — WATCHED, for the first time: recording, playback and the chaser pack
+
+**The user, after testing in Pseudoregalia:** *"replay/recording & chaser is confirmed to work,
+tested both in pseudoregalia"*. Stages 1 through 9 were built earlier the same day with the suite
+and the race detector green at every one, and this log and `status.md` had both carried "nothing
+watched in a game yet" since. That line is now retired. Recorded in `verified.md` on the
+human-gated track.
+
+**What the session ran, because it changes what the confirmation covers.** The deployed client was
+built at 19:06; the cosmetic-flag fix (`73615c56`) edited its source at 19:22. So this ran PRE-fix
+code. The confirmation stands on its own — recording, playback and the chaser pack demonstrably
+work — but that fix is not covered by it, and it is exactly the kind that would hide here: it makes
+a replay or chaser ghost render `cosmetic=false` for a single frame during a SEAM, so it needs a
+restart, a lap or a recorded gap to occur at all, and with `chaser.contact` false by default it may
+produce nothing visible even then. Watching for it wants a deliberate seam with contact on.
+
+The fixed client has since been deployed to every install except the one the running game holds
+open; that copy updates when Pseudoregalia next closes.
+
+**Still unwatched**, so the phase is not done: split times, anchors, the chaser's contact damage,
+the offline client mode, and replay/chaser rendering on the other three adapters. Those go through
+the same core path, but "the same code" has never been this repo's standard for a visual claim.

@@ -122,6 +122,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-02 — The limiter hid WriteUnreliable: every relayed quic/udp state rode the reliable stream from 01:28 to 21:45, and two new meters found it
 
 
+- 2026-09-03 — Replays, recording and the chaser pack work on screen: Phase 11 watched for the first time
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1478,3 +1479,27 @@ transport write a qlog per connection (`netx/quicconn`, nil tracer when unset).
 **The one-line lesson, filed in `pitfalls/method.md` and `checklists/before-a-network-change.md`:** a
 wrapper that embeds an interface silently drops the optional methods the code behind it is chosen for
 — assert for them on the wrapped result in a test, on the day the wrapper is written.
+
+## 2026-09-03 — Replays, recording and the chaser pack work on screen: Phase 11 watched for the first time
+
+**Human-gated track.** The user, after testing in Pseudoregalia: *"replay/recording & chaser is
+confirmed to work, tested both in pseudoregalia"*.
+
+- **Date:** 2026-09-03
+- **Observed:** recording a session, playing it back as a ghost, and the chaser pack, all working
+  in a running Pseudoregalia. This is the FIRST time any of Phase 11 has been seen in a game —
+  stages 1 through 9 were built 2026-09-03 with the suite and the race detector green at every one,
+  and `status.md` had carried "NOTHING watched in a game yet" since.
+- **Source:** ADR 0047 (the replay model) and ADR 0048 (hotkeys); `core/replay.go`,
+  `core/recorder.go`, `core/chaser.go`; the log in `phases/phase11.md`.
+- **Notes, and they matter for what this does and does not cover:**
+  - **The client that ran was built 19:06, and the cosmetic-flag fix was made at 19:22.** So this
+    session ran PRE-fix code. That does not weaken the confirmation — the feature demonstrably
+    works — but it means the fix in `73615c56` is not covered by it. That bug makes a replay or
+    chaser ghost render with `cosmetic=false` for a frame during a seam, so it needs a restart, a
+    lap or a recorded gap to appear at all, and with `chaser.contact` false by default it may have
+    no visible effect even then.
+  - Confirmed on Pseudoregalia only. The other three adapters render replay and chaser ghosts
+    through the same core path, but "the same code" is not the standard this file uses.
+  - What was NOT part of this: split times, anchors, and the chaser's contact damage, none of
+    which were reported on.
