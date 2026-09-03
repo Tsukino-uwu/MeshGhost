@@ -391,7 +391,7 @@ func TestBridgeIsLoopback(t *testing.T) {
 // recording: the nested "replay" block in config.json (ADR 0047). Absent, both
 // keys keep the flag defaults -- a release must never record by surprise.
 func TestReplayBlockIsReadFromConfig(t *testing.T) {
-	path := writeConfig(t, nil, `{"client":{"replay":{"record_on_launch":true,"save_last":"45s","start_delay":"2s","seek":"8s"}}}`)
+	path := writeConfig(t, nil, `{"client":{"replay":{"record_on_launch":true,"save_last":"45s","start_delay":"2s","seek":"8s","split_times":true}}}`)
 	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
 	var interp, minSend time.Duration
 	var maxReceiveHz int
@@ -399,14 +399,15 @@ func TestReplayBlockIsReadFromConfig(t *testing.T) {
 	saveLast := 30 * time.Second
 	var replayStart time.Duration
 	replaySeek := 5 * time.Second
+	splitTimes := false
 	applyFileConfig(path, map[string]bool{}, configTargets{
 		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
 		room: &room, name: &name, interp: &interp, minSend: &minSend,
 		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
 		transport: &transport, showConsole: &showConsole,
-		recordOnLaunch: &recordOnLaunch, saveLast: &saveLast, replayStart: &replayStart, replaySeek: &replaySeek,
+		recordOnLaunch: &recordOnLaunch, saveLast: &saveLast, replayStart: &replayStart, replaySeek: &replaySeek, splitTimes: &splitTimes,
 	})
-	if !recordOnLaunch || saveLast != 45*time.Second || replayStart != 2*time.Second || replaySeek != 8*time.Second {
+	if !recordOnLaunch || saveLast != 45*time.Second || replayStart != 2*time.Second || replaySeek != 8*time.Second || !splitTimes {
 		t.Fatalf("replay block: record_on_launch=%v save_last=%v, want true/45s", recordOnLaunch, saveLast)
 	}
 

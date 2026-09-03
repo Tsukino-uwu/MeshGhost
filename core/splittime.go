@@ -64,7 +64,7 @@ func distance(a, b []float64) float64 {
 // last match, compares elapsed times, and re-publishes the nametag when the
 // rounded delta changes.
 func (c *Core) updateSplits(local *protocol.State) {
-	if len(local.Position) == 0 {
+	if !c.SplitTimes || len(local.Position) == 0 {
 		return
 	}
 	c.replayMu.Lock()

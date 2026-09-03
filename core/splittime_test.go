@@ -15,6 +15,7 @@ import (
 // and grows as the player falls further behind.
 func TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs(t *testing.T) {
 	c, fa := replayCore(t)
+	c.SplitTimes = true
 	writeActive(t, c, "pb.ndjson", clipBytes(map[string]any{"name": "PB", "color": "#FF8800"}, walkStates(100, 10)))
 	c.StartReplays()
 	const id = "replay:pb.ndjson"
@@ -102,6 +103,7 @@ func parseFloat(s string, v *float64) (int, error) {
 // 24-character nametag cap.
 func TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort(t *testing.T) {
 	c, fa := replayCore(t)
+	c.SplitTimes = true
 	writeActive(t, c, "long.ndjson", clipBytes(map[string]any{"name": "AVeryLongGhostNameIndeed"}, walkStates(100, 10)))
 	c.StartReplays()
 	const id = "replay:long.ndjson"
@@ -135,4 +137,24 @@ func TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort(t *testing.T) {
 		}
 	}
 	t.Fatalf("no split tag appeared in the shared area; last %q", tag)
+}
+
+// TestSplitTimesAreOffByDefault: with the switch off the replay ghost's tag
+// is the header name and nothing else, however far behind the player falls.
+func TestSplitTimesAreOffByDefault(t *testing.T) {
+	c, fa := replayCore(t)
+	writeActive(t, c, "pb.ndjson", clipBytes(map[string]any{"name": "PB"}, walkStates(100, 10)))
+	c.StartReplays()
+	start := time.Now()
+	for time.Since(start) < 600*time.Millisecond {
+		x := float64(time.Since(start) / (20 * time.Millisecond))
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	fa.mu.Lock()
+	tag := fa.names["replay:pb.ndjson"].DisplayName
+	fa.mu.Unlock()
+	if tag != "PB" {
+		t.Fatalf("tag %q with split times off, want the bare header name", tag)
+	}
 }

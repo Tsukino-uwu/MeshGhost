@@ -293,3 +293,13 @@ so `meshghost.exe` records only with a relay up — the fake adapter's `-relay "
 **What the user has not seen:** any of it in a game. Every claim above is the suite's and the
 binaries' offline; nothing here goes into a `VERIFIED.md` until a replay ghost, a chaser and a split
 tag are watched on screen. The first live check wants Pseudoregalia with one file in `replay/active/`.
+
+## 2026-09-03 — Split times become opt-in (`replay.split_times`, off by default)
+
+The user's question on reading the recap: *"off by default? possible to toggle on/off in config?"*
+It had been always-on for every replay ghost. Now `Core.SplitTimes`, the `replay.split_times` key and
+`-replay-split-times`, default false: with it off the ghost's tag is the header name and nothing
+else, which `core/splittime_test.go` pins; the shipped `config.json` carries `false` and
+`shippedconfig_test.go` pins that too. `docs/config.md` and the README say how to turn it on. Same
+question answered in passing: the `anchor` behaviours that are not built only decide when a replay
+starts or restarts — zone changes ride on every sample's `area_id` and are unaffected.

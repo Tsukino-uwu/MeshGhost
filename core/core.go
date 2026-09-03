@@ -636,6 +636,10 @@ type Core struct {
 	// ReplaySeek is how far one rewind or fast-forward moves when the caller
 	// gives no amount (the hotkeys never do).
 	ReplaySeek time.Duration
+	// SplitTimes puts "+1.2s" on a replay ghost's nametag (core/splittime.go).
+	// Off by default: a tag that changes several times a second is a visible
+	// behaviour the player opts into.
+	SplitTimes bool
 	rec        recorder
 	ring       sampleRing
 	tapArmed   uint32

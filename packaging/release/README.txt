@@ -307,8 +307,9 @@ Setup, once:
                    "start_delay" ("5s" starts it five seconds late),
                    "trim_start"/"trim_end", "skip_gaps" ("2s" cuts any
                    pause longer than that out of the clock). The
-                   ghost's nametag also shows how far ahead or behind
-                   you are ("+1.2s" means you are behind).
+                   ghost's nametag can also show how far ahead or behind
+                   you are ("+1.2s" means you are behind): set
+                   "split_times": true under "replay" to turn that on.
                  * "chaser": your own past following you, like a shadow
                    race. "count": 4 with "spacing": "2s" is four ghosts
                    3, 5, 7 and 9 seconds behind -- double back and you

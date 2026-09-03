@@ -44,6 +44,7 @@ type shippedConfig struct {
 			SaveLast       string `json:"save_last"`
 			StartDelay     string `json:"start_delay"`
 			Seek           string `json:"seek"`
+			SplitTimes     bool   `json:"split_times"`
 		} `json:"replay"`
 		Chaser struct {
 			Enabled bool   `json:"enabled"`
@@ -140,6 +141,9 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 	if cfg.Client.Replay.RecordOnLaunch {
 		t.Error("shipped replay.record_on_launch must be false: nobody's disk fills up by surprise")
+	}
+	if cfg.Client.Replay.SplitTimes {
+		t.Error("shipped replay.split_times must be false: a nametag that changes several times a second is opted into")
 	}
 	if cfg.Client.Chaser.Enabled || cfg.Client.Chaser.Contact {
 		t.Errorf("shipped chaser must be off with contact off, got enabled=%v contact=%v",

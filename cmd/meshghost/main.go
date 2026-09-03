@@ -199,6 +199,9 @@ type replayFileConfig struct {
 	StartDelay *string `json:"start_delay"`
 	// Seek is how far one rewind or fast-forward key press moves a replay.
 	Seek *string `json:"seek"`
+	// SplitTimes shows "+1.2s" on a replay ghost's nametag: how far behind
+	// (or ahead of) it you are. Off unless asked for.
+	SplitTimes *bool `json:"split_times"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -242,6 +245,7 @@ type configTargets struct {
 	saveLast       *time.Duration
 	replayStart    *time.Duration
 	replaySeek     *time.Duration
+	splitTimes     *bool
 	hotkeys        *hotkeyTargets
 	chaser         *chaserTargets
 }
@@ -337,6 +341,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.replaySeek != nil {
 			cfg.OverrideDuration(explicit, "replay-seek", t.replaySeek, fc.Replay.Seek, shown, "meshghost", "replay.seek")
+		}
+		if t.splitTimes != nil {
+			cfg.Override(explicit, "replay-split-times", t.splitTimes, fc.Replay.SplitTimes)
 		}
 	}
 	if fc.Chaser != nil && t.chaser != nil {
@@ -633,6 +640,7 @@ func main() {
 	hkRestart := flag.String("hotkey-replay-restart", "ctrl+shift+F5", "system-wide chord: restart every replay ghost (config: hotkeys.replay_restart)")
 	hkRewind := flag.String("hotkey-replay-rewind", "ctrl+shift+F6", "system-wide chord: rewind every replay ghost by replay.seek (config: hotkeys.replay_rewind)")
 	hkFastForward := flag.String("hotkey-replay-fast-forward", "ctrl+shift+F7", "system-wide chord: fast-forward every replay ghost by replay.seek (config: hotkeys.replay_fast_forward)")
+	splitTimes := flag.Bool("replay-split-times", false, "show how far behind or ahead of a replay ghost you are on its nametag, e.g. \"PB +1.2s\" (config: replay.split_times)")
 	replaySeek := flag.Duration("replay-seek", 5*time.Second,
 		"how far one rewind or fast-forward moves a replay ghost (config: replay.seek)")
 	replayStart := flag.Duration("replay-start-delay", 0,
@@ -684,6 +692,7 @@ func main() {
 		saveLast:       saveLast,
 		replayStart:    replayStart,
 		replaySeek:     replaySeek,
+		splitTimes:     splitTimes,
 		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
 			replayRestart: hkRestart, replayRewind: hkRewind, replayFastForward: hkFastForward},
 		chaser: &chaserTargets{enabled: chaserOn, count: chaserCount, delay: chaserDelay, spacing: chaserSpacing,
@@ -824,6 +833,7 @@ func main() {
 	c.SaveLastSpan = *saveLast
 	c.ReplayStartDelay = *replayStart
 	c.ReplaySeek = *replaySeek
+	c.SplitTimes = *splitTimes
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing
 	c.ChaserName, c.ChaserColor, c.ChaserContact = *chaserName, *chaserColor, *chaserContact
 	if *chaserOn {
