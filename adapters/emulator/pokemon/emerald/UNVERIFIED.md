@@ -58,6 +58,28 @@ entry without one.
 - Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
 - Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
 
+## [READY] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03), unwatched
+
+**Found by measurement, not by a symptom** — `adapters/emulator/tests/json_fuzz.lua`, which loads this
+adapter's real `jsonDecode` out of the shipped file and drives it with hostile input. This decoder
+accepted nesting **5000 levels deep**; Crystal's has refused past 64 since its 2026-08-25 fix, and the
+two had simply drifted. It matters because `extras` and `orientation` are bounded by SIZE and never by
+SHAPE (`security-design.md` measured 490 levels fitting inside the 1KB `extras` cap), so this is
+something a peer in your room can send, not a theoretical input.
+
+**The fix** is Crystal's, threaded as a PARAMETER through `decodeValue`/`decodeObject`/`decodeArray`
+rather than as a file-scope local, because this file sits at 199 of Lua's 200-local ceiling and a
+counter would have spent the last one. Cap 64, matching Crystal.
+
+**What to watch:** nothing new on screen — this is a guard on a path normal play never reaches. The
+check that matters is that the adapter still **loads, connects, and renders a ghost** exactly as
+before, since the change touches the function every bridge message passes through. The harness proves
+valid input still parses, but that is desktop Lua 5.4 and not BizHawk's.
+
+**Still open, and it needs the emulator:** whether a Lua stack overflow inside `pcall` drops the
+message or takes BizHawk down has been unanswered since 2026-08-25. The cap makes it unreachable
+through this path, which is why it stops being urgent, not why it stops being unknown.
+
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
 The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*

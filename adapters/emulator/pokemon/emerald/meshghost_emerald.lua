@@ -862,7 +862,7 @@ local function decodeNumber(s, i)
     return tonumber(num), j + 1
 end
 
-local function decodeObject(s, i)
+local function decodeObject(s, i, depth)
     local obj = {}
     i = skipWs(s, i + 1)
     if s:sub(i, i) == "}" then return obj, i + 1 end
@@ -873,7 +873,7 @@ local function decodeObject(s, i)
         if s:sub(i, i) ~= ":" then error("json: expected ':'") end
         i = skipWs(s, i + 1)
         local val
-        val, i = decodeValue(s, i)
+        val, i = decodeValue(s, i, depth)
         obj[key] = val
         i = skipWs(s, i)
         local c = s:sub(i, i)
@@ -887,13 +887,13 @@ local function decodeObject(s, i)
     end
 end
 
-local function decodeArray(s, i)
+local function decodeArray(s, i, depth)
     local arr = {}
     i = skipWs(s, i + 1)
     if s:sub(i, i) == "]" then return arr, i + 1 end
     while true do
         local val
-        val, i = decodeValue(s, i)
+        val, i = decodeValue(s, i, depth)
         -- NOT table.insert: decodeValue returns nil for JSON `null`, and table.insert(t, nil)
         -- is an error in Lua 5.4 -- so a single null anywhere inside an array threw, jsonDecode
         -- swallowed it, and the WHOLE line was dropped. `extras` is free-form peer-controlled
@@ -913,11 +913,20 @@ local function decodeArray(s, i)
     end
 end
 
-decodeValue = function(s, i)
+decodeValue = function(s, i, depth)
+    -- DEPTH CAP, matching Crystal's (meshghost_crystal.lua). `extras` and `orientation` are
+    -- bounded by SIZE and never by SHAPE, so a peer fits several hundred levels of nesting
+    -- into the 1KB the relay forwards without complaint; this decoder used to follow every
+    -- one of them. Measured 2026-09-03 by adapters/emulator/tests/json_fuzz.lua at 5000
+    -- levels accepted, against Crystal refusing at 65. Threaded as a PARAMETER because this
+    -- file sits at 199 of Lua's 200-local ceiling (emulator/CLAUDE.md) and a file-scope
+    -- counter would spend the last one.
+    depth = (depth or 0) + 1
+    if depth > 64 then error("json: too deeply nested") end
     i = skipWs(s, i)
     local c = s:sub(i, i)
-    if c == "{" then return decodeObject(s, i)
-    elseif c == "[" then return decodeArray(s, i)
+    if c == "{" then return decodeObject(s, i, depth)
+    elseif c == "[" then return decodeArray(s, i, depth)
     elseif c == '"' then return decodeString(s, i)
     elseif c == "t" then
         if s:sub(i, i + 3) ~= "true" then error("json: bad literal") end

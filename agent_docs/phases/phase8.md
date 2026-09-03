@@ -459,3 +459,31 @@ the variable still counts, the READMEs are rewritten around the key. Built and d
 (`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
 in-game menus -- is filed in `ideas.md`.
 
+## 2026-09-03 — the bridge JSON decoder had no depth cap, and a harness now says so on every push
+
+Building the adapter-fuzzer entry from `ideas.md`. No game involved: this is offline work against the
+shipped file, and both findings are queued in `UNVERIFIED.md` rather than claimed.
+
+**The harness** is `adapters/emulator/tests/json_fuzz.lua`. It loads this adapter's REAL `jsonDecode`
+without editing anything, by taking the file prefix up to the end of that function — which is pure
+declarations — and running it under a stub `_ENV`. The cut point is found structurally, so an edit to
+the decoder cannot silently point it at the wrong text; that was proved immediately, when the fix below
+moved the prefix end from 943 to 952 and the harness kept working. Each decode runs inside a coroutine
+with an instruction-count hook, so a runaway loop is a reported failure rather than a hung CI job —
+which is the whole point, because the 2026-08-25 incident was a hang and `pcall` cannot catch one.
+
+**What it found here:** this decoder followed nesting **5000 levels deep**. Crystal's has refused past
+64 since its own 2026-08-25 fix; the two copies had drifted, each missing the other's guard. It is
+reachable input, not a theoretical one — `security-design.md` measured 490 levels fitting inside the
+1KB `extras` cap, and nothing between here and a peer bounds SHAPE.
+
+**The fix** threads `depth` as a parameter through `decodeValue`/`decodeObject`/`decodeArray` rather
+than adding a file-scope local, because `emulator/CLAUDE.md` records this file at 199 of Lua's
+200-local ceiling and a counter would have spent the last one. `luac -p` still passes.
+
+Now in CI as a second job in `lua.yml`, path-filtered on `**.lua` like the parse job, so a Go-only push
+pays nothing for it. Its header says plainly what a green tick does not mean: desktop Lua 5.4 is not
+BizHawk's, and the harness reaches the decoder only, never the dispatch.
+
+**Waiting on the user:** that the adapter still loads, connects and renders a ghost. Batched with the
+rest of the session's adapter work rather than asked for on its own.

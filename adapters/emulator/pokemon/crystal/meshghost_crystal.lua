@@ -808,7 +808,18 @@ local function jsonDecode(s)
 				local n = s:sub(pos + 1, pos + 1)
 				local map = { n = "\n", t = "\t", r = "\r", b = "\b", f = "\f" }
 				if n == "u" then
-					out[#out + 1] = "?"
+					-- \uXXXX used to become a literal "?", which is wrong for the escapes the core
+					-- ACTUALLY sends: Go's encoding/json HTML-escapes &, < and > by default, so an
+					-- ordinary peer name like "R&B" arrives as "R\u0026B" and rendered as "R?B".
+					-- Measured 2026-09-03 (adapters/emulator/tests/json_fuzz.lua); Emerald's decoder
+					-- never had this. ASCII is decoded properly; anything above it stays "?" because
+					-- this game's font cannot draw it either way.
+					local cp = tonumber(s:sub(pos + 2, pos + 5), 16)
+					if cp and cp >= 0x20 and cp < 0x7F then
+						out[#out + 1] = string.char(cp)
+					else
+						out[#out + 1] = "?"
+					end
 					pos = pos + 6
 				else
 					out[#out + 1] = map[n] or n

@@ -989,3 +989,31 @@ the variable still counts, the READMEs are rewritten around the key. Built and d
 (`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
 in-game menus -- is filed in `ideas.md`.
 
+## 2026-09-03 — `\uXXXX` became "?" here and nowhere else, which the core actually sends
+
+Offline work against the shipped file, from the adapter-fuzzer entry in `ideas.md`; the finding is
+queued in `UNVERIFIED.md` rather than claimed. The harness and how it loads a shipped decoder without
+editing it are described in `phase8.md`, same day.
+
+**What it found here:** `decodeString` turned every `\uXXXX` escape into a literal `?`. That reads like
+a reasonable shortcut for a game whose font is ASCII, and it would be harmless if the core never sent
+such an escape. It does: Go's `encoding/json` HTML-escapes `&`, `<` and `>` by default, and
+`core/bridgeserve.go` marshals every bridge message with it. Measured end to end — the exact bytes the
+core emits for a name containing those characters decode here as `A?B ?c?`.
+
+**Latent, not live**, and worth stating so the severity is not overstated: neither Pokémon adapter
+handles `remote_name` yet, so no name is rendered today. It would have surfaced the moment nametags
+landed here, as an ordinary peer called something like "R&B" appearing wrong — and it would have been
+hunted as a nametag bug rather than a decoder one.
+
+**The fix** decodes the four hex digits and emits the character when it is printable ASCII, keeping `?`
+above that because the font cannot draw it either way. The new local lives inside `jsonDecode` rather
+than the main chunk, so it does not touch the 200-local ceiling this file is already sitting on —
+confirmed by `luac -p`.
+
+**The symmetry is the real lesson.** This adapter had the depth cap Emerald was missing; Emerald had
+the `\u` handling this one was missing. Two copies of one decoder, each with a guard the other lacks,
+neither wrong in a way anything would have reported. That is the argument for the shared module in
+`ideas.md`'s deferred refactors, stated better by a measurement than by the entry.
+
+**Waiting on the user:** that the adapter still loads, connects and renders a ghost.

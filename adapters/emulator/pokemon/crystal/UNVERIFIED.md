@@ -58,6 +58,35 @@ entry without one.
 - 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
 - 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
 
+## [READY] `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
+
+**A real defect, currently latent, found by `adapters/emulator/tests/json_fuzz.lua`.** This decoder
+turned every `\uXXXX` escape into a literal `?`. That would be harmless if the core never sent one,
+but it does: Go's `encoding/json` HTML-escapes `&`, `<` and `>` by default, and `core/bridgeserve.go`
+marshals every bridge message with it. Measured end to end on 2026-09-03 — the exact bytes the core
+emits for a name containing those characters:
+
+```
+{"type":"remote_name","payload":{"player_id":"p1","name":"A&B <c>"}}
+```
+
+decoded here as `A?B ?c?`. Emerald's decoder never had this; it is the same two-copies-drifted problem
+as the depth cap, in the other direction.
+
+**Why LATENT rather than live:** neither Pokémon adapter handles `remote_name` at all yet, so no name
+is rendered today. It would have appeared the moment nametags landed here, as an ordinary peer called
+something like "R&B" showing up wrong — and it would have looked like a nametag bug rather than a
+decoder one. Any `area_id` or `anim` containing those characters would be mangled the same way, which
+for this game they are not.
+
+**The fix:** decode the four hex digits and emit the character when it is printable ASCII; anything
+above stays `?`, because this game's font cannot draw it either way. The new local sits inside
+`jsonDecode`, not the main chunk, so it does not touch the 200-local ceiling this file is already at
+— confirmed by `luac -p`.
+
+**What to watch:** nothing new on screen. As with Emerald, the check is that the adapter still loads,
+connects and renders a ghost, because this is the function every bridge message passes through.
+
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
 The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
