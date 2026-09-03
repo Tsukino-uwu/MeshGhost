@@ -378,3 +378,78 @@ func TestStateRejectReasonNamesOversizedExtras(t *testing.T) {
 		t.Fatalf("ValidateState accepted what StateRejectReason rejected")
 	}
 }
+
+// TestDepthBoundRefusesWhatTheSizeCapAdmits pins the gap MaxJSONDepth closes,
+// with the numbers that were measured on 2026-08-24 and sat open in
+// agent_docs/security-design.md until 2026-09-03: a size cap is not a shape cap,
+// and nesting is nearly free per level.
+//
+// Why the existing extras targets never caught this: FuzzExtrasSizingMatchesMarshal
+// checks that our fast sizer agrees with encoding/json about LENGTH, and
+// FuzzValidateStateIsStableAcrossTheWire checks a state survives a round trip.
+// Both are about bytes. Nothing asked about structure, because nothing had a
+// bound on structure to ask about.
+func TestDepthBoundRefusesWhatTheSizeCapAdmits(t *testing.T) {
+	// A nested value costs about a byte a level, so the deep ones below are all
+	// comfortably inside their size caps -- that is the whole point.
+	deepExtras := func(depth int) map[string]any {
+		var v any = 1
+		for i := 0; i < depth; i++ {
+			v = []any{v}
+		}
+		return map[string]any{"x": v}
+	}
+
+	for _, tc := range []struct {
+		depth int
+		want  bool
+	}{
+		{depth: 1, want: true},
+		{depth: 8, want: true},
+		{depth: MaxJSONDepth - 2, want: true},
+		{depth: MaxJSONDepth + 2, want: false},
+		{depth: 128, want: false},
+		{depth: 490, want: false}, // the depth measured as fitting inside MaxExtrasBytes
+	} {
+		st := State{Position: []float64{1, 2}, Extras: deepExtras(tc.depth)}
+		if got := ValidateState(st); got != tc.want {
+			b, _ := json.Marshal(st.Extras)
+			t.Errorf("extras nested %d deep: ValidateState=%v, want %v (it is only %d bytes, well inside the %d cap -- which is exactly why a size bound could never catch it)",
+				tc.depth, got, tc.want, len(b), MaxExtrasBytes)
+		}
+	}
+
+	// Orientation takes the same bound over raw bytes, and 127 levels was
+	// measured as fitting inside its 256-byte cap.
+	for _, tc := range []struct {
+		depth int
+		want  bool
+	}{
+		{depth: 4, want: true},
+		{depth: MaxJSONDepth, want: true},
+		{depth: MaxJSONDepth + 1, want: false},
+		{depth: 127, want: false},
+	} {
+		raw := []byte(strings.Repeat("[", tc.depth) + strings.Repeat("]", tc.depth))
+		if len(raw) > MaxOrientationBytes {
+			t.Fatalf("test bug: depth %d is %d bytes, over the size cap, so this would not isolate SHAPE", tc.depth, len(raw))
+		}
+		st := State{Position: []float64{1, 2}, Orientation: raw}
+		if got := ValidateState(st); got != tc.want {
+			t.Errorf("orientation nested %d deep (%d bytes): ValidateState=%v, want %v", tc.depth, len(raw), got, tc.want)
+		}
+	}
+
+	// A brace inside a STRING is not nesting. The byte scan has to know that,
+	// or an ordinary quaternion with a "{" in a label would be refused.
+	deepLooking := []byte(`{"a":"{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{{"}`)
+	if !rawJSONDepthWithinLimit(deepLooking) {
+		t.Error("braces inside a string literal counted as nesting")
+	}
+
+	// And the reject reason must name the SHAPE, not a size that is not the problem.
+	st := State{Position: []float64{1, 2}, Extras: deepExtras(200)}
+	if reason := StateRejectReason(st); !strings.Contains(reason, "nests deeper") {
+		t.Errorf("StateRejectReason = %q, want it to name the depth cap", reason)
+	}
+}

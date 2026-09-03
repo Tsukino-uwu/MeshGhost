@@ -18,7 +18,7 @@ this file is exempt from `licensing.md`'s gate until something from a project is
 - What "safe to play with random people" means — the three layers, and where each one has to live
 - PEER-DATA SAFETY REQUIREMENTS for every adapter — the user wants these enforced, not advised
 - The ACE audit: where peer-controlled data actually reaches a dangerous sink (2026-08-27)
-- Structural validation of `extras` AND `orientation` — bounding SHAPE without ever reading MEANING
+- Structural validation of `extras` AND `orientation` — bounding SHAPE without ever reading MEANING (BUILT 2026-09-03)
 - Should the Go side stay game-blind? — and the middle path the rule already permits
 - The bridge is unauthenticated and loopback only by DEFAULT, not by enforcement
 - A blank `only_game` should mean "this project's games", not "anything" — layer 3's open-relay default
@@ -702,15 +702,29 @@ that from a validated field.
 
 ## Structural validation of `extras` AND `orientation` — bounding SHAPE without ever reading MEANING
 
-**Unscheduled. Not on the depth ladder — Go side, so it is confirmable with the tools rather than
-by watching a game (`CLAUDE.md`'s split). Raised 2026-08-24** while answering "is it actually safe
-to play with random people", and **the finding below is measured, not reasoned**.
+**BUILT 2026-09-03.** `MaxJSONDepth = 32` in `protocol/limits.go`, enforced on both fields by
+`ValidateState`, with `StateRejectReason` naming the shape rather than a size that is not the
+problem. Regression test `TestDepthBoundRefusesWhatTheSizeCapAdmits` (which fails without the
+bound, checked by raising the constant), and `FuzzDepthBoundsAgreeAndNeverPanic` in CI, pinning the
+raw-byte scanner against the decoded walk — orientation is bounded by the scanner ALONE, so a
+scanner more permissive than the walk would be a hole in the one field never decoded here. The
+research below is left as written, because it is why the bound exists and it is still the argument
+for the number.
 
-> **DO NOT START BUILDING THIS. The user's call, 2026-08-24:** *"i will def want to
-> brainstorm/plan it out even more before we actually do anything extra for server/client
-> security anyway."* This entry is research, not a queued task. The measurements and the
-> reasoning below are here so the design pass starts from facts instead of re-deriving them —
-> the design pass itself has not happened.
+> **The hold was lifted for THIS change only, by the user, 2026-09-03**, when the same exposure
+> turned up from the other end: an adapter-side fuzzer found that Emerald's Lua decoder followed
+> nesting 5000 levels deep while Crystal refused past 64. Asked where the bound belonged, the
+> user's answer was **both, adapter first**. The adapters were fixed the same day; this is the
+> other half.
+>
+> The 2026-08-24 hold it replaces read: *"i will def want to brainstorm/plan it out even more
+> before we actually do anything extra for server/client security anyway."* **That still stands
+> for everything else on this page** — one lifted item is not a lifted page.
+
+**Why 32 rather than the adapters' 64:** it sits below what every adapter enforces, so nothing an
+adapter would refuse ever reaches one, and it is still an order of magnitude above anything a game
+has sent. Defence in depth in the literal sense — the core protects every adapter including a
+third-party one, and each adapter still protects itself.
 
 **The gap.** `State.Extras` is `map[string]any` (`protocol/protocol.go:47`) and `ValidateState`
 checks exactly one thing about it: total serialized size <= `MaxExtrasBytes` (1024). Nothing bounds

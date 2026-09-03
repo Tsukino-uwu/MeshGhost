@@ -202,3 +202,32 @@ Lesson filed: `pitfalls/method.md`, "A fuzz target that exercises nothing passes
 exercises everything".
 
 `dev-scripts/run-gotests.bat` green, including `internal/e2e`.
+
+## 2026-09-03 (evening, second) — the shape bound the size caps never were
+
+The Lua harness from `phase8.md`/`phase9.md` found the same exposure from the adapter end that
+`security-design.md` had measured from the Go end on 2026-08-24 and left frozen: `extras` and
+`orientation` are bounded by SIZE and never by SHAPE, so 490 levels of nesting fit inside the 1024
+bytes `extras` allows and 127 inside `orientation`'s 256. Asked where the bound belonged, the user's
+call was **both, adapter first**, which lifted that entry's do-not-build hold for this one change.
+
+`MaxJSONDepth = 32` in `protocol/limits.go`, on both fields. Two checkers, because the fields differ:
+a walk over the decoded `map[string]any` for `extras`, and a byte scan for `orientation`, which is a
+`json.RawMessage` and is never decoded here. The scan counts brackets outside string literals, so a
+brace inside a quaternion's label is not nesting.
+
+**Placed so the hot path does not pay.** `extrasLengthBound` already refuses to recurse and returns
+ok=false the moment it meets a nested container, so nesting was ALREADY the slow path; the depth walk
+sits just past that early return. A flat scalar map — what every shipped adapter sends, as that
+function's own comment records — returns before reaching it.
+
+**32 rather than the adapters' 64** so nothing an adapter would refuse ever arrives at one, and the
+core covers a third-party adapter that has no guard of its own.
+
+`TestDepthBoundRefusesWhatTheSizeCapAdmits` pins the measured numbers and was checked to FAIL without
+the bound by raising the constant: at depth 490 it reports 987 bytes, matching the 986 measured on
+2026-08-24 — a size check could never have caught it. `FuzzDepthBoundsAgreeAndNeverPanic` pins the two
+checkers against each other, because `orientation` rides on the scanner alone; 28.8M executions clean
+in a 60s local campaign, and it is now the nineteenth target in CI's fuzz job.
+
+`dev-scripts/run-gotests.bat` green, `internal/e2e` included.

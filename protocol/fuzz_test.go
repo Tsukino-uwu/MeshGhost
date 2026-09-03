@@ -345,3 +345,52 @@ func FuzzClampRatesAlwaysLandInRange(f *testing.F) {
 		}
 	})
 }
+
+// FuzzDepthBoundsAgreeAndNeverPanic fuzzes the two MaxJSONDepth checkers against
+// each other. They answer the same question by different means -- one scans raw
+// bytes without parsing, the other walks a decoded value -- and a disagreement
+// between them is a hole: Orientation is bounded by the scanner alone, so if the
+// scanner is more permissive than the walk, a shape the walk would refuse rides
+// in through the field that never gets decoded here.
+//
+// Neither of the existing extras targets covers this. FuzzExtrasSizingMatchesMarshal
+// pins our fast sizer against encoding/json's LENGTH, and
+// FuzzValidateStateIsStableAcrossTheWire pins a round trip. Both are about bytes;
+// this is the only one about shape.
+//
+//	go test ./protocol -run=XXX -fuzz=FuzzDepthBoundsAgreeAndNeverPanic -fuzztime=60s
+func FuzzDepthBoundsAgreeAndNeverPanic(f *testing.F) {
+	f.Add([]byte(`{"a":1}`))
+	f.Add([]byte(`[[[[[[[[]]]]]]]]`))
+	f.Add([]byte(`{"a":"{{{{{{{{"}`)) // braces inside a string are not nesting
+	f.Add([]byte(strings.Repeat("[", 200) + strings.Repeat("]", 200)))
+	f.Add([]byte(`{"a":[{"b":[{"c":1}]}]}`))
+	f.Add([]byte(`"\"[[[["`))
+	f.Add([]byte(``))
+
+	f.Fuzz(func(t *testing.T, b []byte) {
+		// 1. Never panics, whatever the bytes are.
+		scanOK := rawJSONDepthWithinLimit(b)
+
+		// 2. On anything that actually decodes, the byte scan and the walk must
+		// reach the same verdict. Invalid JSON is out of scope: the scanner is
+		// explicitly not a validator, and a malformed value is refused elsewhere.
+		var v any
+		if err := json.Unmarshal(b, &v); err != nil {
+			return
+		}
+		walkOK := jsonDepthWithinLimit(v, 1)
+		if scanOK != walkOK {
+			t.Fatalf("the two depth bounds disagree on %q: byte scan says within=%v, decoded walk says within=%v", b, scanOK, walkOK)
+		}
+
+		// 3. And the verdict must be the one ValidateState acts on, through the
+		// field that is never decoded.
+		if len(b) <= MaxOrientationBytes {
+			st := State{Position: []float64{1, 2}, Orientation: json.RawMessage(b)}
+			if got := ValidateState(st); got && !scanOK {
+				t.Fatalf("ValidateState accepted an orientation the depth bound refuses: %q", b)
+			}
+		}
+	})
+}

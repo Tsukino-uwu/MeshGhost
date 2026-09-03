@@ -42,6 +42,25 @@ const (
 	// Generous above any real representation, which is a handful of floats.
 	MaxOrientationBytes = 256
 
+	// MaxJSONDepth bounds the NESTING of the two free-form fields, Extras and
+	// Orientation. The size caps above bound how MUCH a peer can send and say
+	// nothing about its SHAPE, and the two are not the same bound: nested
+	// containers cost about a byte a level, so 490 levels fit inside the 1024
+	// Extras allows and 127 inside Orientation's 256 (measured 2026-08-24,
+	// agent_docs/security-design.md). Every receiver then walks that structure,
+	// and the receivers are four hand-written decoders in three languages.
+	//
+	// This is NOT the core becoming game-aware. The opacity rule says do not
+	// interpret the CONTENTS; a depth bound reads no key, no value and no
+	// meaning. "No legitimate game state is 200 objects deep" is a fact about
+	// JSON, not about any game — and extrasLengthBound below already records
+	// that every shipped adapter puts a FLAT scalar map here.
+	//
+	// 32 rather than 64: it sits below the 64 both Lua adapters enforce
+	// (2026-09-03), so nothing an adapter would refuse ever reaches it, and it
+	// is still an order of magnitude above anything a game has ever sent.
+	MaxJSONDepth = 32
+
 	// MaxAreaIDLen and MaxAnimLen bound the opaque AreaID/Anim strings.
 	// Compared only by equality elsewhere (CLAUDE.md's opaque-field rule) —
 	// bounding their length here is only about resource exhaustion, never
@@ -217,7 +236,8 @@ func ValidateState(st State) bool {
 	// otherwise be a ghost whose area_id silently stops matching its peer's
 	// and which therefore never renders, with nothing reporting why.
 	if !ValidOpaqueString(st.AreaID, MaxAreaIDLen) || !ValidOpaqueString(st.Anim, MaxAnimLen) ||
-		JSONWireLen(st.Orientation) > MaxOrientationBytes {
+		JSONWireLen(st.Orientation) > MaxOrientationBytes ||
+		!rawJSONDepthWithinLimit(st.Orientation) {
 		return false
 	}
 	// A syntactically valid JSON number like 1e308 survives []float64
@@ -258,10 +278,18 @@ func StateRejectReason(st State) string {
 	if n := JSONWireLen(st.Orientation); n > MaxOrientationBytes {
 		return fmt.Sprintf("orientation %d bytes over the %d cap", n-MaxOrientationBytes, MaxOrientationBytes)
 	}
+	if !rawJSONDepthWithinLimit(st.Orientation) {
+		return fmt.Sprintf("orientation nests deeper than the %d-level cap", MaxJSONDepth)
+	}
 	if !IsValidPosition(st.Position) {
 		return "position not a finite vector of plausible length"
 	}
 	if !extrasWithinLimit(st.Extras) {
+		// Shape first: a value can be both deep and small, and reporting a size
+		// for it would send a reader looking for bytes that are not the problem.
+		if !jsonDepthWithinLimit(st.Extras, 1) {
+			return fmt.Sprintf("extras nests deeper than the %d-level cap", MaxJSONDepth)
+		}
 		if b, err := json.Marshal(st.Extras); err == nil {
 			return fmt.Sprintf("extras %d bytes, %d over the %d cap", len(b), len(b)-MaxExtrasBytes, MaxExtrasBytes)
 		}
@@ -307,6 +335,68 @@ const maxPooledSizerCap = 8 * MaxExtrasBytes
 // hand-written size walker would be faster still and is deliberately not used:
 // matching encoding/json's float formatting exactly is a real hazard, and being
 // wrong here moves a limit rather than costing time.
+// jsonDepthWithinLimit reports whether a decoded JSON value nests no deeper
+// than MaxJSONDepth. It recurses, but only ever to MaxJSONDepth frames, because
+// exceeding it returns immediately — the bound is what makes the walk safe on
+// peer-controlled input rather than merely a check of it.
+func jsonDepthWithinLimit(v any, depth int) bool {
+	if depth > MaxJSONDepth {
+		return false
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for _, e := range t {
+			if !jsonDepthWithinLimit(e, depth+1) {
+				return false
+			}
+		}
+	case []any:
+		for _, e := range t {
+			if !jsonDepthWithinLimit(e, depth+1) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// rawJSONDepthWithinLimit is the same bound over UNDECODED bytes, for
+// Orientation, which is a json.RawMessage and is never unmarshaled here. A byte
+// scan rather than a parse: it counts brackets outside string literals, so it
+// cannot be fooled by a brace inside a string, and it neither allocates nor
+// recurses. It is deliberately not a JSON validator — a malformed value is
+// caught elsewhere; this answers one question only.
+func rawJSONDepthWithinLimit(b []byte) bool {
+	depth := 0
+	inString := false
+	escaped := false
+	for _, c := range b {
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{', '[':
+			depth++
+			if depth > MaxJSONDepth {
+				return false
+			}
+		case '}', ']':
+			depth--
+		}
+	}
+	return true
+}
+
 func extrasWithinLimit(extras map[string]any) bool {
 	if len(extras) == 0 {
 		return true
@@ -322,6 +412,14 @@ func extrasWithinLimit(extras map[string]any) bool {
 	// however wrong, can move the limit; a wrong exact sizer would.
 	if n, ok := extrasLengthBound(extras); ok && n <= MaxExtrasBytes {
 		return true
+	}
+	// Anything still here either holds a nested container (the bound above
+	// refuses to recurse, so it returned ok=false) or sits near the size limit.
+	// Both are the slow path already, which is exactly where the shape check
+	// belongs: a flat scalar map — what every shipped adapter sends — returned
+	// above and never pays for this.
+	if !jsonDepthWithinLimit(extras, 1) {
+		return false
 	}
 	s := extrasSizers.Get().(*extrasSizer)
 	defer func() {

@@ -2,7 +2,7 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against eighteen targets across eight packages (protocol 8,
+# short fuzz campaign against nineteen targets across eight packages (protocol 9,
 # bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1 -- count them with
 # `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
 # this line, which said eleven across four for as long as the two bridge targets
@@ -279,6 +279,16 @@ jobs:
       # FuzzListenerSurvivesArbitraryDatagrams had; it had therefore never run.
       - name: Fuzz protocol - world writes survive a relay forward unchanged
         run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzValidateWorldIsStableAcrossTheWire 30s
+      # extras and orientation were bounded by SIZE and never by SHAPE until
+      # 2026-09-03: 490 levels of nesting fit inside the 1024-byte extras cap and
+      # 127 inside orientation's 256, measured 2026-08-24. Every receiver then
+      # walks that structure, and the receivers are four hand-written decoders in
+      # three languages. This target pins the two depth checkers against each
+      # other -- one scans raw bytes, the other walks a decoded value -- because
+      # orientation is bounded by the scanner ALONE, so a scanner more permissive
+      # than the walk is a hole in the field that never gets decoded.
+      - name: Fuzz protocol - the two JSON depth bounds agree
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzDepthBoundsAgreeAndNeverPanic 30s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
         run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryLines 45s
       # The relay's POST-JOIN dispatch had no fuzz coverage at all until

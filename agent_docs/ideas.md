@@ -2289,7 +2289,7 @@ fuzzers are independent of both.
 server/client tests or have their own folders inside each adapter?"* — and the follow-up: *"we can also
 make it the same way .Go actions happen, only run them if an adapter got any changes"*.
 
-**Today only the Go side is fuzzed** (eighteen targets CI runs, plus the opt-in schedule targets and
+**Today only the Go side is fuzzed** (the targets CI runs, plus the opt-in schedule targets and
 `FuzzEverything`). The adapters have none, and cannot borrow Go's: their bridge parsers are Lua, C#
 and C++. What the Go fuzzers DO bound is what an adapter can ever receive — every value in a bridge
 message has passed the wire limits and `ValidateState` — and `FuzzEverything` drives the bridge with
