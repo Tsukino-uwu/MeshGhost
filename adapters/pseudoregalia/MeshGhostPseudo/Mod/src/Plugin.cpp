@@ -2997,6 +2997,72 @@ namespace MeshGhostPseudo
         // guards against. What actually makes this minimal string-search parser safe to use on
         // untrusted bytes is narrower than "the format is fixed-shape": see json_number_field's
         // comment just below for the real reason a whole-string search doesn't misparse.
+        // Appends one code point to out as UTF-8. Used by json_string_field's \uXXXX handling.
+        auto append_utf8(std::string& out, uint32_t cp) -> void
+        {
+            if (cp <= 0x7F)
+            {
+                out.push_back(static_cast<char>(cp));
+            }
+            else if (cp <= 0x7FF)
+            {
+                out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+            }
+            else if (cp <= 0xFFFF)
+            {
+                out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+                out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+            }
+            else
+            {
+                out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+                out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+                out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+            }
+        }
+
+        // Reads exactly four hex digits at pos. Not strtol, which would read past four and accept
+        // a sign.
+        auto json_hex4(const std::string& s, size_t pos, uint32_t& out) -> bool
+        {
+            if (pos + 4 > s.size())
+            {
+                return false;
+            }
+            uint32_t v = 0;
+            for (size_t i = 0; i < 4; ++i)
+            {
+                const char c = s[pos + i];
+                v <<= 4;
+                if (c >= '0' && c <= '9') { v |= static_cast<uint32_t>(c - '0'); }
+                else if (c >= 'a' && c <= 'f') { v |= static_cast<uint32_t>(c - 'a' + 10); }
+                else if (c >= 'A' && c <= 'F') { v |= static_cast<uint32_t>(c - 'A' + 10); }
+                else { return false; }
+            }
+            out = v;
+            return true;
+        }
+
+        // ESCAPES ARE HONOURED HERE, AND IT IS NOT POLISH. Until 2026-09-03 this scanned for the
+        // next bare '"' and returned the raw bytes between, so a display name containing a quote --
+        // which the wire carries as \" -- ended the string early and the player saw their name cut
+        // at a backslash. Found live by the user testing a deliberately nasty name:
+        // uwu325235#"..."****?_ rendered on the ghost's nametag as `uwu325235#\`. The same bug
+        // handed back \uXXXX and \ literally, so either one displayed as its escape rather than
+        // as the character it stands for.
+        //
+        // Both Pokemon adapters had their own JSON decoders fixed the same day (a depth cap on
+        // one, a \uXXXX decoder on the other). This file is the sibling that was missed -- the
+        // shape ideas.md calls "rules that live in one code path and are missing from their
+        // sibling".
+        //
+        // Still deliberately NOT a general JSON parser: it finds one key by whole-string search
+        // and reads one string value. Why that stays safe on hostile input is json_number_field's
+        // comment below -- and note that argument RESTS on values being properly escaped on the
+        // wire, which is exactly what this function now decodes instead of taking on trust.
         auto json_string_field(const std::string& s, const std::string& key) -> std::string
         {
             std::string needle = "\"" + key + "\":\"";
@@ -3006,12 +3072,70 @@ namespace MeshGhostPseudo
                 return {};
             }
             pos += needle.size();
-            size_t end = s.find('"', pos);
-            if (end == std::string::npos)
+
+            std::string out;
+            for (size_t i = pos; i < s.size(); ++i)
             {
-                return {};
+                const char c = s[i];
+                if (c == '"')
+                {
+                    return out; // the real end of the string
+                }
+                if (c != '\\')
+                {
+                    out.push_back(c);
+                    continue;
+                }
+                if (++i >= s.size())
+                {
+                    break; // trailing backslash: a truncated line
+                }
+                switch (s[i])
+                {
+                case '"': out.push_back('"'); break;
+                case '\\': out.push_back('\\'); break;
+                case '/': out.push_back('/'); break;
+                case 'b': out.push_back('\b'); break;
+                case 'f': out.push_back('\f'); break;
+                case 'n': out.push_back('\n'); break;
+                case 'r': out.push_back('\r'); break;
+                case 't': out.push_back('\t'); break;
+                case 'u':
+                {
+                    uint32_t cp = 0;
+                    if (!json_hex4(s, i + 1, cp))
+                    {
+                        return {}; // malformed: refuse the field rather than guess
+                    }
+                    i += 4;
+                    // A surrogate PAIR is two escapes standing for one character; a lone or
+                    // mispaired surrogate is not a code point at all and becomes U+FFFD rather
+                    // than being encoded as though it were one.
+                    if (cp >= 0xD800 && cp <= 0xDBFF)
+                    {
+                        uint32_t lo = 0;
+                        if (i + 6 < s.size() && s[i + 1] == '\\' && s[i + 2] == 'u' && json_hex4(s, i + 3, lo) && lo >= 0xDC00 && lo <= 0xDFFF)
+                        {
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                            i += 6;
+                        }
+                        else
+                        {
+                            cp = 0xFFFD;
+                        }
+                    }
+                    else if (cp >= 0xDC00 && cp <= 0xDFFF)
+                    {
+                        cp = 0xFFFD;
+                    }
+                    append_utf8(out, cp);
+                    break;
+                }
+                default:
+                    return {}; // not a JSON escape: this line is not what it claims to be
+                }
             }
-            return s.substr(pos, end - pos);
+            return {}; // no closing quote before the end of the line
         }
 
         auto json_vec3_field(const std::string& s, const std::string& key, double& a, double& b, double& c) -> bool
@@ -13970,6 +14094,32 @@ namespace MeshGhostPseudo
                 }
             }
 
+            // THE MAIN MENU IS NOT PLAYING, AND THE PAWN GATE BELOW DOES NOT COVER IT. The title
+            // screen is a real level holding a real player pawn at the origin, so the "no pawn ->
+            // send null" branch never fires there, and this adapter reported a motionless player
+            // at [0,0,0] for as long as anyone sat in the menu.
+            //
+            // Found 2026-09-03 in the user's own recording: every record_on_launch clip opened
+            // with a stack of TitleScreen samples 250ms apart -- the keepalive cadence for an
+            // unchanged state -- which is exactly what the core promises does NOT happen
+            // (bridgeserve.go's record_on_launch comment). The core cannot fix it: it is
+            // forbidden from knowing what a menu is (ADR 08-20 keeps it game-blind), so knowing
+            // which of this game's maps are not gameplay is THIS side's job.
+            //
+            // Matched against the level's full name, which is what area_id already is. If another
+            // non-gameplay map turns up, add it here -- each entry is a claim about this game, so
+            // it lands with the evidence that found it (documentation.md).
+            static constexpr const char* NON_GAMEPLAY_MAP_FRAGMENTS[] = {"TitleScreen"};
+            bool in_non_gameplay_map = false;
+            for (const char* fragment : NON_GAMEPLAY_MAP_FRAGMENTS)
+            {
+                if (area_id.find(fragment) != std::string::npos)
+                {
+                    in_non_gameplay_map = true;
+                    break;
+                }
+            }
+
             // Real animation state (see verified.md's "ghost animation" entry): read straight off
             // the fields the pawn's own ABP_PlayerGoat_C anim instance mirrors every tick,
             // confirmed by name via the read-only reflection dump (log_pawn_reflection_once).
@@ -17214,6 +17364,17 @@ namespace MeshGhostPseudo
                 blink_count,
                 local_death_count,
                 local_hurt_count);
+            if (in_non_gameplay_map)
+            {
+                // Everything above still ran -- the ghosts, the camera rig, the mirrors -- and
+                // only the local player is withheld. Deliberately not an early return: the work
+                // between here and there is not about us, and skipping it would strand a remote
+                // ghost mid-menu (and stop a perf section that had not started).
+                ticks_since_pawn_valid = 0; // re-arm the spawn delay for walking back in
+                std::lock_guard<std::mutex> lock(state_mutex);
+                cached_local_state_json = R"({"type":"local_state","payload":{"state":null}})";
+            }
+            else
             {
                 std::lock_guard<std::mutex> lock(state_mutex);
                 cached_local_state_json = std::move(local_state);
@@ -17221,7 +17382,7 @@ namespace MeshGhostPseudo
         }
         else
         {
-            ticks_since_pawn_valid = 0; // e.g. back at the title screen -- re-arm the spawn delay
+            ticks_since_pawn_valid = 0; // e.g. mid level transition -- re-arm the spawn delay
             std::lock_guard<std::mutex> lock(state_mutex);
             cached_local_state_json = R"({"type":"local_state","payload":{"state":null}})";
         }
