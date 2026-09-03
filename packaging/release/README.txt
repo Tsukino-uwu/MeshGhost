@@ -295,7 +295,7 @@ Setup, once:
                    Files land in the "replay" folder beside this one.
                  * Did a trick? ctrl+shift+F10 saves the last 30 seconds
                    after the fact ("save_last" is how much).
-                 * Drop a file into "replayctive" and it plays as a
+                 * Drop a file into "replay\active" and it plays as a
                    ghost when you next play, starting when you are in
                    the game. Take it out to stop. ctrl+shift+F11 plays
                    the newest recording right now without moving it.

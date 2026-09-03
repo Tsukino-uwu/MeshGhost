@@ -226,7 +226,7 @@ internal static class BridgeFuzz
         string[] ids =
         {
             "p1", "../../etc/passwd", "..\\..\\windows", "{0}", "%s%s%s", "a\"b", "a\\b",
-            "a b", "‮evil", "Player One", "'; DROP TABLE", "<script>", "&amp;",
+            "a\"b", "a\\b", "‮evil", "Player One", "'; DROP TABLE", "<script>", "&amp;",
             new string('x', 4000),
         };
 

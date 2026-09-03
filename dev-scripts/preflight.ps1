@@ -482,6 +482,49 @@ if ($fenced.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Stray control bytes from a mangled escape"
+
+# A scripted edit that writes a Windows path through something treating backslash sequences as
+# escapes leaves the ESCAPE'S BYTE in the file: \t becomes a tab, \b a backspace, \a a bell,
+# \0 a NUL. The file still parses, still compiles, still ships -- and the path or string inside it
+# is silently wrong. Three instances by 2026-09-03:
+#
+#   - 2026-08-25: two probes had never parsed, mangled by an edit where \a \b \n inside a path
+#     were eaten as escapes (the reason lua.yml exists at all).
+#   - 2026-09-03: packaging/release/README.txt told players to drop a clip into "replay<BEL>ctive"
+#     -- a folder name with a control character in it, for a folder that did not exist either.
+#   - 2026-09-03: dev-scripts/tevi-hotreload.ps1 looked for the built pdb at
+#     'adapters<TAB>evi\MeshGhostTevi<BS>in\Release\...', so Test-Path never matched and the
+#     hot-reload loop silently lost its pdb fallback -- which ScriptEngine needs or the plugin
+#     never loads (MeshGhostTevi.csproj).
+#
+# Tab, newline and carriage return are the only C0 bytes any of these files should hold.
+$ctrlExt = @('*.md', '*.txt', '*.go', '*.lua', '*.ps1', '*.bat', '*.py', '*.yml', '*.yaml', '*.json', '*.cs', '*.cpp', '*.hpp', '*.sh')
+$ctrlFiles = @(& git ls-files -- $ctrlExt)
+$ctrlHits = @()
+foreach ($f in $ctrlFiles) {
+    if (-not (Test-Path -LiteralPath $f)) { continue }
+    $bytes = [System.IO.File]::ReadAllBytes($f)
+    for ($i = 0; $i -lt $bytes.Length; $i++) {
+        $b = $bytes[$i]
+        if ($b -lt 0x20 -and $b -ne 0x09 -and $b -ne 0x0A -and $b -ne 0x0D) {
+            $line = 1
+            for ($j = 0; $j -lt $i; $j++) { if ($bytes[$j] -eq 0x0A) { $line++ } }
+            $ctrlHits += ("{0}:{1} (byte 0x{2:X2})" -f $f, $line, $b)
+            break
+        }
+    }
+}
+if ($ctrlFiles.Count -eq 0) {
+    Report-Fail "no text files found -- the control-byte check would pass vacuously"
+} elseif ($ctrlHits.Count -gt 0) {
+    Report-Fail "$($ctrlHits.Count) file(s) hold a stray control byte -- almost always a backslash escape eaten by a scripted edit; check the PATH or string on that line:"
+    $ctrlHits | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "no stray control bytes in $($ctrlFiles.Count) tracked text file(s)"
+}
+
+# ---------------------------------------------------------------------------
 Section "Lua parses"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 

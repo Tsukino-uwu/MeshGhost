@@ -712,6 +712,28 @@ func main() {
 		// autostarted by their game can find, and the one the README names.
 		*replayDir = filepath.Join(filepath.Dir(configShown), "replay")
 	}
+	// BOTH FOLDERS ARE CREATED HERE, EMPTY, AND active/ IS THE ONE THAT MATTERS.
+	//
+	// Until 2026-09-03 nothing ever created replay/active/. The recorder made
+	// replay/ on the first recording, so that one at least appeared eventually,
+	// but active/ is READ and never written: StartReplays calls ReadDir on it and
+	// returns 0 on ErrNotExist without logging, deliberately, so a player who had
+	// not made the folder got silence. docs/config.md meanwhile says "drop a file
+	// into replay/active/ and it plays" -- an instruction naming a folder that did
+	// not exist and that nothing would create.
+	//
+	// An empty folder IS the documentation here: it shows where a clip goes
+	// without the player having to read anything or type a path correctly. The
+	// release ships both too (dev-scripts/stage-release.ps1) so they are there on
+	// first unzip, before this ever runs.
+	//
+	// Failure is not fatal, and deliberately quiet at info level: a read-only
+	// install directory is a real thing, and it should cost a player replays, not
+	// the session. StartReplays reports the consequence if it comes to that.
+	if err := os.MkdirAll(filepath.Join(*replayDir, "active"), 0o755); err != nil {
+		log.Printf("could not create %s (replays will not load from it): %v",
+			filepath.Join(*replayDir, "active"), err)
+	}
 
 	// stderr stays in the list unconditionally: when this client was run from a
 	// terminal that IS the live output, and when it was spawned with no window

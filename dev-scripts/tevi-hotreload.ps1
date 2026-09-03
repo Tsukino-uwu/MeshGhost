@@ -195,7 +195,7 @@ if ($On) {
     $scriptPdb = Join-Path $scriptDir 'MeshGhostTevi.pdb'
     if (Test-Path $pluginPdb) { Move-Item $pluginPdb $scriptPdb -Force }
     elseif (-not (Test-Path $scriptPdb)) {
-        $builtPdb = Join-Path $repoRoot 'adapters	evi\MeshGhostTeviin\Release\MeshGhostTevi.pdb'
+        $builtPdb = Join-Path $repoRoot 'adapters\tevi\MeshGhostTevi\bin\Release\MeshGhostTevi.pdb'
         if (Test-Path $builtPdb) { Copy-Item $builtPdb $scriptPdb -Force }
         else { Write-Output "tevi-hotreload: WARNING -- no MeshGhostTevi.pdb anywhere; ScriptEngine will refuse to load this." }
     }

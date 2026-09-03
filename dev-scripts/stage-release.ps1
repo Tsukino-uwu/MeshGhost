@@ -84,6 +84,16 @@ function Copy-Binary($name) {
 Copy-Binary 'meshghost.exe'
 Copy-Binary 'meshghost-server.exe'
 
+# replay/ and replay/active/, EMPTY, beside the client. The client creates them at startup too, but
+# shipping them means a player sees where a clip goes on the first unzip rather than after a first
+# run -- and docs/config.md's "drop a file into replay/active/" then names a folder that is already
+# there. Compress-Archive does preserve an empty directory (checked 2026-09-03: the nested entry
+# survives as `replay\active\`), so these reach the zip rather than being quietly dropped.
+$replayActive = Join-Path 'packaging\release' 'replay\active'
+if (-not (Test-Path -LiteralPath $replayActive)) {
+    New-Item -ItemType Directory -Force -Path $replayActive | Out-Null
+}
+
 # Each mod that installs INTO a game gets its own config.json, but NOT its own copy of the
 # client -- the mod starts the client from beside its own DLL, and shipping a 9 MB binary per
 # game was rejected on 2026-08-18. The player copies meshghost.exe in once per game, which is
