@@ -263,6 +263,23 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 		}
 		var st protocol.State
 		if err := json.Unmarshal(raw, &st); err != nil {
+			// A HALF-WRITTEN LAST LINE IS NOT A BROKEN FILE. The recorder's
+			// buffer flushes whenever it fills, which lands mid-line, so a
+			// recording read while it is still being written -- the replay-last
+			// hotkey pressed without stopping first -- ends in a partial line.
+			// So does one whose process was killed. Refusing the whole clip for
+			// it threw away everything that WAS written, which is the same
+			// mistake gzip made (ADR 0051): a plain text file cut short should
+			// still play what it has.
+			//
+			// Only the LAST line, and only a decode failure. A bad line with
+			// anything after it is a corrupt file and still refused, which is
+			// what keeps this from being a licence to accept garbage.
+			if !sc.Scan() {
+				log.Printf("core: replay %s: line %d is incomplete and was dropped -- the file was "+
+					"still being written, or the game that wrote it did not close it", name, line)
+				break
+			}
 			return nil, fmt.Errorf("%s: line %d: %w", name, line, err)
 		}
 		st.PlayerID = ""

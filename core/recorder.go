@@ -687,3 +687,20 @@ func (c *Core) armRing() {
 		c.SetRingSpan(span)
 	}
 }
+
+// flushRecordingIfOpen pushes whatever the recorder has buffered out to disk,
+// so a reader looking at the file right now sees complete lines up to this
+// moment. A no-op when nothing is recording.
+//
+// Exists for the replay-last hotkey, which reads the newest file in the folder
+// and will happily pick the one still being written.
+func (c *Core) flushRecordingIfOpen() {
+	c.rec.mu.Lock()
+	defer c.rec.mu.Unlock()
+	if !c.rec.on || c.rec.w == nil {
+		return
+	}
+	if err := c.rec.flushLocked(); err != nil {
+		log.Printf("core: could not flush the recording before reading it: %v", err)
+	}
+}
