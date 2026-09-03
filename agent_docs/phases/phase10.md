@@ -11,7 +11,8 @@ be built at once and the project's shape was not yet settled (the user's own acc
 `cmd/`, `internal/` — one file for server AND client deliberately, not one each: nearly every
 event here spans both (a relay queue exists because of client stalls; a protocol default is
 inherited by both ends), so two files would write most entries twice or file them arbitrarily.
-**Phase 11 onward is reserved for the fifth game and beyond.**
+**Phase 11 is the replay work (2026-09-03, its own log because it is feature-sized); the fifth
+game takes 12 onward.**
 
 Unlike the adapter phases this is a **component log, not a bounded stretch of work** — it has no
 "done". One dated entry per session or feature, appended in the same pass that closes the work

@@ -2021,6 +2021,11 @@ synced/mimiced light in the future"*.
 
 ## Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 
+**PICKED UP 2026-09-03 as Phase 11** — ADR 0047 decides the model (a replay is a local fake peer),
+ADR 0048 the hotkeys, `plans.md` the stages, `phases/phase11.md` the log. The prerequisite below
+("debugging tool or shipped feature?") was answered: shipped, player-facing, sharable files. The
+chaser ("Badeline") and the chaser pack came from the same conversation. Kept as the research trail.
+
 **Quoted observation, relayed by the user 2026-08-30 and recorded verbatim** — secondhand, about
 Trackmania specifically, and **not verified against that game by anyone here**:
 

@@ -507,6 +507,30 @@ adapter can already identify via `wUsedSprites`.
 with its honest costs: no engine animation, no collision, occlusion re-implemented at tile
 resolution, and two rendering paths in one adapter.
 
+### Phase 11 — Replays: recording, playback ghosts, the chaser pack, hotkeys, split times (planned 2026-09-03)
+
+**Decided 2026-09-03, nothing built yet** — ADR 0047 (the model) and ADR 0048 (hotkeys), log in
+`phases/phase11.md`. The wire format is already a replay format: a recording is the adapter's own
+`protocol.State` samples written one per line to `replay/<file>.ndjson` under the client's config
+folder; playback is a *local fake peer* fed through `storeRemoteState`, so every renderer, adapter
+and knob works unchanged and no adapter changes for any of it. `replay/active/` IS the list of what
+plays. The **chaser** is the same engine on a ring buffer of the live stream: `count` ghosts of the
+player's own past, `delay + i*spacing` behind. **Split times** come from the two position streams
+and ride the existing nametag. Hotkeys (record, save-last, replay-last, restart, seek) are
+system-wide and owned by `meshghost.exe`; everything else is config.
+
+**Rules that shape it (the user's):** a recording is 1:1 with the gameplay from the moment the
+player is in the world — cutscene waits and pauses replay as they happened, the main menu is never
+in it; replay and chaser ghosts are **cosmetic whatever `ghost_collision` says** (a per-frame
+`render_remote.cosmetic` flag); a shared file can do what a stranger in a room can do and nothing
+more (one entry point for remote state, enforced by a test); no tamper detection, by design.
+
+**Stages, one commit each:** 1 the local fake peer seam; 2 the recorder; 3 playback from
+`replay/active/`; 4 seeks and the `replay_control` bridge message; 4b anchors (start line / per
+area); 5 hotkeys; 6 save-last-N; 7 the chaser pack; 8 split times; 9 config, packaging and docs.
+**Out of scope here:** the chaser's contact damage — per game, its own ADR, the user's on-screen
+confirmation, Pseudoregalia first.
+
 ### Room codes / relay safety
 
 **Set as the current/next priority 2026-08-13; core work done 2026-08-14.** Full record: the

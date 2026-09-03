@@ -23,6 +23,7 @@ never referenced from anywhere. Added 2026-08-25.
 | [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Live — Emerald's whole log |
 | [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | Live — Crystal's whole log |
 | [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
+| [phase11.md](phase11.md) | Replays: recording, playback ghosts, the chaser pack, system-wide hotkeys, split times — Go-side feature work (ADRs 0047, 0048). | Live — planned 2026-09-03 |
 
 **There is no "done" column, on purpose (the user's call, 2026-09-02).** A game is never done —
 every shipped adapter is in progress for as long as the game has a state nobody has watched — so a
@@ -47,5 +48,5 @@ three commits the log does not mention, so the check catches the missed session,
 2026-09-01 on the user's call, the same way Emerald got its own file (phase 8) after being built
 mixed into phases 1-5.5. ONE file for server and client together, deliberately: nearly every
 Go-side event spans both, so two files would double-write or file arbitrarily. It is the
-timeline; the detail stays in the ADRs and the topic docs it points at. **Phase 11 onward is
-reserved for the fifth game and beyond.**
+timeline; the detail stays in the ADRs and the topic docs it points at. **Phase 11 became the
+replay work on 2026-09-03 (feature-sized Go-side work gets its own log); the fifth game takes 12.**

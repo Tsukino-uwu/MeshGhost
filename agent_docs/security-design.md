@@ -1134,3 +1134,28 @@ would be exactly the sort of thing `CLAUDE.md`'s "nothing that couldn't be publi
 `risks.md` — the general false-positive one, the autostart one (a mod starting an unsigned exe is
 dropper-shaped), and TLS (which would add cert generation plus encrypted traffic on top). It is the
 only one of those where the work is bounded and the benefit reaches users directly.
+
+## Replay files: one entry point for remote state (2026-09-03)
+
+**The user's requirement:** *"just want to avoid someone ever being able to share a malicious replay
+file"*. Phase 11 (ADR 0047) lets a player record their own state stream to a file and play it back
+as a ghost, and share the file.
+
+**The guarantee, and why it is structural rather than a second audit:** a replay file can do
+exactly what a stranger in a public room can do, and nothing more, because a replayed sample
+enters the core through the SAME function a relay packet does — `storeRemoteState`, with
+`protocol.ValidateState` in front of it — and **the loader is forbidden a second entry point**.
+`internal/gameblind` gains a check that only the relay session and the local-peer feeder call it,
+so a new path cannot appear unnoticed. Every row of the ACE audit above therefore covers replays
+for free, and every future adapter allowlist does too.
+
+**On top, in the loader:** line size capped at the wire's maximum state size before decoding;
+the header's `name`/`color` pass through `SanitizeDisplayName`/`SanitizeNameColor`; `speed` and
+every duration are clamped; no file content ever becomes a path or a name the core acts on (file
+names come from the directory scan, files open only under `replay/`, cleaned and prefix-checked);
+a fuzz target pins the loader the way the wire parsers are pinned.
+
+**The residual, stated honestly:** the same one the audit accepts for peers — a hostile file can
+make its own ghost look wrong on the viewer's screen. It cannot touch the viewer's game or machine.
+**No tamper detection**, by design: the file is on the player's machine, the code is public, and
+editing is a supported use; nothing (no score, no time) is derived from a file.
