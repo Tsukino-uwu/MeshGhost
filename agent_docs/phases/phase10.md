@@ -137,3 +137,20 @@ the recorder tap), `bridge` (`session_policy.chaser_contact`), `internal/gamebli
 `internal/e2e` (the chaser through the real binaries). The race detector caught one test-ordering race
 in the chaser tests and found nothing in the shipped paths; a by-hand `go test -race` cannot build here
 (no C toolchain on the bare PATH), so the race check goes through `run-gotests-race.bat` only.
+
+## 2026-09-03 — The udp allocation pin stops flaking and starts catching
+
+Found while the phase 11 suite runs kept tripping over it; fixed on the user's call rather than filed.
+
+`netx/udpconn`'s
+`TestWriteUnreliableDoesNotAllocatePerCall` failed twice under whole-suite load with "4.0 per call".
+Trying to reproduce it — 40 runs with `core` and `relay` suites running alongside — never did, so the
+fix is structural rather than aimed at a symptom: (1) the drain goroutine set a read deadline per read,
+an allocation on this process inside the measured window, and now sets one before the window; (2) the
+count is the MINIMUM over five `AllocsPerRun` batches, because a regression allocates in every batch
+and a stray allocation from another goroutine only in some. **And the threshold was wrong all along:**
+removing the buffer reuse on purpose measures exactly 1.00 per call, the real code 0.00, and the old
+`got > 1` passed the broken code — proven by breaking `conn.go`, watching the test pass, then fail
+after the bound became `got >= 1`, then restoring and running 20 clean passes. The lesson for any
+allocation pin: measure the regression you mean to catch before choosing the number.
+

@@ -304,7 +304,7 @@ else, which `core/splittime_test.go` pins; the shipped `config.json` carries `fa
 question answered in passing: the `anchor` behaviours that are not built only decide when a replay
 starts or restarts — zone changes ride on every sample's `area_id` and are unaffected.
 
-## 2026-09-03 — Chasers get a spawn window; the udp allocation test stops flaking and starts catching
+## 2026-09-03 — Chasers get a spawn window
 
 **Chaser spawn delay (the user: "so they don't just spawn on top of the player right at the start").**
 A chaser had appeared exactly `delay` after the player's first in-game sample, at the spot they were
@@ -315,17 +315,9 @@ a standing player never gets a chaser and the first appearance is `delay` behind
 the move. `core/chaser_test.go` pins it: 400ms standing still spawns nothing, then movement spawns
 the chaser no earlier than the window. Shipped config carries `"spawn_delay": "0s"`, pinned.
 
-**The allocation flake, fixed instead of filed (the user's call).** `netx/udpconn`'s
-`TestWriteUnreliableDoesNotAllocatePerCall` failed twice under whole-suite load with "4.0 per call".
-Trying to reproduce it — 40 runs with `core` and `relay` suites running alongside — never did, so the
-fix is structural rather than aimed at a symptom: (1) the drain goroutine set a read deadline per read,
-an allocation on this process inside the measured window, and now sets one before the window; (2) the
-count is the MINIMUM over five `AllocsPerRun` batches, because a regression allocates in every batch
-and a stray allocation from another goroutine only in some. **And the threshold was wrong all along:**
-removing the buffer reuse on purpose measures exactly 1.00 per call, the real code 0.00, and the old
-`got > 1` passed the broken code — proven by breaking `conn.go`, watching the test pass, then fail
-after the bound became `got >= 1`, then restoring and running 20 clean passes. The lesson for any
-allocation pin: measure the regression you mean to catch before choosing the number.
+**The allocation flake, fixed instead of filed (the user's call)** — it is `netx/udpconn`'s, nothing
+to do with replays beyond being found during this work, so its record is in `phase10.md`
+(2026-09-03, "The udp allocation pin").
 
 **The spawn window met the e2e's standing player, same hour.** `TestChaserFollowsThroughTheRealBinary`
 failed on the first whole-suite run after the spawn delay landed: the shared e2e driver sends one
