@@ -63,6 +63,7 @@ is USED, that project is checked and recorded there first.
 - A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03; stage 1 BUILT 2026-09-03)
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
+- Recording file size: gzip now, per-KEY delta encoding later (measured 2026-09-03)
 
 ---
 
@@ -1802,6 +1803,15 @@ launcher, judge on screen, and only then decide whether it deserves to be in the
 **Related:** the receive-rate cap and `clock.v1` skew handling are the two other knobs that change
 how a remote looks, and neither has been judged against a tile game either. `architecture.md`.
 
+**A DIFFERENT AXIS OF THE SAME KNOB, found 2026-09-03 and filed as a defect rather than an idea:**
+the delay is not only one number per GAME, it is one number per PEER, and a ghost this core
+INVENTED (a replay, a chaser) does not want the network's number at all. Local samples never
+crossed a network, so the 450ms that covers jitter and loss buys nothing and simply draws a 3s
+chaser 3.45s behind. That is per-peer-CLASS, not per-game, and it is being built now --
+`phases/phase11.md`, 2026-09-03 (late). Worth noting for THIS entry: the per-peer plumbing it puts
+in is the natural place a per-adapter value would later land, so this idea gets cheaper, not
+harder, and it still needs its measurement before it needs a mechanism.
+
 ## Two Go file splits, scoped and deliberately not done (2026-08-27)
 
 `netx/udpconn/udpconn.go` was split the same day — 964 lines into `cookies.go`, `conn.go`,
@@ -2520,3 +2530,33 @@ nothing once time is virtual, which subsumes promoting `replayGapSeamMs` to a fi
 **day-long shapes become testable at all**. The chaser queue sized to 336 hours that commit
 `6ca1c992` fixed is precisely the class of bug an "advance 8 hours" step finds and no 350ms gap ever
 will.
+
+## Recording file size: gzip now, per-KEY delta encoding later (measured 2026-09-03)
+
+**The user's question, reading a 15 MB file from a 3-minute run:** *"if a value haven't changed
+from the last line, why do we need to repeat that ... or do we need to do it this way to actually
+play things back properly?"*
+
+**The answer to the second half is no.** `parseReplay` builds `clip.samples` fully in memory
+before playback starts and every seek, rewind and loop indexes into that array, so a carry-forward
+reconstruction at LOAD time produces identical samples and no playback path changes at all. The
+verbatim repetition exists only because the recorder writes the same `protocol.State` it would
+have sent on the wire.
+
+**The measurements, and the surprise in them, are in `scaling.md`** ("What a recording costs on
+disk"). Two things decided from them:
+
+- **gzip is being built now**: 19.3x measured, no format change, and the loader already reads
+  `.ndjson.gz`. That takes ~310 MB/hour to ~16 MB/hour, which is enough that nothing else is
+  urgent.
+- **Per-KEY `extras` delta encoding is filed here rather than built**: 4.4x before gzip, and most
+  of that overlaps with what gzip already gets, against a real cost — a header flag, loader
+  carry-forward, the `parseReplay` validator, the fuzz corpus, and files shared between versions.
+  Pick it up if recordings ever need to be small enough to send someone, where CPU-free decoding
+  and a small transfer both matter.
+
+**The trap to carry, because it is the intuitive design and it does not work:** skipping a LINE
+that did not change saves ~2%, because only 274 of 15,761 lines have an `extras` block identical
+to the one before it. Three jittering floats -- `h_speed`, `v_speed`, `slide_t` -- change on
+nearly every line while every other one of the 40 keys changes on 117 lines or fewer. Delta by
+KEY, never by line.

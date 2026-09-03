@@ -40,6 +40,7 @@ needs its own measurement pass before any of the above is re-ranked by it.
 - **Per-game tested settings** — the Hz x interp sweep each game still needs, and what already ships.
 - **The wire format** — JSON vs binary, ratified 2026-08-30, with the tripwire that reopens it.
 - **Coalescing writes** — deferred, with the measurement it would need.
+- **What a recording costs on disk** — ~310 MB/hour measured, and the three ways to shrink it.
 
 ## Efficiency, standing: the four axes, and three additions from the 2026-08-30 pass
 
@@ -484,3 +485,34 @@ most likely a large room on a real socket rather than the discard transport the 
   `SendUnreliable` already uses.
 - **It is a saving in syscalls and IP/UDP header overhead, not in payload.** That puts it in the
   same class as this file's packet-count finding: it removes per-message overhead rather than bytes.
+
+## What a recording costs on disk: ~310 MB/hour, and the three ways to shrink it (measured 2026-09-03)
+
+**Measured on a real 3-minute Pseudoregalia clip**, not estimated: 15,762 samples, 15,500,011
+bytes, ~983 bytes per sample, 87.5 Hz average with 5-12ms between samples. In the unit that means
+something to a person: **about 310 MB for an hour of recording**, and a ten-minute run is ~52 MB.
+
+**The rate is deliberate and should not be "fixed".** The recorder taps at the top of
+`forwardLocalState` (`core/sending.go:55`), BEFORE the send-rate limit and before the relay check,
+so a recording samples at the GAME's frame rate rather than the 15 Hz `DefaultSendHz` — which is
+why a replay looks better than a live peer and why recording works with no relay at all. Cutting
+the rate would cut fidelity; the size is worth attacking from the encoding end instead.
+
+**Three shrink options, all measured on that same file:**
+
+| | bytes | vs. raw | costs |
+|---|---|---|---|
+| as written | 15,500,011 | — | — |
+| floats rounded to 3dp | 14,374,946 | 0.93x | nothing visible: 3dp of a UE unit is 10 micrometres |
+| rounded + `extras` delta-encoded, `player_id` dropped | 3,555,757 | **4.4x** | a format revision |
+| `gzip -9` of the file exactly as written | 802,790 | **19.3x** | nothing — the loader already reads `.ndjson.gz` |
+
+**Why whole-line dedup is the wrong shape**, which is the non-obvious part: only **274 of 15,761**
+lines carry an `extras` block identical to the line before it, so "skip a line that did not change"
+saves ~2%. The reason is narrow — `h_speed` changes on 12,471 lines, `v_speed` on 5,079 and
+`slide_t` on 3,989, while **every other one of the 40 keys changes on 117 lines or fewer**. Per-KEY
+delta works, per-line does not, and the difference is three jittering floats.
+
+**Playback does not need the repetition.** `parseReplay` builds `clip.samples` fully in memory
+before anything plays and every seek, rewind and loop indexes into that array, so a carry-forward
+reconstruction at LOAD time yields identical samples and no playback path changes at all.

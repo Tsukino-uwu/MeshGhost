@@ -427,3 +427,58 @@ open; that copy updates when Pseudoregalia next closes.
 **Still unwatched**, so the phase is not done: split times, anchors, the chaser's contact damage,
 the offline client mode, and replay/chaser rendering on the other three adapters. Those go through
 the same core path, but "the same code" has never been this repo's standard for a visual claim.
+
+## 2026-09-03 (late) — Local ghosts are drawn one full interpolation delay late
+
+**Found by reading, not by watching, and it is arithmetic rather than a theory.** Three facts in
+shipped code, each with its own line:
+
+- `core/chaser.go:86,137-138` — a chaser stamps `s.Timestamp = due`, where `due = original +
+  ch.delay`, and feeds it at wall time ≈ `due`.
+- `core/replay.go:476,499-501` — a replay player does the same against its clip's own schedule.
+- `core/remotes.go:233` — `tickRenders` draws EVERY remote at
+  `renderTime := c.nowMs() - c.InterpolationDelay.Milliseconds()`, one number for all of them,
+  shipped at 450ms (ADR 0046).
+
+A local ghost reaches that buffer through `feedLocalPeer` -> `storeRemoteState`, the same path a
+relay peer takes (ADR 0047), and **nothing subtracts the interpolation delay back for a peer this
+core invented**. Two consequences:
+
+1. **A chaser configured for 3s is drawn 3.45s behind** — the headline knob is off by 15% — and a
+   replay runs 450ms behind its own schedule.
+2. **The split time measures a ghost nobody can see.** `core/splittime.go:126-128` searches the
+   clip's RAW samples for the player's current position and compares against `now`, independent of
+   render time, so the nametag reads `+0.0s` while the visible ghost is still 450ms short of that
+   spot. Racing is the one feature where that is the whole point.
+
+**Why `interp = 0` for local peers is NOT the fix**, since it is the first thing anyone will reach
+for: render time would land exactly at the newest fed sample, `atAhead` (`core/interp.go:317-342`)
+would take its past-the-newest branch, and with `Extrapolate` defaulting to 0 it holds the last
+sample. That trades a smooth 450ms offset for a stair-step at the feed rate. The fix is a per-peer
+render time — a local ghost needs one or two sample intervals, not 450ms — designed in the plan
+this entry accompanies, and cross-referenced from `ideas.md`'s per-ADAPTER interp entry, which is
+the same knob on a different axis.
+
+**Why no test caught it.** `core/localpeer_test.go:27`'s `startLocalPeerCore` sets
+`InterpolationDelay = 0`, and `internal/e2e/e2e_test.go:347`'s `startClient` hardcodes
+`-interp 0ms` for every end-to-end test. At interp 0 the defect is invisible by construction, at
+both levels at once — the chaser test really does measure its 100ms delay correctly, and would go
+on doing so forever.
+
+### Measurements taken while investigating, none of which had a home before
+
+**The recorder's rate, from a real 3-minute Pseudoregalia clip:** 15,762 samples, 87.5 Hz average,
+gaps of 5 to 12ms. That is the GAME's frame rate, not the send rate, and it is deliberate: the
+recorder taps at the top of `forwardLocalState` (`core/sending.go:55`) BEFORE the rate limit and
+before the relay check, so a recording is never rate-limited and the 15 Hz `DefaultSendHz` never
+touches it. The file cost that implies — ~983 B/sample, ~310 MB/hour — is filed in `scaling.md`
+with the measured shrink options.
+
+**Replays and the chaser already work fully offline.** Confirmed by driving that real recording
+through `meshghost-fakeadapter -relay ""`, which rendered `render_remote replay:...` with no relay
+in existence. The shipped client serves the bridge while failing to dial, so the feature is
+reachable today; what is missing is only the MODE — `meshghost.exe -relay ""` is an error, not a
+choice. Measured cost of the retry it leaves running: one log line per 60 seconds and one refused
+dial per 15 seconds, neither on the frame path. Cosmetic noise, not a performance problem. The
+user's call on the shape (2026-09-03): an `offline` boolean shipping as `false` in the root
+config, an advanced setting, and deliberately NOT in any per-game override file.
