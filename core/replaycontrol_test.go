@@ -167,7 +167,7 @@ func TestReplayControlRecordActions(t *testing.T) {
 		t.Fatalf("toggle did not stop recording: %v", err)
 	}
 	if err := c.ReplayControl(ReplaySaveLast, 0); err == nil {
-		t.Fatal("save_last should report it is not built yet")
+		t.Fatal("save_last with an empty ring should say there is nothing to save")
 	}
 	if err := c.ReplayControl(ReplayAction("dance"), 0); err == nil {
 		t.Fatal("an unknown action should be an error")

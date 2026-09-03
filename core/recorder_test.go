@@ -2,9 +2,11 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,4 +231,65 @@ func TestStartRecordingNeedsAFolder(t *testing.T) {
 	if _, err := c.StartRecording(); err == nil {
 		t.Fatal("StartRecording with no ReplayDir must fail")
 	}
+}
+
+// TestSaveLastWritesTheRingAsAReplay: after 300ms of play with a 100ms span,
+// the saved file spans at most 100ms, ends at the newest sample, is numbered
+// from 1, loads as a replay, and a manual recording running at the same time
+// is untouched by it.
+func TestSaveLastWritesTheRingAsAReplay(t *testing.T) {
+	c := recordingCore(t)
+	c.SaveLastSpan = 100 * time.Millisecond
+	if _, _, err := c.SaveLast(); err == nil {
+		t.Fatal("SaveLast with nothing in the ring must say so")
+	}
+	c.armRing()
+	recPath, err := c.StartRecording()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 30; i++ {
+		c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{float64(i), 0}, Anim: "run"})
+		time.Sleep(10 * time.Millisecond)
+	}
+	path, n, err := c.SaveLast()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(filepath.Base(path), "last-") || n == 0 || n >= 30 {
+		t.Fatalf("SaveLast wrote %d samples to %s; want a 100ms slice of a 300ms feed", n, path)
+	}
+	hdr, states := readReplayLines(t, path)
+	if hdr.Game != "emerald" || hdr.Recorded == "" || len(states) != n {
+		t.Fatalf("saved file header %+v / %d states", hdr, len(states))
+	}
+	if states[len(states)-1].Position[0] != 29 {
+		t.Fatalf("saved file does not end at the newest sample: %+v", states[len(states)-1])
+	}
+	if span := states[len(states)-1].Timestamp - states[0].Timestamp; span > 100 {
+		t.Fatalf("saved file spans %dms, want <= 100", span)
+	}
+	for i, st := range states {
+		if st.Seq != uint64(i+1) {
+			t.Fatalf("saved file not renumbered from 1: %d at %d", st.Seq, i)
+		}
+	}
+	if _, err := parseReplay(bytes.NewReader(mustRead(t, path)), "saved"); err != nil {
+		t.Fatalf("the saved file does not load as a replay: %v", err)
+	}
+	if _, m, _ := c.StopRecording(); m != 30 {
+		t.Fatalf("the manual recording alongside wrote %d, want 30 (SaveLast must not touch it)", m)
+	}
+	if _, err := os.Stat(recPath); err != nil {
+		t.Fatalf("manual recording file missing: %v", err)
+	}
+}
+
+func mustRead(t *testing.T, path string) []byte {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
 }

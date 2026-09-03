@@ -343,3 +343,72 @@ func (c *Core) rearmTap() {
 		atomic.StoreUint32(&c.tapArmed, 0)
 	}
 }
+
+// SaveLast writes what the ring holds -- the last SaveLastSpan of play -- to
+// replay/last-YYYYMMDD-HHMMSS.ndjson with the same header a recording gets.
+// Independent of a running recording: the ring is fed by the same tap either
+// way. The "do a trick, then press the key" mode: nothing is ever armed from
+// the player's point of view, and the file is written after the fact.
+func (c *Core) SaveLast() (string, int, error) {
+	if c.ReplayDir == "" {
+		return "", 0, errors.New("no replay folder configured")
+	}
+	samples := c.ring.snapshot()
+	if len(samples) == 0 {
+		return "", 0, errors.New("nothing to save yet: no in-game samples in the last " + c.SaveLastSpan.String())
+	}
+	c.mu.Lock()
+	game, version := c.adapterGameID, c.adapterGameVersion
+	if game == "" {
+		game = c.relayGame
+	}
+	if c.GameVersion != "" {
+		version = c.GameVersion
+	}
+	c.mu.Unlock()
+
+	if err := os.MkdirAll(c.ReplayDir, 0o755); err != nil {
+		return "", 0, fmt.Errorf("create %s: %w", c.ReplayDir, err)
+	}
+	path := replayFileName(c.ReplayDir, "last", time.Now())
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return "", 0, fmt.Errorf("create %s: %w", path, err)
+	}
+	w := bufio.NewWriterSize(f, 64*1024)
+	hdr := defaultReplayHeader(game, version, time.Now())
+	// recorded is when the clip STARTS, which for a save-last file is the
+	// oldest sample's moment, not the key press.
+	hdr.Recorded = time.Now().Add(-time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond).UTC().Format(time.RFC3339)
+	if err := writeReplayLine(w, hdr); err != nil {
+		f.Close()
+		return "", 0, err
+	}
+	for i := range samples {
+		samples[i].Seq = uint64(i + 1)
+		if err := writeReplayLine(w, samples[i]); err != nil {
+			f.Close()
+			return "", 0, err
+		}
+	}
+	if err := w.Flush(); err != nil {
+		f.Close()
+		return "", 0, err
+	}
+	if err := f.Close(); err != nil {
+		return "", 0, err
+	}
+	span := time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond
+	log.Printf("core: saved the last %s (%d samples) to %s", span.Round(time.Millisecond), len(samples), path)
+	return path, len(samples), nil
+}
+
+// armRing sizes the ring for every consumer that needs recent samples: the
+// save-last key wants SaveLastSpan. (The chaser adds its own need later; the
+// ring keeps the longest.) Called when the adapter attaches.
+func (c *Core) armRing() {
+	span := c.SaveLastSpan
+	if span > 0 {
+		c.SetRingSpan(span)
+	}
+}

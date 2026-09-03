@@ -57,7 +57,8 @@ func (c *Core) ReplayControl(a ReplayAction, seconds int) error {
 		_, err := c.StartRecording()
 		return err
 	case ReplaySaveLast:
-		return errors.New("save_last is not built yet (phase 11 stage 6)")
+		_, _, err := c.SaveLast()
+		return err
 	case ReplayLast:
 		return c.replayLast()
 	case ReplayRestart, ReplayRewind, ReplayFastForward:

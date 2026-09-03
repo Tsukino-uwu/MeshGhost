@@ -208,6 +208,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// record_on_launch: armed the moment the game's mod attaches. The
 			// file itself appears at the first in-game sample, so the main menu
 			// is never in it and a game quit before play leaves nothing behind.
+			c.armRing()
 			if c.RecordOnLaunch {
 				if _, err := c.StartRecording(); err != nil {
 					log.Printf("core: record_on_launch: %v", err)

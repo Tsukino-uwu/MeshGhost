@@ -190,3 +190,19 @@ loaded" — the OS hook, the dispatch and the control path, end to end, with no 
 string round trip, `Run` registering a real chord on this machine and returning on stop, and the
 empty list. `cmd/meshghost` reads the block, leaves absent keys at their defaults, and keeps an empty
 string as a deliberate unbind. Whole suite and race recorded at the commit.
+
+## 2026-09-03 — Stage 6: save the last N seconds, built and green
+
+**What:** `SaveLast` in `core/recorder.go` drains the ring — the same tap's last `replay.save_last`
+of samples (30s shipped) — into `replay/last-YYYYMMDD-HHMMSS.ndjson` with the usual header, seq
+renumbered from 1 and `recorded` set to the oldest sample's moment rather than the key press. The
+ring is armed when the adapter attaches (`armRing`, beside record-on-launch), so from the player's
+side nothing is ever "on": do the trick, press ctrl+shift+F10, the file is there. Independent of a
+manual recording running at the same time. `ReplayControl(save_last)` now routes to it; with an empty
+ring it says "nothing to save yet".
+
+**Tests:** `core/recorder_test.go` — 300ms of play with a 100ms span saves at most 100ms ending at
+the newest sample, numbered from 1, loads back through the replay parser, and the manual recording
+alongside still holds all 30 frames; an empty ring is refused. `core/replaycontrol_test.go` updated
+for the route. Whole suite and race recorded at the commit. Not driven with a keypress this stage:
+the hotkey→control path was seen working in Stage 5 and save-last is one more case on it.
