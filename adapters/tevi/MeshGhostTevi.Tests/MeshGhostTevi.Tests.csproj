@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Hostile-input tests for TEVI's bridge line decoder.
+
+    THIS FOLDER IS A SIBLING OF MeshGhostTevi/, DELIBERATELY, AND MUST STAY ONE. That project is a
+    plain Microsoft.NET.Sdk project with no explicit <Compile> items, so the SDK's default globbing
+    compiles **/*.cs — a test file dropped inside it would be compiled straight into the shipped
+    plugin DLL. release.yml's staleness gate would not notice either: it hashes an explicit
+    four-file allowlist (Plugin.cs, BridgeClient.cs, CoreLauncher.cs, MeshGhostTevi.csproj), so a
+    new file there changes nothing it checks.
+
+    BridgeClient.cs is compiled BY LINK rather than copied. It imports only System.* and
+    Newtonsoft.Json — no Unity, no BepInEx, and every mention of Plugin or CoreLauncher in it is
+    inside a comment — so the whole decode path runs here with no game and no engine. The adapter
+    source is never modified to make this possible.
+
+    Newtonsoft comes from NuGet here, while the plugin binds to the GAME's own copy by HintPath
+    (Private=false, so two assemblies of the same name never land in one AppDomain). So this bounds
+    OUR parse and dispatch logic, not the exact deserializer that ships. Said plainly in the
+    harness's own output too.
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MeshGhostTevi.Tests</AssemblyName>
+    <RootNamespace>MeshGhostTevi.Tests</RootNamespace>
+    <!-- The adapter targets netstandard2.0 and uses older C# idioms; none of that is an error. -->
+    <NoWarn>$(NoWarn);CS0618;CS0649;CS0169;CS0414</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Explicit, never globbed: this project must compile exactly two files. -->
+    <Compile Include="BridgeFuzz.cs" />
+    <Compile Include="..\MeshGhostTevi\BridgeClient.cs" Link="BridgeClient.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

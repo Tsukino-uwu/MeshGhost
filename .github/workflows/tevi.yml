@@ -1,0 +1,51 @@
+name: TEVI adapter
+
+# Hostile-input tests for the TEVI adapter's bridge line decoder.
+#
+# Separate workflow, path-filtered, for the reason lua.yml is separate: triggers are per-workflow.
+# ci.yml filters on '**.go' so a docs-only push produces no run at all, and adding the adapter paths
+# there would run the whole Go suite -- race detector, fuzzers, cross-compiles -- every time a C#
+# file changed. This way each language's gate fires only for its own files, which is what the user
+# asked for when this was planned: "only run them if an adapter got any changes".
+#
+# WHAT THIS CAN AND CANNOT BUILD. It does NOT build the plugin. That needs the game's own
+# Assembly-CSharp.dll and Newtonsoft.Json.dll, which are the user's files, gitignored by the repo's
+# blanket *.dll rule and never committed -- which is exactly why the TEVI DLL is checked in rather
+# than built by CI (packaging/README.md). What it builds is a sibling test project that compiles
+# BridgeClient.cs by link, with Newtonsoft from NuGet. That file imports only System.* and
+# Newtonsoft.Json, so the whole path from bytes to callback arguments runs with no game, no Unity
+# and no BepInEx -- on a Linux runner.
+#
+# So a green tick here means: the decoder survives every malformed line thrown at it, valid input
+# still dispatches, and a peer-controlled string arrives at the callback as the string it was. It
+# does not mean the plugin builds, and it does not exercise the game's own Newtonsoft.
+
+on:
+  push:
+    paths:
+      - 'adapters/tevi/**'
+      - '.github/workflows/tevi.yml'
+  pull_request:
+    paths:
+      - 'adapters/tevi/**'
+      - '.github/workflows/tevi.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decoder:
+    name: The bridge decoder survives hostile input
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      # The harness exits non-zero and prints every problem, rather than stopping at the first:
+      # one run should say everything that is wrong, because the next run costs a push.
+      - name: Fuzz the bridge decoder
+        run: dotnet run --project adapters/tevi/MeshGhostTevi.Tests --nologo

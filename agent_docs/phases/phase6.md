@@ -377,3 +377,43 @@ the variable still counts, the READMEs are rewritten around the key. Built and d
 (`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
 in-game menus -- is filed in `ideas.md`.
 
+
+## 2026-09-03 — the bridge decoder gets a hostile-input harness, and it needed no adapter change
+
+From the adapter-fuzzer entry in `ideas.md`. The plan assumed TEVI would need a refactor first — split
+the parse out of `DrainInto` so a test could reach it. **It does not.** `BridgeClient.cs` imports only
+`System.*` and `Newtonsoft.Json`; `RemoteState` is a plain object of strings, floats and nullable ints;
+and every mention of `Plugin` or `CoreLauncher` in the file is inside a comment. So the whole path from
+bytes to callback arguments compiles and runs with no Unity, no BepInEx and no game.
+
+That makes this the **strongest** of the three adapter harnesses: it reaches the DISPATCH, not just the
+decode. Both Pokémon decoders can only be exercised as far as the parse, because their dispatch sits
+thousands of lines further down, past the point where the file starts calling BizHawk.
+
+**Where it lives, and why that is not arbitrary.** `MeshGhostTevi.Tests/`, a SIBLING of
+`MeshGhostTevi/`. Not inside it, because that project is a plain SDK project with no explicit
+`<Compile>` items: default globbing compiles `**/*.cs`, so a test file dropped in there would be built
+straight into the shipped plugin DLL. `release.yml`'s staleness gate would not have caught it either —
+it hashes an explicit four-file allowlist, so a new file changes nothing it checks. Worth knowing
+independently of this work.
+
+`BridgeClient.cs` is compiled by link, never copied, and the adapter source is not modified at all: the
+queue `DrainInto` reads is private, so the harness reaches it by reflection, and fails loudly at startup
+if that field is ever renamed rather than silently testing nothing.
+
+**Findings: none, which is a result and not a blank.** 60 lines through the shipped decoder — malformed
+envelopes, wrong-typed payloads, non-finite positions, embedded NULs, duplicate keys — and it survived
+every one. Deep nesting is refused at 32 levels of `extras` by Newtonsoft's own `MaxDepth`, with
+`DrainInto`'s catch turning the refusal into a dropped line, which is the correct outcome; the number is
+printed on every run so a Newtonsoft upgrade that moves it is visible. Fourteen hostile peer ids —
+traversal strings, format specifiers, an RTL override, a 4000-character id — all arrive at the callback
+as the string they were.
+
+**The control matters and it earned its place immediately.** The first run reported "0 renders" for
+every input, which reads exactly like a broken decoder; it was a broken TEST, using a flat payload when
+`bridge.RenderRemote` nests the sample under `state`. Without a control asserting that valid input
+still dispatches, that harness would have passed forever while exercising nothing — the same failure
+found in a Go fuzz target the same day.
+
+CI: `tevi.yml`, path-filtered on `adapters/tevi/**`, Linux runner. It cannot build the plugin (that
+needs the user's own game assemblies) and does not try to.

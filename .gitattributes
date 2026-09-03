@@ -6,6 +6,10 @@
 # regardless of whether the DLL is actually stale.
 adapters/tevi/MeshGhostTevi/*.cs text eol=lf
 adapters/tevi/MeshGhostTevi/*.csproj text eol=lf
+# The sibling test project is not hashed by any staleness gate, but it is pinned with the
+# adapter it compiles by link so the two never disagree about line endings on a Linux runner.
+adapters/tevi/MeshGhostTevi.Tests/*.cs text eol=lf
+adapters/tevi/MeshGhostTevi.Tests/*.csproj text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf
