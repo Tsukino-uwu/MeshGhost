@@ -43,6 +43,20 @@ func isLocalPeerID(id string) bool {
 	return strings.HasPrefix(id, localPeerReplayPrefix) || strings.HasPrefix(id, localPeerChaserPrefix)
 }
 
+// THIS, NOT A MEMBERSHIP LOOKUP, IS WHAT render_remote.cosmetic MUST BE BUILT
+// FROM. There used to be an isLocalPeer(id) beside this that asked whether the
+// id was in c.localPeers, and sendRenderRemote used it. A seam DROPS the peer
+// and re-admits it -- every restart, every lap, every recorded gap -- so a
+// render tick landing inside that window found the id absent and sent
+// cosmetic=false for a replay ghost, telling the adapter it was solid and
+// damageable for that frame. ADR 0047 says a replay or chaser ghost is cosmetic
+// whatever ghost_collision says.
+//
+// Membership is transient. The id is not, and the namespaces cannot collide.
+// The old helper was deleted rather than left beside this one, because its
+// existence is what made the wrong choice available. Found by FuzzEverything on
+// CI, 2026-09-03.
+
 // admitLocalPeer registers id as a ghost this core invents and hands the
 // adapter its nametag. False means the roster is full (protocol.MaxRosterSize)
 // and the peer will not render; the caller logs that once.
@@ -95,14 +109,6 @@ func (c *Core) dropLocalPeer(id string) {
 	delete(c.localPeers, id)
 	c.mu.Unlock()
 	c.dropRemote(id)
-}
-
-// isLocalPeer is the render-time check behind render_remote.cosmetic.
-func (c *Core) isLocalPeer(id string) bool {
-	c.mu.Lock()
-	_, local := c.localPeers[id]
-	c.mu.Unlock()
-	return local
 }
 
 // ticksBegun is how many render ticks have STARTED. A seam takes this value

@@ -315,3 +315,37 @@ clock for their SLEEP, while their due times already come from the virtual `nowM
 deliberate for now and marked as such: a virtual sleep needs the fake clock to be advanced by
 something, which is the "advance until quiescent" helper the entry in `ideas.md` describes and this
 session did not build.
+
+## 2026-09-03 (night, third) — a replay ghost could render NOT cosmetic, and only the repaired fuzzer could see it
+
+CI's fuzz job failed on the push that landed the clock work, on `FuzzEverything`:
+
+```
+after ctl.restart: render for "replay:f01.ndjson" has cosmetic=false
+ran: attach frame.walk file.valid startReplays frame.walk frame.walk ctl.restart
+```
+
+**A real defect in shipped code, and a direct consequence of fixing the generator earlier the same
+day.** Before that fix no clip ever loaded, so `startReplays` never produced a replay ghost and this
+path had never once executed in the target built to exercise it. Repairing the fuzzer immediately
+found what it had been unable to look at.
+
+**Cause.** `sendRenderRemote` built `render_remote.cosmetic` from `c.isLocalPeer(id)`, a membership
+lookup in `c.localPeers`. A seam DROPS the peer and re-admits it — every restart, every lap, every
+recorded gap — so a render tick landing inside that window found the id absent and sent
+`cosmetic=false` for a replay ghost. ADR 0047 says a replay or chaser ghost is cosmetic whatever
+`ghost_collision` says, so that frame told an adapter the ghost was solid and damageable. On a game
+that acts on it (Pseudoregalia's chaser contact) that is visible behaviour, not a technicality.
+
+**Fix.** Build the flag from `isLocalPeerID(id)`, the prefix check. The namespaces cannot collide —
+that function's own comment records that relay ids come from the relay's counter and never carry a
+`replay:`/`chaser:` prefix — so the id is authoritative where membership is transient. The old
+`isLocalPeer` helper was DELETED rather than left beside it: it had no other caller, and its
+existence is what made the wrong choice available. A note in its place says why.
+
+**Intermittent, which is the other half of the lesson.** The downloaded input passed on the first
+local run and failed at `-count=60`. A single green run against a fuzz reproducer proves nothing;
+the repo's own `-count=10` rule exists for this and was not enough here either.
+
+Corpus committed at `core/testdata/fuzz/FuzzEverything/e69f253af52a10b7`. Suite green, 90s local
+campaign clean, race detector clean.

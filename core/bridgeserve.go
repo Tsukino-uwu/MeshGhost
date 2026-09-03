@@ -360,8 +360,24 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 	)
 }
 
+// COSMETIC COMES FROM THE ID, NOT FROM CURRENT MEMBERSHIP, and the difference is
+// a real bug rather than a preference. It used to ask isLocalPeer, which looks
+// the id up in c.localPeers -- and a seam DROPS the peer and re-admits it
+// (replay.go's seam, every restart, lap and recorded gap). A render tick landing
+// inside that window found the id absent and sent cosmetic=false for a replay
+// ghost, which tells the adapter that ghost is solid and damageable for that
+// frame. ADR 0047 says a replay or chaser ghost is cosmetic whatever
+// ghost_collision says, so that frame is a contract violation.
+//
+// The prefix is authoritative and cannot race: isLocalPeerID's own comment
+// records that relay ids come from the relay's counter and never carry one, so
+// the two namespaces cannot collide. Membership is transient; the id is not.
+//
+// Found 2026-09-03 by FuzzEverything on CI, minutes after the clip generator was
+// fixed -- before that no clip ever loaded, so no replay ghost ever existed in
+// that target and this path had never once run there.
 func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State, br orientBracket) {
-	msg := bridge.RenderRemote{PlayerID: playerID, State: st, Cosmetic: c.isLocalPeer(playerID)}
+	msg := bridge.RenderRemote{PlayerID: playerID, State: st, Cosmetic: isLocalPeerID(playerID)}
 	if br.Have {
 		msg.OrientationFrom, msg.OrientationTo, msg.InterpT = br.From, br.To, br.T
 	}
