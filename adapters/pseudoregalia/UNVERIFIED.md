@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03; not diagnosed, not reproduced by the agent
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
 - Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
@@ -54,6 +55,39 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [OPEN] the player's own SFX go quiet while GHOSTS are audible (reported 2026-09-03, not diagnosed)
+
+**The user, after a session with a replay ghost running:** *"think ghosts are eating up the players
+sound, like sfx is not doing anything when the player does things, but ghosts had them."* Logged at
+their request rather than chased -- nothing here has been reproduced or measured by the agent, and
+no fix has been attempted.
+
+**Why this is plausible rather than surprising, and where to start.** The ghost is a real
+`BP_PlayerGoatMain_C`, so triggering the pawn's own systems gets its AUDIO for free -- which the
+project already knows and already has a rule about: `ideas.md`'s SILENCE CLAUSE (2026-08-15), *"ghosts
+should be silent"*, with the suppression meant to happen immediately after the call that starts a
+sound. Two shapes fit what was reported, and they want different fixes:
+
+- **A ghost is playing sounds it should not** -- the silence clause is not covering some path (a new
+  effect, the replay/chaser feed, or a sound started by the animation rather than by our trigger).
+  That alone would explain "ghosts had them".
+- **Concurrency, which would explain the other half.** Unreal sounds carry concurrency limits, and a
+  common setting is a small per-sound cap that STEALS the oldest instance. If a ghost plays the same
+  cue the player is about to, the player's own can be refused or cut -- the ghost is not merely noisy,
+  it is spending the player's voices. This is the shape that matches "the player's SFX do nothing".
+
+**First measurement when this is picked up**, cheapest first, and none of it needs a fix in hand:
+play with NO ghost (no replay in `replay/active/`, chaser off) and confirm the player's SFX are
+normal -- that separates a ghost-caused fault from an unrelated audio regression. Then one ghost, and
+listen for whether the player's sound is missing only while the ghost is doing something. A Lua probe
+can enumerate live `AudioComponent`s and their owners (`../CLAUDE.md`: probe in Lua, hot reload) --
+who owns them and whether the ghost's are active is the question, and the answer picks between the
+two shapes above.
+
+**Not a regression from today's work, as far as anything shows:** nothing in the 2026-09-03 session
+touched audio. It may well predate the replay feature entirely; the replay ghost is simply the first
+time a ghost has been reliably present and doing things while the user listened.
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
