@@ -28,7 +28,7 @@
     "local_game_bridge": "127.0.0.1:7778",
     "stats": "0s",
 
-    "replay": {"record_on_launch": false, "save_last": "30s", "start_delay": "0s", "seek": "5s", "split_times": false, "gzip": true},
+    "replay": {"record_on_launch": false, "save_last": "30s", "start_delay": "0s", "seek": "5s", "split_times": false, "gzip": true, "name": "", "color": ""},
     "chaser": {"enabled": false, "count": 1, "delay": "3s", "spacing": "2s", "name": "Chaser", "color": "#7A2A2A", "contact": false, "spawn_delay": "0s"},
     "hotkeys": {"record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10", "replay_last": "ctrl+shift+F11", "replay_restart": "ctrl+shift+F5", "replay_rewind": "ctrl+shift+F6", "replay_fast_forward": "ctrl+shift+F7"},
 

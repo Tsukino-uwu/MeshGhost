@@ -88,6 +88,25 @@ func defaultReplayHeader(game, version string, recorded time.Time) replayHeader 
 	}
 }
 
+// replayHeaderFor is defaultReplayHeader with this Core's own labelling
+// applied, so a recording is BORN NAMED rather than needing its header edited
+// afterwards. That matters more since recordings ship gzipped (ReplayGzip): the
+// header is the one line anyone hand-edits, and editing it inside a .gz means
+// decompressing and recompressing a file just to give a clip a name.
+//
+// ReplayName/ReplayColor win; with neither set it falls back to the player's
+// own display name and colour, since a recording of your own run labelled with
+// your own name is what you would have typed anyway. Both empty stays empty,
+// which is the previous behaviour and renders no tag at all.
+func (c *Core) replayHeaderFor(game, version string, at time.Time) replayHeader {
+	h := defaultReplayHeader(game, version, at)
+	h.Name, h.Color = c.ReplayName, c.ReplayColor
+	if h.Name == "" {
+		h.Name, h.Color = c.DisplayName, c.NameColor
+	}
+	return h
+}
+
 // sampleRing keeps the last `span` milliseconds of stamped samples. Trimmed by
 // the newest sample's own timestamp rather than by wall clock, so a game that
 // stops sending (a menu) freezes the ring rather than draining it.
@@ -424,7 +443,7 @@ func (c *Core) StartRecording() (string, error) {
 	c.rec.dir = c.ReplayDir
 	c.rec.gzip = c.ReplayGzip
 	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
-	c.rec.header = defaultReplayHeader(game, version, time.Now())           // wall-clock: an artefact timestamp
+	c.rec.header = c.replayHeaderFor(game, version, time.Now())             // wall-clock: an artefact timestamp
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
@@ -523,7 +542,7 @@ func (c *Core) SaveLast() (string, int, error) {
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
-	hdr := defaultReplayHeader(game, version, time.Now()) // wall-clock: an artefact timestamp
+	hdr := c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
 	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.

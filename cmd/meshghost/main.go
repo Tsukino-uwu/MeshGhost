@@ -219,6 +219,12 @@ type replayFileConfig struct {
 	// Gzip writes recordings as .ndjson.gz. On by default and worth about
 	// 19x on a real clip; false writes a plain file you can read in an editor.
 	Gzip *bool `json:"gzip"`
+	// Name and Color label the recordings this client writes -- the clip
+	// header a replay ghost draws its nametag from. Blank falls back to the
+	// player's own "name"/"name_color", so a clip is born labelled rather
+	// than needing its header edited inside a .gz afterwards.
+	Name  *string `json:"name"`
+	Color *string `json:"color"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -266,6 +272,8 @@ type configTargets struct {
 	replaySeek     *time.Duration
 	splitTimes     *bool
 	replayGzip     *bool
+	replayName     *string
+	replayColor    *string
 	hotkeys        *hotkeyTargets
 	chaser         *chaserTargets
 }
@@ -370,6 +378,10 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.replayGzip != nil {
 			cfg.Override(explicit, "replay-gzip", t.replayGzip, fc.Replay.Gzip)
+		}
+		if t.replayName != nil {
+			cfg.Override(explicit, "replay-name", t.replayName, fc.Replay.Name)
+			cfg.Override(explicit, "replay-color", t.replayColor, fc.Replay.Color)
 		}
 	}
 	if fc.Chaser != nil && t.chaser != nil {
@@ -680,6 +692,12 @@ func main() {
 	hkRestart := flag.String("hotkey-replay-restart", "ctrl+shift+F5", "system-wide chord: restart every replay ghost (config: hotkeys.replay_restart)")
 	hkRewind := flag.String("hotkey-replay-rewind", "ctrl+shift+F6", "system-wide chord: rewind every replay ghost by replay.seek (config: hotkeys.replay_rewind)")
 	hkFastForward := flag.String("hotkey-replay-fast-forward", "ctrl+shift+F7", "system-wide chord: fast-forward every replay ghost by replay.seek (config: hotkeys.replay_fast_forward)")
+	replayName := flag.String("replay-name", "",
+		"name written into the header of every recording this client makes, which is what a replay "+
+			"ghost's nametag shows. Blank uses your own -name (config: replay.name)")
+	replayColor := flag.String("replay-color", "",
+		"colour for that name, as a hex code like \"#FF8800\". Blank uses your own -name-color "+
+			"(config: replay.color)")
 	replayGzip := flag.Bool("replay-gzip", true,
 		"write recordings as .ndjson.gz instead of .ndjson -- about 19x smaller on a real clip, "+
 			"and every reader here takes either. false writes a plain file you can open in a text "+
@@ -740,6 +758,8 @@ func main() {
 		replaySeek:     replaySeek,
 		splitTimes:     splitTimes,
 		replayGzip:     replayGzip,
+		replayName:     replayName,
+		replayColor:    replayColor,
 		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
 			replayRestart: hkRestart, replayRewind: hkRewind, replayFastForward: hkFastForward},
 		chaser: &chaserTargets{enabled: chaserOn, count: chaserCount, delay: chaserDelay, spacing: chaserSpacing,
@@ -907,6 +927,8 @@ func main() {
 	c.ReplaySeek = *replaySeek
 	c.SplitTimes = *splitTimes
 	c.ReplayGzip = *replayGzip
+	c.ReplayName = *replayName
+	c.ReplayColor = *replayColor
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing
 	c.ChaserName, c.ChaserColor, c.ChaserContact = *chaserName, *chaserColor, *chaserContact
 	c.ChaserSpawnDelay = *chaserSpawn

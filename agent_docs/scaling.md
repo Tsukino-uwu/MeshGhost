@@ -520,6 +520,15 @@ recording is a debugging artefact too). Rounding matters more in combination tha
 worth 7% by itself, but it deletes the highest-entropy bytes in the file, so gzip then does far
 better: 19.3x becomes 33.5x. **Delta encoding was NOT built** — see `ideas.md`.
 
+**The one real cost of gzip, raised by the user the day it shipped:** the header is the line
+people actually hand-edit -- a clip's name, colour, `speed`, `loop` -- and editing it inside a `.gz`
+means decompress, change one word, recompress. Two things answer it. A decompressed clip STAYS
+VALID, since `replay/active/` takes either extension, so a clip you fiddle with is decompressed once
+and left plain. And the recorder now writes `replay.name`/`replay.color` (falling back to the
+player's own name and colour) into the header, so a clip is born labelled and the common edit
+disappears rather than getting more awkward. The user's call, 2026-09-03: keep gzip, remove the
+reason to edit.
+
 **Playback does not need the repetition.** `parseReplay` builds `clip.samples` fully in memory
 before anything plays and every seek, rewind and loop indexes into that array, so a carry-forward
 reconstruction at LOAD time yields identical samples and no playback path changes at all.

@@ -251,7 +251,12 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
-     "replay" -- "gzip" (on) writes your recordings compressed, as
+     "replay" -- "name" and "color" label the clips you record: that name
+               is what shows above the ghost when you play one back, and
+               leaving them blank uses your own "name"/"name_color". Set
+               them and you never need to open a recording to label it.
+
+               "gzip" (on) writes your recordings compressed, as
                .ndjson.gz. About thirty times smaller -- an hour of
                recording is roughly 9 MB instead of 300 -- and nothing
                else changes: a compressed clip plays, loops and rewinds

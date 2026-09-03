@@ -402,3 +402,53 @@ func TestRecordingCanStillBeWrittenPlain(t *testing.T) {
 		t.Fatalf("the plain recording does not load: %v", err)
 	}
 }
+
+// TestARecordingIsBornNamed: the clip header's name and colour come from
+// configuration, so nobody has to edit a header to label a clip -- which since
+// recordings gzip means decompressing and recompressing a file to change one
+// word (the user's point, 2026-09-03).
+func TestARecordingIsBornNamed(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		replayName   string
+		replayColor  string
+		display      string
+		displayColor string
+		wantName     string
+		wantColor    string
+	}{
+		{"an explicit replay name wins", "PB", "#FF8800", "Tsu", "#A89975", "PB", "#FF8800"},
+		{"otherwise your own name labels your own run", "", "", "Tsu", "#A89975", "Tsu", "#A89975"},
+		{"and with neither, a clip stays unnamed", "", "", "", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := recordingCore(t)
+			c.ReplayName, c.ReplayColor = tc.replayName, tc.replayColor
+			c.DisplayName, c.NameColor = tc.display, tc.displayColor
+			path, err := c.StartRecording()
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{1, 2}})
+			if _, _, err := c.StopRecording(); err != nil {
+				t.Fatal(err)
+			}
+			hdr, _ := readReplayLines(t, path)
+			if hdr.Name != tc.wantName || hdr.Color != tc.wantColor {
+				t.Fatalf("header name/colour = %q/%q, want %q/%q", hdr.Name, hdr.Color, tc.wantName, tc.wantColor)
+			}
+			// SaveLast writes the same header, so it must agree.
+			c.SetRingSpan(time.Second)
+			c.armRing()
+			c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{2, 2}})
+			savedPath, _, err := c.SaveLast()
+			if err != nil {
+				t.Fatalf("SaveLast: %v", err)
+			}
+			savedHdr, _ := readReplayLines(t, savedPath)
+			if savedHdr.Name != tc.wantName {
+				t.Fatalf("save-last header name = %q, want %q -- both writers share one header", savedHdr.Name, tc.wantName)
+			}
+		})
+	}
+}

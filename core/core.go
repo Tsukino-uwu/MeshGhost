@@ -464,6 +464,17 @@ type Core struct {
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
 
+	// ReplayName and ReplayColor label the recordings this Core writes: they
+	// become the clip header's "name" and "color", which is what a replay
+	// ghost's nametag shows. Empty means fall back to this player's own
+	// DisplayName/NameColor, and empty after that means an unnamed clip.
+	//
+	// They exist so a recording does not need its header hand-edited to be
+	// labelled -- see replayHeaderFor, and ReplayGzip below for why editing a
+	// header got more awkward.
+	ReplayName  string
+	ReplayColor string
+
 	// ReplayGzip writes recordings as .ndjson.gz instead of .ndjson. On by
 	// default and measured worth it: a real 3-minute Pseudoregalia recording is
 	// 15.5MB plain and 803KB gzipped, which is ~310MB an hour against ~16MB
