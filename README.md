@@ -21,8 +21,9 @@ MeshGhost can also record *you*, and play it back as a **replay ghost**: your ow
 beside you, which you can race the way you would a time-trial ghost. A recording is one small file
 you can keep, edit or send to a friend; drop one into the `replay` folder and it plays alongside
 you, and its nametag can show how far ahead or behind it you are. A **chaser** is the same idea
-with no file: your own past, following you a few seconds back. Both are cosmetic like any other ghost, both work with no server
-and nobody else online, and neither needs a game to support anything new.
+with no file: your own past, following you a few seconds back. Both are cosmetic like any other
+ghost, both work with no server and nobody else online, and neither needs a game to support
+anything new.
 
 **Download:** the [Releases page](../../releases). `MeshGhost-full-<version>.zip` is the one nearly
 everyone wants — client, server, and every game's mod, for Windows. Native Linux and macOS builds
