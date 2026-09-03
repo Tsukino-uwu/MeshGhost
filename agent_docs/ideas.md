@@ -2222,6 +2222,53 @@ ordered list of those events with random gaps, driven against a real clip throug
 under CI's race job — is the "randomize everything" that applies here. Not started; the race that
 prompted the question was in a test helper, which no fuzzer over shipped behaviour would reach.
 
+### Planned out (2026-09-03): `FuzzEverything` already covers most of this, and the gap is the SEAM
+
+Re-reading `core/everything_fuzz_test.go` against the six lifecycle events named above changes the
+plan from "write a new target" to "finish the one that landed the same day". `FuzzEverything`'s
+32-op alphabet (`fuzzEverythingOps`) already contains `attach`, `detach`, `file.valid`,
+`file.garbage`, `file.otherGame`, `file.huge`, `startReplays`, `stopReplays`, `ctl.restart`,
+`ctl.rewind`, `ctl.ff`, `ctl.replayLast`, `ctl.recordToggle`, `ctl.saveLast`, `ctl.nonsense`,
+`chasersStart`, `chasersStop`, `gap`, and the relay ops. Because the seed picks the ORDER, a file
+already lands before or after an attach, a `startReplays` already lands before or after the first
+frame, a seek already arrives during a chaser's spawn window, and a detach already happens mid-lap.
+Five of the six are reachable today; a separate `FuzzReplaySchedule` would be `FuzzEverything`
+minus the relay ops, so **fold the remainder in rather than building a second target.**
+
+**What is genuinely NOT reachable, and why.** The seam. `replayGapSeamMs = 1500`
+(`core/replay.go:56`) is a package CONSTANT, not a per-`Core` field, so the compressed clock the
+config decoder builds cannot shrink it — every other timing in `fuzzEverythingCfg` is a field and
+compresses, this one does not. A fuzz step's largest gap is 350ms
+(`everything_fuzz_test.go`'s gap alphabet), so **no seed can ever reach a live gap long enough to
+produce a seam**, and the end-of-clip hold and the lap boundary are in the same position. The
+seam-and-hold paths are covered only by the hand-written tests (`TestReplayLoopsWithOneSeamPerLap`,
+`TestReplayGapIsASeamAndAFullRunPlaysThrough`, `TestChaserSeamsOnALiveGapAndIsOffByDefault`), which
+each run one fixed shape. The same is true of `DefaultRemoteStaleAfter = 3 * time.Second`
+(`core/core.go:144`) as a floor, though `stale` at least is a field.
+
+**Three steps, in order.**
+
+1. **Make the seam reachable.** Either promote `replayGapSeamMs` to a per-`Core` field defaulting
+   to the constant — the pattern every other timing here already follows, and a small change — or
+   wait for the virtual clock below, which makes a 2s gap free instead of cheap. The field is the
+   lower-risk half and does not block on the clock; do it first and the clock makes it moot later.
+2. **Add the two missing ops**, both about the relay's clock rather than the replay's:
+   a `clock.backStep` op that moves the session offset backwards the way a relay session reset
+   does (the `nowMs` back-step the entry names — `nowMsLocked` at `core/online.go:107` has an
+   explicit never-go-backwards guard that nothing currently fuzzes), and a `relay.reset` op that
+   drops and re-establishes the session under an active replay.
+3. **Race coverage is already done, and the entry above was wrong to ask for it.** `go test` without
+   `-fuzz` runs a target against its seed corpus, `FuzzEverything` carries four `f.Add` seeds
+   (`everything_fuzz_test.go:151-154`), and the race job runs `go test -race -count=3 ./...`
+   (`ci.yml:158`). So the replay lifecycle has been running under the race detector three times per
+   push since the target landed. **What is worth doing instead: add a seed for each shape the
+   hand-written seam tests cover**, once step 1 makes seams reachable, so those paths get the same
+   free race coverage rather than only appearing in a lucky `-fuzz` campaign.
+
+**Sequencing across the three 2026-09-03 fuzzing entries:** this one and the virtual clock overlap
+at exactly one point, the seam. If only one gets built, build the clock — it subsumes step 1 here
+and unlocks the day-long shapes as well. The adapter fuzzers below are independent of both.
+
 ## Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
 
 **The user's question:** *"do we have any fuzzing tests for adapters? should they live alongside the
@@ -2241,6 +2288,55 @@ ACE audit names (`security-design.md`): feed the adapter's bridge line decoder r
 `render_remote` / `remote_name` / `session_policy` lines and assert it never crashes the game and never
 turns a peer string into a lookup it should not. **CI shape:** a job per adapter, path-filtered the
 way the Lua workflow already is, so a Go-only push does not pay for it. Not started.
+
+### Planned out (2026-09-03): the refactor is the work, the fuzzer is small — and Lua goes first
+
+**The blocker in all three languages is the same shape.** Each adapter's decoder is welded to its
+host, so nothing can call it without the host. Extracting the parse from the apply is most of the
+effort; once a decoder is a pure function from a line to a table/object, the fuzzer around it is a
+few dozen lines. So each stage below is "split it, then fuzz it", never "fuzz it".
+
+**1. Lua first, because it needs no new toolchain and buys two adapters at once.** The decoder is
+`decodeValue` / `decodeString` (`adapters/emulator/pokemon/emerald/meshghost_emerald.lua:823` and
+`:830`), duplicated in the Crystal adapter. It is pure string handling and touches no BizHawk API,
+but it lives inside a script that calls BizHawk at load, so it cannot be `require`d standalone.
+**Step: lift the JSON decoder into a shared module both Pokemon adapters require.** That is worth
+doing on its own merits (one copy of the parser instead of two, per the "rules that live in one
+code path and are missing from their sibling" sweep entry above). Then the fuzzer is a plain
+`lua5.4` script feeding random and hostile bytes at the module and asserting it returns or errors
+but never loops or indexes nil. **CI is nearly free:** `lua.yml` already exists, already runs
+`lua5.4`, and is already path-filtered on `**.lua` — this becomes a second job in it, not a new
+workflow.
+
+**2. TEVI next.** `BridgeClient.DrainInto` (`adapters/tevi/MeshGhostTevi/BridgeClient.cs:671`)
+deserializes with `JsonConvert.DeserializeObject<JObject>` at `:690` and then switches on the
+`type` field at `:702`-`:756` (`render_remote`, `despawn_remote`, `bridge_ready`, `reject`).
+The parse half looks separable from the apply half — the switch builds a `RemoteState` and hands it
+to callbacks, so no Unity type is needed to reach the end of parsing. **Step: confirm that, then
+split the switch into a `TryParseBridgeLine` that returns a result object**, and put a `dotnet test`
+project beside the adapter that references the same source file. No BepInEx, no game. CI needs a
+new path-filtered workflow on `adapters/tevi/**`.
+
+**3. Pseudoregalia last, because it is the most toolchain.** `BridgeClient.hpp`
+(`adapters/pseudoregalia/MeshGhostPseudo/Mod/src/`) is header-only, which helps — a standalone test
+binary can include it directly with no UE4SS. Do NOT reach for libFuzzer here; a seeded
+pseudorandom loop under the compiler the adapter already builds with keeps this to one new binary
+and no new toolchain in CI. Path-filtered on `adapters/pseudoregalia/**`, and note it needs a
+Windows runner, which the Lua and C# jobs do not.
+
+**The first target is the same for all three**, as the entry says and as the ACE audit in
+`security-design.md` names: random and hostile `render_remote` / `remote_name` / `session_policy`
+lines, asserting the game never crashes and a peer-controlled string never becomes a lookup it
+should not be. **Two properties beyond "no crash" are worth asserting from the start**, because
+they are the ones the Go side cannot bound for us: a peer id or name must never be used as a table
+key, file path, or format string without passing the adapter's own allowlist, and a malformed line
+must not advance the adapter's stream position past a subsequent valid one.
+
+**What the Go fuzzers already bound, so the adapter targets do not need to re-prove it:** every
+value in a bridge message has passed the wire limits and `ValidateState`, and `FuzzEverything`
+drives the bridge from the adapter's side with hostile frames. The adapter targets exist for the
+case those cannot reach — **a bridge that is not ours**, or a core that is compromised or buggy.
+State that in each target's doc comment so the scope stays honest.
 
 ## A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
 
@@ -2271,3 +2367,72 @@ netsim rig, and anything spanning the relay process, which has its own clock. Th
 clock — one `time.Sleep`/`time.After`/`time.Now` left inside the core and a goroutine waits on virtual
 time nothing advances while another waits on the wall: a deadlock. Hence its own stage, every clock read
 in `core` audited, the whole suite as the net.
+
+### Planned out (2026-09-03): the audit, the interface, the five stages
+
+**Stage 0 — the audit, which is the part nobody had.** `core`'s non-test files read the wall clock
+at 24 sites across 11 files. Listing them is most of the design, because the stage boundary is
+exactly "which of these become virtual":
+
+| File | Sites | Class |
+|---|---|---|
+| `online.go:107` (`nowMsLocked`) | 1 | **A — virtual.** The root: every timestamp and render time in the core comes from here. |
+| `remotes.go:34` | 1 | **A** — staleness/age-out. |
+| `replay.go:349` | 1 | **A** — the player's due-wait, capped at 50ms per iteration. |
+| `chaser.go:127` | 1 | **A** — the chaser's due-wait, same 50ms shape. |
+| `localpeer.go:130-135` (`awaitTick`) | 3 | **A** — the 2ms poll loop; deliberately polled, not signalled. |
+| `bridgeserve.go:336` | 1 | **A** — the render tick ticker. |
+| `sending.go:140`, `:241` | 2 | **A** — send cadence and `lastSendAt`. |
+| `recorder.go:205`, `:219` | 2 | **A** — the once-a-second flush clock. |
+| `transportpick.go:173` | 1 | **B — stays wall.** Transport discovery timeout. |
+| `relaysession.go:295`, `:526`, `:666` | 3 | **B** — session timeout, dial backoff sleep. |
+| `sending.go:238` (`probeGap`), `:273`, `online.go:434` (`recvAt`) | 3 | **B** — RTT/ping pairing: these MEASURE the network. |
+| `chaser.go:240`, `replay.go:618` | 2 | **B** — the one-second goroutine-join safety nets. Virtualising a shutdown timeout turns a leak into a hang. |
+| `core.go:898` (`startedAt`), `recorder.go:201`, `:290`, `:291`, `:377`, `:383`, `:386` | 7 | **C — cosmetic.** Human-facing timestamps and replay file names. Virtualising them is optional; the payoff is deterministic fuzz output, not speed. |
+
+**The B/A boundary rule, stated once so later sites classify themselves: anything whose other end
+is a socket, a process, or a human stays on the wall clock.** Everything whose other end is our own
+logic goes virtual. Note the one subtlety this creates — `nowMsLocked` is `time.Now()` plus
+`clockAdjustLocked()`, and that offset is estimated from wall-clock RTT samples (class B). After the
+split it is a virtual `Now()` plus an offset derived from wall measurements. That is fine, because
+the offset is just a scalar the tests can set, but it must be written down or someone will later
+"fix" the inconsistency and reintroduce the mixed clock.
+
+**Stage 1 — the interface, and why `now func() time.Time` is not enough.** The entry above proposed
+a bare function. That is half the problem: the sleeps must be virtual too, or a test advances time
+while a goroutine sits in `time.After` and nothing wakes it. So `Core` takes a small interface —
+`Now()`, `After(d)`, `NewTicker(d)`, `Sleep(d)` — with a wall implementation as the default and a
+fake carrying `Advance(d)`. Nothing outside `core` changes; the field is unexported with a
+test-only setter, so `cmd/` and `bridge` are untouched.
+
+**Stage 2 — convert class A, one file per commit**, existing tests as the net after each. Start
+with `online.go` and `remotes.go` (the root and the simplest consumer), then the two due-waits,
+then `awaitTick`, then the tickers. `awaitTick` is the interesting one: it polls at 2ms *and* is
+what several tests wait on, so it is where a missed conversion will show first — a good early
+canary rather than a late surprise.
+
+**Stage 3 — the deadlock guard, which is the whole risk.** A fake clock that blocks forever when
+nothing advances turns every missed site into a hang instead of a wrong answer, and the entry's own
+hazard note is exactly this. Two mitigations, both cheap:
+
+- **The fake counts its blocked waiters** and exposes "advance until quiescent", so a test never
+  has to guess how far to move time. A goroutine still waiting on the wall clock simply never
+  registers, which makes the miss visible as a stuck test with a clean stack rather than a flake.
+- **A grep gate in `dev-scripts/preflight.ps1`** failing on a bare `time.Now|time.Sleep|time.After|
+  time.NewTicker` anywhere in `core/*.go` outside the clock file and an explicit allowlist of the
+  class-B sites. **This is the thing that keeps the mixed clock from coming back**, and without it
+  the next feature reintroduces one.
+
+**Stage 4 — adopt in the tests.** `-count=10` and `-race` per the hard rules, then convert
+`FuzzEverything`'s `gap` op from a sleep to an advance and the schedule fuzzers after it.
+
+**Stage 5 — the payoff, and what to measure.** About 120ms of every `FuzzEverything` input is pure
+sleeping: ~98ms of expected `gap` time (24 steps, one op in 32, a 10/40/120/350ms alphabet) plus the
+24ms of 1ms per-step pauses. Removing it is the point, but **measure the before and after rather
+than predicting** — at ~28 inputs/s across 12 workers the sleeps are not the only cost, and the
+honest claim is "sleeps go to zero", not a multiplier. The other two payoffs are worth more than
+the rate: **the seam becomes reachable** (see the replay-schedule entry above — a 2s gap costs
+nothing once time is virtual, which subsumes promoting `replayGapSeamMs` to a field), and
+**day-long shapes become testable at all**. The chaser queue sized to 336 hours that commit
+`6ca1c992` fixed is precisely the class of bug an "advance 8 hours" step finds and no 350ms gap ever
+will.
