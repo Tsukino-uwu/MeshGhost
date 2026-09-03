@@ -251,6 +251,14 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
+     "replay" -- "gzip" (on) writes your recordings compressed, as
+               .ndjson.gz. About thirty times smaller -- an hour of
+               recording is roughly 9 MB instead of 300 -- and nothing
+               else changes: a compressed clip plays, loops and rewinds
+               exactly the same, and you can still drop it in
+               replay/active/ or send it to someone. Turn it off only if
+               you want a file you can open in a text editor.
+
      "offline" -- set this to true to play alone on purpose. No host is
                contacted, no room is joined, nobody else appears, and
                the client stops saying it cannot reach anyone. Your game

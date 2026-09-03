@@ -464,6 +464,18 @@ type Core struct {
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
 
+	// ReplayGzip writes recordings as .ndjson.gz instead of .ndjson. On by
+	// default and measured worth it: a real 3-minute Pseudoregalia recording is
+	// 15.5MB plain and 803KB gzipped, which is ~310MB an hour against ~16MB
+	// (scaling.md, "What a recording costs on disk"). Nothing else changes --
+	// both loaders already read either extension, so a gzipped clip plays,
+	// seeks and loops identically.
+	//
+	// The escape hatch exists because a recording is a debugging artefact as
+	// well as a player-facing one, and a plain file can be read with a text
+	// editor and grepped.
+	ReplayGzip bool
+
 	// Offline means this Core never dials a relay: no room, no peers, and no
 	// retry loop logging that it cannot reach one. Everything that does not
 	// need a relay still runs -- the bridge still binds (it is how the adapter
@@ -951,6 +963,7 @@ func New() *Core {
 		startedAt:          time.Now(), // wall-clock: reported to a human as uptime (stats.go)
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
+		ReplayGzip:         true,
 		// A local ghost gets its own, much smaller delay -- see the constant.
 		LocalInterpolationDelay: DefaultLocalGhostDelay,
 		IdleKeepalive:           DefaultIdleKeepalive,

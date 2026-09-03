@@ -506,12 +506,19 @@ the rate would cut fidelity; the size is worth attacking from the encoding end i
 | floats rounded to 3dp | 14,374,946 | 0.93x | nothing visible: 3dp of a UE unit is 10 micrometres |
 | rounded + `extras` delta-encoded, `player_id` dropped | 3,555,757 | **4.4x** | a format revision |
 | `gzip -9` of the file exactly as written | 802,790 | **19.3x** | nothing — the loader already reads `.ndjson.gz` |
+| **rounded AND gzipped — what ships since 2026-09-03** | **462,375** | **33.5x** | nothing visible: ~310 MB/hour becomes **~9 MB/hour** |
 
 **Why whole-line dedup is the wrong shape**, which is the non-obvious part: only **274 of 15,761**
 lines carry an `extras` block identical to the line before it, so "skip a line that did not change"
 saves ~2%. The reason is narrow — `h_speed` changes on 12,471 lines, `v_speed` on 5,079 and
 `slide_t` on 3,989, while **every other one of the 40 keys changes on 117 lines or fewer**. Per-KEY
 delta works, per-line does not, and the difference is three jittering floats.
+
+**What shipped (2026-09-03, ADR 0049's sibling commit):** the recorder writes `.ndjson.gz` and
+rounds on the way out (`replay.gzip`, on by default, with a plain-file escape hatch since a
+recording is a debugging artefact too). Rounding matters more in combination than alone — it is
+worth 7% by itself, but it deletes the highest-entropy bytes in the file, so gzip then does far
+better: 19.3x becomes 33.5x. **Delta encoding was NOT built** — see `ideas.md`.
 
 **Playback does not need the repetition.** `parseReplay` builds `clip.samples` fully in memory
 before anything plays and every seek, rewind and loop indexes into that array, so a carry-forward

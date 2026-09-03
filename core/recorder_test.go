@@ -2,8 +2,9 @@ package core
 
 import (
 	"bufio"
-	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,20 @@ func readReplayLines(t *testing.T, path string) (replayHeader, []protocol.State)
 		t.Fatalf("open %s: %v", path, err)
 	}
 	defer f.Close()
-	sc := bufio.NewScanner(f)
+	// Recordings ship gzipped (Core.ReplayGzip), and every reader in the
+	// project takes either extension -- so this one does too, rather than
+	// pinning the tests to the plain form and letting the shipped shape go
+	// untested.
+	var src io.Reader = f
+	if strings.HasSuffix(path, ".gz") {
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			t.Fatalf("gunzip %s: %v", path, err)
+		}
+		defer gz.Close()
+		src = gz
+	}
+	sc := bufio.NewScanner(src)
 	var hdr replayHeader
 	var states []protocol.State
 	for i := 0; sc.Scan(); i++ {
@@ -274,7 +288,9 @@ func TestSaveLastWritesTheRingAsAReplay(t *testing.T) {
 			t.Fatalf("saved file not renumbered from 1: %d at %d", st.Seq, i)
 		}
 	}
-	if _, err := parseReplay(bytes.NewReader(mustRead(t, path)), "saved"); err != nil {
+	// Through loadReplay, the same door StartReplays uses, so the gzip the
+	// recorder now writes is exercised end to end rather than assumed.
+	if _, err := loadReplay(path); err != nil {
 		t.Fatalf("the saved file does not load as a replay: %v", err)
 	}
 	if _, m, _ := c.StopRecording(); m != 30 {
@@ -292,4 +308,97 @@ func mustRead(t *testing.T, path string) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// TestARecordingIsGzippedAndTrimmedAndStillLoads: the two size measures that
+// shipped on 2026-09-03 (scaling.md, "What a recording costs on disk"), pinned
+// by behaviour rather than by a byte count.
+//
+// Both are LOSSLESS as far as anything visible goes -- the file still parses,
+// still carries every sample, and the positions still round-trip to what was
+// recorded once the deliberate precision is applied. What must never regress is
+// the third property: the samples the recorder writes must not be the same
+// objects the ring and the chasers hold, or trimming a file would change what a
+// live ghost renders.
+func TestARecordingIsGzippedAndTrimmedAndStillLoads(t *testing.T) {
+	c := recordingCore(t)
+	path, err := c.StartRecording()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(path, ".ndjson.gz") {
+		t.Fatalf("recording path %q, want a .ndjson.gz -- gzip is the shipped default", path)
+	}
+
+	// A position with a float64 tail no player could ever see, and extras of
+	// every JSON shape the rounder has to walk.
+	live := &protocol.State{
+		AreaID:      "a",
+		Position:    []float64{-492.6911072143106, 67.14999904213690, 0},
+		Orientation: []byte(`[0,1.6743471622467037,0]`),
+		Anim:        "run",
+		Extras: map[string]any{
+			"h_speed": 550.0000000000016,
+			"colour":  []any{1.0, 0.88794326, 0.26041667},
+			"vfx":     "hw:0,dl:4",
+			"nested":  map[string]any{"t": 0.1234567},
+		},
+	}
+	c.forwardLocalState(live)
+	if _, n, err := c.StopRecording(); err != nil || n != 1 {
+		t.Fatalf("StopRecording = %d, %v, want 1 sample", n, err)
+	}
+
+	// THE FILE IS REALLY GZIP, not merely named .gz: read it the way every
+	// loader in the project does.
+	clip, err := loadReplay(path)
+	if err != nil {
+		t.Fatalf("the recording does not load: %v", err)
+	}
+	if len(clip.samples) != 1 {
+		t.Fatalf("clip has %d samples, want 1", len(clip.samples))
+	}
+	got := clip.samples[0]
+	if got.Position[0] != -492.691 || got.Position[1] != 67.15 {
+		t.Errorf("position %v, want the 3-decimal form of what was recorded", got.Position)
+	}
+	if h := got.Extras["h_speed"]; h != 550.0 {
+		t.Errorf("extras h_speed %v, want 550 -- the float64 tail is noise, not information", h)
+	}
+	if s := got.Extras["vfx"]; s != "hw:0,dl:4" {
+		t.Errorf("extras vfx %v: rounding must leave strings alone", s)
+	}
+	if n, ok := got.Extras["nested"].(map[string]any); !ok || n["t"] != 0.123 {
+		t.Errorf("extras nested %v, want a rounded value inside the map too", got.Extras["nested"])
+	}
+	if string(got.Orientation) != "[0,1.674347,0]" {
+		t.Errorf("orientation %s, want six decimals", got.Orientation)
+	}
+
+	// The live state the adapter handed in is untouched -- the recorder copies.
+	if live.Position[0] != -492.6911072143106 || live.Extras["h_speed"] != 550.0000000000016 {
+		t.Fatalf("the recorder rounded the caller's own state: %v %v -- the ring and the chasers "+
+			"share it, so this would change what a live ghost renders", live.Position, live.Extras)
+	}
+}
+
+// TestRecordingCanStillBeWrittenPlain: the escape hatch, because a recording is
+// a debugging artefact as well as a player-facing one.
+func TestRecordingCanStillBeWrittenPlain(t *testing.T) {
+	c := recordingCore(t)
+	c.ReplayGzip = false
+	path, err := c.StartRecording()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasSuffix(path, ".gz") {
+		t.Fatalf("path %q with replay.gzip off", path)
+	}
+	c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{1, 2}})
+	if _, n, err := c.StopRecording(); err != nil || n != 1 {
+		t.Fatalf("StopRecording = %d, %v", n, err)
+	}
+	if _, err := loadReplay(path); err != nil {
+		t.Fatalf("the plain recording does not load: %v", err)
+	}
 }

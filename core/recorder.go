@@ -24,10 +24,13 @@ package core
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -141,8 +144,10 @@ func (r *sampleRing) snapshot() []protocol.State {
 type recorder struct {
 	mu          sync.Mutex
 	dir         string
+	gzip        bool   // write .ndjson.gz; see Core.ReplayGzip
 	path        string // decided at start; the file exists only once written>0
 	f           *os.File
+	gz          *gzip.Writer // nil when writing plain ndjson
 	w           *bufio.Writer
 	header      replayHeader
 	keepaliveMs int64
@@ -217,7 +222,15 @@ func (r *recorder) writeLocked(st protocol.State) error {
 			return fmt.Errorf("create %s: %w", r.path, err)
 		}
 		r.f = f
-		r.w = bufio.NewWriterSize(f, 64*1024)
+		// bufio ON TOP of gzip, not under it: lines are batched before they
+		// reach the compressor, so deflate sees 64KiB at a time rather than
+		// ~1KiB per frame. Flushing means both, innermost last.
+		var sink io.Writer = f
+		if r.gzip {
+			r.gz = gzip.NewWriter(f)
+			sink = r.gz
+		}
+		r.w = bufio.NewWriterSize(sink, 64*1024)
 		r.header.Recorded = time.Now().UTC().Format(time.RFC3339) // wall-clock: written into a file a person reads
 		if err := writeReplayLine(r.w, r.header); err != nil {
 			return err
@@ -226,7 +239,7 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	}
 	r.seq++
 	st.Seq = r.seq
-	if err := writeReplayLine(r.w, st); err != nil {
+	if err := writeReplayLine(r.w, roundedForFile(st)); err != nil {
 		return err
 	}
 	kept := st
@@ -237,7 +250,20 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	// and the game's frame never waits on the disk.
 	if r.flushClock().Since(r.lastFlush) >= time.Second {
 		r.lastFlush = r.flushClock().Now()
-		return r.w.Flush()
+		return r.flushLocked()
+	}
+	return nil
+}
+
+// flushLocked pushes everything buffered out to the file. gzip.Writer.Flush
+// emits a sync point, so a crashed recording stays a decodable prefix rather
+// than an unreadable stream -- the same promise the plain writer already made.
+func (r *recorder) flushLocked() error {
+	if err := r.w.Flush(); err != nil {
+		return err
+	}
+	if r.gz != nil {
+		return r.gz.Flush()
 	}
 	return nil
 }
@@ -248,14 +274,99 @@ func (r *recorder) closeLocked() (path string, written int, err error) {
 		if ferr := r.w.Flush(); ferr != nil {
 			err = ferr
 		}
+		// Close, not Flush: the gzip footer (CRC and length) is written here,
+		// and a stream without it is what makes `gzip -t` call a file corrupt.
+		if r.gz != nil {
+			if gerr := r.gz.Close(); gerr != nil && err == nil {
+				err = gerr
+			}
+		}
 		if cerr := r.f.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}
-	r.f, r.w, r.last = nil, nil, nil
+	r.f, r.gz, r.w, r.last = nil, nil, nil, nil
 	r.on = false
 	r.seq, r.written, r.lastTs = 0, 0, 0
 	return path, written, err
+}
+
+// Rounding applied to every sample on its way into a file. The 17-digit tails
+// json.Marshal prints for a float64 -- "550.0000000000016", "-492.6911072143106"
+// -- are an artefact of binary floating point, not information: 3 decimals of a
+// position unit is 10 micrometres in the one 3D game here, and 1e-6 radians is
+// about a fifth of an arcsecond. Measured on a real 3-minute Pseudoregalia clip
+// (scaling.md): 7% smaller before compression, and it strips the highest-entropy
+// bytes in the file, so gzip does better on top.
+//
+// NOT applied to timestamp or seq, which are integers and carry the schedule.
+const (
+	replayPosDigits    = 3
+	replayOrientDigits = 6
+	replayExtraDigits  = 3
+)
+
+func roundTo(v float64, digits int) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	p := math.Pow(10, float64(digits))
+	return math.Round(v*p) / p
+}
+
+// roundedForFile returns st with its floats trimmed for writing. It COPIES the
+// position slice and the extras map rather than rounding in place: the same
+// State goes to the ring and to every chaser, and rounding what they hold would
+// make the recorder change what a live ghost renders.
+func roundedForFile(st protocol.State) protocol.State {
+	if len(st.Position) > 0 {
+		pos := make([]float64, len(st.Position))
+		for i, v := range st.Position {
+			pos[i] = roundTo(v, replayPosDigits)
+		}
+		st.Position = pos
+	}
+	if len(st.Orientation) > 0 {
+		// Opaque by contract (scalar, vector or quaternion), so this decodes
+		// it as generic JSON and re-encodes; anything that is not numeric is
+		// left exactly as it arrived.
+		var v any
+		if err := json.Unmarshal(st.Orientation, &v); err == nil {
+			if b, err := json.Marshal(roundValue(v, replayOrientDigits)); err == nil {
+				st.Orientation = b
+			}
+		}
+	}
+	if len(st.Extras) > 0 {
+		ex := make(map[string]any, len(st.Extras))
+		for k, v := range st.Extras {
+			ex[k] = roundValue(v, replayExtraDigits)
+		}
+		st.Extras = ex
+	}
+	return st
+}
+
+// roundValue rounds every float inside a decoded JSON value, leaving strings,
+// bools and nulls alone.
+func roundValue(v any, digits int) any {
+	switch t := v.(type) {
+	case float64:
+		return roundTo(t, digits)
+	case []any:
+		out := make([]any, len(t))
+		for i := range t {
+			out[i] = roundValue(t[i], digits)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k := range t {
+			out[k] = roundValue(t[k], digits)
+		}
+		return out
+	}
+	return v
 }
 
 func writeReplayLine(w *bufio.Writer, v any) error {
@@ -271,14 +382,18 @@ func writeReplayLine(w *bufio.Writer, v any) error {
 
 // replayFileName is rec-YYYYMMDD-HHMMSS.ndjson, or last-... for a save-last
 // file; a same-second collision gets a -2, -3 suffix rather than O_EXCL failing.
-func replayFileName(dir, prefix string, at time.Time) string {
+func replayFileName(dir, prefix string, at time.Time, gz bool) string {
+	ext := ".ndjson"
+	if gz {
+		ext += ".gz"
+	}
 	base := prefix + "-" + at.Format("20060102-150405")
-	path := filepath.Join(dir, base+".ndjson")
+	path := filepath.Join(dir, base+ext)
 	for n := 2; ; n++ {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 			return path
 		}
-		path = filepath.Join(dir, fmt.Sprintf("%s-%d.ndjson", base, n))
+		path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", base, n, ext))
 	}
 }
 
@@ -307,8 +422,9 @@ func (c *Core) StartRecording() (string, error) {
 		return c.rec.path, errors.New("already recording to " + c.rec.path)
 	}
 	c.rec.dir = c.ReplayDir
-	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now())   // wall-clock: a filename, deduplicated against the real filesystem
-	c.rec.header = defaultReplayHeader(game, version, time.Now()) // wall-clock: an artefact timestamp
+	c.rec.gzip = c.ReplayGzip
+	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
+	c.rec.header = defaultReplayHeader(game, version, time.Now())           // wall-clock: an artefact timestamp
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
@@ -395,12 +511,18 @@ func (c *Core) SaveLast() (string, int, error) {
 	if err := os.MkdirAll(c.ReplayDir, 0o755); err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", c.ReplayDir, err)
 	}
-	path := replayFileName(c.ReplayDir, "last", time.Now()) // wall-clock: a filename, as above
+	path := replayFileName(c.ReplayDir, "last", time.Now(), c.ReplayGzip) // wall-clock: a filename, as above
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", path, err)
 	}
-	w := bufio.NewWriterSize(f, 64*1024)
+	var sink io.Writer = f
+	var gz *gzip.Writer
+	if c.ReplayGzip {
+		gz = gzip.NewWriter(f)
+		sink = gz
+	}
+	w := bufio.NewWriterSize(sink, 64*1024)
 	hdr := defaultReplayHeader(game, version, time.Now()) // wall-clock: an artefact timestamp
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
@@ -414,7 +536,7 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	for i := range samples {
 		samples[i].Seq = uint64(i + 1)
-		if err := writeReplayLine(w, samples[i]); err != nil {
+		if err := writeReplayLine(w, roundedForFile(samples[i])); err != nil {
 			f.Close()
 			return "", 0, err
 		}
@@ -422,6 +544,12 @@ func (c *Core) SaveLast() (string, int, error) {
 	if err := w.Flush(); err != nil {
 		f.Close()
 		return "", 0, err
+	}
+	if gz != nil {
+		if err := gz.Close(); err != nil {
+			f.Close()
+			return "", 0, err
+		}
 	}
 	if err := f.Close(); err != nil {
 		return "", 0, err

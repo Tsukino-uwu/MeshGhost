@@ -2546,11 +2546,12 @@ have sent on the wire.
 **The measurements, and the surprise in them, are in `scaling.md`** ("What a recording costs on
 disk"). Two things decided from them:
 
-- **gzip is being built now**: 19.3x measured, no format change, and the loader already reads
-  `.ndjson.gz`. That takes ~310 MB/hour to ~16 MB/hour, which is enough that nothing else is
-  urgent.
+- **gzip SHIPPED 2026-09-03**, together with rounding the float64 tails json.Marshal prints
+  ("550.0000000000016"): 33.5x together, so ~310 MB/hour became **~9 MB/hour**, which is enough
+  that nothing else is urgent. No format change — both loaders already read `.ndjson.gz`.
 - **Per-KEY `extras` delta encoding is filed here rather than built**: 4.4x before gzip, and most
-  of that overlaps with what gzip already gets, against a real cost — a header flag, loader
+  of that overlaps with what gzip already gets — a rounded-and-gzipped 3-minute clip is already
+  452 KB — against a real cost — a header flag, loader
   carry-forward, the `parseReplay` validator, the fuzz corpus, and files shared between versions.
   Pick it up if recordings ever need to be small enough to send someone, where CPU-free decoding
   and a small transfer both matter.

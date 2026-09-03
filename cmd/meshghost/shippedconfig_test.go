@@ -48,6 +48,7 @@ type shippedConfig struct {
 			StartDelay     string `json:"start_delay"`
 			Seek           string `json:"seek"`
 			SplitTimes     bool   `json:"split_times"`
+			Gzip           bool   `json:"gzip"`
 		} `json:"replay"`
 		Chaser struct {
 			Enabled    bool   `json:"enabled"`
@@ -104,6 +105,10 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 			"value in config.json overrides the default, so a replay or chaser would be drawn %v "+
 			"behind its own schedule no matter what the code says.",
 			localInterp, core.DefaultLocalGhostDelay, localInterp)
+	}
+	if !cfg.Client.Replay.Gzip {
+		t.Error("shipped replay.gzip is false but core.New defaults it true -- a player would " +
+			"write ~310MB an hour instead of ~16MB (agent_docs/scaling.md)")
 	}
 	// Shipped OFF, deliberately: the shipped client plays with other people.
 	// The key is present anyway so someone who wants a quiet, roomless client
