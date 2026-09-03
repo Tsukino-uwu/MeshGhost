@@ -1,29 +1,17 @@
 # MeshGhost
 
-MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own fully
-independent copy of the game; friends show up as "ghosts" — live position, facing and animation,
-with an optional nametag in a colour of their choosing — while the worlds themselves stay separate. Nothing is shared unless a game's mod asks for it: by
-default there are no synced items, enemies, health or progression, and desync is expected and
-fine. If a friend kills a boss, it stays alive in your world, and that's okay.
+MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own copy,
+friends show up as ghosts with live position, facing and animation, and the worlds stay separate.
+Nothing is synced unless a game's mod asks for it: not items, enemies, health or progression. If a
+friend kills a boss, it stays alive in your world.
 
-**Your save is never touched, and neither is your ROM.** That is a rule the project holds itself
-to rather than a happy accident of the current features, and it stays true of anything added
-later — not your own save, and not the save of anyone you play with. Uninstalling is deleting the
-mod's folder.
+It also records you. Play a run back and it becomes a replay ghost, running your own line beside
+you, to race the way you would a time-trial ghost. A recording is one small file, so a good run can
+be kept, edited or sent to a friend. A chaser is the same idea without a file: your own past,
+following a few seconds behind you as you play. Neither needs a server or anyone else online.
 
-Some adapters do write to the game's *live* memory to put a ghost there — on the Pokémon games a
-ghost is a real character standing on a real tile, which is what makes it look right rather than
-like a sticker on the screen. Those writes go only to the object memory that exists while the game
-is running and is gone the moment you close it. Nothing is written to a save file, and no ROM is
-ever patched.
-
-MeshGhost can also record *you*, and play it back as a **replay ghost**: your own run, on the route
-beside you, which you can race the way you would a time-trial ghost. A recording is one small file
-you can keep, edit or send to a friend; drop one into the `replay` folder and it plays alongside
-you, and its nametag can show how far ahead or behind it you are. A **chaser** is the same idea
-with no file: your own past, following you a few seconds back. Both are cosmetic like any other
-ghost, both work with no server and nobody else online, and neither needs a game to support
-anything new.
+Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
+memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
 
 **Download:** the [Releases page](../../releases). `MeshGhost-full-<version>.zip` is the one nearly
 everyone wants — client, server, and every game's mod, for Windows. Native Linux and macOS builds
@@ -65,75 +53,12 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
 TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` copied into
 that mod's folder once, and they read the `config.json` that sits beside it rather than the one in
 the folder you unzipped. Emerald and Crystal run from the release folder itself and need neither.
-Setting `MESHGHOST_NO_AUTOSTART` in your environment turns autostart off in every game, if you
-would rather run the client by hand.
+Setting `"autostart": false` in that `config.json` turns autostart off, if you would rather run the
+client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still works.)
+
+Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 
 Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
-
-### Good to know
-
-- Up to 8 players per server by default, counted across all rooms — the host can raise it.
-- Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
-- `room` is a label, not a password. `room_code` is the optional actual secret.
-- **Nametags are opt-in and cosmetic.** Set `client.name` (and optionally `client.name_color`) in
-  `config.json`; leave `name` empty — the shipped default — and no tag is drawn. Drawing it is
-  per-game work, shipped in Pseudoregalia today (a coloured plate above the ghost) and not yet in
-  the other three. Names are length-capped and sanitized on the relay and again by each receiver,
-  and a name is a label, never an identity.
-- Archipelago-patched ROMs are handled rather than merely hoped for: Emerald detects the patch's
-  relocated addresses at startup and adjusts, and Crystal identifies the patch from its ROM header
-  and switches to its own separately-measured address set. Both are tied to the base patch each was
-  measured against, so a future Archipelago world update can move things again. Any other romhack
-  or translation is untested — the adapter says so on startup and runs anyway.
-- **Ghosts can be solid, and the host decides.** Whether you can bump into a friend's ghost
-  depends on the game — a Pokémon ghost is a real character standing on a real tile, a TEVI ghost
-  is a picture with no physical presence at all. `server.ghost_collision: "disabled"` asks every
-  game to stop, room-wide; a player can also set `client.ghost_collision` for themselves, and the
-  stricter of the two wins, so a host can take collision away but never force it on. It is a
-  request the adapters honour, not something the relay can enforce — the relay has no idea what
-  collision means in any game.
-- Flagged by your antivirus? That is expected and worth understanding rather than waving away —
-  [docs/antivirus.md](docs/antivirus.md).
-
-### Transports
-
-**Out of the box a session runs on `quic`.** Every connection still *starts* on `tcp`: the client
-connects there, asks the server what it serves, and swaps to the best answer. So `connect_to` only
-ever needs the server's `tcp` address, and if the swap is not available it stays on tcp and keeps
-working. Nothing to configure.
-
-| | Default | What it's for |
-| --- | --- | --- |
-| `quic` | **yes** — what you actually run on | Encrypted, and drops a stale position instead of delaying the ones behind it |
-| `tcp` | **yes** — always the handshake, and the fallback | Works everywhere; encrypted too when `tls` is on, and still inspectable by hand when it isn't |
-| `udp` | no — opt in | Same loss behaviour as quic but **cannot be encrypted**; there if quic is blocked |
-
-`quic` shares the server's port *number* (`7777/udp` alongside `7777/tcp`), so hosting still means
-forwarding one number — as two separate router rules. Set `"transport"` in `config.json` to
-override: `auto` (the default — prefers quic, never silently picks the unencrypted one), or
-`tcp`/`udp`/`quic` to pin it.
-
-**The tcp handshake is encrypted too.** It has to be: every client makes first contact over tcp
-whatever transport it ends up on, and that is the leg carrying the `room_code`. `"tls"` in
-`config.json` is set to `auto` on both sides in the shipped file — encrypt whenever the other end
-can, fall back to plaintext with a warning in the log when it can't, which is what keeps an older
-copy able to connect. `required` refuses a peer that can't encrypt; `off` is plaintext. Under
-`auto` a single port still serves both, so debugging a relay by hand keeps working.
-
-**Encrypted is not authenticated.** Every certificate here is self-signed and generated in memory,
-so encryption hides your traffic without proving *who* you reached, and there is no CA anywhere in
-this design. One partial answer exists: the relay prints a `tls certificate fingerprint:` line at
-startup, and a player who pastes it into `"tls_fingerprint"` authenticates **the tcp leg** — which
-is the leg carrying the `room_code`, so it is the one worth closing. It does not extend to the quic
-session, which uses a separate certificate and is encrypted-but-unverified either way. Pinning is
-opt-in, nothing distributes the fingerprint for you, and the relay generates a new certificate on
-every restart. Full posture: [docs/security.md](docs/security.md), which also carries a dated
-changelog of every hardening pass — including an adversarial review of the relay, its transports
-and the peer-to-adapter path (2026-09-02) — and the known gaps each one chose to leave. Why it
-works this way: [agent_docs/architecture.md](agent_docs/architecture.md)'s transport and TLS ADRs.
-**To check any of this yourself before hosting**, [docs/reviewing.md](docs/reviewing.md) says
-which code a host actually runs, where the bytes go, and how to run the fuzzers and the race
-detector on your own machine.
 
 ## How it works
 
