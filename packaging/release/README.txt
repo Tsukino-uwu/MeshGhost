@@ -251,7 +251,21 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
-     "replay" -- "name" and "color" label the clips you record: that name
+     "replay" -- "delta" (on) keeps recordings small the honest way: a
+               line only writes what actually changed since the line
+               before, and the rest is filled back in when the clip is
+               played. About four times smaller, still a plain text file
+               you can open and edit, and the first line -- the one with
+               the name, colour, speed and loop -- is untouched.
+
+               "gzip" (off) compresses the whole file instead. Much
+               smaller again (roughly 39x), but you cannot read or edit
+               it without unpacking it first, and if the game crashes
+               mid-recording most tools refuse the file outright even
+               though the recording inside it is fine. Turn it on for
+               clips you are archiving, not for ones you are working on.
+
+     "name" and "color" label the clips you record: that name
                is what shows above the ghost when you play one back, and
                leaving them blank uses your own "name"/"name_color". Set
                them and you never need to open a recording to label it.

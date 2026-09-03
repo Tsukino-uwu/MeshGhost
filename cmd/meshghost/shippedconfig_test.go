@@ -49,6 +49,7 @@ type shippedConfig struct {
 			Seek           string `json:"seek"`
 			SplitTimes     bool   `json:"split_times"`
 			Gzip           bool   `json:"gzip"`
+			Delta          bool   `json:"delta"`
 		} `json:"replay"`
 		Chaser struct {
 			Enabled    bool   `json:"enabled"`
@@ -106,9 +107,13 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 			"behind its own schedule no matter what the code says.",
 			localInterp, core.DefaultLocalGhostDelay, localInterp)
 	}
-	if !cfg.Client.Replay.Gzip {
-		t.Error("shipped replay.gzip is false but core.New defaults it true -- a player would " +
-			"write ~310MB an hour instead of ~16MB (agent_docs/scaling.md)")
+	if cfg.Client.Replay.Gzip {
+		t.Error("shipped replay.gzip is true but core.New defaults it false -- a recording cut " +
+			"short when the game closes is then refused whole by ordinary tools (ADR 0051)")
+	}
+	if !cfg.Client.Replay.Delta {
+		t.Error("shipped replay.delta is false but core.New defaults it true -- a player would " +
+			"write about four times more than they need to (agent_docs/scaling.md)")
 	}
 	// Shipped OFF, deliberately: the shipped client plays with other people.
 	// The key is present anyway so someone who wants a quiet, roomless client

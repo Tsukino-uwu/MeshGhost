@@ -219,6 +219,10 @@ type replayFileConfig struct {
 	// Gzip writes recordings as .ndjson.gz. On by default and worth about
 	// 19x on a real clip; false writes a plain file you can read in an editor.
 	Gzip *bool `json:"gzip"`
+	// Delta writes only the values that CHANGED since the previous sample,
+	// which is where a recording's size went once gzip stopped being the
+	// default. The header is untouched, so editing a clip is unaffected.
+	Delta *bool `json:"delta"`
 	// Name and Color label the recordings this client writes -- the clip
 	// header a replay ghost draws its nametag from. Blank falls back to the
 	// player's own "name"/"name_color", so a clip is born labelled rather
@@ -272,6 +276,7 @@ type configTargets struct {
 	replaySeek     *time.Duration
 	splitTimes     *bool
 	replayGzip     *bool
+	replayDelta    *bool
 	replayName     *string
 	replayColor    *string
 	hotkeys        *hotkeyTargets
@@ -378,6 +383,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.replayGzip != nil {
 			cfg.Override(explicit, "replay-gzip", t.replayGzip, fc.Replay.Gzip)
+		}
+		if t.replayDelta != nil {
+			cfg.Override(explicit, "replay-delta", t.replayDelta, fc.Replay.Delta)
 		}
 		if t.replayName != nil {
 			cfg.Override(explicit, "replay-name", t.replayName, fc.Replay.Name)
@@ -698,10 +706,15 @@ func main() {
 	replayColor := flag.String("replay-color", "",
 		"colour for that name, as a hex code like \"#FF8800\". Blank uses your own -name-color "+
 			"(config: replay.color)")
-	replayGzip := flag.Bool("replay-gzip", true,
-		"write recordings as .ndjson.gz instead of .ndjson -- about 19x smaller on a real clip, "+
-			"and every reader here takes either. false writes a plain file you can open in a text "+
-			"editor (config: replay.gzip)")
+	replayGzip := flag.Bool("replay-gzip", false,
+		"write recordings as .ndjson.gz instead of a plain .ndjson. Off by default: a recording "+
+			"ends when the game closes, and a gzip stream cut short there is refused whole by "+
+			"ordinary tools even though its data is intact. Every reader here takes either "+
+			"(config: replay.gzip)")
+	replayDelta := flag.Bool("replay-delta", true,
+		"write only the values that CHANGED since the previous sample, carrying the rest forward "+
+			"when the clip is loaded -- about 4x smaller, still plain text, and the header you edit "+
+			"is untouched. false writes every value on every line (config: replay.delta)")
 	splitTimes := flag.Bool("replay-split-times", false, "show how far behind or ahead of a replay ghost you are on its nametag, e.g. \"PB +1.2s\" (config: replay.split_times)")
 	replaySeek := flag.Duration("replay-seek", 5*time.Second,
 		"how far one rewind or fast-forward moves a replay ghost (config: replay.seek)")
@@ -758,6 +771,7 @@ func main() {
 		replaySeek:     replaySeek,
 		splitTimes:     splitTimes,
 		replayGzip:     replayGzip,
+		replayDelta:    replayDelta,
 		replayName:     replayName,
 		replayColor:    replayColor,
 		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
@@ -927,6 +941,7 @@ func main() {
 	c.ReplaySeek = *replaySeek
 	c.SplitTimes = *splitTimes
 	c.ReplayGzip = *replayGzip
+	c.ReplayDelta = *replayDelta
 	c.ReplayName = *replayName
 	c.ReplayColor = *replayColor
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing
@@ -979,6 +994,20 @@ func main() {
 	if *exitWithPID != 0 {
 		log.Printf("meshghost: watching pid %d -- will exit when it does", *exitWithPID)
 		go watchParentPID(*exitWithPID, parentGone, parentPollInterval, func() {
+			// CLOSE THE RECORDING FIRST. os.Exit runs no deferred anything, and
+			// this is the NORMAL way a session ends -- the player quits the
+			// game and the client is reaped with it. Found live 2026-09-03: a
+			// gzipped recording left this way has its data (the recorder syncs
+			// every second) but no gzip footer, and every ordinary tool --
+			// Explorer, 7-Zip -- refuses the whole file rather than reading the
+			// 3,394 good lines inside it. A plain file lost nothing visible,
+			// which is exactly why this went unnoticed until recordings were
+			// compressed.
+			if path, n, err := c.StopRecording(); err != nil {
+				log.Printf("meshghost: could not close the recording cleanly: %v", err)
+			} else if n > 0 {
+				log.Printf("meshghost: closed the recording at %s (%d samples) before exiting", path, n)
+			}
 			log.Printf("meshghost: pid %d is gone -- exiting so nothing is left holding %s",
 				*exitWithPID, *bridgeAddr)
 			os.Exit(0)

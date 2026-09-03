@@ -310,9 +310,9 @@ func mustRead(t *testing.T, path string) []byte {
 	return b
 }
 
-// TestARecordingIsGzippedAndTrimmedAndStillLoads: the two size measures that
-// shipped on 2026-09-03 (scaling.md, "What a recording costs on disk"), pinned
-// by behaviour rather than by a byte count.
+// TestARecordingIsPlainTrimmedAndStillLoads: the shipped shape since
+// 2026-09-03 (scaling.md, "What a recording costs on disk"), pinned by
+// behaviour rather than by a byte count.
 //
 // Both are LOSSLESS as far as anything visible goes -- the file still parses,
 // still carries every sample, and the positions still round-trip to what was
@@ -320,14 +320,20 @@ func mustRead(t *testing.T, path string) []byte {
 // the third property: the samples the recorder writes must not be the same
 // objects the ring and the chasers hold, or trimming a file would change what a
 // live ghost renders.
-func TestARecordingIsGzippedAndTrimmedAndStillLoads(t *testing.T) {
+func TestARecordingIsPlainTrimmedAndStillLoads(t *testing.T) {
 	c := recordingCore(t)
 	path, err := c.StartRecording()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(path, ".ndjson.gz") {
-		t.Fatalf("recording path %q, want a .ndjson.gz -- gzip is the shipped default", path)
+	// PLAIN IS THE SHIPPED DEFAULT. It was .ndjson.gz for a few hours on
+	// 2026-09-03 and the reason it is not is worth keeping here: a recording
+	// ends when the game closes, and a gzip stream cut short there is refused
+	// WHOLE by Explorer and 7-Zip ("catastrophic failure") even though every
+	// byte of its data decompresses. A plain file loses nothing and opens in
+	// any editor. The size went to ReplayDelta instead.
+	if !strings.HasSuffix(path, ".ndjson") || strings.HasSuffix(path, ".gz") {
+		t.Fatalf("recording path %q, want a plain .ndjson", path)
 	}
 
 	// A position with a float64 tail no player could ever see, and extras of
@@ -349,8 +355,6 @@ func TestARecordingIsGzippedAndTrimmedAndStillLoads(t *testing.T) {
 		t.Fatalf("StopRecording = %d, %v, want 1 sample", n, err)
 	}
 
-	// THE FILE IS REALLY GZIP, not merely named .gz: read it the way every
-	// loader in the project does.
 	clip, err := loadReplay(path)
 	if err != nil {
 		t.Fatalf("the recording does not load: %v", err)
@@ -382,24 +386,25 @@ func TestARecordingIsGzippedAndTrimmedAndStillLoads(t *testing.T) {
 	}
 }
 
-// TestRecordingCanStillBeWrittenPlain: the escape hatch, because a recording is
-// a debugging artefact as well as a player-facing one.
-func TestRecordingCanStillBeWrittenPlain(t *testing.T) {
+// TestRecordingCanStillBeWrittenGzipped: the opt-in, for someone archiving
+// clips rather than reading them. Everything that reads a replay takes either
+// extension, so this is a size choice and nothing more.
+func TestRecordingCanStillBeWrittenGzipped(t *testing.T) {
 	c := recordingCore(t)
-	c.ReplayGzip = false
+	c.ReplayGzip = true
 	path, err := c.StartRecording()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.HasSuffix(path, ".gz") {
-		t.Fatalf("path %q with replay.gzip off", path)
+	if !strings.HasSuffix(path, ".ndjson.gz") {
+		t.Fatalf("path %q with replay.gzip on", path)
 	}
 	c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{1, 2}})
 	if _, n, err := c.StopRecording(); err != nil || n != 1 {
 		t.Fatalf("StopRecording = %d, %v", n, err)
 	}
 	if _, err := loadReplay(path); err != nil {
-		t.Fatalf("the plain recording does not load: %v", err)
+		t.Fatalf("the gzipped recording does not load: %v", err)
 	}
 }
 
@@ -450,5 +455,94 @@ func TestARecordingIsBornNamed(t *testing.T) {
 				t.Fatalf("save-last header name = %q, want %q -- both writers share one header", savedHdr.Name, tc.wantName)
 			}
 		})
+	}
+}
+
+// TestARecordingDeltaEncodesExtrasAndLoadsBackIdentical is the size win the
+// user asked for and the property that makes it safe: the FILE stops repeating
+// values that did not change, and the CLIP that comes back out is exactly what
+// a full file would have produced -- so nothing downstream of parseReplay can
+// tell the two apart.
+func TestARecordingDeltaEncodesExtrasAndLoadsBackIdentical(t *testing.T) {
+	c := recordingCore(t)
+	path, err := c.StartRecording()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Four frames: one key jitters every frame, one changes once, one never
+	// changes, and one DISAPPEARS -- the case a naive "absent means unchanged"
+	// encoding gets wrong by carrying a dead value forward forever.
+	frames := []map[string]any{
+		{"h_speed": 1.0, "outfit": "dreamLady", "shadow": 1.0, "weapon": "sword"},
+		{"h_speed": 2.0, "outfit": "dreamLady", "shadow": 1.0, "weapon": "sword"},
+		{"h_speed": 3.0, "outfit": "goat", "shadow": 1.0, "weapon": "sword"},
+		{"h_speed": 4.0, "outfit": "goat", "shadow": 1.0},
+	}
+	for i, ex := range frames {
+		c.forwardLocalState(&protocol.State{
+			AreaID: "a", Position: []float64{float64(i), 0}, Anim: "run", Extras: ex,
+		})
+	}
+	if _, n, err := c.StopRecording(); err != nil || n != len(frames) {
+		t.Fatalf("StopRecording = %d, %v, want %d samples", n, err, len(frames))
+	}
+
+	// THE FILE IS SPARSE: after the first line, only what changed is written.
+	hdr, raw := readReplayLines(t, path)
+	if !hdr.Delta {
+		t.Fatal("the header does not say delta, so a reader would take every line literally")
+	}
+	if got := len(raw[1].Extras); got != 1 {
+		t.Errorf("second line carries %d extras (%v), want just the one that changed", got, raw[1].Extras)
+	}
+	if _, ok := raw[3].Extras["weapon"]; !ok || raw[3].Extras["weapon"] != nil {
+		t.Errorf("fourth line's extras are %v -- a key that went away must be written as an explicit "+
+			"null, or absence (which means \"unchanged\") would carry the dead value forever", raw[3].Extras)
+	}
+
+	// THE CLIP IS WHOLE: every sample comes back with everything it had.
+	clip, err := loadReplay(path)
+	if err != nil {
+		t.Fatalf("the delta recording does not load: %v", err)
+	}
+	if len(clip.samples) != len(frames) {
+		t.Fatalf("clip has %d samples, want %d", len(clip.samples), len(frames))
+	}
+	for i, want := range frames {
+		got := clip.samples[i].Extras
+		if len(got) != len(want) {
+			t.Fatalf("sample %d came back with %v, want %v", i, got, want)
+		}
+		for k, v := range want {
+			if got[k] != v {
+				t.Fatalf("sample %d key %q = %v, want %v -- a reconstructed clip must equal the "+
+					"full one exactly, or a ghost renders with a stale field", i, k, got[k], v)
+			}
+		}
+	}
+
+	// AND A FULL FILE STILL LOADS. Clips made before this, and any written with
+	// replay.delta off, have no "delta" key and must be read literally.
+	c2 := recordingCore(t)
+	c2.ReplayDelta = false
+	plain, err := c2.StartRecording()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, ex := range frames {
+		c2.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{float64(i), 0}, Extras: ex})
+	}
+	if _, _, err := c2.StopRecording(); err != nil {
+		t.Fatal(err)
+	}
+	plainHdr, plainRaw := readReplayLines(t, plain)
+	if plainHdr.Delta {
+		t.Error("replay.delta off still wrote a delta header")
+	}
+	if got := len(plainRaw[1].Extras); got != len(frames[1]) {
+		t.Errorf("with delta off the second line carries %d extras, want all %d", got, len(frames[1]))
+	}
+	if _, err := loadReplay(plain); err != nil {
+		t.Fatalf("a full (non-delta) recording does not load: %v", err)
 	}
 }

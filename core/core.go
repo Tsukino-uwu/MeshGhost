@@ -475,6 +475,16 @@ type Core struct {
 	ReplayName  string
 	ReplayColor string
 
+	// ReplayDelta writes only the extras that CHANGED since the previous
+	// sample, with the rest carried forward when the clip is loaded. Worth 4.4x
+	// on a real recording and it keeps the file plain text, which is why it is
+	// on and gzip is not: the user's call, 2026-09-03, after a truncated .gz
+	// proved unopenable in Explorer and 7-Zip while its data was intact.
+	//
+	// Only the SAMPLES change shape. The header -- the line anyone actually
+	// hand-edits, carrying name, colour, speed and loop -- is untouched.
+	ReplayDelta bool
+
 	// ReplayGzip writes recordings as .ndjson.gz instead of .ndjson. On by
 	// default and measured worth it: a real 3-minute Pseudoregalia recording is
 	// 15.5MB plain and 803KB gzipped, which is ~310MB an hour against ~16MB
@@ -974,7 +984,14 @@ func New() *Core {
 		startedAt:          time.Now(), // wall-clock: reported to a human as uptime (stats.go)
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
-		ReplayGzip:         true,
+		ReplayDelta:        true,
+		// OFF, since 2026-09-03. Compression won on size and lost on
+		// everything else: a recording ends when the game closes, and a
+		// gzip stream cut short there is refused whole by ordinary tools
+		// even though every byte of its data is readable -- while a plain
+		// file loses nothing and can be opened and edited on the spot.
+		// ReplayDelta is where the size went instead.
+		ReplayGzip: false,
 		// A local ghost gets its own, much smaller delay -- see the constant.
 		LocalInterpolationDelay: DefaultLocalGhostDelay,
 		IdleKeepalive:           DefaultIdleKeepalive,

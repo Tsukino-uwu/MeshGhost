@@ -506,7 +506,9 @@ the rate would cut fidelity; the size is worth attacking from the encoding end i
 | floats rounded to 3dp | 14,374,946 | 0.93x | nothing visible: 3dp of a UE unit is 10 micrometres |
 | rounded + `extras` delta-encoded, `player_id` dropped | 3,555,757 | **4.4x** | a format revision |
 | `gzip -9` of the file exactly as written | 802,790 | **19.3x** | nothing — the loader already reads `.ndjson.gz` |
-| **rounded AND gzipped — what ships since 2026-09-03** | **462,375** | **33.5x** | nothing visible: ~310 MB/hour becomes **~9 MB/hour** |
+| rounded AND gzipped | 462,375 | 33.5x | shipped for a few hours on 2026-09-03, then withdrawn — see below |
+| **rounded + per-KEY delta — WHAT SHIPS** | **3,476,990** | **4.5x** | nothing: still plain text, ~310 MB/hour becomes **~70 MB/hour** |
+| rounded + delta + gzip (opt-in) | 398,928 | **38.9x** | ~8 MB/hour, for archiving rather than reading |
 
 **Why whole-line dedup is the wrong shape**, which is the non-obvious part: only **274 of 15,761**
 lines carry an `extras` block identical to the line before it, so "skip a line that did not change"
@@ -520,7 +522,18 @@ recording is a debugging artefact too). Rounding matters more in combination tha
 worth 7% by itself, but it deletes the highest-entropy bytes in the file, so gzip then does far
 better: 19.3x becomes 33.5x. **Delta encoding was NOT built** — see `ideas.md`.
 
-**The one real cost of gzip, raised by the user the day it shipped:** the header is the line
+**GZIP WAS WITHDRAWN AS THE DEFAULT THE SAME EVENING, and the reason is worth more than the
+ratio.** A recording ends when the game closes, which is the NORMAL end of a session — and the
+client exits through `watchParentPID`'s `os.Exit(0)`, which ran no cleanup, so the gzip footer was
+never written. The data survived (the recorder syncs every second), but `gzip -t` reports
+`unexpected end of file` and Windows Explorer and 7-Zip refuse the file outright: *"Error
+0x8000FFFF: Catastrophic failure"*, which is what the user actually saw. A plain file cut short at
+the same instant loses nothing visible. **Two fixes, not one:** the exit path now closes the
+recording before exiting (a bug that outlived the format decision), and plain text became the
+default with the size moved into per-key delta encoding, which is lossless, still editable, and
+4.5x on its own. Compression stays as an opt-in for archiving, where 38.9x is real.
+
+**The older note on editing, which stands:** the header is the line
 people actually hand-edit -- a clip's name, colour, `speed`, `loop` -- and editing it inside a `.gz`
 means decompress, change one word, recompress. Two things answer it. A decompressed clip STAYS
 VALID, since `replay/active/` takes either extension, so a clip you fiddle with is decompressed once

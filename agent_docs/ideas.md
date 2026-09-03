@@ -2549,9 +2549,12 @@ disk"). Two things decided from them:
 - **gzip SHIPPED 2026-09-03**, together with rounding the float64 tails json.Marshal prints
   ("550.0000000000016"): 33.5x together, so ~310 MB/hour became **~9 MB/hour**, which is enough
   that nothing else is urgent. No format change — both loaders already read `.ndjson.gz`.
-- **Per-KEY `extras` delta encoding is filed here rather than built**: 4.4x before gzip, and most
-  of that overlaps with what gzip already gets — a rounded-and-gzipped 3-minute clip is already
-  452 KB — against a real cost — a header flag, loader
+- **Per-KEY `extras` delta encoding — BUILT 2026-09-03, hours after being filed as "not worth it".**
+  4.5x measured on the real clip, and it became the answer rather than gzip once gzip lost the
+  default (a truncated `.gz` is refused whole by ordinary tools; plain text is not). The
+  paragraph below was the reasoning for NOT building it, and it was sound on size alone — what
+  it did not weigh was that compression and editability pull against each other and only one of
+  them is what a player touches. Original cost note — a header flag, loader
   carry-forward, the `parseReplay` validator, the fuzz corpus, and files shared between versions.
   Pick it up if recordings ever need to be small enough to send someone, where CPU-free decoding
   and a small transfer both matter.

@@ -137,6 +137,16 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 	clip.loop = clip.header.Loop
 	clip.startDelay = parseReplayDuration(clip.header.StartDelay)
 
+	// DELTA FILES CARRY ONLY WHAT CHANGED (recorder.go's extrasDelta): every
+	// key absent from a sample's extras means "same as the line before", and an
+	// explicit null means "this key went away". Reconstructed HERE, before
+	// validation, so everything downstream -- ValidateState, the fuzz target,
+	// every render -- sees exactly the samples a non-delta file would produce.
+	//
+	// Note a hand-edited file stays consistent: deleting a line loses that
+	// line's changes and nothing else, because the carry-forward is a running
+	// value rather than a back-reference to a particular line.
+	var carried map[string]any
 	line := 1
 	for sc.Scan() {
 		line++
@@ -150,6 +160,10 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 		}
 		st.PlayerID = ""
 		st.Prev = nil
+		if hdr.Delta {
+			st.Extras = mergeCarriedExtras(carried, st.Extras)
+			carried = st.Extras
+		}
 		// The same caps a relay packet meets, and here they are also what
 		// keeps a hand-edited file from ever reaching the adapter malformed.
 		if !protocol.ValidateState(st) {
@@ -180,6 +194,35 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 	}
 	clip.t0 = clip.samples[0].Timestamp
 	return clip, nil
+}
+
+// mergeCarriedExtras applies one delta line's extras onto the running value.
+// A nil result stays nil rather than becoming an empty map, so a clip whose
+// game sends no extras at all is byte-identical to what it always was.
+func mergeCarriedExtras(carried, delta map[string]any) map[string]any {
+	if len(carried) == 0 {
+		return delta
+	}
+	if len(delta) == 0 {
+		return carried
+	}
+	out := make(map[string]any, len(carried)+len(delta))
+	for k, v := range carried {
+		out[k] = v
+	}
+	for k, v := range delta {
+		if v == nil {
+			// An explicit null is the key going AWAY, which is why the writer
+			// spends a null on it: absence already means "unchanged".
+			delete(out, k)
+			continue
+		}
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // sanitizeReplayHeader clamps every player-editable key. The recorder-written

@@ -61,6 +61,10 @@ type replayHeader struct {
 	TrimStart    string  `json:"trim_start"`
 	TrimEnd      string  `json:"trim_end"`
 	SkipGaps     string  `json:"skip_gaps"`
+	// Delta says the sample lines carry only the extras that CHANGED since
+	// the line before, with everything else carried forward at load time.
+	// Written by the recorder; a file without it is read as it always was.
+	Delta bool `json:"delta,omitempty"`
 
 	Game            string `json:"game"`
 	GameVersion     string `json:"game_version"`
@@ -163,7 +167,9 @@ func (r *sampleRing) snapshot() []protocol.State {
 type recorder struct {
 	mu          sync.Mutex
 	dir         string
-	gzip        bool   // write .ndjson.gz; see Core.ReplayGzip
+	gzip        bool // write .ndjson.gz; see Core.ReplayGzip
+	delta       bool // write only extras that changed; see Core.ReplayDelta
+	prevExtras  map[string]any
 	path        string // decided at start; the file exists only once written>0
 	f           *os.File
 	gz          *gzip.Writer // nil when writing plain ndjson
@@ -258,7 +264,13 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	}
 	r.seq++
 	st.Seq = r.seq
-	if err := writeReplayLine(r.w, roundedForFile(st)); err != nil {
+	out := roundedForFile(st)
+	if r.delta {
+		full := out.Extras
+		out.Extras = extrasDelta(r.prevExtras, full)
+		r.prevExtras = full
+	}
+	if err := writeReplayLine(r.w, out); err != nil {
 		return err
 	}
 	kept := st
@@ -304,7 +316,7 @@ func (r *recorder) closeLocked() (path string, written int, err error) {
 			err = cerr
 		}
 	}
-	r.f, r.gz, r.w, r.last = nil, nil, nil, nil
+	r.f, r.gz, r.w, r.last, r.prevExtras = nil, nil, nil, nil, nil
 	r.on = false
 	r.seq, r.written, r.lastTs = 0, 0, 0
 	return path, written, err
@@ -388,6 +400,81 @@ func roundValue(v any, digits int) any {
 	return v
 }
 
+// extrasDelta returns the extras of st with every key whose value is UNCHANGED
+// since prev removed, and reports whether anything was dropped.
+//
+// WHY PER KEY AND NOT PER LINE, which is the intuitive version and is worth
+// almost nothing: on a real 3-minute Pseudoregalia recording only 274 of 15,761
+// lines carried an extras block identical to the one before it, because
+// h_speed, v_speed and slide_t jitter every single frame -- while every OTHER
+// one of the 40 keys changed on 117 lines or fewer. Dropping unchanged KEYS is
+// 4.4x; dropping unchanged LINES is 2%. Measured, agent_docs/scaling.md.
+//
+// A key that DISAPPEARS between two samples is kept as an explicit JSON null,
+// because "absent" already means "unchanged" and the two must not collide --
+// an adapter that stops reporting a field would otherwise have its last value
+// carried forward forever.
+func extrasDelta(prev, cur map[string]any) map[string]any {
+	if len(prev) == 0 {
+		return cur
+	}
+	out := make(map[string]any, len(cur))
+	for k, v := range cur {
+		if old, ok := prev[k]; !ok || !sameExtra(old, v) {
+			out[k] = v
+		}
+	}
+	for k := range prev {
+		if _, still := cur[k]; !still {
+			out[k] = nil
+		}
+	}
+	return out
+}
+
+// sameExtra compares two decoded JSON values. Deliberately structural rather
+// than reflect.DeepEqual: the values here come from json.Unmarshal (floats,
+// strings, bools, nil, and arrays/maps of those), and a cheap switch over
+// exactly those shapes runs on every recorded frame.
+func sameExtra(a, b any) bool {
+	switch x := a.(type) {
+	case float64:
+		y, ok := b.(float64)
+		return ok && x == y
+	case string:
+		y, ok := b.(string)
+		return ok && x == y
+	case bool:
+		y, ok := b.(bool)
+		return ok && x == y
+	case nil:
+		return b == nil
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !sameExtra(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for k := range x {
+			if !sameExtra(x[k], y[k]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
 func writeReplayLine(w *bufio.Writer, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -442,8 +529,13 @@ func (c *Core) StartRecording() (string, error) {
 	}
 	c.rec.dir = c.ReplayDir
 	c.rec.gzip = c.ReplayGzip
+	c.rec.delta = c.ReplayDelta
+	c.rec.prevExtras = nil
 	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
 	c.rec.header = c.replayHeaderFor(game, version, time.Now())             // wall-clock: an artefact timestamp
+	// After the header is built, not before: replayHeaderFor returns a fresh
+	// one and would otherwise wipe this.
+	c.rec.header.Delta = c.ReplayDelta
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
@@ -542,7 +634,8 @@ func (c *Core) SaveLast() (string, int, error) {
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
-	hdr := c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
+	hdr := c.replayHeaderFor(game, version, time.Now())
+	hdr.Delta = c.ReplayDelta // wall-clock: an artefact timestamp
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
 	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.
@@ -553,9 +646,16 @@ func (c *Core) SaveLast() (string, int, error) {
 		f.Close()
 		return "", 0, err
 	}
+	var prevExtras map[string]any
 	for i := range samples {
 		samples[i].Seq = uint64(i + 1)
-		if err := writeReplayLine(w, roundedForFile(samples[i])); err != nil {
+		out := roundedForFile(samples[i])
+		if c.ReplayDelta {
+			full := out.Extras
+			out.Extras = extrasDelta(prevExtras, full)
+			prevExtras = full
+		}
+		if err := writeReplayLine(w, out); err != nil {
 			f.Close()
 			return "", 0, err
 		}
