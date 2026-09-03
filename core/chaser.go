@@ -43,6 +43,10 @@ type chaser struct {
 	id    string
 	tag   protocol.Nametag
 	delay time.Duration
+	// spawn is how long the player must have been moving before this chaser
+	// may appear (the user's rule, 2026-09-03: no chaser spawns on top of a
+	// player who has not moved yet).
+	spawn time.Duration
 	in    chan protocol.State
 	stop  chan struct{}
 	done  chan struct{}
@@ -56,6 +60,13 @@ func (ch *chaser) run() {
 	defer ch.c.dropLocalPeer(ch.id)
 	admitted := false
 	var prevTs int64
+	// movingSince is the timestamp of the first sample that differed from
+	// the one before it since the last (re)start; zero until then. A sample
+	// is skipped -- not delayed -- until the player has been moving for the
+	// spawn window, so the chaser's first appearance is `delay` behind a
+	// player who is already on the move, never a copy of one standing still.
+	var movingSince int64
+	var prevPos []float64
 	for {
 		var s protocol.State
 		select {
@@ -66,12 +77,31 @@ func (ch *chaser) run() {
 		due := s.Timestamp + ch.delay.Milliseconds()
 		// A gap in the LIVE stream (menu, loading, nil frames): seam, so the
 		// chaser reappears rather than gliding across the hole.
-		if admitted && prevTs != 0 && s.Timestamp-prevTs > replayGapSeamMs {
-			ch.c.dropLocalPeer(ch.id)
-			ch.c.awaitTick(ch.c.ticksBegun(), 500*time.Millisecond)
-			admitted = false
+		if prevTs != 0 && s.Timestamp-prevTs > replayGapSeamMs {
+			if admitted {
+				ch.c.dropLocalPeer(ch.id)
+				ch.c.awaitTick(ch.c.ticksBegun(), 500*time.Millisecond)
+				admitted = false
+			}
+			// The spawn window starts over after a gap: the player is
+			// standing wherever they reappeared.
+			movingSince, prevPos = 0, nil
 		}
 		prevTs = s.Timestamp
+		if !admitted {
+			if movingSince == 0 {
+				if prevPos != nil && !samePosition(prevPos, s.Position) {
+					movingSince = s.Timestamp
+				}
+				prevPos = append(prevPos[:0], s.Position...)
+				if movingSince == 0 {
+					continue
+				}
+			}
+			if s.Timestamp-movingSince < ch.spawn.Milliseconds() {
+				continue
+			}
+		}
 		// Sleep in slices so a stop is prompt.
 		for {
 			now := ch.c.nowMs()
@@ -140,6 +170,10 @@ func (c *Core) StartChasers() int {
 	if spacing < 0 {
 		spacing = 0
 	}
+	spawn := c.ChaserSpawnDelay
+	if spawn <= 0 {
+		spawn = delay
+	}
 	name := protocol.SanitizeDisplayName(c.ChaserName)
 	color := protocol.SanitizeNameColor(c.ChaserColor)
 	room := maxActiveReplays - c.ActiveReplays()
@@ -156,14 +190,14 @@ func (c *Core) StartChasers() int {
 			tag.Name = protocol.SanitizeDisplayName(fmt.Sprintf("%s %d", name, i+1))
 		}
 		size := int((d + chaserQueueSlack).Milliseconds() / 10) // 100Hz worth
-		ch := &chaser{c: c, id: fmt.Sprintf("%s%d", localPeerChaserPrefix, i+1), tag: tag, delay: d,
+		ch := &chaser{c: c, id: fmt.Sprintf("%s%d", localPeerChaserPrefix, i+1), tag: tag, delay: d, spawn: spawn,
 			in: make(chan protocol.State, size), stop: make(chan struct{}), done: make(chan struct{})}
 		c.chasers = append(c.chasers, ch)
 		go ch.run()
 	}
 	c.chaserMu.Unlock()
 	if count > 0 {
-		log.Printf("core: %d chaser(s) following: the first %s behind, then every %s", count, delay, spacing)
+		log.Printf("core: %d chaser(s) following: the first %s behind, then every %s; none appears until you have been moving for %s", count, delay, spacing, spawn)
 		// After the unlock: rearmTap takes chaserMu itself.
 		c.rearmTap()
 	}

@@ -658,8 +658,13 @@ type Core struct {
 	ChaserName    string
 	ChaserColor   string
 	ChaserContact bool
-	chaserMu      sync.Mutex
-	chasers       []*chaser
+	// ChaserSpawnDelay: a chaser appears only once the player has been MOVING
+	// for this long (counted from the first position change, and again after
+	// a gap), so it can never spawn on top of a standing player. Zero means
+	// the chaser's own delay.
+	ChaserSpawnDelay time.Duration
+	chaserMu         sync.Mutex
+	chasers          []*chaser
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.

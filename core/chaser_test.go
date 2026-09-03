@@ -15,6 +15,7 @@ func TestChaserFollowsTheLocalPlayerBehindByItsDelay(t *testing.T) {
 	c.mu.Lock()
 	c.ChaserEnabled = true
 	c.ChaserDelay = 100 * time.Millisecond
+	c.ChaserSpawnDelay = 50 * time.Millisecond
 	c.ChaserName = "Chaser"
 	c.ChaserColor = "#7A2A2A"
 	c.mu.Unlock()
@@ -61,6 +62,7 @@ func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 	c.ChaserCount = 3
 	c.ChaserDelay = 100 * time.Millisecond
 	c.ChaserSpacing = 50 * time.Millisecond
+	c.ChaserSpawnDelay = 50 * time.Millisecond
 	c.ChaserName = "Pack"
 	c.mu.Unlock()
 	if n := c.StartChasers(); n != 3 {
@@ -121,6 +123,7 @@ func TestChaserSeamsOnALiveGapAndIsOffByDefault(t *testing.T) {
 	c.mu.Lock()
 	c.ChaserEnabled = true
 	c.ChaserDelay = 50 * time.Millisecond
+	c.ChaserSpawnDelay = 30 * time.Millisecond
 	c.mu.Unlock()
 	c.StartChasers()
 	const id = "chaser:1"
@@ -192,4 +195,45 @@ func TestChaserPolicyIsPushedOnlyWhenContactIsOn(t *testing.T) {
 	case <-time.After(testTimeout):
 		t.Fatal("no session_policy after turning contact on")
 	}
+}
+
+// TestChaserNeverSpawnsOnAStandingPlayer (the user's rule, 2026-09-03): a
+// player who stands still gets no chaser however long they wait; once they
+// move, the chaser appears only after the spawn window and `delay` behind.
+func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
+	c, _, fa := startLocalPeerCore(t)
+	c.mu.Lock()
+	c.ChaserEnabled = true
+	c.ChaserDelay = 50 * time.Millisecond
+	c.ChaserSpawnDelay = 200 * time.Millisecond
+	c.mu.Unlock()
+	c.StartChasers()
+	const id = "chaser:1"
+	// Standing still for well over delay + spawn: nothing may appear.
+	for i := 0; i < 40; i++ {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{5, 5}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, ok := fa.renderMsgOf(id); ok {
+		t.Fatal("a chaser spawned on a player who never moved")
+	}
+	// Now move. The chaser may not appear before 200ms of movement.
+	start := time.Now()
+	appeared := time.Duration(0)
+	deadline := time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) && appeared == 0 {
+		x := 5 + float64(time.Since(start)/(10*time.Millisecond))
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 5}})
+		time.Sleep(10 * time.Millisecond)
+		if _, ok := fa.renderMsgOf(id); ok {
+			appeared = time.Since(start)
+		}
+	}
+	if appeared == 0 {
+		t.Fatal("the chaser never appeared after the player started moving")
+	}
+	if appeared < 200*time.Millisecond {
+		t.Fatalf("the chaser appeared %s after the first movement, before the 200ms spawn window", appeared)
+	}
+	c.StopChasers()
 }

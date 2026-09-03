@@ -47,11 +47,12 @@ type shippedConfig struct {
 			SplitTimes     bool   `json:"split_times"`
 		} `json:"replay"`
 		Chaser struct {
-			Enabled bool   `json:"enabled"`
-			Count   int    `json:"count"`
-			Delay   string `json:"delay"`
-			Spacing string `json:"spacing"`
-			Contact bool   `json:"contact"`
+			Enabled    bool   `json:"enabled"`
+			Count      int    `json:"count"`
+			Delay      string `json:"delay"`
+			Spacing    string `json:"spacing"`
+			Contact    bool   `json:"contact"`
+			SpawnDelay string `json:"spawn_delay"`
 		} `json:"chaser"`
 		Hotkeys map[string]string `json:"hotkeys"`
 	} `json:"client"`
@@ -152,7 +153,7 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	if cfg.Client.Replay.SaveLast != "30s" || cfg.Client.Replay.Seek != "5s" || cfg.Client.Replay.StartDelay != "0s" {
 		t.Errorf("shipped replay durations drifted from the flag defaults: %+v", cfg.Client.Replay)
 	}
-	if cfg.Client.Chaser.Count != 1 || cfg.Client.Chaser.Delay != "3s" || cfg.Client.Chaser.Spacing != "2s" {
+	if cfg.Client.Chaser.Count != 1 || cfg.Client.Chaser.Delay != "3s" || cfg.Client.Chaser.Spacing != "2s" || cfg.Client.Chaser.SpawnDelay != "0s" {
 		t.Errorf("shipped chaser numbers drifted from the flag defaults: %+v", cfg.Client.Chaser)
 	}
 	want := map[string]string{

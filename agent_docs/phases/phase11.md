@@ -303,3 +303,34 @@ else, which `core/splittime_test.go` pins; the shipped `config.json` carries `fa
 `shippedconfig_test.go` pins that too. `docs/config.md` and the README say how to turn it on. Same
 question answered in passing: the `anchor` behaviours that are not built only decide when a replay
 starts or restarts — zone changes ride on every sample's `area_id` and are unaffected.
+
+## 2026-09-03 — Chasers get a spawn window; the udp allocation test stops flaking and starts catching
+
+**Chaser spawn delay (the user: "so they don't just spawn on top of the player right at the start").**
+A chaser had appeared exactly `delay` after the player's first in-game sample, at the spot they were
+standing then — on a player who had not moved, that is on top of them. Now `chaser.spawn_delay`
+(`-chaser-spawn-delay`, `0s` = the chaser's own delay): a chaser skips samples until the player has
+been MOVING for that long, counted from the first position change and again after any live gap, so
+a standing player never gets a chaser and the first appearance is `delay` behind someone already on
+the move. `core/chaser_test.go` pins it: 400ms standing still spawns nothing, then movement spawns
+the chaser no earlier than the window. Shipped config carries `"spawn_delay": "0s"`, pinned.
+
+**The allocation flake, fixed instead of filed (the user's call).** `netx/udpconn`'s
+`TestWriteUnreliableDoesNotAllocatePerCall` failed twice under whole-suite load with "4.0 per call".
+Trying to reproduce it — 40 runs with `core` and `relay` suites running alongside — never did, so the
+fix is structural rather than aimed at a symptom: (1) the drain goroutine set a read deadline per read,
+an allocation on this process inside the measured window, and now sets one before the window; (2) the
+count is the MINIMUM over five `AllocsPerRun` batches, because a regression allocates in every batch
+and a stray allocation from another goroutine only in some. **And the threshold was wrong all along:**
+removing the buffer reuse on purpose measures exactly 1.00 per call, the real code 0.00, and the old
+`got > 1` passed the broken code — proven by breaking `conn.go`, watching the test pass, then fail
+after the bound became `got >= 1`, then restoring and running 20 clean passes. The lesson for any
+allocation pin: measure the regression you mean to catch before choosing the number.
+
+**The spawn window met the e2e's standing player, same hour.** `TestChaserFollowsThroughTheRealBinary`
+failed on the first whole-suite run after the spawn delay landed: the shared e2e driver sends one
+fixed position every frame, which under the new rule IS a player who never moved, so no chaser was
+allowed to appear. The rule was right and the test's player was wrong; the chaser e2e now drives a
+walking player (`startMovingAdapter`, kept beside that one test — every other e2e relies on the fixed
+position). Worth remembering whenever a rule keys off "the player moved": a synthetic adapter that
+repeats a sample is, to the core, a player standing still.

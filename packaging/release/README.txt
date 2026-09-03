@@ -313,7 +313,10 @@ Setup, once:
                  * "chaser": your own past following you, like a shadow
                    race. "count": 4 with "spacing": "2s" is four ghosts
                    3, 5, 7 and 9 seconds behind -- double back and you
-                   walk into one.
+                   walk into one. None appears until you have been
+                   moving for a while ("spawn_delay", normally the
+                   chaser's own delay), so nothing spawns on top of
+                   you while you stand at the start.
                  * Replay and chaser ghosts are ALWAYS just pictures:
                    never solid, never hurt, whatever "ghost_collision"
                    says. A replay file from a friend can do exactly what
