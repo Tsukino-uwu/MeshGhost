@@ -58,6 +58,48 @@ entry without one.
 - Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
 - Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
 
+## [OPEN] a peer getting on a bike shows only when YOU are on one too — reported 2026-09-03
+
+**The user, from a live two-client session:** *"emerald does not always show another peer getting
+onto the bike"*. Filed as an issue on their request. **It is not intermittent, and that is the
+finding**: it is deterministic and its condition is invisible from the outside, which is why it
+reads as flaky.
+
+**What is actually happening.** `MESHGHOST_GHOST_PEER_GFX` is off by default, deliberately
+(`FLAGS.md`), so a peer's own graphic is used **only when it already matches the local player's**.
+A ghost therefore wears YOUR graphic. Get on a bike yourself and the peer's ghost is on a bike;
+stay on foot and the same peer stays on foot no matter what they do. To a player that looks like
+the bike "sometimes" showing.
+
+**The adapter's own trace says the same thing**, from that session's log
+(`logs/meshghost_emerald_20260903_192717_4160.log`):
+
+```
+gfx: ghost drawn as 0, peer reports 63
+gfx: ghost drawn as 0, peer reports 63
+gfx: ghost drawn as 0, peer reports 63
+gfx: ghost drawn as 0, peer reports 1
+gfx: ghost drawn as 1, peer reports 1
+```
+
+The peer reported a special graphic for three frames and the ghost stayed 0 throughout; it only
+became 1 once the local player's own graphic was 1.
+
+**Why the flag is off, so nobody "fixes" it by flipping it:** every special state renders
+CORRUPTED, confirmed on screen 2026-08-18. Normal Brendan/May is 16px wide with one OAM and
+subsprite table; both bikes, surfing, underwater and fishing are **32 wide** with different ones,
+and this code copies both pointers while also forcing `subspriteTableNum = 0`, a field the engine
+manages itself. Flipping the flag trades an absent bike for a corrupted one.
+
+**So the real work is the 32px path**, not the flag: give a peer graphic its own OAM and subsprite
+table rather than copying and overriding, and stop forcing `subspriteTableNum`. Until then this is
+a known limitation rather than a defect, and it is worth saying so in the release notes — a player
+who knows "ghosts mirror your own form" is not confused by it, and one who does not reports it as
+a bug, exactly as happened here.
+
+**Not the same thing as the drawn/OAM tiers**, which decode the peer's sprite themselves; this
+entry is about the SPAWNED tier only.
+
 ## [READY] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03) — LOAD/CONNECT CONFIRMED, the guard itself is not observable
 
 **Found by measurement, not by a symptom** — `adapters/emulator/tests/json_fuzz.lua`, which loads this
