@@ -393,3 +393,14 @@ called any zero duration "a bad value zeroed the default" when a parsed `0s` is 
 chose. The invariant now distinguishes an unparseable duration (must keep the default) from an explicit
 zero (allowed), CI's `fuzz-failure-corpus` artifact is the regression in `testdata/fuzz/`, and a 45s
 local campaign is clean. A fuzzer's first campaign tests the fuzzer as much as the code.
+
+**CI's race job, third time today, and this one was a shipped-path bug of mine:**
+`TestARelaunchedGameIsANewIdentityNotAResumedOne` — a relaunched game came back as the same player id.
+Green locally twenty of twenty. The cause: this phase put `StopReplays`, `StopChasers` and
+`StopRecording` in the bridge disconnect handler AHEAD of the goodbye to the relay, and those waits
+(up to a second per player or chaser mid-seam) sat between the socket closing and the Leave; a game
+relaunched inside that window was handed its old identity back under the relay's resume grace. The
+goodbye now goes first and the local ghosts are torn down after — the relay must hear the departure
+before anything that can wait. The lesson beside the earlier two: anything added to a disconnect
+path goes AFTER the message that releases the identity, and a loaded runner is where that ordering
+shows.

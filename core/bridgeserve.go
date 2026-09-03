@@ -93,18 +93,6 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			c.resumeToken = ""
 		}
 		c.mu.Unlock()
-		if wasAdapter {
-			// The game closed: every replay stops with it, so a relaunch starts
-			// each one from the top rather than mid-clip.
-			c.StopReplays()
-			c.StopChasers()
-			// The game closed: a launch-to-quit recording ends here, and so does
-			// a manual one -- there is nothing left to record. StopRecording is a
-			// no-op when nothing was armed.
-			if _, _, err := c.StopRecording(); err != nil {
-				log.Printf("core: closing the recording on adapter disconnect: %v", err)
-			}
-		}
 		if relay != nil && owns {
 			// Tell the relay this is a deliberate departure before hanging up,
 			// so it announces a real leave instead of holding this identity
@@ -120,6 +108,26 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// behaviour and still correct, only slower.
 			sendGoodbye(relay)
 			_ = relay.Close()
+		}
+		if wasAdapter {
+			// AFTER the goodbye, never before it (CI's race job, 2026-09-03):
+			// these waits -- up to a second per replay player or chaser whose
+			// goroutine is mid-seam -- sat between the socket closing and the
+			// Leave reaching the relay, and a game relaunched inside that
+			// window was handed its old identity back under the resume grace
+			// (TestARelaunchedGameIsANewIdentityNotAResumedOne, red on the
+			// runner, green locally twenty of twenty). The relay must hear the
+			// departure first; the local ghosts can be torn down after.
+			//
+			// The game closed: every replay stops with it, so a relaunch starts
+			// each one from the top rather than mid-clip; a launch-to-quit
+			// recording ends here, and so does a manual one. StopRecording is
+			// a no-op when nothing was armed.
+			c.StopReplays()
+			c.StopChasers()
+			if _, _, err := c.StopRecording(); err != nil {
+				log.Printf("core: closing the recording on adapter disconnect: %v", err)
+			}
 		}
 	})
 	nd.OnReceive(func(payload []byte) {
