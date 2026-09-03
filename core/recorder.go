@@ -182,6 +182,7 @@ func (c *Core) recordLocal(state *protocol.State) {
 	// The ring stamps its own seq: what it drains becomes a file of its own,
 	// numbered from 1 there, and the chaser never looks at seq at all.
 	c.ring.add(st)
+	c.offerChasers(st)
 }
 
 // writeLocked appends one sample, opening the file (and writing the header)
@@ -337,7 +338,10 @@ func (c *Core) rearmTap() {
 	c.ring.mu.Lock()
 	ring := c.ring.span > 0
 	c.ring.mu.Unlock()
-	if on || ring {
+	c.chaserMu.Lock()
+	pack := len(c.chasers) > 0
+	c.chaserMu.Unlock()
+	if on || ring || pack {
 		atomic.StoreUint32(&c.tapArmed, 1)
 	} else {
 		atomic.StoreUint32(&c.tapArmed, 0)

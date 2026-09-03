@@ -13,8 +13,11 @@
   file, running `delay + i*spacing` behind the player for chaser `i` of `count`. **Split times** are
   computed in the core from the two position streams and published through the existing nametag
   message. The user's design, 2026-09-03; the seed is `ideas.md`, "Ghost RECORDING".
-- **Status:** planned; stages land one commit each and this ADR's Status line is updated as they do.
-  Go side confirmed by the suite; anything on screen waits for the user, as always.
+- **Status (2026-09-03):** built through Stage 7 — the local fake peer seam and `render_remote.cosmetic`,
+  the recorder, playback from `replay/active/`, seeks and `replay_control`, hotkeys (ADR 0048),
+  save-last, the chaser pack — each its own commit, whole suite and race detector green at each
+  (`phases/phase11.md`). Split times and the config/packaging/docs sweep remain. Go side confirmed
+  by the suite and by the real binaries offline; anything on screen in a game waits for the user.
 - **The file** (`replay/rec-YYYYMMDD-HHMMSS.ndjson`, `.gz` accepted on read): header, then samples.
   Player-editable header keys: `name`, `color`, `speed` (dot decimal, `1.0`), `loop`, `anchor`
   (`launch` | `start` | `area`), `anchor_radius`, `trim_start` (`0s`, or `auto` = first movement),

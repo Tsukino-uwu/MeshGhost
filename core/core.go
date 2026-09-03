@@ -644,6 +644,18 @@ type Core struct {
 	replayMu       sync.Mutex
 	replays        map[string]*replayPlayer
 	replaysPending uint32
+	// The chaser pack (core/chaser.go): the player's own past following them.
+	// ChaserContact is the adapter-facing hook (session_policy.chaser_contact);
+	// no shipped adapter honours it and each needs its own ADR first.
+	ChaserEnabled bool
+	ChaserCount   int
+	ChaserDelay   time.Duration
+	ChaserSpacing time.Duration
+	ChaserName    string
+	ChaserColor   string
+	ChaserContact bool
+	chaserMu      sync.Mutex
+	chasers       []*chaser
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.

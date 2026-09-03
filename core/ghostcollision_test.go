@@ -16,7 +16,7 @@ func waitPolicy(t *testing.T, fa *fakeAdapter) string {
 	t.Helper()
 	select {
 	case got := <-fa.policies:
-		return got
+		return got.GhostCollision
 	case <-time.After(testTimeout):
 		t.Fatal("timed out waiting for a session_policy on the bridge")
 		return ""

@@ -97,6 +97,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// The game closed: every replay stops with it, so a relaunch starts
 			// each one from the top rather than mid-clip.
 			c.StopReplays()
+			c.StopChasers()
 			// The game closed: a launch-to-quit recording ends here, and so does
 			// a manual one -- there is nothing left to record. StopRecording is a
 			// no-op when nothing was armed.
@@ -217,6 +218,8 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// Every file in replay/active/ is loaded now and starts at the
 			// player's first in-game frame (core/replay.go).
 			c.StartReplays()
+			// And the chaser pack, if the player turned it on (core/chaser.go).
+			c.StartChasers()
 			// The relay handshake above has already completed, so the room's
 			// policy is known by now and the adapter gets it as part of
 			// coming up rather than a tick later. Order matters: an adapter
@@ -393,20 +396,27 @@ func rejectBridge(nd transport.Transport, reason string) {
 func (c *Core) pushSessionPolicy() {
 	c.mu.Lock()
 	effective := protocol.ResolveGhostCollision(c.relayGhostCollision, c.GhostCollision)
+	contact := ""
+	if c.ChaserEnabled && c.ChaserContact {
+		contact = "enabled"
+	}
+	// The de-dupe key covers both fields: a change in either is a new push.
+	key := effective + "|" + contact
 	nd := c.attachedAdapter
 	// relayPolicyKnown, not just a non-empty value: an unknown room policy
 	// resolves to ENABLED, and telling an adapter to make ghosts solid because
 	// nobody has said otherwise yet is the wrong direction to guess in. The
 	// Welcome that answers the question pushes for us.
-	if nd == nil || !c.adapterReady || !c.relayPolicyKnown || effective == c.sentGhostCollision {
+	if nd == nil || !c.adapterReady || !c.relayPolicyKnown || key == c.sentGhostCollision {
 		c.mu.Unlock()
 		return
 	}
-	c.sentGhostCollision = effective
+	c.sentGhostCollision = key
 	c.mu.Unlock()
 
 	sendBridgeEnvelope(nd, bridge.TypeSessionPolicy, bridge.SessionPolicy{
 		GhostCollision: effective,
+		ChaserContact:  contact,
 	})
 	// Logged because this is the one place a player can see WHY their ghosts
 	// are or are not solid: the value is the resolution of two settings in two

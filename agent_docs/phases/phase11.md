@@ -206,3 +206,41 @@ the newest sample, numbered from 1, loads back through the replay parser, and th
 alongside still holds all 30 frames; an empty ring is refused. `core/replaycontrol_test.go` updated
 for the route. Whole suite and race recorded at the commit. Not driven with a keypress this stage:
 the hotkey→control path was seen working in Stage 5 and save-last is one more case on it.
+
+## 2026-09-03 — Stage 7: the chaser pack, built and green
+
+**What:** `core/chaser.go` — `count` chasers of the player's own past, chaser i running
+`delay + i*spacing` behind (the user's design: "4-5 ghosts chasing you ... if you go back somewhere
+you were another ghost might be in that position"). Each is a local peer with its own buffered
+channel; the recorder tap hands every stamped in-game sample to every chaser without ever blocking
+the frame, and a goroutine per chaser sleeps until `sample time + its delay` and feeds it. Ids
+`chaser:1..N`, tags `"<name> <i>"` (bare when there is one), colour from config. A gap over 1.5s in
+the live stream (menu, loading, nil frames) is a seam for every chaser, so the pack reappears where
+the player is. Count clamps to 8 and chasers plus active replays stay under the 16 local-ghost cap.
+No relay, no file: it works offline. Config: the `chaser` block (`enabled`, `count`, `delay`,
+`spacing`, `name`, `color`, `contact`) and `-chaser*` flags; started at adapter attach, stopped at
+detach. `session_policy` gained `chaser_contact` — `"enabled"` only when `chaser.contact` is on —
+de-duped together with `ghost_collision`, frozen in `internal/gameblind`, in `contract.md` and the
+template as the ONE effect a cosmetic ghost may ever have, honoured only under a per-game ADR and
+the user's on-screen confirmation, which no adapter has.
+
+**Two bugs before green, both mine:** `StartChasers` held the pack's mutex while calling the tap's
+re-arm, which takes the same mutex — a deadlock the first test found in 40s of silence; fixed by
+re-arming after the unlock. And the gap test asked the chaser to reappear at x=100 while the pump kept
+feeding x=0 frames — the pack follows the LIVE stream, so it reappeared where the player actually was;
+the test was wrong, not the code.
+
+**Tests:** `core/chaser_test.go` — a chaser renders ~10 samples (100ms) behind a walking player,
+cosmetic, named and coloured, and despawns on stop; a pack of three at 50ms spacing renders three
+peers back-to-front, "Pack 2" in the middle, and count 99 clamps to 8; off by default; a 1.6s
+silence despawns it and it comes back where the player is; `session_policy` carries `chaser_contact`
+only when contact is on. `internal/e2e/chaser_e2e_test.go`: `-chaser -chaser-count 2` on the real
+binary renders `chaser:1` and `chaser:2`, cosmetic, "Shadow 1" named. Whole suite and race at the commit.
+
+**Race detector, same stage:** the three chaser tests set `c.ChaserEnabled` and friends AFTER the
+adapter had attached, while the bridge goroutine's `pushSessionPolicy` reads them under `c.mu` — a
+test-ordering race (the shipped client sets every field before it serves), fixed by taking `c.mu`
+around the test-side writes. Two things worth keeping: `go test -race` run by hand here fails to
+build (`runtime/cgo` cannot find `stddef.h` — no C toolchain on the bare PATH), so the race check
+goes through `dev-scripts/run-gotests-race.bat` and nothing else; and the detector's first run on
+a stage is the run that counts, not the one after the fix.

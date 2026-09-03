@@ -325,15 +325,17 @@ var frozenBridgeFields = map[string][]string{
 	// The core learns nothing about the game from it; it does not even learn what an orientation
 	// IS, which is precisely why the interpolation happens in the adapter. Bridge-only, so it
 	// cannot fragment room compatibility. See bridge.Hello and ADR 0043.
-	"Hello":         {"features", "game_id", "game_version", "interpolate_orientation", "render_all_areas"},
-	"Event":         {"Event"},
-	"Lease":         {"Lease"},
-	"LeaseState":    {"LeaseState"},
-	"Escrow":        {"Escrow"},
-	"EscrowState":   {"EscrowState"},
-	"World":         {"World"},
-	"WorldState":    {"WorldState"},
-	"SessionPolicy": {"ghost_collision"},
+	"Hello":       {"features", "game_id", "game_version", "interpolate_orientation", "render_all_areas"},
+	"Event":       {"Event"},
+	"Lease":       {"Lease"},
+	"LeaseState":  {"LeaseState"},
+	"Escrow":      {"Escrow"},
+	"EscrowState": {"EscrowState"},
+	"World":       {"World"},
+	"WorldState":  {"WorldState"},
+	// chaser_contact (2026-09-03, ADR 0047): the one effect a cosmetic ghost may have, as a
+	// policy string like ghost_collision beside it; the core knows nothing about what contact IS.
+	"SessionPolicy": {"chaser_contact", "ghost_collision"},
 	// replay_control (2026-09-03, ADR 0047): an action name from a fixed list and a number of
 	// seconds. Nothing about any game -- it is the adapter pressing one of the core's own keys.
 	"ReplayControl": {"action", "seconds"},

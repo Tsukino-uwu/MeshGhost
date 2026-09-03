@@ -78,7 +78,7 @@ type fakeAdapter struct {
 	rejects chan string
 	// policies receives every session_policy the core pushes, in order, so a
 	// test can assert both the value and that a re-push did or did not happen.
-	policies chan string
+	policies chan bridge.SessionPolicy
 	// order records the sequence of message types as they actually arrive, so
 	// a test can assert bridge_ready precedes session_policy. The two are
 	// produced on DIFFERENT goroutines inside the Core (the adapter read loop
@@ -115,7 +115,7 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 		despawns:   make(chan string, 16),
 		ready:      make(chan struct{}, 4),
 		rejects:    make(chan string, 4),
-		policies:   make(chan string, 8),
+		policies:   make(chan bridge.SessionPolicy, 8),
 		order:      make(chan bridge.MessageType, 32),
 	}
 	conn.OnReceive(func(payload []byte) {
@@ -173,7 +173,7 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 				return
 			}
 			select {
-			case fa.policies <- sp.GhostCollision:
+			case fa.policies <- sp:
 			default:
 			}
 		case bridge.TypeReject:

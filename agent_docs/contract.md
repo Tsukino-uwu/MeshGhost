@@ -114,6 +114,12 @@ same way nothing enforces `send_hz`. An adapter that ignores the message is unaf
 existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
 than appearing to comply. See the 2026-08-19 ADR in `architecture.md`.
 
+**`session_policy.chaser_contact` (added 2026-09-03, ADR 0047)** is `"enabled"` only when the
+player turned the chaser's contact hook on, and absent otherwise. It is the ONE effect a cosmetic
+ghost may ever have — an overlap that hurts on touch, never solidity — and an adapter honours it
+only under its own per-game ADR and the user's on-screen confirmation. No shipped adapter does;
+every other cosmetic rule (never solid, blocking, damageable, targetable) holds whatever it says.
+
 **`replay_control` (adapter -> core, added 2026-09-03, ADR 0047)** is optional: one action name
 (`record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_last`, `restart`, `rewind`,
 `fast_forward`) and, for the two seeks, a number of seconds (absent means the client's configured

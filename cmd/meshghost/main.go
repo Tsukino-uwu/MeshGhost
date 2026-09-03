@@ -165,6 +165,21 @@ type fileConfig struct {
 	// game focused, and no adapter has to implement a key. One line in the
 	// player's file; an empty value leaves that action unbound.
 	Hotkeys *hotkeyFileConfig `json:"hotkeys"`
+	// Chaser is the pack of your own past following you (ADR 0047): count
+	// ghosts, the first `delay` behind and each further `spacing` behind the
+	// one before. Cosmetic whatever ghost_collision says; contact is the
+	// adapter-facing hook no shipped adapter honours yet.
+	Chaser *chaserFileConfig `json:"chaser"`
+}
+
+type chaserFileConfig struct {
+	Enabled *bool   `json:"enabled"`
+	Count   *int    `json:"count"`
+	Delay   *string `json:"delay"`
+	Spacing *string `json:"spacing"`
+	Name    *string `json:"name"`
+	Color   *string `json:"color"`
+	Contact *bool   `json:"contact"`
 }
 
 type hotkeyFileConfig struct {
@@ -228,6 +243,14 @@ type configTargets struct {
 	replayStart    *time.Duration
 	replaySeek     *time.Duration
 	hotkeys        *hotkeyTargets
+	chaser         *chaserTargets
+}
+
+type chaserTargets struct {
+	enabled, contact *bool
+	count            *int
+	delay, spacing   *time.Duration
+	name, color      *string
 }
 
 // hotkeyTargets is where the six chords land; nil entries are skipped so a
@@ -315,6 +338,16 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		if t.replaySeek != nil {
 			cfg.OverrideDuration(explicit, "replay-seek", t.replaySeek, fc.Replay.Seek, shown, "meshghost", "replay.seek")
 		}
+	}
+	if fc.Chaser != nil && t.chaser != nil {
+		ch := fc.Chaser
+		cfg.Override(explicit, "chaser", t.chaser.enabled, ch.Enabled)
+		cfg.Override(explicit, "chaser-count", t.chaser.count, ch.Count)
+		cfg.OverrideDuration(explicit, "chaser-delay", t.chaser.delay, ch.Delay, shown, "meshghost", "chaser.delay")
+		cfg.OverrideDuration(explicit, "chaser-spacing", t.chaser.spacing, ch.Spacing, shown, "meshghost", "chaser.spacing")
+		cfg.Override(explicit, "chaser-name", t.chaser.name, ch.Name)
+		cfg.Override(explicit, "chaser-color", t.chaser.color, ch.Color)
+		cfg.Override(explicit, "chaser-contact", t.chaser.contact, ch.Contact)
 	}
 	if fc.Hotkeys != nil && t.hotkeys != nil {
 		h := fc.Hotkeys
@@ -587,6 +620,13 @@ func main() {
 			"after the game's mod attaches and ends when the game closes (config: replay.record_on_launch)")
 	saveLast := flag.Duration("replay-save-last", 30*time.Second,
 		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
+	chaserOn := flag.Bool("chaser", false, "follow yourself: a pack of your own past as cosmetic ghosts (config: chaser.enabled)")
+	chaserCount := flag.Int("chaser-count", 1, "how many chasers (1-8; config: chaser.count)")
+	chaserDelay := flag.Duration("chaser-delay", 3*time.Second, "how far behind you the first chaser runs (config: chaser.delay)")
+	chaserSpacing := flag.Duration("chaser-spacing", 2*time.Second, "how much further behind each next chaser runs (config: chaser.spacing)")
+	chaserName := flag.String("chaser-name", "Chaser", "the chasers' nametag; numbered when there are several (config: chaser.name)")
+	chaserColor := flag.String("chaser-color", "#7A2A2A", "the chasers' nametag colour (config: chaser.color)")
+	chaserContact := flag.Bool("chaser-contact", false, "tell the adapter a chaser may hurt on touch (config: chaser.contact); no shipped adapter honours this yet")
 	hkRecord := flag.String("hotkey-record", "ctrl+shift+F9", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")
 	hkSaveLast := flag.String("hotkey-save-last", "ctrl+shift+F10", "system-wide chord: save the last replay.save_last seconds (config: hotkeys.save_last)")
 	hkReplayLast := flag.String("hotkey-replay-last", "ctrl+shift+F11", "system-wide chord: play the newest recording now (config: hotkeys.replay_last)")
@@ -601,7 +641,7 @@ func main() {
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
-			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys) -- a friendlier alternative to flags for non-developer use; "+
+			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys/chaser) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -646,6 +686,8 @@ func main() {
 		replaySeek:     replaySeek,
 		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
 			replayRestart: hkRestart, replayRewind: hkRewind, replayFastForward: hkFastForward},
+		chaser: &chaserTargets{enabled: chaserOn, count: chaserCount, delay: chaserDelay, spacing: chaserSpacing,
+			name: chaserName, color: chaserColor, contact: chaserContact},
 	})
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
@@ -782,6 +824,11 @@ func main() {
 	c.SaveLastSpan = *saveLast
 	c.ReplayStartDelay = *replayStart
 	c.ReplaySeek = *replaySeek
+	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing
+	c.ChaserName, c.ChaserColor, c.ChaserContact = *chaserName, *chaserColor, *chaserContact
+	if *chaserOn {
+		log.Printf("meshghost: chaser ON -- %d ghost(s) of your own past, %s behind and then every %s", *chaserCount, *chaserDelay, *chaserSpacing)
+	}
 	startHotkeys(c, []hotkeyBinding{
 		{core.ReplayRecordToggle, *hkRecord},
 		{core.ReplaySaveLast, *hkSaveLast},

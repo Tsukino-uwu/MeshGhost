@@ -452,3 +452,30 @@ func TestHotkeysBlockIsReadFromConfig(t *testing.T) {
 		t.Fatalf("keys absent from the block changed: %q %q %q %q", save, last, restart, ff)
 	}
 }
+
+// TestChaserBlockIsReadFromConfig: the nested "chaser" block (ADR 0047), with
+// absent keys left at the flag defaults.
+func TestChaserBlockIsReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"chaser":{"enabled":true,"count":4,"delay":"2s","name":"Me"}}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole bool
+	enabled, contact := false, false
+	count := 1
+	delay, spacing := 3*time.Second, 2*time.Second
+	cname, color := "Chaser", "#7A2A2A"
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+		chaser: &chaserTargets{enabled: &enabled, count: &count, delay: &delay, spacing: &spacing, name: &cname, color: &color, contact: &contact},
+	})
+	if !enabled || count != 4 || delay != 2*time.Second || cname != "Me" {
+		t.Fatalf("chaser block: enabled=%v count=%d delay=%v name=%q", enabled, count, delay, cname)
+	}
+	if spacing != 2*time.Second || color != "#7A2A2A" || contact {
+		t.Fatalf("absent chaser keys changed: spacing=%v color=%q contact=%v", spacing, color, contact)
+	}
+}

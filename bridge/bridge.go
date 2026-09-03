@@ -321,6 +321,14 @@ type SessionPolicy struct {
 	// once, rather than silently appearing to comply. Nothing checks, and
 	// nothing can: this is advisory the whole way down.
 	GhostCollision string `json:"ghost_collision"`
+	// ChaserContact is "enabled" when the player turned the chaser's contact
+	// hook on (ADR 0047), absent otherwise. It is the ONE effect a cosmetic
+	// ghost may ever have -- an overlap that hurts on touch, never solidity --
+	// and an adapter honours it only under its own per-game ADR and the
+	// user's on-screen confirmation. No shipped adapter does yet; every
+	// other rule about cosmetic ghosts (never solid, blocking, damageable,
+	// targetable) holds whatever this says.
+	ChaserContact string `json:"chaser_contact,omitempty"`
 }
 
 // ReplayControl is sent adapter -> core to trigger one replay action from an
