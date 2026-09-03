@@ -79,6 +79,10 @@ How far behind is a ghost drawn? ("interp" in config.json)
        "interp": "300ms"   clean with a little packet loss
        "interp": "175ms"   clean on a good link with no loss; 150ms sat at the edge of stutter
 
+   This is about OTHER PLAYERS only. A replay you play back, or a chaser of your own past,
+   is drawn on its own schedule and is not affected by this setting ("local_interp" in the
+   main config.json, which you should not need to touch).
+
    Values in between behave in between. The tuning
    loop: ghosts stutter = raise it; ghosts feel too far behind on a good connection = lower
    it until you see stutter, then step one notch back. Both players set their own -- it

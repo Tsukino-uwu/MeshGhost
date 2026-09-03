@@ -145,8 +145,12 @@ foreach ($f in $modFolders) {
     # equals the shipped value; the root config.json keeps the complete set for the server and the
     # hand-run client, and README.txt's ADVANCED list says a missing key can be added to a game's
     # file. The user's call, 2026-09-03: no good reason for a player to turn tls off or pick udp.
+    # 'offline' and 'local_interp' joined the list on 2026-09-03 (ADR 0049 and its sibling):
+    # offline is a deliberate advanced choice the user asked to keep out of the per-game files,
+    # and local_interp is a render knob for a ghost this client invented that nobody should
+    # need to touch -- 'interp', the one a player really does tune, stays.
     $hidden = @('keepalive', 'min_send', 'max_receive_hz_per_player', 'transport', 'tls', 'tls_fingerprint',
-                'local_game_bridge', 'stats', 'game', 'game_version', 'features')
+                'local_game_bridge', 'stats', 'game', 'game_version', 'features', 'offline', 'local_interp')
     foreach ($h in $hidden) {
         $text = [regex]::Replace($text, '(?m)^\s*"' + [regex]::Escape($h) + '"\s*:.*\r?\n', '')
     }

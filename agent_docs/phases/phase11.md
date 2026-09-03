@@ -482,3 +482,38 @@ choice. Measured cost of the retry it leaves running: one log line per 60 second
 dial per 15 seconds, neither on the frame path. Cosmetic noise, not a performance problem. The
 user's call on the shape (2026-09-03): an `offline` boolean shipping as `false` in the root
 config, an advanced setting, and deliberately NOT in any per-game override file.
+
+### Built the same evening: the per-peer render time, an offline mode, and smaller recordings
+
+**All three are Go-side, so they are confirmed with the tools rather than watched** (`CLAUDE.md`):
+`go test ./...` green, `internal/e2e` included, and each regression test verified to FAIL on a
+deliberately reintroduced defect before being kept.
+
+1. **Per-peer render time — ADR 0049.** `remoteStatesAt` now takes `now` and subtracts per peer
+   class: `DefaultInterpolationDelay` (450ms) for a relay peer, the new `DefaultLocalGhostDelay`
+   (25ms) for a `replay:`/`chaser:` id. The end-of-clip hold and the split time moved with it. Three
+   things that would have broken quietly and were handled in the same edit: local peers are kept out
+   of the `dry` meter (a NETWORK statistic — otherwise every adapter hitch reads as a bad connection
+   for anyone running a chaser), `dryLoggedAt`'s throttle moved to `now` (two render times in one
+   shared field), and `Extrapolate` is forced to 0 for a ghost whose future is already on disk.
+2. **`offline`** — `false` in the shipped root config, absent from the per-game files (the user's
+   call). Enforced in `ConnectRelayOnAdapterHello`, the one funnel both dial paths pass through; a
+   guard on the startup retry loop alone would have left an adapter's own hello dialling anyway.
+   The e2e test **binds the relay address itself and counts accepts**, so "never dialled" is proven
+   by a listener rather than by reading a log.
+3. **Recordings gzip and round** — `replay.gzip`, on, with a plain escape hatch. 33.5x together on
+   the user's real clip, ~310 MB/hour down to ~9. The rounder COPIES rather than rounding in place,
+   because the ring and the chasers hold the same `State` and trimming a file must not change what a
+   live ghost renders. Delta encoding stays filed, not built (`ideas.md`, `scaling.md`).
+
+**The lesson worth keeping, and it is about test helpers rather than about interpolation.** The
+defect was three lines apart in three files, arithmetically obvious once written down, and it
+survived a full suite plus an e2e suite plus a fuzz target — because **every helper that touches a
+local peer pinned the interpolation delay to zero**, for the good reason that a fed sample then
+renders on the very next frame. At zero the defect cannot exist. A helper's convenience default is
+a blind spot in the exact shape of the thing it makes convenient, so when a bug turns out to be
+unreachable by the whole suite, look at what the helpers hold constant before looking at the code
+again.
+
+**Still owed on screen, and it is genuinely a look rather than a measurement:** a 3s chaser that
+looks 3s behind, and a split time that agrees with the ghost the player can see.

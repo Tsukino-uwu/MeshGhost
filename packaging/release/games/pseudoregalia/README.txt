@@ -127,6 +127,10 @@ How far behind is a ghost drawn? ("interp" in config.json)
        "interp": "300ms"   smooth at up to ~120 ping with a little loss (same continent)
        "interp": "250ms"   smooth at up to ~120 ping on a clean connection
 
+   This is about OTHER PLAYERS only. A replay you play back, or a chaser of your own past,
+   is drawn on its own schedule and is not affected by this setting ("local_interp" in the
+   main config.json, which you should not need to touch).
+
    Values in between behave in between. The rule of thumb from measuring: the worse your
    ping WOBBLES (not how big it is -- how much it varies, plus any packet loss), the more
    interp you need. A steady 200 ping needs less than an unstable 100. If ghosts stutter,

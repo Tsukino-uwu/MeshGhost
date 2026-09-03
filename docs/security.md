@@ -468,7 +468,7 @@ latest state, now. That tradeoff doesn't bite the way it would in a competitive 
   is the fallback when nothing else applies; the actual rate is
   `Core.effectiveSendInterval()` — the slower of a relay's advertised `Welcome.SendHz` and a
   client's own explicit `Core.MinSendInterval`, `core.go`; see the send/receive rate-control ADR
-  in `architecture.md`), and rendering already runs `InterpolationDelay` (250ms default) behind
+  in `architecture.md`), and rendering already runs `InterpolationDelay` (450ms default) behind
   the newest sample specifically to smooth network jitter. A TCP stall is at most one send
   interval (~67ms at the 15Hz default, as low as ~10ms at the 100Hz ceiling) — invisible against
   delay already absorbed by design at the default rate, not a new cost UDP would meaningfully

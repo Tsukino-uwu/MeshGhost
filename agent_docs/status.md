@@ -10,7 +10,8 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
-- 2026-09-03 **Local ghosts are drawn one interpolation delay LATE: a 3s chaser renders 3.45s behind and the split time measures a ghost 450ms ahead of the visible one; no test could catch it, both helpers pin interp to 0** — `phases/phase11.md` (2026-09-03 late), `ideas.md`.
+- 2026-09-03 **BUILT, unwatched: local ghosts render on their own 25ms delay (ADR 0049), an `offline` mode ships false, and recordings gzip+round to ~9 MB/hour from ~310; the look still owed is a 3s chaser that looks 3s behind and a split time matching the visible ghost** — `phases/phase11.md`, `scaling.md`.
+- 2026-09-03 **`FuzzEverything` fails locally on Windows within ~15s of a real campaign — ephemeral-port exhaustion in the harness, reproduced on an unmodified tree; the corpus file it writes is noise, not a finding** — `testing.md` Traps.
 - 2026-09-03 **Emerald: a peer on a bike shows only when YOU are on one too — the spawned tier wears the LOCAL player's graphic, because the peer-graphic path is off pending a 32px OAM/subsprite fix; reads as intermittent, is deterministic** — `emerald/UNVERIFIED.md`, `emerald/FLAGS.md`.
 - 2026-09-03 **Both Pokemon adapters' JSON decoders were fixed from measurement and are UNWATCHED: Emerald gained a depth cap (it followed 5000 levels), Crystal now decodes `\uXXXX` instead of substituting `?`** — each adapter's `UNVERIFIED.md`; `phases/phase8.md`, `phase9.md`.
 - 2026-09-03 **Adapter fuzz harnesses: Lua (both Pokemon) and TEVI built and in CI, each path-filtered; Pseudoregalia not started and needs a header extraction plus a DLL rebuild** — `ideas.md`, "Adapter-side fuzzers".

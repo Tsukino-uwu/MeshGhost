@@ -223,7 +223,10 @@ permitted rate, not a replay log. (It was a count of 8 until 2026-08-28; the com
 constant records the bug that fixed.)
 
 **Core → adapter.** Every adapter frame, `tickRenders` (`core/remotes.go`) computes
-`renderTime = now - InterpolationDelay` (250ms by default) and asks `remoteStatesAt`
+a render time per PEER CLASS — `now - InterpolationDelay` (450ms) for a peer learned from the
+relay, and `now - LocalInterpolationDelay` (25ms) for a ghost this core invented, a `replay:` or
+`chaser:` id (ADR 0049; a local sample never crossed a network, and charging it the jitter buffer
+drew a chaser set to 3s at 3.45s) — and asks `remoteStatesAt`
 (`core/remotes.go`) for each remote's state at that moment. `remoteBuffer.at` (`interp.go`)
 finds the two snapshots bracketing `renderTime` and lerps position between them; `area_id`,
 `anim` and `extras` are opaque and are never interpolated — they're taken from
