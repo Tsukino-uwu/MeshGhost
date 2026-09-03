@@ -1503,3 +1503,67 @@ confirmed to work, tested both in pseudoregalia"*.
     through the same core path, but "the same code" is not the standard this file uses.
   - What was NOT part of this: split times, anchors, and the chaser's contact damage, none of
     which were reported on.
+
+## 2026-09-03 — A local ghost renders on its own delay: the defect, the fix, and why the whole suite was blind to it
+
+**Go-side track — confirmed with the tools, not on screen** (`CLAUDE.md`: `core`, `relay`,
+`transport`, `bridge` and `cmd/` are deterministic code against a contract we own).
+
+- **Date:** 2026-09-03
+- **The defect, which shipped:** `tickRenders` drew every remote at
+  `now - InterpolationDelay`, including ghosts this core invented. A chaser and a replay stamp each
+  sample with the wall time it is meant to be AT (`chaser.go:86`, `replay.go:476`), so the delay was
+  charged twice: **a chaser configured for 3s was drawn at 3.45s**, a replay ran 450ms behind its
+  own schedule, and the split time — which searches the clip's raw samples against `now` — read
+  `+0.0s` while the visible ghost was still 450ms short of that spot.
+- **The fix:** ADR 0049. Two render times, derived once each under `c.mu` in `remoteStatesAt` and
+  selected per id by `isLocalPeerID`.
+- **Measured, not argued.** Each regression test was run against a deliberately reintroduced
+  defect before being kept:
+  - `TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay` — a relay peer and a chaser fed the
+    identical stream come out 425 apart; with the defect the chaser drew at `x=-450` instead of
+    `x=-25`.
+  - `TestAChaserLagsByItsOwnDelayNotDelayPlusInterp` — 300ms of configured delay measured ~30 units
+    (300ms); with the defect, 55 units.
+  - `TestChaserFollowsThroughTheRealBinary`, now at `-interp 450ms` — **637ms measured against a
+    wanted ~200ms** through the real client binary.
+  - `TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE` — reads `0.0s` with the correction removed,
+    and `-0.1s` with the correction wrongly divided by `clip.speed` (the `speed = 4` subtest is the
+    only place that mistake is visible).
+  - `TestALocalGhostStillInterpolatesRatherThanEdgeHolding` pins the reason the local delay is 25ms
+    and not 0: at 0 the render time lands on the newest fed sample and holds it.
+- **Suite state:** `dev-scripts/run-gotests.bat` green (build, vet, whole suite twice including
+  `internal/e2e`, which drives the real binaries); `run-gotests-race.bat` green (`-race -count=3`);
+  `go test ./core/ -count=10` green.
+- **What this does NOT cover:** anything on screen. Nobody has yet watched a 3s chaser look 3s
+  behind, or a split time agree with the visible ghost. That stays in `phases/phase11.md`'s
+  still-owed list, because "the tests are green" has never been this file's standard for a visual
+  claim.
+- **The finding worth keeping, and it is about test helpers rather than interpolation.** The bug
+  was arithmetically obvious once written down and survived the full suite, the e2e suite and a fuzz
+  target — because **every helper that touches a local peer pinned the interpolation delay to
+  zero**: `core/localpeer_test.go:27`'s `startLocalPeerCore`, and `internal/e2e/e2e_test.go:347`'s
+  `startClient` with its hardcoded `-interp 0ms`. Both defaults are good ones (a fed sample then
+  renders on the very next frame). At zero, though, the defect cannot exist, so the chaser test
+  measured its own delay correctly the whole time. **A helper's convenience default is a blind spot
+  shaped exactly like the thing it makes convenient** — when a bug turns out to be unreachable by an
+  entire suite, look at what the helpers hold constant before looking at the code again.
+
+## 2026-09-03 — Recordings ship gzipped and trimmed: 310 MB/hour becomes about 9
+
+**Go-side track.**
+
+- **Date:** 2026-09-03
+- **Measured on a real 3-minute Pseudoregalia clip** (15,762 samples, 87.5 Hz, 983 B/sample):
+  15,500,011 bytes as written; 802,790 gzipped; **462,375 rounded and gzipped, 33.5x**, which is
+  ~310 MB/hour down to ~9. Full table and method: `scaling.md`, "What a recording costs on disk".
+- **Neither half is a format revision.** Both loaders already read `.ndjson.gz`, and the rounding
+  (3 decimals of position, 6 of orientation, 3 inside `extras`) deletes float64 print noise —
+  `550.0000000000016` — rather than information.
+- **What a test pins, because it is the way this could go wrong quietly:** the rounder COPIES the
+  position slice and the extras map. The ring and every chaser hold the same `protocol.State`, so
+  rounding in place would have let the recorder change what a live ghost renders.
+- **Not built, and filed with its measurement:** per-KEY `extras` delta encoding (4.4x before gzip).
+  Per-LINE dedup — the intuitive form — is worth ~2%: only 274 of 15,761 lines carry an unchanged
+  `extras` block, because `h_speed`, `v_speed` and `slide_t` jitter every frame while every other
+  one of the 40 keys changes on 117 lines or fewer.
