@@ -525,3 +525,52 @@ again.
 
 **Still owed on screen, and it is genuinely a look rather than a measurement:** a 3s chaser that
 looks 3s behind, and a split time that agrees with the ghost the player can see.
+
+## 2026-09-04 — Three defects the user found by playing, and a documentation pass
+
+**The session's shape is worth keeping: every finding below came from the user running the game,
+and each was a different KIND of miss.**
+
+1. **`record_on_launch` wrote nothing, and it was not the recorder.** The log said
+   `core: refused an adapter: core: dial relay: ... actively refused it` once every ten seconds:
+   no relay was running, so the client refused the game, so no frames arrived, so the tap never
+   ran. Fixed by ADR 0050 (a downed relay keeps the adapter and retries in the background) after
+   the user's *"i just assumed both recording & playing back would work offline/without a
+   server"* -- which is the right expectation, and Phase 11 is what made it right: recording and
+   replays became solo features while the client still refused to start a session without a
+   multiplayer server. **Two tests that pinned the OLD behaviour had to be rewritten**, and one of
+   them, `TestARelayFailureRejectionSaysRelay`, guards a contract with all four adapters (they
+   match "relay" in a reject reason to tell "wait here" from "walk to the next port"). It is now
+   two tests: a downed relay must NOT reject, and a permanent refusal still must.
+2. **A gzipped recording would not open.** *"Error 0x8000FFFF: Catastrophic failure"* from
+   Explorer, and 7-Zip refused it too. `gzip -t`: `unexpected end of file`. The client exits
+   through `watchParentPID`'s `os.Exit(0)` when the game closes -- the NORMAL end of a session --
+   which ran no cleanup, so the gzip footer was never written. Every byte of data was intact.
+   Two fixes, because there were two faults: the exit path now closes the recording, and plain
+   text became the default with the size moved into per-key delta encoding (ADR 0051, 4.5x, still
+   editable). **The ordering lesson: a format whose failure mode is all-or-nothing is the wrong
+   default for an artefact produced by a process that is routinely killed.**
+3. **A hostile display name exposed our own JSON parser.** `json_string_field` scanned for the
+   next bare quote, so an escaped quote truncated the value: the nametag read `uwu325235#\`. Both
+   Pokemon adapters had their decoders fixed on 2026-09-03; this was the sibling that was missed.
+   Filed as READY in `pseudoregalia/UNVERIFIED.md` along with the title-screen gate, which came
+   from the same recording: the menu is a real level with a real pawn, so the "no pawn" branch
+   never fired and every clip opened with dead frames.
+
+**What the user reported and asked to be logged rather than chased:** the player's own SFX go
+quiet while ghosts are audible. Two shapes fit and they want different fixes -- a path escaping
+the silence clause, and Unreal sound concurrency stealing the player's voices. `UNVERIFIED.md`.
+
+**The fuzz targets stopped standing up sockets.** Both bridge-driving targets opened a listener per
+iteration, which exhausts Windows' ephemeral ports in seconds; `FuzzEverything` died loudly and
+wrote a corpus file that passes on re-run, and `FuzzScheduleConvergence` swallowed the error and
+spent the rest of every campaign with NO ADAPTER ATTACHED. They now serve the real bridge over
+`net.Pipe`. A 2-minute campaign went from ~2,000 executions to 51,632. `testing.md`, Traps.
+
+**A documentation pass, driven by the user comparing the root README to a project they admire:**
+the transports and good-to-know sections are gone (nothing lost -- `docs/security.md` and
+`docs/config.md` already carried it), the opening states its promises instead of arguing for them,
+and replay ghosts have a paragraph near the top because nobody scrolling past the fold knew they
+existed. 274 lines to 200. Three conventions came out of it and are now in `agent_docs/README.md`:
+describe our features on their own terms, keep the root README minimal, and **write the invariant,
+never the inventory** -- "none of the shipped games do X" is true until it is silently false.
