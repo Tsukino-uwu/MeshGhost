@@ -2037,7 +2037,10 @@ synced/mimiced light in the future"*.
 **PICKED UP 2026-09-03 as Phase 11** — ADR 0047 decides the model (a replay is a local fake peer),
 ADR 0048 the hotkeys, `plans.md` the stages, `phases/phase11.md` the log. The prerequisite below
 ("debugging tool or shipped feature?") was answered: shipped, player-facing, sharable files. The
-chaser ("Badeline") and the chaser pack came from the same conversation. Kept as the research trail.
+chaser and the chaser pack came from the same conversation -- asked for as a ghost that trails and
+can hurt you, *"similar to how Badeline chases Madeline in Celeste"* (`phases/phase11.md`), which is
+a reference to how that game does it and NOT a name for ours. It is called the chaser everywhere:
+the config block, the `chaser:` ids, the flags. Kept as the research trail.
 
 **Quoted observation, relayed by the user 2026-08-30 and recorded verbatim** — secondhand, about
 Trackmania specifically, and **not verified against that game by anyone here**:

@@ -17,11 +17,11 @@ like a sticker on the screen. Those writes go only to the object memory that exi
 is running and is gone the moment you close it. Nothing is written to a save file, and no ROM is
 ever patched.
 
-MeshGhost can also record *you*, and play it back as a ghost — the time-trial ghost racing games
-have, made from your own run. A recording is one small file you can keep, edit or send to a friend;
-drop one into the `replay` folder and it plays the route beside you, and its nametag can show how
-far ahead or behind it you are. A **chaser** is the same idea with no file: your own past,
-following you a few seconds back. Both are cosmetic like any other ghost, both work with no server
+MeshGhost can also record *you*, and play it back as a **replay ghost**: your own run, on the route
+beside you, which you can race the way you would a time-trial ghost. A recording is one small file
+you can keep, edit or send to a friend; drop one into the `replay` folder and it plays alongside
+you, and its nametag can show how far ahead or behind it you are. A **chaser** is the same idea
+with no file: your own past, following you a few seconds back. Both are cosmetic like any other ghost, both work with no server
 and nobody else online, and neither needs a game to support anything new.
 
 **Download:** the [Releases page](../../releases). `MeshGhost-full-<version>.zip` is the one nearly
