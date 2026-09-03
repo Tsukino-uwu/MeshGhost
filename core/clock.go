@@ -66,6 +66,12 @@ func (wallClock) Since(t time.Time) time.Duration { return time.Since(t) }
 //     it.
 //
 // Returning a fresh zero-size value costs nothing and cannot race.
+//
+// THE ONE RULE FOR A CALLER: set the field BEFORE the Core is started, and never
+// again. It is read from several goroutines and from StartRecording without
+// c.mu, so it is safe as a write-once-at-construction value and is a data race
+// as anything else. Nothing shipped writes it at all; only tests do, and they do
+// it beside the other fields, before ServeBridge or ConnectRelay.
 func (c *Core) clk() coreClock {
 	if c.timeSrc == nil {
 		return wallClock{}

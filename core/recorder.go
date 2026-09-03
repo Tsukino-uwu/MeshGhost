@@ -218,7 +218,7 @@ func (r *recorder) writeLocked(st protocol.State) error {
 		}
 		r.f = f
 		r.w = bufio.NewWriterSize(f, 64*1024)
-		r.header.Recorded = time.Now().UTC().Format(time.RFC3339)
+		r.header.Recorded = time.Now().UTC().Format(time.RFC3339) // wall-clock: written into a file a person reads
 		if err := writeReplayLine(r.w, r.header); err != nil {
 			return err
 		}
@@ -307,8 +307,8 @@ func (c *Core) StartRecording() (string, error) {
 		return c.rec.path, errors.New("already recording to " + c.rec.path)
 	}
 	c.rec.dir = c.ReplayDir
-	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now())
-	c.rec.header = defaultReplayHeader(game, version, time.Now())
+	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now())   // wall-clock: a filename, deduplicated against the real filesystem
+	c.rec.header = defaultReplayHeader(game, version, time.Now()) // wall-clock: an artefact timestamp
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
@@ -395,16 +395,19 @@ func (c *Core) SaveLast() (string, int, error) {
 	if err := os.MkdirAll(c.ReplayDir, 0o755); err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", c.ReplayDir, err)
 	}
-	path := replayFileName(c.ReplayDir, "last", time.Now())
+	path := replayFileName(c.ReplayDir, "last", time.Now()) // wall-clock: a filename, as above
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", path, err)
 	}
 	w := bufio.NewWriterSize(f, 64*1024)
-	hdr := defaultReplayHeader(game, version, time.Now())
+	hdr := defaultReplayHeader(game, version, time.Now()) // wall-clock: an artefact timestamp
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
-	hdr.Recorded = time.Now().Add(-time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond).UTC().Format(time.RFC3339)
+	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.
+	// Mixed on purpose and harmless: the result is a human-readable string in a file header,
+	// never compared against anything.
+	hdr.Recorded = time.Now().Add(-time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond).UTC().Format(time.RFC3339) // wall-clock: an artefact timestamp
 	if err := writeReplayLine(w, hdr); err != nil {
 		f.Close()
 		return "", 0, err

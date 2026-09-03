@@ -81,7 +81,7 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 		return
 	}
 	interval := c.effectiveSendInterval()
-	elapsed := time.Since(c.lastSendAt)
+	elapsed := c.clk().Since(c.lastSendAt)
 	if c.lastSendAt.IsZero() {
 		elapsed = interval // always allow the first send
 	}
@@ -106,7 +106,7 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	// state from this player, and on udp, where a suppressed packet's loss would
 	// otherwise persist until the player next moves.
 	unchanged := c.IdleKeepalive > 0 && sameSentState(c.lastSentState, state)
-	if unchanged && time.Since(c.lastSendAt) < c.IdleKeepalive {
+	if unchanged && c.clk().Since(c.lastSendAt) < c.IdleKeepalive {
 		// lastSendAt deliberately NOT updated: this frame did not send, and the
 		// next CHANGED frame must be free to go out as soon as the ordinary
 		// rate limit allows rather than being pushed back by a skip.
@@ -137,7 +137,7 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	kept.Timestamp = 0
 	c.lastSentState = &kept
 
-	c.lastSendAt = time.Now()
+	c.lastSendAt = c.clk().Now()
 	playerID := c.playerID
 	carryPrev := c.redundancyOnLocked(interval)
 	c.mu.Unlock()
@@ -235,10 +235,10 @@ func (c *Core) sendHeartbeats(conn transport.Transport) {
 		if !c.sendPing(conn, &nonce) {
 			return
 		}
-		time.Sleep(probeGap)
+		time.Sleep(probeGap) // wall-clock: paces real pings for an RTT measurement
 	}
 
-	ticker := time.NewTicker(interval)
+	ticker := time.NewTicker(interval) // wall-clock: the ping cadence measures the network
 	defer ticker.Stop()
 	for range ticker.C {
 		if !c.sendPing(conn, &nonce) {
@@ -270,7 +270,7 @@ func (c *Core) sendPing(conn transport.Transport, nonce *uint64) bool {
 	// Recorded before the send, not after: a send that blocks briefly is part
 	// of the round trip a client actually experiences, and stamping
 	// afterwards would quietly subtract it and bias every estimate low.
-	c.recordPingSent(*nonce, time.Now())
+	c.recordPingSent(*nonce, time.Now()) // wall-clock: the other half of the RTT measurement
 	return conn.Send(env) == nil
 }
 

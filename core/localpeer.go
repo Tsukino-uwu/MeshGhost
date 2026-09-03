@@ -142,8 +142,8 @@ func (c *Core) tickCount() uint64 {
 // A nil stop channel blocks forever in the select, which is exactly the old
 // behaviour for the callers that have nothing to cancel.
 func (c *Core) awaitTick(after uint64, max time.Duration, stop <-chan struct{}) bool {
-	deadline := time.Now().Add(max)
-	for time.Now().Before(deadline) {
+	deadline := time.Now().Add(max)   // wall-clock: bounds a poll for an ADAPTER frame
+	for time.Now().Before(deadline) { // wall-clock: pairs with the deadline above
 		if c.tickCount() > after {
 			return true
 		}
@@ -152,7 +152,7 @@ func (c *Core) awaitTick(after uint64, max time.Duration, stop <-chan struct{}) 
 			// Report honestly rather than assuming failure: a tick may have
 			// landed between the check above and the shutdown.
 			return c.tickCount() > after
-		case <-time.After(2 * time.Millisecond):
+		case <-time.After(2 * time.Millisecond): // wall-clock: the poll interval
 		}
 	}
 	return c.tickCount() > after

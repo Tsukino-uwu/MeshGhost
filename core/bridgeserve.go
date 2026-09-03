@@ -333,7 +333,7 @@ func (c *Core) onAdapterFrame(msg bridge.LocalState, nd transport.Transport, ren
 // tickInterval until stop is closed.
 func (c *Core) RunAdapter(adapter Adapter, tickInterval time.Duration, stop <-chan struct{}) {
 	rendered := make(map[string]bool)
-	ticker := time.NewTicker(tickInterval)
+	ticker := time.NewTicker(tickInterval) // wall-clock: RunAdapter polls a GAME for frames
 	defer ticker.Stop()
 	for {
 		select {

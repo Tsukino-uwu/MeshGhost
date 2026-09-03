@@ -276,3 +276,42 @@ Still ahead: `nowMsLocked` itself, `awaitTick`'s polling, the two due-waits, and
 ratchet that keeps a mixed clock from coming back.
 
 Suite green including `internal/e2e`; race detector clean.
+
+## 2026-09-03 (night, second) — the clock's ROOT, the send-rate trio, and the ratchet that keeps it
+
+**Stage 3, the root.** `nowMsLocked` now reads the injectable clock. That one call is where every
+timestamp on outgoing state, every render time remotes are interpolated at, and every due time a
+replay or chaser sleeps until comes from — so converting it converts staleness, interpolation,
+playback pacing and the chaser pack together, and none of those needed a clock of their own. The
+test advances eight hours and asserts it cost no real time; the monotonic clamp is checked in the
+same test by stepping the clock backwards an hour.
+
+**The offset stays wall-derived, deliberately.** `clockAdjustLocked` comes from RTT samples measured
+against the real network, which a virtual clock cannot measure. So `nowMsLocked` is now a virtual
+`Now()` plus a wall-measured scalar. That is sound — the scalar is a number a test can set — but it
+is written at the site, because it looks like an inconsistency and someone would otherwise "fix" it
+back into a mixed clock.
+
+**Stage 4, the send-rate trio.** `lastSendAt` and BOTH its readers (`sending.go:84`, `:109`) moved
+together. This is the exemplar the whole design note is about: converting the write alone would have
+left two `time.Since` calls computing `wallNow − virtualStored`.
+
+**Stage 5, the ratchet.** Every remaining bare `time.*` in `core/*.go` — 23 of them across a dozen
+files — now carries an inline `wall-clock:` note saying why it stays: socket deadlines, dial backoff,
+the ping pairing that MEASURES the network, the two shutdown joins where a virtual clock would turn a
+leak into a hang, the adapter frame poll, and the artefact timestamps written into replay files.
+Preflight's new "The core's clock is injectable, and stays that way" fails a bare call that has
+neither a `c.clk()` nor a note.
+
+Three things that check is built to survive, because a check nobody can trust is worse than none:
+`_test.go` is excluded (tests legitimately sleep by the hundred), the exclusion runs BEFORE the
+vacuity guard so an over-eager filter cannot make it pass on an empty set, and it was confirmed to
+FAIL by deleting one marker — it named `core/stats.go:219` exactly.
+
+Suite green including `internal/e2e`; race detector clean.
+
+**Left for later, and small:** `awaitTick`'s own polling and the two due-waits still read the wall
+clock for their SLEEP, while their due times already come from the virtual `nowMs`. That split is
+deliberate for now and marked as such: a virtual sleep needs the fake clock to be advanced by
+something, which is the "advance until quiescent" helper the entry in `ideas.md` describes and this
+session did not build.

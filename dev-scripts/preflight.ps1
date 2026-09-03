@@ -595,6 +595,48 @@ if ($boolFiles.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+Section "The core's clock is injectable, and stays that way"
+
+# core reads an injectable clock for LOGIC (core/clock.go) so a test can advance time instead of
+# spending it. The hazard is not getting it wrong once; it is getting it right and then losing it one
+# call at a time, because a MIXED clock fails silently: a value stored on the virtual clock and read
+# with time.Since computes wallNow - virtualStored, which is either an enormous positive or a
+# negative depending on the fake's epoch. A rate limiter that never limits, or one that never sends,
+# and nothing crashes.
+#
+# So every bare time.* in core/*.go must either go through c.clk() or say on its own line why it
+# stays on the wall clock, with a `wall-clock:` note. Those are real and there are many of them --
+# socket deadlines, dial backoff, the ping pairing that MEASURES the network, the shutdown joins
+# where a virtual clock would turn a leak into a hang, and the artefact timestamps written into
+# replay files. The marker is what separates "deliberate" from "missed".
+#
+# _test.go is excluded: tests legitimately sleep, poll and measure real elapsed time by the hundred.
+# The exclusion runs BEFORE the vacuity guard, so an over-eager filter cannot make this pass on an
+# empty set -- which is the failure mode that would make this check worthless exactly when it
+# matters most.
+$clockPattern = 'time\.(Now|Since|Sleep|After|NewTicker|NewTimer|Tick)\('
+$clockFiles = @(& git ls-files -- 'core/*.go' | Where-Object { $_ -notlike '*_test.go' -and $_ -ne 'core/clock.go' })
+$clockBare = @()
+foreach ($f in $clockFiles) {
+    $lines = @(Get-Content -LiteralPath $f)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -notmatch $clockPattern) { continue }
+        if ($l -match '^\s*//') { continue }          # a comment naming the trap is allowed
+        if ($l -match 'wall-clock:') { continue }      # deliberate, and it says why
+        $clockBare += "$f`:$($i + 1)"
+    }
+}
+if ($clockFiles.Count -eq 0) {
+    Report-Fail "no core/*.go files found -- the clock check would pass vacuously"
+} elseif ($clockBare.Count -gt 0) {
+    Report-Fail "$($clockBare.Count) bare time.* call(s) in core -- route it through c.clk() (core/clock.go) or mark the line `wall-clock:` with the reason:"
+    $clockBare | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every time.* in $($clockFiles.Count) core file(s) is either injectable or marked wall-clock:"
+}
+
+# ---------------------------------------------------------------------------
 Section "No bare interpreter on PATH in dev-scripts"
 
 # The wrong-install-on-PATH trap, four times live (cmake 2026-08-13, git 2026-08-15, cmd 2026-08-17

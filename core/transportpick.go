@@ -170,7 +170,7 @@ func (c *Core) queryTransports(addr, gameID, room, displayName, roomCode, gameVe
 			// duplicating that logic here.
 			return nil, secure, nil
 		}
-	case <-time.After(discoverTransportTimeout):
+	case <-time.After(discoverTransportTimeout): // wall-clock: waiting on a real dial
 		return nil, secure, nil
 	}
 }

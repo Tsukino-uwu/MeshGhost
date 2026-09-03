@@ -902,7 +902,7 @@ type Core struct {
 // only ever applies as effectiveSendInterval's last-resort fallback.
 func New() *Core {
 	return &Core{
-		startedAt:          time.Now(),
+		startedAt:          time.Now(), // wall-clock: reported to a human as uptime (stats.go)
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
 		IdleKeepalive:      DefaultIdleKeepalive,

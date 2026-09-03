@@ -105,7 +105,25 @@ func (c *Core) nowMs() int64 {
 // the socket, on the game's main thread. Anything called from under c.mu needs
 // this form.
 func (c *Core) nowMsLocked() int64 {
-	ms := time.Now().UnixMilli() + c.clockAdjustLocked()
+	// THE ROOT. Every timestamp stamped on outgoing state, every render time
+	// remotes are interpolated at, and every due time a replay or chaser sleeps
+	// until comes from here -- so converting this one call converts staleness,
+	// interpolation, playback pacing and the chaser pack together, and no other
+	// site needs its own clock for any of them.
+	//
+	// c.clk() is a pure read that never assigns (clock.go says why at length):
+	// this runs under c.mu, and an accessor that took the lock to initialise
+	// itself would be the exact reentrancy deadlock this function's own comment
+	// above describes.
+	//
+	// The OFFSET stays wall-derived, and that is deliberate rather than an
+	// oversight: clockAdjustLocked comes from RTT samples measured against the
+	// real network (sending.go's ping pairing), which a virtual clock cannot
+	// measure. So this is a virtual now plus a wall-measured scalar. That is
+	// sound -- the scalar is just a number a test can set -- but it must be
+	// written down, or someone will later "fix" the inconsistency and
+	// reintroduce a mixed clock.
+	ms := c.clk().Now().UnixMilli() + c.clockAdjustLocked()
 	// **Never go backwards.** The offset is re-estimated whenever a better
 	// (lower-RTT) sample arrives, so it can DECREASE — and this value feeds
 	// both the timestamp stamped on outgoing state and the render time used to
@@ -431,7 +449,7 @@ func (c *Core) handleOnlineMessage(env protocol.Envelope) bool {
 // recorded send time is ignored — it belongs to a previous connection, or to
 // a relay echoing something this Core never sent.
 func (c *Core) observePong(pong protocol.Pong) {
-	recvAt := time.Now()
+	recvAt := time.Now() // wall-clock: half of an RTT measurement of the real network
 	c.mu.Lock()
 	sentAt, ok := c.pendingPings[pong.Nonce]
 	if ok {

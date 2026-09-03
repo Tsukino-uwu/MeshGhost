@@ -185,3 +185,49 @@ func TestAwaitTickGivesUpWhenItsCallerIsShuttingDown(t *testing.T) {
 		t.Fatalf("awaitTick with a nil stop channel took %v: a nil channel blocks in select, so the deadline must still be checked", elapsed)
 	}
 }
+
+// TestTheRelayClockRunsOnTheInjectedClock covers the ROOT conversion: nowMsLocked
+// is where every timestamp on outgoing state, every render time remotes are
+// interpolated at, and every due time a replay or chaser sleeps until comes
+// from. Converting that one call converts staleness, interpolation, playback
+// pacing and the chaser pack together.
+//
+// The payoff is the second half of this test: crossing a window measured in
+// HOURS costs nothing. That is the thing the entry in ideas.md was asking for
+// and the thing a compressed clock cannot do -- shortening a per-Core field
+// until the window is milliseconds away stops testing the code once the window
+// is shorter than the machine's own scheduling jitter, and it cannot shorten a
+// duration that is not a field at all.
+func TestTheRelayClockRunsOnTheInjectedClock(t *testing.T) {
+	clk := newFakeClock()
+	c := New()
+	c.timeSrc = clk
+
+	first := c.nowMs()
+	if second := c.nowMs(); second != first {
+		t.Fatalf("nowMs moved from %d to %d with no time passing: it is not reading the injected clock", first, second)
+	}
+
+	clk.Advance(1500 * time.Millisecond)
+	if got, want := c.nowMs(), first+1500; got != want {
+		t.Fatalf("after advancing 1.5s nowMs is %d, want %d", got, want)
+	}
+
+	// Eight hours, instantly. A real sleep here would be a test nobody runs.
+	before := time.Now()
+	clk.Advance(8 * time.Hour)
+	if got, want := c.nowMs(), first+1500+8*60*60*1000; got != want {
+		t.Fatalf("after advancing 8h nowMs is %d, want %d", got, want)
+	}
+	if spent := time.Since(before); spent > time.Second {
+		t.Fatalf("advancing eight hours took %v of real time -- something is still on the wall clock", spent)
+	}
+
+	// And the monotonic clamp still holds against a clock that goes backwards,
+	// which is the guard nowMsLocked documents at length.
+	high := c.nowMs()
+	clk.Advance(-time.Hour)
+	if got := c.nowMs(); got < high {
+		t.Fatalf("nowMs went backwards to %d from %d when the clock stepped back: the clamp is not holding", got, high)
+	}
+}

@@ -345,6 +345,44 @@ measured nothing — the run had to be repeated.
 does not report being too expensive. Budget the reads *before* the run, and if a probe produces no
 log at all, suspect its cost before suspecting the game.
 
+## Load an adapter's parser WITHOUT the host, and fuzz it offline — 2026-09-03
+
+**The method, and it transfers to any adapter whose host is hard to script.** An adapter is usually
+one long file that calls its host at load, so its bridge parser cannot be imported. But the parser
+almost always sits near the TOP, before any of that — so take the file PREFIX up to the end of the
+parser, which is pure declarations, and load it with a stubbed environment. Nothing in the shipped
+file is edited, and what runs is the real function rather than a copy that will drift from it.
+
+**Find the cut point structurally, never as a line number.** `adapters/emulator/tests/json_fuzz.lua`
+scans for the function and takes the first column-0 `end` after it. That is not fussiness: the first
+fix the harness motivated moved the cut from line 943 to 952, and a hardcoded range would have
+silently pointed at the wrong text — while still passing.
+
+**Run each call under a STEP CAP, not just a `pcall`.** The failure this exists to catch is a
+non-terminating parse, and `pcall` turns an *error* into a return value while an infinite loop raises
+nothing. In Lua, a coroutine with an instruction-count hook (`debug.sethook(co, fn, "", N)`) turns a
+runaway into a reported failure instead of a hung CI job. Any language's equivalent will do; the
+point is that "it did not crash" and "it came back" are different questions.
+
+**Four things the corpus needs, and the first is the one that gets skipped:**
+
+- **Valid inputs, as a CONTROL, in the same pass.** Without them "everything returned nil" reads
+  exactly like a clean run. This is not hypothetical twice over: the original 2026-08-25 note says
+  so, and on 2026-09-03 a TEVI harness reported "0 renders" for every input and looked like a broken
+  decoder when it was a broken TEST using the wrong message shape.
+- **Every truncation of every valid input, at every byte offset.** That is what found the hang.
+- **DEPTH.** A wire format bounded by SIZE is not bounded by SHAPE, and nesting costs about a byte a
+  level. Ask what your decoder does at 500 levels before a peer does.
+- **Leniency reported, not failed.** Hex numbers, leading zeros, an unescaped control character —
+  none of it hangs and none of it is what your own core emits. A check that fails on harmless
+  leniency is one somebody switches off.
+
+**Say what a green run does NOT cover, in the harness itself.** Desktop Lua is not BizHawk's
+embedded Lua; a NuGet Newtonsoft is not the game's own copy; and a harness that reaches the DECODER
+may not reach the DISPATCH, which is where a peer string would become a lookup. Live examples both
+ways: the TEVI harness reaches its dispatch because that file has no engine dependency, and the two
+Pokémon ones cannot, because theirs sits past the first BizHawk call.
+
 ## See also
 
 - [README.md](README.md) — the adapter-building story this file was split out of, including

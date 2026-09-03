@@ -346,7 +346,7 @@ func (p *replayPlayer) sleepUntil(due int64) (cmd *replayCmd, stopped bool) {
 			return nil, true
 		case c := <-p.ctrl:
 			return &c, false
-		case <-time.After(wait):
+		case <-time.After(wait): // wall-clock: the SLEEP; its due time comes from nowMs, which is virtual
 		}
 	}
 }
@@ -615,7 +615,7 @@ func (c *Core) StopReplays() {
 		if p.running() {
 			select {
 			case <-p.done:
-			case <-time.After(time.Second):
+			case <-time.After(time.Second): // wall-clock: a shutdown join -- virtual would turn a leak into a hang
 			}
 		}
 		c.dropLocalPeer(p.id)

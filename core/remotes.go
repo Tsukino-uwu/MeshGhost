@@ -31,7 +31,7 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		// Throttled like the relay's twin (relay/states.go): a state dropped
 		// for size must say so -- the 2026-09-01 sword throw presented as four
 		// ghost bugs while both enforcement points stayed silent.
-		now := time.Now()
+		now := time.Now() // wall-clock: a five-second LOG throttle, not staleness (that comes from nowMs)
 		if last := c.lastStateDropLog.Load(); last == nil || now.Sub(*last) >= 5*time.Second {
 			stamp := now
 			c.lastStateDropLog.Store(&stamp)

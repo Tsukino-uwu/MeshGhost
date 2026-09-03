@@ -216,7 +216,7 @@ func (c *Core) Stats() Stats {
 	s.Connected = c.relay != nil
 	s.PlayerID = c.playerID
 	if !c.startedAt.IsZero() {
-		s.Uptime = time.Since(c.startedAt)
+		s.Uptime = time.Since(c.startedAt) // wall-clock: pairs with startedAt, reported to a human
 	}
 	c.mu.Unlock()
 	return s

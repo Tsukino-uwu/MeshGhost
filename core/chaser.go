@@ -124,7 +124,7 @@ func (ch *chaser) run() {
 			select {
 			case <-ch.stop:
 				return
-			case <-time.After(wait):
+			case <-time.After(wait): // wall-clock: the SLEEP; its due time comes from nowMs, which is virtual
 			}
 		}
 		if !admitted {
@@ -237,7 +237,7 @@ func (c *Core) StopChasers() {
 	for _, ch := range pack {
 		select {
 		case <-ch.done:
-		case <-time.After(time.Second):
+		case <-time.After(time.Second): // wall-clock: a shutdown join -- virtual would turn a leak into a hang
 		}
 		c.dropLocalPeer(ch.id)
 	}

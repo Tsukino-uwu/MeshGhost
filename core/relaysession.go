@@ -292,7 +292,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
 		return fmt.Errorf("core: the relay connection dropped before the welcome arrived")
-	case <-time.After(timeout):
+	case <-time.After(timeout): // wall-clock: waiting on a RELAY over a socket
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
 		return fmt.Errorf("core: timed out waiting for welcome from relay")
@@ -523,7 +523,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 		reason, isReject := asRejectReason(err)
 		permanent := isReject && isPermanentRejectReason(reason)
 
-		now := time.Now()
+		now := time.Now() // wall-clock: throttles a log line for a human
 
 		c.mu.Lock()
 		changed := c.lastConnectErr != err.Error()
@@ -663,7 +663,7 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 			log.Printf("core: %v — giving up on automatic reconnect for game %q", err, gameID)
 			return
 		}
-		time.Sleep(backoff)
+		time.Sleep(backoff) // wall-clock: paces real reconnect attempts
 		backoff = nextBackoffWithin(backoff, backoffMax)
 	}
 }

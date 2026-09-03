@@ -10,6 +10,9 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-03 **Both Pokemon adapters' JSON decoders were fixed from measurement and are UNWATCHED: Emerald gained a depth cap (it followed 5000 levels), Crystal now decodes `\uXXXX` instead of substituting `?`** — each adapter's `UNVERIFIED.md`; `phases/phase8.md`, `phase9.md`.
+- 2026-09-03 **Adapter fuzz harnesses: Lua (both Pokemon) and TEVI built and in CI, each path-filtered; Pseudoregalia not started and needs a header extraction plus a DLL rebuild** — `ideas.md`, "Adapter-side fuzzers".
+- 2026-09-03 **The virtual clock is partly in: root, recorder flush and send-rate converted, `awaitTick` interruptible, preflight ratchet armed; the due-wait SLEEPS are still wall-clock pending an advance-until-quiescent helper** — `phases/phase10.md`, `ideas.md`.
 - 2026-09-03 **Phase 11 replays BUILT through Stage 9 (recording, playback, seeks, hotkeys, save-last, chaser pack, split times, config/docs), suite and race green at every stage, NOTHING watched in a game yet; anchors, adapter-side contact damage and an offline client mode are the open follow-ons** — `phases/phase11.md`, ADR 0047/0048.
 - 2026-09-02 **The post-review run is DONE on all four games; Crystal's and Emerald's interp verdicts were judged on the broken relay and want a re-run on the fixed one** — each queue's "This run" block; ADR 0044.
 - 2026-09-02 **The review's connection limiter hid `WriteUnreliable`: every relayed quic/udp state rode the reliable stream until `341a768`; watched fixed on TEVI, Pseudoregalia and the Pokemon games unwatched since** — `verified.md`, "The limiter hid WriteUnreliable".
