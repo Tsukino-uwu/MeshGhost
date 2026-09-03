@@ -60,6 +60,10 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	// load until then; a no-op after), so a ghost of a run lines up with the
 	// run rather than with the main menu.
 	c.launchPendingReplays()
+	// Split times against every running replay (core/splittime.go): a
+	// windowed nearest-sample search, cheap enough for the frame path, and a
+	// nametag update at most four times a second.
+	c.updateSplits(state)
 
 	c.mu.Lock()
 	// Recorded on every real local frame, independent of MinSendInterval

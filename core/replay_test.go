@@ -92,8 +92,10 @@ func TestReplayRendersItsClipAtSpeedWithItsName(t *testing.T) {
 	fa.mu.Lock()
 	name := fa.names[id]
 	fa.mu.Unlock()
-	if name.DisplayName != "PB" || name.Color != "#FF8800" {
-		t.Fatalf("nametag %+v, want PB/#FF8800", name)
+	// The name may already carry a split suffix ("PB +0.3s"): the tag is
+	// the header name first, whatever follows.
+	if !strings.HasPrefix(name.DisplayName, "PB") || name.Color != "#FF8800" {
+		t.Fatalf("nametag %+v, want PB.../#FF8800", name)
 	}
 	// Not looping: it leaves when done.
 	pumpUntil(t, fa, func() bool {

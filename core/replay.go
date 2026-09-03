@@ -283,6 +283,8 @@ type replayPlayer struct {
 	ctrl    chan replayCmd
 	started uint32
 
+	split splitState
+
 	mu        sync.Mutex
 	startedAt int64 // nowMs at which clip time 0 is due, for the current lap
 	idx       int   // the last sample fed
@@ -386,6 +388,8 @@ func (p *replayPlayer) run() {
 		p.mu.Lock()
 		p.startedAt = v
 		p.mu.Unlock()
+		// A new start is a new race: the split match is searched afresh.
+		p.splitReset()
 	}
 	setStart(start)
 

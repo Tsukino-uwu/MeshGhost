@@ -50,6 +50,18 @@ func (c *Core) admitToRosterLocked(playerID string) bool {
 }
 
 func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
+	c.storeRemoteNameOpts(playerID, raw, false)
+}
+
+// storeRemoteNameQuiet is storeRemoteName without the per-change log line,
+// for a tag that legitimately changes several times a second: the split
+// time on a replay ghost (core/splittime.go). The push-on-change rule is
+// unchanged; only the log is.
+func (c *Core) storeRemoteNameQuiet(playerID string, raw *protocol.Nametag) {
+	c.storeRemoteNameOpts(playerID, raw, true)
+}
+
+func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet bool) {
 	var tag protocol.Nametag
 	if raw != nil {
 		tag = protocol.Nametag{
@@ -90,7 +102,7 @@ func (c *Core) storeRemoteName(playerID string, raw *protocol.Nametag) {
 	// nothing distinguished them. That cost several live sessions chasing the renderer while the
 	// message was never arriving. Cheap by construction: a name changes at most once per peer per
 	// session, so this cannot become per-frame logging.
-	if changed {
+	if changed && !quiet {
 		switch {
 		case !ready || nd == nil:
 			log.Printf("core: learned %s's nametag %q -- holding it, no adapter is attached yet "+

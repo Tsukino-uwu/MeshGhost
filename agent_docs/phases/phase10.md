@@ -126,3 +126,14 @@ a tick-started counter in `tickRenders`), `bridge` (`cosmetic` on `render_remote
 frozen field lists), `internal/e2e` (a replay through the real binaries), `cmd/meshghost` (the `replay`
 config block and flags), `cmd/meshghost-fakeadapter` (`-record`, `-replay-dir`, an offline mode). The
 decisions: ADR 0047 and ADR 0048. Whole suite and race detector green at every stage's commit.
+
+## 2026-09-03 — Replays, continued: hotkeys, save-last, the chaser pack, split times (phase 11 stages 5–8)
+
+Still logged in `phase11.md`; what touched this log's components since the morning entry: `internal/hotkey`
+(new: the system-wide key loop, Windows API cited in ADR 0048, a no-op elsewhere), `cmd/meshghost` (the
+`hotkeys` and `chaser` config blocks, their flags, `startHotkeys`), `core` (new `chaser.go` and
+`splittime.go`; `SaveLast` in `recorder.go`; a quiet variant of `storeRemoteName`; the split hook beside
+the recorder tap), `bridge` (`session_policy.chaser_contact`), `internal/gameblind` (the field frozen),
+`internal/e2e` (the chaser through the real binaries). The race detector caught one test-ordering race
+in the chaser tests and found nothing in the shipped paths; a by-hand `go test -race` cannot build here
+(no C toolchain on the bare PATH), so the race check goes through `run-gotests-race.bat` only.

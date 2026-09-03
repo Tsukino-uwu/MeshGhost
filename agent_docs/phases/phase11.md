@@ -244,3 +244,22 @@ around the test-side writes. Two things worth keeping: `go test -race` run by ha
 build (`runtime/cgo` cannot find `stddef.h` — no C toolchain on the bare PATH), so the race check
 goes through `dev-scripts/run-gotests-race.bat` and nothing else; and the detector's first run on
 a stage is the run that counts, not the one after the fix.
+
+## 2026-09-03 — Stage 8: split times on the replay ghost's nametag, built and green
+
+**What:** `core/splittime.go` — on every local in-game sample (the recorder tap), for each running
+replay: search a window of 60 samples either side of the last match for the nearest recorded
+position in the same `area_id` (equality; Euclidean distance over the shared components, capped at 3
+units so a player off the ghost's path gets no update); the delta is the player's elapsed time on
+their run minus the ghost's elapsed time at that spot, positive = behind; published as `"<name>
++1.2s"` through `storeRemoteNameQuiet` (the same nametag message, without the per-change log line)
+at most four times a second and only when the rounded text changes. The header name is clamped to
+16 characters so the suffix survives the 24-character cap; the match resets on every seek and lap.
+No adapter change: any game that draws nametags shows it.
+
+**Tests:** `core/splittime_test.go` — the ghost walks x 0..99 in a second, the player at half the
+pace: by x=40 the tag reads roughly `PB +0.4s` and grows; a player in another area gets no split;
+a 24-character header name is clamped and the tag stays under the cap. `core/replay_test.go`'s name
+check was loosened to a prefix because the tag can already carry a split by the time it is read.
+One detail found by the tests: `SanitizeDisplayName` collapses runs of whitespace, so the planned
+double-space separator became one space — the code and the tests now say what actually ships.
