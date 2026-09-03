@@ -2,8 +2,8 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against fourteen targets across five packages (protocol 8,
-# bridge 2, relay 2, transport 1, netx/udpconn 1 -- count them with
+# short fuzz campaign against fifteen targets across six packages (protocol 8,
+# bridge 2, relay 2, transport 1, netx/udpconn 1, core 1 -- count them with
 # `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
 # this line, which said eleven across four for as long as the two bridge targets
 # below have existed). Until this existed,
@@ -293,6 +293,12 @@ jobs:
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.
       - name: Fuzz udpconn - listener survives arbitrary datagrams
         run: bash dev-scripts/ci-fuzz.sh ./netx/udpconn FuzzListenerSurvivesArbitraryDatagrams 45s
+      # A replay file (ADR 0047, 2026-09-03) is a stranger's bytes by design --
+      # shared and hand-edited -- and the loader is the only parser in core
+      # that reads a file. It must never panic, and anything it accepts must
+      # pass the same per-sample validation a relay packet does.
+      - name: Fuzz core - replay loader never panics and only admits wire-valid samples
+        run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseReplayNeverPanics 30s
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;

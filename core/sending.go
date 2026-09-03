@@ -56,6 +56,10 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	// relay-or-not check: a recording is the densest copy of what the adapter
 	// reports, and it works offline. One atomic load when nothing is armed.
 	c.recordLocal(state)
+	// And the first in-game frame is when a loaded replay starts (one atomic
+	// load until then; a no-op after), so a ghost of a run lines up with the
+	// run rather than with the main menu.
+	c.launchPendingReplays()
 
 	c.mu.Lock()
 	// Recorded on every real local frame, independent of MinSendInterval

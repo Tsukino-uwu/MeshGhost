@@ -94,6 +94,9 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		}
 		c.mu.Unlock()
 		if wasAdapter {
+			// The game closed: every replay stops with it, so a relaunch starts
+			// each one from the top rather than mid-clip.
+			c.StopReplays()
 			// The game closed: a launch-to-quit recording ends here, and so does
 			// a manual one -- there is nothing left to record. StopRecording is a
 			// no-op when nothing was armed.
@@ -210,6 +213,9 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 					log.Printf("core: record_on_launch: %v", err)
 				}
 			}
+			// Every file in replay/active/ is loaded now and starts at the
+			// player's first in-game frame (core/replay.go).
+			c.StartReplays()
 			// The relay handshake above has already completed, so the room's
 			// policy is known by now and the adapter gets it as part of
 			// coming up rather than a tick later. Order matters: an adapter

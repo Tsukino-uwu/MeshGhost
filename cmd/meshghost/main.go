@@ -164,6 +164,9 @@ type fileConfig struct {
 type replayFileConfig struct {
 	RecordOnLaunch *bool   `json:"record_on_launch"`
 	SaveLast       *string `json:"save_last"`
+	// StartDelay is how long after you are in the game a replay ghost starts,
+	// for files whose own header says 0s.
+	StartDelay *string `json:"start_delay"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -205,6 +208,7 @@ type configTargets struct {
 	features       *string
 	recordOnLaunch *bool
 	saveLast       *time.Duration
+	replayStart    *time.Duration
 }
 
 // applyFileConfig returns the absolute path of the config file it looked for
@@ -279,6 +283,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.saveLast != nil {
 			cfg.OverrideDuration(explicit, "replay-save-last", t.saveLast, fc.Replay.SaveLast, shown, "meshghost", "replay.save_last")
+		}
+		if t.replayStart != nil {
+			cfg.OverrideDuration(explicit, "replay-start-delay", t.replayStart, fc.Replay.StartDelay, shown, "meshghost", "replay.start_delay")
 		}
 	}
 	return shown
@@ -543,6 +550,9 @@ func main() {
 			"after the game's mod attaches and ends when the game closes (config: replay.record_on_launch)")
 	saveLast := flag.Duration("replay-save-last", 30*time.Second,
 		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
+	replayStart := flag.Duration("replay-start-delay", 0,
+		"how long after your first in-game frame a replay ghost starts, for files whose own "+
+			"header start_delay is 0s (config: replay.start_delay)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
@@ -587,6 +597,7 @@ func main() {
 		features:       features,
 		recordOnLaunch: recordOnLaunch,
 		saveLast:       saveLast,
+		replayStart:    replayStart,
 	})
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
@@ -721,6 +732,7 @@ func main() {
 	c.ReplayDir = *replayDir
 	c.RecordOnLaunch = *recordOnLaunch
 	c.SaveLastSpan = *saveLast
+	c.ReplayStartDelay = *replayStart
 	if *recordOnLaunch {
 		log.Printf("meshghost: record_on_launch is ON -- every session is written to %s from the first in-game sample", *replayDir)
 	}

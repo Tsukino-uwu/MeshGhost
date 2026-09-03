@@ -344,6 +344,8 @@ func main() {
 	facingFollows := flag.Bool("facing-follows-path", false, "send orientation as a cardinal string "+
 		"(\"up\"/\"down\"/\"left\"/\"right\") following the circle tangent -- what a 2D tile game's adapter reads")
 	tick := flag.Duration("tick", 16*time.Millisecond, "how often to drive a frame (~60fps default)")
+	replayDir := flag.String("replay-dir", "", "play every replay file in <dir>/active/ as a ghost on client 0 (ADR 0047); "+
+		"the circling adapter logs each render it gets, which is how you see it. Works offline")
 	recordDir := flag.String("record", "", "record client 0's own state stream to this folder as a replay file "+
 		"(ADR 0047; the file appears at the first frame and closes on exit). Works with -relay \"\" (offline)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
@@ -541,6 +543,10 @@ func main() {
 		// (8 by default, server-wide across all rooms) rather than a bad
 		// address — and that reads as "the rig is broken" unless the count
 		// is right there in the message.
+		if i == 0 && *replayDir != "" {
+			c.ReplayDir = *replayDir
+			c.StartReplays()
+		}
 		if i == 0 && *recordDir != "" {
 			c.ReplayDir = *recordDir
 			if path, err := c.StartRecording(); err != nil {

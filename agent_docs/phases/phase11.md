@@ -93,3 +93,46 @@ cannot connect is rejected before `bridge_ready`, so the adapter never sends sta
 offline through `meshghost.exe` therefore wants an "offline" mode (accept the adapter, connect
 later); filed as a follow-on for the sweep, not built here. The fake adapter's offline mode covers
 the dev loop meanwhile.
+
+## 2026-09-03 — Stage 3: playback, built and green
+
+**What:** `core/replay.go` — the loader (`parseReplay`: header sanitized by the nametag functions,
+speed clamped 0.1–4, durations clamped, `trim_start`/`auto`, `trim_end`, `skip_gaps` collapsing a
+long pause to 1ms with a forced seam, every sample through `protocol.ValidateState`, line length
+capped at the wire's `MaxLineBytes` before decoding, timestamps must not go backwards, 2M-sample
+memory cap, `.gz` read) and the player (a goroutine per file feeding `feedLocalPeer` at
+`start + (t - t0)/speed`, ≤50ms sleeps, seams for a recorded gap > 1.5s / a cut gap / the loop
+end, a backwards clock step > 500ms re-based as a seam, the last sample held for one interp delay
+plus a render tick before the ghost leaves). `StartReplays` loads `<ReplayDir>/active/` at adapter
+attach (cap 16, files for another game skipped by equality, ids are the listing names) and
+`launchPendingReplays` — one atomic in `forwardLocalState` — starts them at the player's first
+in-game frame, so a ghost of a run lines up with the run. `StopReplays` on adapter detach. Config:
+`replay.start_delay` / `-replay-start-delay` as the client-wide default a file's own `start_delay`
+overrides (the user's ask, same day). Fake adapter: `-replay-dir`.
+
+**One entry point, enforced:** `internal/gameblind/entrypoint_test.go` walks `core`'s AST and fails
+if anything but the relay session and `feedLocalPeer` calls `storeRemoteState`. **Fuzz:**
+`FuzzParseReplayNeverPanics` (in CI's list now, fifteen targets across six packages): 20s local
+smoke, ~2.9M execs, 275 interesting inputs, no failure; anything accepted passes `ValidateState`.
+
+**Seen:** the fake adapter, offline, played the Stage 2 recording back as `replay:pb.ndjson` —
+`render_remote` lines walking the recorded circle, a `despawn_remote` at the loop seam, then the
+next lap. **Tests:** `core/replay_test.go` — a 2s clip at 4x finishes in under 1.5s with its header
+name and `cosmetic:true`, then despawns; nothing starts before the first in-game frame and a `nil`
+frame does not count; the loop is one despawn per lap; a full-run clip a→b→a with 2s gaps renders
+only in the player's area and comes back after the gaps; another game's file and a `.txt` are
+skipped while a `.gz` loads and a future format only warns; the loader refuses what the wire refuses
+(oversized line, bad position, backwards clock, no header, header only, trim leaving nothing) and
+sanitizes a hostile header; trim/skip-gap arithmetic; the cap and the id namespace.
+`internal/e2e/replay_e2e_test.go` runs it through the real binaries.
+
+**Two bugs found by the tests, both in the first hour:** the gap-collapse read gaps from
+already-shifted timestamps and marked two seams for one pause; and the final sample was dropped
+before any tick rendered it, so a finishing replay never showed its last position.
+
+**Suite note, same session:** the first two whole-suite runs with Stage 3 in the tree each failed on
+one pre-existing test that Stage 3 does not touch — `netx/udpconn`'s
+`TestWriteUnreliableDoesNotAllocatePerCall` reported 4 allocations per call instead of ≤1. It passes
+5 of 5 in isolation and every other package was green both times, so it is recorded here as a flake
+under whole-suite load rather than a regression, and it is the user's to decide whether it goes into
+`testing.md`'s traps. Everything replay-related passed on every run.

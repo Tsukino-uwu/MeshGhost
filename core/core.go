@@ -630,9 +630,17 @@ type Core struct {
 	ReplayDir      string
 	RecordOnLaunch bool
 	SaveLastSpan   time.Duration
-	rec            recorder
-	ring           sampleRing
-	tapArmed       uint32
+	// ReplayStartDelay is how long after the first in-game frame a replay
+	// starts when its own header says 0s; a file's start_delay overrides it.
+	ReplayStartDelay time.Duration
+	rec              recorder
+	ring             sampleRing
+	tapArmed         uint32
+	// Playback (core/replay.go): the loaded players, armed by StartReplays
+	// and launched by the first in-game frame (replaysPending).
+	replayMu       sync.Mutex
+	replays        map[string]*replayPlayer
+	replaysPending uint32
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.
