@@ -140,9 +140,10 @@ Setup, once:
                invisible characters and text-direction tricks are removed;
                24 characters at most) and it is NOT an identity: two
                players can use the same name.
-     "name_color" -- optional colour for that nametag, as "#RRGGBB"
-               (e.g. "#00c8ff"; "#F00" shorthand works too). Leave "" for
-               a plain name with no coloured box behind it. Ignored unless
+     "name_color" -- colour of the box behind that nametag, as "#RRGGBB"
+               (the prefilled "#A89975" is an example; "#F00" shorthand
+               works too). Set it to "" for a plain name with no coloured
+               box behind it. Ignored unless
                "name" is set. A bad value is ignored, never a reason the
                client refuses to connect.
      "room"  -- the room name everyone in your group agrees on. Players

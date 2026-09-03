@@ -36,6 +36,7 @@ type shippedConfig struct {
 		TLS                   string `json:"tls"`
 		Room                  string `json:"room"`
 		Name                  string `json:"name"`
+		NameColor             string `json:"name_color"`
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
@@ -128,6 +129,13 @@ func TestShippedConfigDeliberateDivergences(t *testing.T) {
 	// listen_on: the -addr FLAG defaults to 127.0.0.1, which is right for development and useless
 	// for hosting -- a host has to accept connections from other machines. The shipped server
 	// config is for someone hosting, so it binds every interface.
+	// name_color: the FLAG defaults to blank (no box), and the shipped file carries a real hex on
+	// purpose -- the user's call, 2026-09-03: a player who opens the file should see what the value
+	// looks like. Harmless while "name" is blank, since a colour is ignored without a name; a player
+	// who wants a plain tag blanks it. docs/config.md says the same.
+	if cfg.Client.NameColor != "#A89975" {
+		t.Errorf("shipped name_color should be the example hex #A89975, got %q", cfg.Client.NameColor)
+	}
 	if cfg.Server.ListenOn != "0.0.0.0:7777" {
 		t.Errorf("shipped listen_on should bind every interface for a host, got %q",
 			cfg.Server.ListenOn)

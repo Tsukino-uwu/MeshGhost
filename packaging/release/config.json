@@ -2,7 +2,7 @@
   "client": {
     "connect_to": "127.0.0.1:7777",
     "name": "",
-    "name_color": "",
+    "name_color": "#A89975",
     "room": "default",
     "room_code": "",
     "show_console": false,
