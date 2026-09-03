@@ -362,3 +362,15 @@ advance-until-quiescent helper is still unbuilt. Nothing this session changed th
 sharpened the need for it — `FuzzEverything`'s chaser seam is still unreachable because a step's
 gap caps at 350ms against a wall-clock 1500ms threshold (`ideas.md`), which is exactly the case the
 virtual clock exists to close.
+
+## 2026-09-04 — Still Phase 11's work, not this one's
+
+Four more commits to `core` and `cmd` since the note above, and none of them is virtual-clock work
+either: a downed relay no longer refuses the game (ADR 0050), recordings became plain text with
+per-key delta encoding (ADR 0051), and both bridge-driving fuzz targets moved off sockets onto
+`net.Pipe`. All logged in [phase11.md](phase11.md), 2026-09-04.
+
+**What it means for THIS phase is unchanged**: the due-wait sleeps are still wall-clock and the
+advance-until-quiescent helper is still unbuilt. One thing sharpened the need again — the fuzz
+targets now run ~25x more executions per campaign, which makes the wall-clock-gated chaser seam the
+remaining thing a campaign cannot reach.

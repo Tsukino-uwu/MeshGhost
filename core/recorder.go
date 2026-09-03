@@ -634,8 +634,8 @@ func (c *Core) SaveLast() (string, int, error) {
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
-	hdr := c.replayHeaderFor(game, version, time.Now())
-	hdr.Delta = c.ReplayDelta // wall-clock: an artefact timestamp
+	hdr := c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
+	hdr.Delta = c.ReplayDelta
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
 	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.

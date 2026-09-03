@@ -1994,3 +1994,20 @@ the variable still counts, the READMEs are rewritten around the key. Built and d
 (`UNVERIFIED.md`). The user's follow-on thought -- game-specific settings in the same file instead of
 in-game menus -- is filed in `ideas.md`.
 
+
+## 2026-09-04 — Two adapter defects found by playing, logged in Phase 11
+
+Three commits touched `adapters/pseudoregalia/` on 2026-09-04 and none of them is Phase 7 work.
+Both came out of a Phase 11 session (replays and the chaser) with the user playing:
+
+- **`json_string_field` did not decode JSON escapes**, so a display name containing a quote was
+  truncated at the backslash on a ghost's nametag, and `\uXXXX` came back as its own text. It reads
+  every string field this adapter takes off the wire, so the blast radius was wider than nametags.
+- **The title screen reported a player at [0,0,0]**, because it is a real level with a real pawn and
+  the existing "no pawn, send null" branch never fired. Every `record_on_launch` clip opened with
+  dead frames.
+
+Both are READY in `../../adapters/pseudoregalia/UNVERIFIED.md`; the full account, including the
+third finding (the player's own SFX going quiet while ghosts are audible, logged and not chased) is
+in [phase11.md](phase11.md), 2026-09-04. Noted here so this file's gap is a decision rather than a
+lapse.
