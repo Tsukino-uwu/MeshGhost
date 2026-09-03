@@ -9,7 +9,7 @@
 -- where_emerald.log beside this file (a file, never the console: adapters/emulator/CLAUDE.md prices
 -- one console line a second at ~7fps on this game). Drop it from the target file when done.
 local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or ".")
-local f = io.open(dir .. "/where_emerald.log", "a")
+local f = io.open(dir .. "/../dev-logs/where_emerald.log", "a")
 local frames = 0
 MESHGHOST_DEV_TICK = function()
 	frames = frames + 1

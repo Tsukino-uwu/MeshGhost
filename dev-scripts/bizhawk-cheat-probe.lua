@@ -42,7 +42,7 @@ local function scriptDir()
 	return "."
 end
 
-local logfile = io.open(scriptDir() .. "/bizhawk-cheat-probe.log", "w")
+local logfile = io.open(scriptDir() .. "/../dev-logs/bizhawk-cheat-probe.log", "w")
 
 local function log(msg)
 	console.log(msg)

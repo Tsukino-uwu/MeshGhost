@@ -83,7 +83,9 @@ else
 	CONTROL_FILE = DIR .. "/bizhawk-dev-loader.target"
 end
 
-local LOG_FILE = CONTROL_FILE:gsub("%.target$", "") .. ".log"
+-- The log goes to dev-logs/, beside every other session log, while the control file stays
+-- in dev-scripts/ where instructions name it. dev-scripts/ had 123 loose logs by 2026-09-03.
+local LOG_FILE = CONTROL_FILE:gsub("%.target$", ""):gsub("([/\\])([^/\\]+)$", "%1..%1dev-logs%1%2") .. ".log"
 if LOG_FILE == CONTROL_FILE then
 	LOG_FILE = CONTROL_FILE .. ".log"
 end

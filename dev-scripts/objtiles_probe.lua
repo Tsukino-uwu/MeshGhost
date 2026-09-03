@@ -12,7 +12,7 @@
 --   MAX_SPRITES 64 (2610); sprite inUse = bit 0 of +0x3e (line 3972), tileNum = attr2 & 0x3ff at
 --   +0x04 (line 6158). Reads only. Loader contract; one buffered line a second to objtiles.log.
 local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or ".")
-local f = io.open(dir .. "/objtiles.log", "a")
+local f = io.open(dir .. "/../dev-logs/objtiles.log", "a")
 local frames = 0
 MESHGHOST_DEV_TICK = function()
 	frames = frames + 1

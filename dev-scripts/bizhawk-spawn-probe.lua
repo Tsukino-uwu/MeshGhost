@@ -28,7 +28,7 @@ if not DIR or DIR == "" then
 end
 local REPO = DIR:match("^(.*)[/\\][^/\\]*$") or DIR
 
-local logfile = io.open(DIR .. "/bizhawk-spawn-probe.log", "w")
+local logfile = io.open(DIR .. "/../dev-logs/bizhawk-spawn-probe.log", "w")
 local function log(m)
     console.log(m)
     if logfile then logfile:write(tostring(m), "\n") logfile:flush() end

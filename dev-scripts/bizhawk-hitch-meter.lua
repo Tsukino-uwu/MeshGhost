@@ -62,7 +62,7 @@ do
 	if info and info.source and info.source:sub(1, 1) == "@" then
 		dir = info.source:sub(2):match("^(.*)[/\\][^/\\]*$") or "."
 	end
-	logfile = io.open(dir .. "/bizhawk-hitch-meter.log", "w")
+	logfile = io.open(dir .. "/../dev-logs/bizhawk-hitch-meter.log", "w")
 	if logfile then
 		pcall(function() logfile:setvbuf("full", 8192) end)
 	end

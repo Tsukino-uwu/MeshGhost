@@ -17,7 +17,7 @@ local ids = { 0, 1, 63, 2, 137, 89, 90 }
 local names = { [0]="Brendan normal", [1]="Brendan Mach Bike", [63]="Brendan Acro Bike",
                 [2]="Brendan surfing", [137]="Brendan fishing", [89]="May normal",
                 [90]="May Mach Bike" }
-local f = io.open(MESHGHOST_DIR .. "/gfxinfo.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/../dev-logs/gfxinfo.log", "w")
 local function out(s) console.log(s) if f then f:write(s, "\n") end end
 local function u16(a) return memory.read_u16_le(a) end
 local function u32(a) return memory.read_u32_le(a) end

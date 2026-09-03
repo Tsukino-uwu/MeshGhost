@@ -857,9 +857,13 @@ All done on this machine — kept as the checklist a fresh setup should still fo
 ## Workspace conventions
 
 - Record any non-default environment tweaks here, factually and version-specific.
-- **Session scaffolding and build logs go to `dev-logs/` (gitignored wholesale)** — redirect
-  relay/core/fakeadapter/netsim and `build-*.bat` output there, never loose at the root; 181 strays
-  were swept in on 2026-09-01, and root `build-*`/`fake-*`/`netsim-*` log globs catch forgetters.
+- **Every development log goes to `dev-logs/`** — redirect relay/core/fakeadapter/netsim and
+  `build-*.bat` output there, never loose at the root; 181 strays were swept in on 2026-09-01, and
+  root `build-*`/`fake-*`/`netsim-*` log globs catch forgetters. **Widened 2026-09-03 to the
+  dev-scripts probes too** (the user's call), which had left 123 loose `.log` files beside the
+  scripts: one log folder, not two. **Its `README.md` is tracked on purpose** — the folder must
+  EXIST or `io.open(..., "a")` returns nil, every probe's `if f then` guard swallows it, and a
+  fresh clone logs nothing at all from any of them.
 - **BizHawk Lua CAN start a process with NO window — via `luanet`, not `os.execute`
   (2026-08-18).** This unblocks autostart for both Pokemon adapters, which was previously assumed
   impossible because every shell route flashes.

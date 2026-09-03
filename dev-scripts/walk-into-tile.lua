@@ -24,7 +24,7 @@ local function pos()
     return memory.read_s16_le(sb1 + 0x00), memory.read_s16_le(sb1 + 0x02)
 end
 
-local f = io.open(MESHGHOST_DIR .. "/walk-into-tile.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/../dev-logs/walk-into-tile.log", "w")
 local function log(m) console.log(m) if f then f:write(m, "\n") f:flush() end end
 
 local frames, phase, sx, sy, dir = 0, "wait", nil, nil, nil

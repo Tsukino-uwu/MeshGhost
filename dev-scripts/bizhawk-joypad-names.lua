@@ -13,7 +13,7 @@ local MESHGHOST_DIR = (function()
 	return "."
 end)()
 
-local f = io.open(MESHGHOST_DIR .. "/joypad-names.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/../dev-logs/joypad-names.log", "w")
 local function out(s)
     console.log(s)
     if f then f:write(s, "\n") end

@@ -17,7 +17,7 @@
 --   gMain.oamBuffer[64] at 0x030022f8 + 64*8 (line 8292), entries 64..119, dummy encoding
 --   d0=0x00a0 d1=0x0130 d2=0x0c00 (line 8331) means "free". Reads only.
 local dir = (debug.getinfo(1, "S").source:match("^@(.*)[/\\]") or ".")
-local f = io.open(dir .. "/ghostobjs.log", "a")
+local f = io.open(dir .. "/../dev-logs/ghostobjs.log", "a")
 local frames = 0
 MESHGHOST_DEV_TICK = function()
 	frames = frames + 1

@@ -700,7 +700,8 @@ ALREADY-RUNNING instance is a Lua Console GUI action nothing outside the emulato
 
 All read-only "what can this host actually do?" scripts. A doc string in BizHawk's DLL is not
 proof a function is callable — `memory.hash_region` had one and was nil at runtime — so these ask
-the live build rather than trusting a list. Each writes a `.log` beside itself.
+the live build rather than trusting a list. Each writes a `.log` into `dev-logs/` (moved out of
+this folder 2026-09-03, where 123 of them had piled up; see `dev-logs/README.md`).
 
 - `bizhawk-capabilities.lua` — dumps `client.getluafunctionslist()`, every function this build
   actually implements. The first thing to run when asking "what else can we drive from here?".
@@ -742,7 +743,7 @@ the live build rather than trusting a list. Each writes a `.log` beside itself.
 ## Adapter-specific investigation tools
 
 Emerald-side one-offs, kept because the questions recur. Each is loaded through
-`bizhawk-dev-loader.lua` and writes its own `.log` under `dev-scripts/`.
+`bizhawk-dev-loader.lua` and writes its own `.log` into `dev-logs/`.
 
 - `tile-inspect.lua` — reads the tile the player faces the way the game does and names its
   behaviour (pond/deep/ocean water, tall grass, normal). Written when the Super Rod was refused

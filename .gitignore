@@ -243,7 +243,15 @@ adapters/**/config.json
 # netsim runs, build-*.bat output). They accumulated as 181 loose files at the root by
 # 2026-09-01; the convention (agent_docs/environment.md) is now to redirect into dev-logs/,
 # and the root globs below catch the stray that forgets, so neither shape ever shows untracked.
-/dev-logs/
+#
+# The folder's README is TRACKED, and that is load-bearing rather than decorative: several probes
+# open their log with io.open(..., "a") and nothing creates the directory first. io.open returns
+# nil when the parent is missing and the probe's own `if f then` guard swallows it, so on a fresh
+# clone every one of them would run and silently log nothing. Committing one file keeps the folder
+# in existence. BizHawk's Lua cannot mkdir, and the shell routes that could flash a console window
+# in every shape tried (agent_docs/environment.md, 2026-08-18).
+/dev-logs/*
+!/dev-logs/README.md
 /build-*.log
 /build-*.err.log
 /fake-*.log

@@ -44,7 +44,7 @@ local function scriptDir()
 end
 
 local DIR = scriptDir()
-local logfile = io.open(DIR .. "/bizhawk-syntax-check.log", "w")
+local logfile = io.open(DIR .. "/../dev-logs/bizhawk-syntax-check.log", "w")
 
 local function log(msg)
 	console.log(msg)

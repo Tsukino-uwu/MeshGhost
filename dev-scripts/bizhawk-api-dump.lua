@@ -2,7 +2,7 @@
 -- than asking for a list (client.getluafunctionslist does not exist in this build -- checked
 -- 2026-08-18). Answers "is there any way to start a process besides os/io?" from the build.
 local dir = os.getenv("MESHGHOST_SCRIPT_DIR") or "."
-local f = io.open(dir .. "/bizhawk-api-dump.log", "w")
+local f = io.open(dir .. "/../dev-logs/bizhawk-api-dump.log", "w")
 
 local function dump(name, t)
     if type(t) ~= "table" then

@@ -25,7 +25,7 @@ local function s16(a) return memory.read_s16_le(a) end
 local function u32(a) return memory.read_u32_le(a) end
 local function s32(a) return memory.read_s32_le(a) end
 
-local f = io.open(MESHGHOST_DIR .. "/tile-inspect.log", "w")
+local f = io.open(MESHGHOST_DIR .. "/../dev-logs/tile-inspect.log", "w")
 local function log(m) console.log(m) if f then f:write(m, "\n") f:flush() end end
 
 local function behaviourOf(id)

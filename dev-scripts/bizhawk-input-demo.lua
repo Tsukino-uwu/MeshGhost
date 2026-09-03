@@ -29,7 +29,7 @@ local function pos()
     return memory.read_s16_le(sb1 + 0x00), memory.read_s16_le(sb1 + 0x02)
 end
 
-local logfile = io.open(MESHGHOST_DIR .. "/input-demo.log", "w")
+local logfile = io.open(MESHGHOST_DIR .. "/../dev-logs/input-demo.log", "w")
 local function log(m)
     console.log(m)
     if logfile then logfile:write(m, "\n") logfile:flush() end
