@@ -355,6 +355,17 @@ both opaque to the core and relay (never parsed, compared only where noted below
   rule means one isn't guessed at. Each adapter instead reports its own script/mod version,
   which is the more useful signal anyway: it catches two peers running different revisions of
   the same adapter, the likelier real source of a silent protocol mismatch.
+
+  **AND SEPARATING PLAYERS BY GAME BUILD IS NOT WANTED -- this is a decision, not a shortfall
+  (the user, 2026-09-04, when an agent flagged it as a gap):** *"we don't want to seperate
+  different versions of a game/patch/rom hack etc~ we just assume the world/map/stages are the
+  same, and this also allows people that play on 2 modded really different worlds to still have
+  the mod functioning for them without any extra work"*. A vanilla player and an Archipelago
+  player, or two people on differently-modded worlds, are meant to see each other; the layer is
+  cosmetic, so a world that disagrees is the normal case rather than an error (`brief.md`'s
+  premise -- desync is expected and fine). **So do not add a game build id here later thinking it
+  was merely never implemented.** What `game_version` is for is catching two peers on different
+  revisions of the same ADAPTER, which is a protocol question rather than a world one.
 - `room_code` is a shared secret the relay compares (`crypto/subtle.ConstantTimeCompare`)
   against its own configured code before accepting a join. An empty configured code (the
   default) means auth is off — the original friend-hosted posture. **Crosses the wire in
