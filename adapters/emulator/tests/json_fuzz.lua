@@ -82,6 +82,39 @@ local function stubEnv()
     -- a logfile), so the original has to exist and be callable.
     env.console = { log = function() end, clear = function() end }
 
+    -- THE PLATFORM IS FAKED TO WINDOWS, and this is not optional. Both adapters call
+    -- loadSocketCore() at file scope, well before the decoder, and it refuses outright unless
+    -- package.config says Windows, _VERSION says Lua 5.4, and PROCESSOR_ARCHITECTURE contains 64 --
+    -- then loads a vendored .dll. None of that is reachable on a Linux CI runner, and none of it
+    -- has anything to do with parsing a line of JSON.
+    --
+    -- Found by CI, not locally: this harness passed on Windows, where the real package.config
+    -- already starts with a backslash, and failed on the first push with "only Windows is supported
+    -- by the vendored LuaSocket binary so far". A harness that only runs on its author's platform is
+    -- a harness that stops running the moment it moves.
+    --
+    -- Faked UNCONDITIONALLY rather than only on Linux, so the harness exercises the same path
+    -- everywhere and a Windows pass means what a Linux pass means.
+    env.package = setmetatable({
+        config = "\\\n;\n?\n!\n-\n", -- Windows separators, the shape loadSocketCore tests
+        loadlib = function()
+            -- A loader whose result is the socket module. Nothing here calls it: the socket is used
+            -- by the bridge loop, thousands of lines past the decoder.
+            return function()
+                return {}
+            end
+        end,
+    }, { __index = package })
+
+    env.os = setmetatable({
+        getenv = function(name)
+            if name == "PROCESSOR_ARCHITECTURE" then
+                return "AMD64"
+            end
+            return os.getenv(name)
+        end,
+    }, { __index = os })
+
     -- io.open is proxied so a WRITE never touches the disk. Both adapters open a log file at load,
     -- and running this from the repo root made them scatter nine meshghost_crystal_*.log files into
     -- it -- committed once, on 2026-09-03, before this was noticed. A harness that litters the tree
