@@ -154,3 +154,13 @@ removing the buffer reuse on purpose measures exactly 1.00 per call, the real co
 after the bound became `got >= 1`, then restoring and running 20 clean passes. The lesson for any
 allocation pin: measure the regression you mean to catch before choosing the number.
 
+
+## 2026-09-03 — Three fuzz targets land in CI; the race job's catch is fixed at the source
+
+The afternoon's three Go-side commits, in this log's components: `core` (`FuzzEverything`, the chaser
+queue clamp `maxChaserBehind` it found, and the test helpers now setting every hello-read field before
+the bridge serves — the test-ordering race CI's race job caught), `internal/hotkey` (a fuzz target and
+the duplicate-modifier refusal it found on its first campaign), `cmd/meshghost` (a fuzz target over the
+hand-edited config, and the shipped `name_color` pinned as a deliberate divergence), `.github` (three
+fuzz entries; eighteen targets CI now runs). Detail and the findings: `phase11.md`, same day; the
+trap: `testing.md`. Whole suite and race detector clean locally at each commit.
