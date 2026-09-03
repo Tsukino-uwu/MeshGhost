@@ -13,8 +13,7 @@ to a friend.
 
 There is also the chaser: a ghost of you from a few seconds ago, tailing you as you play. It needs
 no file, because it comes from the run you are already in, and what it does beyond following is a
-per-game decision, down to whether it can hurt you on touch. Neither one needs a server, or anyone
-else online.
+per-game decision, down to whether it can hurt you on touch.
 
 Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
 memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
