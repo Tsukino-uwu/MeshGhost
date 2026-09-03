@@ -1,6 +1,7 @@
 package core
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -114,6 +115,36 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		saveLast:       fuzzEverythingDurations[(b[7]>>3)&0x07],
 		recordOnLaunch: b[7]&0x40 != 0,
 	}
+}
+
+// fuzzZipOf wraps clip bytes in a zip, optionally twice over so the multi-clip
+// path (one archive becoming several ghosts) is exercised too. A zip this
+// function builds is always structurally valid; what varies is what is INSIDE
+// it, which is the half the loader has to survive.
+func fuzzZipOf(data []byte, twice bool) []byte {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	names := []string{"a.ndjson"}
+	if twice {
+		names = append(names, "b.ndjson")
+	}
+	for _, n := range names {
+		w, err := zw.Create(n)
+		if err != nil {
+			return data
+		}
+		if _, err := w.Write(data); err != nil {
+			return data
+		}
+	}
+	// A file that is not a clip, which the loader must skip rather than refuse.
+	if w, err := zw.Create("readme.txt"); err == nil {
+		_, _ = w.Write([]byte("not a clip"))
+	}
+	if err := zw.Close(); err != nil {
+		return data
+	}
+	return buf.Bytes()
 }
 
 // fuzzEverythingClip builds one clip from the step byte's THREE FREE BITS, and
@@ -371,6 +402,22 @@ func FuzzEverything(f *testing.F) {
 					data = append(clipBytes(nil, nil), []byte(`{"area_id":"`+strings.Repeat("h", protocol.MaxLineBytes)+`"}`+"\n")...)
 				default:
 					data = seed
+				}
+				// EVERY THIRD FILE GOES IN AS A ZIP, and one of those holds two
+				// clips. replay/active reads .zip since 2026-09-04 and nothing
+				// here covered it: every file op wrote .ndjson, so the archive
+				// path, the multi-clip ids and a zip sitting beside plain files
+				// were all unexercised by the target that exists precisely to
+				// run this lifecycle in every order.
+				//
+				// Chosen by the file COUNTER rather than by seed bits, because
+				// the step byte has none left (five bits pick the op, three pick
+				// the clip shape) and the variety this target trades on is the
+				// ORDER of operations, not the bytes inside a file -- FuzzReplay
+				// already throws arbitrary bytes at the parser.
+				if files%3 == 0 {
+					name = strings.TrimSuffix(name, ".ndjson") + ".zip"
+					data = fuzzZipOf(data, files%6 == 0)
 				}
 				os.WriteFile(name, data, 0o644)
 			case "startReplays":

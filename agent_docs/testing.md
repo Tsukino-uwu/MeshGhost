@@ -422,6 +422,8 @@ regression test.
 
 ## Traps
 
+- **A fuzz target explores ORDER well and SCALE badly, and the difference is where bugs hide (2026-09-04).** `FuzzEverything`'s alphabet already contained `ctl.recordToggle` and `ctl.replayLast`, so "record, play frames, replay-last while still recording" was a reachable ordering -- and the target never found the bug that ordering has. The bug needed **64KiB of recording** before the writer's buffer flushed mid-line, and every clip a fuzz step writes is a few hundred bytes. **So when a hand-found bug turns out to be inside a sequence the fuzzer already generates, ask what SIZE or DURATION precondition it also needed** -- and write the regression test by hand, because making the fuzzer reach it would cost every iteration. Found by a user asking whether the replay-last hotkey works mid-recording; the same truncation is what a killed game leaves behind, so it was never really an edge case.
+
 - **A fuzz target must not stand up a SOCKET per iteration -- FIXED 2026-09-03, and the fix is the
   interesting part.** `FuzzEverything` and `FuzzScheduleConvergence` each opened a bridge listener
   and dialled it every iteration, twelve workers at a time; on Windows that exhausts the ephemeral
