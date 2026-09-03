@@ -16,8 +16,9 @@
 - **Status (2026-09-03):** built through Stage 7 — the local fake peer seam and `render_remote.cosmetic`,
   the recorder, playback from `replay/active/`, seeks and `replay_control`, hotkeys (ADR 0048),
   save-last, the chaser pack — each its own commit, whole suite and race detector green at each
-  (`phases/phase11.md`). Split times and the config/packaging/docs sweep remain. Go side confirmed
-  by the suite and by the real binaries offline; anything on screen in a game waits for the user.
+  (`phases/phase11.md`), then split times and the config/packaging/docs sweep the same day. Go side
+  confirmed by the suite and by the real binaries offline; nothing has been watched in a game yet.
+  Open follow-ons: the `anchor` behaviours, adapter-side contact damage, an offline client mode.
 - **The file** (`replay/rec-YYYYMMDD-HHMMSS.ndjson`, `.gz` accepted on read): header, then samples.
   Player-editable header keys: `name`, `color`, `speed` (dot decimal, `1.0`), `loop`, `anchor`
   (`launch` | `start` | `area`), `anchor_radius`, `trim_start` (`0s`, or `auto` = first movement),

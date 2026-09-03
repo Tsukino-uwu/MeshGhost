@@ -10,7 +10,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
-- 2026-09-03 **Phase 11 replays planned (ADR 0047/0048), Stage 0 records written, Stages 1-9 unbuilt** — `phases/phase11.md`, `plans.md` "Phase 11".
+- 2026-09-03 **Phase 11 replays BUILT through Stage 9 (recording, playback, seeks, hotkeys, save-last, chaser pack, split times, config/docs), suite and race green at every stage, NOTHING watched in a game yet; anchors, adapter-side contact damage and an offline client mode are the open follow-ons** — `phases/phase11.md`, ADR 0047/0048.
 - 2026-09-02 **The post-review run is DONE on all four games; Crystal's and Emerald's interp verdicts were judged on the broken relay and want a re-run on the fixed one** — each queue's "This run" block; ADR 0044.
 - 2026-09-02 **The review's connection limiter hid `WriteUnreliable`: every relayed quic/udp state rode the reliable stream until `341a768`; watched fixed on TEVI, Pseudoregalia and the Pokemon games unwatched since** — `verified.md`, "The limiter hid WriteUnreliable".
 - 2026-09-02 **Emerald Fly is bandaged, not finished; the boat is built and never watched; rails are unbuilt** — `emerald/BANDAGES.md` §4, `emerald/UNVERIFIED.md`.

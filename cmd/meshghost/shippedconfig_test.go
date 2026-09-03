@@ -39,6 +39,20 @@ type shippedConfig struct {
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
+		Replay                struct {
+			RecordOnLaunch bool   `json:"record_on_launch"`
+			SaveLast       string `json:"save_last"`
+			StartDelay     string `json:"start_delay"`
+			Seek           string `json:"seek"`
+		} `json:"replay"`
+		Chaser struct {
+			Enabled bool   `json:"enabled"`
+			Count   int    `json:"count"`
+			Delay   string `json:"delay"`
+			Spacing string `json:"spacing"`
+			Contact bool   `json:"contact"`
+		} `json:"chaser"`
+		Hotkeys map[string]string `json:"hotkeys"`
 	} `json:"client"`
 	Server struct {
 		ListenOn   string `json:"listen_on"`
@@ -115,5 +129,35 @@ func TestShippedConfigDeliberateDivergences(t *testing.T) {
 	if cfg.Server.ListenOn != "0.0.0.0:7777" {
 		t.Errorf("shipped listen_on should bind every interface for a host, got %q",
 			cfg.Server.ListenOn)
+	}
+}
+
+// TestShippedConfigNeverRecordsOrChasesBySurprise pins the replay-era keys
+// (ADR 0047, 0048): a release must never write a file or spawn a chaser
+// unless the player asked, the contact hook ships off, and the six hotkey
+// chords match the flag defaults so the log, the README and the file agree.
+func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
+	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
+	if cfg.Client.Replay.RecordOnLaunch {
+		t.Error("shipped replay.record_on_launch must be false: nobody's disk fills up by surprise")
+	}
+	if cfg.Client.Chaser.Enabled || cfg.Client.Chaser.Contact {
+		t.Errorf("shipped chaser must be off with contact off, got enabled=%v contact=%v",
+			cfg.Client.Chaser.Enabled, cfg.Client.Chaser.Contact)
+	}
+	if cfg.Client.Replay.SaveLast != "30s" || cfg.Client.Replay.Seek != "5s" || cfg.Client.Replay.StartDelay != "0s" {
+		t.Errorf("shipped replay durations drifted from the flag defaults: %+v", cfg.Client.Replay)
+	}
+	if cfg.Client.Chaser.Count != 1 || cfg.Client.Chaser.Delay != "3s" || cfg.Client.Chaser.Spacing != "2s" {
+		t.Errorf("shipped chaser numbers drifted from the flag defaults: %+v", cfg.Client.Chaser)
+	}
+	want := map[string]string{
+		"record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10", "replay_last": "ctrl+shift+F11",
+		"replay_restart": "ctrl+shift+F5", "replay_rewind": "ctrl+shift+F6", "replay_fast_forward": "ctrl+shift+F7",
+	}
+	for k, v := range want {
+		if cfg.Client.Hotkeys[k] != v {
+			t.Errorf("shipped hotkeys.%s = %q, want the flag default %q", k, cfg.Client.Hotkeys[k], v)
+		}
 	}
 }

@@ -509,8 +509,8 @@ resolution, and two rendering paths in one adapter.
 
 ### Phase 11 — Replays: recording, playback ghosts, the chaser pack, hotkeys, split times (planned 2026-09-03)
 
-**Decided 2026-09-03, nothing built yet** — ADR 0047 (the model) and ADR 0048 (hotkeys), log in
-`phases/phase11.md`. The wire format is already a replay format: a recording is the adapter's own
+**Decided and built 2026-09-03 (Stages 1–9, one commit each, suite and race green at each; nothing
+watched in a game yet)** — ADR 0047 (the model) and ADR 0048 (hotkeys), log in `phases/phase11.md`. The wire format is already a replay format: a recording is the adapter's own
 `protocol.State` samples written one per line to `replay/<file>.ndjson` under the client's config
 folder; playback is a *local fake peer* fed through `storeRemoteState`, so every renderer, adapter
 and knob works unchanged and no adapter changes for any of it. `replay/active/` IS the list of what

@@ -263,3 +263,33 @@ a 24-character header name is clamped and the tag stays under the cap. `core/rep
 check was loosened to a prefix because the tag can already carry a split by the time it is read.
 One detail found by the tests: `SanitizeDisplayName` collapses runs of whitespace, so the planned
 double-space separator became one space — the code and the tests now say what actually ships.
+
+## 2026-09-03 — Stage 9: the config, packaging and docs sweep, and where Phase 11 stands
+
+**What:** `packaging/release/config.json` carries the three one-line blocks (`replay`, `chaser`,
+`hotkeys`) above `"features"`, so the per-game cut keeps them: the release staging dry run
+(`stage-release.ps1 -NoBuild`) was run and TEVI's staged `config.json` showed all three intact
+(the per-game files are ignored build artefacts, staged at release time; the root file is the
+source). `cmd/meshghost/shippedconfig_test.go` pins that a release never records or chases by
+surprise, that contact ships off, and that the six chords match the flag defaults. `docs/config.md`
+gained three rows; `packaging/release/README.txt` a REPLAYS section under ADVANCED written for a
+player; `adapters/_template/README.md` the paragraph that replays need nothing from an adapter and
+that the contact half needs a per-game ADR and the user's on-screen confirmation.
+
+**Where this leaves Phase 11.** Everything game-blind in the plan is built, tested and committed one
+stage at a time, whole suite and race detector green at each: the local fake peer seam and
+`render_remote.cosmetic`; the recorder (launch-to-quit, 1:1 from the first in-game sample); playback
+from `replay/active/` with seams instead of glides; seeks, replay-last and `replay_control`;
+system-wide hotkeys in the core process; save-last; the chaser pack; split times; this sweep. Seen
+working with no game: the fake adapter recording and replaying offline, and the real `meshghost.exe`
+starting a recording from a synthetic ctrl+shift+F9.
+
+**Not built, on purpose:** Stage 4b's anchors (`start` / `area` restart triggers) — the header key is
+parsed and defaults to `launch`, the behaviour is a follow-on; the chaser's contact damage in any
+adapter (per game, its own ADR, the user's confirmation, Pseudoregalia first); an "offline" mode
+for the real client (today a hello that cannot reach the relay is rejected before `bridge_ready`,
+so `meshghost.exe` records only with a relay up — the fake adapter's `-relay ""` covers the dev loop).
+
+**What the user has not seen:** any of it in a game. Every claim above is the suite's and the
+binaries' offline; nothing here goes into a `VERIFIED.md` until a replay ghost, a chaser and a split
+tag are watched on screen. The first live check wants Pseudoregalia with one file in `replay/active/`.

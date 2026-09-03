@@ -1791,3 +1791,15 @@ build's name, which cannot answer for a build nobody has measured. **Ask it of Y
 the PEER**, beside the write. **What the engine cannot do, a renderer above it usually can** — a
 tier-decision term, not a clamp. And **an index is not portable**: hash the table, send that with
 the index, honour it only on equality. Crystal: `crystal/UNVERIFIED.md`, 2026-08-26.
+
+## Replays and the chaser need nothing from an adapter (2026-09-03)
+
+Recording, playback from `replay/active/`, the chaser pack, the system-wide hotkeys and the split
+time on a replay ghost's nametag are all the core's (ADR 0047, ADR 0048). Replays need nothing from an adapter:
+a replay or chaser ghost arrives as an ordinary `render_remote` with `"cosmetic": true`, and the one
+rule is that a cosmetic ghost is a picture -- never solid, blocking, damageable or targetable --
+whatever `session_policy.ghost_collision` says. The contact half (a chaser that hurts on touch,
+`session_policy.chaser_contact`) is per game: it needs this adapter's own ADR and the user's
+on-screen confirmation before a line of it is written, and no shipped adapter has either. An
+in-game key for the replay actions is optional (`replay_control`, `PROTOCOL.md`); do not register
+the chord the core already owns, because the core registered first and yours will fail.

@@ -285,6 +285,43 @@ Setup, once:
                an hourly rate, how often the ghost buffer ran dry, and how
                long positions took to arrive. Turn it on when a session
                feels wrong and you want numbers rather than a feeling.
+     "replay", "chaser", "hotkeys" -- REPLAYS (2026-09-03). MeshGhost can
+               record what you do and play it back as a ghost, offline,
+               no friend needed:
+                 * Press ctrl+shift+F9 to start and stop a recording, or
+                   set "record_on_launch": true to record every session
+                   from the moment you are in the game to quitting.
+                   Files land in the "replay" folder beside this one.
+                 * Did a trick? ctrl+shift+F10 saves the last 30 seconds
+                   after the fact ("save_last" is how much).
+                 * Drop a file into "replayctive" and it plays as a
+                   ghost when you next play, starting when you are in
+                   the game. Take it out to stop. ctrl+shift+F11 plays
+                   the newest recording right now without moving it.
+                 * ctrl+shift+F5 restarts the ghost, F6 rewinds, F7
+                   fast-forwards ("seek" seconds each). The ghost jumps
+                   rather than slides on a seek.
+                 * Edit the FIRST LINE of a replay file to change how it
+                   plays: "name" and "color" for its nametag, "speed"
+                   (0.25 = quarter speed, 2 = double), "loop",
+                   "start_delay" ("5s" starts it five seconds late),
+                   "trim_start"/"trim_end", "skip_gaps" ("2s" cuts any
+                   pause longer than that out of the clock). The
+                   ghost's nametag also shows how far ahead or behind
+                   you are ("+1.2s" means you are behind).
+                 * "chaser": your own past following you, like a shadow
+                   race. "count": 4 with "spacing": "2s" is four ghosts
+                   3, 5, 7 and 9 seconds behind -- double back and you
+                   walk into one.
+                 * Replay and chaser ghosts are ALWAYS just pictures:
+                   never solid, never hurt, whatever "ghost_collision"
+                   says. A replay file from a friend can do exactly what
+                   a stranger in a room can do and nothing more.
+                 * The keys are system-wide and work with the game
+                   focused. Change them under "hotkeys" (ctrl/shift/alt
+                   plus one key; F12 and the Windows key are refused;
+                   an empty value unbinds). If one does nothing, the
+                   log says whether another program already owns it.
      "game", "game_version", "features" -- protocol-level. Leave them
                empty: the game is announced by whichever mod or script
                you load, "game_version" is set by the mods that need it,
@@ -292,8 +329,8 @@ Setup, once:
                shipped game uses. A wrong value here refuses the room
                rather than degrading the session.
    The config.json inside a game's folder carries only the settings a
-   player might touch: the basics, "ghost_collision" and the render
-   group. Every other key above is simply absent there and
+   player might touch: the basics, "ghost_collision", the render
+   group and the three replay blocks. Every other key above is simply absent there and
    takes the same default this file ships -- add one to a game's file
    if you ever need it, same spelling, same place in the "client" block.
    Only edit the text between the quotes -- keep the quotes, colons, and
