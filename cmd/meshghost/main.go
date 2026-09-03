@@ -167,6 +167,8 @@ type replayFileConfig struct {
 	// StartDelay is how long after you are in the game a replay ghost starts,
 	// for files whose own header says 0s.
 	StartDelay *string `json:"start_delay"`
+	// Seek is how far one rewind or fast-forward key press moves a replay.
+	Seek *string `json:"seek"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -209,6 +211,7 @@ type configTargets struct {
 	recordOnLaunch *bool
 	saveLast       *time.Duration
 	replayStart    *time.Duration
+	replaySeek     *time.Duration
 }
 
 // applyFileConfig returns the absolute path of the config file it looked for
@@ -286,6 +289,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.replayStart != nil {
 			cfg.OverrideDuration(explicit, "replay-start-delay", t.replayStart, fc.Replay.StartDelay, shown, "meshghost", "replay.start_delay")
+		}
+		if t.replaySeek != nil {
+			cfg.OverrideDuration(explicit, "replay-seek", t.replaySeek, fc.Replay.Seek, shown, "meshghost", "replay.seek")
 		}
 	}
 	return shown
@@ -550,6 +556,8 @@ func main() {
 			"after the game's mod attaches and ends when the game closes (config: replay.record_on_launch)")
 	saveLast := flag.Duration("replay-save-last", 30*time.Second,
 		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
+	replaySeek := flag.Duration("replay-seek", 5*time.Second,
+		"how far one rewind or fast-forward moves a replay ghost (config: replay.seek)")
 	replayStart := flag.Duration("replay-start-delay", 0,
 		"how long after your first in-game frame a replay ghost starts, for files whose own "+
 			"header start_delay is 0s (config: replay.start_delay)")
@@ -598,6 +606,7 @@ func main() {
 		recordOnLaunch: recordOnLaunch,
 		saveLast:       saveLast,
 		replayStart:    replayStart,
+		replaySeek:     replaySeek,
 	})
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
@@ -733,6 +742,7 @@ func main() {
 	c.RecordOnLaunch = *recordOnLaunch
 	c.SaveLastSpan = *saveLast
 	c.ReplayStartDelay = *replayStart
+	c.ReplaySeek = *replaySeek
 	if *recordOnLaunch {
 		log.Printf("meshghost: record_on_launch is ON -- every session is written to %s from the first in-game sample", *replayDir)
 	}

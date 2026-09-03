@@ -114,6 +114,13 @@ same way nothing enforces `send_hz`. An adapter that ignores the message is unaf
 existence; an adapter that *cannot* honour `"disabled"` should say so in its own log once rather
 than appearing to comply. See the 2026-08-19 ADR in `architecture.md`.
 
+**`replay_control` (adapter -> core, added 2026-09-03, ADR 0047)** is optional: one action name
+(`record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_last`, `restart`, `rewind`,
+`fast_forward`) and, for the two seeks, a number of seconds (absent means the client's configured
+`replay.seek`). The core performs it and logs the outcome; there is no reply. It is an ADDITION to
+the core's own system-wide hotkeys (ADR 0048), never a replacement: every action works in every
+game without it, and an adapter that sends it only gains a key its own settings screen can show.
+
 **`remote_name` (core -> adapter)** carries a peer's sanitized nametag (`player_id`,
 `display_name`, colour), sent when it becomes known: on join, and once per already-present peer on
 attach. Never re-sent after `despawn_remote`, so an adapter keys names by `player_id` for the

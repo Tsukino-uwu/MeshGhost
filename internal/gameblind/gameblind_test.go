@@ -334,6 +334,9 @@ var frozenBridgeFields = map[string][]string{
 	"World":         {"World"},
 	"WorldState":    {"WorldState"},
 	"SessionPolicy": {"ghost_collision"},
+	// replay_control (2026-09-03, ADR 0047): an action name from a fixed list and a number of
+	// seconds. Nothing about any game -- it is the adapter pressing one of the core's own keys.
+	"ReplayControl": {"action", "seconds"},
 	"Reject":        {"reason"},
 	"LocalState":    {"state"},
 	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
@@ -387,6 +390,7 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"WorldState": bridge.WorldState{}, "SessionPolicy": bridge.SessionPolicy{},
 		"Reject": bridge.Reject{}, "LocalState": bridge.LocalState{},
 		"RenderRemote": bridge.RenderRemote{}, "DespawnRemote": bridge.DespawnRemote{},
+		"ReplayControl": bridge.ReplayControl{},
 	}
 
 	compare := func(which string, samples map[string]any, frozen map[string][]string) {

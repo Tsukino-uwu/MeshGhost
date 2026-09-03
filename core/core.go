@@ -633,9 +633,12 @@ type Core struct {
 	// ReplayStartDelay is how long after the first in-game frame a replay
 	// starts when its own header says 0s; a file's start_delay overrides it.
 	ReplayStartDelay time.Duration
-	rec              recorder
-	ring             sampleRing
-	tapArmed         uint32
+	// ReplaySeek is how far one rewind or fast-forward moves when the caller
+	// gives no amount (the hotkeys never do).
+	ReplaySeek time.Duration
+	rec        recorder
+	ring       sampleRing
+	tapArmed   uint32
 	// Playback (core/replay.go): the loaded players, armed by StartReplays
 	// and launched by the first in-game frame (replaysPending).
 	replayMu       sync.Mutex
@@ -645,6 +648,9 @@ type Core struct {
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.
 	ticks uint64
+	// ticksStarted is bumped at the START of tickRenders; with ticks (the end
+	// count) it lets a waiter ask for a tick that began after some moment.
+	ticksStarted uint64
 
 	// permanentRejectGame/permanentRejectReason cache a relay Reject this
 	// Core has decided isn't worth retrying (see isPermanentRejectReason).

@@ -272,18 +272,36 @@ func (rc *replayClip) applySkipGaps() {
 
 // replayPlayer feeds one clip as one local peer.
 type replayPlayer struct {
-	c       *Core
-	id      string
-	clip    *replayClip
-	stop    chan struct{}
-	once    sync.Once
-	done    chan struct{}
+	c    *Core
+	id   string
+	clip *replayClip
+	stop chan struct{}
+	once sync.Once
+	done chan struct{}
+	// ctrl carries seeks from ReplayControl (restart, rewind, fast-forward);
+	// buffered so a key held down never blocks the caller.
+	ctrl    chan replayCmd
 	started uint32
 
 	mu        sync.Mutex
-	startedAt int64 // nowMs at which sample 0 is due, for the current lap
+	startedAt int64 // nowMs at which clip time 0 is due, for the current lap
 	idx       int   // the last sample fed
 	laps      int
+}
+
+func newReplayPlayer(c *Core, id string, clip *replayClip) *replayPlayer {
+	return &replayPlayer{c: c, id: id, clip: clip, stop: make(chan struct{}), done: make(chan struct{}), ctrl: make(chan replayCmd, 4)}
+}
+
+// launch starts the goroutine exactly once.
+func (p *replayPlayer) launch() {
+	if atomic.CompareAndSwapUint32(&p.started, 0, 1) {
+		go p.run()
+	}
+}
+
+func (p *replayPlayer) running() bool {
+	return atomic.LoadUint32(&p.started) == 1
 }
 
 func (p *replayPlayer) halt() {
@@ -300,16 +318,22 @@ func (p *replayPlayer) stopped() bool {
 }
 
 // sleepUntil waits for the clock to reach due, in slices short enough that a
-// stop is noticed promptly and a goroutine stall can never approach the stale
-// age-out. False means stopped.
-func (p *replayPlayer) sleepUntil(due int64) bool {
+// stop or a seek is noticed promptly and a goroutine stall can never approach
+// the stale age-out. Returns a command if one arrived first; stopped=true
+// means the player was halted.
+func (p *replayPlayer) sleepUntil(due int64) (cmd *replayCmd, stopped bool) {
 	for {
 		if p.stopped() {
-			return false
+			return nil, true
+		}
+		select {
+		case c := <-p.ctrl:
+			return &c, false
+		default:
 		}
 		now := p.c.nowMs()
 		if now >= due {
-			return true
+			return nil, false
 		}
 		wait := time.Duration(due-now) * time.Millisecond
 		if wait > 50*time.Millisecond {
@@ -317,7 +341,9 @@ func (p *replayPlayer) sleepUntil(due int64) bool {
 		}
 		select {
 		case <-p.stop:
-			return false
+			return nil, true
+		case c := <-p.ctrl:
+			return &c, false
 		case <-time.After(wait):
 		}
 	}
@@ -325,11 +351,11 @@ func (p *replayPlayer) sleepUntil(due int64) bool {
 
 // seam is the leave-and-rejoin that makes a discontinuity a jump.
 func (p *replayPlayer) seam(tag protocol.Nametag) bool {
-	before := p.c.tickCount()
 	p.c.dropLocalPeer(p.id)
-	// One render tick carries the despawn. Bounded: an adapter in a menu
-	// sends no frames, and a replay must not hang on it.
-	p.c.awaitTick(before, 500*time.Millisecond)
+	// One render tick that BEGAN after the drop carries the despawn (see
+	// ticksBegun). Bounded: an adapter in a menu sends no frames, and a
+	// replay must not hang on it.
+	p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond)
 	if p.stopped() {
 		return false
 	}
@@ -351,76 +377,136 @@ func (p *replayPlayer) run() {
 		delay = p.c.ReplayStartDelay
 		p.c.mu.Unlock()
 	}
+	durMs := clip.duration().Milliseconds()
 	start := p.c.nowMs() + delay.Milliseconds()
 	log.Printf("core: replay %s: %d samples, %s at %.2gx, starting in %s%s", clip.file, len(clip.samples),
 		clip.duration().Round(time.Millisecond), clip.speed, delay, map[bool]string{true: ", looping", false: ""}[clip.loop])
-	p.mu.Lock()
-	p.startedAt = start
-	p.mu.Unlock()
+	setStart := func(v int64) {
+		start = v
+		p.mu.Lock()
+		p.startedAt = v
+		p.mu.Unlock()
+	}
+	setStart(start)
+
+	// indexAt is the first sample at or after a clip time.
+	indexAt := func(posMs int64) int {
+		i := sort.Search(len(clip.samples), func(k int) bool { return clip.samples[k].Timestamp-clip.t0 >= posMs })
+		if i >= len(clip.samples) {
+			i = len(clip.samples) - 1
+		}
+		return i
+	}
+	// seek applies a control command: the ghost jumps to the new clip time
+	// through a seam. false means the clip is over (fast-forward past the end
+	// of a non-looping clip).
+	seek := func(cmd *replayCmd, i *int) bool {
+		now := p.c.nowMs()
+		pos := int64(float64(now-start) * clip.speed)
+		switch cmd.kind {
+		case ReplayRestart:
+			pos = 0
+		case ReplayRewind:
+			pos -= int64(cmd.seconds) * 1000
+		case ReplayFastForward:
+			pos += int64(cmd.seconds) * 1000
+		}
+		if pos < 0 {
+			pos = 0
+		}
+		if pos > durMs {
+			if !clip.loop {
+				log.Printf("core: replay %s: fast-forwarded past the end", clip.file)
+				return false
+			}
+			pos = 0
+		}
+		setStart(now - int64(float64(pos)/clip.speed))
+		*i = indexAt(pos)
+		log.Printf("core: replay %s: %s -> %s into the clip", clip.file, cmd.kind, (time.Duration(pos) * time.Millisecond).Round(time.Millisecond))
+		return p.seam(tag)
+	}
 
 	prevNow := p.c.nowMs()
+	i := 0
 	for {
-		for i, s := range clip.samples {
-			if i > 0 && (clip.forcedSeam[i] || s.Timestamp-clip.samples[i-1].Timestamp > replayGapSeamMs) {
-				if !p.seam(tag) {
+		if i >= len(clip.samples) {
+			if !clip.loop {
+				// Hold the last sample long enough to be rendered: the buffer
+				// renders InterpolationDelay behind, and the deferred drop
+				// would otherwise despawn the ghost before its final position
+				// was drawn. A seek during the hold still works.
+				p.c.mu.Lock()
+				hold := p.c.InterpolationDelay
+				p.c.mu.Unlock()
+				cmd, stopped := p.sleepUntil(p.c.nowMs() + hold.Milliseconds() + 1)
+				if stopped {
 					return
 				}
-			}
-			due := start + int64(float64(s.Timestamp-clip.t0)/clip.speed)
-			if !p.sleepUntil(due) {
+				if cmd != nil {
+					if !seek(cmd, &i) {
+						return
+					}
+					continue
+				}
+				p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond)
+				log.Printf("core: replay %s: finished", clip.file)
 				return
 			}
-			now := p.c.nowMs()
-			if now < prevNow-replayBackstepMs {
-				// The clock stepped back (a relay session reset mid-replay):
-				// re-base so this sample is due now, and make it a seam so
-				// the buffer never sees time run backwards.
-				start = now - (due - start)
-				due = now
-				p.mu.Lock()
-				p.startedAt = start
-				p.mu.Unlock()
-				if !p.seam(tag) {
-					return
-				}
-			}
-			prevNow = now
-			st := s
-			st.Timestamp = due
-			if !p.c.feedLocalPeer(p.id, st) {
-				// Dropped from outside (StopReplays) or refused by a full
-				// roster after a reconnect. Either way this lap is over.
-				if p.stopped() {
-					return
-				}
-				log.Printf("core: replay %s: sample refused (roster full?), stopping", clip.file)
+			if !p.seam(tag) {
 				return
 			}
+			setStart(p.c.nowMs())
 			p.mu.Lock()
-			p.idx = i
+			p.laps++
 			p.mu.Unlock()
+			i = 0
+			continue
 		}
-		if !clip.loop {
-			// Hold the last sample long enough to be rendered: the buffer
-			// renders InterpolationDelay behind, and the deferred drop would
-			// otherwise despawn the ghost before its final position was drawn.
-			p.c.mu.Lock()
-			hold := p.c.InterpolationDelay
-			p.c.mu.Unlock()
-			before := p.c.tickCount()
-			p.sleepUntil(p.c.nowMs() + hold.Milliseconds() + 1)
-			p.c.awaitTick(before, 500*time.Millisecond)
-			log.Printf("core: replay %s: finished", clip.file)
+		s := clip.samples[i]
+		if i > 0 && (clip.forcedSeam[i] || s.Timestamp-clip.samples[i-1].Timestamp > replayGapSeamMs) {
+			if !p.seam(tag) {
+				return
+			}
+		}
+		due := start + int64(float64(s.Timestamp-clip.t0)/clip.speed)
+		cmd, stopped := p.sleepUntil(due)
+		if stopped {
 			return
 		}
-		if !p.seam(tag) {
+		if cmd != nil {
+			if !seek(cmd, &i) {
+				return
+			}
+			continue
+		}
+		now := p.c.nowMs()
+		if now < prevNow-replayBackstepMs {
+			// The clock stepped back (a relay session reset mid-replay):
+			// re-base so this sample is due now, and make it a seam so the
+			// buffer never sees time run backwards.
+			setStart(now - (due - start))
+			due = now
+			if !p.seam(tag) {
+				return
+			}
+		}
+		prevNow = now
+		st := s
+		st.Timestamp = due
+		if !p.c.feedLocalPeer(p.id, st) {
+			// Dropped from outside (StopReplays) or refused by a full roster
+			// after a reconnect. Either way this lap is over.
+			if p.stopped() {
+				return
+			}
+			log.Printf("core: replay %s: sample refused (roster full?), stopping", clip.file)
 			return
 		}
-		start = p.c.nowMs()
 		p.mu.Lock()
-		p.startedAt = start
-		p.laps++
+		p.idx = i
 		p.mu.Unlock()
+		i++
 	}
 }
 
@@ -482,7 +568,7 @@ func (c *Core) StartReplays() int {
 			log.Printf("core: replay %s names no game; assuming it is for %q", name, game)
 		}
 		id := localPeerReplayPrefix + name
-		p := &replayPlayer{c: c, id: id, clip: clip, stop: make(chan struct{}), done: make(chan struct{})}
+		p := newReplayPlayer(c, id, clip)
 		if c.replays == nil {
 			c.replays = make(map[string]*replayPlayer)
 		}
@@ -506,8 +592,7 @@ func (c *Core) launchPendingReplays() {
 	c.replayMu.Lock()
 	defer c.replayMu.Unlock()
 	for _, p := range c.replays {
-		atomic.StoreUint32(&p.started, 1)
-		go p.run()
+		p.launch()
 	}
 }
 
@@ -523,7 +608,7 @@ func (c *Core) StopReplays() {
 		p.halt()
 	}
 	for _, p := range players {
-		if atomic.LoadUint32(&p.started) == 1 {
+		if p.running() {
 			select {
 			case <-p.done:
 			case <-time.After(time.Second):

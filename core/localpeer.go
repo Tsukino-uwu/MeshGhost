@@ -105,6 +105,15 @@ func (c *Core) isLocalPeer(id string) bool {
 	return local
 }
 
+// ticksBegun is how many render ticks have STARTED. A seam takes this value
+// right after dropping the peer and then waits for tickCount to pass it, which
+// is the only way to know a tick that began AFTER the drop has finished -- a
+// tick already in flight at the drop may have rendered the old peer and would
+// otherwise satisfy the wait without ever sending the despawn.
+func (c *Core) ticksBegun() uint64 {
+	return atomic.LoadUint64(&c.ticksStarted)
+}
+
 // tickCount is how many render ticks have run. A seek (restart, rewind, the
 // loop seam) is a drop followed by a re-feed, and the despawn only reaches the
 // adapter if a tick runs BETWEEN the two -- otherwise the diff in tickRenders

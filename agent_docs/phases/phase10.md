@@ -113,3 +113,16 @@ note in `agent_docs/README.md`.
 What is open on this stack at any moment is `agent_docs/status.md`'s job, not this file's —
 today's snapshot there includes the catmull-rom uneven-spacing defect, `internal/e2e`'s
 `freePort` TOCTOU, and the two shipped settings that reach too few adapters.
+
+## 2026-09-03 — Replays: the Go side gained recording, playback, seeks and a bridge control message; logged in phase 11
+
+Feature-sized Go-side work took its own log today rather than another entry here: **`phase11.md`** holds
+the per-stage record (the local fake peer seam and `render_remote.cosmetic`; the recorder; playback from
+`replay/active/` with seams instead of glides; seeks, replay-last and the `replay_control` bridge message;
+the system-wide hotkey package next). What touched this log's components: `core` (new files
+`localpeer.go`, `recorder.go`, `replay.go`, `replaycontrol.go`, a tap at the top of `forwardLocalState`,
+a tick-started counter in `tickRenders`), `bridge` (`cosmetic` on `render_remote`, the new
+`replay_control` type), `internal/gameblind` (the one-entry-point check for `storeRemoteState`, two new
+frozen field lists), `internal/e2e` (a replay through the real binaries), `cmd/meshghost` (the `replay`
+config block and flags), `cmd/meshghost-fakeadapter` (`-record`, `-replay-dir`, an offline mode). The
+decisions: ADR 0047 and ADR 0048. Whole suite and race detector green at every stage's commit.

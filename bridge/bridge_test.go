@@ -36,6 +36,7 @@ func TestEnvelopeRoundTripsEveryMessageType(t *testing.T) {
 		TypeBridgeReady:   "bridge_ready",
 		TypeReject:        "reject",
 		TypeSessionPolicy: "session_policy",
+		TypeReplayControl: "replay_control",
 	}
 	for typ, literal := range want {
 		if string(typ) != literal {

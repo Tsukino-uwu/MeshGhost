@@ -72,6 +72,11 @@ const (
 	// good enough.
 	TypeBridgeReady MessageType = "bridge_ready"
 	TypeReject      MessageType = "reject"
+	// TypeReplayControl is adapter -> core, added 2026-09-03 (ADR 0047): an
+	// in-game binding for the replay actions the core's own system-wide
+	// hotkeys perform. Optional -- an adapter that never sends it loses
+	// nothing, because the hotkeys exist regardless (ADR 0048).
+	TypeReplayControl MessageType = "replay_control"
 	// TypeSessionPolicy is core -> adapter, added 2026-08-19: the room-wide
 	// rules the host set, that the adapter is the only party able to apply.
 	// See SessionPolicy for why this is a message of its own rather than a
@@ -316,6 +321,22 @@ type SessionPolicy struct {
 	// once, rather than silently appearing to comply. Nothing checks, and
 	// nothing can: this is advisory the whole way down.
 	GhostCollision string `json:"ghost_collision"`
+}
+
+// ReplayControl is sent adapter -> core to trigger one replay action from an
+// in-game binding of the adapter's own. Action is one of record_start,
+// record_stop, record_toggle, save_last, replay_last, restart, rewind,
+// fast_forward (core.ReplayAction). Seconds applies to rewind and
+// fast_forward; 0 or absent means the client's configured seek. The core
+// logs the outcome and sends no reply: nothing an adapter would do differs
+// on success or failure, and a player reads the core log either way.
+//
+// This is an ADDITION to the core's hotkeys, never a replacement: the
+// actions work in every game without it, and an adapter that adds it only
+// gains a key its own settings screen can show.
+type ReplayControl struct {
+	Action  string `json:"action"`
+	Seconds int    `json:"seconds,omitempty"`
 }
 
 // Reject is sent core -> adapter when a Hello cannot be accepted, immediately

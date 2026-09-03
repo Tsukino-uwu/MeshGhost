@@ -136,3 +136,33 @@ one pre-existing test that Stage 3 does not touch — `netx/udpconn`'s
 5 of 5 in isolation and every other package was green both times, so it is recorded here as a flake
 under whole-suite load rather than a regression, and it is the user's to decide whether it goes into
 `testing.md`'s traps. Everything replay-related passed on every run.
+
+## 2026-09-03 — Stage 4: seeks, replay-last and the `replay_control` bridge message, built and green
+
+**What:** `core/replaycontrol.go` — `ReplayControl(action, seconds)`, the one entry point every
+trigger uses (the hotkeys of Stage 5, an adapter's `replay_control`, a test). Actions:
+`record_start` / `record_stop` / `record_toggle` (the recorder), `save_last` (says "not built yet"
+until Stage 6), `replay_last` (plays the newest file in `replay/` itself, right now, without moving
+it; a second press restarts rather than doubles), `restart` / `rewind` / `fast_forward` (a seek).
+The player's run loop was rewritten around a buffered control channel: a seek computes the new clip
+time, re-bases the start, binary-searches the sample index and goes through a seam; fast-forward past
+the end of a non-looping clip ends it, and a restart or rewind on a finished player relaunches it.
+`seconds` ≤ 0 means the configured `replay.seek` (`-replay-seek`, default 5s). Bridge:
+`bridge.TypeReplayControl` / `ReplayControl{action, seconds}`, dispatched in `handleBridgeConn`, frozen
+in `internal/gameblind`, documented in `contract.md` and the template's `PROTOCOL.md` as an ADDITION
+to the core's hotkeys, never a replacement.
+
+**A real race found by the restart test:** the seam waited for "one render tick after the drop",
+but a tick already in flight when the peer was dropped satisfied the wait while having rendered the
+old peer — so the re-feed landed before any despawn, and the ghost glided instead of jumping. Rewind
+happened to pass, restart reliably failed. Fixed with a second counter bumped at the START of
+`tickRenders`: a seam now waits for a tick that BEGAN after the drop to finish (`ticksBegun`).
+The lesson for anything that drops-then-re-adds a peer: "a tick has passed" and "a tick that saw the
+drop has passed" are different facts.
+
+**Tests:** `core/replaycontrol_test.go` — restart is a seam back to the top; rewind lands earlier and
+fast-forward later, each through a seam; fast-forward past the end finishes the goroutine and restart
+brings it back; the same restart requested over the bridge from the fake adapter works and a nonsense
+action only logs; replay-last plays the newest library file, leaves it in place, and restarts on a
+second press; record actions route to the recorder; a seek with nothing loaded says so. Whole suite,
+race and preflight recorded at the commit.

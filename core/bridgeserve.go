@@ -244,6 +244,18 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			c.onAdapterFrame(msg, nd, rendered)
+		case bridge.TypeReplayControl:
+			var msg bridge.ReplayControl
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			// Logged either way: the adapter gets no reply, so this line is the
+			// only place a player sees that their in-game key did something.
+			if err := c.ReplayControl(ReplayAction(msg.Action), msg.Seconds); err != nil {
+				log.Printf("core: replay_control %q from the adapter: %v", msg.Action, err)
+			} else {
+				log.Printf("core: replay_control %q from the adapter: done", msg.Action)
+			}
 		case bridge.TypeEvent:
 			var msg bridge.Event
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {

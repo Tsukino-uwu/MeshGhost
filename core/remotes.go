@@ -223,6 +223,7 @@ func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[
 // (onAdapterFrame) and the in-process path (onAdapterFrameInProcess) so the
 // tick-model diff logic exists exactly once.
 func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st protocol.State, br orientBracket), despawn func(id string)) {
+	atomic.AddUint64(&c.ticksStarted, 1)
 	// The same clock domain outgoing timestamps are stamped in (nowMs), which
 	// is the whole point: remote samples carry the sender's idea of the time,
 	// and comparing them against a render time measured on a different clock

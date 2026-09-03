@@ -268,6 +268,22 @@ The bridge defines **nine more** (`bridge/bridge.go`), every one of them inert u
 `hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, and the
 other seven are in "Beyond cosmetic" at the bottom of this file.
 
+## Replay control (optional, adapter -> core, 2026-09-03)
+
+Replays and the chaser (ADR 0047) need nothing from an adapter: the core records, plays back and
+binds system-wide hotkeys itself (ADR 0048). An adapter that wants an IN-GAME key for the same
+actions sends this and gets no reply -- the core logs what happened:
+
+```json
+{"type":"replay_control","payload":{"action":"restart"}}
+{"type":"replay_control","payload":{"action":"rewind","seconds":5}}
+```
+
+Actions: `record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_last`, `restart`,
+`rewind`, `fast_forward`. `seconds` only means anything for the two seeks; absent is the client's
+configured `replay.seek`. Do not register the same chord the core already owns for its hotkey:
+the core registered first and yours will fail.
+
 ## The tick loop (the part every real adapter gets wrong the first time)
 
 ```text
