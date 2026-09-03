@@ -385,3 +385,11 @@ carried `""` while `docs/config.md` already said `#A89975`; now the shipped root
 hex, the per-game cut inherits it, the README line says the prefill is an example and `""` removes the
 box, and `TestShippedConfigDeliberateDivergences` pins it with the reason. Harmless while `name` is
 blank -- a colour is ignored without a name.
+
+**CI's first fuzz campaign on the new targets, same evening:** the race job went green on the
+test-ordering fix; the fuzz job went red on `FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane` in
+eleven seconds — `"save_last":"0s"`. Not a bug in the client: a wrong invariant in the fuzzer, which
+called any zero duration "a bad value zeroed the default" when a parsed `0s` is a value the player
+chose. The invariant now distinguishes an unparseable duration (must keep the default) from an explicit
+zero (allowed), CI's `fuzz-failure-corpus` artifact is the regression in `testdata/fuzz/`, and a 45s
+local campaign is clean. A fuzzer's first campaign tests the fuzzer as much as the code.

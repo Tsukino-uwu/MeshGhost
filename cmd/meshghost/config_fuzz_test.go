@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,14 +55,39 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		}
 		// A duration the file could not express as a duration must be the
 		// default, never zero-by-accident: OverrideDuration keeps the target on
-		// a parse failure. Negative durations ARE accepted by time.ParseDuration
-		// and are the core's to clamp, so they are not asserted here.
+		// a parse failure. A parsed "0s" is a VALUE the player chose and is
+		// allowed -- CI's first campaign (2026-09-03) found this test calling
+		// "save_last":"0s" a bug; the corpus entry beside this file is that
+		// input. Negative durations ARE accepted by time.ParseDuration and are
+		// the core's to clamp, so they are not asserted here.
+		var doc struct {
+			Client struct {
+				Replay map[string]any `json:"replay"`
+				Chaser map[string]any `json:"chaser"`
+			} `json:"client"`
+		}
+		_ = json.Unmarshal([]byte(strings.TrimPrefix(body, "\ufeff")), &doc)
+		explicitZero := func(block map[string]any, key string) bool {
+			v, ok := block[key].(string)
+			if !ok {
+				return false
+			}
+			d, err := time.ParseDuration(v)
+			return err == nil && d == 0
+		}
 		for _, d := range []struct {
-			name string
-			got  time.Duration
-			def  time.Duration
-		}{{"save_last", saveLast, 30 * time.Second}, {"seek", replaySeek, 5 * time.Second}, {"chaser.delay", delay, 3 * time.Second}, {"chaser.spacing", spacing, 2 * time.Second}} {
-			if d.got == 0 && d.def != 0 {
+			name  string
+			got   time.Duration
+			def   time.Duration
+			block map[string]any
+			key   string
+		}{
+			{"save_last", saveLast, 30 * time.Second, doc.Client.Replay, "save_last"},
+			{"seek", replaySeek, 5 * time.Second, doc.Client.Replay, "seek"},
+			{"chaser.delay", delay, 3 * time.Second, doc.Client.Chaser, "delay"},
+			{"chaser.spacing", spacing, 2 * time.Second, doc.Client.Chaser, "spacing"},
+		} {
+			if d.got == 0 && d.def != 0 && !explicitZero(d.block, d.key) {
 				t.Fatalf("%s became 0 from %q; a bad value must keep the default %s", d.name, body, d.def)
 			}
 		}
