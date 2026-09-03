@@ -464,6 +464,18 @@ type Core struct {
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
 
+	// Offline means this Core never dials a relay: no room, no peers, and no
+	// retry loop logging that it cannot reach one. Everything that does not
+	// need a relay still runs -- the bridge still binds (it is how the adapter
+	// attaches, so without it nothing renders at all), the adapter still
+	// attaches, and recording, replays and chasers all work, since they were
+	// already independent of the relay by construction (forwardLocalState taps
+	// the recorder before it checks for one).
+	//
+	// Read WITHOUT c.mu, like RelayAddr and the other connection fields beside
+	// it: set once before the bridge serves and never written again.
+	Offline bool
+
 	// LocalInterpolationDelay overrides DefaultLocalGhostDelay for this Core --
 	// the render delay for a replay or chaser, which is NOT the network one.
 	// Zero means literally zero, not "use the default", exactly as

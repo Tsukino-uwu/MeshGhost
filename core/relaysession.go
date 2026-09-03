@@ -427,6 +427,15 @@ func (c *Core) clearRelayIfCurrent(conn transport.Transport) {
 // already committed this Core to that game and can't be retracted, so a
 // second game can't share the same Core/process.
 func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bridgeConn transport.Transport) error {
+	// OFFLINE IS ENFORCED HERE, at the one funnel, and not at the caller: both
+	// ways into a relay dial come through this function -- cmd/meshghost's
+	// startup retry loop when -game is set, and an adapter's own hello over the
+	// bridge when it is not -- which is exactly why it was written as a funnel.
+	// Guarding only the loop would leave a game launching itself into a dial
+	// the player asked not to happen. Nil, not an error: nothing failed.
+	if c.Offline {
+		return nil
+	}
 	c.relayConnectMu.Lock()
 	defer c.relayConnectMu.Unlock()
 

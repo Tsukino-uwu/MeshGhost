@@ -159,6 +159,12 @@ type fileConfig struct {
 	// should feel like part of launching the game, not a third thing to run --
 	// so this is for someone who wants to watch it work. See consoleWriter.
 	ShowConsole *bool `json:"show_console"`
+	// Offline plays alone deliberately: no relay is dialled, no room is
+	// joined, and the retry loop that logs "cannot connect yet" never starts.
+	// Recording, replays and chasers all still work -- they never needed a
+	// relay. Ships as false; someone who plays with replays and no room turns
+	// it on and gets a quiet console.
+	Offline *bool `json:"offline"`
 	// Replay is the recording block (ADR 0047): record_on_launch writes the
 	// whole session to the replay/ folder beside this file; save_last is how
 	// many seconds the save-last hotkey keeps. Nested so the player's file
@@ -249,6 +255,7 @@ type configTargets struct {
 	tlsMode        *string
 	tlsPin         *string
 	showConsole    *bool
+	offline        *bool
 	features       *string
 	recordOnLaunch *bool
 	saveLast       *time.Duration
@@ -334,6 +341,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	cfg.Override(explicit, "tls", t.tlsMode, fc.TLS)
 	cfg.Override(explicit, "tls-fingerprint", t.tlsPin, fc.TLSFingerprint)
 	cfg.Override(explicit, "show-console", t.showConsole, fc.ShowConsole)
+	cfg.Override(explicit, "offline", t.offline, fc.Offline)
 	if fc.Features != nil && !explicit["features"] {
 		// The one setting that is not a straight copy: joined rather than kept as
 		// a list, so the config file and the flag resolve to one representation
@@ -626,6 +634,11 @@ func main() {
 			"client for you, so a crashed game can't leave an invisible orphan holding the bridge "+
 			"port. 0 (the default) means don't watch anything. Deliberately not a config.json "+
 			"setting: it's a per-launch fact from whoever spawned us, not something a player configures")
+	offline := flag.Bool("offline", false,
+		"play alone: never dial a relay, join no room, and see no peers. Recording, replays and "+
+			"chasers all still work -- they never needed one -- and the game's mod still connects to "+
+			"this client exactly as it always does. Without this, a client with no relay to reach "+
+			"retries forever and says so in the log (config: offline)")
 	showConsole := flag.Bool("show-console", false,
 		"open a console window and mirror the log to it. Only meaningful when a game adapter "+
 			"started this client (it spawns us with no window on purpose); a client you ran "+
@@ -708,6 +721,7 @@ func main() {
 		tlsMode:        tlsMode,
 		tlsPin:         tlsPin,
 		showConsole:    showConsole,
+		offline:        offline,
 		features:       features,
 		recordOnLaunch: recordOnLaunch,
 		saveLast:       saveLast,
@@ -809,6 +823,7 @@ func main() {
 	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
 	c.LocalInterpolationDelay = *localInterp
+	c.Offline = *offline
 	if !*lossCover {
 		c.RedundancyMinInterval = -1
 	}
@@ -935,12 +950,21 @@ func main() {
 		})
 	}
 
-	if *gameID != "" {
+	switch {
+	case *offline:
+		// One line, and no retry goroutine. The bridge listener below still
+		// binds -- it is how the game's mod attaches, so without it nothing
+		// renders at all -- and core.Offline also refuses the dial an
+		// adapter's own hello would otherwise start.
+		log.Printf("meshghost: OFFLINE -- not connecting to a relay, so no room and no other " +
+			"players. Recording, replays and chasers all still work. Remove \"offline\" from " +
+			"config.json (or pass -offline=false) to play with other people.")
+	case *gameID != "":
 		// Backgrounded, not blocking: the bridge listener below starts
 		// immediately regardless of whether the relay is reachable yet —
 		// see connectRelayWithRetry's doc comment.
 		go connectRelayWithRetry(c, *gameID)
-	} else {
+	default:
 		log.Printf("meshghost: no game set -- waiting for a game to connect and say hello...")
 	}
 

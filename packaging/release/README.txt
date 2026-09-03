@@ -251,6 +251,13 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
+     "offline" -- set this to true to play alone on purpose. No host is
+               contacted, no room is joined, nobody else appears, and
+               the client stops saying it cannot reach anyone. Your game
+               still connects to it exactly as always, and recording,
+               replays and chasers all still work -- none of those ever
+               needed anyone else. Leave it false to play with people.
+
      "local_interp" -- the same idea, for a ghost YOUR OWN client
                invented: a replay you dropped into replay/active/, or a
                chaser. A different number for a different job -- nothing

@@ -40,6 +40,7 @@ type shippedConfig struct {
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		LocalInterp           string `json:"local_interp"`
+		Offline               bool   `json:"offline"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
 		Replay                struct {
 			RecordOnLaunch bool   `json:"record_on_launch"`
@@ -103,6 +104,13 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 			"value in config.json overrides the default, so a replay or chaser would be drawn %v "+
 			"behind its own schedule no matter what the code says.",
 			localInterp, core.DefaultLocalGhostDelay, localInterp)
+	}
+	// Shipped OFF, deliberately: the shipped client plays with other people.
+	// The key is present anyway so someone who wants a quiet, roomless client
+	// can flip it without knowing the flag exists (the user's call, 2026-09-03).
+	if cfg.Client.Offline {
+		t.Error("shipped offline is true -- the shipped client would never contact a relay " +
+			"and nobody would see anyone")
 	}
 	if cfg.Server.SendHz != protocol.DefaultSendHz {
 		t.Errorf("shipped send_hz is %d but protocol.DefaultSendHz is %d",
