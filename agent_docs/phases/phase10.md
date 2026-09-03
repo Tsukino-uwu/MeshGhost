@@ -349,3 +349,16 @@ the repo's own `-count=10` rule exists for this and was not enough here either.
 
 Corpus committed at `core/testdata/fuzz/FuzzEverything/e69f253af52a10b7`. Suite green, 90s local
 campaign clean, race detector clean.
+
+## 2026-09-03 (late) — Go-side work this session was Phase 11's, not this one's
+
+Four commits touched `core` and `cmd` after the entry above, and none of them is virtual-clock
+work: the per-peer render delay (ADR 0049), the offline client mode, and gzipped/rounded
+recordings. All three are logged in [phase11.md](phase11.md), 2026-09-03 (late). Noted here so the
+gap in this file is a decision rather than a lapse.
+
+**What it does mean for this phase:** the due-wait sleeps are still wall-clock, and the
+advance-until-quiescent helper is still unbuilt. Nothing this session changed that, and one thing
+sharpened the need for it — `FuzzEverything`'s chaser seam is still unreachable because a step's
+gap caps at 350ms against a wall-clock 1500ms threshold (`ideas.md`), which is exactly the case the
+virtual clock exists to close.

@@ -123,6 +123,8 @@ filed under the right theme, but anything can check that it is listed.
 
 
 - 2026-09-03 — Replays, recording and the chaser pack work on screen: Phase 11 watched for the first time
+- 2026-09-03 — A local ghost renders on its own delay: the defect, the fix, and why the whole suite was blind to it
+- 2026-09-03 — Recordings ship gzipped and trimmed: 310 MB/hour becomes about 9
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174

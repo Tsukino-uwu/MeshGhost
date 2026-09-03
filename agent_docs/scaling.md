@@ -490,7 +490,7 @@ most likely a large room on a real socket rather than the discard transport the 
 
 **Measured on a real 3-minute Pseudoregalia clip**, not estimated: 15,762 samples, 15,500,011
 bytes, ~983 bytes per sample, 87.5 Hz average with 5-12ms between samples. In the unit that means
-something to a person: **about 310 MB for an hour of recording**, and a ten-minute run is ~52 MB.
+something to a person: **~310 MB/hour of recording**, and a ten-minute run is ~52 MB.
 
 **The rate is deliberate and should not be "fixed".** The recorder taps at the top of
 `forwardLocalState` (`core/sending.go:55`), BEFORE the send-rate limit and before the relay check,
