@@ -487,3 +487,33 @@ BizHawk's, and the harness reaches the decoder only, never the dispatch.
 
 **Waiting on the user:** that the adapter still loads, connects and renders a ghost. Batched with the
 rest of the session's adapter work rather than asked for on its own.
+
+## 2026-09-03 (evening, second) — two clients confirmed, and the spawned tier is still solid
+
+**The decoder change is confirmed on screen.** The user, after a two-client session: *"i tested
+pokemon emerald, 2 clients still work and connect properly"*. The session's own logs agree — sprite
+decode at the vanilla address, the port walk landing on 7779 after 7778 answered `busy: this core
+already has a game attached`, cross-map ghosts armed instantly from the cached map groups, and
+`in game -- now sending local state` on both. Ghosts rendered too, which is not an inference from the
+log: the same session produced the collision observation below, and a ghost has to exist to block you.
+
+That closes the load/connect half of the depth-cap entry in `UNVERIFIED.md`. The cap itself stays
+unconfirmable on screen by construction — it refuses input no peer sends, and nothing looks different
+when it works.
+
+**Logged from the same session: the spawned tier still has collision.** The user: *"we are not
+disabling collission on the spawned ghost tier"*. Known in the general case since 2026-08-19 — no
+adapter handles `session_policy`, so `ghost_collision` dead-ends at the bridge in every game — but
+worth recording here because it re-prices the fix for THIS game.
+
+**The mechanism is already built and proven; only the wiring is missing.** `freeGhostCollision` makes
+a spawned ghost walk-through using the engine's own rule: `AreElevationsCompatible` never reports a
+collision between two non-zero DIFFERENT elevations, and it is re-applied every frame because
+`ObjectEventUpdateElevation` rewrites the value from the map tile on every step. Only the low nibble
+is touched, so draw order is untouched. It sits behind `MESHGHOST_EMERALD_NO_COLLISION`, a dev probe
+flag that announces `PROBE FLAG IN USE` at startup — so the shipped default is a solid ghost that
+blocks the player and can be talked to.
+
+So the work is "let `session_policy` reach the switch that already exists", plus the once-at-startup
+honest-fallback log `bridge.go` already asks for. Not "find the mechanism". Details and the same
+shape in Crystal's `GHOSTS_PASSABLE`: `plans.md`, "Settings: defined once, honoured everywhere".

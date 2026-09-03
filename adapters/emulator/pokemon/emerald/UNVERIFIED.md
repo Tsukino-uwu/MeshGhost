@@ -58,7 +58,7 @@ entry without one.
 - Pending — Emerald: the DRAWN tier after the glide fix (2026-08-21)
 - Pending — Emerald: the hardware-sprite tier, what still needs the user's eye (2026-08-21)
 
-## [READY] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03), unwatched
+## [READY] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03) — LOAD/CONNECT CONFIRMED, the guard itself is not observable
 
 **Found by measurement, not by a symptom** — `adapters/emulator/tests/json_fuzz.lua`, which loads this
 adapter's real `jsonDecode` out of the shipped file and drives it with hostile input. This decoder
@@ -75,6 +75,17 @@ counter would have spent the last one. Cap 64, matching Crystal.
 check that matters is that the adapter still **loads, connects, and renders a ghost** exactly as
 before, since the change touches the function every bridge message passes through. The harness proves
 valid input still parses, but that is desktop Lua 5.4 and not BizHawk's.
+
+**CONFIRMED 2026-09-03, same day** — the user, after a two-client session: *"i tested pokemon
+emerald, 2 clients still work and connect properly"*. The adapter logs from that session agree:
+sprite decode at the vanilla address, the port walk landing on 7779 after 7778 answered busy, cross-map
+ghosts armed, `in game -- now sending local state`. **Ghosts demonstrably rendered too**, because the
+same session produced the separate observation that a spawned ghost still has collision — you cannot
+be blocked by a ghost that is not there.
+
+**What this does NOT confirm, and cannot:** the depth cap itself. It refuses input no peer sends
+today and nothing on screen changes when it works. Its evidence is the harness, and the open BizHawk
+question below.
 
 **Still open, and it needs the emulator:** whether a Lua stack overflow inside `pcall` drops the
 message or takes BizHawk down has been unanswered since 2026-08-25. The cap makes it unreachable

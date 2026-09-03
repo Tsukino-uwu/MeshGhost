@@ -701,6 +701,19 @@ already known individually; the audit that assembled them is 2026-08-30.
   Pseudoregalia's — its shipped `"disabled"` override is decorative too. Known since 2026-08-19
   (`status.md`), unchanged since. **`bridge.go` already asks for the honest fallback and nobody
   does it either: an adapter that cannot honour "disabled" should say so in its own log, once.**
+
+  **SEEN LIVE ON EMERALD, 2026-09-03**, in an ordinary two-client session — the user: *"we are not
+  disabling collission on the spawned ghost tier"*. Worth recording because it re-prices this item
+  for that game: **the mechanism is already built and proven, and only the wiring is missing.**
+  `freeGhostCollision` (`meshghost_emerald.lua`) makes a spawned ghost walk-through using the
+  engine's OWN rule — `AreElevationsCompatible`, where two non-zero DIFFERENT elevations never
+  collide, re-applied every frame because `ObjectEventUpdateElevation` rewrites it from the map
+  tile on every step. It is gated behind `MESHGHOST_EMERALD_NO_COLLISION`, a dev probe flag that
+  announces `PROBE FLAG IN USE` at startup (`emerald/FLAGS.md`), so the shipped default is a solid
+  ghost that blocks the player and can be talked to. So for Emerald this is not "find the
+  mechanism" — it is "let `session_policy` reach the switch that already exists", plus the
+  one-line honest-fallback log for the case where it cannot. Crystal has the same shape in
+  `GHOSTS_PASSABLE`.
 - **Nametags reach one adapter of four.** Only Pseudoregalia handles `remote_name`; Emerald,
   Crystal and TEVI receive and ignore it, so `name`/`name_color` do nothing in three games
   (`status.md`). The Pokemon case needs a design decision first, not just code: BizHawk text is
