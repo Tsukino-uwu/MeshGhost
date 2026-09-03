@@ -343,7 +343,10 @@ var frozenBridgeFields = map[string][]string{
 	// orientation is by saying which pair it used -- it still cannot read either one, which is
 	// exactly why the interpolation has to happen in the adapter. bridge only, never
 	// protocol.State: nothing here crosses the network. See bridge.RenderRemote.
-	"RenderRemote":  {"interp_t", "orientation_from", "orientation_to", "player_id", "state"},
+	// cosmetic (2026-09-03, ADR 0047) qualifies under the SECOND test: a bare bool the core sets
+	// for a ghost it INVENTED (a replay, the chaser), which teaches it nothing about any game.
+	// It exists so an adapter can keep such a ghost a picture whatever ghost_collision says.
+	"RenderRemote":  {"cosmetic", "interp_t", "orientation_from", "orientation_to", "player_id", "state"},
 	"DespawnRemote": {"player_id"},
 }
 

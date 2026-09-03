@@ -170,8 +170,8 @@ adapter's `FLAGS.md`, never in the player's config.
 
 **An adapter that genuinely cannot honour one must log that once, at startup, rather than silently
 appearing to comply** — the log line is the only signal anyone gets. Live proof: `session_policy` is
-handled by ZERO of four adapters, so `ghost_collision` does nothing anywhere while its config key,
-ADR and relay startup line all say otherwise (`_template/PROTOCOL.md` fixed 2026-08-30; `plans.md`).
+handled by ZERO of four adapters, so `ghost_collision` does nothing anywhere (`_template/PROTOCOL.md`).
+**`render_remote.cosmetic: true` outranks `ghost_collision` from room AND client: a replay/chaser ghost is a picture, never solid or damageable** (ADR 0047).
 
 ## Hard rule: the adapter may not cost the game its frame rate
 

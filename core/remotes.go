@@ -247,4 +247,5 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 	// Stored rather than derived, because `rendered` is owned by the caller
 	// and Stats has no access to it.
 	atomic.StoreInt64(&c.renderedNow, int64(len(rendered)))
+	atomic.AddUint64(&c.ticks, 1)
 }

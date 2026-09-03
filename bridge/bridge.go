@@ -379,6 +379,16 @@ type RenderRemote struct {
 	OrientationFrom json.RawMessage `json:"orientation_from,omitempty"`
 	OrientationTo   json.RawMessage `json:"orientation_to,omitempty"`
 	InterpT         float64         `json:"interp_t,omitempty"`
+	// Cosmetic is true for a ghost this core INVENTED -- a replay of a
+	// recording, or the chaser (ADR 0047) -- and absent for a real peer. An
+	// adapter treats a cosmetic ghost as a picture: never solid, never
+	// blocking, never damageable, never a target, WHATEVER session_policy's
+	// ghost_collision says (the user's rule, 2026-09-03). Per frame rather
+	// than a one-shot message because there is no peer_joined message: the
+	// first render_remote is how an adapter learns a peer exists, so a flag
+	// sent once could be missed by an adapter that attached late. Bridge-only,
+	// never on protocol.State: a cosmetic ghost is never on the network.
+	Cosmetic bool `json:"cosmetic,omitempty"`
 }
 
 // RemoteName is sent core -> adapter when a peer's nametag becomes known: on

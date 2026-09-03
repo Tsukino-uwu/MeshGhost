@@ -618,6 +618,15 @@ type Core struct {
 	// in agent_docs/architecture.md.
 	roster map[string]struct{}
 
+	// localPeers is the set of ids this Core invented -- replays and chasers
+	// (core/localpeer.go, ADR 0047). Every one is also in the roster, or its
+	// state would be dropped; this set is what marks its renders cosmetic.
+	localPeers map[string]struct{}
+	// ticks counts render ticks (tickRenders), atomically; the seek primitive
+	// in localpeer.go waits on it so a despawn reaches the adapter before the
+	// re-feed that follows it.
+	ticks uint64
+
 	// permanentRejectGame/permanentRejectReason cache a relay Reject this
 	// Core has decided isn't worth retrying (see isPermanentRejectReason).
 	// Checked before dialing in ConnectRelayOnAdapterHello so a retrying

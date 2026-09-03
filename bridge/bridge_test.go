@@ -263,3 +263,32 @@ func FuzzHelloUnmarshalNeverPanics(f *testing.F) {
 		}
 	})
 }
+
+// TestRenderRemoteCosmeticIsOmittedUnlessSet pins the wire shape of the flag
+// ADR 0047 added: a real peer's render_remote is byte-for-byte what it was
+// before the flag existed (no "cosmetic" key at all), and a local peer's says
+// so explicitly. An adapter that predates the flag therefore sees nothing new
+// for real peers, and one that reads it gets a plain JSON bool.
+func TestRenderRemoteCosmeticIsOmittedUnlessSet(t *testing.T) {
+	real, err := json.Marshal(RenderRemote{PlayerID: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(real), "cosmetic") {
+		t.Fatalf("a real peer's render_remote must not carry the cosmetic key: %s", real)
+	}
+	local, err := json.Marshal(RenderRemote{PlayerID: "replay:lap1", Cosmetic: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(local), `"cosmetic":true`) {
+		t.Fatalf("a local peer's render_remote must say cosmetic:true: %s", local)
+	}
+	var out RenderRemote
+	if err := json.Unmarshal(local, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Cosmetic {
+		t.Fatal("cosmetic did not survive a round trip")
+	}
+}

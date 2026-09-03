@@ -313,7 +313,7 @@ func (c *Core) onAdapterFrameInProcess(adapter Adapter, rendered map[string]bool
 }
 
 func (c *Core) sendRenderRemote(nd transport.Transport, playerID string, st protocol.State, br orientBracket) {
-	msg := bridge.RenderRemote{PlayerID: playerID, State: st}
+	msg := bridge.RenderRemote{PlayerID: playerID, State: st, Cosmetic: c.isLocalPeer(playerID)}
 	if br.Have {
 		msg.OrientationFrom, msg.OrientationTo, msg.InterpT = br.From, br.To, br.T
 	}

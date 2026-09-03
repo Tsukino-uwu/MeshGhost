@@ -210,6 +210,12 @@ four. **They are not optional, and they are not new: both ship today.**
   genuinely cannot honour `"disabled"` must say so in its own log, once, rather than silently
   appearing to comply** — nothing checks and nothing can, so the log line is the only signal a
   player or a maintainer will ever get.
+  **One thing outranks it (2026-09-03, ADR 0047): a `render_remote` carrying `"cosmetic":true`
+  is a ghost the core INVENTED — a replay of a recording, or the player's own chaser — and is a
+  picture whatever this policy says: never solid, blocking, damageable or targetable.** The flag
+  is on every frame of such a ghost and absent for a real peer; its ids look like `replay:<file>`
+  and `chaser:<n>`. An adapter with no collision at all has nothing to do; one that makes ghosts
+  solid checks the flag before it does.
 - **`remote_name`** carries a peer's chosen nametag, sent when it becomes known: on join, and again
   for every already-present peer when an adapter attaches to a room that is already populated.
   **It is NEVER re-sent after a `despawn_remote`, and `despawn_remote` fires on a mere AREA

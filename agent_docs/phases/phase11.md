@@ -43,3 +43,22 @@ several replays at once, split times, and then the rules that shape it all:
 `ideas.md` pointer, the `security-design.md` entry. Nothing built yet. Stages 1-9 follow, one commit
 each: the local fake peer seam; the recorder; playback; seeks and `replay_control`; anchors;
 hotkeys; save-last; the chaser pack; split times; the config/packaging/docs sweep.
+
+## 2026-09-03 — Stage 1: the local fake peer seam, built and green
+
+**What:** `core/localpeer.go` — `admitLocalPeer` / `feedLocalPeer` / `dropLocalPeer`, the
+`replay:` / `chaser:` id namespace, and the seek primitive (`tickCount` / `awaitTick`, a counter
+bumped at the end of `tickRenders`). `render_remote` gained `cosmetic` (`bridge/bridge.go`), set per
+frame from the local-peer set in `sendRenderRemote` and frozen in `internal/gameblind`. The rule that
+it outranks `ghost_collision` from room and client is in `contract.md`, `_template/PROTOCOL.md` and
+`adapters/CLAUDE.md` (folded into the existing session-policy paragraph to hold the 700-line stack budget).
+
+**Test:** `core/localpeer_test.go` — a fed peer renders through the real bridge with `cosmetic:true`
+and its nametag; a relay peer through the same core never carries the flag; nothing with the local
+id reaches a recording relay transport; drop → despawn on the next tick and a further feed is refused;
+after `forgetRelaySessionLocked` wipes the roster the next feed re-admits it. Plus the tick counter and
+the id namespace. `run-gotests.bat` green (whole suite twice) and `run-gotests-race.bat` clean on this tree.
+
+**Two things found writing it:** a test core with `c.relay` set must also set `c.relayGame`, or the
+adapter's hello is refused as "already connected as game ''"; and there is no `peer_joined` message,
+which is why the flag is per frame — the first `render_remote` is how an adapter learns a peer exists.

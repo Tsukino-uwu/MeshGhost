@@ -744,6 +744,15 @@ have caused a flickering ghost in Phase 2 and an argument in Phase 5 if left unr
   honest pair, and an adapter that ignores them behaves exactly as it did before they existed.
   **Rotation gets no knobs of its own** — it follows the position ones, or the two fields run on
   different clocks and disagree exactly when movement is fastest.
+- **`cosmetic` on `render_remote` (2026-09-03, ADR 0047): a ghost the core INVENTED.** A replay
+  of a recording and the chaser (the player's own past, seconds behind) are fed into the same
+  buffer as a real peer and reach the adapter through the same messages, with one difference:
+  every `render_remote` for them carries `cosmetic: true`, and a real peer's never does. **An
+  adapter treats a cosmetic ghost as a picture — never solid, blocking, damageable or targetable —
+  whatever `session_policy.ghost_collision` says from the room OR the client config.** Per frame,
+  not a one-shot message, because there is no `peer_joined`: the first `render_remote` is how an
+  adapter learns a peer exists, so a late-attaching adapter cannot miss it. Bridge-only, never on
+  the wire: a cosmetic ghost is never on the network. Their ids are `replay:<file>` / `chaser:<n>`.
 
 ## Adapter interface
 
@@ -752,7 +761,8 @@ Unchanged surface from the brief, now with tick semantics attached:
 ```text
 get_local_state()          -> snapshot | nil     # sampled once per adapter frame tick
 render_remote(id, state)   -> void                # upsert into the adapter's remote-ghost set
-                                                  # carries the orientation bracket too, since 2026-08-30
+                                                  # carries the orientation bracket too, since 2026-08-30,
+                                                  # and cosmetic=true for a replay/chaser ghost (2026-09-03)
 despawn_remote(id)         -> void                # remove from that set
 ```
 
