@@ -45,7 +45,11 @@ func TestReplayFileBecomesAGhostThroughTheRealBinary(t *testing.T) {
 	}
 
 	bridgeAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(freePort(t)))
-	startClient(t, r.dir, r.clientBin, r.relayAddr, bridgeAddr, "-transport", "tcp", "-replay-dir", replayDir)
+	// -interp 450ms, the shipped value, rather than startClient's 0ms: a replay
+	// is drawn on its OWN schedule and must not be pushed back by the network
+	// jitter buffer as well (phases/phase11.md, 2026-09-03).
+	startClient(t, r.dir, r.clientBin, r.relayAddr, bridgeAddr, "-transport", "tcp",
+		"-interp", "450ms", "-replay-dir", replayDir)
 	renders, stop := startAdapter(t, bridgeAddr, "e2egame")
 	defer stop()
 

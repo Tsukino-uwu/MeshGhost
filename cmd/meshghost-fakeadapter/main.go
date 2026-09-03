@@ -349,6 +349,9 @@ func main() {
 	recordDir := flag.String("record", "", "record client 0's own state stream to this folder as a replay file "+
 		"(ADR 0047; the file appears at the first frame and closes on exit). Works with -relay \"\" (offline)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
+	localInterp := flag.Duration("local-interp", core.DefaultLocalGhostDelay,
+		"render delay for a LOCAL ghost -- a replay or a chaser -- which is not the network one; "+
+			"see core.DefaultLocalGhostDelay. -replay-dir here is how this is eyeballed offline")
 	logEvery := flag.Duration("log-every", 500*time.Millisecond, "minimum time between console prints per remote (the core still ticks at -tick regardless)")
 	statsEvery := flag.Duration("stats-every", 0, "if set, print a periodic summary of remotes rendered and render rate")
 	features := flag.String("features", "",
@@ -523,6 +526,7 @@ func main() {
 
 		c := core.New()
 		c.InterpolationDelay = *interp
+		c.LocalInterpolationDelay = *localInterp
 		c.Transport = transportKind
 		c.RelayAddr = *relayAddr
 		c.Room = *room

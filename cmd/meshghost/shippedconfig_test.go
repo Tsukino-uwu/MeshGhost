@@ -39,6 +39,7 @@ type shippedConfig struct {
 		NameColor             string `json:"name_color"`
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
+		LocalInterp           string `json:"local_interp"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
 		Replay                struct {
 			RecordOnLaunch bool   `json:"record_on_launch"`
@@ -92,6 +93,16 @@ func TestShippedConfigTracksCodeDefaults(t *testing.T) {
 			"value in config.json overrides the default, so players would get %v no matter what "+
 			"the code says. Update packaging/release/config.json (and the per-game template).",
 			interp, core.DefaultInterpolationDelay, interp)
+	}
+	localInterp, err := time.ParseDuration(cfg.Client.LocalInterp)
+	if err != nil {
+		t.Fatalf("shipped local_interp %q does not parse: %v", cfg.Client.LocalInterp, err)
+	}
+	if localInterp != core.DefaultLocalGhostDelay {
+		t.Errorf("shipped local_interp is %v but core.DefaultLocalGhostDelay is %v -- an explicit "+
+			"value in config.json overrides the default, so a replay or chaser would be drawn %v "+
+			"behind its own schedule no matter what the code says.",
+			localInterp, core.DefaultLocalGhostDelay, localInterp)
 	}
 	if cfg.Server.SendHz != protocol.DefaultSendHz {
 		t.Errorf("shipped send_hz is %d but protocol.DefaultSendHz is %d",

@@ -163,3 +163,68 @@ func TestSplitTimesAreOffByDefault(t *testing.T) {
 		t.Fatalf("tag %q with split times off, want the bare header name", tag)
 	}
 }
+
+// TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE: the number on the nametag
+// has to describe the ghost on screen, not the schedule it was fed on.
+//
+// A replay is DRAWN LocalInterpolationDelay behind the samples it feeds
+// (remoteStatesAt), so a player running the recorded line at the recorded pace
+// is that much AHEAD of the ghost they can see -- and until 2026-09-03 the tag
+// said 0.0s while the ghost was still short of the spot, which is exactly the
+// case racing one is for. 300ms here rather than the shipped 25ms because the
+// tag is printed to one decimal and 25ms would round away.
+func TestSplitTimeIsMeasuredAgainstTheGhostYouCanSEE(t *testing.T) {
+	// speed is the trap: it converts CLIP time to wall time, and the render
+	// delay is already wall time. Dividing by it would read -0.1s here.
+	for _, tc := range []struct {
+		name       string
+		speed      float64
+		samples    int
+		playerStep time.Duration // wall time per recorded sample the player covers
+		readAtX    float64
+	}{
+		{"at normal speed", 1, 100, 10 * time.Millisecond, 40},
+		{"at 4x, where a speed-scaled correction would be wrong", 4, 400, 2500 * time.Microsecond, 160},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
+				c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+				c.SplitTimes = true
+				c.LocalInterpolationDelay = 300 * time.Millisecond
+			})
+			writeActive(t, c, "pb.ndjson", clipBytes(
+				map[string]any{"name": "PB", "speed": tc.speed},
+				walkStates(tc.samples, 10)))
+			c.StartReplays()
+			const id = "replay:pb.ndjson"
+
+			start := time.Now()
+			var tag string
+			deadline := time.Now().Add(testTimeout)
+			for time.Now().Before(deadline) {
+				// The player runs the ghost's own recorded line at the ghost's
+				// own playback pace, so every difference in the tag is the
+				// render delay and nothing else.
+				x := float64(time.Since(start) / tc.playerStep)
+				fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+				time.Sleep(5 * time.Millisecond)
+				fa.mu.Lock()
+				tag = fa.names[id].DisplayName
+				fa.mu.Unlock()
+				if x >= tc.readAtX && strings.HasPrefix(tag, "PB ") && tag != "PB " {
+					var secs float64
+					if _, err := fmtSscanf(tag, &secs); err != nil {
+						t.Fatalf("tag %q did not parse", tag)
+					}
+					if secs < -0.5 || secs > -0.15 {
+						t.Fatalf("tag %q: %.2fs, want about -0.3s -- the player is a render "+
+							"delay AHEAD of the ghost they can see. 0.0s means the correction "+
+							"is missing; -0.1s means it was divided by the clip speed", tag, secs)
+					}
+					return
+				}
+			}
+			t.Fatalf("no split tag appeared; last nametag %q", tag)
+		})
+	}
+}

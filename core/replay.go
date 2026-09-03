@@ -437,11 +437,16 @@ func (p *replayPlayer) run() {
 		if i >= len(clip.samples) {
 			if !clip.loop {
 				// Hold the last sample long enough to be rendered: the buffer
-				// renders InterpolationDelay behind, and the deferred drop
-				// would otherwise despawn the ghost before its final position
-				// was drawn. A seek during the hold still works.
+				// renders LocalInterpolationDelay behind for a ghost this core
+				// invented (remoteStatesAt), and the deferred drop would
+				// otherwise despawn the ghost before its final position was
+				// drawn. A seek during the hold still works.
+				//
+				// The NETWORK delay was read here until 2026-09-03, which held
+				// a finished clip frozen on its finish line for 425ms longer
+				// than it had any reason to.
 				p.c.mu.Lock()
-				hold := p.c.InterpolationDelay
+				hold := p.c.LocalInterpolationDelay
 				p.c.mu.Unlock()
 				cmd, stopped := p.sleepUntil(p.c.nowMs() + hold.Milliseconds() + 1)
 				if stopped {

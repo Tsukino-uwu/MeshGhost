@@ -11,6 +11,7 @@
     "ghost_collision": "disabled",
 
     "interp": "450ms",
+    "local_interp": "25ms",
     "curve": "linear",
     "extrapolate": "0s",
     "predict": "damped",

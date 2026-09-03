@@ -125,6 +125,34 @@ func IsPermanentRejectErr(err error) bool {
 // Overridable per-Core (see Core.InterpolationDelay).
 const DefaultInterpolationDelay = 450 * time.Millisecond
 
+// DefaultLocalGhostDelay is the render delay for a ghost this core INVENTED --
+// a replay or a chaser, ids with the "replay:"/"chaser:" prefix (ADR 0047) --
+// as opposed to one it learned from the relay.
+//
+// It is a different number for a different job, and conflating the two is a
+// real defect this project shipped: a local sample never crossed a network, so
+// none of the jitter, loss and reordering DefaultInterpolationDelay exists to
+// absorb can happen to it, and charging it that delay simply draws a chaser
+// configured for 3s at 3.45s behind.
+//
+// NOT zero, which is the obvious answer and the wrong one: render time would
+// land exactly on the newest fed sample, atAhead would take its past-the-newest
+// branch, and with Extrapolate at its default of 0 it holds. That trades a
+// smooth offset for a stair-step at the feed rate. One or two sample intervals
+// is all that is wanted -- enough to have something ahead to interpolate
+// toward. The recorder taps every adapter frame (sending.go), so the feed rate
+// is the GAME's frame rate: 87.5 Hz measured on a real Pseudoregalia clip, 5 to
+// 12ms between samples. 25ms is ~2 intervals there and covers any feed at 40 Hz
+// or better; below that a tick can edge-hold by the remainder, which is a hold
+// and never an overshoot.
+//
+// The known refinement, deliberately not built: derive it per buffer from the
+// observed gaps. That self-tunes, and it makes the render time a function of
+// buffer contents -- non-monotone under a hitch, and hard to test against.
+//
+// Overridable per-Core (see Core.LocalInterpolationDelay).
+const DefaultLocalGhostDelay = 25 * time.Millisecond
+
 // DefaultIdleKeepalive is how often an UNCHANGED state is sent anyway once
 // change suppression has started dropping repeats. 250ms is deliberately the
 // same figure as DefaultInterpolationDelay: it is the bound on how long a
@@ -435,6 +463,12 @@ type Core struct {
 	// or set this — it's a core-internal render-timing knob, not part of
 	// the bridge wire protocol.
 	InterpolationDelay time.Duration
+
+	// LocalInterpolationDelay overrides DefaultLocalGhostDelay for this Core --
+	// the render delay for a replay or chaser, which is NOT the network one.
+	// Zero means literally zero, not "use the default", exactly as
+	// InterpolationDelay does; the tests depend on being able to ask for it.
+	LocalInterpolationDelay time.Duration
 
 	// MinSendInterval is this Core's own deliberately-configured floor on
 	// how often it sends to the relay, regardless of adapter call rate.
@@ -905,9 +939,11 @@ func New() *Core {
 		startedAt:          time.Now(), // wall-clock: reported to a human as uptime (stats.go)
 		remotes:            make(map[string]*remoteBuffer),
 		InterpolationDelay: DefaultInterpolationDelay,
-		IdleKeepalive:      DefaultIdleKeepalive,
-		HeartbeatInterval:  DefaultHeartbeatInterval,
-		roster:             make(map[string]struct{}),
+		// A local ghost gets its own, much smaller delay -- see the constant.
+		LocalInterpolationDelay: DefaultLocalGhostDelay,
+		IdleKeepalive:           DefaultIdleKeepalive,
+		HeartbeatInterval:       DefaultHeartbeatInterval,
+		roster:                  make(map[string]struct{}),
 	}
 }
 

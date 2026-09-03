@@ -14,6 +14,15 @@ import (
 // for the relay and zero interpolation delay, the shape every local-peer test
 // wants: whatever leaves for the "relay" is captured, and a fed sample renders
 // on the very next adapter frame.
+//
+// BOTH DELAYS ARE ZEROED, and a test about render TIMING has to opt out of that
+// deliberately. Zero on the network one is why nothing here caught the defect
+// fixed on 2026-09-03: local ghosts were rendered a full InterpolationDelay
+// behind their own schedule, and at 0 that is invisible by construction --
+// every test in this file measured a chaser's delay correctly and would have
+// gone on doing so forever. internal/e2e's startClient hardcodes -interp 0ms
+// for the same convenience and had the same blind spot. See
+// core/localrender_test.go, which runs at the shipped 450ms on purpose.
 func startLocalPeerCore(t *testing.T) (*Core, *recordingTransport, *fakeAdapter) {
 	return startLocalPeerCoreWith(t, nil)
 }
@@ -25,6 +34,7 @@ func startLocalPeerCoreWith(t *testing.T, cfg func(*Core)) (*Core, *recordingTra
 	t.Helper()
 	c := New()
 	c.InterpolationDelay = 0
+	c.LocalInterpolationDelay = 0
 	if cfg != nil {
 		cfg(c)
 	}

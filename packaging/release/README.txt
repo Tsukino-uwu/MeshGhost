@@ -251,6 +251,18 @@ Setup, once:
                you send. If you do set it, valid values are 10-100;
                anything below about 10 will look stuttery/snappy unless
                you also raise "interp" above.
+     "local_interp" -- the same idea, for a ghost YOUR OWN client
+               invented: a replay you dropped into replay/active/, or a
+               chaser. A different number for a different job -- nothing
+               about those crossed a network, so there is no jitter to
+               smooth over and they are drawn only a frame or two behind
+               their own schedule instead of "interp" behind it.
+
+               "25ms" (the default) is about right for every game here and
+               there is no reason to touch it. Raising it makes a chaser
+               set to 3s fall further behind than 3s; setting it to 0
+               makes replays and chasers step instead of glide.
+
      "transport" -- LEAVE THIS AS "auto" unless you have a reason not to.
                It picks HOW your client talks to the host after the first
                contact: "auto" takes the best the host offers (quic,

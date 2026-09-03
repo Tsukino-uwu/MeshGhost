@@ -73,6 +73,7 @@ var fuzzEverythingOps = [32]string{
 
 type fuzzEverythingCfg struct {
 	interp, keepalive, stale       time.Duration
+	localInterp                    time.Duration
 	replayStart, replaySeek, spawn time.Duration
 	chaserOn, contact, splitTimes  bool
 	chaserCount                    int
@@ -82,8 +83,8 @@ type fuzzEverythingCfg struct {
 }
 
 func (c fuzzEverythingCfg) String() string {
-	return fmt.Sprintf("interp=%v keepalive=%v stale=%v replayStart=%v seek=%v chaser=%v count=%d delay=%v spacing=%v spawn=%v contact=%v split=%v saveLast=%v recordOnLaunch=%v",
-		c.interp, c.keepalive, c.stale, c.replayStart, c.replaySeek, c.chaserOn, c.chaserCount, c.chaserDelay, c.chaserSpacing, c.spawn, c.contact, c.splitTimes, c.saveLast, c.recordOnLaunch)
+	return fmt.Sprintf("interp=%v localInterp=%v keepalive=%v stale=%v replayStart=%v seek=%v chaser=%v count=%d delay=%v spacing=%v spawn=%v contact=%v split=%v saveLast=%v recordOnLaunch=%v",
+		c.interp, c.localInterp, c.keepalive, c.stale, c.replayStart, c.replaySeek, c.chaserOn, c.chaserCount, c.chaserDelay, c.chaserSpacing, c.spawn, c.contact, c.splitTimes, c.saveLast, c.recordOnLaunch)
 }
 
 // Small alphabets so a schedule lands inside the compressed clock, plus one
@@ -96,7 +97,10 @@ var (
 func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 	d := func(i int) time.Duration { return fuzzEverythingDurations[b[i%len(b)]&0x07] }
 	return fuzzEverythingCfg{
-		interp:         d(0),
+		interp: d(0),
+		// Bits 3-5 of the same byte, which were free -- growing
+		// fuzzEverythingConfigBytes would invalidate the seed corpus.
+		localInterp:    fuzzEverythingDurations[(b[0]>>3)&0x07],
 		keepalive:      d(1),
 		stale:          d(2),
 		replayStart:    d(3),
@@ -219,6 +223,7 @@ func FuzzEverything(f *testing.F) {
 		dir := filepath.Join(t.TempDir(), "replay")
 		c := New()
 		c.InterpolationDelay = cfg.interp
+		c.LocalInterpolationDelay = cfg.localInterp
 		c.IdleKeepalive = cfg.keepalive
 		c.RemoteStaleAfter = cfg.stale
 		c.ReplayDir = dir

@@ -76,7 +76,11 @@ type fileConfig struct {
 	Name      *string `json:"name"`
 	NameColor *string `json:"name_color"`
 	Interp    *string `json:"interp"`
-	MinSend   *string `json:"min_send"`
+	// LocalInterp is the render delay for a LOCAL ghost -- a replay or a
+	// chaser -- which is a different number for a different job than Interp;
+	// see core.DefaultLocalGhostDelay.
+	LocalInterp *string `json:"local_interp"`
+	MinSend     *string `json:"min_send"`
 	// Keepalive is how often an UNCHANGED state is re-sent (core.IdleKeepalive).
 	// "0" disables change suppression and sends every frame.
 	Keepalive *string `json:"keepalive"`
@@ -230,6 +234,7 @@ type configTargets struct {
 	name           *string
 	nameColor      *string
 	interp         *time.Duration
+	localInterp    *time.Duration
 	minSend        *time.Duration
 	keepalive      *time.Duration
 	extrapolate    *time.Duration
@@ -314,6 +319,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 	cfg.Override(explicit, "name", t.name, fc.Name)
 	cfg.Override(explicit, "name-color", t.nameColor, fc.NameColor)
 	cfg.OverrideDuration(explicit, "interp", t.interp, fc.Interp, shown, "meshghost", "interp")
+	cfg.OverrideDuration(explicit, "local-interp", t.localInterp, fc.LocalInterp, shown, "meshghost", "local_interp")
 	cfg.OverrideDuration(explicit, "min-send", t.minSend, fc.MinSend, shown, "meshghost", "min_send")
 	cfg.OverrideDuration(explicit, "keepalive", t.keepalive, fc.Keepalive, shown, "meshghost", "keepalive")
 	cfg.OverrideDuration(explicit, "extrapolate", t.extrapolate, fc.Extrapolate, shown, "meshghost", "extrapolate")
@@ -525,6 +531,11 @@ func main() {
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay,
 		"interpolation delay for remote ghosts (e.g. 200ms) — how far behind the most recent "+
 			"samples remotes are rendered, to smooth over network jitter")
+	localInterp := flag.Duration("local-interp", core.DefaultLocalGhostDelay,
+		"render delay for a LOCAL ghost -- a replay or a chaser. Nothing to do with the network: "+
+			"-interp is the jitter buffer for other players, and a chaser 3s behind you must be drawn "+
+			"3s behind you, not 3s+interp. A sample interval or two, enough to interpolate between the "+
+			"last two samples instead of holding the newest one")
 	lossCover := flag.Bool("loss-cover", true,
 		"carry the previous sample inside every state sent at 25Hz or slower, so one lost packet costs "+
 			"the receiver nothing (ADR 0045). On by default; -loss-cover=false is the A/B switch for a "+
@@ -657,7 +668,7 @@ func main() {
 			"header start_delay is 0s (config: replay.start_delay)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
-			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
+			"(connect_to/local_game_bridge/game/room/name/interp/local_interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
 			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys/chaser) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
@@ -682,6 +693,7 @@ func main() {
 		name:           name,
 		nameColor:      nameColor,
 		interp:         interp,
+		localInterp:    localInterp,
 		minSend:        minSend,
 		keepalive:      keepalive,
 		extrapolate:    extrapolate,
@@ -796,6 +808,7 @@ func main() {
 	c.TLS = tlsChoice
 	c.TLSFingerprint = *tlsPin
 	c.InterpolationDelay = *interp
+	c.LocalInterpolationDelay = *localInterp
 	if !*lossCover {
 		c.RedundancyMinInterval = -1
 	}
@@ -832,7 +845,8 @@ func main() {
 	// "the shipped values" is the part a reader needs: a dev rig is only worth
 	// noticing when it has departed from what a player would actually run.
 	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
-	if *interp == core.DefaultInterpolationDelay && *minSend == 0 && *extrapolate == 0 && c.Curve == core.CurveLinear {
+	if *interp == core.DefaultInterpolationDelay && *localInterp == core.DefaultLocalGhostDelay &&
+		*minSend == 0 && *extrapolate == 0 && c.Curve == core.CurveLinear {
 		smoothingNote = " (the shipped defaults)"
 	}
 	// The keepalive belongs on this line for the same reason the other two do:

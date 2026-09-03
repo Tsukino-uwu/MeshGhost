@@ -79,6 +79,14 @@ func (c *Core) updateSplits(local *protocol.State) {
 		return
 	}
 	now := c.nowMs()
+	// How far behind its own schedule the ghost is DRAWN (remoteStatesAt). Read
+	// once, out here beside now, rather than inside the p.split.mu section
+	// below -- that would invent a split.mu -> c.mu lock order this file has
+	// nowhere else, for a value that cannot change between two players in one
+	// call.
+	c.mu.Lock()
+	localDelayMs := c.LocalInterpolationDelay.Milliseconds()
+	c.mu.Unlock()
 	for _, p := range players {
 		select {
 		case <-p.done:
@@ -123,9 +131,20 @@ func (c *Core) updateSplits(local *protocol.State) {
 		p.split.matchIdx = best
 		// The ghost was HERE at ghostElapsed into its run; the player is here
 		// at localElapsed into theirs. Positive = the player is behind.
+		//
+		// MEASURED AGAINST THE GHOST YOU CAN SEE, which is localDelayMs behind
+		// the schedule this clip was fed on -- so it visibly reaches every spot
+		// that much later and the player is that much LESS behind. Without the
+		// term the tag read 0.0s while the ghost was still short of the spot,
+		// which is exactly the case racing it is for.
+		//
+		// SUBTRACTED RAW: not divided by clip.speed, not multiplied by it.
+		// speed converts CLIP time to wall time (which is why line below
+		// divides by it); the render delay is already wall time, a lag
+		// downstream of playback, and playback's speed does not change it.
 		ghostElapsed := float64(clip.samples[best].Timestamp-clip.t0) / clip.speed
 		localElapsed := float64(now - startedAt)
-		delta := (localElapsed - ghostElapsed) / 1000
+		delta := (localElapsed - ghostElapsed - float64(localDelayMs)) / 1000
 		text := fmt.Sprintf("%+.1fs", delta)
 		if text == "+0.0s" || text == "-0.0s" {
 			text = "0.0s"

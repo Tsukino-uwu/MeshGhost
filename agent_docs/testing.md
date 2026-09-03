@@ -422,6 +422,16 @@ regression test.
 
 ## Traps
 
+- **`FuzzEverything` fails LOCALLY on Windows after ~10-15 seconds of a real campaign, and it is the
+  fuzzing harness, not the code (2026-09-03).** `dial bridge: ... Only one usage of each socket
+  address is normally permitted` — twelve fuzz workers each stand up a bridge listener and dial it,
+  and Windows runs out of ephemeral ports at that rate. **Confirmed to be nothing to do with the
+  change under test**: the same 40-second campaign fails identically on a stashed, unmodified tree.
+  The failing input is written to the corpus and then PASSES when re-run on its own (`-count=20`),
+  which is the tell — a real finding does not. **So: a corpus file produced this way is noise, delete
+  it rather than committing it as a regression.** CI's fuzz job runs on Linux and does not hit this.
+  Seed-corpus runs (`go test` with no `-fuzz`) are unaffected, so the target still guards every push.
+
 - **A test that sets a `Core` field AFTER the adapter attached races the bridge goroutine, and only
   CI's race job may notice (2026-09-03).** The hello handler reads `ReplayDir`, the `Chaser*` fields and
   the frame path reads `SplitTimes`; `cmd/meshghost` sets them all before `ServeBridge`, so shipped

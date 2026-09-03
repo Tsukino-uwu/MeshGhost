@@ -104,6 +104,12 @@ func (c *Core) storeRemoteState(st protocol.State) {
 // configuration -- and ceilinged so a hostile or fat-fingered setting cannot
 // turn the buffer into unbounded memory by another route.
 //
+// LOCAL PEERS DELIBERATELY SHARE THIS WINDOW even though they render at the
+// much smaller LocalInterpolationDelay: a local variant would compute ~325ms
+// and be floored straight back to defaultSnapshotAgeMs anyway, and retention is
+// the one slack a local ghost genuinely uses, since a chaser's queue drains in
+// a goroutine that can be descheduled.
+//
 // Caller must hold c.mu.
 func (c *Core) requiredHistoryMsLocked() int64 {
 	need := c.InterpolationDelay.Milliseconds() + c.Extrapolate.Milliseconds() + maxVelocitySpanMs + historyMarginMs
@@ -140,9 +146,15 @@ func (c *Core) dropAllRemotes() {
 // contents. If localAreaID is still empty (no real local frame has arrived
 // yet), every remote passes through unfiltered rather than hiding
 // everything on an unknown local area.
-func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[string]orientBracket) {
+// TAKES `now`, NOT A RENDER TIME, since 2026-09-03: there are two render times,
+// because a ghost this core invented is not delayed for a network it never
+// crossed. See DefaultLocalGhostDelay. Derived once each rather than per id --
+// the set of classes is closed at two.
+func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]orientBracket) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	netRenderTime := now - c.InterpolationDelay.Milliseconds()
+	localRenderTime := now - c.LocalInterpolationDelay.Milliseconds()
 	out := make(map[string]protocol.State, len(c.remotes))
 	// The orientation bracket that goes with each state -- see orientBracket.
 	// A separate map rather than a field on protocol.State on purpose: State is
@@ -183,19 +195,47 @@ func (c *Core) remoteStatesAt(renderTime int64) (map[string]protocol.State, map[
 		var st protocol.State
 		var br orientBracket
 		var ok bool
-		past, moving := buf.dryBy(renderTime)
-		c.dry.record(past, moving)
-		if past > 0 && c.DryLog != nil && renderTime-c.dryLoggedAt > 1000 {
-			c.dryLoggedAt = renderTime
-			n := len(buf.snapshots)
-			last, before := buf.snapshots[n-1], buf.snapshots[n-2]
-			c.DryLog(fmt.Sprintf("core: buffer dry for %s: render time %dms past newest sample seq %d (t=%d); the one before was seq %d (t=%d), %dms earlier; %d samples held; the newest took %dms to arrive",
-				id, past, last.Seq, last.Timestamp, before.Seq, before.Timestamp, last.Timestamp-before.Timestamp, n, buf.lastTransitMs))
+		// THE ID, NOT A c.localPeers LOOKUP -- the same rule cosmetic is built
+		// from, for the same reason (localpeer.go). Membership is dropped and
+		// re-admitted at every seam, so a tick landing inside that window would
+		// move this ghost's render time by the whole difference and teleport it,
+		// once per lap. A relay peer whose id happened to carry the prefix
+		// already renders cosmetic=true today; it now also edge-holds, which
+		// escalates to nothing (no send path, no solidity).
+		local := isLocalPeerID(id)
+		renderTime := netRenderTime
+		// Extrapolation is for a peer whose next sample has not ARRIVED yet.
+		// A replay's future is on disk and a chaser's is already recorded, so
+		// predicting one invents motion over data we hold, and it would pollute
+		// c.extrapolation, which is a network statistic.
+		ahead := c.Extrapolate.Milliseconds()
+		if local {
+			renderTime = localRenderTime
+			ahead = 0
+		}
+		// THE DRY METER IS A NETWORK STATISTIC and local peers must stay out of
+		// it. They could never register dry while they rendered a full
+		// interpolation delay behind their own feed; at the local delay any
+		// adapter hitch longer than that would, so a player with chasers on
+		// would read "your connection is bad" for what is a frame-rate stutter.
+		if !local {
+			past, moving := buf.dryBy(renderTime)
+			c.dry.record(past, moving)
+			// Throttled on `now`, not on a render time: with two render times
+			// in play, a store from one class would suppress the other for the
+			// difference and let it log early by the same amount.
+			if past > 0 && c.DryLog != nil && now-c.dryLoggedAt > 1000 {
+				c.dryLoggedAt = now
+				n := len(buf.snapshots)
+				last, before := buf.snapshots[n-1], buf.snapshots[n-2]
+				c.DryLog(fmt.Sprintf("core: buffer dry for %s: render time %dms past newest sample seq %d (t=%d); the one before was seq %d (t=%d), %dms earlier; %d samples held; the newest took %dms to arrive",
+					id, past, last.Seq, last.Timestamp, before.Seq, before.Timestamp, last.Timestamp-before.Timestamp, n, buf.lastTransitMs))
+			}
 		}
 		if c.adapterWantsOrientBracket {
-			st, br, ok = buf.atBracket(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+			st, br, ok = buf.atBracket(renderTime, ahead, c.Curve, c.Predict, &c.extrapolation)
 		} else {
-			st, ok = buf.atAhead(renderTime, c.Extrapolate.Milliseconds(), c.Curve, c.Predict, &c.extrapolation)
+			st, ok = buf.atAhead(renderTime, ahead, c.Curve, c.Predict, &c.extrapolation)
 		}
 		if !ok {
 			continue
@@ -230,8 +270,11 @@ func (c *Core) tickRenders(rendered map[string]bool, render func(id string, st p
 	// is what makes interpolation degrade silently under skew. With clock
 	// sync off — every room today — this is exactly the previous
 	// time.Now().Add(-delay).
-	renderTime := c.nowMs() - c.InterpolationDelay.Milliseconds()
-	current, brackets := c.remoteStatesAt(renderTime)
+	// The delay is subtracted inside remoteStatesAt, under c.mu and per peer
+	// class: a replay or chaser is not delayed for a network it never crossed.
+	// Reading InterpolationDelay here was also the one unsynchronized read of
+	// it left in the package.
+	current, brackets := c.remoteStatesAt(c.nowMs())
 
 	for id, st := range current {
 		render(id, st, brackets[id])
