@@ -1,14 +1,15 @@
 # MeshGhost
 
-MeshGhost is an online multiplayer layer for single-player games. Everyone runs their own copy,
+MeshGhost is an online multiplayer layer for single-player games. Everyone plays their own copy,
 friends show up as ghosts with live position, facing and animation, and the worlds stay separate.
-Nothing is synced unless a game's mod asks for it: not items, enemies, health or progression. If a
+Nothing is synced unless a game's mod asks for it: no items, enemies, health or progression. If a
 friend kills a boss, it stays alive in your world.
 
-It also records you. Play a run back and it becomes a replay ghost, running your own line beside
-you, to race the way you would a time-trial ghost. A recording is one small file, so a good run can
-be kept, edited or sent to a friend. A chaser is the same idea without a file: your own past,
-following a few seconds behind you as you play. Neither needs a server or anyone else online.
+You can also record yourself while you play. A recording plays back as a replay ghost you can race
+against, the way you would a time-trial ghost, or loop as a short clip to practise a hard trick
+against. Each one is a single `.ndjson` file, small enough to edit by hand and to send to a friend.
+A chaser is the same idea without a file: a ghost of your own movement, following a few seconds
+behind you as you play. Neither needs a server, or anyone else online.
 
 Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
 memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
@@ -62,18 +63,21 @@ Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
 
 ## How it works
 
-- **Relay** — a small, game-agnostic server that forwards position/area/animation snapshots
-  between clients. Never runs or touches the game.
-- **Core client** — game-agnostic logic: talks to the relay, buffers and interpolates remote
-  player state, and re-checks everything the relay sends (sizes, finite numbers, a bounded roster,
-  sanitized names) before the adapter sees any of it. Never touches game memory or rendering.
-- **Adapter** — the game-specific layer. Reads the local game's position/area/animation and draws
-  the ghost. Never touches the network directly.
+- **Relay** — the server everyone connects to. Game-agnostic: it forwards position, area and
+  animation snapshots between clients, and never runs or touches the game.
+- **Core** — the client that sits between the server and the game's mod. Also game-agnostic: it
+  buffers and interpolates other players, and re-checks everything the server sends (sizes, finite
+  numbers, a bounded roster, sanitized names) before the mod sees any of it. Never touches game
+  memory or rendering.
+- **Adapter** — the game's mod itself, and the only part that knows the game. It reads the local
+  player's position, area and animation, draws the ghosts, and reaches the server through the core
+  running beside it. Never touches the network directly.
 
 That split is the whole design: the relay and core know nothing about any game, so a new game is
 an adapter and nothing else.
 
-**How deep could this go?** The protocol underneath cosmetic ghosts already carries reliable
+**What is the limit — how much can MeshGhost actually do?** The protocol underneath cosmetic
+ghosts already carries reliable
 addressed events, exclusive locks over opaque keys, both-or-neither exchanges, and custody of a
 world the server holds but cannot read — all built, all off unless every member of a room opts
 in, and used by no shipped game. What that buys tops out at bounded, consensual interactions
@@ -87,7 +91,7 @@ Deeper detail: [docs/networking.md](docs/networking.md) (how the relay and clien
 traced through the real code), [agent_docs/contract.md](agent_docs/contract.md) (schema and
 interfaces), [agent_docs/architecture.md](agent_docs/architecture.md) (system shape and rationale).
 
-## Using this from your own game
+## Using the server/client for your own game
 
 **Any language: run it beside your game.** `meshghost.exe` does all the networking as its own
 process; your game connects a TCP socket to it on localhost and exchanges one JSON object per
