@@ -337,6 +337,13 @@ func startRelay(t *testing.T, dir, bin, addr string) *exec.Cmd {
 
 // startClient returns the process for the same reason startRelay does, and
 // takes extra flags so a restart test can pin the transport.
+//
+// SINCE 2026-09-03 A CLIENT ACCEPTS ITS ADAPTER WITH NO RELAY REACHABLE and
+// plays solo, retrying in the background (bridgeserve.go). So "the adapter
+// attached" no longer proves a relay is involved, and a test that means to
+// exercise the server must assert on something only a relay can produce -- a
+// player id, a peer's render_remote, a room event. Every test here already
+// does; keep it that way, or a broken relay will look like a pass.
 func startClient(t *testing.T, dir, bin, relayAddr, bridgeAddr string, extra ...string) *exec.Cmd {
 	t.Helper()
 	args := append([]string{

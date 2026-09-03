@@ -711,6 +711,12 @@ window with live output. It's off by default on purpose.
 
 Common things to check:
 - The server window (host's machine) should show your name joining.
+- No server running, or you have not set one up yet? That is fine and the
+  game still works: MeshGhost plays alone, and recording, replays and
+  chasers all run normally -- you just will not see anybody else. The log
+  says "playing alone -- no relay reached yet", and it keeps trying, so
+  ghosts appear by themselves the moment a server answers. Set
+  "offline": true if you want it to stop trying and stop mentioning it.
 - "connect_to" in config.json must exactly match the host's real address --
   typos are the usual cause of "nothing happens."
 - If playing over the internet (not the same network), the HOST needs their

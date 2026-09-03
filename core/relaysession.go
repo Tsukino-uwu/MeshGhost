@@ -677,6 +677,45 @@ func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeCon
 	}
 }
 
+// retryRelayForSoloAdapter keeps trying the relay for an adapter that was
+// ACCEPTED without one (bridgeserve.go: a relay that is merely down no longer
+// refuses the game). It is deliberately NOT reconnectWithBackoff:
+//
+//   - it stops when the adapter it belongs to is gone. That loop starts from a
+//     relay DROP, with its adapter still attached, so it never needed the check;
+//     this one starts at hello time and would otherwise outlive the game and go
+//     on redialling on behalf of a closed bridge connection.
+//   - the identity check is exact (nd is the attached adapter, not merely one).
+//     A relaunched game arrives as a NEW connection and brings its own hello,
+//     which starts its own attempt; this loop redialling on the old one's behalf
+//     would hand relayOwner a connection that has already gone.
+//
+// A success is logged, because the session silently changing from solo to
+// connected is exactly the kind of thing a player should be able to see in the
+// log afterwards.
+func (c *Core) retryRelayForSoloAdapter(gameID, adapterGameVersion string, nd transport.Transport) {
+	backoff, backoffMax := c.reconnectBackoffBounds()
+	for {
+		c.mu.Lock()
+		mine := c.attachedAdapter == nd
+		c.mu.Unlock()
+		if !mine {
+			return
+		}
+		err := c.ConnectRelayOnAdapterHello(gameID, adapterGameVersion, nd)
+		if err == nil {
+			log.Printf("core: a relay answered -- no longer playing alone; other players in the room will appear now")
+			return
+		}
+		if IsPermanentRejectErr(err) {
+			log.Printf("core: %v -- staying solo for this session; recording, replays and chasers still work", err)
+			return
+		}
+		time.Sleep(backoff) // wall-clock: paces real reconnect attempts
+		backoff = nextBackoffWithin(backoff, backoffMax)
+	}
+}
+
 // PlayerID returns the id assigned by the relay at Welcome. Empty until
 // ConnectRelay succeeds.
 func (c *Core) PlayerID() string {

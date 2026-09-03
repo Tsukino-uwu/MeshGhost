@@ -193,6 +193,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-03 — A replay is a local fake peer: recording, playback, the chaser and split times](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)
 - [2026-09-03 — System-wide hotkeys live in the core process, not in the adapters](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md)
 - [2026-09-03 — A local ghost renders on its own delay, not the network's](adr/0049-2026-09-03-a-local-ghost-renders-on-its-own-delay.md)
+- [2026-09-03 — A relay that is merely down no longer refuses the game](adr/0050-2026-09-03-a-downed-relay-no-longer-refuses-the-game.md)
 
 ## Prior art
 

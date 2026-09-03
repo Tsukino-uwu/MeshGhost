@@ -474,12 +474,20 @@ before the relay check, so a recording is never rate-limited and the 15 Hz `Defa
 touches it. The file cost that implies — ~983 B/sample, ~310 MB/hour — is filed in `scaling.md`
 with the measured shrink options.
 
-**Replays and the chaser already work fully offline.** Confirmed by driving that real recording
-through `meshghost-fakeadapter -relay ""`, which rendered `render_remote replay:...` with no relay
-in existence. The shipped client serves the bridge while failing to dial, so the feature is
-reachable today; what is missing is only the MODE — `meshghost.exe -relay ""` is an error, not a
+**Replays and the chaser work with no relay -- IN THE CORE.** Confirmed by driving that real
+recording through `meshghost-fakeadapter -relay ""`, which rendered `render_remote replay:...` with
+no relay in existence. **CORRECTED 2026-09-03 from the user's own game log, and the correction is
+the useful half: that is NOT true of the shipped client.** With no relay reachable, an adapter's
+hello reaches `ConnectRelayOnAdapterHello`, the dial fails, and `bridgeserve.go:210` REFUSES the
+adapter (`core: refused an adapter: core: dial relay: ... actively refused it`, once per hello as
+the mod retries every ten seconds). No adapter means no in-game frames, so the recorder tap never
+runs and `record_on_launch` writes NOTHING -- seen live in Pseudoregalia on 2026-09-03 with the
+recorder armed and not one `core: recording to` line in the log. The tap sitting ahead of the relay
+check makes recording independent of the relay INSIDE the core; it does not get the adapter past
+the door, and `armRing`/`RecordOnLaunch` are downstream of the accept. So what is missing is not
+cosmetic noise, it is the MODE — `meshghost.exe -relay ""` is an error, not a
 choice. Measured cost of the retry it leaves running: one log line per 60 seconds and one refused
-dial per 15 seconds, neither on the frame path. Cosmetic noise, not a performance problem. The
+dial per 15 seconds, neither on the frame path. Calling that cosmetic, as this entry first did, was wrong: without the mode there is no solo session at all, so this is a blocker rather than log noise. The
 user's call on the shape (2026-09-03): an `offline` boolean shipping as `false` in the root
 config, an advanced setting, and deliberately NOT in any per-game override file.
 

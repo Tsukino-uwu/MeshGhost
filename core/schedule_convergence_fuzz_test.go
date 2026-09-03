@@ -370,6 +370,13 @@ func (a *scheduleActor) drain() {
 // sees reports whether this actor's adapter is rendering exactly peer and
 // nobody else, under peer's name. "Nobody else" is half the point: an identity
 // left behind by a reconnect is a ghost of somebody who is not there.
+// THE peerID == "" GUARD IS LOAD-BEARING, and more so since 2026-09-03: a core
+// that never reached a relay now KEEPS its adapter and plays solo instead of
+// refusing it (bridgeserve.go). A solo core has no player id, so an actor that
+// never joined cannot satisfy this check and the target fails loudly -- which is
+// the property to protect. Convergence here means two games seeing each other
+// THROUGH A RELAY, and it must never be satisfiable by two games each happily
+// playing alone.
 func (a *scheduleActor) sees(peerID, peerName string) bool {
 	if a.fa == nil || peerID == "" {
 		return false

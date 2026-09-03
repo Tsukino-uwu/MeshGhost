@@ -194,21 +194,48 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			}
 
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
-				// Release the slot claimed above: this connection never
-				// became the adapter, so holding it would make the Core
-				// permanently unavailable to anyone else.
-				c.mu.Lock()
-				if c.attachedAdapter == nd {
-					c.attachedAdapter = nil
-					c.adapterReady = false
+				// AN UNREACHABLE RELAY IS NOT A REASON TO REFUSE THE GAME.
+				// Until 2026-09-03 it was: any connect error rejected the
+				// adapter, so with no relay running the mod attached, was
+				// refused, and retried every ten seconds forever. That cost
+				// nothing while ghosts were the only feature -- but Phase 11
+				// made recording, replays and the chaser SOLO features
+				// (ADR 0047), and refusing the session refuses those too.
+				// Seen live: record_on_launch armed, no relay up, and not one
+				// sample written, because the tap only runs on frames an
+				// attached adapter sends. The user's call, and their
+				// expectation was that both had always worked alone.
+				//
+				// So: accept the adapter, say plainly that nobody else will
+				// appear, and keep trying the relay in the background with the
+				// same loop a mid-session drop uses -- ghosts appear by
+				// themselves if one comes up. A PERMANENT refusal (wrong room
+				// code, a version mismatch, a protocol gap) still rejects,
+				// because no amount of retrying fixes those and the player
+				// needs to be told rather than left in a room of one.
+				if IsPermanentRejectErr(err) {
+					// Release the slot claimed above: this connection never
+					// became the adapter, so holding it would make the Core
+					// permanently unavailable to anyone else.
+					c.mu.Lock()
+					if c.attachedAdapter == nd {
+						c.attachedAdapter = nil
+						c.adapterReady = false
+					}
+					c.mu.Unlock()
+					// The reason reaches the adapter now, where it used to be
+					// logged only in the core's own log (and, for the
+					// "already connected as another game" case, not even
+					// there — that path returns before the dedup logging).
+					rejectBridge(nd, err.Error())
+					return
 				}
-				c.mu.Unlock()
-				// The reason reaches the adapter now, where it used to be
-				// logged only in the core's own log (and, for the
-				// "already connected as another game" case, not even
-				// there — that path returns before the dedup logging).
-				rejectBridge(nd, err.Error())
-				return
+				if !c.Offline {
+					log.Printf("core: playing alone -- no relay reached yet (%v). The game is "+
+						"attached and recording, replays and chasers all work; nobody else will "+
+						"appear until a relay answers, and one is still being tried for.", err)
+					go c.retryRelayForSoloAdapter(h.GameID, h.GameVersion, nd)
+				}
 			}
 			sendBridgeEnvelope(nd, bridge.TypeBridgeReady, bridge.BridgeReady{})
 			c.mu.Lock()
