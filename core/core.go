@@ -609,6 +609,13 @@ type Core struct {
 	startedAt   time.Time
 	renderedNow int64
 
+	// timeSrc is the clock this Core reads for LOGIC -- anything whose other end
+	// is our own code rather than a socket, a process or a human. Nil means the
+	// wall clock, which is every shipped path; only tests set it, through the
+	// pure-read accessor in clock.go, which explains why it must never be
+	// lazily assigned.
+	timeSrc coreClock
+
 	// roster is the set of player_ids this Core has actually seen via
 	// Welcome or Join — a State for any other id is dropped rather than
 	// silently creating a remote. Before this, the Core trusted the relay

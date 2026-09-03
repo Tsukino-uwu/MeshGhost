@@ -152,6 +152,26 @@ type recorder struct {
 	written     int
 	lastFlush   time.Time
 	on          bool
+
+	// clk is the clock lastFlush is measured against. Set alongside the rest of
+	// the recorder in StartRecording; nil means the wall clock, so a recorder
+	// built by a test literal still behaves.
+	//
+	// It covers lastFlush ONLY. The filename and the header's Recorded stamp
+	// stay on the wall clock deliberately -- both end up in a file somebody
+	// reads, and replayFileName deduplicates against the real filesystem at
+	// second granularity, so a virtual clock would write a fabricated time into
+	// an artefact and collide every recording in a test onto one name.
+	clk coreClock
+}
+
+// flushClock is the recorder's clock, or the wall clock when none was set. Same
+// pure-read rule as Core.clk, and for the same reason: this runs under rec.mu.
+func (r *recorder) flushClock() coreClock {
+	if r.clk == nil {
+		return wallClock{}
+	}
+	return r.clk
 }
 
 // recordLocal is the tap: called with every non-nil frame the adapter offers,
@@ -202,7 +222,7 @@ func (r *recorder) writeLocked(st protocol.State) error {
 		if err := writeReplayLine(r.w, r.header); err != nil {
 			return err
 		}
-		r.lastFlush = time.Now()
+		r.lastFlush = r.flushClock().Now()
 	}
 	r.seq++
 	st.Seq = r.seq
@@ -215,8 +235,8 @@ func (r *recorder) writeLocked(st protocol.State) error {
 	r.written++
 	// Flushed on a clock rather than per line: a crash loses at most a second,
 	// and the game's frame never waits on the disk.
-	if time.Since(r.lastFlush) >= time.Second {
-		r.lastFlush = time.Now()
+	if r.flushClock().Since(r.lastFlush) >= time.Second {
+		r.lastFlush = r.flushClock().Now()
 		return r.w.Flush()
 	}
 	return nil
@@ -290,6 +310,7 @@ func (c *Core) StartRecording() (string, error) {
 	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now())
 	c.rec.header = defaultReplayHeader(game, version, time.Now())
 	c.rec.keepaliveMs = keepalive.Milliseconds()
+	c.rec.clk = c.timeSrc
 	c.rec.on = true
 	atomic.StoreUint32(&c.tapArmed, 1)
 	log.Printf("core: recording to %s (the file appears at the first in-game sample)", c.rec.path)
