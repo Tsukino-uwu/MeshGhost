@@ -386,3 +386,41 @@ func TestBridgeIsLoopback(t *testing.T) {
 		}
 	}
 }
+
+// TestReplayBlockIsReadFromConfig covers the one way a player reaches
+// recording: the nested "replay" block in config.json (ADR 0047). Absent, both
+// keys keep the flag defaults -- a release must never record by surprise.
+func TestReplayBlockIsReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"replay":{"record_on_launch":true,"save_last":"45s"}}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole, recordOnLaunch bool
+	saveLast := 30 * time.Second
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+		recordOnLaunch: &recordOnLaunch, saveLast: &saveLast,
+	})
+	if !recordOnLaunch || saveLast != 45*time.Second {
+		t.Fatalf("replay block: record_on_launch=%v save_last=%v, want true/45s", recordOnLaunch, saveLast)
+	}
+
+	path = writeConfig(t, nil, `{"client":{"connect_to":"1.2.3.4:7777"}}`)
+	recordOnLaunch, saveLast = false, 30*time.Second
+	shown := applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+		recordOnLaunch: &recordOnLaunch, saveLast: &saveLast,
+	})
+	if recordOnLaunch || saveLast != 30*time.Second {
+		t.Fatalf("absent replay block changed the defaults: %v/%v", recordOnLaunch, saveLast)
+	}
+	if !filepath.IsAbs(shown) || filepath.Base(shown) != "config.json" {
+		t.Fatalf("applyFileConfig returned %q, want the absolute config path", shown)
+	}
+}

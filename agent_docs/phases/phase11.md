@@ -62,3 +62,34 @@ the id namespace. `run-gotests.bat` green (whole suite twice) and `run-gotests-r
 **Two things found writing it:** a test core with `c.relay` set must also set `c.relayGame`, or the
 adapter's hello is refused as "already connected as game ''"; and there is no `peer_joined` message,
 which is why the flag is per frame — the first `render_remote` is how an adapter learns a peer exists.
+
+## 2026-09-03 — Stage 2: the recorder, built and green
+
+**What:** `core/recorder.go` — the tap at the top of `forwardLocalState` (before the rate limit and
+before the relay check, so it records offline), a lazily-opened NDJSON file with the header on line
+one, a recorder-local seq and `nowMs` timestamps, idle dedupe within the keepalive, a 1s flush clock,
+and a time-bounded `sampleRing` the same tap feeds (what save-last and the chaser will read).
+`StartRecording` / `StopRecording` / `Recording` / `SetRingSpan`. Record-on-launch arms when the
+adapter's hello is answered and stops on its disconnect (`core/bridgeserve.go`). Config: the nested
+`replay` block (`record_on_launch`, `save_last`) and flags `-replay-dir` (default: `replay/` beside
+the config file, read or not), `-record-on-launch`, `-replay-save-last`; `applyFileConfig` now
+returns the absolute config path so the folder can sit beside it. The fake adapter gained `-record
+<dir>` and an offline mode (`-relay ""`).
+
+**Seen:** the fake adapter run offline for 3s wrote a 44-line file — header, then samples with seq
+1..43, 50ms apart, area and anim intact. The header's `game` was empty on that run because nothing
+had set it without a relay; fixed the same hour by recording the game id from the adapter's hello
+(`c.adapterGameID`), which the header now prefers over the relay's.
+
+**Tests:** `core/recorder_test.go` — header facts and defaults, one state per line restamped and
+stripped of `prev`, no file until the first non-nil frame, dedupe holds a standstill to one line per
+keepalive, area changes and nil frames never split the file, an empty recording leaves no file and
+disarms the tap, the ring keeps the newest span oldest-first and clears at span 0. `cmd/meshghost`
+reads the block and leaves defaults alone when it is absent. Whole suite green twice; race detector
+clean; preflight clean.
+
+**Found on the way:** the real client cannot yet record with no relay reachable — a hello that
+cannot connect is rejected before `bridge_ready`, so the adapter never sends state. Recording
+offline through `meshghost.exe` therefore wants an "offline" mode (accept the adapter, connect
+later); filed as a follow-on for the sweep, not built here. The fake adapter's offline mode covers
+the dev loop meanwhile.

@@ -52,6 +52,10 @@ func (c *Core) forwardLocalState(state *protocol.State) {
 	if state == nil {
 		return
 	}
+	// THE RECORDER TAP (ADR 0047), before the rate limit and before the
+	// relay-or-not check: a recording is the densest copy of what the adapter
+	// reports, and it works offline. One atomic load when nothing is armed.
+	c.recordLocal(state)
 
 	c.mu.Lock()
 	// Recorded on every real local frame, independent of MinSendInterval

@@ -344,6 +344,8 @@ func main() {
 	facingFollows := flag.Bool("facing-follows-path", false, "send orientation as a cardinal string "+
 		"(\"up\"/\"down\"/\"left\"/\"right\") following the circle tangent -- what a 2D tile game's adapter reads")
 	tick := flag.Duration("tick", 16*time.Millisecond, "how often to drive a frame (~60fps default)")
+	recordDir := flag.String("record", "", "record client 0's own state stream to this folder as a replay file "+
+		"(ADR 0047; the file appears at the first frame and closes on exit). Works with -relay \"\" (offline)")
 	interp := flag.Duration("interp", core.DefaultInterpolationDelay, "interpolation delay for remote ghosts")
 	logEvery := flag.Duration("log-every", 500*time.Millisecond, "minimum time between console prints per remote (the core still ticks at -tick regardless)")
 	statsEvery := flag.Duration("stats-every", 0, "if set, print a periodic summary of remotes rendered and render rate")
@@ -539,7 +541,19 @@ func main() {
 		// (8 by default, server-wide across all rooms) rather than a bad
 		// address — and that reads as "the rig is broken" unless the count
 		// is right there in the message.
-		if err := c.ConnectRelay(*gameID); err != nil {
+		if i == 0 && *recordDir != "" {
+			c.ReplayDir = *recordDir
+			if path, err := c.StartRecording(); err != nil {
+				log.Fatalf("meshghost-fakeadapter: -record: %v", err)
+			} else {
+				log.Printf("meshghost-fakeadapter: recording client 0 to %s", path)
+			}
+		}
+		if *relayAddr == "" {
+			// Offline: no relay at all. The state path still runs (the recorder
+			// tap sits before the relay check), which is what a -record demo needs.
+			log.Printf("meshghost-fakeadapter: client %d running OFFLINE (-relay \"\"): nothing is sent anywhere", i)
+		} else if err := c.ConnectRelay(*gameID); err != nil {
 			log.Fatalf("meshghost-fakeadapter: client %d of %d: %v "+
 				"(if this is a capacity refusal, raise the relay's -max-clients: it defaults to %d, server-wide)",
 				i, *clients, err, 8)

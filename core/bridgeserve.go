@@ -54,6 +54,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		c.mu.Lock()
 		relay := c.relay
 		owns := c.relayOwner == nd
+		wasAdapter := c.attachedAdapter == nd
 		// Free the admission slot whether or not this connection owned the
 		// relay: a Core whose adapter has gone is available again, which is
 		// what lets a relaunched game reuse it instead of walking to a new
@@ -92,6 +93,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			c.resumeToken = ""
 		}
 		c.mu.Unlock()
+		if wasAdapter {
+			// The game closed: a launch-to-quit recording ends here, and so does
+			// a manual one -- there is nothing left to record. StopRecording is a
+			// no-op when nothing was armed.
+			if _, _, err := c.StopRecording(); err != nil {
+				log.Printf("core: closing the recording on adapter disconnect: %v", err)
+			}
+		}
 		if relay != nil && owns {
 			// Tell the relay this is a deliberate departure before hanging up,
 			// so it announces a real leave instead of holding this identity
@@ -152,6 +161,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// the client stays wire-compatible with any room.
 			c.mu.Lock()
 			c.adapterFeatures = protocol.NormalizeFeatures(h.Features)
+			c.adapterGameID = h.GameID
 			// The adapter taking over area-based visibility (bridge.Hello's
 			// own comment has the why). Under the same lock remoteStatesAt
 			// takes, so the filter change is atomic with the attach.
@@ -192,6 +202,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			c.mu.Lock()
 			c.adapterReady = true
 			c.mu.Unlock()
+			// record_on_launch: armed the moment the game's mod attaches. The
+			// file itself appears at the first in-game sample, so the main menu
+			// is never in it and a game quit before play leaves nothing behind.
+			if c.RecordOnLaunch {
+				if _, err := c.StartRecording(); err != nil {
+					log.Printf("core: record_on_launch: %v", err)
+				}
+			}
 			// The relay handshake above has already completed, so the room's
 			// policy is known by now and the adapter gets it as part of
 			// coming up rather than a tick later. Order matters: an adapter

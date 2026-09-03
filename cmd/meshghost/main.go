@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
@@ -153,6 +154,16 @@ type fileConfig struct {
 	// should feel like part of launching the game, not a third thing to run --
 	// so this is for someone who wants to watch it work. See consoleWriter.
 	ShowConsole *bool `json:"show_console"`
+	// Replay is the recording block (ADR 0047): record_on_launch writes the
+	// whole session to the replay/ folder beside this file; save_last is how
+	// many seconds the save-last hotkey keeps. Nested so the player's file
+	// reads as one topic, one line: {"record_on_launch": false, "save_last": "30s"}.
+	Replay *replayFileConfig `json:"replay"`
+}
+
+type replayFileConfig struct {
+	RecordOnLaunch *bool   `json:"record_on_launch"`
+	SaveLast       *string `json:"save_last"`
 }
 
 // rootConfig is the top-level shape of the config file: a "client" section
@@ -192,9 +203,13 @@ type configTargets struct {
 	tlsPin         *string
 	showConsole    *bool
 	features       *string
+	recordOnLaunch *bool
+	saveLast       *time.Duration
 }
 
-func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
+// applyFileConfig returns the absolute path of the config file it looked for
+// (read or not), so callers can place things beside it -- the replay folder.
+func applyFileConfig(path string, explicit map[string]bool, t configTargets) string {
 	// Absolute path, BOM strip and empty-file check all live in
 	// cfg.ReadConfigFile -- shared with cmd/meshghost-relay, which was carrying
 	// the identical sequence. What is NOT shared is the missing-file message
@@ -204,7 +219,7 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("meshghost: warning: could not read config file %s: %v", shown, err)
-			return
+			return shown
 		}
 		// Missing was silent until autostart landed. Silence is fine when a
 		// developer passes flags on purpose, and actively misleading for a
@@ -213,22 +228,22 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		log.Printf("meshghost: no config file at %s -- using built-in defaults "+
 			"(connect_to 127.0.0.1:7777). If you edited a config.json somewhere else, "+
 			"that is not the one being read.", shown)
-		return
+		return shown
 	}
 	log.Printf("meshghost: config loaded from %s", shown)
 	if data == nil {
-		return
+		return shown
 	}
 	var rc rootConfig
 	if err := json.Unmarshal(data, &rc); err != nil {
 		if !cfg.ApplyDespiteBadValue(err, shown, "meshghost") {
-			return
+			return shown
 		}
 	}
 	if rc.Client == nil {
 		log.Printf("meshghost: warning: config file %s has no \"client\" section -- "+
 			"every client setting is falling back to its built-in default", shown)
-		return
+		return shown
 	}
 	fc := *rc.Client
 	cfg.Override(explicit, "relay", t.relayAddr, fc.Relay)
@@ -258,6 +273,15 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 		// and the flag stays a plain string.
 		*t.features = strings.Join(*fc.Features, ",")
 	}
+	if fc.Replay != nil {
+		if t.recordOnLaunch != nil {
+			cfg.Override(explicit, "record-on-launch", t.recordOnLaunch, fc.Replay.RecordOnLaunch)
+		}
+		if t.saveLast != nil {
+			cfg.OverrideDuration(explicit, "replay-save-last", t.saveLast, fc.Replay.SaveLast, shown, "meshghost", "replay.save_last")
+		}
+	}
+	return shown
 }
 
 // connectRelayWithRetry keeps calling Core.ConnectRelayOnAdapterHello until
@@ -511,10 +535,18 @@ func main() {
 			"mismatch is refused at the handshake, on purpose, because a room where one client "+
 			"arbitrates and another doesn't fails silently and much later. See "+
 			"agent_docs/beyond-cosmetic.md")
+	replayDir := flag.String("replay-dir", "",
+		"folder recordings are written to and replays are read from (replay/active/ plays on launch). "+
+			"Empty (the default) means the replay/ folder beside the config file")
+	recordOnLaunch := flag.Bool("record-on-launch", false,
+		"record the whole session to the replay folder: the file starts at the first in-game sample "+
+			"after the game's mod attaches and ends when the game closes (config: replay.record_on_launch)")
+	saveLast := flag.Duration("replay-save-last", 30*time.Second,
+		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
-			"max_receive_hz_per_player/transport/show_console/features) -- a friendlier alternative to flags for non-developer use; "+
+			"max_receive_hz_per_player/transport/show_console/features/replay) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -530,7 +562,7 @@ func main() {
 
 	explicit := cfg.ExplicitFlags()
 
-	applyFileConfig(*configPath, explicit, configTargets{
+	configShown := applyFileConfig(*configPath, explicit, configTargets{
 		relayAddr:      relayAddr,
 		bridgeAddr:     bridgeAddr,
 		gameID:         gameID,
@@ -553,7 +585,14 @@ func main() {
 		tlsPin:         tlsPin,
 		showConsole:    showConsole,
 		features:       features,
+		recordOnLaunch: recordOnLaunch,
+		saveLast:       saveLast,
 	})
+	if *replayDir == "" {
+		// Beside the config file, read or not: that is the one folder a player
+		// autostarted by their game can find, and the one the README names.
+		*replayDir = filepath.Join(filepath.Dir(configShown), "replay")
+	}
 
 	// stderr stays in the list unconditionally: when this client was run from a
 	// terminal that IS the live output, and when it was spawned with no window
@@ -679,6 +718,12 @@ func main() {
 	// actually enforced -- this just carries the preference.
 	c.GhostCollision = *ghostCollision
 	c.Features = parseFeatures(*features)
+	c.ReplayDir = *replayDir
+	c.RecordOnLaunch = *recordOnLaunch
+	c.SaveLastSpan = *saveLast
+	if *recordOnLaunch {
+		log.Printf("meshghost: record_on_launch is ON -- every session is written to %s from the first in-game sample", *replayDir)
+	}
 	c.RelayAddr = *relayAddr
 	c.Room = *room
 	c.DisplayName = *name

@@ -622,6 +622,17 @@ type Core struct {
 	// (core/localpeer.go, ADR 0047). Every one is also in the roster, or its
 	// state would be dropped; this set is what marks its renders cosmetic.
 	localPeers map[string]struct{}
+	// The recorder tap (core/recorder.go): the file writer, the recent-sample
+	// ring, and the one atomic the per-frame tap checks. ReplayDir is where
+	// files land (the `replay/` folder beside config.json; cmd sets it);
+	// RecordOnLaunch arms the file tap when an adapter attaches and stops it
+	// when it detaches; SaveLastSpan is how much the ring keeps for SaveLast.
+	ReplayDir      string
+	RecordOnLaunch bool
+	SaveLastSpan   time.Duration
+	rec            recorder
+	ring           sampleRing
+	tapArmed       uint32
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.
@@ -828,6 +839,10 @@ type Core struct {
 	// advertised under the new one — see ConnectRelay, which resolves the
 	// two per call rather than latching either.
 	adapterGameVersion string
+	// adapterGameID is the game_id the adapter last announced in its bridge
+	// Hello, kept whether or not the relay was reached: the recorder's header
+	// names the game from it, and relayGame is only set once connected.
+	adapterGameID string
 }
 
 // New creates an empty Core with no relay connection yet. Two ways to
