@@ -1,6 +1,7 @@
 package core
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,8 +15,10 @@ import (
 // player took to get there, so the tag reads "+<about half the elapsed>s"
 // and grows as the player falls further behind.
 func TestSplitTimeShowsHowFarBehindTheGhostThePlayerIs(t *testing.T) {
-	c, fa := replayCore(t)
-	c.SplitTimes = true
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
+		c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+		c.SplitTimes = true
+	})
 	writeActive(t, c, "pb.ndjson", clipBytes(map[string]any{"name": "PB", "color": "#FF8800"}, walkStates(100, 10)))
 	c.StartReplays()
 	const id = "replay:pb.ndjson"
@@ -102,8 +105,10 @@ func parseFloat(s string, v *float64) (int, error) {
 // area gets no split; a long header name is clamped so the suffix survives the
 // 24-character nametag cap.
 func TestSplitTimeIgnoresAnotherAreaAndTheNameStaysShort(t *testing.T) {
-	c, fa := replayCore(t)
-	c.SplitTimes = true
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
+		c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+		c.SplitTimes = true
+	})
 	writeActive(t, c, "long.ndjson", clipBytes(map[string]any{"name": "AVeryLongGhostNameIndeed"}, walkStates(100, 10)))
 	c.StartReplays()
 	const id = "replay:long.ndjson"

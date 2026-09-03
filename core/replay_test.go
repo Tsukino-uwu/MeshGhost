@@ -55,11 +55,17 @@ func writeActive(t *testing.T, c *Core, name string, data []byte) string {
 	return path
 }
 
-// replayCore is startLocalPeerCore plus a replay folder.
+// replayCore is startLocalPeerCore plus a replay folder -- set BEFORE the
+// adapter attaches, the way cmd/meshghost sets it before serving. The hello
+// handler reads ReplayDir on the bridge goroutine (StartReplays), so setting
+// it after the attach was a data race CI's race job caught on 2026-09-03
+// after two clean local runs: the write usually landed first here, and never
+// reliably anywhere.
 func replayCore(t *testing.T) (*Core, *fakeAdapter) {
 	t.Helper()
-	c, _, fa := startLocalPeerCore(t)
-	c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
+		c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+	})
 	return c, fa
 }
 

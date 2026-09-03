@@ -422,6 +422,14 @@ regression test.
 
 ## Traps
 
+- **A test that sets a `Core` field AFTER the adapter attached races the bridge goroutine, and only
+  CI's race job may notice (2026-09-03).** The hello handler reads `ReplayDir`, the `Chaser*` fields and
+  the frame path reads `SplitTimes`; `cmd/meshghost` sets them all before `ServeBridge`, so shipped
+  code has no race — the test helper did, and two local race runs passed because the write usually
+  landed first. **Set every such field before serving**: `startLocalPeerCoreWith(t, cfg)` runs a hook
+  before the bridge listens; a bare `c.X = ...` after `dialFakeAdapter` is the bug. Taking `c.mu`
+  around the write (the earlier chaser-test fix) silences the detector without fixing the order.
+  `phases/phase11.md`, the CI catch.
 - **A DATA RACE in `core`'s reconnect path was found and FIXED (2026-08-30)** — a test seam read by a goroutine that outlives its test; reproduces ~1 full suite in 5, so capture race output to a FILE before filtering. `pitfalls/method.md`.
 - **`internal/e2e`'s `freePort` is a TOCTOU, and it flakes under `-race` on CI (seen 2026-08-27).**
   It binds a port, **closes it**, and hands the bare number to a child process — so anything can

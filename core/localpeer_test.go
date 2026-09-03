@@ -15,9 +15,19 @@ import (
 // wants: whatever leaves for the "relay" is captured, and a fed sample renders
 // on the very next adapter frame.
 func startLocalPeerCore(t *testing.T) (*Core, *recordingTransport, *fakeAdapter) {
+	return startLocalPeerCoreWith(t, nil)
+}
+
+// startLocalPeerCoreWith runs cfg on the Core BEFORE the bridge serves, for a
+// test that needs a field the hello handler reads (ReplayDir, the Chaser*
+// fields): anything set after the adapter attaches races the bridge goroutine.
+func startLocalPeerCoreWith(t *testing.T, cfg func(*Core)) (*Core, *recordingTransport, *fakeAdapter) {
 	t.Helper()
 	c := New()
 	c.InterpolationDelay = 0
+	if cfg != nil {
+		cfg(c)
+	}
 	rt := &recordingTransport{}
 	c.mu.Lock()
 	c.relay = rt

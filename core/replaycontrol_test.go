@@ -39,8 +39,10 @@ func drainDespawns(fa *fakeAdapter, id string) int {
 // it has rendered past x=5, so a seek has somewhere to go from.
 func playingCore(t *testing.T, hdr map[string]any) (*Core, *fakeAdapter, string) {
 	t.Helper()
-	c, fa := replayCore(t)
-	c.ReplaySeek = 1 * time.Second
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) {
+		c.ReplayDir = filepath.Join(t.TempDir(), "replay")
+		c.ReplaySeek = 1 * time.Second
+	})
 	writeActive(t, c, "seek.ndjson", clipBytes(hdr, walkStates(40, 100)))
 	c.StartReplays()
 	const id = "replay:seek.ndjson"

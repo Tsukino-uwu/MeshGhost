@@ -326,3 +326,62 @@ allowed to appear. The rule was right and the test's player was wrong; the chase
 walking player (`startMovingAdapter`, kept beside that one test — every other e2e relies on the fixed
 position). Worth remembering whenever a rule keys off "the player moved": a synthetic adapter that
 repeats a sample is, to the core, a player standing still.
+
+## 2026-09-03 — CI's race job caught what two local race runs missed
+
+The first push of the day: Docs, fuzz (the replay loader's first campaign in CI), the shipping-target
+build and the vulnerability gate all green; **the race job red**, on `TestReplayDoesNotStartBeforeTheFirstInGameFrame`
+and `TestReplayLoopsWithOneSeamPerLap`. The write: `replayCore` setting `c.ReplayDir` after the
+adapter had attached. The read: `StartReplays` on the bridge goroutine, during the hello. Locally the
+write always landed before the read; on the runner it did not. Same shape as the chaser-field race the
+local run DID catch earlier, fixed then by taking `c.mu` around the writes — which was the wrong lesson.
+**The right one: a test sets every field the hello handler reads BEFORE the bridge serves, the way
+`cmd/meshghost` does, and never after the adapter attaches.** `startLocalPeerCoreWith(t, cfg)` now
+runs a hook before `ServeBridge`; `replayCore`, `playingCore` and the split-time tests use it for
+`ReplayDir`, `ReplaySeek` and `SplitTimes`. Filed in `testing.md`'s traps.
+
+## 2026-09-03 — Three fuzz targets, and what the first campaigns found
+
+**The user's standard:** *"I want the fuzzer to test absolutely everything we could think about and even
+things we might forget/miss."* Three targets landed, all in CI's fuzz campaign:
+
+- `internal/hotkey` **`FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords`** — any string a player could
+  type; anything admitted must be documented modifiers plus one documented key, never F12, never the
+  Windows key, never bare, and must round-trip through `String()`. **Its first campaign found a real
+  hole within 15 seconds:** `CTRL+SHIFT+ALT+ALT+0` — a modifier named twice was silently folded, so
+  `ctrl+ctrl+a` bound `ctrl+a`. Refused now; the fuzzer's input is the regression in `testdata/fuzz/`.
+- `cmd/meshghost` **`FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane`** — a hand-edited config.json:
+  blocks that are strings or arrays, counts of -1 and 1e9, durations of "abc", a BOM, unknown keys. Must
+  never panic, and a bad duration must leave the flag default rather than a zero. Clean so far.
+- `core` **`FuzzEverything`** — one client, random config inside and outside every limit (durations of
+  -7s and 48h, counts of -1 and 2^20), a 32-op alphabet over frames (walking, standing, another area,
+  nil, NaN positions, 3KB extras, empty area, a million-unit jump), attach/detach, files in
+  `replay/active/` (valid clips with every header key randomized, another game's, an oversized line,
+  the seed itself as garbage), start/stop, every control action including nonsense, relay join/state/
+  leave/welcome with random policies and local-prefixed ids, a session forget (the clock back-step),
+  wall-clock gaps, the chaser pack — checked after every step against the player's invariants (cosmetic
+  on every local render and never on a relay one; nothing local on the wire; the roster and local-ghost
+  caps; the core still ticks at the end). No relay sockets, so it runs in CI and under the race job.
+  **Its seed corpus found a real hang on the first run:** count 8, spacing 48h — legal config — sized
+  the eighth chaser's queue to 336 hours of samples, a 120-million-entry channel allocated on the
+  bridge goroutine, where the next adapter's hello is answered; the game would have sat without
+  `bridge_ready` for seconds. Fixed with `maxChaserBehind` (ten minutes) and pinned by
+  `TestChaserPackClampsAnAbsurdSpacingFast`. **Found the honest way:** the failure message now carries
+  every goroutine's stack, and the stack said "runnable inside `StartChasers`", not "blocked".
+
+**Also today:** CI's race job caught a test-ordering race two local race runs had missed (the entry
+above), and the udp allocation pin was hardened (`phase10.md`). Filed, not built: a replay schedule
+fuzzer and per-adapter fuzzers in each adapter's language behind path-gated CI jobs (`ideas.md`).
+
+**Cost, same afternoon:** the first two-minute campaign ran 1,949 inputs, but its first forty seconds
+managed twenty, on the seeds' long gaps; the per-step pacing went 3ms → 1ms and the `gap` op's sleeps
+were capped at 350ms (still long enough to cross a compressed stale window and, at the top entry, a
+chaser seam), and a 30s campaign then ran 842 inputs. The user's point that a day-long session should
+condense into seconds is only half met — the per-Core timings compress, the wall-clock reads and
+sleeps do not — and the full answer, an injectable clock, is filed in `ideas.md`.
+
+**`name_color` ships prefilled (the user, 2026-09-03, reading Pseudoregalia's staged file):** the file
+carried `""` while `docs/config.md` already said `#A89975`; now the shipped root file carries the example
+hex, the per-game cut inherits it, the README line says the prefill is an example and `""` removes the
+box, and `TestShippedConfigDeliberateDivergences` pins it with the reason. Harmless while `name` is
+blank -- a colour is ignored without a name.
