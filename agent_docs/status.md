@@ -10,6 +10,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-04 **Pseudoregalia CONFIRMED on screen: a display name with quotes reaches the nametag whole (the JSON escape fix), and a zip of two recordings plays as two ghosts; the title-screen gate from the same session is still unwatched** — `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-03 **Pseudoregalia: the player's own SFX go quiet while a ghost is audible (user-reported, not diagnosed) — the ghost is a real player pawn, so both a missed silence-clause path and Unreal sound CONCURRENCY stealing the player's voices fit** — `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-03 **BUILT, unwatched: local ghosts render on their own 25ms delay (ADR 0049), an `offline` mode ships false, and recordings gzip+round to ~9 MB/hour from ~310; the look still owed is a 3s chaser that looks 3s behind and a split time matching the visible ghost** — `phases/phase11.md`, `scaling.md`.
 - 2026-09-03 **`FuzzEverything` fails locally on Windows within ~15s of a real campaign — ephemeral-port exhaustion in the harness, reproduced on an unmodified tree; the corpus file it writes is noise, not a finding** — `testing.md` Traps.

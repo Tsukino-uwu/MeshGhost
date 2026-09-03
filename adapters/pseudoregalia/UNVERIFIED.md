@@ -42,7 +42,6 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — a display name with quotes or \uXXXX in it renders WHOLE on a ghost's nametag; built and deployed 2026-09-04, unwatched
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched
 - OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03; not diagnosed, not reproduced by the agent
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
@@ -57,26 +56,6 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
-
-## [READY] a nametag shows the WHOLE name, escapes and all (2026-09-04), unwatched
-
-**Found by the user testing a deliberately hostile display name** (quotes, a currency sign and a
-run of punctuation), which rendered on the replay ghost's nametag cut short at a backslash that is
-not in the name at all. The cause was ours: `json_string_field` scanned for the next bare quote and
-returned the raw bytes between, so an escaped quote ended the string early, and \uXXXX and a
-literal backslash pair came back as their own escape text. It now decodes JSON escapes properly,
-surrogate pairs included (a lone surrogate becomes U+FFFD rather than being encoded as if it were a
-character).
-
-**What to watch:** set a `name` with a quote in it -- the one that found this is in the 2026-09-04
-session log -- and look at the tag over a replay ghost or a peer. Correct is the whole name, quotes
-and all, nothing cut and no escape sequences shown literally. The relay still sanitizes control
-characters first, so a name may legitimately come back shorter for that reason; what must not
-happen is truncation at a backslash.
-
-**Why it matters beyond one odd name:** the same function reads every string field this adapter
-takes off the wire, so any peer whose `anim`, `area_id` or effect key contained an escape was being
-handed a truncated value.
 
 ## [READY] the title screen no longer reports a player (2026-09-04), unwatched
 

@@ -183,6 +183,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
 - 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
 - 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
+- 2026-09-04 — a display name survives the wire whole: the JSON escape fix, watched
+- 2026-09-04 — a zip of two recordings plays as two ghosts, watched
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4760,3 +4762,43 @@ rate-limited dry lines under 150ms past the newest sample, "outages" those over 
 itself and no interp value covers it.** The 300ms verdict from earlier the same night was on the milder
 60/25/2/2 profile and stands only for that link. The shipped `375ms` was NOT changed on this run -- whether
 450 ships is the user's call once all four games have their worst-case number.
+
+## 2026-09-04 — a display name with quotes in it reaches the nametag WHOLE
+
+**Human-gated track.** The user, with a screenshot of the ghost's tag: *"can confirm the name shows
+up fully now"*.
+
+- **Date:** 2026-09-04
+- **Observed:** the nametag over a replay ghost reads the whole display name, quotes included,
+  where hours earlier the same name rendered as `uwu325235#` followed by a backslash and nothing
+  else. The name under test was deliberately hostile -- quotes, a currency sign, a run of
+  punctuation -- and was the user's own idea for finding exactly this class of bug.
+- **Source:** `json_string_field` in `MeshGhostPseudo/Mod/src/Plugin.cpp`, which scanned for the
+  next bare quote and returned the raw bytes between it: an escaped quote (`\"` on the wire)
+  ended the string early, and `\uXXXX` came back as its own text. It now decodes JSON escapes,
+  surrogate pairs included.
+- **One honest detail from the screenshot:** the currency sign renders as a missing-glyph box. That
+  is the game's font having no glyph for it, NOT truncation -- every character reaches the tag, and
+  the characters either side of it draw normally. A name made only of unsupported glyphs would look
+  broken while being perfectly delivered, which is worth knowing before anyone debugs the next one.
+- **Scope:** the same function reads every string field this adapter takes off the wire (`anim`,
+  `area_id`, effect keys, the outfit path), so the fix is wider than nametags -- but only the
+  nametag has been watched.
+
+## 2026-09-04 — a zip of two recordings plays as two ghosts
+
+**Human-gated track.** The user, after dropping one zip into `replay/active/`: *"saw both"*.
+
+- **Date:** 2026-09-04
+- **Observed:** one `.zip` holding two `.ndjson` recordings produced two replay ghosts in a running
+  Pseudoregalia, from a single file the user made with Windows' own right-click compress.
+- **Source:** `loadReplayAll` (`core/replay.go`). The clips were the user's own, 13,916 and 3,554
+  samples; ids are `replay:<archive>/<entry>`, so clips from different zips cannot collide.
+- **Why zip and not 7z:** zip needs no tool to make or open on Windows, which is the whole point of
+  the feature; 7z would need a third-party LZMA decoder, and a `.7z` in the folder is logged as
+  ignored rather than skipped in silence.
+- **Nothing WRITES a zip**, and that is deliberate (ADR 0051): an archive cut short when the game
+  closes is refused whole by ordinary tools, which is the fault that took gzip out of the recorder
+  the same day.
+- **Known and unsurprising:** both ghosts wore the same nametag, because both clips carry the same
+  `name` in their header. Editing one clip's first line is how you tell them apart.
