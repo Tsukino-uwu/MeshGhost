@@ -72,6 +72,13 @@ without noticing:
   something you can race, the way a time-trial ghost is — but the sentence may not lean on anyone
   else's name to do its explaining. This is separate from `licensing.md`'s citation gate, which is
   about sources rather than prose, and it holds even where a comparison would be perfectly legal.
+- **Write the invariant, never the inventory** (2026-09-04). A sentence about what the current set
+  of adapters does or does not do goes stale the moment one changes, and it does it silently --
+  "none of the shipped games sync anything deeper" was true when written and would have quietly
+  become a lie on the first adapter that did. State the rule instead ("it is never on by default")
+  and let each game's own README carry what that game does. `preflight.ps1` catches the coarser
+  form of this, a hard-coded COUNT of adapters or games; the claim-about-the-current-set shape is
+  yours to catch.
 - **The root `README.md` stays minimal**: a stale fact is fixed in place, and nothing grows new
   sections or tables. Its plainness is deliberate, not an omission — a new feature earns a
   paragraph in the existing flow, or a line in `docs/config.md`, not a heading of its own.

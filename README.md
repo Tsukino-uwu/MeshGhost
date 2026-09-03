@@ -3,8 +3,8 @@
 MeshGhost is an online multiplayer layer for single-player games. Friends show up as ghosts with
 live position, facing and animation, and the worlds stay separate: no synced items, enemies, health
 or progression. If a friend kills a boss, it stays alive in your world. Syncing more than that is
-up to each game's mod, and the protocol underneath already carries it, but none of the shipped
-games do.
+up to each game's mod, and the protocol underneath already carries it, but it is never on by
+default — a game that does more says so in its own README.
 
 You can also record yourself while you play. A recording plays back as a replay ghost: your own run
 beside you, to race against the way you would a time-trial ghost, or to loop as a short clip while
