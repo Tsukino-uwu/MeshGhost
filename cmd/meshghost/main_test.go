@@ -426,3 +426,29 @@ func TestReplayBlockIsReadFromConfig(t *testing.T) {
 		t.Fatalf("applyFileConfig returned %q, want the absolute config path", shown)
 	}
 }
+
+// TestHotkeysBlockIsReadFromConfig: the six chords come from the nested
+// "hotkeys" block (ADR 0048); an absent block or key leaves the flag default,
+// and an empty string is a deliberate unbind that survives the merge.
+func TestHotkeysBlockIsReadFromConfig(t *testing.T) {
+	path := writeConfig(t, nil, `{"client":{"hotkeys":{"record_toggle":"alt+r","replay_rewind":""}}}`)
+	var relayAddr, bridgeAddr, gameID, room, name, gameVersion, roomCode, transport string
+	var interp, minSend time.Duration
+	var maxReceiveHz int
+	var showConsole bool
+	record, save, last, restart, rewind, ff := "ctrl+shift+F9", "ctrl+shift+F10", "ctrl+shift+F11", "ctrl+shift+F5", "ctrl+shift+F6", "ctrl+shift+F7"
+	applyFileConfig(path, map[string]bool{}, configTargets{
+		relayAddr: &relayAddr, bridgeAddr: &bridgeAddr, gameID: &gameID,
+		room: &room, name: &name, interp: &interp, minSend: &minSend,
+		roomCode: &roomCode, gameVersion: &gameVersion, maxReceiveHz: &maxReceiveHz,
+		transport: &transport, showConsole: &showConsole,
+		hotkeys: &hotkeyTargets{recordToggle: &record, saveLast: &save, replayLast: &last,
+			replayRestart: &restart, replayRewind: &rewind, replayFastForward: &ff},
+	})
+	if record != "alt+r" || rewind != "" {
+		t.Fatalf("hotkeys block: record_toggle=%q replay_rewind=%q, want alt+r and an empty unbind", record, rewind)
+	}
+	if save != "ctrl+shift+F10" || last != "ctrl+shift+F11" || restart != "ctrl+shift+F5" || ff != "ctrl+shift+F7" {
+		t.Fatalf("keys absent from the block changed: %q %q %q %q", save, last, restart, ff)
+	}
+}

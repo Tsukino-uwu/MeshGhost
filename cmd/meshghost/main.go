@@ -19,6 +19,7 @@ import (
 
 	"github.com/Tsukino-uwu/MeshGhost/core"
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
+	"github.com/Tsukino-uwu/MeshGhost/internal/hotkey"
 	"github.com/Tsukino-uwu/MeshGhost/netx"
 	"github.com/Tsukino-uwu/MeshGhost/netx/tlsx"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
@@ -159,6 +160,20 @@ type fileConfig struct {
 	// many seconds the save-last hotkey keeps. Nested so the player's file
 	// reads as one topic, one line: {"record_on_launch": false, "save_last": "30s"}.
 	Replay *replayFileConfig `json:"replay"`
+	// Hotkeys binds the mid-play replay actions to system-wide chords the
+	// client itself registers (ADR 0048): they work in every game with the
+	// game focused, and no adapter has to implement a key. One line in the
+	// player's file; an empty value leaves that action unbound.
+	Hotkeys *hotkeyFileConfig `json:"hotkeys"`
+}
+
+type hotkeyFileConfig struct {
+	RecordToggle      *string `json:"record_toggle"`
+	SaveLast          *string `json:"save_last"`
+	ReplayLast        *string `json:"replay_last"`
+	ReplayRestart     *string `json:"replay_restart"`
+	ReplayRewind      *string `json:"replay_rewind"`
+	ReplayFastForward *string `json:"replay_fast_forward"`
 }
 
 type replayFileConfig struct {
@@ -212,6 +227,13 @@ type configTargets struct {
 	saveLast       *time.Duration
 	replayStart    *time.Duration
 	replaySeek     *time.Duration
+	hotkeys        *hotkeyTargets
+}
+
+// hotkeyTargets is where the six chords land; nil entries are skipped so a
+// test can pass only the ones it cares about.
+type hotkeyTargets struct {
+	recordToggle, saveLast, replayLast, replayRestart, replayRewind, replayFastForward *string
 }
 
 // applyFileConfig returns the absolute path of the config file it looked for
@@ -293,6 +315,15 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		if t.replaySeek != nil {
 			cfg.OverrideDuration(explicit, "replay-seek", t.replaySeek, fc.Replay.Seek, shown, "meshghost", "replay.seek")
 		}
+	}
+	if fc.Hotkeys != nil && t.hotkeys != nil {
+		h := fc.Hotkeys
+		cfg.Override(explicit, "hotkey-record", t.hotkeys.recordToggle, h.RecordToggle)
+		cfg.Override(explicit, "hotkey-save-last", t.hotkeys.saveLast, h.SaveLast)
+		cfg.Override(explicit, "hotkey-replay-last", t.hotkeys.replayLast, h.ReplayLast)
+		cfg.Override(explicit, "hotkey-replay-restart", t.hotkeys.replayRestart, h.ReplayRestart)
+		cfg.Override(explicit, "hotkey-replay-rewind", t.hotkeys.replayRewind, h.ReplayRewind)
+		cfg.Override(explicit, "hotkey-replay-fast-forward", t.hotkeys.replayFastForward, h.ReplayFastForward)
 	}
 	return shown
 }
@@ -556,6 +587,12 @@ func main() {
 			"after the game's mod attaches and ends when the game closes (config: replay.record_on_launch)")
 	saveLast := flag.Duration("replay-save-last", 30*time.Second,
 		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
+	hkRecord := flag.String("hotkey-record", "ctrl+shift+F9", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")
+	hkSaveLast := flag.String("hotkey-save-last", "ctrl+shift+F10", "system-wide chord: save the last replay.save_last seconds (config: hotkeys.save_last)")
+	hkReplayLast := flag.String("hotkey-replay-last", "ctrl+shift+F11", "system-wide chord: play the newest recording now (config: hotkeys.replay_last)")
+	hkRestart := flag.String("hotkey-replay-restart", "ctrl+shift+F5", "system-wide chord: restart every replay ghost (config: hotkeys.replay_restart)")
+	hkRewind := flag.String("hotkey-replay-rewind", "ctrl+shift+F6", "system-wide chord: rewind every replay ghost by replay.seek (config: hotkeys.replay_rewind)")
+	hkFastForward := flag.String("hotkey-replay-fast-forward", "ctrl+shift+F7", "system-wide chord: fast-forward every replay ghost by replay.seek (config: hotkeys.replay_fast_forward)")
 	replaySeek := flag.Duration("replay-seek", 5*time.Second,
 		"how far one rewind or fast-forward moves a replay ghost (config: replay.seek)")
 	replayStart := flag.Duration("replay-start-delay", 0,
@@ -564,7 +601,7 @@ func main() {
 	configPath := flag.String("config", "config.json",
 		"path to an optional JSON config file with a \"client\" section "+
 			"(connect_to/local_game_bridge/game/room/name/interp/curve/extrapolate/min_send/keepalive/stats/room_code/game_version/"+
-			"max_receive_hz_per_player/transport/show_console/features/replay) -- a friendlier alternative to flags for non-developer use; "+
+			"max_receive_hz_per_player/transport/show_console/features/replay/hotkeys) -- a friendlier alternative to flags for non-developer use; "+
 			"a warning is logged if it doesn't exist; any flag explicitly passed on the command line "+
 			"overrides the same field from this file")
 	flag.Parse()
@@ -607,6 +644,8 @@ func main() {
 		saveLast:       saveLast,
 		replayStart:    replayStart,
 		replaySeek:     replaySeek,
+		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
+			replayRestart: hkRestart, replayRewind: hkRewind, replayFastForward: hkFastForward},
 	})
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
@@ -743,6 +782,14 @@ func main() {
 	c.SaveLastSpan = *saveLast
 	c.ReplayStartDelay = *replayStart
 	c.ReplaySeek = *replaySeek
+	startHotkeys(c, []hotkeyBinding{
+		{core.ReplayRecordToggle, *hkRecord},
+		{core.ReplaySaveLast, *hkSaveLast},
+		{core.ReplayLast, *hkReplayLast},
+		{core.ReplayRestart, *hkRestart},
+		{core.ReplayRewind, *hkRewind},
+		{core.ReplayFastForward, *hkFastForward},
+	})
 	if *recordOnLaunch {
 		log.Printf("meshghost: record_on_launch is ON -- every session is written to %s from the first in-game sample", *replayDir)
 	}
@@ -831,4 +878,55 @@ func parseFeatures(s string) []string {
 		return nil
 	}
 	return protocol.NormalizeFeatures(strings.Split(s, ","))
+}
+
+// hotkeyBinding pairs a replay action with the chord a player wrote for it.
+type hotkeyBinding struct {
+	action core.ReplayAction
+	chord  string
+}
+
+// startHotkeys parses the chords and runs the system-wide key loop for the
+// rest of the process (ADR 0048). Every outcome is logged, and none is fatal:
+// a chord that fails to parse or that another program already owns is skipped
+// alone, and the rest still work. Empty chords are simply unbound.
+func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
+	var actions []hotkey.Action
+	for _, b := range bindings {
+		if strings.TrimSpace(b.chord) == "" {
+			continue
+		}
+		parsed, err := hotkey.Parse(b.chord)
+		if err != nil {
+			log.Printf("meshghost: hotkey for %s not bound: %v", b.action, err)
+			continue
+		}
+		actions = append(actions, hotkey.Action{Name: string(b.action), Binding: parsed})
+	}
+	if len(actions) == 0 {
+		return
+	}
+	fire := func(name string) {
+		// The key loop's own thread must never wait on the core: a seek waits
+		// for a render tick, and the recorder flushes to disk.
+		go func() {
+			if err := c.ReplayControl(core.ReplayAction(name), 0); err != nil {
+				log.Printf("meshghost: hotkey %s: %v", name, err)
+			} else {
+				log.Printf("meshghost: hotkey %s: done", name)
+			}
+		}()
+	}
+	report := func(r hotkey.Result) {
+		if r.Err != nil {
+			log.Printf("meshghost: hotkey %s (%s) NOT registered: %v", r.Name, r.Binding, r.Err)
+			return
+		}
+		log.Printf("meshghost: hotkey %s bound to %s (system-wide; works with the game focused)", r.Name, r.Binding)
+	}
+	go func() {
+		if err := hotkey.Run(actions, fire, report, make(chan struct{})); err != nil {
+			log.Printf("meshghost: hotkeys stopped: %v", err)
+		}
+	}()
 }

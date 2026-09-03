@@ -166,3 +166,27 @@ brings it back; the same restart requested over the bridge from the fake adapter
 action only logs; replay-last plays the newest library file, leaves it in place, and restarts on a
 second press; record actions route to the recorder; a seek with nothing loaded says so. Whole suite,
 race and preflight recorded at the commit.
+
+## 2026-09-03 — Stage 5: system-wide hotkeys in the core process, built and seen working
+
+**What:** `internal/hotkey` — `Parse("ctrl+shift+F9")` into RegisterHotKey's modifier flags and a
+virtual-key code (F1–F24 minus F12, A–Z, 0–9, and the named keys space, home, end, page up, page
+down, insert, delete; the
+Windows key, F12 and a bare key are refused with the documented reason), and `Run`: on Windows one
+`LockOSThread` goroutine forces its message queue into existence with `PeekMessageW`, registers every
+chord with `MOD_NOREPEAT`, reports each outcome, loops on `GetMessageW` (checking -1), fires on
+`WM_HOTKEY`, stops on a `WM_APP+1` posted with `PostThreadMessageW`, and unregisters on the way out;
+elsewhere it logs once and blocks. Every constant and call is from learn.microsoft.com, re-read this
+session and cited in ADR 0048 (`MSG` including `lPrivate`; `WM_APP` rather than posting `WM_QUIT`
+from outside, which its page forbids). `cmd/meshghost`: the `hotkeys` config block (six chords), the
+`-hotkey-*` flags, `startHotkeys` wiring each press to `core.ReplayControl` on its own goroutine so the
+key loop never waits on a seek or a disk flush. Linux cross-build of the package passes.
+
+**Seen:** the real `meshghost.exe`, run hidden with no relay reachable, logged all six chords bound;
+synthetic ctrl+shift+F9 (`SendKeys`) started a recording and ctrl+shift+F5 answered "no replay is
+loaded" — the OS hook, the dispatch and the control path, end to end, with no game and no adapter.
+
+**Tests:** `internal/hotkey` — the parser table against the documented values, the refusals, the
+string round trip, `Run` registering a real chord on this machine and returning on stop, and the
+empty list. `cmd/meshghost` reads the block, leaves absent keys at their defaults, and keeps an empty
+string as a deliberate unbind. Whole suite and race recorded at the commit.
