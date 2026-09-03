@@ -334,7 +334,15 @@ Setup, once:
                feels wrong and you want numbers rather than a feeling.
      "replay", "chaser", "hotkeys" -- REPLAYS (2026-09-03). MeshGhost can
                record what you do and play it back as a ghost, offline,
-               no friend needed:
+               no friend needed.
+
+               TWO FOLDERS, and the difference is the whole thing:
+               "replay" is where your recordings are KEPT, and nothing
+               in it plays. "replay\active" is what PLAYS -- copy or
+               move a file in there and it becomes a ghost next time
+               you play; take it out and it stops. Recording something
+               does not start playing it.
+
                  * Press ctrl+shift+F9 to start and stop a recording, or
                    set "record_on_launch": true to record every session
                    from the moment you are in the game to quitting.
