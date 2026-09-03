@@ -6,14 +6,14 @@ or progression. If a friend kills a boss, it stays alive in your world. Syncing 
 up to each game's mod, and the protocol underneath already carries it, but it is never on by
 default — a game that does more says so in its own README.
 
-You can also record yourself while you play. A recording plays back as a replay ghost: your own run
-beside you, to race against the way you would a time-trial ghost, or to loop as a short clip while
-you practise a hard trick. Each one is a single `.ndjson` file, small enough to edit by hand and to
-send to a friend.
+You can also record yourself playing and play it back as a replay ghost: your own run beside you,
+to race against the way you would a time-trial ghost, or to loop as a short clip while you practise
+a hard trick. Each recording is a single `.ndjson` file, small enough to edit by hand and to send
+to a friend.
 
-A chaser is a ghost of you from a few seconds ago, following you as you play. It needs no file,
-because it comes from the run you are already in. Neither one needs a server, or anyone else
-online.
+There is also the chaser: a ghost of you from a few seconds ago, tailing you as you play. It needs
+no file, because it comes from the run you are already in. Neither one needs a server, or anyone
+else online.
 
 Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
 memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
