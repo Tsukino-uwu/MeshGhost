@@ -690,8 +690,12 @@ func main() {
 	chaserCount := flag.Int("chaser-count", 1, "how many chasers (1-8; config: chaser.count)")
 	chaserDelay := flag.Duration("chaser-delay", 3*time.Second, "how far behind you the first chaser runs (config: chaser.delay)")
 	chaserSpacing := flag.Duration("chaser-spacing", 2*time.Second, "how much further behind each next chaser runs (config: chaser.spacing)")
-	chaserName := flag.String("chaser-name", "Chaser", "the chasers' nametag; numbered when there are several (config: chaser.name)")
-	chaserColor := flag.String("chaser-color", "#7A2A2A", "the chasers' nametag colour (config: chaser.color)")
+	// BLANK BY DEFAULT, the user's call 2026-09-04: a chaser is you, and a tag
+	// floating over your own past is clutter rather than information. Same rule
+	// the player's own -name follows -- empty draws nothing at all -- and the
+	// numbering below already skips an empty name rather than emitting " 1".
+	chaserName := flag.String("chaser-name", "", "a nametag for the chasers, numbered when there are several. Empty (the default) draws no tag at all, which is usually what you want for a ghost of yourself (config: chaser.name)")
+	chaserColor := flag.String("chaser-color", "", "colour for that tag, as a hex code like \"#7A2A2A\". Ignored without a name, exactly like name_color (config: chaser.color)")
 	chaserSpawn := flag.Duration("chaser-spawn-delay", 0, "a chaser appears only once you have been moving for this long; 0 means the chaser's own delay (config: chaser.spawn_delay)")
 	chaserContact := flag.Bool("chaser-contact", false, "tell the adapter a chaser may hurt on touch (config: chaser.contact); no shipped adapter honours this yet")
 	hkRecord := flag.String("hotkey-record", "ctrl+shift+F9", "system-wide chord: start/stop recording (config: hotkeys.record_toggle); empty unbinds")

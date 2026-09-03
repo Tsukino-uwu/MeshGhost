@@ -34,7 +34,7 @@
     },
     "chaser": {
       "enabled": false, "count": 1, "delay": "3s", "spacing": "2s",
-      "name": "Chaser", "color": "#7A2A2A", "contact": false, "spawn_delay": "0s"
+      "name": "", "color": "", "contact": false, "spawn_delay": "0s"
     },
     "hotkeys": {
       "record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10",

@@ -183,8 +183,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 — the melee slash arc mirrors, user-confirmed: *"the slash works"*
 - 2026-09-01 — the thrown sword, rebuilt on a component we own, and user-confirmed end to end
 - 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
-- 2026-09-04 — a display name survives the wire whole: the JSON escape fix, watched
-- 2026-09-04 — a zip of two recordings plays as two ghosts, watched
+- 2026-09-04 — a display name with quotes in it reaches the nametag WHOLE
+- 2026-09-04 — a zip of two recordings plays as two ghosts
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts

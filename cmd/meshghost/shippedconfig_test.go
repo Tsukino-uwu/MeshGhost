@@ -56,6 +56,8 @@ type shippedConfig struct {
 			Count      int    `json:"count"`
 			Delay      string `json:"delay"`
 			Spacing    string `json:"spacing"`
+			Name       string `json:"name"`
+			Color      string `json:"color"`
 			Contact    bool   `json:"contact"`
 			SpawnDelay string `json:"spawn_delay"`
 		} `json:"chaser"`
@@ -189,6 +191,15 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	}
 	if cfg.Client.Replay.SaveLast != "30s" || cfg.Client.Replay.Seek != "5s" || cfg.Client.Replay.StartDelay != "0s" {
 		t.Errorf("shipped replay durations drifted from the flag defaults: %+v", cfg.Client.Replay)
+	}
+	// Blank name and colour, the user's call 2026-09-04: a chaser is you, so a
+	// tag over your own past is clutter. An empty name draws nothing at all
+	// (the same rule the player's own name follows), and a colour without a
+	// name is ignored, so shipping either non-empty would put a label on every
+	// chaser by default.
+	if cfg.Client.Chaser.Name != "" || cfg.Client.Chaser.Color != "" {
+		t.Errorf("shipped chaser name/colour are %q/%q, want both empty -- a chaser ships unlabelled",
+			cfg.Client.Chaser.Name, cfg.Client.Chaser.Color)
 	}
 	if cfg.Client.Chaser.Count != 1 || cfg.Client.Chaser.Delay != "3s" || cfg.Client.Chaser.Spacing != "2s" || cfg.Client.Chaser.SpawnDelay != "0s" {
 		t.Errorf("shipped chaser numbers drifted from the flag defaults: %+v", cfg.Client.Chaser)
