@@ -156,10 +156,10 @@ func TestTickCountAdvancesOncePerAdapterFrame(t *testing.T) {
 	c, _, fa := startLocalPeerCore(t)
 	before := c.tickCount()
 	fa.frame(&protocol.State{AreaID: "a", Position: []float64{0, 0}})
-	if !c.awaitTick(before, testTimeout) {
+	if !c.awaitTick(before, testTimeout, nil) {
 		t.Fatalf("no render tick ran after an adapter frame (count still %d)", c.tickCount())
 	}
-	if c.awaitTick(c.tickCount(), 30*time.Millisecond) {
+	if c.awaitTick(c.tickCount(), 30*time.Millisecond, nil) {
 		t.Fatal("awaitTick reported a tick that no adapter frame drove")
 	}
 }

@@ -142,3 +142,46 @@ func TestACoreWithNoClockUsesTheWall(t *testing.T) {
 		t.Fatal("the fake clock starts at the zero time; see its doc comment")
 	}
 }
+
+// TestAwaitTickGivesUpWhenItsCallerIsShuttingDown pins the cancel escape that
+// has to exist before awaitTick can read an injectable clock.
+//
+// awaitTick is called from inside the replay player's and the chasers' own
+// goroutines, which is to say from inside the goroutines halt() exists to
+// interrupt. Before the escape, halt() closed a channel nothing was listening
+// to: the loop kept polling until its deadline, both Stop functions fell through
+// to their one-second joins, and each abandoned replay leaked a goroutine. At the
+// wall clock that is merely wasteful. Once this loop is virtual it is fatal,
+// because a test that never advances time parks every replay and chaser here
+// forever.
+//
+// Five seconds is chosen so a regression cannot hide: without the escape this
+// test takes five seconds instead of milliseconds.
+func TestAwaitTickGivesUpWhenItsCallerIsShuttingDown(t *testing.T) {
+	c := New()
+
+	stop := make(chan struct{})
+	close(stop)
+
+	start := time.Now()
+	got := c.awaitTick(c.tickCount(), 5*time.Second, stop)
+	elapsed := time.Since(start)
+
+	if got {
+		t.Error("awaitTick reported a tick that never happened")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("awaitTick took %v with its stop channel already closed: it is not watching the channel, so halt() cannot interrupt it", elapsed)
+	}
+
+	// A nil stop channel is the shape every caller with nothing to cancel uses,
+	// and it must still respect the deadline rather than blocking forever in the
+	// select.
+	start = time.Now()
+	if c.awaitTick(c.tickCount(), 40*time.Millisecond, nil) {
+		t.Error("awaitTick reported a tick that never happened (nil stop)")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("awaitTick with a nil stop channel took %v: a nil channel blocks in select, so the deadline must still be checked", elapsed)
+	}
+}

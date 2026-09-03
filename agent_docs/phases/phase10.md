@@ -231,3 +231,48 @@ checkers against each other, because `orientation` rides on the scanner alone; 2
 in a 60s local campaign, and it is now the nineteenth target in CI's fuzz job.
 
 `dev-scripts/run-gotests.bat` green, `internal/e2e` included.
+
+## 2026-09-03 (night) — the virtual clock, stages 1 and 2, and two design corrections found by building it
+
+From `ideas.md`'s virtual-clock entry. Staged deliberately small, because this is the one workstream
+in the plan large enough to have a stated abort criterion: if the first slice could not be made
+deterministic in a three-line commit, the design was wrong and the thing to do was stop, not push on
+into `online.go`. It could.
+
+**Stage 1 (`0e75ea99`) — the interface, proved on the recorder's flush pair.** Chosen as first
+precisely because it is the smallest: one struct, three lines of production code, no goroutine, no
+lock interaction, already covered by tests. The recorder flushes on a one-second timer so a crash
+loses at most a second; that boundary now costs nothing to cross.
+
+**Correction 1: the interface needs `Since`, not just `Now`.** The entry proposed a bare
+`now func() time.Time`. Every duration in this package is a `time.Time` FIELD plus a reader
+elsewhere — `lastSendAt` written in `sending.go:140` and read by `time.Since` at `:84` and `:109`,
+`lastFlush` the same shape. Convert the writer alone and the code computes `wallNow − virtualStored`,
+which at any fake epoch is an enormous positive or a negative: a rate limiter that never limits, or
+one that never sends, with nothing crashing and no test naming the cause. **So the unit of conversion
+is a field plus every reader of it, never a call site.** Checked, not asserted: reverting the single
+`time.Since` while keeping the two writes makes the stage-1 test fail at once, reporting a file that
+flushed with no time passing.
+
+**Correction 2: `awaitTick` needed a cancel escape before it could be virtualised, and that is a
+prerequisite rather than a step (this commit).** It had no stop channel — a bare deadline loop
+polling every 2ms — and it is called from `chaser.go:92`, `replay.go:360` and `replay.go:456`, which
+is to say from inside the goroutines `halt()` exists to interrupt. So `halt()` closed a channel
+nothing was listening to, both `Stop` functions fell through to their one-second joins, and each
+abandoned replay leaked a goroutine. At the wall clock that is wasteful; under a virtual clock it is
+fatal, because a test that never advances time would park every replay and chaser there forever. The
+test uses a five-second deadline so a regression takes five seconds instead of milliseconds.
+
+**Also corrected in the record:** the site count is 32, not the 24 I first wrote — the five missed
+are all `time.Since` readers. And `remotes.go:34` is a five-second log throttle, not staleness;
+staleness comes from `nowMs()`, so converting the root covers it.
+
+**Not converted, deliberately, with the reason written at each site:** the recorder's filename and
+header stamps (they end up in a file somebody reads, and `replayFileName` deduplicates against the
+real filesystem), the ping/RTT pairing (it measures the network), the relay session's dial backoff
+and timeouts, transport discovery, and the two one-second goroutine joins.
+
+Still ahead: `nowMsLocked` itself, `awaitTick`'s polling, the two due-waits, and the preflight
+ratchet that keeps a mixed clock from coming back.
+
+Suite green including `internal/e2e`; race detector clean.

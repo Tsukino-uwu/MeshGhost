@@ -126,13 +126,34 @@ func (c *Core) tickCount() uint64 {
 // max elapses. Polled rather than signalled: ticks are driven by the adapter's
 // own frames, which may simply stop (the game is in a menu), and a waiter that
 // blocks forever on a game that stopped calling would wedge a replay.
-func (c *Core) awaitTick(after uint64, max time.Duration) bool {
+// stop is the caller's shutdown channel, or nil for a caller that has none. It
+// matters more than it looks: this function is called from INSIDE the replay
+// player's and the chasers' goroutines, which is to say from inside the very
+// goroutines halt() is supposed to be able to interrupt. Without an escape here,
+// halt() closes a channel nothing is listening to, StopReplays and StopChasers
+// fall through to their one-second joins, and each one leaks a goroutine.
+//
+// That is survivable at the wall clock, where the 500ms deadline eventually
+// fires anyway. It stops being survivable the moment this loop reads an
+// injectable clock (see clock.go): a test that never advances time would park
+// every replay and chaser here permanently. So the escape lands FIRST, on its
+// own, while the wall clock is still in place.
+//
+// A nil stop channel blocks forever in the select, which is exactly the old
+// behaviour for the callers that have nothing to cancel.
+func (c *Core) awaitTick(after uint64, max time.Duration, stop <-chan struct{}) bool {
 	deadline := time.Now().Add(max)
 	for time.Now().Before(deadline) {
 		if c.tickCount() > after {
 			return true
 		}
-		time.Sleep(2 * time.Millisecond)
+		select {
+		case <-stop:
+			// Report honestly rather than assuming failure: a tick may have
+			// landed between the check above and the shutdown.
+			return c.tickCount() > after
+		case <-time.After(2 * time.Millisecond):
+		}
 	}
 	return c.tickCount() > after
 }

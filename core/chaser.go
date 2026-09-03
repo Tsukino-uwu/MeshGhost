@@ -89,7 +89,7 @@ func (ch *chaser) run() {
 		if prevTs != 0 && s.Timestamp-prevTs > replayGapSeamMs {
 			if admitted {
 				ch.c.dropLocalPeer(ch.id)
-				ch.c.awaitTick(ch.c.ticksBegun(), 500*time.Millisecond)
+				ch.c.awaitTick(ch.c.ticksBegun(), 500*time.Millisecond, ch.stop)
 				admitted = false
 			}
 			// The spawn window starts over after a gap: the player is

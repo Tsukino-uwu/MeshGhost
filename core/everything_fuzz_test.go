@@ -460,7 +460,7 @@ func FuzzEverything(f *testing.F) {
 		attach()
 		before := c.tickCount()
 		frame(&protocol.State{AreaID: "a", Position: []float64{x + 1, 0}})
-		if !c.awaitTick(before, testTimeout) {
+		if !c.awaitTick(before, testTimeout, nil) {
 			// The stacks are the finding: which goroutine holds what.
 			buf := make([]byte, 1<<20)
 			n := runtime.Stack(buf, true)

@@ -59,8 +59,8 @@ is USED, that project is checked and recorded there first.
 - Doc restructuring: what was done — moved to `doc-history.md` (2026-08-25)
 - Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
 - Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03; DONE 2026-09-03, and it found that every generated clip was being refused)
-- Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
-- A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
+- Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03; Lua and TEVI BUILT 2026-09-03, Pseudoregalia not started)
+- A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03; stage 1 BUILT 2026-09-03)
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 
@@ -2285,6 +2285,48 @@ fuzzers are independent of both.
 
 ## Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
 
+**TWO OF THREE BUILT, 2026-09-03. What the entry below assumed about the work was wrong in three
+ways worth keeping, because each was wrong in the direction of "harder than it is".**
+
+- **Lua — BUILT.** `adapters/emulator/tests/json_fuzz.lua`, second job in `lua.yml`. It needed no
+  adapter edit and no shared module first: the prefix of each adapter up to the end of `jsonDecode`
+  is pure declarations, so it loads under a stub `_ENV`, with the cut point found structurally so an
+  edit to the decoder cannot silently point it at the wrong text. Each decode runs in a coroutine
+  under an instruction-count hook, so a hang is a reported failure rather than a hung CI job —
+  which is the point, since the 2026-08-25 incident was a hang and `pcall` cannot catch one.
+  **It found one defect in each adapter, mirror images of each other**: Emerald followed nesting
+  5000 levels deep where Crystal refused past 64, and Crystal turned every `\uXXXX` escape into a
+  literal `?` where Emerald decoded it — which matters because Go's `encoding/json` HTML-escapes
+  `&`, `<` and `>` by default, so an ordinary peer name would have arrived mangled. Both fixed
+  (`78b69d9e`), both queued in their `UNVERIFIED.md`.
+- **TEVI — BUILT, and it needed NO refactor.** `adapters/tevi/MeshGhostTevi.Tests/`, CI in
+  `tevi.yml`. The entry assumed a BepInEx test build; `BridgeClient.cs` imports only `System.*` and
+  `Newtonsoft.Json`, so the whole path from bytes to callback arguments runs on a Linux runner with
+  no game and no engine. **It is therefore the strongest of the three — the only one that reaches
+  the DISPATCH** rather than stopping at the decode, because the Pokemon adapters' dispatch sits
+  past the point where the file starts calling BizHawk. No findings: 60 hostile lines survived,
+  nesting is refused at 32 levels by Newtonsoft's own limit, and fourteen hostile peer ids reach the
+  callback unchanged.
+- **Pseudoregalia — NOT STARTED**, and cheaper than the entry implies. There is no recursive parser
+  to fuzz: `json_string_field`, `json_vec3_field` and `json_number_field` (`Plugin.cpp`) are
+  `std::string::find` and `sscanf` over `<string>` and `<cstdio>`, needing no UE4SS and no Unreal,
+  so they compile standalone anywhere — **not a Windows runner, as this entry assumed.** The two
+  things worth attacking are the reasoned-but-unmeasured assumptions in their comments: that JSON
+  escaping makes a whole-string needle search safe against a hostile peer string, and that
+  `clamp_to_uint8` catches every non-finite `sscanf` result before it reaches the game. The cost is
+  lifting the three helpers into their own header, which edits `Mod/src/` — LF-pinned, hashed by
+  the release gate, so it needs a DLL rebuild and deploy, and the new header must be added to
+  `release.yml`'s `$files` map AND `build-pseudoregalia.bat`'s hash set in the same commit or every
+  later edit ships a stale DLL with a green check.
+
+**The general lesson, which cost nothing here and would have cost a lot later:** every one of these
+harnesses needed a CONTROL asserting that valid input still produces the right answer. TEVI's first
+run reported "0 renders" for every input and looked exactly like a broken decoder; it was a broken
+test using the wrong message shape. Without the control it would have passed forever while
+exercising nothing — the same failure found in `FuzzEverything` the same day.
+
+**The original entry, kept because its reasoning about scope still stands:**
+
 **The user's question:** *"do we have any fuzzing tests for adapters? should they live alongside the
 server/client tests or have their own folders inside each adapter?"* — and the follow-up: *"we can also
 make it the same way .Go actions happen, only run them if an adapter got any changes"*.
@@ -2353,6 +2395,34 @@ case those cannot reach — **a bridge that is not ours**, or a core that is com
 State that in each target's doc comment so the scope stays honest.
 
 ## A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
+
+**STARTED 2026-09-03. Stage 1 is in (`0e75ea99`): the interface, the accessor, and the recorder's
+flush pair converted as its proof.** Two design corrections came out of building it, both of which
+the entry below gets wrong:
+
+- **The interface needs `Since`, not just `Now`.** Every duration here is a `time.Time` FIELD plus a
+  reader somewhere else — `lastSendAt` written in one place and read by `time.Since` in two others,
+  `lastFlush` likewise. Convert the writer and leave the reader and the code computes
+  `wallNow - virtualStored`, which at any fake epoch is either an enormous positive or a negative:
+  a rate limiter that never limits, or one that never sends, with nothing crashing.
+  **So the unit of conversion is a field plus every reader of it, never a call site.** The stage-1
+  test fails immediately if that rule is broken.
+- **`awaitTick` needed a cancel escape FIRST, as its own change** — done, with a test that takes
+  five seconds instead of milliseconds if it regresses. It had no stop channel and is called from
+  inside the replay player's and the chasers' own goroutines, so `halt()` closed a channel nothing
+  was listening to. At the wall clock that leaks a goroutine per abandoned replay; under a virtual
+  clock a test that never advances time would park every one of them forever.
+
+Also corrected: the site count is 32, not 24 — the five missed are all `time.Since` readers. And
+`remotes.go:34` is a five-second LOG THROTTLE, not staleness; staleness comes from `nowMs()`, so
+converting the root covers it and that file needs nothing of its own.
+
+Still to convert: `nowMsLocked` (the root), `awaitTick`'s own polling, and the replay and chaser
+due-waits. Then the preflight ratchet that stops a mixed clock coming back — which is a real commit
+of its own, roughly nineteen `wall-clock:` markers across nine files, and must exclude `_test.go`
+or it fires on hundreds of legitimate calls.
+
+**The original entry:**
 
 **The user, on FuzzEverything's early rate:** *"didn't we already do something where it simulates doing
 things really long but still fast? so a multiple hour/day long test can be condensed into seconds?"*

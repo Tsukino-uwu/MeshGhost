@@ -357,7 +357,7 @@ func (p *replayPlayer) seam(tag protocol.Nametag) bool {
 	// One render tick that BEGAN after the drop carries the despawn (see
 	// ticksBegun). Bounded: an adapter in a menu sends no frames, and a
 	// replay must not hang on it.
-	p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond)
+	p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond, p.stop)
 	if p.stopped() {
 		return false
 	}
@@ -453,7 +453,7 @@ func (p *replayPlayer) run() {
 					}
 					continue
 				}
-				p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond)
+				p.c.awaitTick(p.c.ticksBegun(), 500*time.Millisecond, p.stop)
 				log.Printf("core: replay %s: finished", clip.file)
 				return
 			}
