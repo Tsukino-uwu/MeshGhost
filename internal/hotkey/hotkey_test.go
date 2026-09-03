@@ -43,7 +43,7 @@ func TestParseReadsChordsAnyOrderAnyCase(t *testing.T) {
 // TestParseRefusesWhatTheDocsReserve: F12 (the debugger), the Windows key
 // (the OS), a bare key (every other program), and garbage.
 func TestParseRefusesWhatTheDocsReserve(t *testing.T) {
-	for _, in := range []string{"ctrl+F12", "win+F9", "super+a", "F9", "ctrl", "ctrl+shift", "ctrl+F0", "ctrl+F25", "ctrl+enter", "ctrl+a+b", "", "ctrl++a"} {
+	for _, in := range []string{"ctrl+F12", "win+F9", "super+a", "F9", "ctrl", "ctrl+shift", "ctrl+F0", "ctrl+F25", "ctrl+enter", "ctrl+a+b", "", "ctrl++a", "ctrl+ctrl+a", "shift+alt+shift+F1"} {
 		if _, err := Parse(in); err == nil {
 			t.Errorf("Parse(%q) accepted, want a refusal", in)
 		}

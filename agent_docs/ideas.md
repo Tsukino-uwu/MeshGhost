@@ -58,6 +58,9 @@ is USED, that project is checked and recorded there first.
 - Four refactors still deferred from the 2026-08-18 audit-and-refactor pass
 - Doc restructuring: what was done — moved to `doc-history.md` (2026-08-25)
 - Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
+- Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03)
+- Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
+- A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 
@@ -2203,3 +2206,68 @@ the `features` key already has at the protocol level.
 same ADVANCED heading; a mod that reads a key logs the value it read once, the way the launcher
 logs its port and its autostart decision, so a typo shows up as a wrong value rather than silence.
 
+
+## Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03)
+
+**The user's question, on the day CI's race job caught a test-ordering race the local runs missed:**
+*"don't we fuzz things in random order as well? ... can we actually just randomize EVERYTHING possible for
+fuzzers?"* The schedule fuzzers (`core/schedule_fuzz_test.go`, `schedule_convergence_fuzz_test.go`)
+randomize the order of REAL events and the loader fuzz throws random headers at playback — but nothing
+randomizes the replay feature's own lifecycle: files appearing in `replay/active/` before or after the
+adapter attaches, the first in-game frame landing before or after `StartReplays`, seeks arriving during a
+seam or the end-of-clip hold, a live gap during a chaser's spawn window, detach mid-lap, a relay session
+reset mid-replay (the `nowMs` back-step). Each of those is a hand-written test today. **A
+`FuzzReplaySchedule` in the shape of the existing schedule targets** — a byte string decoded into an
+ordered list of those events with random gaps, driven against a real clip through the fake adapter, run
+under CI's race job — is the "randomize everything" that applies here. Not started; the race that
+prompted the question was in a test helper, which no fuzzer over shipped behaviour would reach.
+
+## Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
+
+**The user's question:** *"do we have any fuzzing tests for adapters? should they live alongside the
+server/client tests or have their own folders inside each adapter?"* — and the follow-up: *"we can also
+make it the same way .Go actions happen, only run them if an adapter got any changes"*.
+
+**Today only the Go side is fuzzed** (eighteen targets CI runs, plus the opt-in schedule targets and
+`FuzzEverything`). The adapters have none, and cannot borrow Go's: their bridge parsers are Lua, C#
+and C++. What the Go fuzzers DO bound is what an adapter can ever receive — every value in a bridge
+message has passed the wire limits and `ValidateState` — and `FuzzEverything` drives the bridge with
+hostile adapter frames from the other direction.
+
+**Where they belong:** inside each adapter's folder, next to its probes, in that adapter's language,
+because the harness is the game host (BizHawk's Lua for the Pokemon adapters; a BepInEx test build
+for TEVI; UE4SS for Pseudoregalia). **The first target is the same for all four** and is the one the
+ACE audit names (`security-design.md`): feed the adapter's bridge line decoder random and hostile
+`render_remote` / `remote_name` / `session_policy` lines and assert it never crashes the game and never
+turns a peer string into a lookup it should not. **CI shape:** a job per adapter, path-filtered the
+way the Lua workflow already is, so a Go-only push does not pay for it. Not started.
+
+## A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03)
+
+**The user, on FuzzEverything's early rate:** *"didn't we already do something where it simulates doing
+things really long but still fast? so a multiple hour/day long test can be condensed into seconds?"*
+Half yes. The compressed clock (`schedule_convergence_fuzz_test.go`'s argument) is every timing that is a
+per-Core FIELD — stale window, interp, keepalive, backoff, chaser delay and spacing, replay start delay —
+set to milliseconds, so "silent for twice the stale window" runs in tens of ms down the shipped path, and
+`FuzzEverything` draws all of them from the seed. **What it cannot compress:** anything that reads the wall
+clock directly — `nowMs()` is `time.Now()` plus the relay offset; the replay player and the chasers SLEEP
+until a sample's due time; the 1.5s seam threshold and the 3s default stale window are constants; and
+the fuzzer's own `gap` op is a real sleep. So a schedule with a long pause costs real seconds.
+
+**The full version: one injectable clock.** `Core` gets a `now func() time.Time` (default `time.Now`) that
+`nowMsLocked`, the player's and chasers' sleeps, the recorder's flush clock, the seam and stale checks
+and `awaitTick` all read; sleeps become waits on a clock-aware timer the test can advance. A fuzz step
+then says "advance 8h" and every due sample, age-out, seam and hold fires at once, deterministically —
+day-long sessions in milliseconds, and no scheduler noise in the results (the convergence fuzzer's own
+complaint that a compressed clock stops testing the code once it is shorter than the machine's jitter).
+A real change to the core's clock plumbing, its own stage, with the existing tests as the regression
+suite. Not started; the pacing trim of 2026-09-03 (1ms per step, gaps capped at 350ms) got the target to
+~28 inputs/s meanwhile.
+
+**Scope, the user's follow-up ("always use this for all tests/fuzz things?"):** for every test of logic
+and ordering, yes — core unit tests, the schedule fuzzers, `FuzzEverything`. NOT for what tests timing
+against the outside world: `internal/e2e` (real binaries), `transport`/`netx` (socket deadlines), the
+netsim rig, and anything spanning the relay process, which has its own clock. The one hazard is a MIXED
+clock — one `time.Sleep`/`time.After`/`time.Now` left inside the core and a goroutine waits on virtual
+time nothing advances while another waits on the wall: a deadlock. Hence its own stage, every clock read
+in `core` audited, the whole suite as the net.

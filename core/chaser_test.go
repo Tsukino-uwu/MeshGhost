@@ -237,3 +237,30 @@ func TestChaserNeverSpawnsOnAStandingPlayer(t *testing.T) {
 	}
 	c.StopChasers()
 }
+
+// TestChaserPackClampsAnAbsurdSpacingFast (found by FuzzEverything, 2026-09-03):
+// count 8 with spacing 48h must not size a channel to 336 hours of samples on
+// the bridge goroutine. StartChasers returns at once and every chaser's delay
+// is at most maxChaserBehind.
+func TestChaserPackClampsAnAbsurdSpacingFast(t *testing.T) {
+	c := New()
+	c.ChaserEnabled = true
+	c.ChaserCount = 8
+	c.ChaserDelay = 0
+	c.ChaserSpacing = 48 * time.Hour
+	start := time.Now()
+	if n := c.StartChasers(); n != 8 {
+		t.Fatalf("started %d, want 8", n)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Fatalf("StartChasers took %s with an absurd spacing", took)
+	}
+	c.chaserMu.Lock()
+	for _, ch := range c.chasers {
+		if ch.delay > maxChaserBehind || cap(ch.in) > int((maxChaserBehind+chaserQueueSlack).Milliseconds()/10) {
+			t.Fatalf("%s: delay %v, queue %d -- not clamped", ch.id, ch.delay, cap(ch.in))
+		}
+	}
+	c.chaserMu.Unlock()
+	c.StopChasers()
+}

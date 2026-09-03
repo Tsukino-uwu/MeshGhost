@@ -2,8 +2,8 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against fifteen targets across six packages (protocol 8,
-# bridge 2, relay 2, transport 1, netx/udpconn 1, core 1 -- count them with
+# short fuzz campaign against eighteen targets across eight packages (protocol 8,
+# bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1 -- count them with
 # `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
 # this line, which said eleven across four for as long as the two bridge targets
 # below have existed). Until this existed,
@@ -299,6 +299,18 @@ jobs:
       # pass the same per-sample validation a relay packet does.
       - name: Fuzz core - replay loader never panics and only admits wire-valid samples
         run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseReplayNeverPanics 30s
+      # The user's standard, 2026-09-03: "a fuzzer that doesn't fuzz everything randomly won't
+      # catch things we didn't think about". One client, random config inside and outside every
+      # limit, random order and timing of frames, files, controls, relay messages and clock resets,
+      # checked against the invariants a player would state. No relay sockets, so it can run here.
+      - name: Fuzz core - everything at once holds the player's invariants
+        run: bash dev-scripts/ci-fuzz.sh ./core FuzzEverything 60s
+      # Two things a player types by hand and nothing else parsed: a hotkey chord, and the
+      # nested config blocks. Must never panic and must never admit a value past its rule.
+      - name: Fuzz hotkey - chord parser admits only documented chords
+        run: bash dev-scripts/ci-fuzz.sh ./internal/hotkey FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords 20s
+      - name: Fuzz client config - hand-edited config never panics or zeroes a default
+        run: bash dev-scripts/ci-fuzz.sh ./cmd/meshghost FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane 20s
       # A fuzz failure writes the exact reproducing input to
       # testdata/fuzz/<Target>/<hash>. Without this it exists only inside a
       # deleted runner and the log shows a hash nobody can reproduce from;

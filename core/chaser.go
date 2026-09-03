@@ -31,6 +31,15 @@ import (
 
 const (
 	maxChasers = 8
+	// maxChaserBehind caps how far behind the player any chaser may run.
+	// FOUND BY THE EVERYTHING-FUZZER on its first run (2026-09-03): a legal
+	// config of count 8 and spacing 48h asked the eighth chaser for a queue
+	// sized to 336 hours of samples -- make(chan, 120 million) on the bridge
+	// goroutine, which is where the next adapter's hello is answered. The
+	// game sat with no bridge_ready for seconds, and the test saw a core
+	// that had stopped ticking. A chaser ten minutes behind is already a
+	// ghost of a different session; anything past this is clamped and logged.
+	maxChaserBehind = 10 * time.Minute
 	// chaserQueueSlack is how much beyond its delay a chaser's channel
 	// holds, at the adapter's fastest rate. A full channel drops the NEWEST
 	// sample for that chaser (the player is outrunning the drain, which
@@ -183,8 +192,13 @@ func (c *Core) StartChasers() int {
 	}
 
 	c.chaserMu.Lock()
+	clamped := false
 	for i := 0; i < count; i++ {
 		d := delay + time.Duration(i)*spacing
+		if d > maxChaserBehind {
+			d = maxChaserBehind
+			clamped = true
+		}
 		tag := protocol.Nametag{Name: name, Color: color}
 		if count > 1 && name != "" {
 			tag.Name = protocol.SanitizeDisplayName(fmt.Sprintf("%s %d", name, i+1))
@@ -196,6 +210,9 @@ func (c *Core) StartChasers() int {
 		go ch.run()
 	}
 	c.chaserMu.Unlock()
+	if clamped {
+		log.Printf("core: chaser delay+spacing reaches past %s; the far chasers are clamped to that", maxChaserBehind)
+	}
 	if count > 0 {
 		log.Printf("core: %d chaser(s) following: the first %s behind, then every %s; none appears until you have been moving for %s", count, delay, spacing, spawn)
 		// After the unlock: rearmTap takes chaserMu itself.

@@ -80,14 +80,23 @@ func Parse(s string) (Binding, error) {
 		switch p {
 		case "":
 			return b, fmt.Errorf("hotkey %q: empty part", s)
-		case "ctrl", "control":
-			b.Mods |= ModControl
-			continue
-		case "shift":
-			b.Mods |= ModShift
-			continue
-		case "alt":
-			b.Mods |= ModAlt
+		case "ctrl", "control", "shift", "alt":
+			var m uint32
+			switch p {
+			case "shift":
+				m = ModShift
+			case "alt":
+				m = ModAlt
+			default:
+				m = ModControl
+			}
+			// A modifier named twice is a typo the player would not see
+			// ("ctrl+ctrl+a" binds ctrl+a); refused rather than folded. Found
+			// by the fuzzer on 2026-09-03, first campaign.
+			if b.Mods&m != 0 {
+				return b, fmt.Errorf("hotkey %q: %s is named twice", s, p)
+			}
+			b.Mods |= m
 			continue
 		case "win", "super", "meta":
 			return b, fmt.Errorf("hotkey %q: chords with the Windows key are reserved by the operating system", s)
