@@ -107,6 +107,14 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
+	return newFakeAdapter(t, conn), nil
+}
+
+// newFakeAdapter wires the receive callbacks onto an already-open bridge
+// connection, whatever carried it -- a real TCP dial, or the in-memory pipe the
+// fuzz target uses (see pipeListener).
+func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
+	t.Helper()
 	fa := &fakeAdapter{
 		t:          t,
 		conn:       conn,
@@ -188,7 +196,7 @@ func dialFakeAdapterErr(t *testing.T, bridgeAddr string) (*fakeAdapter, error) {
 			}
 		}
 	})
-	return fa, nil
+	return fa
 }
 
 // hello sends a bridge.Hello declaring gameID -- must be the first message
@@ -476,9 +484,17 @@ func TestCoreAcceptsANewAdapterAfterTheFirstLeaves(t *testing.T) {
 // the copy is how the first one failed to reach the second.
 func reattachFakeAdapter(t *testing.T, bridgeAddr, gameID string) *fakeAdapter {
 	t.Helper()
+	return reattachFakeAdapterWith(t, gameID, func() *fakeAdapter { return dialFakeAdapter(t, bridgeAddr) })
+}
+
+// reattachFakeAdapterWith is reattachFakeAdapter over any way of opening a
+// connection, so a caller on the in-memory pipe gets the same retry-until-the
+// -core-accepts-us loop as one on a socket.
+func reattachFakeAdapterWith(t *testing.T, gameID string, dial func() *fakeAdapter) *fakeAdapter {
+	t.Helper()
 	deadline := time.Now().Add(testTimeout)
 	for attempt := 1; ; attempt++ {
-		fa := dialFakeAdapter(t, bridgeAddr)
+		fa := dial()
 		fa.hello(gameID)
 		select {
 		case <-fa.ready:
@@ -2392,4 +2408,95 @@ func TestRelayOwnershipMovesToARelaunchedAdapter(t *testing.T) {
 	// The session must still work afterwards, which is what the e2e test was
 	// asserting at process scale when it timed out.
 	waitForPlayerID(t, c)
+}
+
+// pipeListener is a net.Listener that hands out in-memory net.Pipe connections
+// instead of sockets, so a caller can drive the REAL bridge -- ServeBridge,
+// handleBridgeConn, the NDJSON framing, every callback -- with no operating
+// system involved.
+//
+// WHY IT EXISTS, and it is a real failure rather than tidiness: FuzzEverything
+// stands up a bridge and attaches an adapter on every iteration, twelve workers
+// at a time. On Windows that exhausts the ephemeral port range in ten to
+// fifteen seconds of a real campaign, and the target then fails with "dial
+// bridge: Only one usage of each socket address is normally permitted" and
+// writes the schedule that happened to be running into the seed corpus as if it
+// had found something. It had not: that input passes when re-run on its own.
+// Reproduced on an unmodified tree 2026-09-03, so it was never about the code
+// under test -- a fuzz target must not be able to fail for a reason that has
+// nothing to do with what it is fuzzing.
+//
+// A pipe costs no port, no TIME_WAIT and no kernel round trip, so the target
+// also runs faster. It is not a mock: the bytes still cross a net.Conn and are
+// still framed, parsed and dispatched by the shipped code.
+type pipeListener struct {
+	conns chan net.Conn
+	done  chan struct{}
+	once  sync.Once
+}
+
+func newPipeListener() *pipeListener {
+	return &pipeListener{conns: make(chan net.Conn), done: make(chan struct{})}
+}
+
+func (l *pipeListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-l.conns:
+		return c, nil
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+}
+
+// Close stops Accept and every pending dial. Closing `done` rather than the
+// conns channel on purpose: a dial racing a Close would panic on a send to a
+// closed channel, and a listener being closed while something dials it is
+// exactly what a detach step does.
+func (l *pipeListener) Close() error {
+	l.once.Do(func() { close(l.done) })
+	return nil
+}
+
+func (l *pipeListener) Addr() net.Addr { return pipeAddr{} }
+
+// dial opens one connection to whoever is serving this listener, returning the
+// caller's end. It blocks until Accept takes the other end, which is the same
+// contract a TCP dial has against a listening socket.
+func (l *pipeListener) dial() (net.Conn, error) {
+	server, client := net.Pipe()
+	select {
+	case l.conns <- server:
+		return client, nil
+	case <-l.done:
+		server.Close()
+		client.Close()
+		return nil, net.ErrClosed
+	}
+}
+
+type pipeAddr struct{}
+
+func (pipeAddr) Network() string { return "pipe" }
+func (pipeAddr) String() string  { return "pipe" }
+
+// dialFakeAdapterPipe is dialFakeAdapter over a pipeListener.
+func dialFakeAdapterPipe(t *testing.T, l *pipeListener) *fakeAdapter {
+	t.Helper()
+	fa, err := dialFakeAdapterPipeErr(t, l)
+	if err != nil {
+		t.Fatalf("dial bridge pipe: %v", err)
+	}
+	return fa
+}
+
+// dialFakeAdapterPipeErr is the non-fatal form. Unlike a socket dial this can
+// only fail one way -- the listener is closed, i.e. the test is tearing down --
+// so a caller that swallows the error is not swallowing a resource problem.
+func dialFakeAdapterPipeErr(t *testing.T, l *pipeListener) (*fakeAdapter, error) {
+	t.Helper()
+	conn, err := l.dial()
+	if err != nil {
+		return nil, err
+	}
+	return newFakeAdapter(t, transport.FromConn(conn)), nil
 }

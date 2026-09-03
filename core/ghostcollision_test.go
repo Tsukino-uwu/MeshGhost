@@ -27,6 +27,19 @@ func waitPolicy(t *testing.T, fa *fakeAdapter) string {
 // it serves, so a test can set a client-side preference.
 func startCoreLazyWith(t *testing.T, relayAddr, room, name string, cfg func(*Core)) (*Core, string) {
 	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen bridge: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	return startCoreLazyServing(t, ln, relayAddr, room, name, cfg), ln.Addr().String()
+}
+
+// startCoreLazyServing is startCoreLazyWith over a listener the caller owns, so
+// a fuzz target can serve the same bridge over an in-memory pipe instead of a
+// socket (see pipeListener) without duplicating the setup.
+func startCoreLazyServing(t *testing.T, ln net.Listener, relayAddr, room, name string, cfg func(*Core)) *Core {
+	t.Helper()
 	c := New()
 	c.RelayAddr = relayAddr
 	c.Room = room
@@ -35,13 +48,8 @@ func startCoreLazyWith(t *testing.T, relayAddr, room, name string, cfg func(*Cor
 	if cfg != nil {
 		cfg(c)
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen bridge: %v", err)
-	}
-	t.Cleanup(func() { ln.Close() })
 	go c.ServeBridge(ln)
-	return c, ln.Addr().String()
+	return c
 }
 
 // The end-to-end path the whole feature is: a host sets one config value and

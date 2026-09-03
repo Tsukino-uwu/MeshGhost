@@ -422,15 +422,23 @@ regression test.
 
 ## Traps
 
-- **`FuzzEverything` fails LOCALLY on Windows after ~10-15 seconds of a real campaign, and it is the
-  fuzzing harness, not the code (2026-09-03).** `dial bridge: ... Only one usage of each socket
-  address is normally permitted` — twelve fuzz workers each stand up a bridge listener and dial it,
-  and Windows runs out of ephemeral ports at that rate. **Confirmed to be nothing to do with the
-  change under test**: the same 40-second campaign fails identically on a stashed, unmodified tree.
-  The failing input is written to the corpus and then PASSES when re-run on its own (`-count=20`),
-  which is the tell — a real finding does not. **So: a corpus file produced this way is noise, delete
-  it rather than committing it as a regression.** CI's fuzz job runs on Linux and does not hit this.
-  Seed-corpus runs (`go test` with no `-fuzz`) are unaffected, so the target still guards every push.
+- **A fuzz target must not stand up a SOCKET per iteration -- FIXED 2026-09-03, and the fix is the
+  interesting part.** `FuzzEverything` and `FuzzScheduleConvergence` each opened a bridge listener
+  and dialled it every iteration, twelve workers at a time; on Windows that exhausts the ephemeral
+  port range in ten to fifteen seconds of a real campaign. **The two targets then failed in
+  opposite, equally misleading ways**: `FuzzEverything` died with `dial bridge: Only one usage of
+  each socket address is normally permitted` and wrote the running schedule into the seed corpus as
+  if it had found a bug (it had not -- that input passes when re-run alone, which is the tell), and
+  `FuzzScheduleConvergence`, which swallowed the dial error on purpose, ran the whole rest of its
+  campaign **with no adapter attached, exercising nothing while passing**. Confirmed to be nothing
+  to do with the code under test by reproducing it on a stashed, unmodified tree.
+  **Both now serve the bridge over an in-memory `net.Pipe` (`pipeListener`, `core/core_test.go`):
+  no port, no TIME_WAIT, no kernel round trip, and the bridge itself is still the shipped one** --
+  `ServeBridge`, the NDJSON framing and every callback run unchanged, so this is a different
+  carrier, not a mock. It is also faster, which buys more executions per campaign.
+  **The general rule: a fuzz target may not be able to fail, or to quietly stop testing, for a
+  reason that has nothing to do with what it is fuzzing.** An OS resource per iteration is the
+  usual way that happens. Normal one-shot tests keep their real sockets -- they run once.
 
 - **A test that sets a `Core` field AFTER the adapter attached races the bridge goroutine, and only
   CI's race job may notice (2026-09-03).** The hello handler reads `ReplayDir`, the `Chaser*` fields and

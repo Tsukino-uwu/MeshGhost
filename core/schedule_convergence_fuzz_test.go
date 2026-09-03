@@ -74,7 +74,7 @@ type scheduleActor struct {
 	t      *testing.T
 	name   string
 	core   *Core
-	bridge string
+	bridge *pipeListener
 	fa     *fakeAdapter
 	pos    float64
 }
@@ -218,7 +218,11 @@ func newScheduleActor(t *testing.T, relayAddr, name string) *scheduleActor {
 // rather than drifting into two.
 func newScheduleActorTuned(t *testing.T, relayAddr, name string, tune func(*Core)) *scheduleActor {
 	t.Helper()
-	c, bridgeAddr := startCoreLazyWith(t, relayAddr, "fuzzroom", name, func(c *Core) {
+	// In-memory, not a socket: this target attaches and detaches adapters
+	// thousands of times per campaign across twelve workers. See pipeListener.
+	ln := newPipeListener()
+	t.Cleanup(func() { ln.Close() })
+	c := startCoreLazyServing(t, ln, relayAddr, "fuzzroom", name, func(c *Core) {
 		c.MinSendInterval = time.Millisecond
 		c.InterpolationDelay = fuzzScheduleInterp
 		c.IdleKeepalive = fuzzScheduleKeepalive
@@ -261,17 +265,25 @@ func newScheduleActorTuned(t *testing.T, relayAddr, name string, tune func(*Core
 			_ = conn.Close()
 		}
 	})
-	return &scheduleActor{t: t, name: name, core: c, bridge: bridgeAddr}
+	return &scheduleActor{t: t, name: name, core: c, bridge: ln}
 }
 
 func (a *scheduleActor) attach() {
 	if a.fa != nil {
 		return
 	}
-	// A refused dial is the OS, not the code under test -- many workers
-	// attaching and detaching exhausts Windows' ephemeral ports well before
-	// they exhaust the schedules. The converge loop calls this again.
-	fa, err := dialFakeAdapterErr(a.t, a.bridge)
+	// The bridge is an in-memory pipe, not a socket (pipeListener), so the
+	// only way this fails is a listener closed by test teardown -- the
+	// converge loop calls attach again either way.
+	//
+	// IT USED TO BE A SOCKET, and that was worse here than a crash: twelve
+	// fuzz workers exhaust Windows' ephemeral ports in seconds, this function
+	// swallowed the dial error, and the target then ran its whole remaining
+	// campaign with NO ADAPTER ATTACHED -- exercising nothing while passing.
+	// That is the exact failure mode ideas.md records from 2026-09-03: a fuzz
+	// target that silently exercises nothing passes exactly like one that
+	// exercises everything.
+	fa, err := dialFakeAdapterPipeErr(a.t, a.bridge)
 	if err != nil {
 		return
 	}

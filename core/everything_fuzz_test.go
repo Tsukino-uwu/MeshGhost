@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -247,10 +246,13 @@ func FuzzEverything(f *testing.F) {
 		c.relayPolicyKnown = true
 		c.mu.Unlock()
 
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("listen: %v", err)
-		}
+		// IN-MEMORY, NOT A SOCKET. Twelve workers standing up a listener and
+		// an adapter connection per iteration exhaust Windows' ephemeral
+		// ports in seconds, and the target then fails for a reason that has
+		// nothing to do with the schedule it was running -- see pipeListener.
+		// The bridge itself is the real one: ServeBridge, the framing and
+		// every callback are the shipped code.
+		ln := newPipeListener()
 		t.Cleanup(func() { ln.Close() })
 		go c.ServeBridge(ln)
 		t.Cleanup(func() { c.StopReplays(); c.StopChasers(); c.StopRecording() })
@@ -260,7 +262,7 @@ func FuzzEverything(f *testing.F) {
 			if fa != nil {
 				return
 			}
-			fa = reattachFakeAdapter(t, ln.Addr().String(), "emerald")
+			fa = reattachFakeAdapterWith(t, "emerald", func() *fakeAdapter { return dialFakeAdapterPipe(t, ln) })
 		}
 		detach := func() {
 			if fa == nil {
