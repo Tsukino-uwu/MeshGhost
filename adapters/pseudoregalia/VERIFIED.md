@@ -4921,6 +4921,14 @@ mean something.
   have the sword mesh glow blade aura"*. The `bPropagateToChildren` regression is closed on the live
   path too, not only on replays.
 
+- **AND THE SWORDLESS PEER STAYED SWORDLESS AFTER THE WATCHER PICKED UP THEIR OWN.** User:
+  *"no sword didn't get a sword after i picked mine up. so also confirmed working"*, with a
+  screenshot showing all three: the player armed, `has sword` armed, `no sword` empty-handed.
+  **This is the case the original defect came from** — a ghost is constructed from the LOCAL
+  player's pawn class, whose default is `weaponEquipped?` false with `WeaponMesh.bVisible` TRUE, and
+  the watcher owning the sword is exactly the condition under which the old code showed one on
+  everybody. Both directions of the watcher's own state are now covered.
+
 **Method note.** The stronger test was available BEFORE the obvious one and cost nothing: the user
 offered to pick the sword up first and then spawn an armed peer, but spawning it while they were
 still swordless is what makes "the peer's state wins" a real observation rather than a coincidence
