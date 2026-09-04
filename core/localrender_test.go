@@ -76,8 +76,8 @@ func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
 	// calling nowMs a second time. Reading the clock twice made this flaky: the
 	// samples were placed relative to one reading and the render time computed
 	// from another, so a millisecond boundary falling between the two shifted
-	// the answer by one. It passed locally for a day and failed on a CI runner
-	// (x=-21 where -22 was wanted, 2026-09-04) -- which is what a one-tick race
+	// the answer by one. It passed locally and failed on a CI runner the same
+	// day (x=-21 where -22 was wanted, 2026-09-04) -- which is a one-tick race
 	// looks like, and why a timing assertion must derive every number it
 	// compares from a SINGLE reading of the clock.
 	build := func(localDelay time.Duration) (*Core, int64) {

@@ -74,7 +74,7 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 		// bug -- because the mirror it checks against is a map[string]any, where
 		// a key keeps whatever case the file used and "save_last" simply misses.
 		//
-		// The same shape as this test's first CI failure a day earlier, one
+		// The same shape as this test's first CI failure on 2026-09-03, one
 		// layer down: there the invariant did not know an explicit zero from a
 		// bad value; here it did not know the KEY. A test that mirrors a
 		// decoder has to mirror how that decoder matches names, or it invents
