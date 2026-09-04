@@ -20,6 +20,7 @@
 
 #include <BridgeClient.hpp>
 #include <CoreLauncher.hpp>
+#include <PeerJson.hpp>
 
 #include <DynamicOutput/DynamicOutput.hpp>
 #include <Unreal/AActor.hpp>
@@ -2760,24 +2761,6 @@ namespace MeshGhostPseudo
             return result;
         }
 
-        // Minimal JSON string escaping -- only quote and backslash are realistically possible in
-        // an Unreal object path (e.g. "/Game/Maps/ZONE_LowerCastle.ZONE_LowerCastle:PersistentLevel"),
-        // but escaped defensively to match the Lua adapter's jsonString() safety.
-        auto json_escape(const std::string& s) -> std::string
-        {
-            std::string out;
-            out.reserve(s.size() + 2);
-            for (char c : s)
-            {
-                if (c == '"' || c == '\\')
-                {
-                    out.push_back('\\');
-                }
-                out.push_back(c);
-            }
-            return out;
-        }
-
         // Finds the real local PlayerController + its Pawn, or nullptr/nullptr if neither
         // currently exists. See the two bugs already fixed and recorded in
         // agent_docs/pitfalls.md's "Engine reflection / API availability" section:
@@ -2986,192 +2969,16 @@ namespace MeshGhostPseudo
             return {nullptr, nullptr};
         }
 
-        // Minimal, non-general JSON field extraction -- deliberately not a full parser, matching
-        // the Lua adapter's own minimalism (its jsonString()/hand-built envelopes, not a generic
-        // decoder). This data is NOT trusted input, despite the fixed envelope shape: it arrives
-        // over the bridge socket as a render_remote line originated by a remote peer, forwarded
-        // by the Go core, which only bounds it by total serialized byte size
-        // (protocol.MaxExtrasBytes) -- not by per-field type, range, or finiteness. See
-        // adapters/_template/PROTOCOL.md's own "peer-controlled" warning on render_remote data,
-        // and clamp_to_uint8's comment below for the specific narrowing hazard this file already
-        // guards against. What actually makes this minimal string-search parser safe to use on
-        // untrusted bytes is narrower than "the format is fixed-shape": see json_number_field's
-        // comment just below for the real reason a whole-string search doesn't misparse.
-        // Appends one code point to out as UTF-8. Used by json_string_field's \uXXXX handling.
-        auto append_utf8(std::string& out, uint32_t cp) -> void
-        {
-            if (cp <= 0x7F)
-            {
-                out.push_back(static_cast<char>(cp));
-            }
-            else if (cp <= 0x7FF)
-            {
-                out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
-                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-            }
-            else if (cp <= 0xFFFF)
-            {
-                out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
-                out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-            }
-            else
-            {
-                out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
-                out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
-                out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-                out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
-            }
-        }
-
-        // Reads exactly four hex digits at pos. Not strtol, which would read past four and accept
-        // a sign.
-        auto json_hex4(const std::string& s, size_t pos, uint32_t& out) -> bool
-        {
-            if (pos + 4 > s.size())
-            {
-                return false;
-            }
-            uint32_t v = 0;
-            for (size_t i = 0; i < 4; ++i)
-            {
-                const char c = s[pos + i];
-                v <<= 4;
-                if (c >= '0' && c <= '9') { v |= static_cast<uint32_t>(c - '0'); }
-                else if (c >= 'a' && c <= 'f') { v |= static_cast<uint32_t>(c - 'a' + 10); }
-                else if (c >= 'A' && c <= 'F') { v |= static_cast<uint32_t>(c - 'A' + 10); }
-                else { return false; }
-            }
-            out = v;
-            return true;
-        }
-
-        // ESCAPES ARE HONOURED HERE, AND IT IS NOT POLISH. Until 2026-09-03 this scanned for the
-        // next bare '"' and returned the raw bytes between, so a display name containing a quote --
-        // which the wire carries as \" -- ended the string early and the player saw their name cut
-        // at a backslash. Found live by the user testing a deliberately nasty name:
-        // uwu325235#"..."****?_ rendered on the ghost's nametag as `uwu325235#\`. The same bug
-        // handed back \uXXXX and \ literally, so either one displayed as its escape rather than
-        // as the character it stands for.
+        // THE PEER-JSON READERS MOVED OUT, 2026-09-04. json_escape, append_utf8, json_hex4,
+        // json_string_field, json_vec3_field, json_number_field and clamp_to_uint8 now live in
+        // PeerJson.hpp, together with the finite_or / clamp_to_float / clamp_count_to_int bounds
+        // added alongside them. They read bytes a stranger wrote, and file-local in this
+        // anonymous namespace meant nothing could test them without UE4SS, Unreal and a running
+        // game. They are unchanged, comments included; the header is what lets
+        // MeshGhostPseudo.Tests/peer_json_fuzz.cpp compile them on a Linux CI runner.
         //
-        // Both Pokemon adapters had their own JSON decoders fixed the same day (a depth cap on
-        // one, a \uXXXX decoder on the other). This file is the sibling that was missed -- the
-        // shape ideas.md calls "rules that live in one code path and are missing from their
-        // sibling".
-        //
-        // Still deliberately NOT a general JSON parser: it finds one key by whole-string search
-        // and reads one string value. Why that stays safe on hostile input is json_number_field's
-        // comment below -- and note that argument RESTS on values being properly escaped on the
-        // wire, which is exactly what this function now decodes instead of taking on trust.
-        auto json_string_field(const std::string& s, const std::string& key) -> std::string
-        {
-            std::string needle = "\"" + key + "\":\"";
-            size_t pos = s.find(needle);
-            if (pos == std::string::npos)
-            {
-                return {};
-            }
-            pos += needle.size();
-
-            std::string out;
-            for (size_t i = pos; i < s.size(); ++i)
-            {
-                const char c = s[i];
-                if (c == '"')
-                {
-                    return out; // the real end of the string
-                }
-                if (c != '\\')
-                {
-                    out.push_back(c);
-                    continue;
-                }
-                if (++i >= s.size())
-                {
-                    break; // trailing backslash: a truncated line
-                }
-                switch (s[i])
-                {
-                case '"': out.push_back('"'); break;
-                case '\\': out.push_back('\\'); break;
-                case '/': out.push_back('/'); break;
-                case 'b': out.push_back('\b'); break;
-                case 'f': out.push_back('\f'); break;
-                case 'n': out.push_back('\n'); break;
-                case 'r': out.push_back('\r'); break;
-                case 't': out.push_back('\t'); break;
-                case 'u':
-                {
-                    uint32_t cp = 0;
-                    if (!json_hex4(s, i + 1, cp))
-                    {
-                        return {}; // malformed: refuse the field rather than guess
-                    }
-                    i += 4;
-                    // A surrogate PAIR is two escapes standing for one character; a lone or
-                    // mispaired surrogate is not a code point at all and becomes U+FFFD rather
-                    // than being encoded as though it were one.
-                    if (cp >= 0xD800 && cp <= 0xDBFF)
-                    {
-                        uint32_t lo = 0;
-                        if (i + 6 < s.size() && s[i + 1] == '\\' && s[i + 2] == 'u' && json_hex4(s, i + 3, lo) && lo >= 0xDC00 && lo <= 0xDFFF)
-                        {
-                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                            i += 6;
-                        }
-                        else
-                        {
-                            cp = 0xFFFD;
-                        }
-                    }
-                    else if (cp >= 0xDC00 && cp <= 0xDFFF)
-                    {
-                        cp = 0xFFFD;
-                    }
-                    append_utf8(out, cp);
-                    break;
-                }
-                default:
-                    return {}; // not a JSON escape: this line is not what it claims to be
-                }
-            }
-            return {}; // no closing quote before the end of the line
-        }
-
-        auto json_vec3_field(const std::string& s, const std::string& key, double& a, double& b, double& c) -> bool
-        {
-            std::string needle = "\"" + key + "\":[";
-            size_t pos = s.find(needle);
-            if (pos == std::string::npos)
-            {
-                return false;
-            }
-            pos += needle.size();
-            return std::sscanf(s.c_str() + pos, "%lf,%lf,%lf", &a, &b, &c) == 3;
-        }
-
-        // Same minimal-parser philosophy as json_string_field/json_vec3_field above. Used for the
-        // animation-state fields nested under "extras" -- key names (move_state, h_speed, etc.)
-        // are distinct enough that a whole-string search is safe without properly scoping to the
-        // "extras" object, same tradeoff already made for every other field here. This holds even
-        // against a hostile peer, not just a well-behaved one: JSON string values are escaped when
-        // serialized, so a peer-controlled string field (e.g. anim, area_id, player_id) can never
-        // contain a literal, unescaped `"h_speed":` substring that this search could mistake for
-        // the real key -- any such content would itself be escaped (e.g. `\"h_speed\":`) in the
-        // serialized bytes, which does not match the bare needle searched for here. The numeric
-        // *value* found this way is still fully attacker-controlled, though -- that's what
-        // clamp_to_uint8 below exists to bound before use.
-        auto json_number_field(const std::string& s, const std::string& key, double& out) -> bool
-        {
-            std::string needle = "\"" + key + "\":";
-            size_t pos = s.find(needle);
-            if (pos == std::string::npos)
-            {
-                return false;
-            }
-            pos += needle.size();
-            return std::sscanf(s.c_str() + pos, "%lf", &out) == 1;
-        }
+        // to_utf8 and to_wide_ascii deliberately did NOT move: both need a UE4SS or Windows type,
+        // and dragging either into that header would make it un-compilable off Windows.
 
         // SHORTEST-ARC interpolation between two angles in DEGREES -- the scalar form of a slerp,
         // and the correct one for this game, whose orientation on the wire is a plain
@@ -3341,27 +3148,6 @@ namespace MeshGhostPseudo
         auto actor_is_alive(AActor* actor) -> bool
         {
             return actor != nullptr && !actor->IsUnreachable();
-        }
-
-        // Clamps a remote-controlled double to a valid uint8_t range before narrowing. Added in
-        // a review pass: static_cast<uint8_t>(double) is undefined behavior -- not just "wraps",
-        // the way an integer-to-integer narrowing would -- if the value is NaN or outside
-        // [0, 255]. move_state/action_state/anim_jump_type/movement_mode all come from a remote
-        // peer's extras map, which the Go core only bounds by serialized byte size
-        // (protocol.MaxExtrasBytes), not by per-field numeric range or finiteness -- unlike
-        // Position, which the core's own storeRemoteState now rejects outright if non-finite
-        // (see the ADR in agent_docs/architecture.md), extras values reach here unchecked.
-        auto clamp_to_uint8(double value) -> uint8_t
-        {
-            if (std::isnan(value) || value < 0.0)
-            {
-                return 0;
-            }
-            if (value > 255.0)
-            {
-                return 255;
-            }
-            return static_cast<uint8_t>(value);
         }
 
         // 'landed?'/'jumped?' (and every other per-frame anim local: 'Move State', 'landed?', etc.)

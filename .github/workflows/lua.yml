@@ -28,6 +28,16 @@ name: Lua
 # on '**.go' deliberately, so that a docs-only push produces no run at all. Adding '**.lua' there
 # would run the whole Go suite -- race detector, fuzzers, cross-compiles -- every time a probe
 # changed. This way each language's gate fires only for its own files.
+#
+# THIS IS A LANGUAGE GATE, NOT AN ADAPTER GATE, and that distinction is why it keeps the wide
+# '**.lua' filter while every adapter workflow is scoped to its own tree. Every tracked .lua file
+# must compile no matter which adapter (or dev-script) it belongs to, and luac5.4 over the whole
+# tree takes seconds.
+#
+# The bridge-decoder fuzz job that used to live here MOVED to emulator.yml on 2026-09-04. It was an
+# ADAPTER test wearing a language filter: '**.lua' matches 22 Pseudoregalia probes and ~28
+# dev-scripts files, so editing a Pseudoregalia probe ran the Pokemon decoder fuzzers. Path filters
+# are per-workflow rather than per-job, so scoping one job and not the other needs a second file.
 
 on:
   push:
@@ -80,32 +90,3 @@ jobs:
             echo "A file that does not parse can never load in BizHawk, and fails silently there."
             exit 1
           fi
-
-  decoders:
-    name: The bridge JSON decoders survive hostile input
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Lua 5.4
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y lua5.4
-          lua5.4 -v
-
-      # The parse job above proves an adapter is well-formed Lua. This one proves its bridge JSON
-      # decoder cannot be made to hang, and that valid input still decodes -- the two halves of the
-      # 2026-08-25 incident, where a truncated line froze BizHawk outright because the decoder
-      # looped forever and the pcall around it could not help (pcall turns an ERROR into a return
-      # value, and an infinite loop raises nothing).
-      #
-      # It loads each SHIPPED adapter's real decoder rather than a copy, by taking the file prefix
-      # up to the end of jsonDecode -- which is pure declarations -- and running it under a stub
-      # _ENV. Nothing is edited to make this possible and no BizHawk API is involved.
-      #
-      # WHAT A GREEN TICK HERE DOES NOT MEAN, so it is not read as more than it is: this is desktop
-      # Lua 5.4, not BizHawk's embedded interpreter, and it reaches the DECODER only -- each
-      # adapter's message dispatch sits thousands of lines further down, past the point where the
-      # file starts calling the host. See the header of the harness itself.
-      - name: Fuzz the decoders
-        run: lua5.4 adapters/emulator/tests/json_fuzz.lua

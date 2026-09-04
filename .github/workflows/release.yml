@@ -219,6 +219,13 @@ jobs:
           $files = @{
             "Plugin.cpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.cpp"
             "Plugin.hpp"       = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\Plugin.hpp"
+            # PeerJson.hpp holds the peer-facing JSON readers and their bounds, lifted out of
+            # Plugin.cpp 2026-09-04 so a Linux CI job can fuzz them. It is header-only, so it
+            # never appears in Mod/CMakeLists.txt's source list -- which is exactly why it has to
+            # be listed HERE by hand. A source file that compiles into main.dll but is hashed by
+            # nobody is the stale-DLL-behind-a-green-check case this gate exists for, and it has
+            # happened twice already (CoreLauncher on both sides, 2026-08-18; TEVI's, 2026-08-19).
+            "PeerJson.hpp"     = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\PeerJson.hpp"
             "BridgeClient.cpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.cpp"
             "BridgeClient.hpp" = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\BridgeClient.hpp"
             "dllmain.cpp"      = "adapters\pseudoregalia\MeshGhostPseudo\Mod\src\dllmain.cpp"

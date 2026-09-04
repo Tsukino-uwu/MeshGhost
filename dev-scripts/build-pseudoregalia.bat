@@ -49,6 +49,7 @@ if not exist "%DEST%\enabled.txt" type nul > "%DEST%\enabled.txt"
 echo Recording source hashes to built-from.txt...
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\Plugin.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined PLUGIN_CPP_HASH set PLUGIN_CPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\Plugin.hpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined PLUGIN_HPP_HASH set PLUGIN_HPP_HASH=%%h
+for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\PeerJson.hpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined PEERJSON_HPP_HASH set PEERJSON_HPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\BridgeClient.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined BRIDGE_CPP_HASH set BRIDGE_CPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\BridgeClient.hpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined BRIDGE_HPP_HASH set BRIDGE_HPP_HASH=%%h
 for /f "usebackq tokens=1" %%h in (`certutil -hashfile "%SRC%\Mod\src\dllmain.cpp" SHA256 ^| findstr /v "hash CertUtil"`) do if not defined DLLMAIN_HASH set DLLMAIN_HASH=%%h
@@ -64,6 +65,7 @@ for /f %%c in ('git -C "%ROOT%" rev-parse HEAD') do set COMMIT=%%c
   echo commit: %COMMIT%
   echo Plugin.cpp: %PLUGIN_CPP_HASH%
   echo Plugin.hpp: %PLUGIN_HPP_HASH%
+  echo PeerJson.hpp: %PEERJSON_HPP_HASH%
   echo BridgeClient.cpp: %BRIDGE_CPP_HASH%
   echo BridgeClient.hpp: %BRIDGE_HPP_HASH%
   echo dllmain.cpp: %DLLMAIN_HASH%

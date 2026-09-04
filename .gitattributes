@@ -10,6 +10,10 @@ adapters/tevi/MeshGhostTevi/*.csproj text eol=lf
 # adapter it compiles by link so the two never disagree about line endings on a Linux runner.
 adapters/tevi/MeshGhostTevi.Tests/*.cs text eol=lf
 adapters/tevi/MeshGhostTevi.Tests/*.csproj text eol=lf
+# The Pseudoregalia harness compiles PeerJson.hpp by include path on a Linux runner, so it is
+# pinned LF with the adapter it tests -- same reasoning as the TEVI test project above, and the
+# header itself is already covered by the Mod/src/*.hpp rule below.
+adapters/pseudoregalia/MeshGhostPseudo.Tests/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.cpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/src/*.hpp text eol=lf
 adapters/pseudoregalia/MeshGhostPseudo/Mod/CMakeLists.txt text eol=lf

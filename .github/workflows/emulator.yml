@@ -1,0 +1,67 @@
+name: Emulator adapters
+
+# Hostile-input tests for the BizHawk (Pokemon) adapters' bridge JSON decoders.
+#
+# SPLIT OUT OF lua.yml ON 2026-09-04, and the reason is a real over-fire rather than tidiness.
+# lua.yml is path-filtered on '**.lua', which is correct for the SYNTAX gate it keeps (every
+# tracked .lua must compile, wherever it lives) and wrong for this job. Of the tracked .lua files
+# in this repo, 169 are under adapters/emulator, 22 are Pseudoregalia PROBES, and ~28 are in
+# dev-scripts/ -- so editing a Pseudoregalia probe, which is that adapter's normal way of asking
+# the game a question, ran the Pokemon decoder fuzzers, which it cannot possibly affect.
+#
+# GitHub path filters are per-WORKFLOW, not per-job, so the only way to scope one job and not the
+# other is a second workflow. That is the same reason tevi.yml exists as its own file.
+#
+# THE STANDING RULE this now follows, alongside tevi.yml and pseudoregalia.yml: every adapter owns
+# exactly one workflow, path-filtered to its own tree. A language gate (syntax, formatting) may be
+# repo-wide; an adapter gate never is. The user's rule, 2026-09-04: "if we add more adapters in the
+# future, i only want them to get tested whenever anything changes."
+#
+# One workflow covers BOTH Pokemon adapters rather than one each, because json_fuzz.lua tests both
+# in a single script and its own ADAPTERS table is what defines the set. A Crystal-only edit
+# therefore also runs Emerald's decoder -- a few seconds, and the two are siblings that have twice
+# been found with a guard the other lacked, so running both is arguably the point.
+
+on:
+  push:
+    paths:
+      - 'adapters/emulator/**'
+      - '.github/workflows/emulator.yml'
+  pull_request:
+    paths:
+      - 'adapters/emulator/**'
+      - '.github/workflows/emulator.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  decoders:
+    name: The bridge JSON decoders survive hostile input
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Lua 5.4
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4
+          lua5.4 -v
+
+      # lua.yml's parse job proves an adapter is well-formed Lua. This one proves its bridge JSON
+      # decoder cannot be made to hang, and that valid input still decodes -- the two halves of the
+      # 2026-08-25 incident, where a truncated line froze BizHawk outright because the decoder
+      # looped forever and the pcall around it could not help (pcall turns an ERROR into a return
+      # value, and an infinite loop raises nothing).
+      #
+      # It loads each SHIPPED adapter's real decoder rather than a copy, by taking the file prefix
+      # up to the end of jsonDecode -- which is pure declarations -- and running it under a stub
+      # _ENV. Nothing is edited to make this possible and no BizHawk API is involved.
+      #
+      # WHAT A GREEN TICK HERE DOES NOT MEAN, so it is not read as more than it is: this is desktop
+      # Lua 5.4, not BizHawk's embedded interpreter, and it reaches the DECODER only -- each
+      # adapter's message dispatch sits thousands of lines further down, past the point where the
+      # file starts calling the host. See the header of the harness itself.
+      - name: Fuzz the decoders
+        run: lua5.4 adapters/emulator/tests/json_fuzz.lua

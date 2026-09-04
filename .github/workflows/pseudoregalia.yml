@@ -1,0 +1,74 @@
+name: Pseudoregalia adapter
+
+# Hostile-input tests for the Pseudoregalia adapter's peer-JSON readers.
+#
+# Separate workflow, path-filtered, for the reason tevi.yml and lua.yml are separate: triggers are
+# per-workflow. ci.yml filters on '**.go' so a docs-only push produces no run at all, and adding the
+# adapter paths there would run the whole Go suite -- race detector, fuzzers, cross-compiles --
+# every time a C++ file changed. Each adapter's gate fires only for its own files, which is what the
+# user asked for: "only run them if an adapter got any changes".
+#
+# WHAT THIS CAN AND CANNOT BUILD. It does NOT build the mod. main.dll needs the private UEPseudo
+# dependency, a locally installed UE4SS, and MSVC -- which is exactly why the DLL is committed
+# rather than built by CI (packaging/README.md, dev-scripts/build-pseudoregalia.bat). What it builds
+# is one translation unit that includes Mod/src/PeerJson.hpp, whose entire dependency set is
+# <cmath> <cstdint> <cstdio> <string>. No UE4SS, no Unreal, no game, no Windows.
+#
+# So a green tick here means: the shipped peer-JSON readers survive every malformed line thrown at
+# them, valid input still decodes to the RIGHT VALUES, an asset path -- a modded outfit's included --
+# round-trips unchanged, and the bounds hold for every value sscanf can produce. It does NOT mean
+# the mod builds, it does not exercise MSVC's sscanf (the acceptance set for "%lf" is libc-specific,
+# so every leniency number the harness prints is a Linux number), and it does not reach
+# handle_bridge_line's dispatch, which is welded to Unreal.
+
+on:
+  push:
+    paths:
+      - 'adapters/pseudoregalia/**'
+      - '.github/workflows/pseudoregalia.yml'
+  pull_request:
+    paths:
+      - 'adapters/pseudoregalia/**'
+      - '.github/workflows/pseudoregalia.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  peerjson:
+    name: The peer-JSON readers survive hostile input
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show the compiler
+        run: g++ --version
+
+      # -std=c++23 because RE-UE4SS/CMakeLists.txt sets CMAKE_CXX_STANDARD 23, and that is what
+      # this header actually ships under. Checking it under a different standard would look like
+      # verification while answering a different question -- the same reasoning that pins lua.yml
+      # to Lua 5.4 because BizHawk embeds 5.4.
+      #
+      # -fno-sanitize-recover=all is LOAD-BEARING, not decoration. UBSan's default is
+      # print-and-continue, so without it a genuine undefined-behaviour finding would print into
+      # the log and the tick would stay green -- which is precisely the failure this job exists to
+      # catch, since the whole subject here is narrowing a peer-controlled double.
+      - name: Compile and fuzz the peer-JSON readers
+        run: |
+          g++ -std=c++23 -Wall -Wextra -Wconversion -O1 -g \
+              -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer \
+              -I adapters/pseudoregalia/MeshGhostPseudo/Mod/src \
+              adapters/pseudoregalia/MeshGhostPseudo.Tests/peer_json_fuzz.cpp \
+              -o peer_json_fuzz
+          ASAN_OPTIONS=detect_leaks=1 ./peer_json_fuzz
+
+      # The optimised build without sanitizers, because the two can disagree: a sanitizer build
+      # keeps things alive that -O2 folds away. Seconds, and it has caught divergence elsewhere.
+      - name: Re-run optimised, without sanitizers
+        run: |
+          g++ -std=c++23 -Wall -Wextra -O2 \
+              -I adapters/pseudoregalia/MeshGhostPseudo/Mod/src \
+              adapters/pseudoregalia/MeshGhostPseudo.Tests/peer_json_fuzz.cpp \
+              -o peer_json_fuzz_opt
+          ./peer_json_fuzz_opt
