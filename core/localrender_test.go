@@ -72,7 +72,15 @@ func TestLocalGhostsAreNotDelayedByTheNetworkInterpolationDelay(t *testing.T) {
 // couple of sample intervals is all it takes to always have something ahead to
 // interpolate toward.
 func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
-	build := func(localDelay time.Duration) *Core {
+	// RETURNS ITS OWN BASE, and the test asserts against that rather than
+	// calling nowMs a second time. Reading the clock twice made this flaky: the
+	// samples were placed relative to one reading and the render time computed
+	// from another, so a millisecond boundary falling between the two shifted
+	// the answer by one. It passed locally for a day and failed on a CI runner
+	// (x=-21 where -22 was wanted, 2026-09-04) -- which is what a one-tick race
+	// looks like, and why a timing assertion must derive every number it
+	// compares from a SINGLE reading of the clock.
+	build := func(localDelay time.Duration) (*Core, int64) {
 		c := New()
 		c.InterpolationDelay = 450 * time.Millisecond
 		c.LocalInterpolationDelay = localDelay
@@ -87,13 +95,13 @@ func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
 				Position: []float64{float64(ts - base), 0},
 			})
 		}
-		return c
+		return c, base
 	}
 
 	// The shipped shape: a render time three milliseconds off the feed grid
 	// still lands between two samples.
-	c := build(25 * time.Millisecond)
-	states, _ := c.remoteStatesAt(c.nowMs() + 3)
+	c, base := build(25 * time.Millisecond)
+	states, _ := c.remoteStatesAt(base + 3)
 	if got := states["replay:pb"].Position[0]; got != -22 {
 		t.Errorf("with a 25ms local delay the ghost drew at x=%v, want -22 (interpolated "+
 			"between the samples at -30 and -20)", got)
@@ -102,8 +110,8 @@ func TestALocalGhostStillInterpolatesRatherThanEdgeHolding(t *testing.T) {
 	// The same instant with the delay at zero: nothing is ahead of the render
 	// time, so the newest sample is held. This is what a local ghost would look
 	// like at 0 -- stepping at the feed rate, not gliding.
-	c = build(0)
-	states, _ = c.remoteStatesAt(c.nowMs() + 3)
+	c, base = build(0)
+	states, _ = c.remoteStatesAt(base + 3)
 	if got := states["replay:pb"].Position[0]; got != 0 {
 		t.Errorf("with a zero local delay the ghost drew at x=%v, want 0 -- the newest sample "+
 			"held. If this ever interpolates, the reasoning behind DefaultLocalGhostDelay has "+
