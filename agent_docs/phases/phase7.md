@@ -2390,3 +2390,37 @@ hides first sightings cannot answer a question about how something STARTS**, whi
 **Rig state at the end:** relay stopped, `record_on_launch` restored to the shipped `false`, probe
 disarmed in the install. Clips from the run are kept in the install's `replay/` folder — the
 pre-pickup one (`rec-20260904-165557.ndjson`, 4515 samples) is the reproduction for the sword bug.
+
+## 2026-09-04 (later) — two of the three replay defects fixed in one rebuild, plus the instrument for the third
+
+**Fixed from reading, off the previous entry's measurements; nothing here is watched yet.** Both
+sit in `pseudoregalia/UNVERIFIED.md` as READY with what to look at.
+
+**1. The sword.** A new mirror writes `WeaponMesh.bVisible` from `target_weapon_equipped` beside the
+blob-shadow one — a component write on our own actor, so it cannot depend on an edge the way
+`changeEquippedWeapon` does. **The part that would have wasted a live cycle was found by reading, not
+by watching:** the ghost mesh loop re-asserts `WeaponMesh` visible every tick unless something claims
+it, so it had to learn the same signal or it would have undone the mirror one tick later and the fix
+would have read as "no change". The "two writers on one field" rule again, this time caught before
+it cost a live cycle.
+
+**2. The stranded VFX.** `release_ghost` destroys everything world-spawned that the entry holds
+before dropping the handles. The design question was the one-shot ring: those pointers legitimately
+go stale (a burst destroys itself and nothing tells us), which is fine for the identity comparison
+they exist for and fatal for a `ProcessEvent`. So the release path takes one
+`FindAllOf("NiagaraComponent")` and touches only what the engine still lists — the same "membership
+proves allocation" move the redraw loop's `IsUnreachable` comment argues for, at per-event cadence.
+Preflight's FindAllOf ratchet caught the new site immediately and made the cadence be named at it,
+which is the check working exactly as designed.
+
+**3. The offset poisoning is still unmeasured, but now instrumented.** `VFXOFFSET` logs every real
+change to `observed_world_offset_z` with the component it was measured from and both Z values.
+Naming the component is the whole point: a stranded ghost effect mistaken for the player's own is the
+theory, and a bare "the value changed" line could not tell that from an ordinary re-observation.
+
+**Not touched: the frozen-player state.** It needs a signal nothing currently samples, and its chaser
+half has to reach the core, so it wants an ADR rather than a rebuild. It still blocks
+`chaser_contact`.
+
+**Rig state:** DLL rebuilt and deployed to both installs, `meshghost.exe` rebuilt and deployed to all
+four copies under `Mods\`, preflight clean, no processes left running.

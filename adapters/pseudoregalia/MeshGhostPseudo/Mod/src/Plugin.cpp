@@ -5632,6 +5632,86 @@ namespace MeshGhostPseudo
             return return_slot ? *return_slot : nullptr;
         }
 
+        // Destroys the world-spawned Niagara components a ghost left behind, checked against the
+        // engine's own live object list first.
+        //
+        // **Why this exists (2026-09-04).** Everything spawn_niagara_at_location returns is
+        // free-standing and world-space -- the `world_context` argument is a world handle, not a
+        // parent -- so NOTHING is attached to the ghost and nothing dies with it. The release path
+        // dropped those handles believing the opposite (a comment in release_ghost said so in as
+        // many words), which left live rings and bursts standing in the level. The user saw it
+        // directly: *"i picked up the sword now, but i still see the sword ground vfx"*. A replay
+        // makes it constant, because `replayPlayer.seam` despawns the ghost on every seek, loop,
+        // recorded gap and clock step-back. The stranded components then also fall OUT of the
+        // detection pass's "ours, do not measure" exclusion set -- which is built by walking
+        // `remotes` -- so one of them can be attributed to the local player and poison
+        // `observed_world_offset_z`. One defect, three symptoms; destroying them here is the fix
+        // for all three.
+        //
+        // **Checked against FindAllOf, not dereferenced on trust.** A one-shot burst destroys
+        // itself when its particles finish and we are never told, so
+        // `RemoteGhost::recent_one_shot_components` legitimately holds pointers to freed memory --
+        // harmless for the identity comparison it was built for, fatal for a ProcessEvent. The
+        // engine's own enumeration is the only honest liveness answer available here (the redraw
+        // loop's comment makes the same point about IsUnreachable, which is only safe on an object
+        // that is still allocated). One scan per despawn, and none at all when there is nothing to
+        // destroy.
+        auto destroy_world_spawned_components(const std::vector<UObject*>& candidates, const wchar_t* reason) -> void
+        {
+            std::vector<UObject*> wanted;
+            for (UObject* candidate : candidates)
+            {
+                if (candidate)
+                {
+                    wanted.push_back(candidate);
+                }
+            }
+            if (wanted.empty())
+            {
+                return;
+            }
+
+            // CADENCE: PER-EVENT -- one scan per ghost RELEASE (a despawn, a level change, the
+            // pause-menu reset), and none at all when that ghost spawned nothing, which is the
+            // early-out above. Never on a tick path.
+            std::vector<UObject*> live_components;
+            UObjectGlobals::FindAllOf(STR("NiagaraComponent"), live_components);
+            std::unordered_set<UObject*> live(live_components.begin(), live_components.end());
+
+            int destroyed = 0;
+            int already_gone = 0;
+            for (UObject* component : wanted)
+            {
+                if (live.find(component) == live.end())
+                {
+                    // Destroyed itself already, or freed by a level teardown. Not ours to touch.
+                    ++already_gone;
+                    continue;
+                }
+                // Hidden FIRST, then stopped, then destroyed -- the same order and the same
+                // DeactivateImmediate/Deactivate fallback the landed-glow teardown uses, and for
+                // the reason measured there: this build has no DeactivateImmediate, and plain
+                // Deactivate only stops emission while live particles play out their lifetimes.
+                call_set_visibility(component, false);
+                UFunction* stop_fn = component->GetFunctionByNameInChain(STR("DeactivateImmediate"));
+                if (!stop_fn)
+                {
+                    stop_fn = component->GetFunctionByNameInChain(STR("Deactivate"));
+                }
+                if (stop_fn)
+                {
+                    component->ProcessEvent(stop_fn, nullptr);
+                }
+                if (UFunction* destroy_fn = component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                {
+                    component->ProcessEvent(destroy_fn, nullptr);
+                    ++destroyed;
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] VFXCLEANUP {}: {} world-spawned component(s) destroyed, {} already gone.\n"),
+                         reason, destroyed, already_gone);
+        }
+
         // Whether a component is currently ACTIVE, as opposed to merely existing.
         //
         // Built for the "ghost keeps the recall glow forever after walking away from the save
@@ -10677,10 +10757,39 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // **DESTROY the world-spawned effects before any of these handles is dropped
+        // (2026-09-04).** Everything spawn_niagara_at_location made is free-standing and world
+        // space -- see destroy_world_spawned_components for the measurement and for why the
+        // one-shot ring is checked against the engine's live list rather than trusted. Gathered
+        // into one list so a despawn costs a single object scan, and done FIRST because the lines
+        // below are what used to lose the only handles to them.
+        //
+        // The line that follows this block used to read "attached to the flyer; dies with the
+        // ghost". It is not attached and it did not die: that comment was the bug.
+        {
+            std::vector<UObject*> stranded;
+            stranded.push_back(it->second.weapon_glow_component);
+            stranded.push_back(it->second.projectile_component);
+            for (const auto& mirrored : it->second.vfx_components)
+            {
+                stranded.push_back(mirrored.second);
+            }
+            for (UObject* burst : it->second.recent_one_shot_components)
+            {
+                stranded.push_back(burst);
+            }
+            destroy_world_spawned_components(stranded, STR("release_ghost"));
+            // Cleared in the same breath: a pointer that has just been destroyed must not stay in
+            // the detection pass's exclusion set, and the ring was never cleared here at all --
+            // which for a release that keeps the remotes entry (a level change, the pause-menu
+            // reset) left it excluding addresses that nothing owns.
+            it->second.recent_one_shot_components.clear();
+        }
+
         // Bookkeeping that owns no actor of its own is cleared unconditionally. Previously this sat
         // inside the `if (weapon_actor)` block below, so a remote with no prop kept stale recall-glow
         // and trace state -- harmless today only by luck.
-        it->second.weapon_glow_component = nullptr;  // attached to the flyer; dies with the ghost
+        it->second.weapon_glow_component = nullptr;  // world-spawned; destroyed just above
         it->second.weapon_fly_component = nullptr;   // attached to the ghost; dies with it
         it->second.weapon_hand_hidden = false;       // the hand mesh it tracked is gone with the ghost
         it->second.recall_glow_component = nullptr;  // attached to the ghost; dies with it
@@ -17179,6 +17288,32 @@ namespace MeshGhostPseudo
                             // facing frame, and one sample cannot say which way they were pointing,
                             // so guessing it would put the effect confidently in the wrong place
                             // instead of centred on the character.
+                            // **Logged on CHANGE, naming what it was measured against
+                            // (2026-09-04).** This value is learned at runtime, is file-scope
+                            // rather than per-peer by design, and is never reset -- so one sample
+                            // taken from the wrong component moves every later burst on every
+                            // ghost, permanently. That is the standing theory for the dust landing
+                            // in the wrong place, and it is the one half of that defect nothing has
+                            // ever measured: it is C++ file scope, invisible to a Lua probe. The
+                            // log names the component and both Z values, so a reading can say
+                            // whether a stranded ghost effect was mistaken for the player's own --
+                            // "the value changed" alone would not distinguish the two.
+                            //
+                            // On change only, and change means a real move: a heal wave re-observed
+                            // at the same height every time must not print once per burst.
+                            constexpr double OFFSET_LOG_EPSILON = 0.5;
+                            if (!have_observed_world_offset[which] ||
+                                std::fabs(dz - observed_world_offset_z[which]) > OFFSET_LOG_EPSILON)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] VFXOFFSET '{}': observed_world_offset_z {:.1f} (previously set: {}) -> {:.1f}, measured from component '{}' at z={:.1f} against player z={:.1f}\n"),
+                                             to_wide_ascii(MIRRORED_EFFECTS[which].key),
+                                             observed_world_offset_z[which],
+                                             have_observed_world_offset[which] ? STR("yes") : STR("no"),
+                                             dz,
+                                             component->GetFullName(),
+                                             where->Z(),
+                                             location.Z());
+                            }
                             observed_world_offset_z[which] = dz;
                             have_observed_world_offset[which] = true;
 
@@ -18817,7 +18952,13 @@ namespace MeshGhostPseudo
                         // re-assert was the second writer that kept the ghost's hand full on
                         // every throw (user: "the ghost is not losing its weapon").
                         const bool hand_emptied_for_throw = remote.weapon_hand_hidden && std::wcscmp(mesh_name, STR("WeaponMesh")) == 0;
-                        const bool want_visible = !g_ghost_mesh_hidden && !weapon_only_hidden && !lightmesh_hidden && !hand_emptied_for_throw;
+                        // **The peer simply has no sword (2026-09-04).** Without this term the loop
+                        // is a second writer that re-shows the hand mesh every tick, one tick after
+                        // the equip mirror hid it -- the mirror would apply, this would undo it, and
+                        // a peer who never picked the Dream Breaker up would keep waving one. Same
+                        // signal, same tick: `target_weapon_equipped`.
+                        const bool unarmed_peer = !remote.target_weapon_equipped && std::wcscmp(mesh_name, STR("WeaponMesh")) == 0;
+                        const bool want_visible = !g_ghost_mesh_hidden && !weapon_only_hidden && !lightmesh_hidden && !hand_emptied_for_throw && !unarmed_peer;
                         bool* visible = mg_property_value<bool>((*mesh), STR("bVisible"));
                         if (visible && *visible != want_visible)
                         {
@@ -19539,6 +19680,51 @@ namespace MeshGhostPseudo
                 remote.last_synced_weapon_equipped = remote.target_weapon_equipped;
                 remote.weapon_equip_call_armed = true;
             }
+            // **The Dream Breaker MESH, mirrored directly from the peer's flag (2026-09-04).**
+            // Measured with `probe_pickup/`, both pawns read side by side while a replay ghost was
+            // on screen and the local player had never picked the sword up: `weaponEquipped?`,
+            // `animEquippedWeapon` and `weaponRef` were identical and correct on both pawns, and
+            // `WeaponMesh.bVisible` was TRUE on the ghost and false on the player. So the flag sync
+            // above is right and nothing was mirroring the component that is actually visible.
+            //
+            // **The block above cannot do this job, by construction.** `BP_PlayerGoatMain_C`'s own
+            // defaults disagree with each other -- `weaponEquipped?` false, `WeaponMesh.bVisible`
+            // true -- and `changeEquippedWeapon` is the game's own function, which early-outs when
+            // handed a value the ghost already holds. A clip in which the peer NEVER held the sword
+            // is `weapon_equipped:0` throughout, so there is no edge, so the default-visible mesh is
+            // never touched. Only transitions were ever applied; the INITIAL state was not.
+            //
+            // A direct component visibility write on our own actor, exactly like the blob shadow
+            // below: no game function, so it cannot depend on an edge and cannot cross-wire. The
+            // measured proof that this is the right signal is that on the real player all four flip
+            // together on a single sample at a throw -- `weaponEquipped?`, `WeaponMesh.bVisible`,
+            // `animEquippedWeapon` and `weaponRef`.
+            //
+            // Per-mesh state rather than a remembered "last applied" flag, the same reasoning the
+            // ghost mesh loop records: the ghost's own `bVisible` is the truth, so this stays
+            // correct no matter who else wrote it, and costs no engine call once settled.
+            //
+            // Two writers are deliberately left in front of it. `weapon_hand_hidden` means the
+            // thrown-sword path emptied this hand on purpose and owns the mesh until the catch, and
+            // `g_ghost_weapon_hidden` is the dev subtraction toggle -- neither may be overridden by
+            // a peer who is merely holding a sword.
+            if (!remote.weapon_hand_hidden && !g_ghost_weapon_hidden)
+            {
+                const bool want_weapon_mesh = remote.target_weapon_equipped;
+                if (UObject** ghost_weapon_mesh = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh"));
+                    ghost_weapon_mesh && *ghost_weapon_mesh)
+                {
+                    if (bool* visible = mg_property_value<bool>((*ghost_weapon_mesh), STR("bVisible"));
+                        visible && *visible != want_weapon_mesh)
+                    {
+                        call_set_visibility(*ghost_weapon_mesh, want_weapon_mesh);
+                        Output::send(STR("[MeshGhostPseudo] WEAPONMESH ghost {}: bVisible -> {} (weapon_equipped={}).\n"),
+                                     to_wide_ascii(id), want_weapon_mesh ? STR("true") : STR("false"),
+                                     remote.target_weapon_equipped ? 1 : 0);
+                    }
+                }
+            }
+
             // The peer's blob-shadow visibility, applied to the ghost's own BlobShadow on
             // change (2026-09-01) -- the game hides the player's while sitting on a chair
             // (measured: shadow_sit capture) and the ghost's stayed on. A direct component

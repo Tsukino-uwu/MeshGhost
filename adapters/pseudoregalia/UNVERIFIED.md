@@ -43,8 +43,8 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
-- MEASURED 2026-09-04 — a ghost's sword is `WeaponMesh.bVisible`, never established at spawn; only TRANSITIONS are applied, so a peer who never held one shows one
-- MEASURED 2026-09-04 — world-spawned VFX are UNOWNED and outlive the ghost: the left-behind sword glow, the stranded dust, and the poisoned dust offset are one defect
+- READY — a ghost's sword is now mirrored from the peer's own flag, so a clip recorded before the pickup should show NO sword (2026-09-04), built and deployed, unwatched
+- READY — the world-spawned VFX a ghost made are destroyed when it goes: no sword glow and no dust left standing after a despawn, restart or loop (2026-09-04), built and deployed, unwatched
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -123,11 +123,12 @@ for their own reasons, and whether a seam is what was being seen here, is unknow
 entry into that one until something is measured; two unconfirmed reports sharing a plausible
 mechanism is exactly how a wrong theory gets load-bearing.
 
-## [OPEN] MEASURED 2026-09-04 -- the sword on a ghost is `WeaponMesh.bVisible`, never established at spawn
+## [READY] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured 2026-09-04, FIXED 2026-09-04)
 
 **User-confirmed on screen** (three cases, below). **Measured with `probe_pickup/`**, live, on a new
-save. **Not fixed.** Two earlier theories in this entry were WRONG and are struck rather than
-deleted, because the way they died is the useful part.
+save. **FIXED, built and deployed 2026-09-04, unwatched** -- the fix is at the end of this entry.
+Two earlier theories in this entry were WRONG and are struck rather than deleted, because the way
+they died is the useful part.
 
 ### What was measured
 
@@ -187,7 +188,28 @@ player all four flip together on one sample at a throw — `weaponEquipped? true
 **The method note worth keeping:** the answer came from reading TWO pawns in one census and diffing
 them, not from tracing one field. Every wrong theory here came from reasoning about a single value.
 
-## [OPEN] MEASURED 2026-09-04 -- world-spawned VFX are UNOWNED and outlive the ghost — one cause, three symptoms
+### BUILT 2026-09-04 -- what shipped, and the second writer that had to be told
+
+`tick_remote_weapon`'s equip block is unchanged; a new mirror sits beside the blob-shadow one and
+writes `WeaponMesh.bVisible` straight from `target_weapon_equipped`, comparing against the ghost's
+own current `bVisible` rather than a remembered flag (per-mesh truth, no engine call once settled).
+Two writers keep priority over it, deliberately: `weapon_hand_hidden`, which is the thrown-sword
+path owning the hand until the catch, and the `hide_ghost_weapon.txt` dev subtraction.
+
+**And the ghost mesh loop had to learn the same signal.** It re-asserts `WeaponMesh` visible every
+tick unless something claims it, so without a `target_weapon_equipped` term it would have undone the
+mirror one tick later and the defect would have looked unfixed. Found by reading the loop, not by
+watching the fix fail -- the "two writers on one field" rule this adapter's `CLAUDE.md` states, and
+the same shape as the thrown-prop case further down this file.
+
+**What to look at, and what correct looks like.** Play back the clip recorded before the pickup
+(`rec-20260904-165557.ndjson`, kept in the install's `replay/`): the ghost should carry **no sword at
+all**, where before it always had one. Then the two cases that were already right must stay right --
+a clip recorded while the sword was thrown still shows an empty hand, and one recorded after the
+pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
+and the ghost's hand should follow all three edges as it did before.
+
+## [READY] world-spawned VFX were UNOWNED and outlived the ghost — one cause, three symptoms, FIXED 2026-09-04
 
 **User-confirmed on screen:** dust in wrong positions after a replay restarts/loops; and, separately,
 *"i picked up the sword now, but i still see the sword ground vfx"* — a landed-sword glow left behind
@@ -241,6 +263,34 @@ makes the leak visible while leaving the leak. Both, or neither.
 **Still unmeasured:** the `observed_world_offset_z` poisoning itself. It is file-scope C++, invisible
 to a Lua probe, so confirming it needs a log line on every change to that value naming what it was
 measured against — cheap, and it belongs in the same rebuild as the fix.
+
+### BUILT 2026-09-04 -- the destroy, the liveness check, and the instrument that goes with it
+
+`release_ghost` now gathers everything world-spawned that the entry holds — the landed-sword glow,
+the projectile effect, the retained `vfx_components`, and the `recent_one_shot_components` ring —
+and destroys them **before** any of those handles is dropped, hidden-then-stopped-then-destroyed in
+the order the glow teardown already proved on this build (it has no `DeactivateImmediate`, so plain
+`Deactivate` leaves live particles rendering; hiding first is what actually stops the pixels). The
+ring is cleared in the same pass, which it never was.
+
+**The one-shot ring could not simply be dereferenced, and that is the interesting part.** A burst
+destroys itself when its particles finish and nothing tells us, so those pointers legitimately go
+stale — harmless for the identity comparison they were built for, a crash for a `ProcessEvent`. The
+release path therefore takes ONE `FindAllOf("NiagaraComponent")` and only touches handles the engine
+still lists. Per-event cadence, none at all for a ghost that spawned nothing; the preflight ratchet
+was bumped with the cadence named at the site.
+
+**The instrument for the unmeasured half shipped with it:** `VFXOFFSET` logs every real change to
+`observed_world_offset_z`, naming the row key, the component it was measured from, its world Z and
+the player's. If a stranded ghost effect was ever being mistaken for the player's own, that line says
+so by name — "the value changed" alone would not have distinguished the two.
+
+**What to look at, and what correct looks like.** Land a thrown sword as a peer, then have that ghost
+despawn (walk to another area, or just let a replay loop): the ring on the ground must go with it.
+Then a replay that loops or is rewound repeatedly — the dust should keep landing at the ghost's feet
+run after run, where it has been drifting to wrong heights. The `VFXOFFSET` lines in
+`meshghost.log`/`UE4SS.log` are mine to read afterwards; they should only ever cite a component
+measured against your own player.
 
 ## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
 

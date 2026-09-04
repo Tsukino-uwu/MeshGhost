@@ -1628,7 +1628,7 @@ Section "FindAllOf ratchet (Pseudoregalia)"
 # conscious decision: a new call site fails here until its author names its cadence (per the
 # checklist) and bumps the expected count on the line below. Same force-the-look philosophy as
 # the RemoteGhost release check above. Count updated 2026-09-01 (46).
-$expectedFindAllOf = 47
+$expectedFindAllOf = 48
 $faCount = (Select-String -LiteralPath "adapters/pseudoregalia/MeshGhostPseudo/Mod/src/Plugin.cpp" -Pattern 'UObjectGlobals::FindAllOf\(' -AllMatches | ForEach-Object { $_.Matches.Count } | Measure-Object -Sum).Sum
 if ($null -eq $faCount) { $faCount = 0 }
 if ($faCount -eq $expectedFindAllOf) {
