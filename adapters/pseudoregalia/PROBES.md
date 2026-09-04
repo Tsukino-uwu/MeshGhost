@@ -8,8 +8,8 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not `PROBES.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Thirteen directories, twenty-two
-scripts, one index (2026-09-04 count; six directories and nine scripts when this was written
+— there is no single `probes/` folder to index from the inside. Sixteen directories, twenty-five
+scripts, one index (2026-09-04 count, measured not incremented; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
 Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatch/` and
@@ -293,3 +293,57 @@ resolved.
 **Cost:** one object-space walk per sample over one class at 10Hz — cheaper than
 `probe_swordthrow/`'s three-class 250ms walk. Read-only. **Unload it before judging anything**: a
 loaded probe is a suspect in every later report.
+
+## `probe_scratch/` — the always-registered EMPTY slot (2026-09-04)
+
+**Not a probe. A permanently enabled, deliberately empty mod folder, so a NEW probe can be
+hot-loaded at all.**
+
+**The gap it closes, found live and confirmed as a repeat.** UE4SS knows only the mods that were
+enabled when the game STARTED, so `RestartMod` — the whole mechanism behind
+[`probe_reloader/`](probe_reloader/) — answers *"Could not find mod to reinstall"* for a folder
+created since launch. Hot reload therefore covered iterating a probe that already existed and never
+covered writing a new one, which is the case that comes up first. The user, 2026-09-04: *"should we
+make a temp/reusable probe for things like this? its not the first time we can't load a new one"*.
+
+**How to use it:** write your probe over
+`ue4ss\Mods\MeshGhostScratch\Scripts\main.lua`, then trigger the reloader with `MeshGhostScratch`.
+Confirm in `UE4SS.log`, never from the copy succeeding.
+
+**Restore the stub when done.** A probe left in a slot whose NAME describes nothing is the worst
+version of the standing "a loaded probe is a suspect in every later report" rule. The pristine stub
+is in this repo at `probe_scratch/Scripts/main.lua`.
+
+**Cost when idle: none by construction** — no `LoopAsync`, no `FindAllOf`, no reads. An always-on
+slot that measured anything would tax every session for a convenience it was not using.
+
+## `probe_bladeglow/` — which component is the blade aura, and whose child is it (2026-09-04)
+
+**The question.** A ghost holding the Dream Breaker wore the ascendant-light blade aura on a save
+with `obtainedLight? = false` (user, 2026-09-04). The suspect was the agent's OWN change from the
+same day — the weapon-mesh mirror — because `call_set_visibility` writes SetVisibility's
+`bPropagateToChildren` as 1 for every caller, so showing `WeaponMesh` could show whatever hangs off
+it.
+
+**What it reads:** every `BP_PlayerGoatMain_C` pawn at 2Hz — player and ghosts in the same pass —
+and for `VisualMesh`, `WeaponMesh` and `LightMesh`: `bVisible`, `bHiddenInGame`, the component's own
+name, and its `AttachParent`. Census first, then on change only. Named reads exclusively; no
+`ForEachProperty`, no UFunction on anything `FindAllOf` returned.
+
+**What it established:** the chain is `CollisionCylinder -> VisualMesh -> WeaponMesh -> LightMesh`,
+so the aura IS a child of the weapon, and the propagating write was the cause. The A/B needed no
+extra run — the ghost whose sword the mirror hid read `LightMesh.bVisible = false`, the one it
+showed read `true`.
+
+**A DEFECT IN THIS PROBE, kept because it is the reusable lesson.** Its first version reused
+`probe_pickup/`'s `short()` for component names, and that helper matches the ACTOR pattern
+`[%w_]+_C_%d+` first — so every `AttachParent` printed as the pawn, and the attach chain, which was
+the entire question, was invisible while the output looked complete. It now prints each component's
+own name beside its parent's, so the two collapsing into one is visible rather than silent.
+
+**What it CANNOT see:** `bVisible`/`bHiddenInGame` are stock engine bools, and `PLAYER_FIELDS.md`
+records that this game's stock bools can read as garbage through a byte-wide reflection read — both
+are printed so they can disagree out loud. It reads three NAMED meshes, so an aura living on a
+fourth component nobody has named would leave three clean readings and the glow still on screen.
+
+**Cost:** one object-space walk over one class at 2Hz. Read-only. Unload it before judging anything.

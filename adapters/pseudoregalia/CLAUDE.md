@@ -34,6 +34,11 @@ Confirm every reload in `UE4SS.log`, never from the send. UE4SS Lua has the full
 surface (FindAllOf, StaticFindObject, ForEachProperty, LoadAsset, UFunction calls) — C++ is
 only needed for hooks/perf-critical paths, i.e. the shipping adapter.
 
+**A NEW probe folder cannot be hot-loaded** — UE4SS knows only mods enabled at launch, so
+`RestartMod` answers *"Could not find mod to reinstall"*. **Write it over
+`ue4ss\Mods\MeshGhostScratch\Scripts\main.lua` (`probe_scratch/`) and reload THAT**; preflight
+fails a slot left non-empty. Recurring since before 2026-09-04; `PROBES.md`.
+
 ## `on_update()` is NOT the game thread
 
 `CppUserModBase::on_update()` runs on UE4SS's own thread. Anything touching actor state from
@@ -43,14 +48,12 @@ Found 2026-08-13; `pitfalls.md`.
 
 ## Never hook a Blueprint UFunction — hook native, or poll
 
-RE-UE4SS's `RegisterPre/PostHook` installs itself by swapping the `UFunction`'s own executor
-pointer, which works on native functions and **crashes** on Blueprint ones. Two Blueprint hooks on
-the player took the game down on 2026-08-15.
+RE-UE4SS's `RegisterPre/PostHook` swaps the `UFunction`'s own executor pointer: fine on native
+functions, **crashes** on Blueprint ones. Two took the game down on 2026-08-15.
 
 **Before reaching for a UFunction hook on any UE target, check whether the function is native or
-Blueprint.** If it is Blueprint, poll instead. And note the process lesson recorded alongside it:
-that change also swapped out a *confirmed-working* mechanism for an unproven one — don't trade a
-thing that works for a thing that is tidier until the tidier one has been watched.
+Blueprint.** If it is Blueprint, poll instead. That change also traded a *confirmed-working*
+mechanism for an unproven one — don't, until the tidier one has been watched.
 
 ## The vendored SDK marshals `FRotator` as `float`, whatever the engine uses
 
@@ -80,13 +83,10 @@ actor pointer as invalid immediately after a transition and re-acquire it, rathe
 re-validating what you stored.
 
 **And a hook-cleared cache only covers LEVEL teardown — an actor the game frees MID-level has no
-hook, and a raw pointer to one is a crash with a delay on it.** Two in three days: the nametag
-residue (2026-08-30) and the projectile pool (2026-09-01 — a cutter is destroyed on impact, and
-the pool held its corpse for a rescan interval). Before caching any raw `UObject*`, answer "can
-the game free this WITHIN a level?" If yes — or if unknown — hold `FWeakObjectPtr` and `Get()`
-per use; it re-validates the serial number and hands back null instead of a dangle. `preflight`
-enforces a `stale-safe:` annotation on every file-scope raw-pointer cache in `Plugin.cpp` saying
-which case it is. Evidence: `../../agent_docs/pitfalls/by-lesson.md`.
+hook, and a raw pointer to one is a crash with a delay on it.** Before caching any raw `UObject*`,
+answer "can the game free this WITHIN a level?" If yes — or if unknown — hold `FWeakObjectPtr` and
+`Get()` per use. Preflight enforces the `stale-safe:` annotation that says which case it is; the
+two crashes behind this: `../../agent_docs/pitfalls/by-lesson.md`.
 
 ## Spawning a player Blueprint takes the player's control and camera
 

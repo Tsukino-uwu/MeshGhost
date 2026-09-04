@@ -1801,6 +1801,55 @@ if (-not (Test-Path $wfDir2) -or $adapterDirs2.Count -eq 0) {
 
 
 # ---------------------------------------------------------------------------
+Section "The scratch probe slot is EMPTY"
+# probe_scratch/ is a permanently ENABLED, deliberately empty UE4SS mod, so a brand-new probe can
+# be hot-loaded at all (UE4SS only knows mods enabled at launch -- RestartMod cannot see a folder
+# created since, measured live 2026-09-04). The cost of that convenience is that whatever sits in
+# the slot loads at every launch under a NAME THAT DESCRIBES NOTHING, which is the worst version of
+# "a loaded probe is a suspect in every later report".
+#
+# So the "restore the stub when you are done" instruction is a CHECK rather than a sentence in a
+# rules file -- the user's call, 2026-09-04, made in the same breath as asking for the slot: a
+# lesson that can be enforced does not need to spend a line of anyone's context.
+$scratch = Join-Path $root "adapters\pseudoregalia\probe_scratch\Scripts\main.lua"
+if (-not (Test-Path $scratch)) {
+    Report-Fail "adapters\pseudoregalia\probe_scratch\Scripts\main.lua is missing -- the scratch slot's pristine stub is what a session restores to; recreate it (see PROBES.md)"
+} else {
+    # Behaviour, not size: a stub may grow comments freely, and none of them can execute. These are
+    # the verbs a probe needs to DO anything -- read the world, run per frame, touch the game thread.
+    # COMMENTS ARE STRIPPED FIRST, and that is not a nicety: the stub's own header explains what a
+    # probe would use this slot for, so it NAMES these verbs -- a raw text match fails on the exact
+    # file this check exists to protect. Caught by running it, 2026-09-04.
+    $body = (Get-Content $scratch -Raw) -replace '(?s)--\[\[.*?\]\]', '' -replace '(?m)--.*$', ''
+    $verbs = @("LoopAsync", "FindAllOf", "ExecuteInGameThread", "StaticFindObject", "RegisterHook", "ForEachProperty", "LoadAsset")
+    $found = $verbs | Where-Object { $body -match [regex]::Escape($_) }
+    if ($found) {
+        Report-Fail ("the scratch probe slot still holds a probe (" + ($found -join ", ") + ") -- copy it somewhere it will be found by name, then restore probe_scratch/Scripts/main.lua's stub")
+    } else {
+        Report-Pass "the scratch probe slot is empty (no probe left loaded under a name that describes nothing)"
+    }
+}
+
+# The DEPLOYED slot is the one that actually loads, and its path is machine-specific, so it is
+# opt-in exactly like the deployed-DLL checks above rather than hard-coded into a public repo.
+$deployedScratch = $env:MESHGHOST_PSEUDO_SCRATCH
+if ($deployedScratch) {
+    if (-not (Test-Path $deployedScratch)) {
+        Report-Warn "MESHGHOST_PSEUDO_SCRATCH is set but nothing is there: $deployedScratch"
+    } else {
+        $deployedBody = (Get-Content $deployedScratch -Raw) -replace '(?s)--\[\[.*?\]\]', '' -replace '(?m)--.*$', ''
+        $deployedFound = @("LoopAsync", "FindAllOf", "ExecuteInGameThread", "StaticFindObject", "RegisterHook") |
+            Where-Object { $deployedBody -match [regex]::Escape($_) }
+        if ($deployedFound) {
+            Report-Fail ("the DEPLOYED scratch slot still holds a probe (" + ($deployedFound -join ", ") + ") -- it will load at the next launch: $deployedScratch")
+        } else {
+            Report-Pass "the deployed scratch probe slot is empty too"
+        }
+    }
+} else {
+    Report-Warn "Pseudoregalia -- set MESHGHOST_PSEUDO_SCRATCH to also check the DEPLOYED scratch slot (the one that actually loads)"
+}
+
 Section "Leftover scaffolding"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 

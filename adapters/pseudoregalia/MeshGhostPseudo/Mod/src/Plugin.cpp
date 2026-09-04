@@ -4606,7 +4606,20 @@ namespace MeshGhostPseudo
         // both are written at their own reflected offsets rather than assumed adjacent. Propagate
         // is true because a character's meshes carry attached children, and hiding the parent while
         // a child stays drawn would make the subtraction incomplete and its answer meaningless.
-        auto call_set_visibility(UObject* component, bool visible) -> void
+        // `propagate` is SetVisibility's own `bPropagateToChildren`, and it defaults to true
+        // because that is what this helper hardcoded from the day it was written -- every existing
+        // caller keeps its exact behaviour, and only a caller that has a reason passes false.
+        //
+        // **The reason, measured 2026-09-04.** A ghost's component chain is
+        // `CollisionCylinder -> VisualMesh -> WeaponMesh -> LightMesh`, so `LightMesh` (the
+        // ascendant-light blade aura) is a CHILD of the weapon. The weapon-equip mirror added the
+        // same day showed the sword by showing `WeaponMesh` -- and propagation lit the aura with
+        // it, on a save with `obtainedLight? = false`. The user saw it within minutes: *"it also
+        // have the sword mesh glow (not supposed to have that without ascendant light)"*.
+        // The A/B was already on screen and needed no extra run: the ghost whose sword this code
+        // HID had `LightMesh.bVisible = false`, the ghost whose sword it SHOWED had it true, same
+        // tick, same loop, one variable. `probe_bladeglow` has the census.
+        auto call_set_visibility(UObject* component, bool visible, bool propagate = true) -> void
         {
             if (!component)
             {
@@ -4639,7 +4652,10 @@ namespace MeshGhostPseudo
                 const int32_t offset = property->GetOffset_Internal();
                 if (offset >= 0 && offset < parms_size)
                 {
-                    params_buffer[static_cast<size_t>(offset)] = (written == 0) ? (visible ? 1 : 0) : 1;
+                    // Param 0 is bNewVisibility, param 1 is bPropagateToChildren -- by ORDER,
+                    // which is how this has always written them.
+                    params_buffer[static_cast<size_t>(offset)] =
+                        (written == 0) ? (visible ? 1 : 0) : (propagate ? 1 : 0);
                 }
                 ++written;
             }
@@ -19717,7 +19733,12 @@ namespace MeshGhostPseudo
                     if (bool* visible = mg_property_value<bool>((*ghost_weapon_mesh), STR("bVisible"));
                         visible && *visible != want_weapon_mesh)
                     {
-                        call_set_visibility(*ghost_weapon_mesh, want_weapon_mesh);
+                        // **NOT propagated to children (2026-09-04, measured).** `LightMesh` hangs
+                        // off `WeaponMesh`, so the propagating write this first shipped with lit
+                        // the ascendant-light blade aura on a ghost whose peer never had the
+                        // upgrade. The sword is `WeaponMesh` itself; nothing below it should follow
+                        // the peer's equip flag, and each child already has its own owner.
+                        call_set_visibility(*ghost_weapon_mesh, want_weapon_mesh, /*propagate=*/false);
                         Output::send(STR("[MeshGhostPseudo] WEAPONMESH ghost {}: bVisible -> {} (weapon_equipped={}).\n"),
                                      to_wide_ascii(id), want_weapon_mesh ? STR("true") : STR("false"),
                                      remote.target_weapon_equipped ? 1 : 0);
