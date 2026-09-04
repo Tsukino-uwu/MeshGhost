@@ -189,6 +189,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-04 — the ghost's sword follows the peer's, and the blade aura does not (user-confirmed on screen)
 - 2026-09-04 — a despawning ghost takes its landed sword and the ground VFX with it (user-confirmed on screen; MECHANISM still open)
 - 2026-09-04 — the sword mirror on LIVE PEERS, not replays (user-confirmed on screen)
+- 2026-09-04 — landing dust sits at the ghost's feet, and stays there through restarts and seeks (user-confirmed on screen, twice)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4937,3 +4938,19 @@ offered to pick the sword up first and then spawn an armed peer, but spawning it
 still swordless is what makes "the peer's state wins" a real observation rather than a coincidence
 of the watcher and the peer agreeing. **Ask what the watcher's state is doing in every ghost test** —
 here it was the whole question.
+
+## 2026-09-04 — landing dust sits at the ghost's feet, and stays there through restarts and seeks (user-confirmed on screen, twice)
+
+The `observed_world_offset_z` fix — learn the height only at a burst's FIRST sighting, never
+re-measure it every sample the burst is alive. First confirmation, hedged and held in
+`UNVERIFIED.md` by the standing rule: *"looks like the dust thing is fixed, its only appearing where
+its intended/supposed to"*. Second, later the same day, unhedged and under the exact conditions
+that used to break it — the replay restarted, rewound and fast-forwarded at random while the
+player jumped around it: *"jump dust looks good, even if i reset/forward/backward randomly"*.
+
+**What was wrong, in one line:** a world-spawned burst does not move and the player does, so
+re-measuring `dz` every sample turned "how high does the game put this effect" into "how far is the
+player above a burst standing still" — 90 units of drift measured in one fall, from one component,
+with no ghost involved. **The instrument that found it was added to check something else**
+(`VFXOFFSET`, named per component), which is the recurring lesson: log WHAT a value was measured
+against, not only that it changed.

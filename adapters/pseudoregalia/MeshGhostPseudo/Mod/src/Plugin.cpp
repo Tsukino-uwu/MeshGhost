@@ -7997,7 +7997,8 @@ namespace MeshGhostPseudo
         constexpr double REC_UP = 30.0;         // + is up
         constexpr double REC_TIME_RIGHT = 15.0; // the time sits this much further right of the dot
         constexpr double REC_PLATE_BEHIND = 0.6;
-        constexpr double REC_TEXT_SIZE = 4.0;
+        constexpr double REC_TEXT_SIZE = 9.0;   // the digits; the user judged 4 "really tiny"
+        constexpr double REC_DOT_SIZE = 14.0;   // the circle glyph is short next to digits
 
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition
@@ -8142,24 +8143,230 @@ namespace MeshGhostPseudo
             component->ProcessEvent(function, params_buffer.data());
         }
 
+        // Calls a reflected one-float setter by name (SetWorldSize and friends). The property
+        // write it replaces was the first version's mistake: writing `WorldSize` directly leaves
+        // the render state untouched, so whichever component was drawn first kept its class
+        // default -- the word "Text", four times taller than the player, in the user's first
+        // screenshot of this feature, beside a plate that HAD taken the write and was tiny.
+        auto call_float_setter(UObject* component, const wchar_t* function_name, float value) -> bool
+        {
+            if (!component)
+            {
+                return false;
+            }
+            UFunction* fn = component->GetFunctionByNameInChain(function_name);
+            if (!fn)
+            {
+                return false;
+            }
+            const int32_t parms_size = fn->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(sizeof(float)))
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            for (FProperty* param : TFieldRange<FProperty>(fn, EFieldIterationFlags::None))
+            {
+                if (param && param->GetSize() == sizeof(float))
+                {
+                    *std::bit_cast<float*>(params_buffer.data() + param->GetOffset_Internal()) = value;
+                    break;
+                }
+            }
+            component->ProcessEvent(fn, params_buffer.data());
+            return true;
+        }
+
+        // Re-parents a scene component, keeping its RELATIVE transform, so the engine carries it
+        // with the parent every frame and nothing here has to write a position per tick.
+        //
+        // The first indicator was attached to the PAWN and had its WORLD position written every
+        // tick from the camera. The user's report is the exact mechanism: *"its following the
+        // player, its not static on the screen itself. while recording it tries to snap back
+        // constantly as its trying to follow the player"* -- the engine moved it with the pawn
+        // between writes and each write snapped it back, and when the writes stopped it stayed
+        // wherever the pawn had carried it: *"it also gets 'stuck in the world' when i stop"*.
+        // Attachment is the fix, not a better write.
+        //
+        // The rule values are UE's public EAttachmentRule (Engine/EngineTypes.h): KeepRelative=0,
+        // KeepWorld=1, SnapToTarget=2 -- an engine constant, not this game's data, the same
+        // provenance note ECollisionEnabled carries elsewhere in this file.
+        auto attach_component_keep_relative(UObject* child, UObject* parent) -> bool
+        {
+            if (!child || !parent)
+            {
+                return false;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.SceneComponent:K2_AttachToComponent"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: K2_AttachToComponent not found -- nothing can be parented to the view.\n"));
+                }
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            bool has_parent = false;
+            static bool logged_params = false;
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType name = param->GetName();
+                if (!logged_params)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DIAG: K2_AttachToComponent param '{}' ({}) offset={} size={}\n"),
+                                 name, param->GetClass().GetName(), param->GetOffset_Internal(), param->GetSize());
+                }
+                uint8_t* slot = params_buffer.data() + param->GetOffset_Internal();
+                if (name == STR("Parent"))
+                {
+                    *std::bit_cast<UObject**>(slot) = parent;
+                    has_parent = true;
+                }
+                else if (name == STR("LocationRule") || name == STR("RotationRule") || name == STR("ScaleRule"))
+                {
+                    *slot = 0; // KeepRelative
+                }
+                // SocketName stays None (zeroed FName) and bWeldSimulatedBodies stays false.
+            }
+            logged_params = true;
+            if (!has_parent)
+            {
+                return false;
+            }
+            child->ProcessEvent(function, params_buffer.data());
+            return true;
+        }
+
+        // Relative placement, written ONCE after attachment. The counterpart of
+        // set_text_render_transform, which writes WORLD coordinates and is the wrong tool for a
+        // parented component.
+        auto set_component_relative_transform(UObject* component,
+                                              double x, double y, double z,
+                                              double pitch, double yaw, double roll) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.SceneComponent:K2_SetRelativeLocationAndRotation"));
+            if (!function)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetRelativeLocationAndRotation not found -- the recording indicator cannot be placed.\n"));
+                }
+                return;
+            }
+            FProperty* location_property = function->FindProperty(FName(STR("NewLocation"), FNAME_Find));
+            FProperty* rotation_property = function->FindProperty(FName(STR("NewRotation"), FNAME_Find));
+            if (!location_property || !rotation_property)
+            {
+                return;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size < 1)
+            {
+                return;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            uint8_t* base = params_buffer.data();
+            if (!write_vector_param(base, location_property, FVector{x, y, z}) ||
+                !write_rotator_param(base, rotation_property, FRotator{pitch, yaw, roll}))
+            {
+                return;
+            }
+            component->ProcessEvent(function, params_buffer.data());
+        }
+
+        // The scene component that IS the view: what the indicator is parented to.
+        //
+        // Two candidates, tried in order and the winner logged, because neither is a measured
+        // fact about this build yet and the rule is that a name from memory is invented until it
+        // resolves. First the camera manager's own transform component, a NAMED read off an
+        // object this file already reaches for the camera location -- it tracks the final view,
+        // blends included, and costs no enumeration. Failing that, the pawn's own CameraComponent
+        // found by owner-name containment, the attribution test that has never failed here.
+        auto find_view_anchor(UObject* controller, AActor* local_pawn) -> UObject*
+        {
+            if (controller)
+            {
+                if (UObject** manager = mg_property_value<UObject*>(controller, STR("PlayerCameraManager")); manager && *manager)
+                {
+                    if (UObject** transform = mg_property_value<UObject*>(*manager, STR("TransformComponent")); transform && *transform)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] RECINDICATOR: anchored to the camera manager's TransformComponent ({}).\n"),
+                                     (*transform)->GetFullName());
+                        return *transform;
+                    }
+                }
+            }
+            if (!local_pawn)
+            {
+                return nullptr;
+            }
+            // CADENCE: PER-EVENT -- once per indicator BUILD, i.e. once per recording start on a
+            // build where the named route above did not resolve. Never on a tick path.
+            std::vector<UObject*> cameras;
+            UObjectGlobals::FindAllOf(STR("CameraComponent"), cameras);
+            const std::string pawn_name = to_utf8(local_pawn->GetName());
+            for (UObject* camera : cameras)
+            {
+                if (camera && to_utf8(camera->GetFullName()).find(pawn_name) != std::string::npos)
+                {
+                    Output::send(STR("[MeshGhostPseudo] RECINDICATOR: anchored to the pawn's CameraComponent ({}).\n"),
+                                 camera->GetFullName());
+                    return camera;
+                }
+            }
+            static bool warned = false;
+            if (!warned)
+            {
+                warned = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: no view anchor -- neither the camera manager's TransformComponent nor a pawn-owned CameraComponent resolved; the recording indicator cannot be shown.\n"));
+            }
+            return nullptr;
+        }
+
+        bool g_recording_indicator_visible = false;
+
         // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
         //
         // See the constants above for the design and why this is the nametag's mechanism twice.
+        // **Nothing here writes a transform per tick.** The components are parented to the view
+        // and given a relative offset once; the engine carries them from then on. Per tick the
+        // work is: not recording -> one bool test; recording -> one string write per SECOND.
         auto tick_recording_indicator(UObject* controller, AActor* local_pawn) -> void
         {
-            // THE EARLY-OUT IS THE PERFORMANCE STORY. Not recording means one bool test per tick
-            // and nothing else -- no reflection, no camera call, no string built. `adapters/
-            // CLAUDE.md`'s rule that a diagnostic must not pay its cost when unarmed applies just
-            // as hard to a feature nobody has switched on.
             if (!g_recording_active)
             {
-                if (g_recording_dot)
+                if (g_recording_dot && g_recording_indicator_visible)
                 {
-                    // Blank rather than destroy: the components are the local pawn's, and blanking
-                    // is what takes them off the screen. They are re-used on the next recording.
-                    set_text_render_string(g_recording_dot, STR(""));
-                    set_text_render_string(g_recording_time, STR(""));
-                    set_text_render_string(g_recording_time_plate, STR(""));
+                    // Hidden with the proven visibility call, not by blanking strings -- the
+                    // first version blanked, and a component whose blank did not take stayed on
+                    // screen wherever the pawn had carried it. Propagation is off, deliberately:
+                    // these have no children, and the helper's default reaches whatever they might
+                    // acquire later.
+                    for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
+                    {
+                        call_set_visibility(part, false, /*propagate=*/false);
+                    }
+                    g_recording_indicator_visible = false;
                 }
                 return;
             }
@@ -8168,94 +8375,82 @@ namespace MeshGhostPseudo
                 return;
             }
 
-            FVector camera_location{};
-            FRotator camera_rotation{};
-            if (!camera_world_location(controller, camera_location) ||
-                !camera_world_rotation(controller, camera_rotation))
-            {
-                return;
-            }
-
             if (!g_recording_dot)
             {
-                g_recording_dot = create_text_render_on(local_pawn);
-                if (!g_recording_dot)
+                UObject* anchor = find_view_anchor(controller, local_pawn);
+                if (!anchor)
                 {
                     return;
                 }
-                // The dot's colour comes from a PLATE material, because the text itself renders
-                // black -- the user's own observation, and the reason this shape was chosen.
+                g_recording_dot = create_text_render_on(local_pawn);
+                g_recording_time = create_text_render_on(local_pawn);
+                g_recording_time_plate = create_text_render_on(local_pawn);
+                if (!g_recording_dot || !g_recording_time || !g_recording_time_plate)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: recording indicator could not create its components (dot={} time={} plate={}).\n"),
+                                 g_recording_dot ? STR("ok") : STR("NULL"),
+                                 g_recording_time ? STR("ok") : STR("NULL"),
+                                 g_recording_time_plate ? STR("ok") : STR("NULL"));
+                    clear_recording_indicator();
+                    return;
+                }
+                for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
+                {
+                    // BLANKED IMMEDIATELY, exactly as the nametag plate is: a fresh
+                    // TextRenderComponent is born saying "Text".
+                    set_text_render_string(part, STR(""));
+                    // Through the SETTER so the render state rebuilds; the property write the
+                    // first version used changed nothing visible.
+                    const float size = static_cast<float>(part == g_recording_dot ? REC_DOT_SIZE : REC_TEXT_SIZE);
+                    if (!call_float_setter(part, STR("SetWorldSize"), size))
+                    {
+                        static bool warned = false;
+                        if (!warned)
+                        {
+                            warned = true;
+                            Output::send(STR("[MeshGhostPseudo] WARNING: SetWorldSize not reflected -- indicator text keeps the class-default size.\n"));
+                        }
+                    }
+                    attach_component_keep_relative(part, anchor);
+                }
+                // Camera-local frame: X forward, Y right, Z up. Yaw 180 turns each text plane's
+                // forward back toward the camera, which is what makes it readable rather than
+                // mirrored -- the nametag's own hard-won rule about which way a text plane faces.
+                set_component_relative_transform(g_recording_dot, REC_FORWARD, REC_RIGHT, REC_UP, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time, REC_FORWARD, REC_RIGHT + REC_TIME_RIGHT, REC_UP, 0.0, 180.0, 0.0);
+                // The plate sits FURTHER from the camera than the time, so the black digits
+                // depth-sort in front of the white box they need behind them.
+                set_component_relative_transform(g_recording_time_plate, REC_FORWARD + REC_PLATE_BEHIND, REC_RIGHT + REC_TIME_RIGHT, REC_UP, 0.0, 180.0, 0.0);
+
                 g_recording_dot_mid = create_plate_material(g_recording_dot);
                 if (g_recording_dot_mid)
                 {
                     set_plate_color(g_recording_dot_mid, "#E03030");
                 }
-                g_recording_time_plate = create_text_render_on(local_pawn);
-                if (g_recording_time_plate)
+                g_recording_time_plate_mid = create_plate_material(g_recording_time_plate);
+                if (g_recording_time_plate_mid)
                 {
-                    g_recording_time_plate_mid = create_plate_material(g_recording_time_plate);
-                    if (g_recording_time_plate_mid)
-                    {
-                        set_plate_color(g_recording_time_plate_mid, "#FFFFFF");
-                    }
+                    set_plate_color(g_recording_time_plate_mid, "#FFFFFF");
                 }
-                g_recording_time = create_text_render_on(local_pawn);
-                for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
-                {
-                    if (float* size = mg_property_value<float>(part, STR("WorldSize")))
-                    {
-                        *size = static_cast<float>(REC_TEXT_SIZE);
-                    }
-                }
-                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: built (dot={} time={} plate={}).\n"),
-                             g_recording_dot ? STR("ok") : STR("NULL"),
-                             g_recording_time ? STR("ok") : STR("NULL"),
-                             g_recording_time_plate ? STR("ok") : STR("NULL"));
+                // U+25CF BLACK CIRCLE as a universal-character-name ESCAPE, never a literal glyph
+                // in the source: this file is not compiled as UTF-8, so a raw multi-byte character
+                // inside a wide literal becomes three garbage code units -- which is the "red was
+                // really tiny, and just a straight line instead of a circle" of the first build.
+                // If this build's text font has no glyph at U+25CF, that is a DIFFERENT finding
+                // and shows as a box; the log line below is where the two get told apart.
+                set_text_render_string(g_recording_dot, STR("\u25CF"));
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: built and parented to the view (dot glyph U+25CF, sizes dot={} text={}).\n"),
+                             REC_DOT_SIZE, REC_TEXT_SIZE);
             }
 
-            // The camera's own frame. Roll is deliberately ignored: this game's camera does not
-            // roll, and an indicator that tilted with one would be worse than one that did not.
-            constexpr double DEG_TO_RAD = 3.14159265358979323846 / 180.0;
-            // GetYaw()/GetPitch(), not the fields: the vendored FRotator stores its components
-            // through accessors that resolve the float-vs-double question this adapter's ABI rule
-            // is about. Reading `.Yaw` does not even compile, which is the good outcome -- the
-            // FVector version of the same mistake compiles and returns nonsense.
-            const double yaw = camera_rotation.GetYaw() * DEG_TO_RAD;
-            const double pitch = camera_rotation.GetPitch() * DEG_TO_RAD;
-            const FVector forward{std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), std::sin(pitch)};
-            const FVector right{-std::sin(yaw), std::cos(yaw), 0.0};
-            const FVector up{-std::sin(pitch) * std::cos(yaw), -std::sin(pitch) * std::sin(yaw), std::cos(pitch)};
-
-            auto place = [&](UObject* component, double extra_right, double behind) {
-                if (!component)
+            if (!g_recording_indicator_visible)
+            {
+                for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
                 {
-                    return;
+                    call_set_visibility(part, true, /*propagate=*/false);
                 }
-                const double rx = REC_RIGHT + extra_right;
-                const double depth = REC_FORWARD - behind;
-                const double x = camera_location.X() + forward.X() * depth + right.X() * rx + up.X() * REC_UP;
-                const double y = camera_location.Y() + forward.Y() * depth + right.Y() * rx + up.Y() * REC_UP;
-                const double z = camera_location.Z() + forward.Z() * depth + right.Z() * rx + up.Z() * REC_UP;
-                // Faces the camera, computed the same way the nametag does it -- point the text
-                // plane's forward AT the viewer, never away, or it renders mirrored or not at all.
-                constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
-                const double face_yaw = std::atan2(camera_location.Y() - y, camera_location.X() - x) * RAD_TO_DEG;
-                const double flat = std::sqrt((camera_location.X() - x) * (camera_location.X() - x) +
-                                              (camera_location.Y() - y) * (camera_location.Y() - y));
-                const double face_pitch = std::atan2(camera_location.Z() - z, flat) * RAD_TO_DEG;
-                set_text_render_transform(component, x, y, z, face_pitch, face_yaw, 0.0);
-            };
-
-            place(g_recording_dot, 0.0, 0.0);
-            place(g_recording_time, REC_TIME_RIGHT, 0.0);
-            // Behind the time text along the view direction, exactly as the nametag's plate sits
-            // behind its name: nearer the camera would cover the text it exists to back.
-            place(g_recording_time_plate, REC_TIME_RIGHT, REC_PLATE_BEHIND);
-
-            // U+25CF BLACK CIRCLE -- a character, which is the whole reason a shape costs nothing
-            // here. Set every tick because it is one property write and a component that was
-            // blanked on the last stop has to come back.
-            set_text_render_string(g_recording_dot, STR("●"));
+                g_recording_indicator_visible = true;
+            }
 
             const int64_t now_ms = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -8266,9 +8461,16 @@ namespace MeshGhostPseudo
             {
                 elapsed_s = (now_ms - g_recording_started_unix_ms) / 1000;
             }
-            // Rebuilt only when the SECOND changes: the string is identical for a whole second of
-            // ticks, and a text component rebuilds its mesh on every string write.
+            // Rebuilt only when the SECOND changes -- a text component rebuilds its mesh on every
+            // string write. Reset whenever the component is a new one, so a fresh component never
+            // skips its first write because the previous recording ended on the same second.
             static int64_t last_drawn_second = -1;
+            static UObject* last_drawn_for = nullptr;
+            if (last_drawn_for != g_recording_time)
+            {
+                last_drawn_for = g_recording_time;
+                last_drawn_second = -1;
+            }
             if (elapsed_s != last_drawn_second)
             {
                 last_drawn_second = elapsed_s;

@@ -44,7 +44,6 @@ entry without one.
 
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
-- CONFIRMED ONCE (hedged) 2026-09-04 — the dust offset fix: *"looks like the dust thing is fixed, its only appearing where its intended/supposed to"*. Held for one session; wants a second before `VERIFIED.md`
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -2335,3 +2334,31 @@ absent on this same build and fell back to plain `Deactivate` (logged, 2026-09-0
 comment in `Plugin.cpp` rests on it). Two lookup mechanisms, one build, opposite answers. Neither is
 established as right yet — and the C++ side's conclusion is load-bearing for the glow teardown, so
 this is worth an hour before anything else trusts either lookup.
+
+## [READY] the recording indicator, rebuilt around ATTACHMENT after its first look failed (2026-09-04)
+
+**First build, watched and declined in one screenshot.** The user: *"it looks bad/follows bad + it
+also gets 'stuck in the world' when i stop the recording ... its following the player, its not
+static on the screen itself. while recording it tries to snap back constantly as its trying to
+follow the player"*, and *"the red was also really tiny, and just a straight line instead of a
+circle + the white box & text on the side didn't look good at all, really small white box and big
+black text on its own at the side"*. Four defects, one screenshot, and every one of them a
+mechanism rather than a tuning:
+
+| What they saw | Cause | Fix |
+|---|---|---|
+| follows the player, snaps back | components were children of the PAWN with a WORLD position written per tick — the engine carried them with the player between writes | parented to the VIEW (`K2_AttachToComponent`, KeepRelative) with a relative offset set ONCE; nothing writes a transform per tick |
+| stuck in the world on stop | strings blanked on stop, and a blank that did not take left the component wherever the pawn had carried it | hidden with `SetVisibility(false)`, the proven call |
+| giant black "Text" beside a tiny plate | `WorldSize` written as a property, which never touches the render state, so whichever component drew first kept the class default and its default STRING | `SetWorldSize` through the reflected setter; every component blanked at creation, as the nametag plate is |
+| red "straight line", not a circle | the circle glyph was a literal in a source file not compiled as UTF-8: three garbage code units | `●` as an escape — built from character codes, because the editing layer itself normalised the escape back into the literal, twice |
+
+**What to look at:** press `ctrl+shift+F9`. A red **circle** with a running `m:ss` on a white box
+to its right, **top right of the screen, fixed there** while you walk, jump and turn the camera.
+Press it again and it **disappears**, and nothing stays behind anywhere. Sizes are guesses (dot
+14, digits 9, 140 units in front of the camera, 52 right, 30 up) — say which way they are wrong.
+
+**What the log will say, which settles the two questions a screenshot cannot:**
+`RECINDICATOR: anchored to ...` names WHICH view component it parented to (the camera manager's
+own `TransformComponent` if that resolved, else the pawn's `CameraComponent`), and if the circle
+still is not a circle, the glyph is now provably U+25CF and the finding becomes "this font has no
+glyph there", a different problem with a different fix.
