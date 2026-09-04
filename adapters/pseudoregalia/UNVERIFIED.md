@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN — dust VFX land in wrong positions after a replay ghost restarts/loops (2026-09-04), user-reported, not reproduced
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
@@ -59,6 +60,76 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [OPEN] dust VFX land in wrong/weird positions after a replay ghost restarts or loops (2026-09-04)
+
+**Reported by the user, with a second observation from a tester on Discord. Nothing below has been
+reproduced or measured by the agent and no fix has been attempted** — but the two reports together
+point at one specific mechanism, and it is visible in the code.
+
+- The user: *"dust vfx appearing in wrong/weird positions after restarting/looping a replay ghost"*.
+- A tester, on the recording: *"seems to be somewhat related to the height of ghost sybil when it
+  despawns"*.
+- The user's own reading: *"my guess is that the ghost keep or don't reset some values whenever the
+  replay restart/loop. but haven't confirmed it"*.
+
+**THE LEAD, and it explains both observations at once — including why HEIGHT AT DESPAWN would
+matter, which is the part a guess would not have produced.**
+
+`observed_world_offset_z[]` (`Plugin.cpp`, declared beside `MIRRORED_EFFECTS`) is how high the game
+actually puts each world-spawned effect. It is **learned at runtime from the LOCAL player's own
+effects** — the detection pass measures `dz` between the player and the component the game created
+and stores it — and the ghost's copy is then spawned at that observed height rather than at the
+table's guess. Its own comment says it is *"Not per-peer: it is a property of the effect in this
+game"*. It is file-scope, and **it is never reset**.
+
+The detection pass must therefore exclude components that WE spawned on a ghost, or it would measure
+a ghost's dust and call it the player's. That exclusion exists and is deliberate
+(`recent_one_shot_components`, whose comment records the regression that put an echo back on screen
+when half of it was missing). **But the exclusion set is built by walking `remotes`** — so it only
+covers ghosts that still EXIST in that map.
+
+A one-shot burst is fire-and-forget: the Niagara component outlives the tick that spawned it. When a
+replay ghost is despawned on a loop, `remotes.erase` takes its `recent_one_shot_components` with it
+**while the dust it spawned is still alive in the world**. In that window the component is no longer
+excluded, the detection pass can attribute it to the player, and `dz` is then measured from the
+player to a GHOST's dust — at whatever height that ghost happened to be when it despawned. That
+value is written into `observed_world_offset_z[dl]` and every subsequent dust burst, on any ghost,
+for the rest of the session, is spawned at the poisoned offset.
+
+**Why the tester's phrasing fits exactly:** the wrong offset IS the ghost's height at the moment it
+despawned, minus the player's. A clip that ends mid-air or mid-fall poisons it by a lot; one that
+ends on the ground poisons it by little, which would read as "somewhat related".
+
+**A second, independent mechanism is also live and would compound it:** `vfx_counts` is never
+cleared and `vfx_counts_baselined` is only ever set true, so when a clip loops and its recorded `dl`
+counter restarts, bursts are suppressed until the count climbs past the pre-loop high-water mark.
+That predicts dust that is first MISSING after a loop and then reappears — at the wrong offset, from
+the mechanism above.
+
+**How to settle it, cheapest first:**
+
+1. **Read the log across a loop.** `MIRRORVFX ghost ... burst 'dl' (count=N)` lines: does N go
+   backwards or stall after the restart? That confirms or kills the counter half on its own, with no
+   game watching needed beyond one recorded session.
+2. **Log `observed_world_offset_z[dl]` whenever it CHANGES**, with the actor it was measured
+   against. If it moves at a loop point, the poisoning is confirmed and the value tells you by how
+   much. This is the decisive measurement and it is a one-line diagnostic.
+3. Only then watch it on screen.
+
+**If it holds, the shape of the fix is already implied and should not be guessed at instead:** the
+exclusion has to survive the ghost that spawned the component (the components outlive the entry, so
+the list cannot live only on the entry), and the observed offset should not be writable from a
+sample taken while any ghost's one-shot is in flight. Both are stated as direction, not as a
+decision — the measurement comes first.
+
+**Instrument already in the tree, disarmed:** `probe_dustlight/`. Read `_template/probes.md` on cost
+before arming it, and note the standing rule that a probe which spawns an effect must not be live
+while that effect is being judged.
+
+**Scope note:** this is the REPLAY/CHASER path (`cosmetic: true`, ADR 0047). A real networked peer's
+counters only ever climb and its ghost is not despawned on a loop, which would explain why none of
+this has been seen in ordinary play.
 
 ## [READY] a non-ASCII display name should now render as itself, not as mojibake (2026-09-04)
 
