@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"Client\":{\"replAY\":{\"sAve_lAst\":\"0\"}}}")

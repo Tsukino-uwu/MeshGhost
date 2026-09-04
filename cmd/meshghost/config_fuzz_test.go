@@ -67,13 +67,32 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 			} `json:"client"`
 		}
 		_ = json.Unmarshal([]byte(strings.TrimPrefix(body, "\ufeff")), &doc)
+		// CASE-INSENSITIVELY, because encoding/json matches a struct tag that way
+		// and the client reads its config into a struct. CI found this on
+		// 2026-09-04 with {"Client":{"replAY":{"sAve_lAst":"0"}}}: the client
+		// correctly applied it as an explicit zero, and this test called that a
+		// bug -- because the mirror it checks against is a map[string]any, where
+		// a key keeps whatever case the file used and "save_last" simply misses.
+		//
+		// The same shape as this test's first CI failure a day earlier, one
+		// layer down: there the invariant did not know an explicit zero from a
+		// bad value; here it did not know the KEY. A test that mirrors a
+		// decoder has to mirror how that decoder matches names, or it invents
+		// failures the code does not have.
 		explicitZero := func(block map[string]any, key string) bool {
-			v, ok := block[key].(string)
-			if !ok {
-				return false
+			for k, raw := range block {
+				if !strings.EqualFold(k, key) {
+					continue
+				}
+				v, ok := raw.(string)
+				if !ok {
+					continue
+				}
+				if d, err := time.ParseDuration(v); err == nil && d == 0 {
+					return true
+				}
 			}
-			d, err := time.ParseDuration(v)
-			return err == nil && d == 0
+			return false
 		}
 		for _, d := range []struct {
 			name  string
