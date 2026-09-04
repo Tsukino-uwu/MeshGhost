@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched
 - OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03; not diagnosed, not reproduced by the agent
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
@@ -56,6 +57,29 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [READY] a chaser looks like its own delay, and a split time matches the ghost you SEE (2026-09-04), unwatched
+
+**The defect this fixes shipped and was found by reading, not by watching** (ADR 0049): a ghost this
+core invents was drawn one full `interp` behind its own schedule on top of that schedule, because
+local ghosts share the interpolation buffer with relay peers and nothing subtracted the delay back.
+At the shipped 450ms that made **a chaser configured for 3s appear at 3.45s**, and it made the split
+time describe a ghost 450ms ahead of the one on screen -- in the one feature racing a ghost is for.
+
+**What to watch, and both halves want a stopwatch rather than an impression:**
+
+- Set `chaser.enabled: true` with `chaser.delay: "3s"`. Walk a straight line, stop, and count how
+  long until the chaser reaches where you stopped. Three seconds, not three and a half. The old
+  behaviour is 15% late, which is the kind of thing that reads as "feels a bit off" rather than as a
+  number, so compare against a clock rather than a memory.
+- With a replay ghost and `replay.split_times: true`, stand exactly where the ghost is drawn. The
+  tag should read about `0.0s` there. Before this it read `0.0s` when you stood where the ghost's
+  RECORDING was at that moment, which is a spot the ghost had not visibly reached yet.
+
+**Everything measurable is already measured** -- the Go tests pin both numbers, and each one was run
+against a deliberately reintroduced defect to prove it fails (the end-to-end one reads 637ms where
+200 is wanted). What no test can answer is whether it now looks right, which is the whole reason
+this entry exists.
 
 ## [READY] the title screen no longer reports a player (2026-09-04), unwatched
 
