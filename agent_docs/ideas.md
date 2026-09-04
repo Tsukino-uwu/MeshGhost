@@ -64,7 +64,7 @@ is USED, that project is checked and recorded there first.
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 - Recording file size: gzip now, per-KEY delta encoding later (measured 2026-09-03)
-- Replay hotkeys: the chord requirement, and no feedback outside the console (filed 2026-09-04; the log-clarity third of it FIXED the same day)
+- Replay hotkeys: the chord requirement, and an in-game RECORDING INDICATOR (top right, config-toggled) designed with the tester 2026-09-04; the log-clarity third of it FIXED the same day
 
 ---
 
@@ -2618,27 +2618,65 @@ A related and cheaper half: the hotkeys are already unbindable with an empty str
 wants in-game keys instead can turn the system-wide ones off — **which points at the better answer
 below.**
 
-### 2. No feedback outside the console, and that is the real complaint
+### 2. No feedback outside the console — designed with the tester, 2026-09-04
 
 *"not having any feedback except when looking at the console log is not great"* is the one that
-matters: a player mid-run cannot read a console window. The console line is now correct and specific,
-and it is still in the wrong place.
+matters: a player mid-run cannot read a console window. The console line is now correct and specific
+(see above), and it is still in the wrong place.
 
-**This is adapter work, not core work, and that is the whole difficulty.** The core owns the hotkeys
-(ADR 0048) and by construction cannot draw anything — it never touches the game. So on-screen
-feedback has to be a message the core sends and the adapter renders, which is a bridge addition:
-today `replay_control` runs adapter -> core and there is nothing coming back (`contract.md`: *"The
-core performs it and logs the outcome; there is no reply"*). The description this fix already
-produces is exactly the payload such a reply would carry, so the expensive half is done.
+**WHAT THEY SETTLED, in conversation. These are the user's calls, recorded as decided or open;
+nothing here is the agent's opinion.**
 
-**Sketch, not a decision:** a `replay_state` message core -> adapter carrying the same short string,
-plus whether a recording is running, and each adapter draws it however that game can — Pseudoregalia
-has a working `TextRenderComponent` path from the nametag work, TEVI has a HUD. An adapter that
-ignores it is unaffected, which is the usual shape here. Wants an ADR because it adds a bridge
-message.
+- **A recording indicator, not an event toast.** The tester: *"Still would prefer any kind of in game
+  feedback (e.g. a red dot while recording)"*, and *"a red dot usually indicates 'recording'"*. So the
+  thing on screen answers *am I recording right now*, continuously — not *a key was just pressed*.
+- **Top right of the screen. DECIDED, and the reasoning is worth keeping** because it is what rules
+  the alternatives out: above the head was the first idea and the user did not want to *"run around
+  with something above your head"*; next to the health bar fails because *"the hp bar grows"*; below
+  it fails because *"below is keys"*. The tester: *"maybe just top right to be away from it"* — the user:
+  *"smarter actually, to not have to worry about where UI things are"*.
+- **A config toggle, default off for the automatic path.** The user: *"you don't have to run around
+  with something above your head if only using auto. but def useful for the keybind short clip thing
+  while in game and manually starting/stopping"*. This is a PLAYER preference rather than a fact
+  about any game, so per `adapters/CLAUDE.md` it is defined once in the shared config and every
+  adapter honours it or says in its log that it cannot.
+- **Shape: a dot preferred, a square acceptable.** The tester: *"if it's a square, doubt people would care
+  too much"*.
+- **OPEN, and explicitly left open by the user:** plain red versus nametag-style colours; whether
+  different keybinds get different colours or text; and the tester's suggestion of *"text info on the
+  recording, e.g. recording duration?"*.
 
-**A cheaper interim that needs no protocol change:** a recording INDICATOR rather than an event
-toast. The adapter already knows nothing, but `session_policy` is precedent for the core pushing a
-small state when it changes — and "am I recording" is exactly that shape. Worth pricing against the
-full version before either is built.
+**THREE THINGS THE CODE SAYS ABOUT THIS, offered as feasibility rather than as design.**
+
+1. **The nametag path does NOT carry over to a screen corner, and that is the one assumption in the
+   conversation that does not hold.** The user: *"i know i can do the boxes due to how i did
+   nametag"*. The nametag is a `TextRenderComponent` — a **world-space** component attached to a
+   ghost actor (`create_text_render_on`). "Top right of the screen" is screen space, which is a
+   different mechanism: normally a UMG widget added to the viewport.
+2. **But the same tool still reaches it, by a different route.** A `TextRenderComponent` attached to
+   (or transformed against) the PLAYER'S CAMERA is screen-fixed by construction, and needs no new
+   asset and no new API — the component type is already proven in this adapter. That is very likely
+   the cheapest path to a corner indicator here.
+3. **Shape stops being a problem if it is a GLYPH.** The user has not *"looked into different shapes
+   like circle/triangle"* — with text rendering already working, a circle is `U+25CF ●`, a square is
+   `U+25A0 ■`, and a triangle is `U+25B2 ▲`. No geometry, no material, no asset: set the string and
+   the colour. This also makes the tester's duration idea nearly free, since it is the same string.
+
+**The real UMG route, priced honestly in case the glyph route is rejected on looks.**
+`RemoveFromParent` is already called reflectively on the ghost's duplicate HUD widget
+(`Plugin.cpp:12603`), so stock `UUserWidget` functions are reachable and `AddToViewport` would be
+too. What is missing is a widget CLASS to instantiate: `CreateWidget` needs one, this project
+authors no Blueprint assets and has no Unreal Editor content pipeline (see the
+`pseudoregalia-multiplayer` comparison in this file), and repurposing one of the game's own widgets
+means depending on its internals. So UMG is reachable but is the expensive option, and the glyph
+route should be tried first.
+
+**What the CORE has to add either way, and it is small.** The core owns the hotkeys and by
+construction cannot draw (ADR 0048; it never touches the game), so the adapter has to be told. Today
+`replay_control` runs adapter -> core with no reply (`contract.md`: *"The core performs it and logs
+the outcome; there is no reply"*). The shape that fits the decision above is a core -> adapter
+**state** message rather than an event — is a recording running, and since when — pushed when it
+changes, exactly as `session_policy` already is. The description `ReplayControl` now returns is the
+same payload an event version would carry, so either way that half exists. Adding a bridge message
+needs an ADR.
 
