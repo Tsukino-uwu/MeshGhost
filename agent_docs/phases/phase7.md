@@ -2011,3 +2011,40 @@ Both are READY in `../../adapters/pseudoregalia/UNVERIFIED.md`; the full account
 third finding (the player's own SFX going quiet while ghosts are audible, logged and not chased) is
 in [phase11.md](phase11.md), 2026-09-04. Noted here so this file's gap is a decision rather than a
 lapse.
+
+## 2026-09-04 (later) — an instrument for the SFX report, and one run that answers two queue items
+
+Picking up two of the three things `status.md` had waiting on the user's eyes: the player's own SFX
+going quiet near a ghost (OPEN, reported 2026-09-03, never measured) and the title-screen gate
+(READY, built the same night, never watched).
+
+**The SFX report got an instrument rather than a guess.** `probe_audiocensus/` logs every
+`AudioComponent` appearing, starting and stopping, attributed to the player or to a ghost by name
+containment (the outer walk missed 12 of 12 on a ghost in 2026-08-29's census), and dumps each
+distinct cue's own concurrency settings the first time it is seen. That dump is the half that
+decides the second of the two shapes on its own: if a cue the ghost plays caps its instances and
+resolves by stopping the oldest, the mechanism for "the ghost spends the player's voices" is
+present, and no ear has to adjudicate it. Named property reads inside `pcall` only, two classes at
+5Hz, a coverage line every 10s carrying the pawn list and how the player/ghost split was decided —
+the `probe_slashvfx/` shape, which has run through live sessions without incident.
+
+**What it cannot see is in its header and matters here:** a sound started by
+`PlaySoundAtLocation`/`PlaySound2D` creates no component at all, which is the usual shape of an
+anim-notify footstep, and concurrency is resolved on the audio device's active-sound list rather
+than on the component — so a quiet log is not an acquittal and an active component is not proof
+the player was audible. If the run comes back clean the subsystem widens rather than the
+measurement deepening (`../../CLAUDE.md`).
+
+**The A/B is built into the session so there is no window to hit.** The chaser is configured to
+60s: the first minute of play has no ghost, the second has one repeating the same actions in the
+same place, and the probe marks the boundary itself with a `GHOSTCOUNT 0 -> 1` line. The same
+launch carries `record_on_launch: true`, which is the title-screen gate's own test — sit in the
+main menu first, and the recording should still open on the first real frame.
+
+**Deployed to both installs**, hash-verified: the Copy's `main.dll` was stale (it had never
+received the 2026-09-04 build) and every `meshghost.exe` under both `Mods/` trees was behind the
+current Go build. Each install's `config.json` was overwritten with the shipped one per the
+standing rule, with a `.pre-2026-09-04` backup — that reset the Steam install's display name, which
+was still the quoted string from the JSON-escape test, and its chaser label.
+
+Nothing is watched yet; both entries stay where they are in `../../adapters/pseudoregalia/UNVERIFIED.md`.

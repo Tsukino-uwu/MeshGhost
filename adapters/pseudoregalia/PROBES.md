@@ -8,8 +8,8 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not `PROBES.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Eleven directories, seventeen
-scripts, one index (2026-09-01 count; six directories and nine scripts when this was written
+— there is no single `probes/` folder to index from the inside. Twelve directories, twenty-one
+scripts, one index (2026-09-04 count; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
 Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatch/` and
@@ -193,3 +193,25 @@ classes at 5Hz, and it reports its own coverage every 10s so "no events" is dist
 "not looking". **Its question is ANSWERED — the slash ships as the `NS_PlayerSlash` row in
 `MIRRORED_EFFECTS`, and the user calls it fixed (2026-09-01)** — so its `enabled.txt` is parked
 as `.off`, same convention as `probe_swordthrow/`; rename it back to re-measure on a new build.
+
+## `probe_audiocensus/` — is the ghost noisy, or is it spending the player's voices? (2026-09-04)
+
+**The question, the user's:** *"think ghosts are eating up the players sound, like sfx is not
+doing anything when the player does things, but ghosts had them."* Two shapes fit it — a ghost
+playing sounds the silence clause never covered, or Unreal's sound CONCURRENCY refusing the
+player's cue because a ghost already holds the instances — and they want different fixes.
+
+- **`Scripts/main.lua`** — every `AudioComponent` appearance, START and STOP, attributed to the
+  player or to a ghost by name containment, with the cue each carries; then, once per distinct
+  cue, that sound asset's own concurrency settings (`bOverrideConcurrency`, `MaxCount`,
+  `ResolutionRule`, `bLimitToOwner`). **The concurrency dump is the decisive half:** it says
+  whether the mechanism for the second shape exists at all, and no ear is needed to read it.
+- **It states its own blind spots in its header, and they matter here.** A sound started by
+  `PlaySoundAtLocation`/`PlaySound2D` creates no component and is invisible to this — which is
+  the usual shape of an anim-notify footstep — and concurrency is resolved on the audio device's
+  active-sound list, so a component reading active is not evidence the player was audible. A
+  quiet ghost in this log means quiet *through the component path*, and nothing wider.
+- Safe shape: named property reads inside `pcall` only, never a UFunction on a `FindAllOf`
+  result, two classes at 5Hz, a coverage line every 10s carrying the pawn list and how the
+  player/ghost split was decided. Every property name is reported as it resolved or as
+  `UNRESOLVED`, so a name this build does not have can never be read as a zero.

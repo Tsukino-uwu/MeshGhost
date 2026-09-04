@@ -42,9 +42,9 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched
-- READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched
-- OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03; not diagnosed, not reproduced by the agent
+- READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
+- OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03 — **the audio census probe is built and armed for the 2026-09-04 run**, nothing measured yet
+- READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched — **not the 2026-09-04 run: the chaser is at 60s there to give the audio A/B a ghost-free first minute**
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
 - Pending — three input bounds from the 2026-09-02 adversarial review, built and deployed, unwatched
@@ -131,6 +131,23 @@ two shapes above.
 **Not a regression from today's work, as far as anything shows:** nothing in the 2026-09-03 session
 touched audio. It may well predate the replay feature entirely; the replay ghost is simply the first
 time a ghost has been reliably present and doing things while the user listened.
+
+**The instrument is built, 2026-09-04, and the run is set up but not yet run.**
+`probe_audiocensus/` (indexed in `PROBES.md`) logs every `AudioComponent` appearance, START and
+STOP, attributed to the player or a ghost by name containment, and dumps each distinct cue's own
+CONCURRENCY settings the first time it is seen — that dump is what decides the second shape
+without needing an ear, because a cue that caps itself and resolves by stopping the oldest
+instance IS the mechanism. Deployed armed to both installs. **It is blind to
+`PlaySoundAtLocation`/`PlaySound2D`**, which create no component and are the usual shape of an
+anim-notify footstep, and blind to whether an active component was actually audible — both stated
+in its header, and both mean a quiet log is not an acquittal.
+
+**The A/B is built into the session rather than asked of the user**, so there is nothing to time
+and no window to hit: the chaser is configured to 60s, so the first minute of play has NO ghost
+at all and the second minute has a ghost repeating the same actions in the same place. Do the
+noisy things (jump, land, slash, dash, cling) in both halves and listen to your OWN sound. The
+probe marks the boundary itself with a `GHOSTCOUNT 0 -> 1` line. Both installs also carry
+`record_on_launch: true` and `offline: true` for this run.
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
