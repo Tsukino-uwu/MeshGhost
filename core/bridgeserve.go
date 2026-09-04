@@ -290,10 +290,11 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			}
 			// Logged either way: the adapter gets no reply, so this line is the
 			// only place a player sees that their in-game key did something.
-			if err := c.ReplayControl(ReplayAction(msg.Action), msg.Seconds); err != nil {
+			what, err := c.ReplayControl(ReplayAction(msg.Action), msg.Seconds)
+			if err != nil {
 				log.Printf("core: replay_control %q from the adapter: %v", msg.Action, err)
 			} else {
-				log.Printf("core: replay_control %q from the adapter: done", msg.Action)
+				log.Printf("core: replay_control %q from the adapter: %s", msg.Action, what)
 			}
 		case bridge.TypeEvent:
 			var msg bridge.Event

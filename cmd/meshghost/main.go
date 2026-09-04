@@ -1105,10 +1105,14 @@ func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
 		// The key loop's own thread must never wait on the core: a seek waits
 		// for a render tick, and the recorder flushes to disk.
 		go func() {
-			if err := c.ReplayControl(core.ReplayAction(name), 0); err != nil {
+			// The outcome, not "done": a hotkey has nobody to reply to, so this
+			// line is the whole of the feedback. record_toggle is the case that
+			// forced it -- one key, two opposite meanings.
+			what, err := c.ReplayControl(core.ReplayAction(name), 0)
+			if err != nil {
 				log.Printf("meshghost: hotkey %s: %v", name, err)
 			} else {
-				log.Printf("meshghost: hotkey %s: done", name)
+				log.Printf("meshghost: hotkey %s: %s", name, what)
 			}
 		}()
 	}

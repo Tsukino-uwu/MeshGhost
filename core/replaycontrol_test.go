@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func playingCore(t *testing.T, hdr map[string]any) (*Core, *fakeAdapter, string)
 // render is from the top of the clip.
 func TestRestartIsASeamBackToTheTop(t *testing.T) {
 	c, fa, id := playingCore(t, nil)
-	if err := c.ReplayControl(ReplayRestart, 0); err != nil {
+	if _, err := c.ReplayControl(ReplayRestart, 0); err != nil {
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the seam's despawn")
@@ -69,20 +70,20 @@ func TestRewindAndFastForwardMoveTheClipTime(t *testing.T) {
 	c, fa, id := playingCore(t, nil)
 	pumpUntil(t, fa, func() bool { return renderX(fa, id) >= 12 }, "x=12")
 	before := renderX(fa, id)
-	if err := c.ReplayControl(ReplayRewind, 1); err != nil { // 1s = 10 samples back
+	if _, err := c.ReplayControl(ReplayRewind, 1); err != nil { // 1s = 10 samples back
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the rewind seam")
 	pumpUntil(t, fa, func() bool { x := renderX(fa, id); return x >= 0 && x < before-5 }, "a render well before where the ghost was")
 
 	at := renderX(fa, id)
-	if err := c.ReplayControl(ReplayFastForward, 0); err != nil { // the configured 1s
+	if _, err := c.ReplayControl(ReplayFastForward, 0); err != nil { // the configured 1s
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the fast-forward seam")
 	pumpUntil(t, fa, func() bool { return renderX(fa, id) >= at+8 }, "a render well after where the ghost was")
 
-	if err := c.ReplayControl(ReplayFastForward, 60); err != nil {
+	if _, err := c.ReplayControl(ReplayFastForward, 60); err != nil {
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, id) > 0 }, "the clip to end after fast-forwarding past it")
@@ -95,7 +96,7 @@ func TestRewindAndFastForwardMoveTheClipTime(t *testing.T) {
 		t.Fatal("the player goroutine did not finish after fast-forwarding past the end")
 	}
 	// A finished, non-looping clip comes back on restart.
-	if err := c.ReplayControl(ReplayRestart, 0); err != nil {
+	if _, err := c.ReplayControl(ReplayRestart, 0); err != nil {
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { x := renderX(fa, id); return x >= 0 && x < 3 }, "the finished clip to play again from the top")
@@ -133,7 +134,7 @@ func TestReplayLastPlaysTheNewestRecordingWithoutMovingIt(t *testing.T) {
 	past := time.Now().Add(-time.Hour)
 	os.Chtimes(older, past, past)
 
-	if err := c.ReplayControl(ReplayLast, 0); err != nil {
+	if _, err := c.ReplayControl(ReplayLast, 0); err != nil {
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return renderX(fa, "replay:rec-new.ndjson") >= 3 }, "the newest recording to play")
@@ -143,7 +144,7 @@ func TestReplayLastPlaysTheNewestRecordingWithoutMovingIt(t *testing.T) {
 	if _, err := os.Stat(newer); err != nil {
 		t.Fatalf("replay_last moved the file: %v", err)
 	}
-	if err := c.ReplayControl(ReplayLast, 0); err != nil {
+	if _, err := c.ReplayControl(ReplayLast, 0); err != nil {
 		t.Fatal(err)
 	}
 	pumpUntil(t, fa, func() bool { return drainDespawns(fa, "replay:rec-new.ndjson") > 0 }, "the second press to restart it")
@@ -156,23 +157,74 @@ func TestReplayLastPlaysTheNewestRecordingWithoutMovingIt(t *testing.T) {
 // save_last says it is not built, and seeks with nothing loaded say so.
 func TestReplayControlRecordActions(t *testing.T) {
 	c := recordingCore(t)
-	if err := c.ReplayControl(ReplayRewind, 0); err == nil {
+	if _, err := c.ReplayControl(ReplayRewind, 0); err == nil {
 		t.Fatal("rewind with no replay loaded should say so")
 	}
-	if err := c.ReplayControl(ReplayRecordToggle, 0); err != nil || !c.Recording() {
+	if _, err := c.ReplayControl(ReplayRecordToggle, 0); err != nil || !c.Recording() {
 		t.Fatalf("toggle did not start recording: %v", err)
 	}
-	if err := c.ReplayControl(ReplayRecordStart, 0); err == nil {
+	if _, err := c.ReplayControl(ReplayRecordStart, 0); err == nil {
 		t.Fatal("record_start while recording should be refused")
 	}
-	if err := c.ReplayControl(ReplayRecordToggle, 0); err != nil || c.Recording() {
+	if _, err := c.ReplayControl(ReplayRecordToggle, 0); err != nil || c.Recording() {
 		t.Fatalf("toggle did not stop recording: %v", err)
 	}
-	if err := c.ReplayControl(ReplaySaveLast, 0); err == nil {
+	if _, err := c.ReplayControl(ReplaySaveLast, 0); err == nil {
 		t.Fatal("save_last with an empty ring should say there is nothing to save")
 	}
-	if err := c.ReplayControl(ReplayAction("dance"), 0); err == nil {
+	if _, err := c.ReplayControl(ReplayAction("dance"), 0); err == nil {
 		t.Fatal("an unknown action should be an error")
 	}
 	c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{0, 0}})
+}
+
+// A toggle must SAY which way it went, and a start must not be silent.
+//
+// The defect this pins, reported by a tester on 2026-09-04: "at least right now I
+// can't discern from the console log whether a record toggle started or stopped the
+// recording". Both callers logged "done" whichever branch ran, so the line belonging
+// to the key just pressed was the one line that said nothing. The recorder's own lines
+// do distinguish the two, which makes this narrower than "no feedback" and no less
+// real: neither caller can reply to the player, so the description IS the feedback.
+func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
+	c := New()
+	c.ReplayDir = t.TempDir()
+
+	started, err := c.ReplayControl(ReplayRecordToggle, 0)
+	if err != nil || !c.Recording() {
+		t.Fatalf("toggle did not start recording: %q %v", started, err)
+	}
+	stopped, err := c.ReplayControl(ReplayRecordToggle, 0)
+	if err != nil || c.Recording() {
+		t.Fatalf("toggle did not stop recording: %q %v", stopped, err)
+	}
+
+	// The two must be tellable apart by a person reading one line, which is the whole
+	// point -- an empty or equal description is the bug returning.
+	if started == "" || stopped == "" {
+		t.Fatalf("a description must never be empty: start=%q stop=%q", started, stopped)
+	}
+	if started == stopped {
+		t.Fatalf("start and stop describe themselves identically (%q) -- a player cannot tell "+
+			"which the toggle did", started)
+	}
+	if !strings.Contains(started, "STARTED") {
+		t.Errorf("start description does not say so: %q", started)
+	}
+	if !strings.Contains(stopped, "STOPPED") {
+		t.Errorf("stop description does not say so: %q", stopped)
+	}
+
+	// And the explicit actions must describe themselves the SAME way as the toggle,
+	// or the log means different things depending on which key was pressed.
+	if _, err := c.ReplayControl(ReplayRecordStart, 0); err != nil {
+		t.Fatalf("record_start: %v", err)
+	}
+	explicitStop, err := c.ReplayControl(ReplayRecordStop, 0)
+	if err != nil {
+		t.Fatalf("record_stop: %v", err)
+	}
+	if !strings.Contains(explicitStop, "STOPPED") {
+		t.Errorf("record_stop describes itself differently from the toggle: %q vs %q", explicitStop, stopped)
+	}
 }

@@ -574,3 +574,37 @@ and replay ghosts have a paragraph near the top because nobody scrolling past th
 existed. 274 lines to 200. Three conventions came out of it and are now in `agent_docs/README.md`:
 describe our features on their own terms, keep the root README minimal, and **write the invariant,
 never the inventory** -- "none of the shipped games do X" is true until it is silently false.
+
+## 2026-09-04 (later) — a tester used the replay hotkeys, and one third of the report was a real defect
+
+**The report, and it is the useful kind because it is about USING the feature rather than whether it
+works:** *"being forced to use keycombinations is a bit annoying for usage, but fine enough. Also not
+having any feedback except when looking at the console log is not great. And at least right now I
+can't discern from the console log whether a record toggle started or stopped the recording"*.
+
+**The third part was a real defect and is fixed.** `ReplayControl` returned only an error, so both
+callers — the system-wide hotkey in `cmd/meshghost` and `replay_control` over the bridge — logged
+`"done"` whichever branch ran. On `record_toggle`, one key means two opposite things, and the line
+belonging to the key just pressed was the one line that said nothing. It now returns a short account
+of what it ACTUALLY did (`recording STARTED -> path`, `recording STOPPED -- N sample(s) -> path`,
+`REWIND 5s`), the toggle reuses the same wording as the explicit start/stop actions so the log cannot
+depend on which key was pressed, and `TestRecordToggleSaysWhichWayItWent` pins that the two
+directions describe themselves differently and non-emptily.
+
+**A claim I put in the first draft of that comment was wrong and is corrected in place**, because it
+would have misled the next reader: I wrote that a start was SILENT. It is not — `StartRecording`
+logs `core: recording to <path>` (`recorder.go:543`) and `StopRecording` logs its own line, so the
+recorder does distinguish the two. The fault is narrower and still real: those lines are the
+*recorder's*, phrased for the recorder, and the *hotkey's* line sat next to them saying `done`. Found
+by reading the test's own output rather than by re-reading the code, which is the argument for
+running the thing rather than grepping it — the first grep looked 22 lines into a 35-line function.
+
+**The other two are design questions and are logged, not decided** (`ideas.md`, "Replay hotkeys"):
+whether a bare single key should be allowed for a system-wide hook at all, and — the one that
+actually matters — that a player mid-run cannot read a console window, so real feedback means a
+bridge message the adapter renders, which needs an ADR. The description this fix produces is exactly
+the payload such a reply would carry, so the expensive half of that is already done.
+
+**Go side, so verified with the tools rather than by watching:** full `run-gotests.bat` green
+including `internal/e2e`, root binaries rebuilt, and `meshghost.exe` redeployed to all six copies
+across the four game installs.

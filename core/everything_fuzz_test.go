@@ -425,19 +425,19 @@ func FuzzEverything(f *testing.F) {
 			case "stopReplays":
 				c.StopReplays()
 			case "ctl.restart":
-				_ = c.ReplayControl(ReplayRestart, int(b>>5))
+				_, _ = c.ReplayControl(ReplayRestart, int(b>>5))
 			case "ctl.rewind":
-				_ = c.ReplayControl(ReplayRewind, int(b>>5))
+				_, _ = c.ReplayControl(ReplayRewind, int(b>>5))
 			case "ctl.ff":
-				_ = c.ReplayControl(ReplayFastForward, int(b>>5))
+				_, _ = c.ReplayControl(ReplayFastForward, int(b>>5))
 			case "ctl.replayLast":
-				_ = c.ReplayControl(ReplayLast, 0)
+				_, _ = c.ReplayControl(ReplayLast, 0)
 			case "ctl.recordToggle":
-				_ = c.ReplayControl(ReplayRecordToggle, 0)
+				_, _ = c.ReplayControl(ReplayRecordToggle, 0)
 			case "ctl.saveLast":
-				_ = c.ReplayControl(ReplaySaveLast, 0)
+				_, _ = c.ReplayControl(ReplaySaveLast, 0)
 			case "ctl.nonsense":
-				_ = c.ReplayControl(ReplayAction(string(seed)), -1)
+				_, _ = c.ReplayControl(ReplayAction(string(seed)), -1)
 			case "relay.join":
 				relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: fmt.Sprintf("p%d", b>>5), Nametag: &protocol.Nametag{Name: "P"}})
 			case "relay.state":

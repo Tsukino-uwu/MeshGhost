@@ -37,30 +37,53 @@ type replayCmd struct {
 	seconds int
 }
 
-// ReplayControl performs one action. seconds applies to rewind and
-// fast-forward; 0 or less means the configured ReplaySeek. The error is for
-// the caller's log: nothing here is fatal, and an action that has nothing to
-// act on (rewind with no replay playing) says so rather than failing silently.
-func (c *Core) ReplayControl(a ReplayAction, seconds int) error {
+// ReplayControl performs one action and returns a short account of what it
+// ACTUALLY did. seconds applies to rewind and fast-forward; 0 or less means the
+// configured ReplaySeek. The error is for the caller's log: nothing here is
+// fatal, and an action that has nothing to act on (rewind with no replay
+// playing) says so rather than failing silently.
+//
+// WHY IT RETURNS A DESCRIPTION AND NOT JUST AN ERROR (2026-09-04). Neither
+// caller can reply: a system-wide hotkey has nobody to answer, and the bridge
+// sends no acknowledgement. So the log line the caller writes is the ONLY
+// feedback a player gets, and both callers used to write "done" -- identical
+// whichever branch ran. A tester, on record_toggle: "at least right now I can't
+// discern from the console log whether a record toggle started or stopped the
+// recording". They could not, and the toggle is precisely the action where the
+// same keypress means opposite things.
+//
+// The core DOES log a distinguishing line under each ("core: recording to ..."
+// at recorder.go:543, "core: recording stopped ..." at :559/:562), so the fault
+// is narrower than "no feedback": the two lines are the recorder's, phrased for
+// the recorder, and the hotkey's own line sat next to them saying "done". A
+// player watching for the effect of the key they just pressed read the useless
+// one. Naming the outcome on the caller's line is what makes the key legible
+// without having to know which neighbouring line belongs to it.
+func (c *Core) ReplayControl(a ReplayAction, seconds int) (string, error) {
 	switch a {
 	case ReplayRecordStart:
-		_, err := c.StartRecording()
-		return err
+		return c.describeStart()
 	case ReplayRecordStop:
-		_, _, err := c.StopRecording()
-		return err
+		return c.describeStop()
 	case ReplayRecordToggle:
+		// The SAME wording as the explicit actions, deliberately: a player
+		// reading the log should not have to know which key was pressed to
+		// know what happened.
 		if c.Recording() {
-			_, _, err := c.StopRecording()
-			return err
+			return c.describeStop()
 		}
-		_, err := c.StartRecording()
-		return err
+		return c.describeStart()
 	case ReplaySaveLast:
-		_, _, err := c.SaveLast()
-		return err
+		path, written, err := c.SaveLast()
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("SAVED %d sample(s) -> %s", written, path), nil
 	case ReplayLast:
-		return c.replayLast()
+		if err := c.replayLast(); err != nil {
+			return "", err
+		}
+		return "REPLAYING the last recording", nil
 	case ReplayRestart, ReplayRewind, ReplayFastForward:
 		if seconds <= 0 {
 			c.mu.Lock()
@@ -70,10 +93,37 @@ func (c *Core) ReplayControl(a ReplayAction, seconds int) error {
 				seconds = 5
 			}
 		}
-		return c.seekReplays(replayCmd{kind: a, seconds: seconds})
+		if err := c.seekReplays(replayCmd{kind: a, seconds: seconds}); err != nil {
+			return "", err
+		}
+		if a == ReplayRestart {
+			return "RESTARTED every replay", nil
+		}
+		return fmt.Sprintf("%s %ds", strings.ToUpper(string(a)), seconds), nil
 	default:
-		return fmt.Errorf("unknown replay action %q", a)
+		return "", fmt.Errorf("unknown replay action %q", a)
 	}
+}
+
+// describeStart and describeStop exist so the toggle and the explicit actions
+// cannot drift into describing the same event two different ways.
+func (c *Core) describeStart() (string, error) {
+	path, err := c.StartRecording()
+	if err != nil {
+		return "", err
+	}
+	return "recording STARTED -> " + path, nil
+}
+
+func (c *Core) describeStop() (string, error) {
+	path, written, err := c.StopRecording()
+	if err != nil {
+		return "", err
+	}
+	if written == 0 {
+		return "recording STOPPED -- no in-game samples, nothing written", nil
+	}
+	return fmt.Sprintf("recording STOPPED -- %d sample(s) -> %s", written, path), nil
 }
 
 // seekReplays sends one command to every player. A player whose goroutine

@@ -64,6 +64,7 @@ is USED, that project is checked and recorded there first.
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 - Recording file size: gzip now, per-KEY delta encoding later (measured 2026-09-03)
+- Replay hotkeys: the chord requirement, and no feedback outside the console (filed 2026-09-04; the log-clarity third of it FIXED the same day)
 
 ---
 
@@ -2587,3 +2588,57 @@ that did not change saves ~2%, because only 274 of 15,761 lines have an `extras`
 to the one before it. Three jittering floats -- `h_speed`, `v_speed`, `slide_t` -- change on
 nearly every line while every other one of the 40 keys changes on 117 lines or fewer. Delta by
 KEY, never by line.
+
+## Replay hotkeys: the chord requirement and the missing in-game feedback (filed 2026-09-04)
+
+**A tester, after living with the replay keys for a session** — the useful kind of report, because it
+is about USING the feature rather than about whether it works:
+
+> *"A bit of weirdness right now as I adjust keybinds till things feel ok. being forced to use
+> keycombinations is a bit annoying for usage, but fine enough. Also not having any feedback except
+> when looking at the console log is not great. And at least right now I can't discern from the
+> console log whether a record toggle started or stopped the recording"*
+
+**The third complaint is FIXED (2026-09-04) and is not part of this entry.** `ReplayControl` now
+returns what it actually did and both callers log that instead of `"done"`, with a regression test
+pinning that a toggle describes its two directions differently. The two below are design questions
+and are deliberately left open.
+
+### 1. Chords are required, and nothing makes them required
+
+`internal/hotkey`'s parser only admits a documented chord — the shipped defaults are
+`ctrl+shift+F9` and friends. That is the right DEFAULT for a system-wide hook (a bare `F9` would
+fire while the player is typing in any other application, and these keys work with the game
+focused), but the tester is asking to spend that safety themselves, on their own machine, for keys
+they press constantly.
+
+**The question to settle before building:** is a bare single key allowed at all, or allowed only for
+keys unlikely to collide (F13-F24, which most software ignores), or allowed with a startup warning?
+A related and cheaper half: the hotkeys are already unbindable with an empty string, so a player who
+wants in-game keys instead can turn the system-wide ones off — **which points at the better answer
+below.**
+
+### 2. No feedback outside the console, and that is the real complaint
+
+*"not having any feedback except when looking at the console log is not great"* is the one that
+matters: a player mid-run cannot read a console window. The console line is now correct and specific,
+and it is still in the wrong place.
+
+**This is adapter work, not core work, and that is the whole difficulty.** The core owns the hotkeys
+(ADR 0048) and by construction cannot draw anything — it never touches the game. So on-screen
+feedback has to be a message the core sends and the adapter renders, which is a bridge addition:
+today `replay_control` runs adapter -> core and there is nothing coming back (`contract.md`: *"The
+core performs it and logs the outcome; there is no reply"*). The description this fix already
+produces is exactly the payload such a reply would carry, so the expensive half is done.
+
+**Sketch, not a decision:** a `replay_state` message core -> adapter carrying the same short string,
+plus whether a recording is running, and each adapter draws it however that game can — Pseudoregalia
+has a working `TextRenderComponent` path from the nametag work, TEVI has a HUD. An adapter that
+ignores it is unaffected, which is the usual shape here. Wants an ADR because it adds a bridge
+message.
+
+**A cheaper interim that needs no protocol change:** a recording INDICATOR rather than an event
+toast. The adapter already knows nothing, but `session_policy` is precedent for the core pushing a
+small state when it changes — and "am I recording" is exactly that shape. Worth pricing against the
+full version before either is built.
+
