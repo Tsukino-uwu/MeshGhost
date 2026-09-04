@@ -279,6 +279,46 @@ local LENIENT = {
     '{"a":"\\uZZZZ"}',  -- a malformed \u escape
 }
 
+
+-- CATEGORY 1 of the shared adversarial corpus (adapters/_template/README.md, "every field in a
+-- render_remote came from a stranger"): WRONG TYPE FOR EVERY FIELD. A field that should be a
+-- number arrives as a string, a bool, null, an array or an object, and vice versa.
+--
+-- These must DECODE, and decode to what the JSON actually said. That is the honest boundary of a
+-- decoder test: the decoder's job is to report the type faithfully, and REJECTING it is the
+-- dispatch's job. The value here is that it pins the shape the dispatch has to survive -- and this
+-- is exactly the class Emerald's gender bug lived in, where a table arrived where a string was
+-- expected and every peer sorted after it stopped drawing.
+local WRONG_TYPES = {
+    ['{"payload":{"player_id":123}}'] = function(v) return type(v.payload.player_id) == "number" end,
+    ['{"payload":{"player_id":null}}'] = function(v) return v.payload.player_id == nil end,
+    ['{"payload":{"player_id":[1,2]}}'] = function(v) return type(v.payload.player_id) == "table" end,
+    ['{"payload":{"player_id":{"a":1}}}'] = function(v) return type(v.payload.player_id) == "table" end,
+    ['{"payload":{"player_id":true}}'] = function(v) return v.payload.player_id == true end,
+    ['{"extras":{"gender":{"a":1}}}'] = function(v) return type(v.extras.gender) == "table" end,
+    ['{"extras":{"gender":42}}'] = function(v) return type(v.extras.gender) == "number" end,
+    ['{"extras":{"act":"seven"}}'] = function(v) return v.extras.act == "seven" end,
+    ['{"extras":{"sprite":true}}'] = function(v) return v.extras.sprite == true end,
+    ['{"extras":"not a table"}'] = function(v) return v.extras == "not a table" end,
+    ['{"extras":[1,2,3]}'] = function(v) return type(v.extras) == "table" end,
+    ['{"position":"nope"}'] = function(v) return v.position == "nope" end,
+    ['{"position":[]}'] = function(v) return type(v.position) == "table" and v.position[1] == nil end,
+    ['{"position":[1]}'] = function(v) return v.position[1] == 1 and v.position[2] == nil end,
+    ['{"position":["a","b"]}'] = function(v) return v.position[1] == "a" end,
+    ['{"anim":123}'] = function(v) return v.anim == 123 end,
+    ['{"area_id":[]}'] = function(v) return type(v.area_id) == "table" end,
+}
+
+-- CATEGORY 2: EXTREME NUMERICS, high and low. Each type's boundaries and the values just past
+-- them, plus the ones a peer reaches legally: 1e999 is VALID JSON and the relay forwards it, so
+-- inf arrives without anyone writing "inf". Reported rather than failed, because what the decoder
+-- returns is the truth about the wire -- the question this raises is what each adapter DOES with
+-- a non-finite extras value, and neither of them clamps most of them yet.
+local EXTREMES = {
+    "0", "-0", "1", "-1", "255", "256", "-1e-3",
+    "2147483647", "2147483648", "-2147483649", "9007199254740993",
+    "3.4028235e38", "1e300", "1e308", "1e309", "1e999", "-1e999", "1e-999",
+}
 -- A nested value of the given depth, which is what a peer can actually send: extras is bounded by
 -- SIZE (1024 bytes) and never by SHAPE, and a nested array costs about one byte per level, so
 -- several hundred levels fit inside a message the relay forwards without complaint.
@@ -330,6 +370,40 @@ for _, a in ipairs(ADAPTERS) do
     end
     report[#report + 1] = string.format("%s: accepts %d/%d non-strict input(s) -- leniency, not a fault", a.name, lenient, #LENIENT)
 
+
+    -- 2c. WRONG TYPE FOR EVERY FIELD (corpus category 1). These must DECODE, and decode to what
+    -- the JSON said. A decoder that quietly coerces is worse than one that refuses, because the
+    -- dispatch then guards a type that never arrives.
+    for line, want in pairs(WRONG_TYPES) do
+        local v, ok = mustTerminate(a.name, "wrong type", decode, line)
+        if ok then
+            if v == nil then
+                fail("%s: a wrong-typed but VALID line was refused: %s", a.name, line)
+            elseif not want(v) then
+                fail("%s: wrong-typed line decoded to something else: %s", a.name, line)
+            end
+        end
+    end
+
+    -- 2d. EXTREME NUMERICS (corpus category 2). Reported, not failed: what comes back is the truth
+    -- about the wire. 1e999 is valid JSON, so a peer reaches infinity without writing "inf" --
+    -- which is why the adapters, not the decoder, are where this has to be bounded.
+    local nonfinite = {}
+    for _, raw in ipairs(EXTREMES) do
+        local line = string.format('{"extras":{"v":%s}}', raw)
+        local v, ok = mustTerminate(a.name, "extreme number", decode, line)
+        if ok and type(v) == "table" and type(v.extras) == "table" then
+            local n = v.extras.v
+            if type(n) == "number" and (n ~= n or n == math.huge or n == -math.huge) then
+                nonfinite[#nonfinite + 1] = raw
+            end
+        end
+    end
+    if #nonfinite > 0 then
+        report[#report + 1] = string.format(
+            "%s: %d/%d extreme number(s) decode NON-FINITE (%s) -- valid JSON, so an adapter must bound them",
+            a.name, #nonfinite, #EXTREMES, table.concat(nonfinite, ", "))
+    end
     -- 3. Every truncation of every valid line. This is what found the original bug.
     for line in pairs(VALID) do
         for cut = 1, #line - 1 do

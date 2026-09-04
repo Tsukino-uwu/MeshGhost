@@ -84,6 +84,8 @@ internal static class BridgeFuzz
     {
         Control();
         Malformed();
+        WrongTypes();
+        Extremes();
         Depth();
         PeerStrings();
 
@@ -214,6 +216,141 @@ internal static class BridgeFuzz
         // than an assumed one, and so a Newtonsoft upgrade that changes it is visible here.
         Console.WriteLine("  TEVI: deepest nesting accepted = " + deepestAccepted +
                           " (deeper input is dropped, not crashed)");
+    }
+
+    // 5. WRONG TYPE FOR EVERY FIELD (shared corpus category 1, adapters/_template/README.md).
+    // Each field that should be a number arrives as a string, a bool, null, an array and an
+    // object, and each string field as a number and a container. The bar is only that DrainInto
+    // returns: rejecting a wrong-typed field is the adapter's job, crashing on one is nobody's.
+    // This is the category the Emerald gender bug lived in -- a table where a string was expected
+    // made the draw loop error every frame for every peer sorted after it.
+    private static void WrongTypes()
+    {
+        string[] lines =
+        {
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"player_id\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"area_id\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"position\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"extras\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"orientation\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"anim_time\":{}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":1}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":\"text\"}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":true}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":false}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":null}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":[1,2,3]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":{\"a\":1}}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":[]}}}",
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{\"temp_pause\":{}}}}",
+        };
+
+        foreach (string line in lines)
+        {
+            Survives("wrong type", line, out _);
+        }
+    }
+
+    // 6. EXTREME NUMERICS, high and low (shared corpus category 2). Type boundaries and the values
+    // just past them, plus the ones a peer reaches legally -- 1e999 is VALID JSON, so infinity
+    // arrives without anyone writing "inf". Newtonsoft's float cast turns out-of-range doubles and
+    // the "NaN"/"Infinity" strings into non-finite values WITHOUT throwing, which is why
+    // BridgeClient.FiniteOrNull exists; this asserts that guard actually holds rather than
+    // assuming it, for every shape a peer can send.
+    private static void Extremes()
+    {
+        string[] raws =
+        {
+            "0", "-0", "1", "-1", "255", "256", "-1",
+            "2147483647", "2147483648", "-2147483649", "9007199254740993",
+            "3.4028235e38", "3.4028236e38", "1e300", "1e308", "1e309", "1e999", "-1e999", "1e-999",
+            "\"NaN\"", "\"Infinity\"", "\"-Infinity\"",
+        };
+
+        int nonFinite = 0;
+        foreach (string raw in raws)
+        {
+            string line =
+                "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p\",\"state\":{" +
+                "\"position\":[0,0,0],\"extras\":{\"anim_time\":" + raw + ",\"temp_pause\":" + raw + "}}}}";
+            if (!Survives("extreme " + raw, line, out Drain d))
+            {
+                continue;
+            }
+            if (d.Rendered.Count == 1)
+            {
+                var st = d.Rendered[0].State;
+                foreach (float? v in new[] { st?.AnimTime, st?.TempPause })
+                {
+                    if (v.HasValue && (float.IsNaN(v.Value) || float.IsInfinity(v.Value)))
+                    {
+                        nonFinite++;
+                        Fail("extreme {0}: a non-finite value reached the callback -- FiniteOrNull " +
+                             "is meant to turn these into absent, and a NaN here freezes that " +
+                             "ghost's Animator", raw);
+                    }
+                }
+            }
+        }
+        Console.WriteLine("  TEVI: " + raws.Length + " extreme numeric form(s) fed; " + nonFinite +
+                          " reached a callback non-finite (want 0)");
     }
 
     // 4. PEER STRINGS STAY DATA. The property the ACE audit names: a peer-controlled string must

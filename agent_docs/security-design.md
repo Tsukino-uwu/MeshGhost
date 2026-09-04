@@ -801,8 +801,26 @@ numbers it already reads, instead of defending against arbitrary structure.
 those mean. That is the architecture working, not a workaround: the core is the trust boundary for
 *shape*, the adapter is the trust boundary for *meaning*. Crystal already does this correctly for
 `sprite` (`meshghost_crystal.lua:1359`, bounds 1-255 and refuses an implausible ROM pointer) and
-**not at all for `act`, `prog` and `face`, which are `tonumber`'d with no range check**
-(`:5084-5099`). The rule belongs in `_template/` so the next adapter starts with it.
+~~**not at all for `act`, `prog` and `face`, which are `tonumber`'d with no range check**
+(`:5084-5099`)~~. The rule belongs in `_template/` so the next adapter starts with it.
+
+> **CORRECTED 2026-09-04, and the correction is a lesson about how to audit.** That struck claim
+> was read off the READ SITES, and a read site is not a sink. Traced field by field to where each
+> value actually means something: `act` passes `ACTIONS.peer`, a seven-value allowlist, before any
+> write; `face` reaches `facingFrames.pose`, which handles it entirely by range test (`< 0x10`,
+> `== 0xFF`, `0x10..0x13`) and `& 3` masks and never indexes with the raw byte; `prog` is
+> overwritten by a locally computed `math.floor(along) % 16` on the moving path and elsewhere only
+> compared. `fly` reaches `iconGfx`, bounded to species 1-251; `emote` reaches `emoteGfx`, bounded
+> 0-11; `entry` is an equality test. **Emerald was audited the same day and is bounded too** --
+> every `tonumber` there is followed by an explicit range check on the next line, the three
+> boolean-ish fields are coerced with `~= 0`, and `gfx` is bounded inside `graphicsInfo` (integer,
+> 0-255, every ROM pointer validated before use).
+>
+> **So the layer-2 work this entry scoped for the two Lua adapters is largely already done**, and
+> doing it again would be churn with real regression risk against the 1:1 bar. What the audit
+> should have asked, and what the next one must: *where does this value END UP*, not *is there a
+> check on the line that reads it*. `tonumber` with a bound three lines later is bounded; a
+> beautifully checked read whose value then indexes a table is not.
 
 **Costs and risks.**
 

@@ -1618,6 +1618,55 @@ will be adding them after a peer finds them for you:
 None of this is a substitute for the core's bounds and none of it may make the core game-aware;
 it is the adapter's half of the same boundary. `docs/security.md` records what the core promises.
 
+
+### The adversarial corpus every adapter's harness owes
+
+**The user's bar, 2026-09-04:** *"test unintended high/low values, totally wrong and/or different
+inputs/input types. just things that could catch random and unexpected things or anything
+malicious"* — *"similar idea to how we test the Go server/client things"*.
+
+The Go side has 25 fuzz targets and its names say what a good one asserts: not "never panics" alone
+but a PROPERTY — `FuzzValidateStateIsStableAcrossTheWire`, `FuzzClampRatesAlwaysLandInRange`,
+`FuzzValidPositionsSurviveNarrowingToFloat32`. An adapter harness should read the same way.
+
+**Seven categories. Implement them in your adapter's own language; the list is the contract, the
+code is not shared.**
+
+1. **Wrong type for every field.** Each number field gets a string, a bool, `null`, an array and an
+   object; each string field a number and a container; each array a scalar. **This is the category
+   nobody covered until 2026-09-04**, and it is where Emerald's `gender` bug lived: a table where a
+   string was expected made the draw loop error every frame for every peer sorted after it.
+2. **Extreme numerics, high and low.** Each type's boundaries and the values just past them —
+   `255`/`256`, `2^31-1`/`2^31`, `FLT_MAX` and past it, `2^53+1` — plus non-finite values reached
+   the way a peer actually reaches them: `1e999` is VALID JSON and the relay forwards it, so
+   infinity arrives without anyone writing `inf`.
+3. **Absent, empty and null.** Every field missing; present but `null`; empty string, array, object.
+4. **Structural abuse.** Nesting past your cap and past the core's `MaxJSONDepth` (32); huge key
+   counts; a repeated key; a line at and past `MaxLineBytes`; `extras` at and past
+   `MaxExtrasBytes`; and **truncation of a valid line at EVERY byte offset** — that last one is
+   what found the 2026-08-25 BizHawk freeze and it costs nothing.
+5. **Encoding attacks.** Invalid UTF-8, lone and mispaired surrogates, embedded NUL, BOM, RTL
+   override, and `\uXXXX` forms of the characters that are syntactically meaningful.
+6. **Injection-shaped strings that must stay DATA.** Path traversal both slash directions, format
+   specifiers, and — in Lua — a pattern-special string (`%`, `[`, `-`), because `string.find`
+   treats its needle as a pattern unless `plain` is passed.
+7. **Sequences, not just single lines.** A malformed line followed by a valid one: the valid one
+   must still be processed. Plus rapid spawn/despawn/respawn of one `player_id`.
+
+**Three things to assert beyond "it returned":** the CONTROL still produces the right ANSWER; every
+out-of-range value lands inside its documented bound; and every peer string arrives as the string it
+was, so a future "sanitiser" shows up as a test failure rather than as two players unable to see
+each other.
+
+**Say in the harness header what a green tick does NOT mean.** These exist for the case the Go side
+cannot reach — a bridge that is not ours, or a core that is compromised or buggy. An adapter that is
+only safe when paired with a correct core is not safe.
+
+**And audit at the SINK, not the read site.** A 2026-09-04 audit reported both Lua adapters as
+leaving a dozen fields unbounded because their `tonumber` calls carry no check; every one of them is
+in fact bounded — on the next line, by a boolean coercion, or inside the function that finally uses
+it (`graphicsInfo`, `iconGfx`, `emoteGfx`, `pose`). The question is *where does this value END UP*,
+never *is there a check on the line that reads it*.
 ## Hard rules, restated (unchanged from [agent_docs/contract.md](../../agent_docs/contract.md))
 
 Root `CLAUDE.md` is always loaded and already carries the bridge-only rule and the
