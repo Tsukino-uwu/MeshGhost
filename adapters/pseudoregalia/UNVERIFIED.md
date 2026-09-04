@@ -2380,8 +2380,8 @@ the console is hidden by default.
 
 ### STILL BEING JUDGED, and all four are live-tunable rather than rebuilds
 
-The last build is **BUILT AND NOT DEPLOYED** — the game was running when it finished. Deploy
-`packaging/release/.../dlls/main.dll` to both installs before the next look. It carries:
+**DEPLOYED to both installs 2026-09-05**, with the tuning file set to the values below. Nothing to
+build before the next look — launch, record, judge. It carries:
 
 | Complaint | What was actually wrong | Setting |
 |---|---|---|
