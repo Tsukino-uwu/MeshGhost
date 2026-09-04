@@ -1740,6 +1740,65 @@ if (Test-Path $wfDir) {
         Report-Pass "every action used in $((Get-ChildItem -LiteralPath $wfDir -Filter *.yml).Count) workflow(s) is at one version"
     }
 }
+# ---------------------------------------------------------------------------
+Section "Every adapter has its own path-filtered workflow"
+
+# THE RULE (user, 2026-09-04): "if we add more adapters in the future, i only want them to get
+# tested whenever anything changes. so think this is just good hygiene to setup properly now."
+#
+# WHY A CHECK AND NOT A LINE IN _template/README.md. This exact rule was already true in spirit and
+# already broken in fact: lua.yml was path-filtered on '**.lua', which is right for the SYNTAX gate
+# it keeps and wrong for the bridge-decoder fuzz job it also held. Of the tracked .lua files, 22 are
+# Pseudoregalia PROBES and ~28 are dev-scripts, so editing a Pseudoregalia probe -- that adapter's
+# normal way of asking the game a question -- ran the POKEMON decoder fuzzers. Nobody noticed,
+# because an over-firing filter looks exactly like a passing one.
+#
+# Two directions, and the second is the one that would have caught the above:
+#   * every adapter must be COVERED by some adapter gate, so a new adapter cannot arrive untested;
+#   * an adapter gate may filter ONLY on adapters/** and its own workflow file, so a gate cannot
+#     silently widen into other adapters' trees.
+#
+# A LANGUAGE gate (lua.yml's luac pass, ci.yml's Go suite) is deliberately not an adapter gate and
+# is not checked here: it filters on a file extension, names no adapters/ path, and is repo-wide on
+# purpose.
+$wfDir2 = Join-Path $root ".github\workflows"
+$adapterDirs2 = @(& git ls-files | Where-Object { $_ -like 'adapters/*/documentation.md' -or $_ -like 'adapters/*/*/documentation.md' -or $_ -like 'adapters/*/*/*/documentation.md' } |
+                  ForEach-Object { $_ -replace '/documentation\.md$', '' } |
+                  Where-Object { $_ -notlike '*_template*' } | Sort-Object -Unique)
+if (-not (Test-Path $wfDir2) -or $adapterDirs2.Count -eq 0) {
+    Report-Fail "no workflows or no adapters found -- this check would pass vacuously"
+} else {
+    $gates = @{}
+    foreach ($wf in Get-ChildItem -LiteralPath $wfDir2 -Filter *.yml) {
+        $raw = Get-Content -Raw -LiteralPath $wf.FullName
+        $paths = @([regex]::Matches($raw, "(?m)^\s+-\s+'([^']+)'\s*$") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
+        if (@($paths | Where-Object { $_ -like 'adapters/*' }).Count -gt 0) { $gates[$wf.Name] = $paths }
+    }
+    $probs = @()
+    foreach ($name in $gates.Keys) {
+        $own = ".github/workflows/$name"
+        $stray = @($gates[$name] | Where-Object { $_ -notlike 'adapters/*' -and $_ -ne $own })
+        if ($stray.Count -gt 0) {
+            $probs += "$name is an adapter gate but also filters on $($stray -join ', ') -- an adapter gate may name only adapters/** and its own file"
+        }
+    }
+    foreach ($a in $adapterDirs2) {
+        $covered = @($gates.Keys | Where-Object {
+            $g = $gates[$_]
+            @($g | Where-Object { $p = ($_ -replace '/\*\*$', ''); $a -eq $p -or $a -like "$p/*" }).Count -gt 0
+        })
+        if ($covered.Count -eq 0) {
+            $probs += "$a has no path-filtered workflow -- add one gated on its own tree (see adapters/_template/README.md)"
+        }
+    }
+    if ($probs.Count -gt 0) {
+        Report-Fail "$($probs.Count) adapter-workflow problem(s):"
+        $probs | Sort-Object | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "all $($adapterDirs2.Count) adapter(s) are covered by $($gates.Count) path-filtered gate(s), none broader than its own tree"
+    }
+}
+
 
 # ---------------------------------------------------------------------------
 Section "Leftover scaffolding"

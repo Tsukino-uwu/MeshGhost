@@ -1561,6 +1561,33 @@ The carve-out is narrow, and each clause is load-bearing:
 useful to the adapter, that is the memory-write gate in `agent_docs/plans.md`, with an ADR — not a
 file move.
 
+## Hard rule: your adapter owns exactly ONE workflow, path-filtered to its own tree
+
+**The user's rule, 2026-09-04:** *"if we add more adapters in the future, i only want them to get
+tested whenever anything changes. so think this is just good hygiene to setup properly now."*
+
+**Every adapter gets its own `.github/workflows/<name>.yml`**, and it filters on `adapters/<name>/**`
+plus its own workflow file, with `workflow_dispatch` and `permissions: contents: read`. Copy
+`tevi.yml`, `emulator.yml` or `pseudoregalia.yml` — after 2026-09-04 all three are the same shape,
+which is what makes the fourth a copy rather than a design.
+
+**Path filters are per WORKFLOW, not per job**, so a job that needs a narrower filter than its
+neighbours needs its own file. That is not a style preference; it is the only mechanism available.
+
+**A LANGUAGE gate is the one thing that may be repo-wide, and the distinction is worth getting
+right.** `lua.yml` compiles every tracked `.lua` and `ci.yml` runs the Go suite: both filter on a
+file extension, name no adapter, and are meant to fire broadly. An ADAPTER gate never is.
+
+**This was broken in exactly the way it is easy to break.** `lua.yml` held both a syntax gate and
+the Pokemon bridge-decoder fuzzers under one `**.lua` filter. Of the tracked `.lua` files, 22 are
+Pseudoregalia probes and ~28 are dev-scripts — so editing a Pseudoregalia probe, which is that
+adapter's ordinary way of asking the game a question, ran the *Pokemon* fuzzers. Nobody noticed for
+the obvious reason: **an over-firing filter looks exactly like a passing one.** Split into
+`emulator.yml` on 2026-09-04.
+
+**`dev-scripts/preflight.ps1` enforces both halves** — an adapter with no gate, and a gate that has
+widened past its own tree. Both directions were verified by making them fail, not by assuming.
+
 ## Hard rule: every field in a `render_remote` came from a stranger — treat it that way
 
 The core bounds what it forwards (sizes, finite positions, a roster cap of 512 ids, sanitized

@@ -100,6 +100,7 @@ Read these when you reach them, not up front:
 | driving the running game yourself | `agent_docs/playing.md` |
 | writing the adapter's own README | `_template/README.md`, "Writing the new adapter's own README" |
 | adding a compile-time switch | `adapters/_template/FLAGS.md` |
+| wiring the adapter's CI | `_template/README.md`, "your adapter owns exactly ONE workflow" |
 
 ## The two that decide whether it ships
 
