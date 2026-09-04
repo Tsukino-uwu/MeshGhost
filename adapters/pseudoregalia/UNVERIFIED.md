@@ -96,13 +96,43 @@ on a save that has not picked up the Dream Breaker. True there is the whole answ
 ask it without a rebuild (`../CLAUDE.md`: hot reload is the default loop), and the adapter already
 logs this value under `WEAPON_SYNC_TRACE`.
 
-**A SECOND, DIFFERENT QUESTION IS TANGLED WITH IT AND MUST NOT BE ANSWERED BY ACCIDENT.** Even with
-the property read correctly, a clip recorded WITH the sword and played back on a save WITHOUT it
-would still show one -- because that is what the recording says happened. Whether a replay ghost
-should reproduce the run it recorded, or be filtered through the viewer's own progression, is a
-design decision for the user and is NOT a defect on its face. The two have different fixes and only
-the first is unambiguously a bug, so **which scenario was actually seen decides which of these is
-being fixed.** Asked, not assumed.
+**SCENARIO CONFIRMED BY THE USER, 2026-09-04: the clip was recorded BEFORE the pickup.** So this is
+not faithful playback of a run that had the sword -- the recording was made on a save with no Dream
+Breaker and the ghost wears one anyway. **A straight bug, and on the SEND side**, exactly where the
+reading above pointed.
+
+**THE MECHANISM THAT NOW FITS, and it explains why the player and their own ghost disagree.** If
+`weaponEquipped?` reads true before the pickup -- plausible for a flag whose real job is "not
+currently thrown" -- then the local player carries it true while no sword is on screen, because
+their sword is absent for a DIFFERENT reason (they have not got one). The adapter then sends `1`,
+and the receive side does not merely write a property: it CALLS the game's own
+`changeEquippedWeapon`/`updateWeaponEquip` on the ghost. Those are the pickup path. So the ghost is
+told to equip a weapon it should not have, and does, while the player's own pawn never ran that
+path. **The two characters differ because one had a function called on it.**
+
+If that holds, `weaponEquipped?` alone is the wrong signal and a second one is needed: whether this
+character actually HAS the Dream Breaker. That is a progression/unlock fact and its field is not
+identified anywhere in this repo yet -- finding it is the work, and it is a probe question.
+
+**Two measurements, in this order, both cheap and neither needing a rebuild** (`../CLAUDE.md`: hot
+reload is the default loop):
+
+1. **Read the local player's `weaponEquipped?` on a save that has not picked up the sword.** True
+   there is the whole diagnosis. `WEAPON_SYNC_TRACE` already logs this value, so it may not even
+   need a probe.
+2. **If it is true, find the field that distinguishes "owns the Dream Breaker" from "is holding
+   it".** `PLAYER_FIELDS.md` lists `weaponRef`, `WeaponMesh` and the `spawnWeapon`/`recallWeapon`/
+   `changeEquippedWeapon` functions around this state; an unlock flag is likely a separate save-backed
+   bool on the pawn or the GameInstance. Enumerate what you can NAME rather than walking reflection
+   blindly (`../CLAUDE.md`).
+
+**THE DESIGN RULE, settled by the user the same day, and it is wider than this bug:** *"recordings
+should be identical to when they were recorded. the state of the current player is irrelevant to
+that"*. So a replay ghost is never filtered through the viewer's progression -- no hiding gear the
+watcher has not unlocked, no config toggle for it. That closes the second question this entry
+raised, and it decides `outfit_mesh` the same way. **It also sharpens what the fix must be:** the
+answer is to record the RIGHT value, never to suppress a recorded one at playback.
+
 
 **Related and worth checking in the same pass:** `outfit_mesh` rides the same envelope and is the
 same class of question (a peer-named asset resolved through the catalog gate), so an outfit the

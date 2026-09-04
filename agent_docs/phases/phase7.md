@@ -2290,3 +2290,52 @@ were verified by making them fail. The rule and the seven-category corpus are bo
 `_template/README.md`, and `/new-adapter` points at the workflow rule while CI is being wired.
 
 **Still open, named rather than dropped:** corpus categories 3-7 on the three older harnesses.
+
+## 2026-09-04 (evening) — two replay faults reported, both traced by reading, neither fixed
+
+Both came from playing rather than from testing, and in both the user's first guess pointed at the
+render while the reading points upstream. Neither is reproduced or measured by the agent; both are
+OPEN in `UNVERIFIED.md`.
+
+**1. Dust VFX in wrong places after a replay ghost restarts or loops.** A tester added the half that
+named the cause: *"seems to be somewhat related to the height of ghost sybil when it despawns"*.
+`observed_world_offset_z[]` is LEARNED at runtime from the local player's own effect, is file-scope
+rather than per-peer by design, and is never reset. The detection pass excludes components we
+spawned on a ghost — but the exclusion set is built by walking `remotes`, so it only covers ghosts
+that still EXIST, while a fire-and-forget burst outlives the tick that spawned it. On a despawn the
+entry is erased and its still-live dust falls outside the exclusion, so `dz` can be measured from
+the player to a GHOST's dust and written into a value every later burst uses.
+
+**And it is not only loop/restart.** Asked whether backward/forward hit it too, the core says yes by
+the identical path: `replayPlayer.seam` is drop → wait a render tick → re-admit, and it has four
+callers — every seek, the loop, **a recorded gap longer than `replayGapSeamMs`**, and a clock
+step-back. The third fires during ordinary playback with nobody touching a key, which makes this
+much more reachable than the report suggested.
+
+The user's instinct — reset the ghost wherever it jumps — is right and **fixes exactly half**:
+per-ghost state (`vfx_counts`, the `last_seen_*` counters) should reset on release, but the
+exclusion list and the observed offset are NOT per-ghost, and erasing the entry is precisely what
+causes the leak. Both, or neither.
+
+**2. A replay ghost wears the Dream Breaker from a clip recorded before the pickup.** User-confirmed
+scenario, so it is a straight bug rather than faithful playback. **The show/hide path is ruled out by
+reading**: the apply gate is `!weapon_equip_call_armed || target != last_synced` with `armed`
+starting false, so the first tick always applies; `WEAPON_SYNC_INVERT` is off; an absent field parses
+to 0. The suspect is the SEND side — `PLAYER_FIELDS.md:264` already records that `weaponEquipped?`
+means the sword is IN HAND rather than owned, and nothing here establishes what it reads before the
+pickup. If it is true then, the recording faithfully carries the wrong value, and the receive side
+does not merely write a property — it CALLS `changeEquippedWeapon`, the game's own pickup path, on
+the ghost. That would explain why the player and their own ghost disagree: one had a function called
+on it.
+
+**A DESIGN RULE CAME OUT OF THE SECOND ONE and is now in `_template/README.md`.** The user:
+*"recordings should be identical to when they were recorded. the state of the current player is
+irrelevant to that"*. So a replay is never filtered through the watcher's progression, no toggle for
+it, and the same answer covers `outfit_mesh` and every field added later. The consequence worth
+having in writing: **if a replay shows something it should not, the fault is in what was RECORDED,
+never in what playback chose to show** — which also rules out the tempting fix here (hide the sword
+when the watcher has none), since that would have concealed the real defect.
+
+**Method note for both:** the useful move each time was to read the code for what it ACTUALLY does
+and report what that rules OUT, rather than to accept the reported location. Two guesses at the
+render, two causes upstream.

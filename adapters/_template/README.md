@@ -1588,6 +1588,28 @@ the obvious reason: **an over-firing filter looks exactly like a passing one.** 
 **`dev-scripts/preflight.ps1` enforces both halves** — an adapter with no gate, and a gate that has
 widened past its own tree. Both directions were verified by making them fail, not by assuming.
 
+## Hard rule: a recording reproduces WHAT WAS RECORDED — the watcher's own state is irrelevant
+
+**The user, 2026-09-04:** *"recordings should be identical to when they were recorded. the state of
+the current player is irrelevant to that"*.
+
+A replay ghost renders the state in the clip. It is **never** filtered through the local player's
+progression, save, unlocks or settings — a watcher who has not earned the Dream Breaker still sees
+it on a ghost that had it, and that is correct rather than a spoiler to be suppressed. The same
+answer covers the outfit, and every field added later: **do not add a "hide what the viewer has not
+unlocked" mode, and do not add a toggle for one.**
+
+**The consequence that matters when something looks wrong**, and it is why this is a rule rather
+than a preference: if a replay ghost shows something the recording should not have contained, the
+fault is in **what was RECORDED**, never in what playback chose to show. Fix the sample, not the
+render. Suppressing a recorded value at playback would make the clip disagree with the run it
+claims to be a record of, which is the one thing a recording may not do.
+
+**Live case, 2026-09-04:** a ghost wore the Dream Breaker from a clip recorded before the pickup.
+The tempting fix — hide the sword when the watcher has not got one — is exactly the rule above being
+broken, and it would have hidden the real defect (the wrong value being SENT, because
+`weaponEquipped?` means "in hand" rather than "owned"). `pseudoregalia/UNVERIFIED.md` has the trail.
+
 ## Hard rule: every field in a `render_remote` came from a stranger — treat it that way
 
 The core bounds what it forwards (sizes, finite positions, a roster cap of 512 ids, sanitized
