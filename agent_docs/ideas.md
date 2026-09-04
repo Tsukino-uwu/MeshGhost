@@ -2680,3 +2680,49 @@ changes, exactly as `session_policy` already is. The description `ReplayControl`
 same payload an event version would carry, so either way that half exists. Adding a bridge message
 needs an ADR.
 
+
+## An INPUT plane: record what a player pressed, not only what their character did (filed 2026-09-04)
+
+**The user's question, and it is a good one because it names a real gap:** *"could you learn how to
+play a game by watching a recording i have done?"* — no, and the reason is structural rather than a
+missing feature. **A recording holds STATE, never INPUT.** Position, orientation, `anim`, the extras
+flags, at the send rate: it is the shadow, not the hands. You can read the route, the timings and
+the order a run did things in; you cannot read which button produced any of it, and nothing in
+`contract.md` carries one. The user's follow-up is this entry: *"could this be a potential future
+feature we can put in ideas? seperated from the replay ghost things"* — and separate is right, this
+is not a replay improvement.
+
+**What an input plane would actually be good for**, in rough order of how likely each is to survive
+contact with the rules:
+
+1. **A run that can be re-DRIVEN rather than re-drawn.** Today a replay ghost is painted from
+   sampled state. Inputs fed to the game's own character would produce the movement the game itself
+   computes — which is the project's standing preference (*"let the game do the work"*), and would
+   make a ghost exactly as capable as a player by construction rather than by mirroring field after
+   field.
+2. **A regression test nobody has to play.** Half the defects in this adapter were found by a person
+   walking a specific route with a specific weapon state. A recorded input track plus a deterministic
+   start is a repeatable one — the thing this repo currently cannot automate and pays for in live
+   cycles.
+3. **Honest verification of a mirror.** Drive the same inputs on two machines and diff the resulting
+   STATE: any divergence is either the game's non-determinism or ours, and today we cannot tell those
+   apart at all.
+
+**Why it is not simply "add a field", and what has to be answered first:**
+
+- **Playback means WRITING to the game.** Feeding inputs to a pawn is not a cosmetic act; it is the
+  clearest possible instance of the line `CLAUDE.md` draws. A ghost driven by inputs is fine — it is
+  ours. Anything that could drive the LOCAL player is not, and the two live one bug apart.
+- **Determinism is the whole question, and it is per game.** Inputs only reproduce a run if the game
+  is deterministic from a known start. A UE5 platformer with variable frame timing very likely is
+  not, and *"the inputs replay but the run diverges"* is worse than no feature: it looks like a bug
+  in everything else. **Measure this before designing anything** — same inputs, same start, twice,
+  diff the state stream.
+- **Capturing input is a different hook from reading state**, and on some hosts a harder one. What
+  is legitimately readable per host is unanswered.
+- **It is a new plane, so it needs an ADR** (`beyond-cosmetic.md` for where it sits) — and it is not
+  a Tier-0 feature however it is implemented.
+
+**NOT scheduled, and deliberately not attached to any replay work.** Filed so the distinction the
+user drew — state versus input — is written down rather than re-derived the next time someone asks
+why a ghost cannot be learned from.
