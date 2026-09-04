@@ -374,3 +374,16 @@ per-key delta encoding (ADR 0051), and both bridge-driving fuzz targets moved of
 advance-until-quiescent helper is still unbuilt. One thing sharpened the need again — the fuzz
 targets now run ~25x more executions per campaign, which makes the wall-clock-gated chaser seam the
 remaining thing a campaign cannot reach.
+
+## 2026-09-04 (late) — the last of the session, still Phase 11's
+
+Four more commits to `core` and `cmd`, none of them virtual-clock work: `replay/active` reads
+`.zip` (and a zip of several clips is several ghosts), a half-written final line loses that line
+rather than the whole recording, `FuzzEverything` grew zip coverage, and the chaser ships
+unlabelled. All in [phase11.md](phase11.md), 2026-09-04.
+
+**One of them is worth a pointer from here**, because it is about this phase's own instrument: the
+truncation bug lived inside an op ORDER `FuzzEverything` already generates and was never found,
+because it also needed 64KiB of recording before the writer's buffer flushed mid-line. A fuzz
+target explores order well and scale badly — `testing.md`'s Traps now says so, and it is the same
+shape as this phase's open item, where a compressed clock cannot reach a wall-clock threshold.

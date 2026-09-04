@@ -16,6 +16,11 @@ on:
         required: false
         type: boolean
         default: false
+      highlights:
+        description: 'What this release is ABOUT, in a few bullets. Appears above the generated changelog; leave empty for the changelog alone.'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -331,7 +336,13 @@ jobs:
             MeshGhost-full-${{ inputs.version }}.zip
             MeshGhost-linux-server-client-${{ inputs.version }}.tar.gz
             MeshGhost-macos-server-client-${{ inputs.version }}.tar.gz
-          # No body of our own. A hash table lived here briefly on 2026-08-18 and was removed
+          # The few lines a person writes about what this release is FOR, above the
+          # generated list of commits. Optional: empty means the changelog alone, which
+          # is what every release before v1.1.0 shipped with. It is an input rather than
+          # anything stored in the repo so the text belongs to the release being made,
+          # and so nobody has to edit a published release afterwards to add it.
+          body: ${{ inputs.highlights }}
+          # No hash table of our own. One lived here briefly on 2026-08-18 and was removed
           # the same day: GitHub already computes and displays a sha256 digest for every uploaded
           # asset, right next to its download button, and exposes the same value on the API. The
           # table restated what the Assets list was already showing. The audit that prompted it
