@@ -8,7 +8,7 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not `PROBES.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Sixteen directories, twenty-five
+— there is no single `probes/` folder to index from the inside. Seventeen directories, twenty-six
 scripts, one index (2026-09-04 count, measured not incremented; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -347,3 +347,36 @@ are printed so they can disagree out loud. It reads three NAMED meshes, so an au
 fourth component nobody has named would leave three clean readings and the glow still on screen.
 
 **Cost:** one object-space walk over one class at 2Hz. Read-only. Unload it before judging anything.
+
+## `probe_leakcount/` — does anything stay resident after a ghost leaves (2026-09-04)
+
+**The question, and it is the user's:** the ground looks clean after a ghost despawns, *"but might
+be the same like ghosts being stuck in garbagecollection after leaving?"*
+
+**Why a population count is the right instrument and our own log is not.** The adapter's despawn
+cleanup hides, stops, then destroys each world-spawned effect, and **hiding is what removes a thing
+from the screen** — so a clean floor proves the first step ran and says nothing about the third. The
+adapter's own counter reported `0 destroyed` while the user watched a ring vanish, which is exactly
+the case where our bookkeeping is the thing in doubt. So ask the ENGINE how many objects exist:
+`FindAllOf` on a class, once a second, printing current / peak / trough.
+
+**Peak AND trough travel with every line, deliberately.** A single current value cannot show a leak:
+what a leak does is push the peak up and stop the trough from coming back. One number hides both.
+
+**How it is driven, with no game restart:** kill `meshghost.exe`. The adapter respawns it, the
+replays reload, and every ghost despawns and respawns — one despawn per ghost per cycle. Three
+cycles is enough to see a trend.
+
+**What it measured on its first run** (three cycles, then 90 seconds idle): `NiagaraComponent`
+61 -> 74 -> 67, `BP_PlayerGoatMain_C` 1 -> 4 -> 1. **The pawns collect; the effects do not** — about
+two per despawn. Full entry in `UNVERIFIED.md`.
+
+**What it CANNOT see:** it counts a CLASS, not ownership, and the game spawns its own effects
+constantly — so the baseline is one instant, not a measured floor, and a single reading proves
+nothing. It also cannot say WHICH component is ours; if it says "leak", the next instrument names
+them. UE frees on its own schedule, so a count that stays high for seconds is not yet a leak — one
+that stays high across several cycles is.
+
+**Cost:** two `FindAllOf` calls a second, read-only, printing only on change. **It was the first
+probe to load through `probe_scratch/`'s slot** — written, deployed and answering inside a running
+game in about a minute, which is the loop that slot exists to make possible.

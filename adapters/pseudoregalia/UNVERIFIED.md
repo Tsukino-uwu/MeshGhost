@@ -2293,3 +2293,33 @@ ghost sybil when it despawns"* has a sibling cause that needs no despawn.
 **The fix, written and waiting on a rebuild:** learn it only when `newly_seen` is true — the one
 sample where the component did not exist before, which is exactly when the effect is where the game
 just put it. That flag is already computed one line above for the burst counter.
+
+## [OPEN] MEASURED 2026-09-04 -- the cleanup's own log line reports numbers the code cannot produce
+
+**A note on the entry above, because it changes what that evidence is worth.** `VFXCLEANUP ...: 0
+world-spawned component(s) destroyed, 0 already gone` is **not a possible output of the function
+that prints it**, and that was established by reading it line by line rather than by theorising:
+
+- It returns BEFORE logging when the candidate list is empty, so a printed line means candidates
+  existed.
+- Every candidate then takes one of two branches: not in the live set (`++already_gone`) or live
+  (hidden, stopped, and `++destroyed` if `DestroyComponent` resolves).
+- **`DestroyComponent` DOES resolve on this build** — measured with `probe_leakcount/verbs.lua`,
+  existence-only, no call: `YES` on every NiagaraComponent sampled, alongside
+  `K2_DestroyComponent`, `SetAutoDestroy` and the rest.
+
+So zero-and-zero cannot happen. **The leading suspect is now the LOG LINE, not the cleanup** — a
+format call that mis-binds its arguments and prints zeros whatever the counters hold. That is worse
+than the bug it was written to investigate: a diagnostic that always reads zero is indistinguishable
+from a path that never ran, and conclusions were already being drawn from it here.
+
+**What settles it, already written and waiting on a rebuild:** the line prints `wanted.size()` too.
+If the candidate count also reads `0` while components are demonstrably being torn down, the
+formatter is the liar; if it reads a real number, the branch logic is.
+
+**An instrument-versus-instrument disagreement worth having in writing:** Lua reports
+`DeactivateImmediate` as present, while the adapter's C++ `GetFunctionByNameInChain` concluded it is
+absent on this same build and fell back to plain `Deactivate` (logged, 2026-09-04, and a whole
+comment in `Plugin.cpp` rests on it). Two lookup mechanisms, one build, opposite answers. Neither is
+established as right yet — and the C++ side's conclusion is load-bearing for the glow teardown, so
+this is worth an hour before anything else trusts either lookup.
