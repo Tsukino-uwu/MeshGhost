@@ -107,11 +107,53 @@ counter restarts, bursts are suppressed until the count climbs past the pre-loop
 That predicts dust that is first MISSING after a loop and then reappears — at the wrong offset, from
 the mechanism above.
 
+**IT IS NOT ONLY LOOP AND RESTART — and this was checked in the core rather than guessed
+(2026-09-04, prompted by the user asking whether backward/forward hit it too).** The answer is yes,
+by the identical code path, and the set is wider than either report.
+
+`replayPlayer.seam` (`core/replay.go:522`) is `dropLocalPeer` -> wait one render tick so the
+`despawn_remote` actually reaches the adapter -> `admitLocalPeer`. **A despawn is the precondition
+for the offset poisoning above**, so everything that seams is a candidate. There are four callers:
+
+| Seam | Triggered by |
+|---|---|
+| `:598` | **every seek** -- `restart`, `rewind`, `fast_forward` alike; `seek` ends with `return p.seam(tag)` |
+| `:632` | the loop's end-to-start |
+| `:644` | a recorded gap longer than `replayGapSeamMs`, or a `forcedSeam` from `skip_gaps` |
+| `:666` | the clock stepping back, e.g. a relay session reset mid-replay |
+
+The file's own header states the design plainly: anything that must look like a jump *"is a leave and
+a rejoin: drop the peer, wait one render tick so the despawn reaches the adapter, admit it again"*.
+That is correct for the interpolation buffer -- it is what stops a jump being blended into a glide --
+and it is exactly what strands a fire-and-forget component outside the exclusion set.
+
+**So the third row matters most for reproducing it: a recorded loading screen or a long menu seams
+during ORDINARY PLAYBACK, with nobody touching a key.** That makes this reachable well beyond
+"after restarting/looping", and it may be why it was noticed by a tester rather than in a
+deliberate test.
+
+**THE USER'S INSTINCT IS RIGHT AND FIXES EXACTLY HALF, WHICH IS THE part worth writing down.** Their
+reading: *"anything that moves the ghost around a bit is probly good to properly reset the ghost
+at"*. `seam()` is already the single concept for "the ghost jumped", so it is the right hook. But
+the two mechanisms need opposite things:
+
+- **Per-ghost state -- `vfx_counts`, the `last_seen_*` counters -- SHOULD be reset when a ghost is
+  released.** That is mechanism two, and resetting on release closes it.
+- **The exclusion list and `observed_world_offset_z` are NOT per-ghost, and resetting the ghost
+  makes that half no better -- erasing the entry is what CAUSES the leak.** The component outlives
+  the `remotes` entry, so the exclusion has to outlive it too.
+
+Doing the easy half and calling it done would leave the poisoning untouched while removing the
+symptom that made it visible. Both, or neither.
+
 **How to settle it, cheapest first:**
 
-1. **Read the log across a loop.** `MIRRORVFX ghost ... burst 'dl' (count=N)` lines: does N go
-   backwards or stall after the restart? That confirms or kills the counter half on its own, with no
-   game watching needed beyond one recorded session.
+1. **Read the log across a seam.** `MIRRORVFX ghost ... burst 'dl' (count=N)` lines: does N go
+   backwards or stall after it? That confirms or kills the counter half on its own, with no game
+   watching needed beyond one recorded session. The core logs every seek (`core: replay <file>:
+   rewind -> ... into the clip`), so the two logs line up on a timestamp. **A rewind is the cheapest
+   trigger to drive deliberately** -- a loop needs the clip to run out, a recorded gap needs the
+   right recording, and a rewind is one keypress.
 2. **Log `observed_world_offset_z[dl]` whenever it CHANGES**, with the actor it was measured
    against. If it moves at a loop point, the poisoning is confirmed and the value tells you by how
    much. This is the decisive measurement and it is a one-line diagnostic.
