@@ -55,11 +55,24 @@ the game**, or you end up with an adapter that can read perfectly and cannot sho
    - <https://gamebanana.com/mods/697699>
    - <https://github.com/TheAzack9/SMSCoop>
 
-   **Unknown for both: whether they work, what state they are in, what they actually do
-   (co-op? presence? lockstep?), and their licences.** Neither has a `licensing.md` row, so
-   under this repo's standing rule **neither may be read as a reference until its licence has
+   **A third, supplied 2026-09-04 and also not opened:**
+   - <https://github.com/Daytendo64/Better-Super-Mario-Sunshine-Online-BSMSO->
+
+   The user's read of it: *"looks like super mario sunshine already have a proper online mod"*.
+   Nothing here confirms that — the repo has not been fetched and its name is not a measurement.
+   **But if it does work, it is evidence against the blocker in step 2 rather than another entry
+   in step 1**: an online mod that shows other players on a GameCube game has, by definition,
+   solved putting something on the screen. So the first question to take to it is not "what does
+   it sync" but **"where does it RUN and how does it DRAW"** — a Dolphin script, a Dolphin fork, a
+   DLL injected into the emulator, or something on the game side entirely. That answer is worth
+   more to this project than anything about the game itself, and it may not be about Dolphin at
+   all.
+
+   **Unknown for all three: whether they work, what state they are in, what they actually do
+   (co-op? presence? lockstep?), and their licences.** None has a `licensing.md` row, so
+   under this repo's standing rule **none may be read as a reference until its licence has
    been checked** — and the check reads the project's own `LICENSE` file, not a GitHub badge,
-   per the Archipelago and GBA-PK entries where badge and file disagreed. If either turns out
+   per the Archipelago and GBA-PK entries where badge and file disagreed. If any turns out
    to be a real working co-op mod, that is both a source of facts and a reason to revisit the
    pitch, since "presence between independent runs" is a different product from co-op and the
    difference should be stated rather than assumed.
