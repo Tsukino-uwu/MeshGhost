@@ -8592,7 +8592,7 @@ namespace MeshGhostPseudo
         if (remote.target_weapon_state != remote.last_synced_weapon_state)
         {
             remote.last_synced_weapon_state = remote.target_weapon_state;
-            const auto new_state = static_cast<uint8_t>(remote.target_weapon_state);
+            const auto new_state = clamp_to_uint8(remote.target_weapon_state);
             // The sword's own landing dust, at the landing (2026-09-01). The game world-spawns
             // NS_DustLand where the real sword lands; the sender now excludes it from the
             // player's `dl` counter (it played at the ghost's feet before -- user-reported), and
@@ -8690,7 +8690,7 @@ namespace MeshGhostPseudo
         // sample's error ("not fully centered", user 2026-09-01). Re-seated from the live target
         // every tick while landed -- one reflected call, zero when nothing is landed.
         if (remote.weapon_glow_component &&
-            static_cast<uint8_t>(remote.target_weapon_state) == LANDED_WEAPON_STATE)
+            clamp_to_uint8(remote.target_weapon_state) == LANDED_WEAPON_STATE)
         {
             constexpr double WEAPON_GLOW_FLOOR_DROP_TICK = 38.0;
             const FVector glow_seat(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_GLOW_FLOOR_DROP_TICK);
@@ -8723,7 +8723,7 @@ namespace MeshGhostPseudo
                              remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z,
                              remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z,
                              rel ? rel->X() : -1.0, rel ? rel->Y() : -1.0, rel ? rel->Z() : -1.0,
-                             static_cast<int>(remote.target_weapon_state));
+                             static_cast<int>(clamp_to_uint8(remote.target_weapon_state)));
             }
         }
     }
@@ -9440,7 +9440,13 @@ namespace MeshGhostPseudo
                         // simply ignored if it is not a number. A peer controls this string, so
                         // it is treated as data and never trusted to be well-formed.
                         const std::string number = remote.target_vfx.substr(key_end + 1, end - key_end - 1);
-                        if (!number.empty() && number.find_first_not_of("0123456789") == std::string::npos)
+                        // BOUNDED LENGTH, not just digits-only. The digit filter alone admits an
+                        // arbitrarily long run, so "dl:" followed by 400 nines passes it, strtod
+                        // returns +inf, and the count latches this key off permanently because
+                        // nothing can ever exceed it again. Ten digits is past any real counter and
+                        // keeps strtod inside a range int64 can hold. Found by peer_json_fuzz.
+                        if (!number.empty() && number.size() <= 10 &&
+                            number.find_first_not_of("0123456789") == std::string::npos)
                         {
                             wire_count = std::strtod(number.c_str(), nullptr);
                             have_count = true;
@@ -9516,7 +9522,7 @@ namespace MeshGhostPseudo
                     }
                 }
                 Output::send(STR("[MeshGhostPseudo] MIRRORVFX ghost {}: burst '{}' (count={})\n"),
-                             to_wide_ascii(player_id), to_wide_ascii(key), static_cast<int64_t>(wire_count));
+                             to_wide_ascii(player_id), to_wide_ascii(key), static_cast<int64_t>(clamp_count_to_int(wire_count, 0, 1000000000, 0)));
                 continue;
             }
 
@@ -9962,7 +9968,7 @@ namespace MeshGhostPseudo
         Output::send(STR("[MeshGhostPseudo] SPAWNWEAPON {} {}: peer thrown={} state={} equipped={} ourProp={} class='{}'\n"),
                      label, to_wide_ascii(player_id),
                      remote.target_weapon_thrown,
-                     static_cast<int>(remote.target_weapon_state),
+                     static_cast<int>(clamp_to_uint8(remote.target_weapon_state)),
                      remote.target_weapon_equipped,
                      static_cast<void*>(remote.weapon_actor),
                      to_wide_ascii(remote.target_weapon_class));
@@ -13221,18 +13227,52 @@ namespace MeshGhostPseudo
 
         if (type == "render_remote")
         {
-            std::string player_id = json_string_field(line, "player_id");
+            // RESOLVE THE OBJECTS ONCE, THEN READ NAMED MEMBERS OF THEM (2026-09-04).
+            //
+            // Every field below used to be found by searching the WHOLE line for its key and
+            // taking the first hit. MeshGhostPseudo.Tests/peer_json_fuzz.cpp showed three ways a
+            // peer beats that, all of them legal JSON the relay forwards untouched: an unescaped
+            // needle inside the raw "orientation" blob (which marshals BEFORE extras), a "prev"
+            // whose extras are read as current when this sample has none of its own, and a nested
+            // extras key that sorts ahead of the real one. PeerJson.hpp's header has the detail.
+            //
+            // An empty span makes every member lookup miss, so a malformed or absent object
+            // degrades to "field absent" -- which is the behaviour every reader below already
+            // handles, rather than a new failure mode.
+            size_t rb = 0, re = 0, pb = 0, pe = 0, sb = 0, se = 0, xb = 0, xe = 0;
+            const bool have_payload = json_root_body(line, rb, re) &&
+                                      json_object_member(line, rb, re, "payload", pb, pe);
+            const bool have_state = have_payload && json_object_member(line, pb, pe, "state", sb, se);
+            if (!have_state)
+            {
+                return; // state was null or malformed -- nothing to render this frame
+            }
+            if (!json_object_member(line, sb, se, "extras", xb, xe))
+            {
+                xb = xe = 0; // no extras on THIS sample: every extras read below reports absent
+            }
+
+            std::string player_id = json_string_member(line, pb, pe, "player_id");
             if (player_id.empty())
             {
                 return;
             }
             double x = 0, y = 0, z = 0;
-            if (!json_vec3_field(line, "position", x, y, z))
+            if (!json_vec3_member(line, sb, se, "position", x, y, z))
             {
                 return; // state was null or malformed -- nothing to render this frame
             }
+            // AND IT MUST BE FINITE. protocol.IsValidPosition already rejects non-finite and
+            // out-of-range positions at both the relay and the core, so this can only fire
+            // against a core that is not ours, or one that is compromised or buggy -- which is
+            // exactly the case the adapter-side checks exist for. An adapter that is only safe
+            // when paired with a correct core is not safe. Same fallback as a malformed triple.
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+            {
+                return;
+            }
             double pitch = 0, yaw = 0, roll = 0;
-            json_vec3_field(line, "orientation", pitch, yaw, roll); // best-effort, defaults to 0
+            json_vec3_member(line, sb, se, "orientation", pitch, yaw, roll); // best-effort, defaults to 0
             // sscanf's %lf accepts 1e999 (valid JSON, forwarded as-is) as inf, and an
             // inf/NaN here reaches FRotator on the raw path -- the bracketed path below
             // already guards its own triple. Same fallback as a missing field.
@@ -13260,9 +13300,9 @@ namespace MeshGhostPseudo
                 double from_pitch = 0, from_yaw = 0, from_roll = 0;
                 double to_pitch = 0, to_yaw = 0, to_roll = 0;
                 double interp_t = 0;
-                if (json_vec3_field(line, "orientation_from", from_pitch, from_yaw, from_roll) &&
-                    json_vec3_field(line, "orientation_to", to_pitch, to_yaw, to_roll) &&
-                    json_number_field(line, "interp_t", interp_t) &&
+                if (json_vec3_member(line, pb, pe, "orientation_from", from_pitch, from_yaw, from_roll) &&
+                    json_vec3_member(line, pb, pe, "orientation_to", to_pitch, to_yaw, to_roll) &&
+                    json_number_member(line, pb, pe, "interp_t", interp_t) &&
                     std::isfinite(from_pitch) && std::isfinite(from_yaw) && std::isfinite(from_roll) &&
                     std::isfinite(to_pitch) && std::isfinite(to_yaw) && std::isfinite(to_roll) &&
                     std::isfinite(interp_t))
@@ -13284,98 +13324,98 @@ namespace MeshGhostPseudo
             // Animation-state mirror (see verified.md's "ghost animation" entry) -- best-effort,
             // each defaults to 0 if missing (e.g. an older peer build without this field yet).
             double move_state = 0, action_state = 0, h_speed = 0, v_speed = 0, anim_jump_type = 0, movement_mode = 0;
-            json_number_field(line, "move_state", move_state);
-            json_number_field(line, "action_state", action_state);
-            json_number_field(line, "h_speed", h_speed);
-            json_number_field(line, "v_speed", v_speed);
-            json_number_field(line, "anim_jump_type", anim_jump_type);
-            json_number_field(line, "movement_mode", movement_mode);
+            json_number_member(line, xb, xe, "move_state", move_state);
+            json_number_member(line, xb, xe, "action_state", action_state);
+            json_number_member(line, xb, xe, "h_speed", h_speed);
+            json_number_member(line, xb, xe, "v_speed", v_speed);
+            json_number_member(line, xb, xe, "anim_jump_type", anim_jump_type);
+            json_number_member(line, xb, xe, "movement_mode", movement_mode);
             double land_count = 0, jump_count = 0;
-            json_number_field(line, "land_count", land_count);
-            json_number_field(line, "jump_count", jump_count);
+            json_number_member(line, xb, xe, "land_count", land_count);
+            json_number_member(line, xb, xe, "jump_count", jump_count);
             double afterimage_count = 0;
-            json_number_field(line, "afterimage_count", afterimage_count);
+            json_number_member(line, xb, xe, "afterimage_count", afterimage_count);
             double afterimage_n = 0;
-            json_number_field(line, "afterimage_n", afterimage_n);
+            json_number_member(line, xb, xe, "afterimage_n", afterimage_n);
             double capsule_half = 0;
-            json_number_field(line, "capsule_half", capsule_half);
+            json_number_member(line, xb, xe, "capsule_half", capsule_half);
             double slide_t = 1.0;
-            json_number_field(line, "slide_t", slide_t);
+            json_number_member(line, xb, xe, "slide_t", slide_t);
             // Trail colour -- absent for a peer on an older build, in which case the ghost simply
             // keeps whatever colour its own construction gave it (see afterimage_color_valid).
             double afterimage_color_r = 0, afterimage_color_g = 0, afterimage_color_b = 0;
-            bool has_afterimage_color = json_vec3_field(line, "afterimage_color",
+            bool has_afterimage_color = json_vec3_member(line, xb, xe, "afterimage_color",
                                                         afterimage_color_r, afterimage_color_g, afterimage_color_b);
             double weapon_equipped_num = 0;
-            json_number_field(line, "weapon_equipped", weapon_equipped_num);
+            json_number_member(line, xb, xe, "weapon_equipped", weapon_equipped_num);
             bool weapon_equipped = weapon_equipped_num != 0;
             // Bubble charged-jump flag (see the local half). Best-effort like every other extra: a
             // peer on an older build simply never sends it, leaving this false, which falls the
             // ghost back to the peer's in-bubble state -- today's behaviour, not a regression.
             double bubble_charged_num = 0;
-            json_number_field(line, "bubble_charged", bubble_charged_num);
+            json_number_member(line, xb, xe, "bubble_charged", bubble_charged_num);
             bool bubble_charged = bubble_charged_num != 0;
-            std::string outfit_mesh = json_string_field(line, "outfit_mesh"); // best-effort, empty if missing
+            std::string outfit_mesh = json_string_member(line, xb, xe, "outfit_mesh"); // best-effort, empty if missing
             // Montage mirror -- see RemoteGhost::target_montage. Both best-effort: a peer on an
             // older build simply sends neither, leaving montage_count at 0 forever, which never
             // fires anything.
-            std::string montage = json_string_field(line, "montage");
+            std::string montage = json_string_member(line, xb, xe, "montage");
             // Mirrored player effects -- a comma-joined list of KEYS from MIRRORED_EFFECTS,
             // never an asset path. See that table's comment for why the wire carries a key.
             // Best-effort like every other extra: a peer on an older build sends nothing, which
             // reads as "no effects active" -- i.e. exactly today's behaviour, not a regression.
-            std::string vfx_keys = json_string_field(line, "vfx");
+            std::string vfx_keys = json_string_member(line, xb, xe, "vfx");
             double montage_count_in = 0;
-            json_number_field(line, "montage_count", montage_count_in);
+            json_number_member(line, xb, xe, "montage_count", montage_count_in);
             double montage_stop_count_in = 0;
-            json_number_field(line, "montage_stop_count", montage_stop_count_in);
+            json_number_member(line, xb, xe, "montage_stop_count", montage_stop_count_in);
             // Thrown Dream Breaker -- see RemoteGhost::target_weapon_thrown. Best-effort like every
             // other extra: a peer on an older build sends none of these, leaving weapon_thrown
             // false forever, which is exactly today's behaviour (no thrown sword rendered at all),
             // not a regression.
             double weapon_thrown_num = 0;
-            json_number_field(line, "weapon_thrown", weapon_thrown_num);
+            json_number_member(line, xb, xe, "weapon_thrown", weapon_thrown_num);
             bool weapon_thrown = weapon_thrown_num != 0;
             // Cumulative bounce counter -- best-effort like every extra: an older peer sends
             // none and this stays 0, which the -1 baseline on the receive side reads as "no
             // bounces yet", never as a burst.
             double weapon_bounce_num = 0;
-            json_number_field(line, "weapon_bounce", weapon_bounce_num);
+            json_number_member(line, xb, xe, "weapon_bounce", weapon_bounce_num);
             // Blob-shadow visibility -- absent (older peer) reads as visible, the harmless side.
             double shadow_on_num = 1;
-            json_number_field(line, "shadow_on", shadow_on_num);
-            std::string weapon_class = json_string_field(line, "weapon_class");
+            json_number_member(line, xb, xe, "shadow_on", shadow_on_num);
+            std::string weapon_class = json_string_member(line, xb, xe, "weapon_class");
             double weapon_state_in = 0;
-            json_number_field(line, "weapon_state", weapon_state_in);
-            std::string weapon_glow = json_string_field(line, "weapon_glow");
+            json_number_member(line, xb, xe, "weapon_state", weapon_state_in);
+            std::string weapon_glow = json_string_member(line, xb, xe, "weapon_glow");
             double recall_glow_num = 0;
-            json_number_field(line, "recall_glow", recall_glow_num);
+            json_number_member(line, xb, xe, "recall_glow", recall_glow_num);
             bool recall_glow = recall_glow_num != 0;
             double weapon_x = 0, weapon_y = 0, weapon_z = 0;
-            bool has_weapon_pos = json_vec3_field(line, "weapon_pos", weapon_x, weapon_y, weapon_z);
+            bool has_weapon_pos = json_vec3_member(line, xb, xe, "weapon_pos", weapon_x, weapon_y, weapon_z);
 
             // Ranged projectile -- see MIRROR_PEER_PROJECTILE. Best-effort like every other extra:
             // a peer on an older build sends none of these and simply renders no shot.
             double projectile_num = 0.0;
-            json_number_field(line, "prj", projectile_num);
+            json_number_member(line, xb, xe, "prj", projectile_num);
             const bool projectile_active_in = projectile_num != 0;
-            const std::string projectile_vfx_in = json_string_field(line, "prj_vfx");
+            const std::string projectile_vfx_in = json_string_member(line, xb, xe, "prj_vfx");
             double prj_x = 0.0, prj_y = 0.0, prj_z = 0.0;
             double prj_pitch = 0.0, prj_yaw = 0.0, prj_roll = 0.0;
-            const bool has_prj_pos = json_vec3_field(line, "prj_pos", prj_x, prj_y, prj_z);
-            const bool has_prj_rot = json_vec3_field(line, "prj_rot", prj_pitch, prj_yaw, prj_roll);
+            const bool has_prj_pos = json_vec3_member(line, xb, xe, "prj_pos", prj_x, prj_y, prj_z);
+            const bool has_prj_rot = json_vec3_member(line, xb, xe, "prj_rot", prj_pitch, prj_yaw, prj_roll);
 
             // Death/respawn blink -- see MIRROR_PLAYER_BLINK. A counter, not a flag, for the same
             // reason the montage and land/jump pulses are counters: the blink is shorter than the
             // send interval and a level would be missed between samples.
             double blink_count_num = 0.0;
-            json_number_field(line, "blink_count", blink_count_num);
+            json_number_member(line, xb, xe, "blink_count", blink_count_num);
             double death_count_num = 0.0;
-            json_number_field(line, "death_count", death_count_num);
+            json_number_member(line, xb, xe, "death_count", death_count_num);
             double hurt_count_num = 0.0;
-            json_number_field(line, "hurt_count", hurt_count_num);
+            json_number_member(line, xb, xe, "hurt_count", hurt_count_num);
             double weapon_pitch = 0, weapon_yaw = 0, weapon_roll = 0;
-            bool has_weapon_rot = json_vec3_field(line, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll);
+            bool has_weapon_rot = json_vec3_member(line, xb, xe, "weapon_rot", weapon_pitch, weapon_yaw, weapon_roll);
 
             // Checked before ensure_ghost_spawned/ensure_ghost_hijacked, both of which insert a
             // default-constructed RemoteGhost via remotes[player_id] on their very first call for
@@ -13523,9 +13563,9 @@ namespace MeshGhostPseudo
                 it->second.target_slide_t = slide_t;
                 if (has_afterimage_color)
                 {
-                    it->second.target_afterimage_color[0] = static_cast<float>(afterimage_color_r);
-                    it->second.target_afterimage_color[1] = static_cast<float>(afterimage_color_g);
-                    it->second.target_afterimage_color[2] = static_cast<float>(afterimage_color_b);
+                    it->second.target_afterimage_color[0] = clamp_to_float(afterimage_color_r, -1024.0f, 1024.0f);
+                    it->second.target_afterimage_color[1] = clamp_to_float(afterimage_color_g, -1024.0f, 1024.0f);
+                    it->second.target_afterimage_color[2] = clamp_to_float(afterimage_color_b, -1024.0f, 1024.0f);
                     it->second.afterimage_color_valid = true;
                 }
                 // WEAPON_SYNC_INVERT (see its own comment): deliberately store the opposite of
@@ -13561,9 +13601,9 @@ namespace MeshGhostPseudo
                 // X offset is applied for the same reason it's applied to the ghost body: on a
                 // same-machine loopback the peer IS you, so without it the ghost's sword renders
                 // exactly inside your own and the two can't be told apart.
-                it->second.target_blink_count = static_cast<int>(blink_count_num);
-                it->second.target_death_count = static_cast<int>(death_count_num);
-                it->second.target_hurt_count = static_cast<int>(hurt_count_num);
+                it->second.target_blink_count = clamp_count_to_int(blink_count_num, 0, 1000000000, 0);
+                it->second.target_death_count = clamp_count_to_int(death_count_num, 0, 1000000000, 0);
+                it->second.target_hurt_count = clamp_count_to_int(hurt_count_num, 0, 1000000000, 0);
                 it->second.target_projectile_active = projectile_active_in && has_prj_pos && has_prj_rot;
                 if (it->second.target_projectile_active)
                 {
@@ -13628,14 +13668,23 @@ namespace MeshGhostPseudo
                     // And the same again for the 2026-08-27 counters, added when the save-swap
                     // flinch was fixed: a peer who has been hurt or has died before this ghost
                     // existed must not flinch or die-fade the instant it spawns.
-                    it->second.last_seen_blink_count = static_cast<int>(blink_count_num);
-                    it->second.last_seen_death_count = static_cast<int>(death_count_num);
-                    it->second.last_seen_hurt_count = static_cast<int>(hurt_count_num);
+                    it->second.last_seen_blink_count = clamp_count_to_int(blink_count_num, 0, 1000000000, 0);
+                    it->second.last_seen_death_count = clamp_count_to_int(death_count_num, 0, 1000000000, 0);
+                    it->second.last_seen_hurt_count = clamp_count_to_int(hurt_count_num, 0, 1000000000, 0);
                 }
             }
         }
         else if (type == "remote_name")
         {
+            // Payload-level reads, scoped for the reason render_remote's are -- see the
+            // comment there and PeerJson.hpp. Nothing here is known to be shadowable today,
+            // but display_name and color are peer-controlled strings and the cost is one line.
+            size_t rb = 0, re = 0, pb = 0, pe = 0;
+            if (!json_root_body(line, rb, re) || !json_object_member(line, rb, re, "payload", pb, pe))
+            {
+                return;
+            }
+
             // The peer's chosen label. Arrives once when they join (or, for peers already in the
             // room when this game launched, once when the core hands over what it already knew),
             // NOT every frame -- which is why it is its own message rather than a field on
@@ -13644,7 +13693,7 @@ namespace MeshGhostPseudo
             // Stored even when no ghost exists yet: the name can legitimately arrive before the
             // first state does, and dropping it would leave that peer unlabelled until they
             // reconnect. update_ghost_nametag applies it whenever the ghost turns up.
-            const std::string player_id = json_string_field(line, "player_id");
+            const std::string player_id = json_string_member(line, pb, pe, "player_id");
             if (player_id.empty())
             {
                 return;
@@ -13662,8 +13711,8 @@ namespace MeshGhostPseudo
                 }
             }
             Nametag& tag = nametags[player_id];
-            tag.name = json_string_field(line, "display_name");
-            tag.color = json_string_field(line, "color");
+            tag.name = json_string_member(line, pb, pe, "display_name");
+            tag.color = json_string_member(line, pb, pe, "color");
             Output::send(STR("[MeshGhostPseudo] pid={} remote {} nametag = \"{}\"{}\n"),
                          GetCurrentProcessId(),
                          to_wide_ascii(player_id),
@@ -13673,7 +13722,16 @@ namespace MeshGhostPseudo
         }
         else if (type == "despawn_remote")
         {
-            std::string player_id = json_string_field(line, "player_id");
+            // Payload-level reads, scoped for the reason render_remote's are -- see the
+            // comment there and PeerJson.hpp. Nothing here is known to be shadowable today,
+            // but display_name and color are peer-controlled strings and the cost is one line.
+            size_t rb = 0, re = 0, pb = 0, pe = 0;
+            if (!json_root_body(line, rb, re) || !json_object_member(line, rb, re, "payload", pb, pe))
+            {
+                return;
+            }
+
+            std::string player_id = json_string_member(line, pb, pe, "player_id");
             if (!player_id.empty())
             {
                 release_ghost(player_id);
@@ -18174,7 +18232,7 @@ namespace MeshGhostPseudo
                     {
                         if (float* ghost_half = mg_property_value<float>((*ghost_capsule), STR("CapsuleHalfHeight")))
                         {
-                            const float desired_half = static_cast<float>(remote.target_capsule_half);
+                            const float desired_half = clamp_to_float(remote.target_capsule_half, 0.0f, 4096.0f);
                             if (*ghost_half != desired_half)
                             {
                                 *ghost_half = desired_half;
@@ -18311,7 +18369,7 @@ namespace MeshGhostPseudo
                     if (peer_shrunk_now)
                     {
                         remote.crouch_half_height_adjust =
-                            static_cast<float>(GHOST_STANDING_CAPSULE_HALF - remote.target_capsule_half);
+                            clamp_to_float(GHOST_STANDING_CAPSULE_HALF - remote.target_capsule_half, -4096.0f, 4096.0f);
                     }
                     const float half_height_adjust = remote.crouch_half_height_adjust;
                     const bool fired = peer_shrunk_now
@@ -18349,7 +18407,7 @@ namespace MeshGhostPseudo
             {
                 if (float* ghost_slide_t = mg_property_value<float>(remote.ghost, SLIDE_TIMELINE_TRACK))
                 {
-                    const float desired_t = static_cast<float>(remote.target_slide_t);
+                    const float desired_t = clamp_to_float(remote.target_slide_t, -1024.0f, 1024.0f);
                     if (*ghost_slide_t != desired_t)
                     {
                         *ghost_slide_t = desired_t;
@@ -20154,7 +20212,7 @@ namespace MeshGhostPseudo
             // so this fires once per cling on the rising edge rather than every tick of one.
             if constexpr (WALLRUN_TRIGGER_TEST)
             {
-                uint8_t wallrun_move_state = static_cast<uint8_t>(remote.target_move_state);
+                uint8_t wallrun_move_state = clamp_to_uint8(remote.target_move_state);
                 if (wallrun_move_state == 4 && remote.last_wallrun_move_state != 4)
                 {
                     if constexpr (WALLRIDE_TRACE)

@@ -358,6 +358,101 @@ namespace
         }
     }
 
+
+    // ------------------------------------------------------------------------------------------
+    // 3b. THE SCOPED READERS FIX ALL THREE. These are the regression tests for the findings
+    // above: same hostile lines, read through root -> payload -> state -> extras at each object's
+    // own top level. Each one FAILS without the scoped readers, which is why it is an assertion
+    // here and a note() up there.
+    auto scoped_reads() -> void
+    {
+        // Resolve the extras object the way the adapter now does.
+        auto extras_of = [](const std::string& l, size_t& b, size_t& e) -> bool {
+            size_t rb = 0, re = 0, pb = 0, pe = 0, sb = 0, se = 0;
+            return json_root_body(l, rb, re)
+                && json_object_member(l, rb, re, "payload", pb, pe)
+                && json_object_member(l, pb, pe, "state", sb, se)
+                && json_object_member(l, sb, se, "extras", b, e);
+        };
+
+        const std::string pre =
+            "{\"type\":\"render_remote\",\"payload\":{\"player_id\":\"p1\",\"state\":{";
+
+        // (c) orientation carrying an unescaped needle, ahead of extras.
+        {
+            const std::string l = pre +
+                "\"area_id\":\"a\",\"position\":[0,0,0],\"orientation\":{\"h_speed\":1e999},"
+                "\"anim\":\"run\",\"extras\":{\"h_speed\":1.0}}}}";
+            size_t b = 0, e = 0;
+            double v = 0;
+            expect_true("scoped: extras resolves past a hostile orientation", extras_of(l, b, e));
+            expect_true("scoped: h_speed found in extras", json_number_member(l, b, e, "h_speed", v));
+            expect_num("scoped: orientation no longer shadows h_speed", v, 1.0);
+        }
+
+        // (b) no extras of its own, a prev that has them. The correct answer is ABSENT.
+        {
+            const std::string l = pre +
+                "\"area_id\":\"a\",\"position\":[0,0,0],\"anim\":\"run\","
+                "\"prev\":{\"seq\":41,\"extras\":{\"h_speed\":99.0}}}}}";
+            size_t b = 0, e = 0;
+            ++g_checks;
+            if (extras_of(l, b, e))
+            {
+                double v = 0;
+                if (json_number_member(l, b, e, "h_speed", v))
+                {
+                    fail("scoped: read h_speed=" + std::to_string(v) + " from prev's extras -- a "
+                         "sample with no extras of its own must report the field ABSENT, not "
+                         "mirror a stale value as current");
+                }
+            }
+        }
+
+        // (d) a nested extras key that sorts before the real one.
+        {
+            const std::string l = pre +
+                "\"area_id\":\"a\",\"anim\":\"run\","
+                "\"extras\":{\"aaa\":{\"h_speed\":9999.0},\"h_speed\":1.0}}}}";
+            size_t b = 0, e = 0;
+            double v = 0;
+            expect_true("scoped: extras resolves with a nested object first", extras_of(l, b, e));
+            expect_true("scoped: h_speed found", json_number_member(l, b, e, "h_speed", v));
+            expect_num("scoped: a nested key no longer shadows a top-level one", v, 1.0);
+        }
+
+        // The control still works through the scoped path, values and all -- otherwise the fix
+        // would be "nothing is ever found", which passes every test above for the wrong reason.
+        {
+            size_t b = 0, e = 0;
+            double v = 0;
+            expect_true("scoped: control extras resolves", extras_of(kControlLine, b, e));
+            expect_true("scoped: control h_speed", json_number_member(kControlLine, b, e, "h_speed", v));
+            expect_num("scoped: control h_speed value", v, 420.5);
+            expect_str("scoped: control outfit_mesh", json_string_member(kControlLine, b, e, "outfit_mesh"),
+                       "/Game/Char/SK_Sybil.SK_Sybil");
+            expect_true("scoped: a key absent from extras reports absent",
+                        !json_number_member(kControlLine, b, e, "no_such_key", v));
+        }
+
+        // json_number_member refuses what JSON cannot express, so a non-finite value cannot enter
+        // through this door at all rather than relying on a clamp downstream.
+        {
+            const char* bad[] = {"nan", "inf", "-inf", "infinity", "0x1p999", "+1", "true", "null"};
+            for (const char* raw : bad)
+            {
+                const std::string l = pre + std::string("\"extras\":{\"slide_t\":") + raw + "}}}}";
+                size_t b = 0, e = 0;
+                double v = 0;
+                ++g_checks;
+                if (extras_of(l, b, e) && json_number_member(l, b, e, "slide_t", v) && !std::isfinite(v))
+                {
+                    fail(std::string("scoped: json_number_member accepted ") + raw +
+                         " and produced a non-finite value");
+                }
+            }
+        }
+    }
     // ------------------------------------------------------------------------------------------
     // 4. THE NUMBER INTAKE -- assumption 2.
     //
@@ -605,6 +700,7 @@ auto main() -> int
     round_trip();
     shadowing();
     shadowing_findings();
+    scoped_reads();
     numbers();
     bounds();
     malformed();

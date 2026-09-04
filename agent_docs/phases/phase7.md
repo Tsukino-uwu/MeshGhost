@@ -2152,3 +2152,93 @@ different implementation is a different thing to watch.
 **Housekeeping the same pass:** the census probe hosted the Lua fix for the session (a new mod
 folder cannot be hot-loaded) and has been returned to read-only; `probe_audiofix/` keeps the proven
 Lua version as the record of how it was established.
+
+## 2026-09-04 (later) — the fourth adapter fuzzer, and it broke an assumption this file had trusted
+
+**The job:** Pseudoregalia was the one adapter with no hostile-input harness (`ideas.md`,
+"Adapter-side fuzzers"). The Lua and TEVI ones were built 2026-09-03; this is the third of three,
+plus an audit of the other three against the user's actual goal — *"make sure only valid
+values/names/inputs can be used"*.
+
+**The refactor first.** `json_string_field`, `json_vec3_field`, `json_number_field`, `json_escape`,
+`json_hex4`, `append_utf8` and `clamp_to_uint8` moved verbatim from `Plugin.cpp`'s anonymous
+namespace into `Mod/src/PeerJson.hpp`. They need `<string> <cstdio> <cmath> <cstdint>` and nothing
+else, so a **Linux** runner compiles them — the original idea entry assumed Windows and was wrong.
+`to_utf8` and `to_wide_ascii` stayed behind; either one would have made the header un-compilable
+off Windows and retired the whole exercise.
+
+**ASSUMPTION 1 IS BROKEN, and it had been stated three times in the source.**
+`json_number_field`'s comment argued a whole-string needle search is safe against a hostile peer
+because peer STRINGS are escaped, so one can never contain a bare `"h_speed":`. True about strings,
+and not the whole wire. Measured against the real field order of `protocol.State`
+(`player_id, seq, timestamp, area_id, position, orientation, anim, extras, prev` — `encoding/json`
+emits struct fields in declaration order):
+
+- **`orientation` is `json.RawMessage`** — raw, UNESCAPED JSON, bounded only by bytes and depth —
+  and it marshals **before** `anim` and `extras`. `"orientation":{"h_speed":1e999}` returned `+inf`
+  where the real value was `1.0`. A shadow and a non-finite value at once, through a field `extras`
+  validation never sees. The escaping argument never covered it, because orientation is not a string.
+- **`extras` is `omitempty`**, so a sample with none of its own but carrying a `prev` that has them
+  left exactly one match and it was prev's — a stale value mirrored as current.
+- **`encoding/json` sorts MAP keys**, so `extras:{"aaa":{"h_speed":9999},"h_speed":1}` puts a nested
+  needle first, at depth 2, well inside `MaxJSONDepth = 32`.
+
+Three other corners are SAFE and are now asserted rather than assumed, so a reorder of
+`protocol.State` fails in CI instead of on someone's screen: an escaped needle inside a peer string,
+prefix collisions (`anim_h_speed` vs `h_speed` — the trailing colon is what saves it), and an extras
+key named after a real top-level field.
+
+**The fix is scoped reading, not a parser.** `json_member_value` / `json_object_member` /
+`json_string_member` / `json_number_member` / `json_vec3_member` read a named member of a named
+object at *its own* top level, tracking nesting depth and string state — which is precisely what
+"first match wins" lacked. `handle_bridge_line` resolves root → payload → state → extras once and
+reads members of those spans: 4 payload, 2 state, 36 extras, plus 4 in the name/despawn branches.
+The unscoped readers are kept and still correct for the envelope, where one object exists and
+nothing peer-controlled can precede a real key.
+
+**ASSUMPTION 2 was half right.** `clamp_to_uint8` is sound; the gap was that narrowings never called
+it. The audit said nine; the fuzzer's inventory found a **tenth** (`target_move_state`, wallrun).
+All ten now route through `clamp_to_uint8` / `clamp_to_float` / `clamp_count_to_int`, three bounds
+that live beside it in the header and are fuzzed there. **`isfinite` is not a sufficient guard in
+front of a float cast** and that widened the finding: `1e300` is a finite double that is not
+representable as `float`, so that cast is UB exactly as NaN is — which is why `clamp_to_float`
+bounds MAGNITUDE rather than merely checking finiteness.
+
+**Three more bounds from the same run:** `position` now gets an adapter-side finiteness check (it
+had none, and rode entirely on whichever core it was paired with — `protocol.IsValidPosition` is
+real but an adapter that is only safe next to a correct core is not safe); `json_number_member`
+refuses any value not starting with a digit or a sign-then-digit, so `nan`/`inf`/`0x1p999` cannot
+enter through that door at all (glibc's `sscanf` accepts 34 of 39 raw forms, JSON emits far fewer);
+and the `vfx` `:count` suffix is length-bounded, because a digits-only filter admitted a 400-digit
+run that `strtod` turned into `+inf` and that then latched its key off permanently.
+
+**The harness caught a bug in its own fix, which is the argument for writing it first.** The first
+version of `json_number_member` tested "digit or minus" — and `-inf` starts with a minus. It now
+requires a digit *after* the sign.
+
+**Mod compatibility is asserted, not hoped for.** The user's rule, same day: a modded outfit or a
+modded weapon must still work if the watcher has that mod locally. `resolve_peer_named_asset`
+already gets this right — a peer's name is a key into a catalog of the LOCAL game's own loaded
+assets, so anything a watcher could render, it renders. At the parser layer the property is that an
+asset path survives byte-for-byte, modded paths with spaces, `#` and non-ASCII included, because a
+mangled path is a mod that silently stops working. That is a test now, and the header says the
+catalog must never narrow to a vanilla allowlist.
+
+**CI, and the per-adapter scoping the user asked for.** `pseudoregalia.yml` is path-filtered to
+`adapters/pseudoregalia/**`, builds `-fsanitize=address,undefined` with
+**`-fno-sanitize-recover=all`** (UBSan's default is print-and-continue, which would leave a real
+finding in a log behind a green tick) at `-std=c++23`, because that is what RE-UE4SS sets and
+checking code under a different standard answers a different question. The emulator fuzz job MOVED
+out of `lua.yml` into `emulator.yml`: `**.lua` matches 22 Pseudoregalia probes and ~28 dev-scripts,
+so **editing a Pseudoregalia probe was running the Pokemon decoder fuzzers**. `lua.yml` keeps the
+syntax gate, which is correctly repo-wide because it is a LANGUAGE gate, not an adapter one.
+
+**The registration trap was paid in advance and then tested.** `PeerJson.hpp` went into
+`release.yml`'s `$files` and `build-pseudoregalia.bat`'s hash set in the same commit as the file
+itself — and the gate was verified by corrupting the hash and watching it name the file, rather
+than by assuming. `preflight.ps1` needed no edit: its `Check-BuiltFrom` iterates `built-from.txt`'s
+own lines. Two registrations, not three.
+
+**What is NOT established:** that the rebuilt DLL still behaves correctly in the game. The
+extraction was verbatim and the scoped reads are covered by the harness, but 42 call sites changed
+shape and no one has watched a ghost since. Queued in `UNVERIFIED.md`.

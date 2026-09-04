@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
 - READY — the SFX fix now ships in the DLL (the ghost stole the player's audio attenuation listener; CAUSE AND FIX CONFIRMED in Lua 2026-09-04, `VERIFIED.md`) -- the C++ version rewrites the call instead of answering it, built and deployed, UNWATCHED
 - READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched — **not the 2026-09-04 run: the chaser is at 60s there to give the audio A/B a ghost-free first minute**
@@ -57,6 +58,38 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [READY] the peer-JSON readers were rebuilt and rescoped, and nobody has watched a ghost since (2026-09-04)
+
+**What changed and why it needs eyes.** Every field on a `render_remote` used to be found by
+searching the whole bridge line for its key and taking the first hit. A new fuzzer
+(`MeshGhostPseudo.Tests/peer_json_fuzz.cpp`) showed three ways a peer beats that, so
+`handle_bridge_line` now resolves root -> payload -> state -> extras once and reads named members of
+those objects. **42 call sites changed shape** — every animation-state field, every weapon and
+projectile field, the counts, the nametag. Ten narrowings also gained bounds, and `position` gained
+a finiteness check.
+
+**None of this is supposed to change anything you can see**, which is exactly why it wants a look:
+the failure mode of a mistake here is not a crash but a field that silently stops arriving, and a
+field that stops arriving looks like a feature that was never built.
+
+**What to watch, in one session with a chaser or a second client:**
+
+- A ghost animates normally — walking, jumping, landing, sliding, wall-riding. Those are
+  `move_state`, `action_state`, `anim_jump_type`, `movement_mode`, `h_speed`, `v_speed`, and they
+  are the fields most likely to go quiet if a span resolves wrong.
+- The Dream Breaker: thrown, in flight, landed, its glow, and the recall glow. `weapon_*` is the
+  largest group of extras fields and the most intricate.
+- The slide: the capsule shrinks and the pose runs. `capsule_half` and `slide_t` both gained
+  clamps, and `capsule_half` also feeds position Z.
+- The afterimage trail, colour included — `afterimage_color` gained a clamp, so a wrong bound would
+  show as a grey or black trail rather than the peer's colour.
+- A nametag appears with the right text and colour.
+- **A modded outfit or weapon, if you have one installed on both sides.** The catalog gate is
+  untouched, but this is the run to confirm mods still resolve.
+
+**What correct looks like:** exactly what you saw before this change. Any field that has gone quiet
+is a scoping mistake, and naming which one points straight at the span that resolved wrong.
 
 ## [READY] a chaser looks like its own delay, and a split time matches the ghost you SEE (2026-09-04), unwatched
 

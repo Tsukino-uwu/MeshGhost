@@ -122,16 +122,11 @@ namespace MeshGhostPseudo
     // and reads one string value. Why that stays safe on hostile input is json_number_field's
     // comment below -- and note that argument RESTS on values being properly escaped on the
     // wire, which is exactly what this function now decodes instead of taking on trust.
-    inline auto json_string_field(const std::string& s, const std::string& key) -> std::string
+    // Decode a JSON string body starting at `pos`, which is the byte AFTER the opening quote.
+    // Split out of json_string_field 2026-09-04 so the scoped readers below can reuse the
+    // escape handling without re-finding the key. The body is untouched.
+    inline auto json_decode_string_at(const std::string& s, size_t pos) -> std::string
     {
-        std::string needle = "\"" + key + "\":\"";
-        size_t pos = s.find(needle);
-        if (pos == std::string::npos)
-        {
-            return {};
-        }
-        pos += needle.size();
-
         std::string out;
         for (size_t i = pos; i < s.size(); ++i)
         {
@@ -197,6 +192,17 @@ namespace MeshGhostPseudo
         return {}; // no closing quote before the end of the line
     }
 
+    inline auto json_string_field(const std::string& s, const std::string& key) -> std::string
+    {
+        std::string needle = "\"" + key + "\":\"";
+        size_t pos = s.find(needle);
+        if (pos == std::string::npos)
+        {
+            return {};
+        }
+        return json_decode_string_at(s, pos + needle.size());
+    }
+
     inline auto json_vec3_field(const std::string& s, const std::string& key, double& a, double& b, double& c) -> bool
     {
         std::string needle = "\"" + key + "\":[";
@@ -251,6 +257,225 @@ namespace MeshGhostPseudo
             return 255;
         }
         return static_cast<uint8_t>(value);
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // SCOPED READING, 2026-09-04 -- because the whole-string search above is shadowable.
+    //
+    // json_number_field's comment argues a bare needle search is safe against a hostile peer
+    // because peer STRINGS are escaped, so one can never contain a bare needle. That is true, and
+    // it is not the whole wire. Measured by MeshGhostPseudo.Tests/peer_json_fuzz.cpp against the
+    // real field order of protocol.State (player_id, seq, timestamp, area_id, position,
+    // orientation, anim, extras, prev -- encoding/json emits struct fields in declaration order):
+    //
+    //   * orientation is json.RawMessage: raw, UNESCAPED JSON, bounded only by bytes and depth,
+    //     and it marshals BEFORE anim and extras. "orientation":{"h_speed":1e999} put +inf in
+    //     front of the real h_speed. The escaping argument never covered it, because orientation
+    //     is not a string.
+    //   * extras is omitempty, so a sample carrying no extras of its own but carrying a prev
+    //     that has them left exactly one match, and it was prev's: a stale value read as current.
+    //   * encoding/json marshals MAP keys sorted, so a peer picks an extras key that sorts before
+    //     the real one and nests the needle inside it. Depth 2, well inside MaxJSONDepth.
+    //
+    // The fix is to stop searching the whole line and instead read a named member of a named
+    // object at ITS OWN top level. Still not a general JSON parser and still allocation-free: it
+    // tracks nesting depth and string state, which is exactly what "first match wins" lacked.
+    //
+    // The unscoped readers above are KEPT and still correct for the bridge envelope (type,
+    // payload, player_id), where there is one object and no peer-controlled key precedes a real
+    // one.
+    //
+    // These use named byte constants rather than character escapes on purpose: this code is
+    // ABOUT quotes and backslashes, and spelling them as escapes is how such a scanner ends up
+    // subtly wrong in a way review does not catch.
+    inline constexpr char kJsonQuote = static_cast<char>(34);
+    inline constexpr char kJsonBackslash = static_cast<char>(92);
+
+    inline auto json_is_space(char c) -> bool
+    {
+        return c == ' ' || c == static_cast<char>(9) || c == static_cast<char>(10) || c == static_cast<char>(13);
+    }
+
+    // Skips the string whose opening quote is at s[i]; returns the index of the closing quote.
+    inline auto json_skip_string(const std::string& s, size_t i, size_t end) -> size_t
+    {
+        for (++i; i < end; ++i)
+        {
+            if (s[i] == kJsonBackslash)
+            {
+                ++i;
+                continue;
+            }
+            if (s[i] == kJsonQuote)
+            {
+                return i;
+            }
+        }
+        return std::string::npos;
+    }
+
+    // Position of the VALUE of top-level member `key` within the object body [begin, end), or
+    // npos. Nested members are skipped, so a key inside a sub-object never matches.
+    inline auto json_member_value(const std::string& s, size_t begin, size_t end, const std::string& key) -> size_t
+    {
+        if (end > s.size())
+        {
+            end = s.size();
+        }
+        int depth = 0;
+        size_t i = begin;
+        while (i < end)
+        {
+            const char c = s[i];
+            if (c == kJsonQuote)
+            {
+                const size_t start = i + 1;
+                const size_t close = json_skip_string(s, i, end);
+                if (close == std::string::npos)
+                {
+                    return std::string::npos;
+                }
+                if (depth == 0)
+                {
+                    size_t k = close + 1;
+                    while (k < end && json_is_space(s[k]))
+                    {
+                        ++k;
+                    }
+                    if (k < end && s[k] == ':')
+                    {
+                        const size_t len = close - start;
+                        if (len == key.size() && s.compare(start, len, key) == 0)
+                        {
+                            size_t v = k + 1;
+                            while (v < end && json_is_space(s[v]))
+                            {
+                                ++v;
+                            }
+                            return v < end ? v : std::string::npos;
+                        }
+                    }
+                }
+                i = close + 1;
+                continue;
+            }
+            if (c == '{' || c == '[')
+            {
+                ++depth;
+            }
+            else if (c == '}' || c == ']')
+            {
+                if (depth == 0)
+                {
+                    return std::string::npos;
+                }
+                --depth;
+            }
+            ++i;
+        }
+        return std::string::npos;
+    }
+
+    // Body span of the object whose opening brace sits at `pos`; [begin, end) excludes the braces.
+    inline auto json_body_at(const std::string& s, size_t pos, size_t limit, size_t& begin, size_t& end) -> bool
+    {
+        if (limit > s.size())
+        {
+            limit = s.size();
+        }
+        if (pos >= limit || s[pos] != '{')
+        {
+            return false;
+        }
+        begin = pos + 1;
+        int depth = 1;
+        for (size_t i = begin; i < limit; ++i)
+        {
+            const char c = s[i];
+            if (c == kJsonQuote)
+            {
+                const size_t close = json_skip_string(s, i, limit);
+                if (close == std::string::npos)
+                {
+                    return false;
+                }
+                i = close;
+                continue;
+            }
+            if (c == '{')
+            {
+                ++depth;
+            }
+            else if (c == '}' && --depth == 0)
+            {
+                end = i;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The body of the outermost object -- the whole bridge line.
+    inline auto json_root_body(const std::string& s, size_t& begin, size_t& end) -> bool
+    {
+        const size_t open = s.find('{');
+        return open != std::string::npos && json_body_at(s, open, s.size(), begin, end);
+    }
+
+    // The body of a named object member, e.g. "extras" inside the state object.
+    inline auto json_object_member(const std::string& s, size_t begin, size_t end, const std::string& key,
+                                   size_t& out_begin, size_t& out_end) -> bool
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        return v != std::string::npos && json_body_at(s, v, end, out_begin, out_end);
+    }
+
+    inline auto json_string_member(const std::string& s, size_t begin, size_t end, const std::string& key) -> std::string
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        if (v == std::string::npos || s[v] != kJsonQuote)
+        {
+            return {};
+        }
+        return json_decode_string_at(s, v + 1);
+    }
+
+    inline auto json_number_member(const std::string& s, size_t begin, size_t end, const std::string& key, double& out) -> bool
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        if (v == std::string::npos)
+        {
+            return false;
+        }
+        // The value must START with a digit or a minus sign. JSON allows nothing else to begin a
+        // number, while glibc's sscanf happily accepts nan, inf, infinity, a leading plus, and
+        // hex floats -- 34 of 39 raw forms, measured by the harness. Refusing them here means a
+        // non-finite value cannot enter through this door at all, rather than being caught later
+        // by whichever clamp the call site remembered to apply.
+        // A minus sign may lead, but a DIGIT must follow it. Checking only "digit or minus" is
+        // not enough and the harness caught exactly that: "-inf" passes a leading-sign test and
+        // sscanf then returns -infinity. JSON has no leading plus and no bare sign either.
+        size_t d = v;
+        if (s[d] == '-')
+        {
+            ++d;
+        }
+        if (d >= s.size() || !(s[d] >= '0' && s[d] <= '9'))
+        {
+            return false;
+        }
+        return std::sscanf(s.c_str() + v, "%lf", &out) == 1;
+    }
+
+    inline auto json_vec3_member(const std::string& s, size_t begin, size_t end, const std::string& key,
+                                 double& a, double& b, double& c) -> bool
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        if (v == std::string::npos || s[v] != '[')
+        {
+            return false;
+        }
+        return std::sscanf(s.c_str() + v + 1, "%lf,%lf,%lf", &a, &b, &c) == 3;
     }
 
     // ---------------------------------------------------------------------------------------

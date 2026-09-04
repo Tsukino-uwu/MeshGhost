@@ -59,7 +59,7 @@ is USED, that project is checked and recorded there first.
 - Doc restructuring: what was done — moved to `doc-history.md` (2026-08-25)
 - Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
 - Fuzz the REPLAY schedule under the race job: attach, first frame, files, seeks, gaps, detach (filed 2026-09-03; DONE 2026-09-03, and it found that every generated clip was being refused)
-- Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03; Lua and TEVI BUILT 2026-09-03, Pseudoregalia not started)
+- Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03; ALL THREE BUILT, Pseudoregalia 2026-09-04, and its own found three shadowable reads)
 - A virtual clock for the core, so a fuzz step can say "eight hours pass" with no sleep (filed 2026-09-03; stage 1 BUILT 2026-09-03)
 - Pseudoregalia: mirror a peer's REAL light state onto their ghost (filed 2026-08-30)
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
@@ -2316,6 +2316,8 @@ fuzzers are independent of both.
 
 ## Adapter-side fuzzers, one per adapter in its own language, in a CI job gated on that adapter's paths (filed 2026-09-03)
 
+**ALL THREE ARE NOW BUILT — Pseudoregalia landed 2026-09-04; `phases/phase7.md` has what its fuzzer found and fixed. The paragraph below is the 2026-09-03 state.**
+
 **TWO OF THREE BUILT, 2026-09-03. What the entry below assumed about the work was wrong in three
 ways worth keeping, because each was wrong in the direction of "harder than it is".**
 
@@ -2338,17 +2340,17 @@ ways worth keeping, because each was wrong in the direction of "harder than it i
   past the point where the file starts calling BizHawk. No findings: 60 hostile lines survived,
   nesting is refused at 32 levels by Newtonsoft's own limit, and fourteen hostile peer ids reach the
   callback unchanged.
-- **Pseudoregalia — NOT STARTED**, and cheaper than the entry implies. There is no recursive parser
-  to fuzz: `json_string_field`, `json_vec3_field` and `json_number_field` (`Plugin.cpp`) are
-  `std::string::find` and `sscanf` over `<string>` and `<cstdio>`, needing no UE4SS and no Unreal,
-  so they compile standalone anywhere — **not a Windows runner, as this entry assumed.** The two
-  things worth attacking are the reasoned-but-unmeasured assumptions in their comments: that JSON
-  escaping makes a whole-string needle search safe against a hostile peer string, and that
-  `clamp_to_uint8` catches every non-finite `sscanf` result before it reaches the game. The cost is
-  lifting the three helpers into their own header, which edits `Mod/src/` — LF-pinned, hashed by
-  the release gate, so it needs a DLL rebuild and deploy, and the new header must be added to
-  `release.yml`'s `$files` map AND `build-pseudoregalia.bat`'s hash set in the same commit or every
-  later edit ships a stale DLL with a green check.
+- **Pseudoregalia — BUILT 2026-09-04**, `MeshGhostPseudo.Tests/peer_json_fuzz.cpp`
+  and `pseudoregalia.yml`, on a LINUX runner exactly as this entry predicted. The three helpers,
+  plus `json_escape` and `clamp_to_uint8`, lifted into `Mod/src/PeerJson.hpp`. **Both assumptions
+  it named were worth attacking, and one was simply false.** The escaping argument does not cover
+  `orientation` (json.RawMessage, unescaped, marshals BEFORE extras), `prev` under an omitempty
+  `extras`, or Go's sorted map keys — all three measured, all three fixed by reading named members
+  of named objects at their own top level. `clamp_to_uint8` is sound, but TEN narrowings never
+  called it, and `isfinite` is not a sufficient guard before a float cast anyway (1e300 is finite
+  and not representable). The registration trap was paid in the same commit and then verified by
+  corrupting the hash rather than assumed. Same pass: `emulator.yml` split out of `lua.yml`,
+  because `**.lua` matched 22 Pseudoregalia probes and editing one ran the Pokemon fuzzers.
 
 **The general lesson, which cost nothing here and would have cost a lot later:** every one of these
 harnesses needed a CONTROL asserting that valid input still produces the right answer. TEVI's first
