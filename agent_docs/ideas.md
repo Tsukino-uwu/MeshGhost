@@ -2723,6 +2723,16 @@ this is FOR:**
   is why this entry exists at all. **Note what it does NOT need: a model of the game.** The game
   supplies the outcome for any input; the missing half has always been the input.
 
+  **And this one is DEBUG AND TESTING infrastructure, not a toy** — the user's own point, and it is
+  the strongest argument in this entry: *"the 3rd use case would also be for debug/testing, outside
+  of it just being a for fun/extra feature"*. This project's single largest cost is that **a live
+  test costs a person a real playthrough**; `preflight.ps1` says so in the line it prints when it
+  fails. An agent that can drive the game to a state, hold it, and repeat a route on demand removes
+  the human from the loop for exactly the class of work that fills this repo's history — reaching a
+  pickup, standing in a doorway, walking a circle to reproduce a flicker. **That is a different
+  priority argument from "a nice extra"**: it does not need to play WELL, it needs to play
+  REPEATABLY, which is a far lower bar and reachable long before anything resembling skill.
+
 **Why it is not simply "add a field", and what has to be answered first:**
 
 - **Playback means WRITING to the game.** Feeding inputs to a pawn is not a cosmetic act; it is the

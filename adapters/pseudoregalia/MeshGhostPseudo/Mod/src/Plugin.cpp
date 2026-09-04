@@ -5696,6 +5696,15 @@ namespace MeshGhostPseudo
 
             int destroyed = 0;
             int already_gone = 0;
+            // **Counted separately because the first version could not tell these apart, and that
+            // hid what actually happened (2026-09-04).** It reported "0 destroyed, 0 already gone"
+            // on a despawn the user watched clean up correctly -- a live component whose
+            // `DestroyComponent` does not resolve incremented NEITHER counter, so the log implied
+            // the path had not run at all. The ring had in fact been HIDDEN, which is what removes
+            // it from the screen; whether it was also destroyed was exactly the thing the numbers
+            // could not say. `_template/probes.md`'s rule, broken here in shipping code: a report
+            // that cannot be sanity-checked is not a report.
+            int hidden_only = 0;
             for (UObject* component : wanted)
             {
                 if (live.find(component) == live.end())
@@ -5723,9 +5732,15 @@ namespace MeshGhostPseudo
                     component->ProcessEvent(destroy_fn, nullptr);
                     ++destroyed;
                 }
+                else
+                {
+                    // Hidden and stopped but NOT destroyed. Said out loud: the screen looks
+                    // identical either way, so this is the only place the difference can show up.
+                    ++hidden_only;
+                }
             }
-            Output::send(STR("[MeshGhostPseudo] VFXCLEANUP {}: {} world-spawned component(s) destroyed, {} already gone.\n"),
-                         reason, destroyed, already_gone);
+            Output::send(STR("[MeshGhostPseudo] VFXCLEANUP {}: {} candidate(s) -> {} destroyed, {} hidden+stopped only (no DestroyComponent on this build), {} already gone.\n"),
+                         reason, static_cast<int>(wanted.size()), destroyed, hidden_only, already_gone);
         }
 
         // Whether a component is currently ACTIVE, as opposed to merely existing.
@@ -17318,8 +17333,9 @@ namespace MeshGhostPseudo
                             // On change only, and change means a real move: a heal wave re-observed
                             // at the same height every time must not print once per burst.
                             constexpr double OFFSET_LOG_EPSILON = 0.5;
-                            if (!have_observed_world_offset[which] ||
-                                std::fabs(dz - observed_world_offset_z[which]) > OFFSET_LOG_EPSILON)
+                            if (newly_seen &&
+                                (!have_observed_world_offset[which] ||
+                                 std::fabs(dz - observed_world_offset_z[which]) > OFFSET_LOG_EPSILON))
                             {
                                 Output::send(STR("[MeshGhostPseudo] VFXOFFSET '{}': observed_world_offset_z {:.1f} (previously set: {}) -> {:.1f}, measured from component '{}' at z={:.1f} against player z={:.1f}\n"),
                                              to_wide_ascii(MIRRORED_EFFECTS[which].key),
@@ -17330,8 +17346,26 @@ namespace MeshGhostPseudo
                                              where->Z(),
                                              location.Z());
                             }
-                            observed_world_offset_z[which] = dz;
-                            have_observed_world_offset[which] = true;
+                            // **LEARNED ONCE, AT FIRST SIGHTING -- not every sample the burst is
+                            // alive (fixed 2026-09-04, and the instrument above is what found it).**
+                            // A world-spawned burst does not move; the PLAYER does. Re-measuring
+                            // `dz` every sample therefore stops answering "how high does the game
+                            // put this effect" and starts answering "how far is the player above a
+                            // burst that is standing still" -- so a jump or a fall while your own
+                            // dust lingers rewrites the offset every ghost uses. Measured the hour
+                            // this shipped: `dl` walked -61.3 -> -60.5 -> -49.2 -> -42.2 -> -24.0
+                            // -> +14.7 -> +30.6 from ONE component at a fixed z=905.9 while the
+                            // player fell from z=966 to z=875. Ninety units of drift, no ghost
+                            // involved, no stranding involved -- this half of the wrong-height dust
+                            // was never about the leak at all.
+                            //
+                            // `newly_seen` is exactly "this component did not exist last sample",
+                            // which is the one moment the effect is where the game just put it.
+                            if (newly_seen)
+                            {
+                                observed_world_offset_z[which] = dz;
+                                have_observed_world_offset[which] = true;
+                            }
 
                             // Counted here rather than at first sight, deliberately: a
                             // world-spawned component is only OURS once it has passed the

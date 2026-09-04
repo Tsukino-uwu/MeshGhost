@@ -4846,3 +4846,56 @@ things, but ghosts had them."*
 - **Notes:** second instance of the rule the loose sword wrote on 2026-09-01 — a singleplayer
   game's own code claims *the* player, and a ghost is a real player pawn, so it claims it too.
   Anything a player pawn registers GLOBALLY on BeginPlay, a ghost re-registers.
+
+## 2026-09-04 — the ghost's sword follows the peer's, and the blade aura does not (user-confirmed on screen)
+
+Three confirmations in one live session, all with the user watching a replay ghost. The trail that
+produced them is `agent_docs/phases/phase7.md`, same date.
+
+- **A clip recorded BEFORE the Dream Breaker pickup now renders a ghost with NO sword.** User:
+  *"no sword on the first one"*, with a screenshot. Before this the ghost always carried one,
+  because only weapon TRANSITIONS were applied and a clip with `weapon_equipped:0` throughout
+  produces no edge — so `BP_PlayerGoatMain_C`'s default (`weaponEquipped?` false, but
+  `WeaponMesh.bVisible` **true**) was never corrected. `WeaponMesh.bVisible` is mirrored directly
+  from `target_weapon_equipped` now, the way `shadow_on` mirrors `BlobShadow`.
+- **A clip recorded AFTER the pickup still renders the sword.** User: *"the other one has a
+  sword"*. This is the control, and it is the reason the first result means what it says — without
+  it, "no sword" is equally consistent with hiding the mesh unconditionally.
+- **A ghost's blade no longer wears the ascendant-light aura.** User, after the fix: *"the ghost
+  with the sword don't have the sword mesh glow now"*. This was a REGRESSION introduced by the
+  first fix hours earlier and caught by the user on sight: `call_set_visibility` writes
+  SetVisibility's `bPropagateToChildren` as 1, and the measured chain is
+  `CollisionCylinder -> VisualMesh -> WeaponMesh -> LightMesh`, so showing the sword showed the
+  aura hanging off it — on a save where `obtainedLight?` reads false. The helper takes a
+  `propagate` argument now, defaulting to its historical behaviour so no other caller changed.
+
+**Method, because it outlasts all three fixes.** Every wrong theory in this family came from
+reasoning about one pawn or one field; every correct answer came from reading TWO things side by
+side and diffing them. The aura's cause needed no extra run at all — the same tick already held the
+A/B, because the ghost whose sword the new code HID read `LightMesh.bVisible = false` while the
+ghost whose sword it SHOWED read `true`. `probe_bladeglow/` is the instrument, and its own first
+version is a lesson too: it reused a `short()` helper that matches the ACTOR pattern first, so every
+`AttachParent` collapsed to the pawn and the attach chain — the entire question — was invisible
+behind complete-looking output.
+
+## 2026-09-04 — a despawning ghost takes its landed sword and the ground VFX with it (user-confirmed on screen; MECHANISM still open)
+
+**What the user saw**, on a purpose-built 11-second clip that ends while the sword is still planted,
+played once so the ghost leaves for good: *"yes the sword on the ground + the sword ground vfx goes
+away when the ghost does"*, and on walking back to the spot, *"there is not visually anything left
+on the ground in game for me right now, no sword and no ground vfx."* Before this, a world-spawned
+effect had no owner and the release path dropped the only handle to it.
+
+**THE VISUAL IS CONFIRMED. THE MECHANISM IS NOT, and the difference is recorded rather than
+smoothed over.** The adapter's own cleanup log reported `0 world-spawned component(s) destroyed`
+on every despawn of that session. The teardown hides, then stops, then destroys — and HIDING is
+what removes a thing from the screen, so a clean floor cannot distinguish "destroyed" from "hidden
+and still resident". A `FindAllOf("NiagaraComponent")` census across three despawn cycles then
+measured 61 -> 74 -> 67, i.e. about two components per cycle that idling did not reclaim, while
+`BP_PlayerGoatMain_C` went 1 -> 4 -> **1**, so the ghost PAWNS are collected normally and only the
+effects are in question. The user predicted exactly this before it was measured: *"might be the
+same like ghosts being stuck in garbagecollection after leaving?"*
+
+**So what is verified here is what a player sees, and the residue is tracked as open work in
+`UNVERIFIED.md`.** The instrumented build that names it (`N candidates -> X destroyed, Y
+hidden+stopped only`) is written and waits on a rebuild.

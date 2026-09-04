@@ -43,8 +43,8 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
-- READY — a ghost's sword is now mirrored from the peer's own flag, so a clip recorded before the pickup should show NO sword (2026-09-04), built and deployed, unwatched
-- READY — the world-spawned VFX a ghost made are destroyed when it goes: no sword glow and no dust left standing after a despawn, restart or loop (2026-09-04), built and deployed, unwatched
+- OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
+- OPEN — `observed_world_offset_z` is re-learned every sample a burst is alive, so the player's own vertical motion rewrites it: 90 units of drift measured 2026-09-04. Fix written, waits on a rebuild
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -123,7 +123,7 @@ for their own reasons, and whether a seam is what was being seen here, is unknow
 entry into that one until something is measured; two unconfirmed reports sharing a plausible
 mechanism is exactly how a wrong theory gets load-bearing.
 
-## [READY] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured 2026-09-04, FIXED 2026-09-04)
+## [DONE] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured, FIXED and CONFIRMED ON SCREEN 2026-09-04 -- see `VERIFIED.md`; kept here for the two dead theories and the method)
 
 **User-confirmed on screen** (three cases, below). **Measured with `probe_pickup/`**, live, on a new
 save. **FIXED, built and deployed 2026-09-04, unwatched** -- the fix is at the end of this entry.
@@ -209,7 +209,7 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
-## [READY] world-spawned VFX were UNOWNED and outlived the ghost — one cause, three symptoms, FIXED 2026-09-04
+## [OPEN] world-spawned VFX outlived the ghost — the SCREEN is fixed and confirmed 2026-09-04, the OBJECTS are not
 
 **User-confirmed on screen:** dust in wrong positions after a replay restarts/loops; and, separately,
 *"i picked up the sword now, but i still see the sword ground vfx"* — a landed-sword glow left behind
@@ -2223,3 +2223,73 @@ pointer.
   two suspects ruled out; `phase7.md`. (Pole *rotation* was the separate item, cleared 2026-08-16.)
 - **A thrown sword near a save crystal.** Suspected a loopback-offset artifact rather than a real
   bug; a two-machine session settles it. `verified.md`.
+
+## [OPEN] MEASURED 2026-09-04 -- the cleanup HIDES rather than destroys, and ~2 components per despawn stay resident
+
+**The visible half is confirmed and lives in `VERIFIED.md`.** This is the half that a player cannot
+see and the agent's own log gave away.
+
+### What the instrument said, against the fix that had just shipped
+
+`VFXCLEANUP release_ghost: 0 world-spawned component(s) destroyed, 0 already gone.` — on all seven
+despawns of the session, including the one the user watched clean up correctly. The teardown hides,
+stops, then destroys, and **hiding is what removes something from the screen**, so a clean floor
+proves only the first step ran.
+
+**The counter could not even tell which had happened**, which is the more embarrassing half: a live
+component whose `DestroyComponent` does not resolve incremented NEITHER counter, so "0 and 0" was
+consistent with "the path never ran" and with "it ran and destroyed nothing". `_template/probes.md`
+already says a report that cannot be sanity-checked is not a report; this was shipping code.
+
+### The population census, and the one thing it rules out
+
+`probe_leakcount/`, through the new scratch slot, over three despawn cycles driven by restarting the
+core:
+
+| | start | peak | after 90s idle |
+|---|---|---|---|
+| `NiagaraComponent` | 61 | 74 | **67** |
+| `BP_PlayerGoatMain_C` | 1 | 4 | **1** |
+
+**The ghost PAWNS are collected** — 4 down to 1 on GC's own schedule, so the user's *"might be the
+same like ghosts being stuck in garbagecollection after leaving?"* describes the mechanism exactly
+and it resolves. **The effects do not**: about two per despawn, still there after 90 seconds idle.
+
+**Not proof, and the reason is worth keeping:** the game spawns and retires its own Niagara
+components constantly, and 61 was one instant rather than a measured floor. What the census does
+establish is that this is NOT a pawn leak, which is where a reader would otherwise look first.
+
+### What is written and waits on a rebuild
+
+The cleanup line now reports `N candidate(s) -> X destroyed, Y hidden+stopped only (no
+DestroyComponent on this build), Z already gone`. That distinguishes all three cases in one line,
+and it is the reading that says whether the fix is "destroy does not resolve on Niagara here" (in
+which case the shape of the fix changes -- `K2_DestroyComponent`, an auto-destroy flag at spawn, or
+destroying up the attach chain) or something dumber, like a candidate list that was empty of the
+things that matter.
+
+## [OPEN] MEASURED 2026-09-04 -- `observed_world_offset_z` is re-learned from a burst that is standing still
+
+**Found by the instrument added in the same rebuild as the fix it was meant to check** -- and it is
+a different defect from the stranding it was written to investigate, which is the reason it is its
+own entry.
+
+```
+VFXOFFSET 'dl': -61.3 -> -60.5 -> -49.2 -> -42.2 -> -24.0 -> +14.7 -> +30.6
+    every reading from ONE component at a FIXED z=905.9, while the player fell z=966 -> z=875
+```
+
+**The value is assigned on every sample a world-spawned burst is alive, not once when it appears.**
+A burst does not move; the player does. So the quantity being learned stops being *"how high above
+the actor origin does the game put this effect"* and silently becomes *"how far is the player
+currently above a burst that is standing still"* — and since it is file-scope and shared by every
+ghost, one jump or fall through your own lingering dust rewrites the height every later burst uses,
+on every peer.
+
+**Ninety units of drift in one fall, with no ghost involved and nothing stranded.** So this half of
+the wrong-height dust was never about the leak at all, and the tester's *"related to the height of
+ghost sybil when it despawns"* has a sibling cause that needs no despawn.
+
+**The fix, written and waiting on a rebuild:** learn it only when `newly_seen` is true — the one
+sample where the component did not exist before, which is exactly when the effect is where the game
+just put it. That flag is already computed one line above for the burst counter.
