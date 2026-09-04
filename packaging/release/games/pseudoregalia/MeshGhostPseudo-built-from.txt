@@ -1,13 +1,13 @@
 # Written by dev-scripts\build-pseudoregalia.bat -- read by .github\workflows\release.yml's
 # staleness gate. Do not hand-edit. Kept outside the pseudoregalia\ drag-and-drop tree
 # on purpose so it never lands in a user's game folder.
-commit: 532ee5d7b9351c29846b99f4adac8dbf703ffca1
-Plugin.cpp: 5e97748f1b28279bb951fdd0011ec9f21c276a9d2951e4894e7dd33777b1e67a
+commit: de476438cc63e287e0e85b61a9b9faeedc87c2c9
+Plugin.cpp: 9f1efe0143df2a1e5c5ca9189d897cf0774150dbbedf32fd931fea37b1de2475
 Plugin.hpp: 353f400d0e431ebc6f87d407998c61cfacfcdc8d6b4aa4abc9551c2c6bc4db49
 PeerJson.hpp: 79445da8fa009c78508a2797eccbff769be53a789bea926af3e205d487dd575c
 BridgeClient.cpp: b14222e5364c24938f83b866c6f1b1b2bcddcf7be52babd3f72672925c4b24b8
 BridgeClient.hpp: 998803db0e28048776c1f436f2cab5ab492634ae6c0fb87abe662d987e783bd4
 dllmain.cpp: 2a4cb8328001507fb5d3d7d5a50c03439731867700654b39c5aba6b36a85637c
-CoreLauncher.cpp: 1c7ecddebed20254e031dd34524999b7e12222b0c8aeb7a2a028c247a7e307e4
-CoreLauncher.hpp: 7ca8c5d5ace944ed0abcfd936ca7b141472b1222334e9b02249265c057328431
+CoreLauncher.cpp: 335526262f920a438262b311e791e901d978c6a43b27157e67c7212c44527861
+CoreLauncher.hpp: 2c2c057953a8c79f23721dc9696623dd39c31aacc1fde1547d20525dd0ed8372
 CMakeLists.txt: d8b536c00018170b7970484d7dd524ad553acfb57ba565cd091b442f0623b3a3

@@ -2484,3 +2484,41 @@ The design is theirs; the implementation is the nametag's mechanism twice, since
 geometry but a second text component with a tinted material, which makes a circle a CHARACTER and
 costs no asset. New bridge message `recording_state`, the first core -> adapter state message any
 adapter here has ever handled.
+
+## 2026-09-05 — the recording indicator, and what a dozen looks at a red square actually taught
+
+**Shipped in one session, from the user's design (ADR 0052).** A red square and an elapsed clock,
+top right, while the core is recording. Confirmed on screen: the clock counts, the pair is fixed to
+the view, it disappears on stop, and the colours are the ones asked for. Four numbers are still
+being judged and the last build is **built, not deployed** — see `UNVERIFIED.md`.
+
+**THE DEFECT WORTH REMEMBERING IS NOT ABOUT THE INDICATOR.** This build has neither `SetText` nor
+`MarkRenderStateDirty` on `TextRenderComponent`, so `set_text_render_string` has always fallen
+through to a property write that changes what the component HOLDS and nothing about what it DRAWS.
+**Nametags only work because they rewrite their world transform every tick and that dirties the
+render state as a side effect.** The indicator is attached and holds still by design, which removed
+the accident and exposed the bug: a clock frozen at `0:00` while `elapsed_s` climbed past 60 in the
+log. A neighbouring feature that works is not evidence the mechanism works.
+
+**Three more things the mechanism refused, each found by trying it:**
+
+- **Coloured text does not land here** — `set_text_render_color` resolves and draws black, which is
+  what `NAMETAG_COLOR_PLATE` was invented for. So the only colourable thing is a plate, whose
+  material fills each glyph's whole quad, so **every shape is a rectangle**. A circle was never
+  reachable; three looks were spent proving it.
+- **Padding by spaces does nothing** — no advance in the generated mesh.
+- **Plate colours were never converted sRGB → linear**, so every plate in this adapter has been
+  washed out since nametags shipped. `#EE4B2B` arrived as salmon. Fixed globally; the user judged
+  the richer nametag parchment *"good/better"*.
+
+**THE PROCESS LESSON, and it is the reusable one.** A dozen looks went into this, and the split is
+stark: **every look that changed a NUMBER was free** (a tuning file re-read 5x/second, edited while
+the game ran), and **every look that changed a MECHANISM cost a rebuild and a relaunch**. Building
+the live loop early paid for itself several times over — and the tell for "this needs a build" was
+always the same, that the same knob was being asked to do two opposite things. `plate_w` giving
+side margins while also making the box tower over the text is the clean example: no value existed
+that satisfied both, and the fix was separating width from height, not searching harder.
+
+**The user's own framing drove two of the three mechanism changes** — that padding should be
+constant rather than proportional (a multiplier gives a long name a huge gap and a short clock
+none), and that the square needed the same per-axis freedom as the box.

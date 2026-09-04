@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — the recording indicator (red square + clock, top right): confirmed counting, following the screen and hiding on stop; four numbers left to judge, and the last build is BUILT NOT DEPLOYED
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -2362,3 +2363,47 @@ Press it again and it **disappears**, and nothing stays behind anywhere. Sizes a
 own `TransformComponent` if that resolved, else the pawn's `CameraComponent`), and if the circle
 still is not a circle, the glyph is now provably U+25CF and the finding becomes "this font has no
 glyph there", a different problem with a different fix.
+
+## [READY] the recording indicator: what it is, what is confirmed, and the four numbers left to judge (2026-09-05)
+
+**A red square and an elapsed clock in the top right while the core is recording** (ADR 0052). The
+core owns the hotkey and can never draw, so before this the only feedback was a console line and
+the console is hidden by default.
+
+### CONFIRMED on screen during the build session
+
+- **The clock counts**, after the render-state fix below.
+- **It follows the screen** — fixed in place while walking, jumping and turning the camera — and
+  **disappears when recording stops**, leaving nothing behind.
+- **Colours land as chosen**: `#EE4B2B` reads as red rather than salmon after the sRGB fix, and the
+  nametag parchment is *"good/better imo"* darker and richer than before.
+
+### STILL BEING JUDGED, and all four are live-tunable rather than rebuilds
+
+The last build is **BUILT AND NOT DEPLOYED** — the game was running when it finished. Deploy
+`packaging/release/.../dlls/main.dll` to both installs before the next look. It carries:
+
+| Complaint | What was actually wrong | Setting |
+|---|---|---|
+| box too tall | `plate_h` was clamped at a minimum of 1.0, and a text component's box is taller than its ink — hugging needs BELOW 1 | `plate_h=0.92` |
+| names too wide, clock too tight | a MULTIPLIER pads proportionally: a fifth of the text's own width is nothing on `0:01` and a lot on a long name | `plate_margin=0.35` (character widths, constant per side) |
+| square misaligned | its shape came from whichever glyph the material filled | `dot_w` / `dot_h` / `dot_up` |
+
+### The live-tuning loop, which is the part worth keeping
+
+`dlls/rec_indicator.txt` beside the DLL is re-read ~5x/second: `forward right up gap dot text glyph
+plate_margin plate_h dot_w dot_h dot_up`. Geometry is developer tuning and stays there; the
+**player-facing** settings are in `config.json` under `replay` — `indicator` (on/off),
+`indicator_color`, `indicator_timer_color` — and are re-read live too.
+
+**A dozen looks in this session were spent on numbers, and every one after the first cost nothing**
+because of that file. The three that DID cost rebuilds were mechanism changes, not numbers, which
+is the tell for when to reach for a build.
+
+### What cannot be done, established rather than assumed
+
+- **No circle.** The only thing that takes a colour here is a plate, whose material fills each
+  glyph's whole quad — so every shape is a rectangle. `set_text_render_color` resolves and still
+  draws black, which is why `NAMETAG_COLOR_PLATE` exists at all.
+- **The digits stay black** for the same reason, and are not configurable.
+- **Padding by spaces does nothing**: this font gives a space no advance in the generated mesh.

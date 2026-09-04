@@ -41,6 +41,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (Pseudoregalia, 2026-09-04) [CHECK: adapters/pseudoregalia/probe_audiofix, then the C++ decouple]
 - A visibility helper that hardcodes `bPropagateToChildren` changes components you never named (Pseudoregalia, 2026-09-04) [RULE: checklists/before-mirroring-state.md]
 - A user confirming the SYMPTOM is gone is not confirmation of the MECHANISM (Pseudoregalia, 2026-09-04) [RULE: checklists/before-declaring-a-fix.md]
+- A property write changes what a component HOLDS, never what it DRAWS — and the neighbour that "worked" was hiding it (Pseudoregalia, 2026-09-05) [RULE: checklists/before-declaring-a-fix.md]
 - A corrective SECOND call must run in the POST hook, and rewriting the argument beats both (Pseudoregalia, 2026-09-04) [RULE: checklists/before-spawning-in-unreal.md]
 
 ## By host and subsystem — [by-host.md](by-host.md)

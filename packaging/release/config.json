@@ -30,7 +30,8 @@
 
     "replay": {
       "record_on_launch": false, "save_last": "30s", "start_delay": "0s", "seek": "5s",
-      "split_times": false, "delta": true, "gzip": false, "name": "", "color": ""
+      "split_times": false, "delta": true, "gzip": false, "name": "", "color": "",
+      "indicator": true, "indicator_color": "#EE4B2B", "indicator_timer_color": "#FFFFFF"
     },
     "chaser": {
       "enabled": false, "count": 1, "delay": "3s", "spacing": "2s",

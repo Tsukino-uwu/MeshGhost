@@ -5933,3 +5933,41 @@ and `DestroyComponent` demonstrably resolves on this build. So the diagnostic it
 suspect. **A counter that under-reports is worse than no counter**: it reads exactly like "the path
 never ran", and conclusions get drawn from it. Count every branch, including the one you did not
 expect to happen — here, "live, hidden, stopped, but not destroyed" incremented nothing at all.
+
+## A property write changes what a component HOLDS, never what it DRAWS — and the neighbour that "worked" was hiding it (Pseudoregalia, 2026-09-05)
+
+**Symptom.** A recording indicator's clock sat at `0:00` for a whole recording, and a red dot drew
+black. Both looked like arithmetic or a colour bug, and neither was.
+
+**Cause, and the log had been printing it all along.** This build has neither `SetText` nor
+`MarkRenderStateDirty` on `TextRenderComponent`:
+
+```
+NAMETAGFN SetTextRenderColor=found SetText=MISSING MarkRenderStateDirty=MISSING
+```
+
+So `set_text_render_string` always takes its fallback path and pokes the `Text` property directly.
+That updates the component's state and **rebuilds nothing**, so the mesh on screen stays whatever
+was last baked into it. The per-second instrumentation proved the maths was never at fault —
+`elapsed_s` climbed 53, 54, 55 … 60 while the screen showed `0:00`.
+
+**Why nobody noticed since nametags shipped (2026-08-29): the NAMETAG works by accident.** It rewrites its world transform
+every tick, and a transform write dirties the render state as a side effect — so its strings appear
+because it is constantly being repositioned, not because the write reaches the screen. The indicator
+is ATTACHED to the camera and holds still by design, which removed the accident and exposed the
+defect. **A neighbouring feature that works is not evidence that the mechanism works**; it may be
+paying for it with something incidental.
+
+**Two tells that were visible before the cause was:** the glyph changed at exactly the moment a
+tuning edit rewrote the transform (nothing else had changed about the string), and a colour set
+BEFORE a string write never appeared while the nametag's identical order works — because there
+`SetText` performs the rebuild that picks the colour up.
+
+**Fix:** `force_text_rebuild` re-applies the size the component already has through `SetWorldSize`,
+a text setter that does exist here, after every string write. The dot sets its colour AFTER its
+string, the inverse of the nametag's documented order and for the same underlying reason: whichever
+call rebuilds last is the one that wins.
+
+**The general form, worth more than the fix:** when a reflected setter is missing, a property write
+is not a fallback — it is half of one. Ask what rebuilds the thing, and prove the pixels changed
+rather than the field.

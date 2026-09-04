@@ -57,6 +57,11 @@ namespace MeshGhostPseudo
     // Returns the default rather than failing on anything unparseable: a typo in a cosmetic port
     // setting must not stop a game's mod from loading.
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t;
+
+    // config.json readers for the player-facing indicator settings -- see the definitions.
+    auto config_string_value(const char* key, std::string& out) -> bool;
+    auto config_bool_value(const char* key, bool missing) -> bool;
+
     // True when the config.json the mod's client reads carries "autostart": false (2026-09-03).
     auto config_disables_autostart() -> bool;
 

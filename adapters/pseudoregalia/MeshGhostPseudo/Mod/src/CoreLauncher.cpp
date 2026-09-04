@@ -93,6 +93,113 @@ namespace MeshGhostPseudo
         return file_exists(dir + L"\\" + file_name);
     }
 
+    // Reads a STRING value out of the mod's config.json, by key. Same two directories and the
+    // same deliberately small hand parse as resolve_bridge_base_port and
+    // config_disables_autostart -- this file has no JSON library and does not want one for three
+    // keys.
+    //
+    // Returns false when the key is absent, so a caller keeps its own default rather than
+    // inheriting an empty string. Whatever is between the quotes is returned verbatim: a colour is
+    // validated by the code that applies it (set_plate_color takes "#RRGGBB" and ignores anything
+    // else), which keeps the "what is a valid colour" answer in one place.
+    auto config_string_value(const char* key, std::string& out) -> bool
+    {
+        std::wstring dirs[2];
+        dirs[1] = module_directory();
+        dirs[0] = dirs[1];
+        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
+        {
+            dirs[0].resize(slash);
+        }
+        for (const std::wstring& dir : dirs)
+        {
+            if (dir.empty())
+            {
+                continue;
+            }
+            std::ifstream f(dir + L"/config.json");
+            if (!f)
+            {
+                continue;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const std::string quoted = std::string("\"") + key + "\"";
+            const size_t k = text.find(quoted);
+            if (k == std::string::npos)
+            {
+                return false; // the first config.json found decides, key or no key
+            }
+            size_t i = text.find(':', k + quoted.size());
+            if (i == std::string::npos)
+            {
+                return false;
+            }
+            ++i;
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+            {
+                ++i;
+            }
+            if (i >= text.size() || text[i] != '"')
+            {
+                return false;
+            }
+            const size_t start = i + 1;
+            const size_t close = text.find('"', start);
+            if (close == std::string::npos)
+            {
+                return false;
+            }
+            out = text.substr(start, close - start);
+            return true;
+        }
+        return false;
+    }
+
+    // The bool counterpart. `missing` is what an absent key means, which differs per setting --
+    // "indicator" defaults ON because a player who never edits the file should still get feedback
+    // from a hotkey they pressed.
+    auto config_bool_value(const char* key, bool missing) -> bool
+    {
+        std::wstring dirs[2];
+        dirs[1] = module_directory();
+        dirs[0] = dirs[1];
+        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
+        {
+            dirs[0].resize(slash);
+        }
+        for (const std::wstring& dir : dirs)
+        {
+            if (dir.empty())
+            {
+                continue;
+            }
+            std::ifstream f(dir + L"/config.json");
+            if (!f)
+            {
+                continue;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const std::string quoted = std::string("\"") + key + "\"";
+            const size_t k = text.find(quoted);
+            if (k == std::string::npos)
+            {
+                return missing;
+            }
+            size_t i = text.find(':', k + quoted.size());
+            if (i == std::string::npos)
+            {
+                return missing;
+            }
+            ++i;
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+            {
+                ++i;
+            }
+            return text.compare(i, 4, "true") == 0;
+        }
+        return missing;
+    }
+
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t
     {
         // 1. The environment wins. Same variable name as the two Lua adapters, so one launcher

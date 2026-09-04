@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <fstream> // rec_indicator.txt, the indicator's live-tuning file
 #include <set>
 #include <cstdlib>
 #include <cstring>
@@ -7766,7 +7767,18 @@ namespace MeshGhostPseudo
                 {
                     return false;
                 }
-                rgb[i] = static_cast<float>(hi * 16 + lo) / 255.0f;
+                // **sRGB -> LINEAR, and the missing conversion is why every plate has looked
+                // washed out.** A hex code is what a colour picker gives you and is sRGB-encoded;
+                // a material's vector parameter is LINEAR. Handing one to the other lightens
+                // mid-tones badly -- the user picked #EE4B2B for the recording square and got
+                // salmon on screen: *"looks orange ish? not red?"*, with 75/255 arriving as 0.29
+                // where linear red wants 0.068.
+                //
+                // The transform is the sRGB standard's own, not a fudge factor: a small linear
+                // segment below the knee and a 2.4 gamma above it.
+                const float channel = static_cast<float>(hi * 16 + lo) / 255.0f;
+                rgb[i] = channel <= 0.04045f ? channel / 12.92f
+                                             : std::pow((channel + 0.055f) / 1.055f, 2.4f);
             }
 
             UFunction* fn = mid->GetFunctionByNameInChain(STR("SetVectorParameterValue"));
@@ -7992,13 +8004,65 @@ namespace MeshGhostPseudo
         // every tick and turned to face the camera, which is screen-fixed by construction.
         //
         // Cost is zero while not recording: the early-out below runs before anything is resolved.
-        constexpr double REC_FORWARD = 140.0;   // how far in front of the camera the dot floats
-        constexpr double REC_RIGHT = 52.0;      // + is right, toward the corner
-        constexpr double REC_UP = 30.0;         // + is up
-        constexpr double REC_TIME_RIGHT = 15.0; // the time sits this much further right of the dot
-        constexpr double REC_PLATE_BEHIND = 0.6;
-        constexpr double REC_TEXT_SIZE = 9.0;   // the digits; the user judged 4 "really tiny"
-        constexpr double REC_DOT_SIZE = 14.0;   // the circle glyph is short next to digits
+        // **LIVE-TUNABLE, via `rec_indicator.txt` beside the DLL.** Every one of these is a guess
+        // about a field of view nobody has measured, and the first build proved that guessing them
+        // one rebuild at a time is the expensive way: a C++ change costs a relaunch, and "a bit
+        // more to the right" is not worth one. `CLAUDE.md`'s rule that a manual keypress should be
+        // replaced by a programmatic path applies to a manual REBUILD at least as strongly.
+        //
+        // Defaults below were derived from the first screenshot rather than invented: the
+        // indicator sat at ~68% of the width and ~31% of the height with right/forward = 52/140
+        // and up/forward = 30/140, which solves to a horizontal half-angle of tan ~1.03 and a
+        // vertical of ~0.563 -- a 16:9 frame at ~92 degrees horizontal, consistent, so the same
+        // solve puts the corner at right 88 and up 55.
+        double g_rec_forward = 140.0;    // how far in front of the camera the pair floats
+        double g_rec_right = 88.0;       // + is right, toward the corner
+        double g_rec_up = 55.0;          // + is up
+        double g_rec_time_right = 15.0;  // the time sits this much further right than the dot
+        double g_rec_plate_behind = 0.6; // the white box, pushed away from the camera behind the digits
+        double g_rec_text_size = 9.0;    // the digits; the user judged 4 "really tiny"
+        double g_rec_dot_size = 14.0;    // the dot glyph is short next to digits
+        // U+25CF renders as a solid BAR in this game's text font, not a circle (user, twice), so
+        // the shape is a tuning value now rather than a constant: the file can name any character
+        // and the answer is one keypress away instead of one rebuild.
+        StringType g_rec_glyph = STR("\u25CF");
+        bool g_rec_tuning_dirty = false;
+        // The digits currently on screen. See the write site for why this is not a local.
+        StringType g_recording_time_text;
+        // Blank space either side of any PLATE's text, in spaces. Live-tunable for the same reason
+        // the offsets are: "a tiny bit more right" is a judgement about pixels, and answering it
+        // with a rebuild costs a relaunch. Applies to nametags too -- the plate is one mechanism.
+        // How far a plate is stretched past its text, per axis: WIDTH and HEIGHT independently,
+        // because one uniform number cannot give side margins without also towering over the text.
+        // Side margin in CHARACTER WIDTHS, converted to a per-string scale below. Constant by
+        // construction: a short clock and a long name get the same visible margin, which a
+        // multiplier cannot do -- it gives a fifth of the text's own width, so the longer the text
+        // the bigger the gap.
+        double g_plate_margin_chars = 0.35;
+        // Height stays a multiplier, and may go BELOW 1: a text component's box is taller than the
+        // ink it holds, so hugging the glyphs means shrinking past the box rather than growing.
+        double g_plate_scale_h = 0.95;
+        // The recording square's own two axes. Its proportions used to be whichever box the glyph
+        // came with -- a narrow bar for one character, a wide block for another -- so making it an
+        // actual SQUARE meant hunting for a character shaped like one. These make the shape a
+        // number instead, and the glyph merely something for the material to fill.
+        double g_rec_dot_scale_w = 1.0;
+        double g_rec_dot_scale_h = 1.0;
+        // The recording square's colour, in the "#RRGGBB" form set_plate_color already takes.
+        // From config.json's replay.indicator_color; the value here is the shipped default and is
+        // what a player who deletes the key gets back.
+        std::string g_rec_dot_color = "#EE4B2B";
+        // The timer's box, config.json's replay.indicator_timer_color. The DIGITS stay black and
+        // are not configurable, and that is a fact about this game rather than an omission: text
+        // colour does not land here, which is why every coloured thing in this adapter is a plate.
+        std::string g_rec_timer_color = "#FFFFFF";
+        // config.json's replay.indicator -- whether to draw anything at all. Default ON: a player
+        // who never edits the file still gets an answer to "did my keypress do something", which
+        // is the whole reason this feature exists. Off is for someone who does not want it in a
+        // video capture, since a screen indicator lands in one like any other UI.
+        bool g_rec_indicator_enabled = true;
+        // The square's own vertical nudge, added to `up`. See above for why it needs its own.
+        double g_rec_dot_up = 0.0;
 
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition
@@ -8177,6 +8241,167 @@ namespace MeshGhostPseudo
             return true;
         }
 
+
+        // Forces a TextRenderComponent to rebuild its text mesh.
+        //
+        // **THIS BUILD HAS NEITHER `SetText` NOR `MarkRenderStateDirty`** -- measured, and printed
+        // by the NAMETAGFN line that has been in the log all along:
+        //
+        //     NAMETAGFN SetTextRenderColor=found SetText=MISSING MarkRenderStateDirty=MISSING
+        //
+        // So `set_text_render_string` always takes its fallback path and pokes the `Text` property
+        // directly, which changes what the component HOLDS and nothing about what it DRAWS. The
+        // mesh on screen stays whatever was last baked.
+        //
+        // **The nametag never noticed because it rewrites its world transform every tick**, and a
+        // transform write dirties the render state as a side effect -- so its names appear by
+        // accident of being repositioned constantly. The recording indicator is ATTACHED and holds
+        // still by design, so nothing dirtied it and the first string it ever drew was the one it
+        // kept: a clock frozen at 0:00 while `elapsed_s` climbed correctly past 60 in the log, and
+        // a dot that ignored the colour set just before its string.
+        //
+        // `SetWorldSize` is the lever because it is a TEXT setter that exists here: changing the
+        // size necessarily rebuilds the glyph geometry, and re-applying the size the component
+        // already has rebuilds it without changing anything. Read back rather than assumed, so a
+        // component whose size was tuned since keeps it.
+        auto force_text_rebuild(UObject* component) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            float size = 0.0f;
+            if (float* current = mg_property_value<float>(component, STR("WorldSize")))
+            {
+                size = *current;
+            }
+            if (size <= 0.0f)
+            {
+                return;
+            }
+            call_float_setter(component, STR("SetWorldSize"), size);
+        }
+
+        // What a PLATE should draw for a given string: the same text with a space each side.
+        //
+        // A plate is the same string rendered behind the real one in a material that fills each
+        // glyph's quad, so its box ends exactly where the last glyph does -- flush on the right,
+        // while the left looks padded because the first glyph's own side bearing sits inside the
+        // fill. The user named it on the recording clock and extended it to nametags in the same
+        // breath, which is right: it is a property of the plate mechanism, not of one feature.
+        //
+        // A space has an advance width and no ink, and the fill follows the ADVANCE -- so a space
+        // widens the box and draws nothing itself, which is exactly the blank margin wanted. If a
+        // build ever renders spaces with zero advance the box simply returns to flush, which is
+        // the current behaviour rather than a new fault.
+        auto plate_string_for(const StringType& text) -> StringType
+        {
+            // The same string, deliberately. Padding is done by SIZE (see plate_scale_for and
+            // apply_plate_geometry) because this font's space has no advance in the generated
+            // mesh -- one, two and three spaces each side all produced a box that still stopped on
+            // the ink, measured on screen. Kept as a function so the two callers stay honest about
+            // what a plate draws.
+            return text;
+        }
+
+        // A plate is drawn at the text's OWN size and then stretched per axis -- see
+        // g_plate_scale_w / g_plate_scale_h. Kept as a function because two call sites want it and
+        // the uniform version it replaces was wrong in a way that took several looks to see.
+        auto plate_scale_for(double text_size) -> float
+        {
+            return static_cast<float>(text_size);
+        }
+
+        // The width scale that puts a CONSTANT margin either side of a string of `chars`
+        // characters. A margin of 0.35 characters on a 4-character clock is a 17% stretch; on a
+        // 17-character name it is 4% -- which is the same gap on screen, and the point.
+        auto plate_width_scale_for(size_t chars) -> double
+        {
+            const double n = static_cast<double>(chars < 1 ? 1 : chars);
+            return 1.0 + (2.0 * g_plate_margin_chars) / n;
+        }
+
+        // Stretches a component on its own axes. For a text component the glyphs run along local
+        // Y and stand up along local Z, so Y is WIDTH and Z is HEIGHT; X is the facing normal and
+        // stays 1. Both are tunable, so if this build turns out to lay text out the other way the
+        // symptom ("it got taller, not wider") is one file edit from fixed rather than a rebuild.
+        auto set_component_relative_scale(UObject* component, double x, double y, double z) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+                nullptr, nullptr, STR("/Script/Engine.SceneComponent:SetRelativeScale3D"));
+            if (function)
+            {
+                if (FProperty* scale_param = function->FindProperty(FName(STR("NewScale3D"), FNAME_Find)))
+                {
+                    const int32_t parms_size = function->GetPropertiesSize();
+                    if (parms_size >= 1)
+                    {
+                        std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                        if (write_vector_param(params_buffer.data(), scale_param, FVector{x, y, z}))
+                        {
+                            component->ProcessEvent(function, params_buffer.data());
+                            return;
+                        }
+                    }
+                }
+            }
+            // Property fallback plus an explicit rebuild, because this build has no
+            // MarkRenderStateDirty and a bare property write would change nothing on screen --
+            // the lesson force_text_rebuild exists for.
+            if (FVector* scale = mg_property_value<FVector>(component, STR("RelativeScale3D")))
+            {
+                *scale = FVector{x, y, z};
+                force_text_rebuild(component);
+            }
+        }
+
+        // Centres a text component horizontally and vertically, so growing it grows it EVENLY
+        // rather than off one corner.
+        //
+        // Written through the setters when they exist and by property otherwise, with a forced
+        // rebuild either way -- this build has no MarkRenderStateDirty and a property write alone
+        // changes what the component holds and not what it draws (see force_text_rebuild).
+        auto center_text_component(UObject* component) -> void
+        {
+            if (!component)
+            {
+                return;
+            }
+            // EHorizTextAligment::EHTA_Center and EVerticalTextAligment::EVRTA_TextCenter are both
+            // 1 -- public UE enums from Engine/TextRenderComponent.h, not this game's own data.
+            bool wrote = false;
+            for (const wchar_t* setter : {STR("SetHorizontalAlignment"), STR("SetVerticalAlignment")})
+            {
+                if (UFunction* fn = component->GetFunctionByNameInChain(setter))
+                {
+                    const int32_t parms_size = fn->GetPropertiesSize();
+                    if (parms_size >= 1)
+                    {
+                        std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+                        params_buffer[0] = 1;
+                        component->ProcessEvent(fn, params_buffer.data());
+                        wrote = true;
+                    }
+                }
+            }
+            if (!wrote)
+            {
+                if (uint8_t* h = mg_property_value<uint8_t>(component, STR("HorizontalAlignment")))
+                {
+                    *h = 1;
+                }
+                if (uint8_t* v = mg_property_value<uint8_t>(component, STR("VerticalAlignment")))
+                {
+                    *v = 1;
+                }
+                force_text_rebuild(component);
+            }
+        }
+
         // Re-parents a scene component, keeping its RELATIVE transform, so the engine carries it
         // with the parent every frame and nothing here has to write a position per tick.
         //
@@ -8343,6 +8568,187 @@ namespace MeshGhostPseudo
             return nullptr;
         }
 
+        // Reads `rec_indicator.txt` beside the DLL and applies whatever it names to the indicator,
+        // live. Absent (the shipped state) means the defaults above and no file I/O beyond one
+        // existence check per poll.
+        //
+        // **This exists because the alternative is a relaunch per nudge.** The indicator's whole
+        // remaining problem is a set of numbers nobody has measured -- where the corner is in a
+        // field of view we do not know, how big a glyph reads at a distance, and WHICH character
+        // this game's font draws as a filled circle. Each of those is a look-and-adjust loop, and
+        // a C++ rebuild costs a relaunch, so the loop is the thing to automate rather than the
+        // guess to improve (`CLAUDE.md`: replace a manual step with a programmatic path, then
+        // record it as the default or it goes unused).
+        //
+        // Format, one `key=value` per line, any subset, `#` comments ignored:
+        //
+        //     forward=140     how far in front of the camera
+        //     right=88        + toward the right edge
+        //     up=55           + toward the top edge
+        //     gap=15          how much further right the time sits than the dot
+        //     dot=14          the dot glyph's world size
+        //     text=9          the digits' world size
+        //     glyph=25CF      a HEX code point, or `glyph=.` for a literal character
+        //
+        // `glyph` takes a code point rather than a raw character deliberately: this file is not
+        // compiled as UTF-8 and the source literal was mangled twice already, so a hex value is
+        // the one form that cannot be silently corrupted between here and the screen.
+        // The PLAYER-facing settings, re-read on the same poll as the developer file so an edit
+        // lands without a relaunch -- config.json is the file players are told to edit, and asking
+        // them to restart a game to see a colour is the same cost this whole loop removed for me.
+        auto poll_recording_indicator_config() -> void
+        {
+            std::string value;
+            const bool enabled = config_bool_value("indicator", true);
+            if (enabled != g_rec_indicator_enabled)
+            {
+                g_rec_indicator_enabled = enabled;
+                g_rec_tuning_dirty = true;
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator={}\n"),
+                             enabled ? STR("on") : STR("off"));
+            }
+            if (config_string_value("indicator_color", value) && value != g_rec_dot_color)
+            {
+                g_rec_dot_color = value;
+                g_rec_tuning_dirty = true;
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator_color={}\n"), to_wide_ascii(value));
+            }
+            if (config_string_value("indicator_timer_color", value) && value != g_rec_timer_color)
+            {
+                g_rec_timer_color = value;
+                g_rec_tuning_dirty = true;
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator_timer_color={}\n"), to_wide_ascii(value));
+            }
+        }
+
+        auto poll_recording_indicator_tuning() -> void
+        {
+            poll_recording_indicator_config();
+            // Same directory rule as every other dev toggle, via the launcher's own helper rather
+            // than a second copy of the module-path dance.
+            const std::wstring dir = module_directory();
+            if (dir.empty())
+            {
+                return;
+            }
+            std::ifstream f(dir + L"/rec_indicator.txt");
+            if (!f)
+            {
+                return;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            // Content, not mtime: an editor that rewrites a file unchanged would otherwise re-apply
+            // every poll, and re-applying a transform is exactly the per-tick write this design
+            // exists to avoid.
+            static std::string last_text;
+            if (text == last_text)
+            {
+                return;
+            }
+            last_text = text;
+
+            size_t pos = 0;
+            while (pos < text.size())
+            {
+                // Written the long way because <windows.h> defines `min` as a MACRO, so
+                // `std::min(a, b)` is a syntax error in this translation unit rather than an
+                // overload problem -- and the compiler's complaint names the token, not the cause.
+                size_t line_end = text.find('\n', pos);
+                if (line_end == std::string::npos)
+                {
+                    line_end = text.size();
+                }
+                std::string line = text.substr(pos, line_end - pos);
+                pos = line_end + 1;
+                if (const size_t hash = line.find('#'); hash != std::string::npos)
+                {
+                    line.resize(hash);
+                }
+                const size_t eq = line.find('=');
+                if (eq == std::string::npos)
+                {
+                    continue;
+                }
+                auto trim = [](std::string v) {
+                    while (!v.empty() && (v.front() == ' ' || v.front() == '\t' || v.front() == '\r')) v.erase(v.begin());
+                    while (!v.empty() && (v.back() == ' ' || v.back() == '\t' || v.back() == '\r')) v.pop_back();
+                    return v;
+                };
+                const std::string key = trim(line.substr(0, eq));
+                const std::string value = trim(line.substr(eq + 1));
+                if (value.empty())
+                {
+                    continue;
+                }
+                if (key == "color")
+                {
+                    // Accepts "#RRGGBB" or bare "RRGGBB". Anything else is left alone rather than
+                    // applied half-parsed: set_plate_color ignores a malformed string silently, and
+                    // a silently unchanged colour looks exactly like a broken one.
+                    std::string hex = value;
+                    if (!hex.empty() && hex[0] != '#')
+                    {
+                        hex = "#" + hex;
+                    }
+                    if (hex.size() == 7)
+                    {
+                        g_rec_dot_color = hex;
+                        g_rec_tuning_dirty = true;
+                    }
+                    continue;
+                }
+                if (key == "glyph")
+                {
+                    // A hex code point if it reads as one, else the literal first character. Both
+                    // are useful: `25CF` names a symbol precisely, `.` is faster to try.
+                    wchar_t decoded = 0;
+                    char* stop = nullptr;
+                    const unsigned long code = std::strtoul(value.c_str(), &stop, 16);
+                    if (stop && *stop == '\0' && code > 0 && code <= 0xFFFF && value.size() > 1)
+                    {
+                        decoded = static_cast<wchar_t>(code);
+                    }
+                    else
+                    {
+                        decoded = static_cast<wchar_t>(static_cast<unsigned char>(value[0]));
+                    }
+                    g_rec_glyph = StringType(1, decoded);
+                    g_rec_tuning_dirty = true;
+                    continue;
+                }
+                const double number = std::strtod(value.c_str(), nullptr);
+                if (!std::isfinite(number))
+                {
+                    continue;
+                }
+                // Bounded, because these are multiplied into a world position every time they are
+                // applied and a typo should move the indicator, never launch it into the void.
+                const double bounded = std::clamp(number, -10000.0, 10000.0);
+                if (key == "forward") { g_rec_forward = std::clamp(bounded, 10.0, 2000.0); }
+                else if (key == "right") { g_rec_right = bounded; }
+                else if (key == "up") { g_rec_up = bounded; }
+                else if (key == "gap") { g_rec_time_right = bounded; }
+                else if (key == "dot") { g_rec_dot_size = std::clamp(bounded, 0.1, 500.0); }
+                else if (key == "text") { g_rec_text_size = std::clamp(bounded, 0.1, 500.0); }
+                else if (key == "plate_margin") { g_plate_margin_chars = std::clamp(bounded, 0.0, 4.0); }
+                else if (key == "plate_h") { g_plate_scale_h = std::clamp(bounded, 0.3, 3.0); }
+                else if (key == "dot_w") { g_rec_dot_scale_w = std::clamp(bounded, 0.05, 10.0); }
+                else if (key == "dot_h") { g_rec_dot_scale_h = std::clamp(bounded, 0.05, 10.0); }
+                else if (key == "dot_up") { g_rec_dot_up = bounded; }
+                else { continue; }
+                g_rec_tuning_dirty = true;
+            }
+            if (g_rec_tuning_dirty)
+            {
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: rec_indicator.txt read -- fwd={} right={} up={} gap={} dot={} text={} glyph=U+{:04X} color={} plate_margin={} plate_h={} dot_w={} dot_h={} dot_up={}\n"),
+                             g_rec_forward, g_rec_right, g_rec_up, g_rec_time_right,
+                             g_rec_dot_size, g_rec_text_size,
+                             g_rec_glyph.empty() ? 0 : static_cast<int>(g_rec_glyph[0]),
+                             to_wide_ascii(g_rec_dot_color), g_plate_margin_chars, g_plate_scale_h,
+                             g_rec_dot_scale_w, g_rec_dot_scale_h, g_rec_dot_up);
+            }
+        }
+
         bool g_recording_indicator_visible = false;
 
         // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
@@ -8353,7 +8759,7 @@ namespace MeshGhostPseudo
         // work is: not recording -> one bool test; recording -> one string write per SECOND.
         auto tick_recording_indicator(UObject* controller, AActor* local_pawn) -> void
         {
-            if (!g_recording_active)
+            if (!g_recording_active || !g_rec_indicator_enabled)
             {
                 if (g_recording_dot && g_recording_indicator_visible)
                 {
@@ -8401,7 +8807,22 @@ namespace MeshGhostPseudo
                     set_text_render_string(part, STR(""));
                     // Through the SETTER so the render state rebuilds; the property write the
                     // first version used changed nothing visible.
-                    const float size = static_cast<float>(part == g_recording_dot ? REC_DOT_SIZE : REC_TEXT_SIZE);
+                    // The timer's PLATE is drawn larger than the digits it backs, which is what
+                    // makes the coloured margin -- see plate_scale_for.
+                    const float size = part == g_recording_dot   ? static_cast<float>(g_rec_dot_size)
+                                       : part == g_recording_time ? static_cast<float>(g_rec_text_size)
+                                                                  : plate_scale_for(g_rec_text_size);
+                    center_text_component(part);
+                    if (part == g_recording_time_plate)
+                    {
+                        set_component_relative_scale(part, 1.0,
+                                                     plate_width_scale_for(g_recording_time_text.size()),
+                                                     g_plate_scale_h);
+                    }
+                    else if (part == g_recording_dot)
+                    {
+                        set_component_relative_scale(part, 1.0, g_rec_dot_scale_w, g_rec_dot_scale_h);
+                    }
                     if (!call_float_setter(part, STR("SetWorldSize"), size))
                     {
                         static bool warned = false;
@@ -8416,21 +8837,20 @@ namespace MeshGhostPseudo
                 // Camera-local frame: X forward, Y right, Z up. Yaw 180 turns each text plane's
                 // forward back toward the camera, which is what makes it readable rather than
                 // mirrored -- the nametag's own hard-won rule about which way a text plane faces.
-                set_component_relative_transform(g_recording_dot, REC_FORWARD, REC_RIGHT, REC_UP, 0.0, 180.0, 0.0);
-                set_component_relative_transform(g_recording_time, REC_FORWARD, REC_RIGHT + REC_TIME_RIGHT, REC_UP, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_dot, g_rec_forward, g_rec_right, g_rec_up + g_rec_dot_up, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time, g_rec_forward, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
                 // The plate sits FURTHER from the camera than the time, so the black digits
                 // depth-sort in front of the white box they need behind them.
-                set_component_relative_transform(g_recording_time_plate, REC_FORWARD + REC_PLATE_BEHIND, REC_RIGHT + REC_TIME_RIGHT, REC_UP, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
 
-                g_recording_dot_mid = create_plate_material(g_recording_dot);
-                if (g_recording_dot_mid)
-                {
-                    set_plate_color(g_recording_dot_mid, "#E03030");
-                }
+                // COLOURED TEXT, not a plate: a plate material fills the glyph quad and draws a
+                // solid rectangle whatever character it is given (measured on screen -- U+25CF a
+                // narrow bar, "O" a wide block). Tinting the text keeps the glyph's real shape,
+                // which is the only way a circle can ever be a circle here.
                 g_recording_time_plate_mid = create_plate_material(g_recording_time_plate);
                 if (g_recording_time_plate_mid)
                 {
-                    set_plate_color(g_recording_time_plate_mid, "#FFFFFF");
+                    set_plate_color(g_recording_time_plate_mid, g_rec_timer_color);
                 }
                 // U+25CF BLACK CIRCLE as a universal-character-name ESCAPE, never a literal glyph
                 // in the source: this file is not compiled as UTF-8, so a raw multi-byte character
@@ -8438,9 +8858,24 @@ namespace MeshGhostPseudo
                 // really tiny, and just a straight line instead of a circle" of the first build.
                 // If this build's text font has no glyph at U+25CF, that is a DIFFERENT finding
                 // and shows as a box; the log line below is where the two get told apart.
-                set_text_render_string(g_recording_dot, STR("\u25CF"));
-                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: built and parented to the view (dot glyph U+25CF, sizes dot={} text={}).\n"),
-                             REC_DOT_SIZE, REC_TEXT_SIZE);
+                set_text_render_string(g_recording_dot, g_rec_glyph.c_str());
+                // A PLATE, not coloured text. set_text_render_color resolves here and draws black
+                // anyway -- the same gap NAMETAG_COLOR_PLATE was invented for, re-confirmed on
+                // screen 2026-09-05. The plate's material fills the glyph quad, so this is a
+                // coloured RECTANGLE whose proportions come from whichever character is set; a
+                // circle is not reachable this way, which the design conversation allowed for.
+                g_recording_dot_mid = create_plate_material(g_recording_dot);
+                if (g_recording_dot_mid)
+                {
+                    set_plate_color(g_recording_dot_mid, g_rec_dot_color);
+                }
+                if (g_recording_time_plate_mid)
+                {
+                    set_plate_color(g_recording_time_plate_mid, g_rec_timer_color);
+                }
+                force_text_rebuild(g_recording_dot);
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: built and parented to the view (sizes dot={} text={}, offset fwd={} right={} up={}).\n"),
+                             g_rec_dot_size, g_rec_text_size, g_rec_forward, g_rec_right, g_rec_up);
             }
 
             if (!g_recording_indicator_visible)
@@ -8452,6 +8887,39 @@ namespace MeshGhostPseudo
                 g_recording_indicator_visible = true;
             }
 
+            // Re-apply whatever the tuning file last changed. Only ever runs on the tick after an
+            // edit, so the steady state costs nothing.
+            if (g_rec_tuning_dirty)
+            {
+                g_rec_tuning_dirty = false;
+                call_float_setter(g_recording_dot, STR("SetWorldSize"), static_cast<float>(g_rec_dot_size));
+                call_float_setter(g_recording_time, STR("SetWorldSize"), static_cast<float>(g_rec_text_size));
+                call_float_setter(g_recording_time_plate, STR("SetWorldSize"), plate_scale_for(g_rec_text_size));
+                set_component_relative_scale(g_recording_time_plate, 1.0,
+                                             plate_width_scale_for(g_recording_time_text.size()),
+                                             g_plate_scale_h);
+                set_component_relative_scale(g_recording_dot, 1.0, g_rec_dot_scale_w, g_rec_dot_scale_h);
+                set_component_relative_transform(g_recording_dot, g_rec_forward, g_rec_right, g_rec_up + g_rec_dot_up, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time, g_rec_forward, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
+                set_text_render_string(g_recording_dot, g_rec_glyph.c_str());
+                if (g_recording_dot_mid)
+                {
+                    set_plate_color(g_recording_dot_mid, g_rec_dot_color);
+                }
+                force_text_rebuild(g_recording_dot);
+                // The clock's plate only redraws when the SECOND changes, so a padding edit would
+                // otherwise sit invisible for up to a second -- rewrite it now with what is
+                // already on screen.
+                if (!g_recording_time_text.empty())
+                {
+                    set_text_render_string(g_recording_time_plate, plate_string_for(g_recording_time_text).c_str());
+                    force_text_rebuild(g_recording_time_plate);
+                }
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: re-tuned -- fwd={} right={} up={} gap={} dot={} text={}.\n"),
+                             g_rec_forward, g_rec_right, g_rec_up, g_rec_time_right, g_rec_dot_size, g_rec_text_size);
+            }
+
             const int64_t now_ms = static_cast<int64_t>(
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
@@ -8460,6 +8928,19 @@ namespace MeshGhostPseudo
             if (g_recording_started_unix_ms > 0 && now_ms > g_recording_started_unix_ms)
             {
                 elapsed_s = (now_ms - g_recording_started_unix_ms) / 1000;
+            }
+            // Named ONCE per recording, because "stuck at 0:00" has three possible causes and the
+            // screen cannot tell them apart: a start time that never arrived (0), a start time in
+            // the future (a clock disagreement between the two processes), or arithmetic that is
+            // fine while the string write is not. The parse itself is already ruled out -- the
+            // adapter's own reader was run against the exact line the core emits, outside the
+            // game, and returned both fields correctly.
+            static int64_t last_logged_second = -1;
+            if (elapsed_s != last_logged_second)
+            {
+                last_logged_second = elapsed_s;
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: started_unix_ms={} now_unix_ms={} elapsed_s={}\n"),
+                             g_recording_started_unix_ms, now_ms, elapsed_s);
             }
             // Rebuilt only when the SECOND changes -- a text component rebuilds its mesh on every
             // string write. Reset whenever the component is a new one, so a fresh component never
@@ -8477,10 +8958,21 @@ namespace MeshGhostPseudo
                 wchar_t buffer[16]{};
                 std::swprintf(buffer, sizeof(buffer) / sizeof(buffer[0]), STR("%lld:%02lld"),
                               static_cast<long long>(elapsed_s / 60), static_cast<long long>(elapsed_s % 60));
-                set_text_render_string(g_recording_time, buffer);
+                // Held at file scope for as long as the components might reference it: FText is
+                // built from this pointer and whether the vendored SDK copies the characters is
+                // not established. A stack buffer is the one version where that question can bite.
+                g_recording_time_text = buffer;
+                set_text_render_string(g_recording_time, g_recording_time_text.c_str());
+                force_text_rebuild(g_recording_time);
                 // The plate carries the SAME string, which is how the nametag makes a box: a
                 // coloured copy sitting behind black text is the box.
-                set_text_render_string(g_recording_time_plate, buffer);
+                set_text_render_string(g_recording_time_plate, plate_string_for(g_recording_time_text).c_str());
+                // Re-scaled with the string: "10:00" is a character wider than "9:59", and a
+                // constant margin has to be recomputed when the count of characters changes.
+                set_component_relative_scale(g_recording_time_plate, 1.0,
+                                             plate_width_scale_for(g_recording_time_text.size()),
+                                             g_plate_scale_h);
+                force_text_rebuild(g_recording_time_plate);
             }
         }
 
@@ -13782,6 +14274,22 @@ namespace MeshGhostPseudo
                     // string unless a colour actually applied, so this is the only place that
                     // default can be cleared.
                     set_text_render_string(entry.nametag_plate, STR(""));
+                    // **BIGGER THAN THE NAME IT BACKS, so the colour shows all round it.** The
+                    // user asked for "the tiny bit of blank colored space to the left/right of
+                    // names" after seeing it on the recording clock, and neither component set a
+                    // size before this -- both took the class default, which is why every tag's
+                    // box stopped exactly on the ink. Padding by SPACES was tried first and this
+                    // font gives a space no advance in the generated mesh, so the quad never grew.
+                    // Both are centred so the extra size is even rather than off one corner.
+                    center_text_component(entry.nametag_component);
+                    center_text_component(entry.nametag_plate);
+                    if (float* base = mg_property_value<float>(entry.nametag_component, STR("WorldSize")))
+                    {
+                        call_float_setter(entry.nametag_plate, STR("SetWorldSize"), plate_scale_for(*base));
+                    }
+                    set_component_relative_scale(entry.nametag_plate, 1.0,
+                                                 plate_width_scale_for(utf8_to_wide(wanted_name).size()),
+                                                 g_plate_scale_h);
                     entry.nametag_plate_mid = create_plate_material(entry.nametag_plate);
                     if (!entry.nametag_plate_mid)
                     {
@@ -13817,9 +14325,13 @@ namespace MeshGhostPseudo
                 entry.nametag_plate_applied_color = wanted_color;
                 if (entry.nametag_plate)
                 {
+                    // Padded, so a name has coloured space either side of it rather than a box
+                    // that stops on the last letter -- the user's call, made about the recording
+                    // clock and extended to names in the same breath (2026-09-05).
                     set_text_render_string(entry.nametag_plate,
-                                           entry.nametag_plate_has_color ? utf8_to_wide(wanted_name).c_str()
-                                                                         : STR(""));
+                                           entry.nametag_plate_has_color
+                                               ? plate_string_for(utf8_to_wide(wanted_name)).c_str()
+                                               : STR(""));
                 }
             }
         }
@@ -14466,8 +14978,9 @@ namespace MeshGhostPseudo
                                               : 0;
             if (was != active)
             {
-                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: recording {}.\n"),
-                             active ? STR("STARTED -- showing the dot") : STR("stopped -- hiding the dot"));
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: recording {} (started_unix_ms={}).\n"),
+                             active ? STR("STARTED -- showing the dot") : STR("stopped -- hiding the dot"),
+                             g_recording_started_unix_ms);
             }
         }
         else if (type == "despawn_remote")
@@ -21302,6 +21815,11 @@ namespace MeshGhostPseudo
         {
             if (tick_count % DEV_TOGGLE_POLL_TICKS == 0)
             {
+                // The indicator's live tuning, on the same poll as every other dev toggle. Costs
+                // one failed file open per interval when the file is absent, which is the shipped
+                // state -- the same price the toggles beside it already pay.
+                poll_recording_indicator_tuning();
+
                 const bool perf_on = dev_toggle_present(STR("perf_report.txt"));
                 if (perf_on != g_perf_armed)
                 {
