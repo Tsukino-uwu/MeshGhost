@@ -79,6 +79,8 @@ type fakeAdapter struct {
 	// policies receives every session_policy the core pushes, in order, so a
 	// test can assert both the value and that a re-push did or did not happen.
 	policies chan bridge.SessionPolicy
+	// recordings receives every recording_state push, in order.
+	recordings chan bridge.RecordingState
 	// order records the sequence of message types as they actually arrive, so
 	// a test can assert bridge_ready precedes session_policy. The two are
 	// produced on DIFFERENT goroutines inside the Core (the adapter read loop
@@ -124,6 +126,7 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 		ready:      make(chan struct{}, 4),
 		rejects:    make(chan string, 4),
 		policies:   make(chan bridge.SessionPolicy, 8),
+		recordings: make(chan bridge.RecordingState, 8),
 		order:      make(chan bridge.MessageType, 32),
 	}
 	conn.OnReceive(func(payload []byte) {
@@ -182,6 +185,16 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			}
 			select {
 			case fa.policies <- sp:
+			default:
+			}
+		case bridge.TypeRecordingState:
+			var rs bridge.RecordingState
+			if err := json.Unmarshal(env.Payload, &rs); err != nil {
+				t.Errorf("unmarshal recording_state: %v", err)
+				return
+			}
+			select {
+			case fa.recordings <- rs:
 			default:
 			}
 		case bridge.TypeReject:

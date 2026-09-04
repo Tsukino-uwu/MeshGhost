@@ -82,6 +82,17 @@ const (
 	// See SessionPolicy for why this is a message of its own rather than a
 	// field on BridgeReady.
 	TypeSessionPolicy MessageType = "session_policy"
+	// TypeRecordingState is core -> adapter, pushed ON CHANGE: is a recording
+	// running right now. It exists because the hotkeys are system-wide and live
+	// in the core (ADR 0048), which by construction can never draw -- so the only
+	// feedback a recording toggle had was a console line, and a player mid-run
+	// cannot read one. The user, with the console hidden: "was unsure if f9 was
+	// doing something or not when using it. i usually did f9 2-3 times then f11".
+	//
+	// STATE, not an event: it answers "am I recording", continuously, so an
+	// adapter that attaches mid-recording learns the truth without having missed
+	// a toast. Same shape and same reasoning as session_policy above.
+	TypeRecordingState MessageType = "recording_state"
 	// The planes past cosmetic, added 2026-08-17 — see
 	// agent_docs/beyond-cosmetic.md and the ADR in agent_docs/architecture.md.
 	// An adapter that never sends one of these, and never asks for the
@@ -305,6 +316,31 @@ type BridgeReady struct{}
 // changes. An adapter that ignores it is unaffected by its existence, which
 // is what keeps it compatible with an adapter built before it: the core does
 // not wait for a reply and there is none to send.
+// RecordingState is the payload of TypeRecordingState: whether the core is
+// recording right now.
+//
+// TWO FIELDS, and the second one exists because of a specific failure case. The
+// shape is an indicator, not a readout -- the user: "just a red circle would be
+// pretty clear on its own and also stand out more and look better/simplistic" --
+// plus the elapsed time, which they then asked for on its own merits: "so you
+// know how long you have recorded as right now there is no feedback at all for
+// that either".
+//
+// StartedUnixMs is WHEN, not HOW LONG, so the adapter counts up locally and this
+// message stays a push-on-change rather than a once-a-second heartbeat. It also
+// makes the mid-recording attach correct: an adapter that comes up while a
+// recording is already running (a game relaunched during one) shows the true
+// elapsed time instead of starting from zero. Both processes are on the same
+// machine by construction -- the bridge is loopback only -- so a wall clock is
+// a shared clock here.
+//
+// 0 when Recording is false. A file name or a sample count is deliberately not
+// here: nothing draws them.
+type RecordingState struct {
+	Recording     bool  `json:"recording"`
+	StartedUnixMs int64 `json:"started_unix_ms,omitempty"`
+}
+
 type SessionPolicy struct {
 	// GhostCollision is protocol.GhostCollisionEnabled or
 	// protocol.GhostCollisionDisabled -- never "", because the core resolves

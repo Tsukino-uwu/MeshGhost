@@ -467,6 +467,25 @@ namespace MeshGhostPseudo
         return std::sscanf(s.c_str() + v, "%lf", &out) == 1;
     }
 
+    // A JSON BOOL, which json_number_member cannot read: `true` is not a number, and every reader
+    // above refuses it correctly. Added 2026-09-04 for recording_state, whose `recording` field is
+    // a Go bool and therefore lands on the wire as a bare literal.
+    //
+    // Exact-match only, and that is the point rather than strictness for its own sake: `true` is
+    // the ONLY thing that means true here. A missing key, `false`, `null`, `"true"`, `1` or any
+    // object all read as false, so a malformed or hostile line can turn an indicator ON only by
+    // spelling the literal correctly -- and the false direction, which is what hides a stale
+    // indicator, is reachable by every other input including a truncated line.
+    inline auto json_bool_member(const std::string& s, size_t begin, size_t end, const std::string& key) -> bool
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        if (v == std::string::npos)
+        {
+            return false;
+        }
+        return s.compare(v, 4, "true") == 0;
+    }
+
     inline auto json_vec3_member(const std::string& s, size_t begin, size_t end, const std::string& key,
                                  double& a, double& b, double& c) -> bool
     {

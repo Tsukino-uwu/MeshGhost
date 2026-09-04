@@ -200,6 +200,7 @@ four. **They are not optional, and they are not new: both ship today.**
 ```json
 {"type":"session_policy","payload":{"ghost_collision":"enabled"}}
 {"type":"remote_name","payload":{"player_id":"p2","display_name":"Alice"}}
+{"type":"recording_state","payload":{"recording":true,"started_unix_ms":1788538686000}}
 ```
 
 - **`session_policy`** carries the room-wide policy the host set, resolved by the core against this
@@ -227,7 +228,22 @@ four. **They are not optional, and they are not new: both ship today.**
   Drawing it is per-game work — Pseudoregalia draws text on a coloured plate above the ghost — and
   a game where readable text is genuinely impractical should log that once, for the same reason.
 
-**The general rule, which is why these two are called out rather than just listed:** a setting in
+- **`recording_state`** (ADR 0052) says whether the CORE is recording right now, pushed on change
+  and again when you attach. **It exists because the record hotkey is system-wide and lives in the
+  core, which can never draw** — so without this the only feedback a player gets is a console line,
+  and the console is hidden by default. Drawing something is optional and per-game; **if you draw
+  nothing, say so once in your log** like any other shared setting.
+  `started_unix_ms` is WHEN, not how long, so an elapsed display counts locally instead of asking
+  for a message per second — and an adapter attaching mid-recording (a game relaunched during one)
+  shows the true elapsed time rather than starting from zero. It is 0 when `recording` is false.
+  Wall clock is safe to compare against here for one specific reason: the bridge is loopback-only,
+  so the two processes are on the same machine by construction.
+  **A cheap way to draw it, if your host has text at all:** Pseudoregalia's indicator is a red `●`
+  with the time beside it, in the top-right — no new mechanism, because a shape is a CHARACTER and
+  a screen corner is a fixed offset in the camera's own frame. A widget toolkit is the expensive
+  route and usually needs an asset you cannot author.
+
+**The general rule, which is why these are called out rather than just listed:** a setting in
 the shared config template is generic by definition — it is what the PLAYER wants, not a fact about
 any game — so every adapter honours it with its own mechanism. Only the mechanism and its tuning are
 per-game, and the tuning belongs in this adapter's `FLAGS.md`, never in the player's config. See

@@ -165,6 +165,12 @@ func (r *sampleRing) snapshot() []protocol.State {
 // sample, so a recording armed in the main menu leaves nothing behind if the
 // game is quit before play starts, and `recorded` is the first sample's time.
 type recorder struct {
+	// Wall-clock start of the current recording, in unix milliseconds, for the
+	// adapter's on-screen elapsed time (bridge.RecordingState). Wall clock and
+	// not the core's own timeSrc: the adapter is a separate process that has no
+	// access to that clock, and both are on this machine by construction.
+	startedUnixMs int64
+
 	mu          sync.Mutex
 	dir         string
 	gzip        bool // write .ndjson.gz; see Core.ReplayGzip
@@ -540,7 +546,18 @@ func (c *Core) StartRecording() (string, error) {
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
 	atomic.StoreUint32(&c.tapArmed, 1)
+	// The adapter compares this against its OWN clock in another process, which cannot see
+	// c.clk(); the bridge is loopback-only, so the two are on one machine and a wall clock is
+	// the only shared one. Nothing inside the core reads it.
+	c.rec.startedUnixMs = time.Now().UnixMilli() // wall-clock: read by the adapter, not by the core
 	log.Printf("core: recording to %s (the file appears at the first in-game sample)", c.rec.path)
+	// The adapter draws the indicator, so it has to be told the moment this
+	// flips -- see pushRecordingState for why a console line was not enough.
+	//
+	// The VALUES variant, because c.rec.mu is held here by the defer above and
+	// the plain one would ask the recorder for state it cannot answer for while
+	// locked. That deadlock is what the first version of this line caused.
+	c.pushRecordingStateValues(true, c.rec.startedUnixMs)
 	return c.rec.path, nil
 }
 
@@ -552,6 +569,7 @@ func (c *Core) StopRecording() (path string, written int, err error) {
 	path, written, err = c.rec.closeLocked()
 	c.rec.mu.Unlock()
 	c.rearmTap()
+	c.pushRecordingState()
 	if !on {
 		return "", 0, nil
 	}

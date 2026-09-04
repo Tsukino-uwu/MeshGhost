@@ -261,6 +261,10 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// keys off bridge_ready to start sending, so the policy has to
 			// follow it, not precede it.
 			c.pushSessionPolicy()
+			// State on arrival, not only on the next toggle: an adapter can attach
+			// while a recording is already running -- a game relaunched during one --
+			// and would otherwise show nothing until it stopped.
+			c.pushRecordingState()
 			// And tell the RELAY what this adapter just told us, because the
 			// Hello could not have known it. A core started from its -game
 			// flag connects at startup and its adapter attaches whenever the
@@ -480,6 +484,68 @@ func (c *Core) pushSessionPolicy() {
 		source = "your own config"
 	}
 	log.Printf("core: ghost collision %s (set by %s) — told the adapter", effective, source)
+}
+
+// pushRecordingState tells the attached adapter whether a recording is running,
+// on change only.
+//
+// WHY THE CORE HAS TO SAY THIS AT ALL. The record hotkey is system-wide and
+// owned by this process (ADR 0048), and the core never touches the game -- so
+// the only feedback a player had was a console line, which is useless mid-run
+// and useless with the console hidden, which is the shipped default. Measured
+// the day this was written: the agent read that same log, concluded a recording
+// was running, pressed the toggle to stop it, and STARTED one instead. If the
+// log is not enough for the process that WRITES it, it is not enough.
+//
+// Called from both recorder directions and from adapter attach, so an adapter
+// that comes up mid-recording is told rather than waiting for the next toggle.
+// De-duped, so the attach path calls it unconditionally.
+//
+// Sends OUTSIDE mu, for the reason pushSessionPolicy documents: a wedged adapter
+// socket must not stall the relay side.
+func (c *Core) pushRecordingState() {
+	recording := c.Recording()
+	c.rec.mu.Lock()
+	startedMs := c.rec.startedUnixMs
+	c.rec.mu.Unlock()
+	c.pushRecordingStateValues(recording, startedMs)
+}
+
+// pushRecordingStateValues is the half that touches ONLY c.mu, for callers that
+// already hold c.rec.mu and therefore cannot ask the recorder anything.
+//
+// **This split is a deadlock fix, found by the test hanging (2026-09-04).**
+// StartRecording holds c.rec.mu through a defer for its whole body, and the
+// first version of this pushed from inside it -- so the push called Recording(),
+// which wants that same mutex, and Go mutexes are not reentrant. The test did
+// not fail, it stopped, which is the shape this class of bug always takes.
+//
+// Lock ORDER is the other half of the reason it is written this way: everything
+// here reads the recorder first and releases it BEFORE taking c.mu, so the two
+// locks are never held at once and no caller can invert them.
+func (c *Core) pushRecordingStateValues(recording bool, startedMs int64) {
+	if !recording {
+		startedMs = 0
+	}
+
+	c.mu.Lock()
+	nd := c.attachedAdapter
+	unchanged := c.sentRecordingStateKnown &&
+		c.sentRecordingState == recording &&
+		c.sentRecordingStartedMs == startedMs
+	if nd == nil || !c.adapterReady || unchanged {
+		c.mu.Unlock()
+		return
+	}
+	c.sentRecordingState = recording
+	c.sentRecordingStartedMs = startedMs
+	c.sentRecordingStateKnown = true
+	c.mu.Unlock()
+
+	sendBridgeEnvelope(nd, bridge.TypeRecordingState, bridge.RecordingState{
+		Recording:     recording,
+		StartedUnixMs: startedMs,
+	})
 }
 
 func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload any) {

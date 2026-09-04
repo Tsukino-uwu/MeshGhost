@@ -2200,7 +2200,7 @@ and start showing it to them.
 **The case that made this a method, and it is the important half.** A fix for "a despawning ghost
 strands its landed sword's ground effect" was tested by looping the throw clip. The user reported
 the effect going away, and it was the wrong evidence: that clip ends with the peer CATCHING the
-sword, and tearing the effect down on a catch had worked for days. The clip could not reach the
+sword, and tearing the effect down on a catch had worked since 2026-09-01. The clip could not reach the
 case. Cutting it at sample 700 — inside the window where the sword is still planted — produced a
 clip that ends with the effect live, so the despawn happens with something to strand.
 

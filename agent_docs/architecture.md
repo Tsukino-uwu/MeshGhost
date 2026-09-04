@@ -195,6 +195,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-03 — A local ghost renders on its own delay, not the network's](adr/0049-2026-09-03-a-local-ghost-renders-on-its-own-delay.md)
 - [2026-09-03 — A relay that is merely down no longer refuses the game](adr/0050-2026-09-03-a-downed-relay-no-longer-refuses-the-game.md)
 - [2026-09-03 — Recordings are plain text, and small because they de-duplicate](adr/0051-2026-09-03-recordings-are-plain-text-and-delta-encoded.md)
+- [2026-09-04 — The core tells the adapter when it is recording](adr/0052-2026-09-04-the-core-tells-the-adapter-when-it-is-recording.md)
 
 ## Prior art
 

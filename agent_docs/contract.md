@@ -103,6 +103,25 @@ The value is resolved by the core from the relay's `Welcome.ghost_collision` and
 force it onto a player who does not want it. Absent on both sides resolves to `"enabled"`, so a
 client talking to a relay built before this field behaves exactly as it did before.
 
+**`recording_state` (core -> adapter, added 2026-09-04, ADR 0052)** says whether the core is
+recording right now. Pushed **on change** and again **on attach**, for the reason `session_policy`
+is a message rather than a handshake field: an adapter can come up mid-recording and would
+otherwise be told nothing until the next toggle.
+
+| Field | Meaning |
+|---|---|
+| `recording` | bool — is a recording running |
+| `started_unix_ms` | wall-clock start, so an elapsed display counts locally; 0 when not recording |
+
+**It exists because the record hotkey is system-wide and lives in the core** (ADR 0048), which by
+the standing rule never touches the game — so the feedback a player got was a console line, and the
+console is hidden by default. Drawing anything is per-game and optional; an adapter that draws
+nothing logs that once, like any other shared setting.
+
+`started_unix_ms` is deliberately WHEN and not HOW LONG: an elapsed field would mean a message per
+second forever. **Comparing it against the adapter's own wall clock is sound here and nowhere
+else** — the bridge is loopback-only by construction, so both processes are on one machine.
+
 **"Not yet known" is not "absent".** Both look like an empty string in the core: a room that said
 nothing means `"enabled"`, but a room that has not sent its Welcome yet means *wait* — the core
 withholds `session_policy` until a Welcome has actually landed, so an adapter is never told its

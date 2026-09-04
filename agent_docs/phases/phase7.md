@@ -2424,3 +2424,63 @@ half has to reach the core, so it wants an ADR rather than a rebuild. It still b
 
 **Rig state:** DLL rebuilt and deployed to both installs, `meshghost.exe` rebuilt and deployed to all
 four copies under `Mods\`, preflight clean, no processes left running.
+
+## 2026-09-04 (evening) — a live session: four confirmations, one self-inflicted regression, and three findings nobody was looking for
+
+**The user played; I ran the rig.** Two of the morning's fixes were confirmed on screen, a
+regression I had shipped earlier the same day was caught by them on sight, and the instruments added
+along the way produced more than the fixes did.
+
+**CONFIRMED (`VERIFIED.md`):** a clip recorded before the Dream Breaker pickup renders a ghost with
+no sword; one recorded after it still renders the sword (the control, without which the first result
+means nothing); a despawning ghost takes its landed sword and ground ring with it; and the same
+mirror holds for LIVE PEERS with the watcher owning no sword, then owning one. That last pair used
+two synthetic peers over the relay rather than replays — a genuinely different door, since a replay
+only reaches the adapter as a local fake peer.
+
+**THE REGRESSION, AND HOW IT WAS FOUND, because that is the reusable part.** Showing a ghost's
+`WeaponMesh` lit the ascendant-light blade aura on a save that has never had the upgrade. Cause:
+`call_set_visibility` has written SetVisibility's `bPropagateToChildren` as a literal 1 since it was
+written, and the measured chain is `CollisionCylinder -> VisualMesh -> WeaponMesh -> LightMesh`, so
+the aura is a CHILD of the sword. **The A/B needed no extra run** — the same tick already held a
+ghost whose sword the new code hid (`LightMesh.bVisible=false`) and one whose sword it showed
+(`true`). When a regression lands in code that already runs on several instances, look for the
+instance where it did NOT fire before building anything.
+
+**TWO OF MY OWN INSTRUMENTS WERE WRONG BEFORE THE GAME WAS.** `probe_bladeglow`'s first version
+reused a `short()` helper that matches the ACTOR pattern first, so every `AttachParent` collapsed to
+the pawn and the attach chain — the whole question — was invisible behind complete-looking output.
+And the shipped `VFXCLEANUP` counter could not distinguish "never ran" from "ran and destroyed
+nothing", because a live component whose destroy did not resolve incremented neither counter. Both
+are the same shape as the pickup probe's swallowed first sighting, three days running.
+
+**THREE FINDINGS NOBODY WENT LOOKING FOR:**
+
+1. **The cleanup HIDES rather than destroys.** `GetFunctionByNameInChain("DestroyComponent")`
+   returns null on every NiagaraComponent in this build while a Lua probe reading the same live
+   objects reports the member present. Two lookup mechanisms, one build, opposite answers — and the
+   glow teardown's "no DeactivateImmediate on this build" rests on the same walk, so that
+   conclusion is now suspect too. Fixed by resolving `K2_DestroyComponent` by path.
+2. **`observed_world_offset_z` was re-learned every sample a burst was alive.** A burst does not
+   move; the player does — so the quantity silently became "how far is the player above a burst
+   standing still", and one fall dragged the shared value 90 units. Fixed to learn only at first
+   sighting; the user watched dust land correctly afterwards and hedged it, so it sits in
+   `UNVERIFIED.md` rather than `VERIFIED.md`.
+3. **A population census found ~2 Niagara components per despawn that never come back**, while
+   ghost PAWNS collect normally — the user's own "stuck in garbagecollection" hunch, narrowed to the
+   half that is actually true.
+
+**TOOLING THE USER ASKED FOR, and it paid for itself inside the hour.** `probe_scratch/` is a
+permanently registered empty probe slot: UE4SS only knows mods enabled at LAUNCH, so `RestartMod`
+cannot see a folder created since and every genuinely new probe cost a relaunch — which they had hit
+across sessions. The leak-count probe that produced finding 3 was written, deployed and answering
+inside a running game about a minute after the slot existed. `preflight.ps1` now fails a slot left
+holding a probe, which is what paid for the CLAUDE.md lines the rule needed.
+
+**BUILT, NOT YET WATCHED: the recording indicator** (ADR 0052). A red dot and elapsed time in the
+top-right while the core is recording, because the record hotkey is system-wide, lives in the core,
+and the core can never draw — so the only feedback was a console line the user does not have open.
+The design is theirs; the implementation is the nametag's mechanism twice, since that "box" is not
+geometry but a second text component with a tinted material, which makes a circle a CHARACTER and
+costs no asset. New bridge message `recording_state`, the first core -> adapter state message any
+adapter here has ever handled.

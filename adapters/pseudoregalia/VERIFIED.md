@@ -186,6 +186,9 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-04 — a display name with quotes in it reaches the nametag WHOLE
 - 2026-09-04 — a zip of two recordings plays as two ghosts
 - 2026-09-04 — every ghost STOLE the player's audio attenuation listener, and correcting it after the call fixes both silences
+- 2026-09-04 — the ghost's sword follows the peer's, and the blade aura does not (user-confirmed on screen)
+- 2026-09-04 — a despawning ghost takes its landed sword and the ground VFX with it (user-confirmed on screen; MECHANISM still open)
+- 2026-09-04 — the sword mirror on LIVE PEERS, not replays (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts

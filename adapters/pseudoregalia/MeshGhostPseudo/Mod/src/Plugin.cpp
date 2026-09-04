@@ -7960,6 +7960,141 @@ namespace MeshGhostPseudo
             return true;
         }
 
+        // **THE RECORDING INDICATOR.** A red dot in the top-right corner while the core is
+        // recording, with the elapsed time beside it.
+        //
+        // WHY IT EXISTS, and the design is the user's rather than this file's (agent_docs/ideas.md,
+        // 2026-09-04). The record hotkey is system-wide and lives in the CORE, which by
+        // construction never touches the game -- so its only feedback was a console line, and the
+        // console is hidden by default. The user: *"I have the console hidden, and was unsure if f9
+        // was doing something or not when using it. i usually did f9 2-3 times then f11"*. The
+        // agent then did the same thing with the log open: read it, concluded a recording was
+        // running, pressed the toggle to stop it and STARTED one instead.
+        //
+        // Their calls, recorded because they rule out the alternatives: an INDICATOR rather than a
+        // toast, because the question is "am I recording", continuously; TOP RIGHT, because above
+        // the head means *"run around with something above your head"* and the HP bar grows; a
+        // circle rather than a square (*"a red circle would be pretty clear on its own and also
+        // stand out more and look better/simplistic"*); and the elapsed time beside it, *"so you
+        // know how long you have recorded as right now there is no feedback at all for that
+        // either"*, to the RIGHT of the dot rather than below.
+        //
+        // **NO NEW MECHANISM. This is the nametag, twice.** The user's own observation is what
+        // made it cheap: *"we only have black colored text"* -- and the nametag's coloured "box" is
+        // not geometry, it is a second TextRenderComponent drawing behind the black text with a
+        // tinted material. So the red dot is a text component drawing a circle GLYPH with a red
+        // plate material, and the time is black text on a white plate. A circle needs no mesh, no
+        // texture and no editor asset: it is a character.
+        //
+        // **Screen-fixed by placement, not by a widget.** UMG would be the "proper" route and is
+        // the expensive one -- CreateWidget needs a widget CLASS, and this project authors no
+        // Blueprint assets. Instead each component is put at a fixed offset in the CAMERA'S frame
+        // every tick and turned to face the camera, which is screen-fixed by construction.
+        //
+        // Cost is zero while not recording: the early-out below runs before anything is resolved.
+        constexpr double REC_FORWARD = 140.0;   // how far in front of the camera the dot floats
+        constexpr double REC_RIGHT = 52.0;      // + is right, toward the corner
+        constexpr double REC_UP = 30.0;         // + is up
+        constexpr double REC_TIME_RIGHT = 15.0; // the time sits this much further right of the dot
+        constexpr double REC_PLATE_BEHIND = 0.6;
+        constexpr double REC_TEXT_SIZE = 4.0;
+
+        // Each carries its own annotation rather than one for the group: preflight checks these
+        // line by line, and it is right to -- a group comment is exactly how a later addition
+        // inherits a guarantee nobody re-checked for it.
+        UObject* g_recording_dot = nullptr;           // stale-safe: hook-cleared in release_all_ghosts (LoadMap PRE, before teardown); never freed mid-level -- it is a component of the local pawn
+        UObject* g_recording_dot_mid = nullptr;       // stale-safe: same hook; a material instance owned by the component above and dropped with it
+        UObject* g_recording_time = nullptr;          // stale-safe: same hook; a component of the local pawn
+        UObject* g_recording_time_plate = nullptr;    // stale-safe: same hook; a component of the local pawn
+        UObject* g_recording_time_plate_mid = nullptr; // stale-safe: same hook; a material instance owned by the plate above
+        bool g_recording_active = false;
+        int64_t g_recording_started_unix_ms = 0;
+
+        // Drops the indicator's handles. Deliberately does NOT destroy: these are components on the
+        // local pawn, and every one of this file's crashes in that family came from calling into an
+        // actor the level was already tearing down (release_all_ghosts' own comment). Blanking the
+        // strings is what makes them invisible, and the level reclaims the components.
+        auto clear_recording_indicator() -> void
+        {
+            g_recording_dot = nullptr;
+            g_recording_dot_mid = nullptr;
+            g_recording_time = nullptr;
+            g_recording_time_plate = nullptr;
+            g_recording_time_plate_mid = nullptr;
+        }
+
+        // Which way the VIEW is pointing, the rotation counterpart of camera_world_location.
+        //
+        // Needed by the recording indicator, which is the first thing here that has to sit in a
+        // fixed place ON SCREEN rather than at a fixed place in the world: a screen corner is
+        // "camera position, plus so far forward, plus so far right and up **in the camera's own
+        // frame**", and only the rotation supplies that frame. Same non-caching rule as the
+        // location helper for the same reason -- a camera-manager pointer does not survive a
+        // level transition.
+        auto camera_world_rotation(UObject* controller, FRotator& out) -> bool
+        {
+            if (!controller)
+            {
+                return false;
+            }
+            UObject* camera_manager = nullptr;
+            if (UObject** m = mg_property_value<UObject*>(controller, STR("PlayerCameraManager")); m)
+            {
+                camera_manager = *m;
+            }
+            if (!camera_manager)
+            {
+                return false;
+            }
+            UFunction* fn = camera_manager->GetFunctionByNameInChain(STR("GetCameraRotation"));
+            if (!fn)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: no reflected 'GetCameraRotation' -- the recording indicator cannot be placed on screen.\n"));
+                }
+                return false;
+            }
+            FProperty* return_param = fn->FindProperty(FName(STR("ReturnValue"), FNAME_Find));
+            if (!return_param)
+            {
+                return false;
+            }
+            const int32_t parms_size = fn->GetPropertiesSize();
+            if (parms_size < static_cast<int32_t>(return_param->GetOffset_Internal() + return_param->GetSize()))
+            {
+                return false;
+            }
+            std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size), 0);
+            camera_manager->ProcessEvent(fn, params_buffer.data());
+            // Read BY NAME off the returned struct, never as a vendored FRotator: this adapter's
+            // standing ABI rule is that the bundled SDK marshals rotator components as float
+            // whatever the engine stores, and this game stores doubles.
+            FStructProperty* as_struct = CastField<FStructProperty>(return_param);
+            if (!as_struct || !as_struct->GetStruct())
+            {
+                return false;
+            }
+            uint8_t* base = params_buffer.data() + return_param->GetOffset_Internal();
+            double values[3]{};
+            const wchar_t* fields[3] = {STR("Pitch"), STR("Yaw"), STR("Roll")};
+            for (int i = 0; i < 3; ++i)
+            {
+                FProperty* field = as_struct->GetStruct()->FindProperty(FName(fields[i], FNAME_Find));
+                if (!field)
+                {
+                    return false;
+                }
+                uint8_t* at = base + field->GetOffset_Internal();
+                values[i] = field->GetSize() == sizeof(double) ? *reinterpret_cast<double*>(at)
+                                                               : static_cast<double>(*reinterpret_cast<float*>(at));
+            }
+            out = FRotator{values[0], values[1], values[2]};
+            return true;
+        }
+
         // Places the component in the world and turns it to face the viewer.
         auto set_text_render_transform(UObject* component,
                                        double x, double y, double z,
@@ -8005,6 +8140,146 @@ namespace MeshGhostPseudo
                 return;
             }
             component->ProcessEvent(function, params_buffer.data());
+        }
+
+        // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
+        //
+        // See the constants above for the design and why this is the nametag's mechanism twice.
+        auto tick_recording_indicator(UObject* controller, AActor* local_pawn) -> void
+        {
+            // THE EARLY-OUT IS THE PERFORMANCE STORY. Not recording means one bool test per tick
+            // and nothing else -- no reflection, no camera call, no string built. `adapters/
+            // CLAUDE.md`'s rule that a diagnostic must not pay its cost when unarmed applies just
+            // as hard to a feature nobody has switched on.
+            if (!g_recording_active)
+            {
+                if (g_recording_dot)
+                {
+                    // Blank rather than destroy: the components are the local pawn's, and blanking
+                    // is what takes them off the screen. They are re-used on the next recording.
+                    set_text_render_string(g_recording_dot, STR(""));
+                    set_text_render_string(g_recording_time, STR(""));
+                    set_text_render_string(g_recording_time_plate, STR(""));
+                }
+                return;
+            }
+            if (!local_pawn || !controller)
+            {
+                return;
+            }
+
+            FVector camera_location{};
+            FRotator camera_rotation{};
+            if (!camera_world_location(controller, camera_location) ||
+                !camera_world_rotation(controller, camera_rotation))
+            {
+                return;
+            }
+
+            if (!g_recording_dot)
+            {
+                g_recording_dot = create_text_render_on(local_pawn);
+                if (!g_recording_dot)
+                {
+                    return;
+                }
+                // The dot's colour comes from a PLATE material, because the text itself renders
+                // black -- the user's own observation, and the reason this shape was chosen.
+                g_recording_dot_mid = create_plate_material(g_recording_dot);
+                if (g_recording_dot_mid)
+                {
+                    set_plate_color(g_recording_dot_mid, "#E03030");
+                }
+                g_recording_time_plate = create_text_render_on(local_pawn);
+                if (g_recording_time_plate)
+                {
+                    g_recording_time_plate_mid = create_plate_material(g_recording_time_plate);
+                    if (g_recording_time_plate_mid)
+                    {
+                        set_plate_color(g_recording_time_plate_mid, "#FFFFFF");
+                    }
+                }
+                g_recording_time = create_text_render_on(local_pawn);
+                for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
+                {
+                    if (float* size = mg_property_value<float>(part, STR("WorldSize")))
+                    {
+                        *size = static_cast<float>(REC_TEXT_SIZE);
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: built (dot={} time={} plate={}).\n"),
+                             g_recording_dot ? STR("ok") : STR("NULL"),
+                             g_recording_time ? STR("ok") : STR("NULL"),
+                             g_recording_time_plate ? STR("ok") : STR("NULL"));
+            }
+
+            // The camera's own frame. Roll is deliberately ignored: this game's camera does not
+            // roll, and an indicator that tilted with one would be worse than one that did not.
+            constexpr double DEG_TO_RAD = 3.14159265358979323846 / 180.0;
+            // GetYaw()/GetPitch(), not the fields: the vendored FRotator stores its components
+            // through accessors that resolve the float-vs-double question this adapter's ABI rule
+            // is about. Reading `.Yaw` does not even compile, which is the good outcome -- the
+            // FVector version of the same mistake compiles and returns nonsense.
+            const double yaw = camera_rotation.GetYaw() * DEG_TO_RAD;
+            const double pitch = camera_rotation.GetPitch() * DEG_TO_RAD;
+            const FVector forward{std::cos(pitch) * std::cos(yaw), std::cos(pitch) * std::sin(yaw), std::sin(pitch)};
+            const FVector right{-std::sin(yaw), std::cos(yaw), 0.0};
+            const FVector up{-std::sin(pitch) * std::cos(yaw), -std::sin(pitch) * std::sin(yaw), std::cos(pitch)};
+
+            auto place = [&](UObject* component, double extra_right, double behind) {
+                if (!component)
+                {
+                    return;
+                }
+                const double rx = REC_RIGHT + extra_right;
+                const double depth = REC_FORWARD - behind;
+                const double x = camera_location.X() + forward.X() * depth + right.X() * rx + up.X() * REC_UP;
+                const double y = camera_location.Y() + forward.Y() * depth + right.Y() * rx + up.Y() * REC_UP;
+                const double z = camera_location.Z() + forward.Z() * depth + right.Z() * rx + up.Z() * REC_UP;
+                // Faces the camera, computed the same way the nametag does it -- point the text
+                // plane's forward AT the viewer, never away, or it renders mirrored or not at all.
+                constexpr double RAD_TO_DEG = 180.0 / 3.14159265358979323846;
+                const double face_yaw = std::atan2(camera_location.Y() - y, camera_location.X() - x) * RAD_TO_DEG;
+                const double flat = std::sqrt((camera_location.X() - x) * (camera_location.X() - x) +
+                                              (camera_location.Y() - y) * (camera_location.Y() - y));
+                const double face_pitch = std::atan2(camera_location.Z() - z, flat) * RAD_TO_DEG;
+                set_text_render_transform(component, x, y, z, face_pitch, face_yaw, 0.0);
+            };
+
+            place(g_recording_dot, 0.0, 0.0);
+            place(g_recording_time, REC_TIME_RIGHT, 0.0);
+            // Behind the time text along the view direction, exactly as the nametag's plate sits
+            // behind its name: nearer the camera would cover the text it exists to back.
+            place(g_recording_time_plate, REC_TIME_RIGHT, REC_PLATE_BEHIND);
+
+            // U+25CF BLACK CIRCLE -- a character, which is the whole reason a shape costs nothing
+            // here. Set every tick because it is one property write and a component that was
+            // blanked on the last stop has to come back.
+            set_text_render_string(g_recording_dot, STR("●"));
+
+            const int64_t now_ms = static_cast<int64_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+            int64_t elapsed_s = 0;
+            if (g_recording_started_unix_ms > 0 && now_ms > g_recording_started_unix_ms)
+            {
+                elapsed_s = (now_ms - g_recording_started_unix_ms) / 1000;
+            }
+            // Rebuilt only when the SECOND changes: the string is identical for a whole second of
+            // ticks, and a text component rebuilds its mesh on every string write.
+            static int64_t last_drawn_second = -1;
+            if (elapsed_s != last_drawn_second)
+            {
+                last_drawn_second = elapsed_s;
+                wchar_t buffer[16]{};
+                std::swprintf(buffer, sizeof(buffer) / sizeof(buffer[0]), STR("%lld:%02lld"),
+                              static_cast<long long>(elapsed_s / 60), static_cast<long long>(elapsed_s % 60));
+                set_text_render_string(g_recording_time, buffer);
+                // The plate carries the SAME string, which is how the nametag makes a box: a
+                // coloured copy sitting behind black text is the box.
+                set_text_render_string(g_recording_time_plate, buffer);
+            }
         }
 
         auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void
@@ -10973,6 +11248,14 @@ namespace MeshGhostPseudo
 
     auto Plugin::release_all_ghosts(const wchar_t* reason) -> void
     {
+        // **The recording indicator's components belong to the LOCAL pawn, and this hook is the
+        // one moment guaranteed to be before the level frees them.** Dropped, never destroyed --
+        // the same treatment, for the same reason, as every ghost-owned handle below: calling into
+        // an actor during a LoadMap PRE hook is exactly what this file has crashed on. The
+        // indicator rebuilds itself on the next tick that finds a recording running, so nothing
+        // needs to survive the transition.
+        clear_recording_indicator();
+
         for (auto& [id, remote] : remotes)
         {
             // **Cleared for EVERY remote, before the no-ghost skip below** -- this is the fix for a
@@ -13950,6 +14233,40 @@ namespace MeshGhostPseudo
                          utf8_to_wide(tag.name),
                          tag.color.empty() ? StringType()
                                            : StringType(STR(" colour ")) + to_wide_ascii(tag.color));
+        }
+        else if (type == "recording_state")
+        {
+            // **The first core -> adapter STATE message this adapter has ever handled**, and
+            // `adapters/CLAUDE.md` notes that `session_policy` is honoured by zero of four
+            // adapters -- so this is the shape being established rather than followed.
+            //
+            // Payload-scoped reads for the reason render_remote's are (PeerJson.hpp): the fields
+            // are the core's own, but reading them off the whole line would find a peer-controlled
+            // key of the same name somewhere else in it.
+            size_t rb = 0, re = 0, pb = 0, pe = 0;
+            if (!json_root_body(line, rb, re) || !json_object_member(line, rb, re, "payload", pb, pe))
+            {
+                return;
+            }
+            double recording = 0;
+            json_number_member(line, pb, pe, "recording", recording);
+            // A JSON bool is not a number, so try both: the core sends `true`/`false`.
+            const bool active = recording != 0 || json_bool_member(line, pb, pe, "recording");
+            double started = 0;
+            json_number_member(line, pb, pe, "started_unix_ms", started);
+
+            const bool was = g_recording_active;
+            g_recording_active = active;
+            // Clamped for the same reason every peer double is: it reaches arithmetic, and a
+            // nonsense start time would render an absurd duration rather than fail loudly.
+            g_recording_started_unix_ms = (active && std::isfinite(started) && started > 0)
+                                              ? static_cast<int64_t>(started)
+                                              : 0;
+            if (was != active)
+            {
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: recording {}.\n"),
+                             active ? STR("STARTED -- showing the dot") : STR("stopped -- hiding the dot"));
+            }
         }
         else if (type == "despawn_remote")
         {
@@ -17907,6 +18224,11 @@ namespace MeshGhostPseudo
         // back to facing the local pawn.
         FVector camera_location{};
         const bool have_camera = camera_world_location(controller, camera_location);
+
+        // The recording indicator, drawn on the LOCAL player rather than on any ghost -- so it
+        // sits here, before the remotes loop, and runs whether or not anybody else is in the room.
+        // Costs one bool test per tick while not recording; see tick_recording_indicator.
+        tick_recording_indicator(controller, static_cast<AActor*>(pawn_obj));
 
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
         // not only on ticks where new network data arrived.

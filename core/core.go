@@ -668,6 +668,14 @@ type Core struct {
 	// adapter attaches, so a NEW adapter always gets a policy even if the
 	// resolved value happens to match what the previous one was told.
 	sentGhostCollision string
+	// The last recording state pushed to the adapter, and whether anything has
+	// been pushed at all -- the "known" flag matters because the state we want to
+	// send first is `false`, which is also the zero value, so a bare bool would
+	// suppress the very first push and leave a freshly attached adapter with no
+	// answer at all.
+	sentRecordingState      bool
+	sentRecordingStateKnown bool
+	sentRecordingStartedMs  int64
 
 	// HeartbeatInterval overrides DefaultHeartbeatInterval for this Core —
 	// how often sendHeartbeats pings an otherwise-quiet relay connection.
