@@ -357,73 +357,9 @@ local function describe(comp, kind, owner, owner_pos)
     if sound and valid(sound) then dump_sound(sound) end
 end
 
--- ============================================================================================
--- TEMPORARY, AND THE ONLY WRITE IN THIS FILE -- remove once the 2026-09-04 verdict is in.
---
--- The fix under test lives in `../../probe_audiofix/`, which is where it belongs and where it
--- stays. It is hosted here for one session only because **UE4SS loads mod folders at launch**:
--- `RestartMod` answers "Could not find mod to reinstall" for a folder that was not there when the
--- game started (measured 2026-08-29, `../../PROBES.md`), and the alternative was making the user
--- relaunch mid-session. The census is otherwise read-only and goes back to being so.
---
--- What it does: when a new ghost appears -- the moment its BeginPlay has taken the player's audio
--- attenuation listener -- put the listener back on the LOCAL player's own capsule.
--- ============================================================================================
-local TEST_REPOINT = true
-local known_ghost_names = {}
-local repoints = 0
-local repointing = false   -- re-entrancy guard: our own call fires the hook below
-
-local function repoint_listener(reason)
-    if repointing then return end
-    local pcs = FindAllOf("PlayerController")
-    if not pcs then return end
-    for _, pc in pairs(pcs) do
-        if valid(pc) then
-            local pawn = prop(pc, "AcknowledgedPawn") or prop(pc, "Pawn")
-            if pawn ~= nil and valid(pawn) then
-                local root = prop(pawn, "RootComponent")
-                local rn = (root ~= nil and valid(root)) and full_name(root) or nil
-                -- The component is name-CHECKED against what the game itself passes; re-pointing
-                -- the listener at the wrong thing would be a second bug wearing this fix's name.
-                if rn and rn:find("CollisionCylinder", 1, true) then
-                    -- The guard is set around the call ITSELF, because our own call re-enters
-                    -- the hook that may have asked for it.
-                    repointing = true
-                    local ok, err = pcall(function()
-                        pc:SetAudioListenerAttenuationOverride(root, {X = 0.0, Y = 0.0, Z = 0.0})
-                    end)
-                    repointing = false
-                    repoints = repoints + 1
-                    print(string.format("%s REPOINT #%d (%s) -> '%s'%s\n", TAG, repoints, reason, rn,
-                                        ok and "" or (" FAILED: " .. tostring(err))))
-                else
-                    print(string.format("%s REPOINT SKIPPED (%s): root is '%s'\n", TAG, reason, tostring(rn)))
-                end
-                return
-            end
-        end
-    end
-end
-
 local function sample()
     samples = samples + 1
     local pawns, driven, via = pawn_table()
-    if TEST_REPOINT and driven then
-        local present = {}
-        for _, p in ipairs(pawns) do
-            if p.tag == "ghost" then
-                present[p.short] = true
-                if not known_ghost_names[p.short] then
-                    known_ghost_names[p.short] = true
-                    repoint_listener("ghost appeared: " .. p.short)
-                end
-            end
-        end
-        for n in pairs(known_ghost_names) do
-            if not present[n] then known_ghost_names[n] = nil end
-        end
-    end
     view_target_check()
     controller_census()
     sound_class_check()
@@ -532,33 +468,6 @@ for _, fn in ipairs(AUDIO_CONTROLLER_FNS) do
                 end
                 print(string.format("%s LISTENERCALL %s %s t=%.1f\n", TAG, fn,
                                     table.concat(bits, " "), os.clock()))
-                -- **REACTIVE CORRECTION, and the poll could not do this job.** Measured
-                -- 2026-09-04: at a zone change the 5Hz repoint landed 6ms BEFORE a ghost's own
-                -- BeginPlay took the listener again, so the poll "fixed" it and then lost it in
-                -- the same frame. Answering the call itself is the only timing that cannot be
-                -- raced -- the same shape the C++ mod already uses for SetViewTargetWithBlend.
-                if TEST_REPOINT and fn == "SetAudioListenerAttenuationOverride" and first ~= nil
-                   and not repointing then
-                    local n = full_name(first)
-                    local _, driven_pawn = nil, nil
-                    local pcs2 = FindAllOf("PlayerController")
-                    if pcs2 then
-                        for _, pc2 in pairs(pcs2) do
-                            if valid(pc2) then
-                                local pw = prop(pc2, "AcknowledgedPawn") or prop(pc2, "Pawn")
-                                if pw ~= nil and valid(pw) then driven_pawn = full_name(pw) break end
-                            end
-                        end
-                    end
-                    -- Only correct a call that names something OTHER than the pawn the controller
-                    -- is driving, and only when we actually know which that is: the player's own
-                    -- BeginPlay makes this same call legitimately, and a transition has a window
-                    -- where no pawn is acknowledged yet. Refusing to act while blind is the
-                    -- direction whose failure is a stale listener the poll below still catches.
-                    if n and driven_pawn and not n:find(short(driven_pawn), 1, true) then
-                        repoint_listener("stolen by " .. short(n))
-                    end
-                end
             end)
             hooked[#hooked + 1] = fn
         else

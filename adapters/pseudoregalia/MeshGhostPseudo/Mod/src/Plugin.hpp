@@ -731,6 +731,7 @@ namespace MeshGhostPseudo
         // UFunction hook crashes this build -- see the warning above load_map_pre_callback_id).
         auto register_afterimage_outline_guard() -> void;
         auto register_playerlocation_guard() -> void;
+        auto register_audio_listener_guard() -> void;
 
         // Spawns / drives / destroys the prop that stands in for a peer's ranged projectile.
         auto tick_remote_projectile(const std::string& player_id, RemoteGhost& remote, RC::Unreal::UWorld* current_world) -> void;
@@ -1276,6 +1277,16 @@ namespace MeshGhostPseudo
         double guard_local_y{0.0};
         double guard_local_z{0.0};
         bool guard_local_valid{false};
+
+        // Audio attenuation listener guard (2026-09-04, user-confirmed cause and fix):
+        // PlayerController::SetAudioListenerAttenuationOverride pre-hook. BP_PlayerGoatMain_C pins
+        // the listener to its OWN capsule on BeginPlay, so every ghost -- a clone of that pawn --
+        // stole it, and the player went silent the moment that ghost was destroyed. The counter
+        // exists so the log carries the first few corrections and then goes quiet: a ghost spawns
+        // often enough that a line per correction would be a per-spawn log.
+        RC::Unreal::UFunction* salao_function{nullptr}; // "SetAudioListenerAttenuationOverride"
+        int32_t audio_listener_hook_id{-1};
+        int32_t audio_listener_corrections{0};
 
         // Afterimage attribution, shared between the SetRenderCustomDepth pre-hook and the
         // per-tick sweep in game_thread_tick (both run on the game thread). Keyed by actor

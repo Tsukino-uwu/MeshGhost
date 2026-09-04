@@ -8141,6 +8141,10 @@ namespace MeshGhostPseudo
         {
             svpv_function->UnregisterHook(svpv_hook_id);
         }
+        if (salao_function && audio_listener_hook_id != -1)
+        {
+            salao_function->UnregisterHook(audio_listener_hook_id);
+        }
     }
 
     // Kept from the "Fatal world leaks detected" investigation: dumps every remote's ghost
@@ -11266,6 +11270,7 @@ namespace MeshGhostPseudo
         if (!hook_disabled("playerlocation"))
         {
             register_playerlocation_guard();
+            register_audio_listener_guard();
         }
 
         // **Teardown on a SAME-LEVEL reload, which LoadMap PRE never sees.** Reloading a save into
@@ -11373,6 +11378,94 @@ namespace MeshGhostPseudo
     // is the scene latch (bug 1 of the glow hunt); suppressing the ghost's vertex-light ACTOR did
     // not touch it, which is how the writer was finally separated from the painter.
     //
+    // THE VANISHING PLAYER SFX, 2026-09-04 -- cause and fix both user-confirmed, and the whole
+    // account is in VERIFIED.md ("every ghost STOLE the player's audio attenuation listener").
+    //
+    // `BP_PlayerGoatMain_C` pins the player controller's audio ATTENUATION listener to its own
+    // `CollisionCylinder` when it begins play, which is entirely sensible in a game with one player
+    // pawn. A ghost is a clone of that pawn, so EVERY ghost spawn re-pointed the listener at
+    // itself. While the ghost lived it stood near the player and nothing sounded wrong; the instant
+    // it was destroyed the override named a component that no longer existed and every SPATIALIZED
+    // sound attenuated to nothing. Music is 2D, never consults attenuation, and kept playing --
+    // which is why the user heard *"any player related sfx is completly silent"* with the music
+    // still going, and why it came back the moment the next chaser spawned.
+    //
+    // **Same shape as the PlayerLocation guard below, and deliberately so: rewrite the argument,
+    // never make a second corrective call.** The Lua proof of this fix did make a second call, and
+    // that cost a round of live testing: in a PRE hook the correction is applied and then
+    // overwritten by the engine's own call, so only a 5Hz poll arriving behind the steal ever
+    // healed it -- a despawn recovered *most* times and a zone crossing never did. Rewriting the
+    // buffer has no such race, because the corrected value IS what the engine's call uses.
+    //
+    // No ghost attribution is needed, which is what makes this safe against however many pawns
+    // exist: any call naming a component that is not the driving pawn's own gets pointed back at
+    // the driving pawn. The player's own BeginPlay call is unchanged by construction. If no pawn is
+    // acknowledged yet -- the window a level transition opens -- the call passes through untouched,
+    // because the alternative is pinning the listener to a pawn the transition has just destroyed.
+    auto Plugin::register_audio_listener_guard() -> void
+    {
+        salao_function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/Engine.PlayerController:SetAudioListenerAttenuationOverride"));
+        if (!salao_function)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: could not find PlayerController:SetAudioListenerAttenuationOverride -- a ghost will take the player's audio listener and the player's SFX will go silent when it despawns.\n"));
+            return;
+        }
+
+        // Only the FIRST argument is described, and only its pointer is ever touched. The vendored
+        // SDK's idea of an FVector's layout is a claim to verify rather than a fact
+        // (../CLAUDE.md), and the location override is none of our business anyway.
+        struct SetAudioListenerAttenuationOverrideLocals
+        {
+            UObject* AttachToComponent;
+        };
+
+        audio_listener_hook_id = salao_function->RegisterPreHook(
+            [this](UnrealScriptFunctionCallableContext& ctx, void*) {
+                auto& locals = ctx.GetParams<SetAudioListenerAttenuationOverrideLocals>();
+                UObject* controller = ctx.Context;
+                if (!controller)
+                {
+                    return;
+                }
+
+                // The controller is the authority on which pawn is the player. Asking a pawn
+                // whether it is possessed does NOT work here -- a ghost reads as possessed too,
+                // measured 2026-09-04, which is the trap that made the first probe label every
+                // ghost as the player.
+                UObject** driven_ptr = mg_property_value<UObject*>(controller, STR("AcknowledgedPawn"));
+                UObject* driven = (driven_ptr && *driven_ptr) ? *driven_ptr : nullptr;
+                if (!driven)
+                {
+                    UObject** pawn_ptr = mg_property_value<UObject*>(controller, STR("Pawn"));
+                    driven = (pawn_ptr && *pawn_ptr) ? *pawn_ptr : nullptr;
+                }
+                if (!driven)
+                {
+                    return;
+                }
+
+                UObject** root_ptr = mg_property_value<UObject*>(driven, STR("RootComponent"));
+                UObject* root = (root_ptr && *root_ptr) ? *root_ptr : nullptr;
+                if (!root || locals.AttachToComponent == root)
+                {
+                    return;
+                }
+
+                UObject* was = locals.AttachToComponent;
+                locals.AttachToComponent = root;
+                if (audio_listener_corrections < 5)
+                {
+                    ++audio_listener_corrections;
+                    Output::send(STR("[MeshGhostPseudo] audio listener: a call pointed the attenuation listener at {} -- redirected to the local player's {} (correction {} of the first 5 logged).\n"),
+                                 was ? was->GetFullName() : STR("(null)"),
+                                 root->GetFullName(),
+                                 audio_listener_corrections);
+                }
+            },
+            nullptr);
+    }
+
     // Same shape as register_camera_fightback_hook: a native-function RegisterPreHook rewriting
     // the argument buffer in place. Every write to THIS collection's PlayerLocation gets its value
     // replaced with the local player's live position -- the player's own writes are unchanged by

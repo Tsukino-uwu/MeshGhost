@@ -14,8 +14,21 @@
 -- never consults attenuation -- keeps playing. The next ghost re-points it and the sound returns.
 --
 -- THE FIX UNDER TEST: on the tick a new ghost appears, put the attenuation listener back on the
--- LOCAL player's own capsule. If this holds, the same call goes into the C++ ghost-decouple pass
--- that already clears a ghost's HUD ref, game-instance ref and damage values.
+-- LOCAL player's own capsule.
+--
+-- **CONFIRMED 2026-09-04 and SHIPPED** -- the user, after testing both cases: *"yee both the
+-- spawn/despawn & zone transition sfx things are fixed now"*. This folder is kept as the record of
+-- how it was proven, not as the fix: `Plugin.cpp`'s `register_audio_listener_guard` carries it in
+-- production. **The shipping shape is deliberately different and better**: it REWRITES the
+-- argument of `SetAudioListenerAttenuationOverride` in a pre-hook, so the engine's own call uses
+-- the corrected component and there is no second call at all.
+--
+-- **The ordering lesson this file paid for, because a second call has to answer WHEN:** correcting
+-- in a PRE hook applies the fix and then lets the engine overwrite it, so only the 5Hz poll below
+-- ever healed anything -- a despawn recovered *most* times (*"works sometimes"*) and a zone
+-- crossing never did, because on a crossing the poll had already spent its one shot on that
+-- ghost's arrival before the steal. Moving the correction to the POST hook fixed both. A rewrite
+-- sidesteps the question entirely, which is why the shipped one does that instead.
 --
 -- **What makes this safe enough to write from Lua:** the only call is on the ONE live
 -- `PlayerController` that names a valid `AcknowledgedPawn` -- not on whatever `FindAllOf` handed

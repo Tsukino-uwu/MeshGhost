@@ -43,7 +43,7 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
-- OPEN — the player's own SFX go silent the moment a ghost DESPAWNS and return when the next one spawns; REPRODUCED with the user 2026-09-04, the sounds are played and inaudible, cause not yet named
+- READY — the SFX fix now ships in the DLL (the ghost stole the player's audio attenuation listener; CAUSE AND FIX CONFIRMED in Lua 2026-09-04, `VERIFIED.md`) -- the C++ version rewrites the call instead of answering it, built and deployed, UNWATCHED
 - OPEN — a ghost is audible at all; the user's call is silent by default with an optional setting (2026-09-04), not started
 - READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched — **not the 2026-09-04 run: the chaser is at 60s there to give the audio A/B a ghost-free first minute**
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
@@ -107,7 +107,21 @@ of menu with nothing recorded** — in `ZONE_LowerCastle`, at a real position. `
 fix. That is the file half of the entry; what is left for eyes is that the menu behaved normally
 while it recorded nothing.
 
-## [OPEN] the player's own SFX go quiet while GHOSTS are audible (reported 2026-09-03, not diagnosed)
+## [READY] the SFX fix in the DLL, unwatched -- the diagnosis trail that got there is kept below (2026-09-03 -> 2026-09-04)
+
+**WHAT TO WATCH, and it is the only thing left here:** the fix was proven in Lua and confirmed by
+the user (`VERIFIED.md`, 2026-09-04), then rewritten as production C++ in a DIFFERENT and better
+shape -- `register_audio_listener_guard` rewrites the argument of
+`SetAudioListenerAttenuationOverride` in a pre-hook, so the engine's own call uses the player's
+capsule and no second call is made. **A different implementation is a different thing to watch.**
+Built with `build-pseudoregalia.bat` and deployed to both installs on 2026-09-04; it takes effect
+on the next game start.
+
+Correct is: play with the chaser on, let ghosts spawn and despawn repeatedly, and cross zones with
+one alive -- your own SFX never drop out. The log carries the first five corrections
+(`audio listener: a call pointed the attenuation listener at ... -- redirected`) and then goes
+quiet on purpose, so a silent log after five is the healthy state, not a stopped guard.
+
 
 **The user, after a session with a replay ghost running:** *"think ghosts are eating up the players
 sound, like sfx is not doing anything when the player does things, but ghosts had them."* Logged at

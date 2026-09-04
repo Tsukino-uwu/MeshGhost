@@ -2123,3 +2123,32 @@ own capsule whenever a ghost appears — the same call that belongs in the C++ g
 beside the HUD ref, game-instance ref and damage clears. **A new mod folder cannot be hot-loaded**
 (UE4SS reads folders at launch), so the test hosted that code temporarily inside the census probe,
 which was already loaded; the folder itself arms on the next launch. Verdict pending.
+
+## 2026-09-04 (evening) — the SFX fix CONFIRMED in Lua, then built as production C++
+
+The user, after testing both cases across a full session: *"yee both the spawn/despawn & zone
+transition sfx things are fixed now"*. The cause and the fix are in `pseudoregalia/VERIFIED.md`;
+what belongs here is how the last two rounds went, because both were about TIMING rather than about
+the fix.
+
+**Round one failed on a race, and the log said so rather than the ear:** the Lua correction ran on
+the 5Hz poll, and at a zone change it landed 6ms BEFORE a ghost's own BeginPlay took the listener
+again. **Round two failed on hook ORDER** -- the correction sat in the PRE callback, where it is
+applied and then overwritten by the engine's own call. That is exactly why the user saw *"works
+sometimes"* on a despawn and never on a crossing: the poll behind it was the only thing healing
+anything, and on a crossing the poll had already spent its one shot on that ghost's arrival before
+the steal happened. Moving it to the POST callback made both cases deterministic, and that is the
+version the user confirmed.
+
+**The shipped C++ does neither.** `register_audio_listener_guard` REWRITES the first argument of
+`SetAudioListenerAttenuationOverride` in a pre-hook, the same shape as the PlayerLocation guard and
+the camera fight-back: the engine's own call uses the corrected component, so there is no second
+call and no ordering to get wrong. It needs no ghost attribution either -- any call naming a
+component that is not the driving pawn's own is pointed back at the driving pawn, and a transition
+window with no acknowledged pawn passes through untouched rather than pinning the listener to a
+pawn that has just been destroyed. Built and deployed to both installs; **unwatched**, because a
+different implementation is a different thing to watch.
+
+**Housekeeping the same pass:** the census probe hosted the Lua fix for the session (a new mod
+folder cannot be hot-loaded) and has been returned to read-only; `probe_audiofix/` keeps the proven
+Lua version as the record of how it was established.

@@ -185,6 +185,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-01 (evening) — the send-rate floor MEASURED on screen, the 15-vs-20 blind test, and the interp-per-link rule
 - 2026-09-04 — a display name with quotes in it reaches the nametag WHOLE
 - 2026-09-04 — a zip of two recordings plays as two ghosts
+- 2026-09-04 — every ghost STOLE the player's audio attenuation listener, and correcting it after the call fixes both silences
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4802,3 +4803,46 @@ up fully now"*.
   the same day.
 - **Known and unsurprising:** both ghosts wore the same nametag, because both clips carry the same
   `name` in their header. Editing one clip's first line is how you tell them apart.
+
+
+## 2026-09-04 — every ghost STOLE the player's audio attenuation listener, and correcting it after the call fixes both silences
+
+**Human-gated track.** The user, after testing both cases across a full session: *"yee both the
+spawn/despawn & zone transition sfx things are fixed now"*. The report that started it, 2026-09-03:
+*"think ghosts are eating up the players sound, like sfx is not doing anything when the player does
+things, but ghosts had them."*
+
+- **Date:** 2026-09-04
+- **Observed, before the fix:** the player's own SFX went completely silent — jumps, wall kicks,
+  slides, backflips — while MUSIC kept playing, whenever a ghost despawned or the player crossed a
+  zone with one alive. Sound returned the moment the next chaser spawned.
+- **Cause:** `BP_PlayerGoatMain_C` calls `APlayerController::SetAudioListenerAttenuationOverride`
+  with its own `CollisionCylinder` on BeginPlay. A ghost is a clone of that pawn, so **every ghost
+  spawn re-points the listener at itself** — caught in the log with its arguments, on every spawn.
+  Alive, the ghost stands near the player and nothing sounds wrong; destroyed, the override names a
+  component that no longer exists and every SPATIALIZED sound attenuates to nothing. 2D music never
+  consults attenuation, which is exactly why it survives, and the reason the silence is total
+  rather than faint.
+- **Fix, proven in Lua before being built:** on the `SetAudioListenerAttenuationOverride` call, if
+  the component named belongs to a pawn other than the one the controller is driving, put the
+  listener back on the LOCAL player's own capsule.
+- **The ORDERING is load-bearing and cost a round of testing.** The correction must run in the
+  POST hook. In the PRE hook it is applied before the engine writes the ghost's value and is
+  overwritten immediately; the only thing that healed it then was a 5Hz poll arriving behind the
+  steal, which made a despawn work *most* times (*"works sometimes, had one time where it didn't
+  work"*) and a zone crossing work never — on a crossing the poll had already spent its one shot on
+  that ghost's arrival before the steal happened.
+- **Scope:** confirmed with the chaser at 8s on the Steam install, `offline: true`, across many
+  spawn/despawn cycles and several `ZONE_LowerCastle` ↔ `ZONE_Dungeon` crossings. **This is the
+  Lua-hosted version** (`probe_audiofix/`); the C++ mod carries it as production code separately,
+  and that build is its own entry.
+- **Eliminated by measurement on the way, each one recorded because a reader would otherwise
+  re-test them:** a missed silence clause and Unreal voice-stealing (the player's components are
+  still created and go ACTIVE during the silence — the sounds play and are inaudible), a second
+  local player (one `MainPlayerController_C` throughout), a wandering view target (stable, tracking
+  the player, correct across the transition), sound mixes (a spawn re-applies `MySoundMix` with
+  **SFX at 1.0**, a despawn calls nothing, `Duration=-1`) and the sound classes' own volumes (never
+  change).
+- **Notes:** second instance of the rule the loose sword wrote on 2026-09-01 — a singleplayer
+  game's own code claims *the* player, and a ghost is a real player pawn, so it claims it too.
+  Anything a player pawn registers GLOBALLY on BeginPlay, a ghost re-registers.
