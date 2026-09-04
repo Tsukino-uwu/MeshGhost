@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
 - READY — the SFX fix now ships in the DLL (the ghost stole the player's audio attenuation listener; CAUSE AND FIX CONFIRMED in Lua 2026-09-04, `VERIFIED.md`) -- the C++ version rewrites the call instead of answering it, built and deployed, UNWATCHED
@@ -58,6 +59,28 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [READY] a non-ASCII display name should now render as itself, not as mojibake (2026-09-04)
+
+**The defect, found by the fuzzer rather than by anyone looking at a nametag.** Since 2026-09-03
+`json_string_field` decodes escapes and multi-byte UTF-8 correctly, so a display name arrives in the
+adapter as real UTF-8 bytes. It was then handed to `to_wide_ascii`, which widens each BYTE
+separately -- so a name with any non-ASCII character in it rendered as two or more garbage glyphs.
+The core had already sanitised the name correctly; the adapter took the right bytes and drew them
+wrong.
+
+`to_wide_ascii` was not the bug. Its own comment scopes it to core-stamped ASCII `player_id`s and it
+is right for those. A NAME is user-typed free text and was simply routed through the function built
+for ids. `utf8_to_wide` is the inverse of the `to_utf8` this file already had.
+
+**What to watch:** set a display name with a non-ASCII character in it -- an accent, a Japanese
+character, an emoji -- on one client, and read the nametag on the other. It should read as the name
+you typed. Before this it read as mojibake, so the difference is unmistakable rather than subtle.
+
+**Also worth one glance while you are there:** a plain ASCII name must still be exactly right, and
+the deliberately nasty name that was confirmed on 2026-09-04 (`VERIFIED.md`, quotes and `#` in it)
+must still come through whole. That one exercised the escape decoding, and this change sits directly
+downstream of it.
 
 ## [READY] the peer-JSON readers were rebuilt and rescoped, and nobody has watched a ghost since (2026-09-04)
 

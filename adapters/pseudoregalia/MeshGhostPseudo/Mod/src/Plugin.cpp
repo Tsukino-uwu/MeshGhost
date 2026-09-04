@@ -3015,6 +3015,39 @@ namespace MeshGhostPseudo
             return StringType(s.begin(), s.end());
         }
 
+        // The inverse of to_utf8, and the reason it had to exist (2026-09-04). A display name is
+        // the one peer-controlled string this project renders on another player's screen, and it
+        // arrives here as real UTF-8: json_string_field decodes \uXXXX escapes and multi-byte
+        // sequences correctly, which it has done since 2026-09-03. to_wide_ascii then widened each
+        // BYTE separately, so a name like "cafe" with an accent rendered as two garbage glyphs.
+        //
+        // to_wide_ascii is not wrong -- its own comment scopes it to core-stamped ASCII player_ids
+        // and it is right for those. The defect was routing a NAME, which is user-typed free text,
+        // through the one built for ids. Found by MeshGhostPseudo.Tests/peer_json_fuzz.cpp asserting
+        // that an asset path and a name survive the parser byte for byte.
+        //
+        // Nothing here validates: protocol.SanitizeDisplayName has already dropped invalid UTF-8,
+        // disallowed runes and combining-mark floods before this ever sees the string, and adding a
+        // second filter would be the "hardening something already finished" mistake
+        // agent_docs/security-design.md warns about for area_id and anim. On the one input that
+        // could still be malformed -- a core that is not ours -- it falls back to the byte widen
+        // rather than dropping the name, because an odd-looking nametag beats a missing one.
+        auto utf8_to_wide(const std::string& s) -> StringType
+        {
+            if (s.empty())
+            {
+                return {};
+            }
+            const int needed = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), nullptr, 0);
+            if (needed <= 0)
+            {
+                return to_wide_ascii(s);
+            }
+            StringType out(static_cast<size_t>(needed), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), static_cast<int>(s.size()), out.data(), needed);
+            return out;
+        }
+
         // -------------------------------------------------------------------------------------
         // PEER-NAMED ASSET RESOLUTION, 2026-09-01: the catalog gate.
         //
@@ -13102,7 +13135,7 @@ namespace MeshGhostPseudo
                 if (entry.nametag_plate)
                 {
                     set_text_render_string(entry.nametag_plate,
-                                           entry.nametag_plate_has_color ? to_wide_ascii(wanted_name).c_str()
+                                           entry.nametag_plate_has_color ? utf8_to_wide(wanted_name).c_str()
                                                                          : STR(""));
                 }
             }
@@ -13115,17 +13148,17 @@ namespace MeshGhostPseudo
         const bool first_application = entry.nametag_applied_name != wanted_name;
         if (first_application)
         {
-            set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
+            set_text_render_string(entry.nametag_component, utf8_to_wide(wanted_name).c_str());
             if (entry.nametag_plate && entry.nametag_plate_has_color)
             {
-                set_text_render_string(entry.nametag_plate, to_wide_ascii(wanted_name).c_str());
+                set_text_render_string(entry.nametag_plate, utf8_to_wide(wanted_name).c_str());
             }
             entry.nametag_applied_name = wanted_name;
         }
         else if (!NAMETAG_COLOR_PLATE && entry.nametag_applied_color != wanted_color)
         {
             // A colour that changed without the name changing still needs the rebuild.
-            set_text_render_string(entry.nametag_component, to_wide_ascii(wanted_name).c_str());
+            set_text_render_string(entry.nametag_component, utf8_to_wide(wanted_name).c_str());
         }
 
         // Position and facing, every tick: the ghost moves, and the tag has to move with it and
@@ -13716,7 +13749,7 @@ namespace MeshGhostPseudo
             Output::send(STR("[MeshGhostPseudo] pid={} remote {} nametag = \"{}\"{}\n"),
                          GetCurrentProcessId(),
                          to_wide_ascii(player_id),
-                         to_wide_ascii(tag.name),
+                         utf8_to_wide(tag.name),
                          tag.color.empty() ? StringType()
                                            : StringType(STR(" colour ")) + to_wide_ascii(tag.color));
         }

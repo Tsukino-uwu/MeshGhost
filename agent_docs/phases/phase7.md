@@ -2242,3 +2242,51 @@ own lines. Two registrations, not three.
 **What is NOT established:** that the rebuilt DLL still behaves correctly in the game. The
 extraction was verbatim and the scoped reads are covered by the harness, but 42 call sites changed
 shape and no one has watched a ghost since. Queued in `UNVERIFIED.md`.
+
+## 2026-09-04 (later still) — the corpus across all four, and an audit that had to be corrected
+
+**Part C of the same job:** one adversarial corpus, seven categories, defined once in
+`_template/README.md` and implemented in each harness's own language. Categories 1 (wrong type for
+every field) and 2 (extreme numerics) landed everywhere first, because that is where the known
+defects were. Lua went 726 -> 796 decodes, TEVI 90 -> 155 lines.
+
+**What it measured, and both numbers are worth keeping.** Both Lua decoders accept exactly three of
+eighteen extreme forms as NON-FINITE — `1e309`, `1e999`, `-1e999`. Those are valid JSON, the relay
+forwards them untouched, and the decoder is right to hand them over: a peer reaches infinity without
+ever writing `inf`. TEVI fed 22 forms including the `"NaN"` and `"Infinity"` STRINGS that
+Newtonsoft casts without throwing, and **zero reached a callback non-finite** — `FiniteOrNull` holds,
+and is now asserted rather than assumed.
+
+**THE AUDIT THAT SCOPED THIS WAS WRONG, and the correction is the more durable finding.** A
+subagent's audit reported Emerald as leaving 13 extras fields unbounded and Crystal six, calling
+Emerald "the largest gap of the four". Traced field by field to where each value actually means
+something, **every one is bounded**: Emerald checks each on the very next line (`sanim`/`sidx`/`act`
+0-255, `sox`/`soy` ±32, `pspeed` 0-4, `boat` 0-255, `fly` ∈ {1,2}, `flyk` 0-0xFF), coerces
+`spaused`/`noanim`/`invis` with `~= 0`, and bounds `gfx` inside `graphicsInfo` — integer, 0-255,
+every ROM pointer validated before the engine dereferences it. Crystal passes `act` through the
+`ACTIONS.peer` allowlist, `face` through `pose()` (range tests and `& 3` masks, never an index),
+`fly` through `iconGfx` (species 1-251), `emote` through `emoteGfx` (0-11); `entry` is an equality
+test and `prog` is overwritten by a locally computed value on the path that moves.
+
+**So the clamps this was scoped to add would have been churn with regression risk against the 1:1
+bar, on code that was already right.** `security-design.md`'s claim that Crystal validates
+`prog`/`face` "not at all" is struck and corrected in place. The method lesson, written where the
+next audit will read it: **ask where the value ENDS UP, never whether there is a check on the line
+that reads it.** A `tonumber` with a bound three lines later is bounded; a beautifully checked read
+whose value then indexes a table is not.
+
+**One real defect did come out of the same pass, and the fuzzer found it rather than a person
+looking at a nametag.** `json_string_field` has decoded multi-byte UTF-8 correctly since
+2026-09-03, so a display name arrives as real UTF-8 bytes — and `to_wide_ascii` widened each BYTE
+separately, so any non-ASCII name rendered as mojibake. The core had sanitised it correctly and the
+adapter drew the right bytes wrongly. `utf8_to_wide` (the inverse of the `to_utf8` already here)
+now covers all five name render and log sites. `to_wide_ascii` was never the bug: its comment
+scopes it to core-stamped ASCII ids and it is correct for those; a NAME is user-typed free text and
+was routed through the function built for ids.
+
+**Also this pass:** `preflight.ps1` gained an adapter-workflow check — every adapter must be covered
+by a path-filtered gate, and no adapter gate may filter broader than its own tree. Both directions
+were verified by making them fail. The rule and the seven-category corpus are both in
+`_template/README.md`, and `/new-adapter` points at the workflow rule while CI is being wired.
+
+**Still open, named rather than dropped:** corpus categories 3-7 on the three older harnesses.
