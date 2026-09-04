@@ -1335,3 +1335,29 @@ read is handing back a wrapper rather than a value, and "resolved" is not "worke
 **Rule:** a probe's failure must be LOUD and non-fatal. Wrap the sample, report once, keep
 sampling — silence is a reading, and it must never be one your own instrument caused.
 [RULE: checklists/before-a-probe.md]
+
+## A corrective SECOND call must run in the POST hook, and rewriting the argument beats both (Pseudoregalia, 2026-09-04)
+
+**Symptom:** a fix that was right in substance failed intermittently. The user: *"works sometimes,
+had one time where it didn't work"* on one case, and *"still losing sfx when i cross zones"* on
+another — the same fix, two different-looking outcomes.
+
+**Cause:** the correction was made from a **PRE** hook. A pre-hook runs BEFORE the engine's own
+call, so the corrective write was applied and then immediately overwritten by the very call it was
+answering. The only thing that ever healed anything was a 5Hz poll arriving behind the steal — and
+that made the outcome depend on where the poll happened to fall: a plain despawn recovered most
+times, and a zone crossing never did, because there the poll had already spent its one shot on that
+ghost's arrival before the theft happened.
+
+**Two fixes, and the second is better:**
+
+- **Move the corrective call to the POST hook.** Deterministic, and it is what the user confirmed.
+- **Do not make a second call at all — rewrite the argument in the PRE hook.** The engine's own
+  call then uses the corrected value, so there is no ordering to get wrong, no re-entrancy guard,
+  and no window. This is what shipped, and it is the same shape this adapter already uses for the
+  camera fight-back and the PlayerLocation guard.
+
+**Rule:** when answering a call you do not own, prefer changing what that call DOES to racing it
+with a second call. If a second call is unavoidable, it goes in the POST hook — and note that an
+intermittent result from a correct-looking fix is a timing signature, not a flaky game.
+[RULE: checklists/before-spawning-in-unreal.md]

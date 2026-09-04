@@ -11,6 +11,7 @@
 ## Every lesson filed here
 
 - A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (2026-09-04) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A corrective SECOND call belongs in the POST hook -- in PRE the engine overwrites it; better still, rewrite the argument (2026-09-04) — [method.md](../pitfalls/method.md)
 - A hardcoded /Script path finds nothing and says nothing — resolve UFunctions through the class chain (Pseudoregalia, 2026-08-28) — [by-lesson.md](../pitfalls/by-lesson.md)
 - If it must never be occluded, it must be OPAQUE — no translucency priority beats a level's own planes (Pseudoregalia, 2026-08-29) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A runtime-created component carries its CLASS DEFAULT until you overwrite it (Pseudoregalia, 2026-08-29) — [by-lesson.md](../pitfalls/by-lesson.md)

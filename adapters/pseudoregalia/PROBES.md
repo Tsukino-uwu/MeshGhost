@@ -238,6 +238,9 @@ player's cue because a ghost already holds the instances — and they want diffe
 - **`prop()` reporting `resolved` is not proof a read WORKED.** The controller's
   listener-override fields each returned a fresh UObject wrapper at a different address every
   sample. A value that changes every 200ms is the tell.
+- **PARKED (`enabled.txt.off`) 2026-09-04, question answered** (`VERIFIED.md`: the stolen audio
+  listener). It is a heavy probe -- 5Hz whole-world enumerations plus ten function hooks -- so it
+  does not stay armed through somebody else's test.
 
 ## `probe_audiofix/` — the fix for the stolen listener, tested before it is built (2026-09-04)
 
@@ -254,3 +257,7 @@ player's cue because a ghost already holds the instances — and they want diffe
   answers *"Could not find mod to reinstall"* (measured 2026-08-29, and again 2026-09-04). So that
   day's test ran the same code hosted temporarily inside
   the census probe, which WAS loaded; this folder arms itself on the next game start.
+- **PARKED (`enabled.txt.off`) at the end of 2026-09-04, in the repo and in both installs, and it
+  matters more than usual for this one:** it applies the same fix the DLL now carries, so an armed
+  copy would make the shipped fix untestable -- the run would pass whether or not the C++ works.
+  Rename it back only to re-measure the Lua version.

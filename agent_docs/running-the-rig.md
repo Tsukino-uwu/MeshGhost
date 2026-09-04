@@ -21,6 +21,8 @@ game points here. `playing.md` is the sibling for driving the game itself once i
 - Running several agents on DIFFERENT work at once — 2026-08-19
 - Crash dumps: where they are, and the tool that reads them without a debugger (2026-08-30)
 - Rig notes carried out of `status.md` (2026-09-02)
+- Changing a client setting WITHOUT relaunching the game — kill the core, the adapter respawns it (2026-09-04)
+- `UE4SS.log` is written with a DELAY, and an empty tail is not a quiet game (2026-09-04)
 
 ---
 
@@ -291,3 +293,37 @@ set up and which savestate slots hold what, which is rig knowledge, not status. 
   state's fault, not the adapter's; `orphan_sweep.lua` or any door clears it. `crystal/UNVERIFIED.md`. `goto_map`'s undo slot is now overridable (`MESHGHOST_GOTO_UNDO_SLOT`) because its
   hardcoded 8 would eat the fly state. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
+
+## Changing a client setting WITHOUT relaunching the game — kill the core, the adapter respawns it (2026-09-04)
+
+**A UE4SS adapter starts its own core, and it will start another one if that core dies.** So a
+config change that only the CLIENT reads — send rate, interp, chaser delay, replay settings,
+offline — can be applied mid-session without touching the game window:
+
+1. Edit `config.json` in the install (the `MeshGhostPseudo` folder under `ue4ss\Mods\`).
+2. `Stop-Process` the `meshghost` pid.
+3. The adapter notices the bridge drop and launches a new core within a second or two.
+4. **Confirm from `meshghost.log`, never from the kill** — the new run prints `=== meshghost run
+   start ===` and then the settings it read, e.g. `chaser ON -- 1 ghost(s) of your own past, 8s
+   behind and then every 2s`.
+
+Measured live 2026-09-04, swapping a chaser from 60s to 8s to shorten a test loop: a new pid
+seconds later, reconnected to the running game on its own, no relaunch. **What it does NOT reach:**
+anything the ADAPTER reads at startup (its own toggles, the DLL itself), and the recording
+restarts, so a `record_on_launch` clip is split in two.
+
+**Why it is worth remembering:** the alternative is a game relaunch, which the root `CLAUDE.md`
+calls the last resort, and the user's own words for the slow loop it replaced were *"its mostly
+just me sitting around waiting for nothing to happen"*.
+
+## `UE4SS.log` is written with a DELAY, and an empty tail is not a quiet game (2026-09-04)
+
+`UE4SS.log` is buffered: it can sit at **0 bytes minutes into a session** and then arrive in a
+lump. Twice in one session that read as "the probe is not running" when it was running perfectly —
+once at startup with the file still empty, and once when a genuinely dead probe looked identical to
+the buffering.
+
+**So: never conclude anything from the tail of that file without a second reading a little later**,
+and prefer a signal carrying its own clock — the core's `meshghost.log` (written by the Go side,
+promptly), or a probe line with a sample counter, so a stalled instrument shows as a counter that
+stopped rather than as an absence of lines.

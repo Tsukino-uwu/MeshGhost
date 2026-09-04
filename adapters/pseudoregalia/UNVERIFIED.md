@@ -121,6 +121,18 @@ one alive -- your own SFX never drop out. The log carries the first five correct
 (`audio listener: a call pointed the attenuation listener at ... -- redirected`) and then goes
 quiet on purpose, so a silent log after five is the healthy state, not a stopped guard.
 
+**Setting the run up takes two lines, because both installs were put back to the SHIPPED config at
+the end of 2026-09-04** (the standing rule: an install that has drifted cannot answer "does the
+release work"). For the next run, set `chaser.enabled: true` and a short `chaser.delay` -- `8s` is
+what made the 2026-09-04 loop bearable, against the 60s that had the user *"sitting around waiting
+for nothing to happen"*. **A client-only setting like that no longer needs a relaunch**: edit the
+file and kill the `meshghost` process, and the adapter starts a new core that reads it
+(`../../agent_docs/running-the-rig.md`).
+
+**Both audio probes are PARKED (`enabled.txt.off`), in the installs and here.** `probe_audiofix/`
+especially: it applies the same fix from Lua, so leaving it armed would make the shipped C++ fix
+untestable -- the run would pass whether or not the DLL works.
+
 
 **The user, after a session with a replay ghost running:** *"think ghosts are eating up the players
 sound, like sfx is not doing anything when the player does things, but ghosts had them."* Logged at

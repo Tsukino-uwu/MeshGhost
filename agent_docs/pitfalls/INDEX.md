@@ -39,6 +39,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A discriminator built on the wrong direction labelled every ghost as the player (Pseudoregalia, 2026-09-04) [RULE: checklists/before-trusting-a-reading.md]
 - A probe that throws reads exactly like a game doing nothing (Pseudoregalia, 2026-09-04) [RULE: checklists/before-a-probe.md]
 - A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (Pseudoregalia, 2026-09-04) [CHECK: adapters/pseudoregalia/probe_audiofix, then the C++ decouple]
+- A corrective SECOND call must run in the POST hook, and rewriting the argument beats both (Pseudoregalia, 2026-09-04) [RULE: checklists/before-spawning-in-unreal.md]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 
