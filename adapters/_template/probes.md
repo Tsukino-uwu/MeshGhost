@@ -2189,6 +2189,42 @@ Lua (which masks bitfield bools correctly) is NOT the flag C++ reads through a b
 a measurement can be right while the mirror built from it is wrong (`pitfalls/by-lesson.md`,
 the third bitfield case).
 
+## Build the RECORDING that isolates the case, instead of watching for it (2026-09-04)
+
+**An adapter with a replay feature has a recording format it owns, and that makes a recorded run an
+INSTRUMENT rather than only a fixture.** A clip is text: a header line (name, colour, speed, loop,
+trims) and one sample per line. So a run somebody already made can be renamed, looped, retimed and
+CUT to end exactly where a defect lives — which is how you stop asking a person to notice something
+and start showing it to them.
+
+**The case that made this a method, and it is the important half.** A fix for "a despawning ghost
+strands its landed sword's ground effect" was tested by looping the throw clip. The user reported
+the effect going away, and it was the wrong evidence: that clip ends with the peer CATCHING the
+sword, and tearing the effect down on a catch had worked for days. The clip could not reach the
+case. Cutting it at sample 700 — inside the window where the sword is still planted — produced a
+clip that ends with the effect live, so the despawn happens with something to strand.
+
+**Then the second cut was better than the first: STOP LOOPING.** A loop hides the answer inside a
+blink; the user's own words were that it was *"way to long for me to tell if anything is
+happening"*. An 11-second clip played ONCE leaves the world with no ghost in it, and the question
+becomes "is anything still on the ground?" — which a person can walk over to and answer at their
+leisure, with no timing and no memory of what it looked like a moment ago. **Prefer the version
+where the evidence SITS STILL.**
+
+**Cutting from the middle of a DELTA-ENCODED clip needs the state rebuilt, or the ghost arrives
+nearly empty.** Only the first line is a full sample; the rest carry what changed. So accumulate
+every field up to the cut, write that as the new first line, then append the originals — otherwise
+most fields are absent, absent parses to zero, and the ghost is subtly wrong in a way that looks
+like an adapter bug.
+
+**Pick the window by DENSITY, measured from the clip itself.** To judge landing dust, the clip needs
+landings: counting the wire's own counter across a long run found 40 landings in one 75-second
+window versus 3 a minute elsewhere. That is the difference between a judgement and a vigil.
+
+**What this does NOT license: a synthesized run.** A clip invented from scratch proves the adapter
+renders what you wrote. Every sample above is the user's own, re-headed and sliced — the evidence
+stays real and only the framing changes.
+
 ## Count the ALLOCATION BITMAP against the LIVE OWNERS, and A/B it by unloading yourself (Emerald, 2026-09-02)
 
 Any resource the engine hands out through a bitmap — sprite tiles, palette slots, object slots — can leak

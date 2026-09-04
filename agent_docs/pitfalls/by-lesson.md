@@ -5878,3 +5878,58 @@ player: listeners, HUD refs, game-instance refs, camera rigs, save hooks.
 **Fix:** the ghost-decouple pass that already runs on the spawn tick puts the attenuation listener
 back on the local player's capsule. Proven in Lua first at the user's request, then built into the
 adapter. [CHECK: adapters/pseudoregalia/probe_audiofix, then the C++ decouple]
+
+## A visibility helper that hardcodes `bPropagateToChildren` changes components you never named (Pseudoregalia, 2026-09-04)
+
+**Symptom.** A ghost holding the Dream Breaker wore the ascendant-light blade aura, on a save whose
+`obtainedLight?` reads false. Reported by the user within minutes of the build that caused it:
+*"it also have the sword mesh glow (not supposed to have that without ascendant light)"*.
+
+**Cause.** The adapter's `call_set_visibility` wrote SetVisibility's second parameter — 
+`bPropagateToChildren` — as a literal `1` for every caller, since the day it was written. That was
+invisible while every caller happened to want it. A new weapon mirror then showed the ghost's
+`WeaponMesh`, and the measured component chain is
+`CollisionCylinder -> VisualMesh -> WeaponMesh -> LightMesh`: the aura is a CHILD of the sword, so
+"show the sword" meant "show the aura" too.
+
+**Fix.** The helper takes a `propagate` argument defaulting to `true`, so all fifteen existing
+callers are byte-for-byte unchanged, and only the weapon mirror passes `false`. A default that
+preserves history is what makes a shared helper safe to change at all.
+
+**The generalisation worth carrying to any engine:** **a helper that hardcodes an argument is a
+policy, not a utility** — and the policy is invisible at every call site. Before reusing one on a
+new target, read what it fills in that you did not pass. The component-tree version of this is
+sharper still: **changing a parent's visual state is a claim about its children**, and a component
+chain is a thing to MEASURE (`probe_bladeglow/`) rather than assume, because "the aura is its own
+component hanging off the pawn" was the natural guess and it was wrong.
+
+**The A/B was already on screen and needed no extra run**, which is the part to copy: the same tick
+held a ghost whose sword the new code HID (`LightMesh.bVisible = false`) and one whose sword it
+SHOWED (`true`). Two ghosts, one variable, same frame. When a regression lands in code that already
+runs on several instances, look for the instance where it did NOT fire before building anything.
+
+## A user confirming the SYMPTOM is gone is not confirmation of the MECHANISM (Pseudoregalia, 2026-09-04)
+
+**Symptom.** A fix "destroy a despawning ghost's world-spawned effects" was watched working: the
+landed sword's ground ring left with the ghost, user-confirmed, and the floor stayed clean when they
+walked back to it.
+
+**Cause of the false conclusion.** The teardown hides, stops, then destroys — and **hiding is what
+removes something from the screen.** So the confirmed observation was consistent with the destroy
+never running at all, and the adapter's own log said `0 world-spawned component(s) destroyed` on
+every despawn of that session. A population census (`probe_leakcount/`, `FindAllOf` per class per
+second) then measured `NiagaraComponent` 61 -> 74 -> 67 across three despawn cycles while
+`BP_PlayerGoatMain_C` went 1 -> 4 -> 1: the pawns collect, the effects do not.
+
+**The lesson, and it is a rule about EVIDENCE rather than about Unreal:** when a fix has several
+steps and any ONE of them is sufficient to change what a person sees, a person seeing the change
+tells you nothing about which step ran. **Instrument the step, not the outcome** — and if the
+outcome is all you have, say so in the record rather than promoting it. `VERIFIED.md` carries the
+visual and `UNVERIFIED.md` carries the residue, deliberately split.
+
+**A second-order trap from the same hour:** the log line that reported `0 destroyed, 0 already gone`
+prints numbers the function cannot produce — it returns before logging when it has no candidates,
+and `DestroyComponent` demonstrably resolves on this build. So the diagnostic itself became the
+suspect. **A counter that under-reports is worse than no counter**: it reads exactly like "the path
+never ran", and conclusions get drawn from it. Count every branch, including the one you did not
+expect to happen — here, "live, hidden, stopped, but not destroyed" incremented nothing at all.
