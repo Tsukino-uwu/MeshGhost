@@ -418,3 +418,38 @@ the active phase's file; the log line lives here.
 
 **Standing item for this phase, unchanged:** the due-wait sleeps are still wall-clock and the
 advance-until-quiescent helper is unbuilt.
+
+## 2026-09-04 — `recording_state`, the first core → adapter STATE message since `session_policy`
+
+**Built for a defect that is entirely about where the core CANNOT reach** (ADR 0052). The record
+hotkey is system-wide and lives here (ADR 0048), and this side never touches a game — so the only
+feedback a recording toggle could give was a console line. The user runs with the console hidden:
+*"I have the console hidden, and was unsure if f9 was doing something or not when using it. i
+usually did f9 2-3 times then f11"*. And the failure is not about being careless: with the log open,
+having fixed those very lines earlier the same day to say which direction the toggle went, I read
+them, decided a recording was running, pressed the toggle to stop it and started one instead.
+
+**Shape, and why each half is what it is:**
+
+- **STATE, not an event.** An event is lost on anybody not attached to hear it; the question is *am
+  I recording right now*, so it is pushed on change AND on attach, and an adapter that comes up
+  mid-recording is told rather than waiting for the next toggle. Same shape as `session_policy`,
+  which was the only other message in this direction.
+- **`started_unix_ms`, not an elapsed duration.** Elapsed would mean a message per second forever;
+  the start instant means the adapter counts locally and this stays push-on-change. It also makes
+  the mid-recording attach show the true elapsed time rather than starting from zero.
+- **A wall clock is sound here and would not be at the relay.** The bridge is loopback-only by
+  construction, so the two processes are on one machine. That is a property of THIS hop, and the
+  comment says so, because the same field on a relay message would be wrong.
+
+**THE FIRST VERSION DEADLOCKED, AND THE TEST HUNG RATHER THAN FAILED.** `StartRecording` holds
+`c.rec.mu` through a defer for its whole body, and the push called `Recording()`, which wants that
+same mutex; Go mutexes are not reentrant. The fix splits the push into a values-taking half that
+touches only `c.mu`, and the whole path now reads the recorder and RELEASES it before taking the
+other lock, so the two are never held at once and no caller can invert them. **A hang is the shape
+this class of bug always takes** — it is worth recognising on sight, because a 300-second tool
+timeout reads like a slow suite rather than a defect.
+
+**Tested:** both edges (start pushes with a start time, stop pushes with it zeroed so nothing can
+keep counting under a hidden indicator) and the de-dupe, which is what makes the unconditional
+attach-time push affordable. Full suite green twice.
