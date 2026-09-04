@@ -664,6 +664,24 @@ protocol above is actually run and watched.
    it, not on the way out, so it never becomes audible. Applies to every future ability trigger,
    not just this one.
 
+   **CONFIRMED UNIMPLEMENTED, and parked as future work 2026-09-04.** The clause covers exactly one
+   sound: `call_audio_component_stop` on a ghost's `wallRideSFX`. Everything else a ghost makes is
+   audible, and the user heard it while a chaser ran -- *"ghosts were making sounds right now"*,
+   *"both the player & ghost had sounds while it was spawned"* -- with the census naming the cues
+   (a ghost's own `Cue_FootstepGeneric` components appearing and going active exactly like the
+   player's). Their call: *"think this could be a optional feature maybe, but ghost audio should be
+   off by default"*, and *"its a future issue to mute ghosts"* -- so it is logged here rather than
+   started.
+
+   **What it needs when picked up, and why it is not a one-liner:** a silence that covers every
+   path rather than one named component. The ghost is a real player pawn, so its sounds arrive
+   from anim notifies and the pawn's own Blueprint as well as from our triggers -- and the census
+   probe's own header records the gap that matters: a sound started by `PlaySoundAtLocation` /
+   `PlaySound2D` creates NO audio component at all, so component-level suppression cannot reach
+   it. Worth pricing the wholesale routes (a per-ghost audio component sweep at spawn; the
+   attenuation/`VolumeMultiplier` levers; a ghost-only sound class) against the per-cue one before
+   building. The config key ships OFF, per the user, with ghost audio as the opt-in.
+
    **PRECONDITION CLAUSE, learned the hard way 2026-08-15** — this principle is not unconditional.
    Triggering the pawn's own system only works when that system's own preconditions are satisfied
    by state we can actually write. The afterimage trail worked because its only precondition was

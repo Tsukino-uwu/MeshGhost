@@ -44,7 +44,6 @@ entry without one.
 
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
 - READY — the SFX fix now ships in the DLL (the ghost stole the player's audio attenuation listener; CAUSE AND FIX CONFIRMED in Lua 2026-09-04, `VERIFIED.md`) -- the C++ version rewrites the call instead of answering it, built and deployed, UNWATCHED
-- OPEN — a ghost is audible at all; the user's call is silent by default with an optional setting (2026-09-04), not started
 - READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched — **not the 2026-09-04 run: the chaser is at 60s there to give the audio A/B a ghost-free first minute**
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
@@ -258,23 +257,6 @@ UObject wrapper at a different address every sample, which `prop()` reports as *
 the read itself succeeds. And the probe's first pawn discriminator was wrong: **a ghost here reads
 as POSSESSED**, so asking each pawn for a Controller labelled every ghost as the player. It asks
 the controller which pawn it drives now.
-
-## [OPEN] a ghost is AUDIBLE, and it should be silent by default (user's call, 2026-09-04)
-
-**The user, watching the diagnosis above:** *"think this could be a optional feature maybe, but
-ghost audio should be off by default"*. Confirmed on screen the same session — *"both the player &
-ghost had sounds while it was spawned"* — and the census names the cues: a ghost's own
-`Cue_FootstepGeneric` components appear and go active exactly like the player's.
-
-**This is the SILENCE CLAUSE (`ideas.md`, 2026-08-15, *"ghosts should be silent"*) never having
-been implemented past one sound.** The only suppression in the adapter is `call_audio_component_stop`
-on a ghost's `wallRideSFX` — everything else a ghost makes comes free with the pawn, because the
-ghost IS a player pawn and triggering its systems gets the audio with them.
-
-**Not started, deliberately, so it does not muddy the fault above** — the two are separate, and a
-ghost being audible is what makes the other one bearable to test. What it needs when picked up: a
-silence that covers every path rather than one named component, and a config key that turns ghost
-audio back on for anyone who wants it, defaulting to off.
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 

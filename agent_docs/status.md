@@ -10,6 +10,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-04 **Ghosts are AUDIBLE and should not be: confirmed by ear, parked as future work by the user's call -- silent by default with an opt-in setting; the silence clause covers one sound today** -- `ideas.md`, the SILENCE CLAUSE.
 - 2026-09-04 **Pseudoregalia CONFIRMED on screen: a display name with quotes reaches the nametag whole (the JSON escape fix), and a zip of two recordings plays as two ghosts; the title-screen gate from the same session is still unwatched** — `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-03 **Pseudoregalia: the player's own SFX go quiet while a ghost is audible (user-reported, not diagnosed) — the ghost is a real player pawn, so both a missed silence-clause path and Unreal sound CONCURRENCY stealing the player's voices fit** — `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-04 **v1.1.0 SHIPPED. Three things wait on the user's eyes in Pseudoregalia: a 3s chaser should now LOOK 3s behind (ADR 0049), a recording should start at the first real frame rather than in the menu, and the player's own SFX going quiet near a ghost is OPEN and undiagnosed** — `pseudoregalia/UNVERIFIED.md` is the queue, newest first.
