@@ -8,17 +8,25 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not `PROBES.md`.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Twelve directories, twenty-one
+— there is no single `probes/` folder to index from the inside. Thirteen directories, twenty-two
 scripts, one index (2026-09-04 count; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
 Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatch/` and
 `probe_slashvfx/` followed on 2026-08-31 and 2026-09-01.
 
-## Every probe here is READ-ONLY
+## Every probe here is READ-ONLY, with ONE named exception
 
 None writes game memory and none writes a save. The two that touch anything outside the process
 are the socket stages, and they only open a local TCP connection to our own bridge.
+
+**The exception, added 2026-09-04, is `probe_audiofix/`, and it is named here so the claim above
+stays true.** It calls one native UFunction on the live `PlayerController` to put the audio
+attenuation listener back on the player's capsule — a fix being tested before it is built into the
+C++ mod, at the user's request (*"try with lua first, so we actually test the fix before making
+it"*). It still writes no save, no game state and no memory. **Unload it before judging anything
+else**: `../../agent_docs/checklists/before-a-probe.md` — a writing probe left armed is a suspect
+in every later report.
 
 The one thing to be careful of is the opposite of a write: **`probe_ghost/Scripts/main.lua` is a
 full working adapter**, not a diagnostic. Running it alongside the real C++ mod would put two
@@ -215,3 +223,34 @@ player's cue because a ghost already holds the instances — and they want diffe
   result, two classes at 5Hz, a coverage line every 10s carrying the pawn list and how the
   player/ghost split was decided. Every property name is reported as it resolved or as
   `UNRESOLVED`, so a name this build does not have can never be read as a zero.
+- **Grown live through the 2026-09-04 session, by hot reload, without a relaunch** — the whole
+  point of the Lua-first rule. It now also logs the VIEW TARGET and the player's position on
+  change, a CONTROLLER census (how many, and which pawn each drives), the game's SOUND CLASS
+  volumes, and hooks the six `GameplayStatics` sound-mix statics this build has. Each was added
+  because the previous reading eliminated a hypothesis: components, then the listener, then the
+  local player, then the audio device.
+- **Its two failures are in its own header and are the transferable part.** The first pawn
+  discriminator called a possessed pawn the player -- **a ghost here reads as possessed**, so
+  every ghost was labelled PLAYER, and the coverage line printing its evidence is the only
+  reason that was caught rather than believed. And a `string.format` on a non-vector threw out
+  of the sample loop and stopped the probe for four minutes, which in the log is
+  indistinguishable from a game doing nothing; the loop now pcalls and reports once.
+- **`prop()` reporting `resolved` is not proof a read WORKED.** The controller's
+  listener-override fields each returned a fresh UObject wrapper at a different address every
+  sample. A value that changes every 200ms is the tell.
+
+## `probe_audiofix/` — the fix for the stolen listener, tested before it is built (2026-09-04)
+
+**WRITES. The only one here that does** — see the exception above.
+
+- **`Scripts/main.lua`** — when a new ghost appears, calls
+  `SetAudioListenerAttenuationOverride` on the live `PlayerController` with the LOCAL player's own
+  capsule, undoing what the ghost's `BeginPlay` just did. The component is name-checked against
+  `CollisionCylinder`, the shape the game itself passes, rather than assumed from `RootComponent`.
+- **Why it exists:** `probe_audiocensus/` found that every ghost steals the player's attenuation
+  listener, and the user's call was to prove the fix in Lua before spending a rebuild on it. If it
+  holds, the same call goes into the C++ ghost-decouple pass.
+- **A NEW probe folder cannot be hot-loaded** — UE4SS reads mod folders at launch and `RestartMod`
+  answers *"Could not find mod to reinstall"* (measured 2026-08-29, and again 2026-09-04). So that
+  day's test ran the same code hosted temporarily inside
+  the census probe, which WAS loaded; this folder arms itself on the next game start.

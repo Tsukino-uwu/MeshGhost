@@ -1285,3 +1285,53 @@ cheap-seam shape carries exactly one forced seam and spans milliseconds rather t
 **Rule:** when a fuzz generator builds a structured input, assert the SHAPE it produces, not just
 that nothing crashed — and check at least once that the thing downstream actually accepted it.
 [CHECK: core.TestFuzzEverythingClipShapesAreWhatTheyClaim]
+
+## A discriminator built on the wrong direction labelled every ghost as the player (Pseudoregalia, 2026-09-04)
+
+**Symptom:** an audio census written to separate a ghost's sounds from the player's reported
+`owner=PLAYER` on every event, and its `GHOSTCOUNT` never left 0 — while the adapter's own log was
+refusing camera switches to ghost rigs in the same seconds, so ghosts plainly existed.
+
+**Cause:** the probe asked each pawn for a `Controller` and called a pawn holding one the player,
+on the reasoning that the auto-possess fix leaves a ghost unpossessed. **It does not: a ghost here
+reads as possessed.** Every ghost therefore passed the test, and the attribution column — the whole
+output of the instrument — was wrong in a way that looked entirely plausible.
+
+**What caught it** was not the wrong-looking data; it was the coverage line, which prints the
+evidence the tag was decided from (`pawns=[...=PLAYER(possessed) ...=PLAYER(possessed)]`). Two
+pawns both claiming to be the player is visibly impossible, where a column of `owner=PLAYER` is
+not. This is what `checklists/before-trusting-a-reading.md` means by "a probe that returns a
+boolean cannot be sanity-checked".
+
+**Fix:** reverse the direction. Ask the ONE controller which pawn it drives
+(`AcknowledgedPawn`/`Pawn`), and treat everything else of that class as a ghost or a corpse the
+transition has not collected. One authority beats a per-object guess, and the coverage line still
+prints what it decided from.
+
+**Rule:** when a discriminator rests on a property being absent, verify the absence on this build
+before believing the tag — and print the evidence beside the verdict, every time.
+[RULE: checklists/before-trusting-a-reading.md]
+
+## A probe that throws reads exactly like a game doing nothing (Pseudoregalia, 2026-09-04)
+
+**Symptom:** a hot-reloaded probe went silent mid-session. The game was running, the reload had
+been confirmed in `UE4SS.log`, and the log simply stopped carrying that probe's lines — which is
+the same picture as a quiet subsystem.
+
+**Cause:** a `string.format("%.0f", …)` on a value that was not a number. The helper checked for
+`nil` and not for TYPE, a reflected field handed it a wrapper, and the error propagated out of the
+sample function into `ExecuteInGameThread`, killing the loop for the rest of the session. Four
+minutes of a live session were spent believing the game had gone quiet.
+
+**Fix:** the sample body runs under `pcall` and reports the first failure ONCE before continuing,
+and every formatter type-checks rather than nil-checks. An instrument may return `"?"`; it may
+never raise.
+
+**The sibling, same session:** `prop()` reports a read as *resolved* whenever the read itself
+succeeds — but the controller's listener-override fields each returned a fresh UObject wrapper at
+a different address every sample. A value that changes every 200ms is the tell that a reflected
+read is handing back a wrapper rather than a value, and "resolved" is not "worked".
+
+**Rule:** a probe's failure must be LOUD and non-fatal. Wrap the sample, report once, keep
+sampling — silence is a reading, and it must never be one your own instrument caused.
+[RULE: checklists/before-a-probe.md]

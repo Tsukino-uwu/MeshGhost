@@ -43,7 +43,8 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
-- OPEN — the player's own SFX go quiet while ghosts are audible, reported 2026-09-03 — **the audio census probe is built and armed for the 2026-09-04 run**, nothing measured yet
+- OPEN — the player's own SFX go silent the moment a ghost DESPAWNS and return when the next one spawns; REPRODUCED with the user 2026-09-04, the sounds are played and inaudible, cause not yet named
+- OPEN — a ghost is audible at all; the user's call is silent by default with an optional setting (2026-09-04), not started
 - READY — a chaser set to 3s should now LOOK 3s behind, not 3.45s, and a split time should match the ghost you can see (ADR 0049), unwatched — **not the 2026-09-04 run: the chaser is at 60s there to give the audio A/B a ghost-free first minute**
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs) — the launcher forgets a child the port walk has moved off: cross-wire provoked on one port base, recovered; then both copies walked normally from 7778
@@ -99,6 +100,13 @@ are both in menus.
 **If another non-gameplay map exists** (credits, a loading map), it needs adding to the same list,
 and it will look exactly like this bug did.
 
+**MEASURED 2026-09-04 on the user's own run, and still theirs to confirm on screen:** the game came
+up at 11:58:19 and `rec-20260904-115825.ndjson` opens its first sample at 11:59:15 — **56 seconds
+of menu with nothing recorded** — in `ZONE_LowerCastle`, at a real position. `TitleScreen` appears
+**0 times** in the whole 6.8MB file, against a stack of them at the top of every clip before the
+fix. That is the file half of the entry; what is left for eyes is that the menu behaved normally
+while it recorded nothing.
+
 ## [OPEN] the player's own SFX go quiet while GHOSTS are audible (reported 2026-09-03, not diagnosed)
 
 **The user, after a session with a replay ghost running:** *"think ghosts are eating up the players
@@ -148,6 +156,111 @@ at all and the second minute has a ghost repeating the same actions in the same 
 noisy things (jump, land, slash, dash, cling) in both halves and listen to your OWN sound. The
 probe marks the boundary itself with a `GHOSTCOUNT 0 -> 1` line. Both installs also carry
 `record_on_launch: true` and `offline: true` for this run.
+
+### RUN 2026-09-04: reproduced, and the trigger is GHOST PRESENCE, not the zone change
+
+**The user's rule, arrived at across three attempts in one session, each one narrowing it:** *"I
+lost the player sfx after moving to another zone, it was working in the first zone before & after
+the ghost"*, then *"moving back and forth between the zones fixed it"*, then — the isolating
+one, with the zone held constant — *"both the player & ghost had sounds while it was spawned, but
+the sfx went away once the ghost despawned"*. **A ghost alive means you can hear yourself; the
+moment it despawns your own SFX are gone; the next chaser spawn brings them back.** The zone
+change was never the cause: a transition destroys the ghost, which is the same event.
+
+**The user also hears MUSIC throughout, and *"any player related sfx is completly silent"* — not
+faint — jumping, wall kicks, sliding, backflips.**
+
+**What the log settles, and it turns the diagnosis around** (`UE4SS.log`, the 12:17 cycle):
+
+- **The game never stops playing your sounds.** Your own footstep, land and jump components are
+  still created and still go active DURING the silence, seconds after the ghost went. So this is
+  not a suppression and not a missed silence clause — the sounds are played and are inaudible.
+- **One `MainPlayerController_C`, driving your pawn, unchanged across the whole cycle.** A second
+  local player stealing the listener is ruled out by measurement rather than by argument.
+- **The view target is stable and tracks the player** — the same `BP_PlayerCam_C` before, during
+  and after, moving with you. The camera is not wandering, and the earlier "stale rig from the old
+  zone" idea is dead: the rig followed the transition correctly at 12:09:11.
+- **This game's sound classes are `SoundClass_SFX`, `SoundClass_Music`, `SoundClass_UI` and
+  `Master`** — the split the symptom follows exactly. Their `Properties.Volume` all read 1.00, and
+  that read CANNOT close the question: a runtime SoundMix modifier ducks a class inside the audio
+  device without writing anything back to the asset.
+
+**The standing hypothesis, and why it fits everything:** a ghost is a CLONE OF THE PLAYER PAWN, so
+its BeginPlay and EndPlay run the game's own player-pawn audio setup and teardown against the one
+global audio device the player is listening through. A mix pushed when a pawn appears and popped
+when one is destroyed produces precisely this — audible while a ghost exists, silent the moment it
+goes, music untouched because it is a different class. Hooks on `PushSoundMixModifier`,
+`PopSoundMixModifier`, `SetBaseSoundMix`, `ClearSoundMixModifiers` and the two class-override
+statics are armed in the probe (all six resolved; `StopAllSounds` is not on this build), so the
+next despawn names the call if that is what is happening.
+
+### CAUSE FOUND 2026-09-04: every ghost STEALS the player's audio attenuation listener
+
+**The call, caught twice out of two ghost spawns, ~0.1s before each `GHOSTCOUNT 0 -> 1`:**
+
+```
+LISTENERCALL SetAudioListenerAttenuationOverride
+  arg1=CapsuleComponent ...PersistentLevel.BP_PlayerGoatMain_C_2147378487.CollisionCylinder
+```
+
+and the coverage line names that pawn `BP_PlayerGoatMain_C_2147378487=ghost`. The second spawn did
+the same with its own new pawn (`...2147366642`). **`BP_PlayerGoatMain_C` pins the player
+controller's audio ATTENUATION listener to its own collision capsule on BeginPlay — and a ghost is
+a clone of that pawn, so every ghost that spawns takes the listener with it.**
+
+Attenuation is what decides how loud a spatialized sound is at the ear, so the whole report falls
+out of it:
+
+- **Ghost alive:** attenuation is measured from the ghost, which is standing near the player, so
+  both are audible — the user's *"both the player & ghost had sounds while it was spawned"*, and
+  the original *"ghosts had them"*.
+- **Ghost despawns:** the override still names a component that no longer exists, so every
+  spatialized sound attenuates to nothing. **Music is 2D and never consults attenuation**, which is
+  why it survives, and why the silence is total rather than faint.
+- **Next ghost spawns:** its BeginPlay re-points the override and everything returns.
+- **A zone change with a ghost present:** the ghost dies with the level. That is the first report,
+  and the reason it read as a transition bug across the first three reports of 2026-09-04.
+
+**This is the loose-sword class again** (`VERIFIED.md`, 2026-09-01, the ghost repointing the
+watcher's `weaponRef`): a singleplayer game's own code claims *the* player, and a ghost is a real
+player pawn, so it claims it too. `../CLAUDE.md` already carries the rule — this is its second
+instance, and the first one outside gameplay state.
+
+**Eliminated on the way, each by measurement:** `SetAudioListenerOverride` and its two siblings are
+never called; a ghost spawn fires the game instance's own settings pass (`SetBaseSoundMix`, then
+four `SetSoundMixClassOverride` — Master `0.2317`, Music/**SFX**/UI all `1.0`); `MySoundMix` has
+`Duration=-1` so it never expires; the sound classes' own volumes never change; a despawn fires
+none of the ten hooked audio calls.
+
+**THE FIX, not yet built:** the ghost decouple pass that already runs on the spawn tick — the one
+clearing the ghost's HUD ref, game-instance ref and damage values — puts the attenuation listener
+back on the LOCAL player's capsule after the ghost's BeginPlay has stolen it. **Nothing is watched
+yet**: the cause is named from the log, the fix is not written, and neither has been heard.
+
+**Two instrument limits found the hard way today, both recorded because a reader would otherwise
+trust the readings:** the controller's listener-override fields (`bOverrideAudioListener`,
+`AudioListenerComponent` and neighbours) **do not read on this build** — each handed back a fresh
+UObject wrapper at a different address every sample, which `prop()` reports as *resolved* because
+the read itself succeeds. And the probe's first pawn discriminator was wrong: **a ghost here reads
+as POSSESSED**, so asking each pawn for a Controller labelled every ghost as the player. It asks
+the controller which pawn it drives now.
+
+## [OPEN] a ghost is AUDIBLE, and it should be silent by default (user's call, 2026-09-04)
+
+**The user, watching the diagnosis above:** *"think this could be a optional feature maybe, but
+ghost audio should be off by default"*. Confirmed on screen the same session — *"both the player &
+ghost had sounds while it was spawned"* — and the census names the cues: a ghost's own
+`Cue_FootstepGeneric` components appear and go active exactly like the player's.
+
+**This is the SILENCE CLAUSE (`ideas.md`, 2026-08-15, *"ghosts should be silent"*) never having
+been implemented past one sound.** The only suppression in the adapter is `call_audio_component_stop`
+on a ghost's `wallRideSFX` — everything else a ghost makes comes free with the pawn, because the
+ghost IS a player pawn and triggering its systems gets the audio with them.
+
+**Not started, deliberately, so it does not muddy the fault above** — the two are separate, and a
+ghost being audible is what makes the other one bearable to test. What it needs when picked up: a
+silence that covers every path rather than one named component, and a config key that turns ghost
+audio back on for anyone who wants it, defaulting to off.
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 

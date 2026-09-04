@@ -2048,3 +2048,78 @@ standing rule, with a `.pre-2026-09-04` backup — that reset the Steam install'
 was still the quoted string from the JSON-escape test, and its chaser label.
 
 Nothing is watched yet; both entries stay where they are in `../../adapters/pseudoregalia/UNVERIFIED.md`.
+
+## 2026-09-04 (evening) — the SFX fault reproduced, and it is not what either of us thought
+
+The run set up earlier that day did its job in about twenty minutes, and the diagnosis turned over
+twice. Both turns came from the user narrowing the trigger, not from a new instrument:
+
+1. *"I lost the player sfx after moving to another zone"* — a zone change.
+2. *"moving back and forth between the zones fixed it"* — recoverable, so not a teardown.
+3. *"both the player & ghost had sounds while it was spawned, but the sfx went away once the ghost
+   despawned"* — **the zone held constant, and the trigger isolated: ghost presence.**
+
+**The measurement that decided the shape:** the player's own footstep, land and jump components are
+still created and still go active during the silence. The game plays them; they are inaudible. That
+kills the whole "a missed silence clause" and "the ghost steals voices" pair the entry had been
+carrying since 2026-09-03 — nothing is being suppressed and nothing is being stolen. Music, which is
+a different sound class, is unaffected throughout.
+
+**Ruled out by measurement rather than by argument, which is the point of writing them down:** a
+second local player (one `MainPlayerController_C`, driving the player's pawn, unchanged across a
+whole spawn/despawn cycle), and a wandering view target (the same `BP_PlayerCam_C`, tracking the
+player, correct across the 12:09 zone change — the "stale rig from the zone you just left" theory
+this session started with is dead).
+
+**Where it stands:** this game splits its audio into `SoundClass_SFX`, `SoundClass_Music`,
+`SoundClass_UI` and `Master`, which is exactly how the symptom splits, and a ghost is a clone of the
+player pawn — so its BeginPlay/EndPlay runs the game's own pawn audio setup and teardown against the
+single global audio device. A mix pushed on spawn and popped on despawn fits every observation. The
+probe now hooks the six sound-mix statics that could do it (`StopAllSounds` is not on this build), so
+the next despawn either names the call or removes the hypothesis.
+
+**Two instrument failures worth more than the fault, both filed in `checklists/`:** the probe's pawn
+discriminator asked each pawn for a Controller and called a possessed one the player — **every ghost
+here reads as possessed**, so every ghost's audio was labelled as the player's, and only the coverage
+line printing its own evidence made that visible. And a `string.format` on a value that was not a
+vector threw out of the sample loop, which stopped the probe for four minutes while the log read
+exactly like a quiet game. Both fixed in place by hot reload, no relaunch.
+
+**Second finding, the user's call:** a ghost is audible at all, which the project decided against on
+2026-08-15 and never implemented past one component. Ghost audio ships OFF, with a setting to turn it
+on. Queued, not started — `../../adapters/pseudoregalia/UNVERIFIED.md`.
+
+## 2026-09-04 (later still) — CAUSE FOUND: every ghost steals the player's audio attenuation listener
+
+Two hooked calls, two ghost spawns, ~0.1s before each `GHOSTCOUNT 0 -> 1`:
+
+```
+LISTENERCALL SetAudioListenerAttenuationOverride
+  arg1=CapsuleComponent ...PersistentLevel.BP_PlayerGoatMain_C_<ghost>.CollisionCylinder
+```
+
+`BP_PlayerGoatMain_C` pins the player controller's audio ATTENUATION listener to its own collision
+capsule when it begins play — confirmed for the player's own pawn too, on the 12:39 zone entry — and
+a ghost is a clone of that pawn, so **every ghost takes the listener with it.** While the ghost
+lives it stands near the player and everything sounds normal; the instant it is destroyed the
+override names a component that no longer exists and every SPATIALIZED sound attenuates to nothing.
+Music is 2D and never consults attenuation, which is why it survives, and why the silence is total
+rather than faint. The next ghost re-points it, which is the "it comes back when the chaser spawns".
+
+**This is the loose-sword class, second instance** (`VERIFIED.md` 2026-09-01): a singleplayer game's
+own code claims *the* player, and a ghost is a real player pawn, so it claims it too. The rule was
+already in `adapters/CLAUDE.md`; this is the first time it bit outside gameplay state.
+
+**Everything else was eliminated by measurement first**, and the order is the useful part: the
+silence clause and voice-stealing (the player's components are still created and go active during
+the silence — the sounds play and are inaudible), a second local player (one controller throughout),
+a wandering camera (same view target, tracking the player, correct across the transition), sound
+mixes (a spawn re-applies `MySoundMix` with **SFX at 1.0**, a despawn calls nothing, `Duration=-1`),
+and the class volumes (never change). Six hypotheses, five dead, and the survivor named itself.
+
+**The fix is under test in Lua before it is built**, per the user: *"try with lua first, so we
+actually test the fix before making it"*. `probe_audiofix/` re-points the listener at the player's
+own capsule whenever a ghost appears — the same call that belongs in the C++ ghost-decouple pass
+beside the HUD ref, game-instance ref and damage clears. **A new mod folder cannot be hot-loaded**
+(UE4SS reads folders at launch), so the test hosted that code temporarily inside the census probe,
+which was already loaded; the folder itself arms on the next launch. Verdict pending.

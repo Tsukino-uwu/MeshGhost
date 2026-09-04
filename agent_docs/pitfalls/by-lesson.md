@@ -5849,3 +5849,32 @@ turns it off). BizHawk's bug, our trigger. **Fix (procedure, not code):** never 
 loaded — drop the loader target to `none` first, or use the GAME's own soft reset (A+B+Start+Select), which
 never touches the core; the process survives the dialog (Continue), but the loader may be gone afterwards,
 so check the loader log before trusting the next reading.
+
+## A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (Pseudoregalia, 2026-09-04)
+
+**Symptom, as reported:** *"sfx is not doing anything when the player does things, but ghosts had
+them"*, then — once the trigger was isolated with the zone held constant — *"both the player &
+ghost had sounds while it was spawned, but the sfx went away once the ghost despawned"*. Music
+plays throughout; player SFX are *completely* silent, not faint.
+
+**Cause:** `BP_PlayerGoatMain_C::BeginPlay` calls
+`APlayerController::SetAudioListenerAttenuationOverride` with its own `CollisionCylinder` — sensible
+in a singleplayer game with one player pawn. A ghost is a clone of that pawn, so every ghost spawn
+re-points the listener at ITSELF. Alive, it stands near the player and nothing sounds wrong.
+Destroyed, the override still names a dead component, so distance attenuation is computed from
+nothing and every spatialized sound falls to zero. 2D music never consults attenuation, which is
+exactly why it survives — and the split between "all my SFX" and "music is fine" is the fingerprint.
+
+**Why it read as a zone bug through three reports:** a level transition destroys the ghost, so the first
+three reports all pointed at the transition. The isolating observation was the user's, not an
+instrument's: hold the zone, let a ghost despawn.
+
+**The generalisation, and it is the second instance of a rule this repo already had:** a
+singleplayer game's own code claims *the* player — the loose sword repointed the watcher's
+`weaponRef` on 2026-09-01, this repoints the audio listener. **Anything a player pawn registers
+GLOBALLY on BeginPlay, a ghost re-registers.** Enumerate those before spawning a clone of the
+player: listeners, HUD refs, game-instance refs, camera rigs, save hooks.
+
+**Fix:** the ghost-decouple pass that already runs on the spawn tick puts the attenuation listener
+back on the local player's capsule. Proven in Lua first at the user's request, then built into the
+adapter. [CHECK: adapters/pseudoregalia/probe_audiofix, then the C++ decouple]

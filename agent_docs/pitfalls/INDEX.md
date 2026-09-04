@@ -36,6 +36,9 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Failure signatures [RULE: checklists/before-declaring-a-fix.md]
 - An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02) [CHECK: netx/limit_test.go, TestLimitListenerKeepsTheUnreliableWrite]
 - An inline heredoc plus a bypassing PowerShell in one bash command is a Defender trojan signature (2026-09-03) [RULE: checklists/before-a-scripted-edit.md]
+- A discriminator built on the wrong direction labelled every ghost as the player (Pseudoregalia, 2026-09-04) [RULE: checklists/before-trusting-a-reading.md]
+- A probe that throws reads exactly like a game doing nothing (Pseudoregalia, 2026-09-04) [RULE: checklists/before-a-probe.md]
+- A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (Pseudoregalia, 2026-09-04) [CHECK: adapters/pseudoregalia/probe_audiofix, then the C++ decouple]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 
