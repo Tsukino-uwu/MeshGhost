@@ -42,8 +42,9 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- OPEN — a replay ghost shows the Dream Breaker on a save that has not picked it up (2026-09-04), user-reported, not reproduced
-- OPEN — dust VFX land in wrong positions after a replay ghost restarts/loops (2026-09-04), user-reported, not reproduced
+- MEASURED 2026-09-04 — a ghost's sword is `WeaponMesh.bVisible`, never established at spawn; only TRANSITIONS are applied, so a peer who never held one shows one
+- MEASURED 2026-09-04 — world-spawned VFX are UNOWNED and outlive the ghost: the left-behind sword glow, the stranded dust, and the poisoned dust offset are one defect
+- MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
@@ -62,193 +63,252 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 
-## [OPEN] a replay ghost shows the Dream Breaker on a save that has not picked it up (2026-09-04)
+## [OPEN] MEASURED 2026-09-04 -- the sword on a ghost is `WeaponMesh.bVisible`, never established at spawn
 
-**The user's report:** *"the sword is visible on the recorded ghost even if the player don't have it
-yet -- so we probly don't set it to be hidden/shown properly?"*. Not reproduced or measured by the
-agent; what follows is code reading, and it points AWAY from the show/hide path.
+**User-confirmed on screen** (three cases, below). **Measured with `probe_pickup/`**, live, on a new
+save. **Not fixed.** Two earlier theories in this entry were WRONG and are struck rather than
+deleted, because the way they died is the useful part.
 
-**The apply path looks correct, so it is probably not where the fault is.** The gate is
-`if (!weapon_equip_call_armed || target != last_synced)`, and `weapon_equip_call_armed` starts
-false and is reset to false on every release and re-acquire path. So the FIRST tick of any ghost
-applies the value unconditionally, whatever it is -- a ghost cannot sit on a stale `false` and skip
-the hide. `WEAPON_SYNC_INVERT` is `false`, and an absent `weapon_equipped` parses to 0, so an older
-clip missing the field yields "no sword" rather than "sword". Both of the obvious show/hide faults
-are therefore ruled out by reading.
+### What was measured
 
-**THE LIKELIER FAULT IS WHAT WE SEND, and it turns on what the property MEANS.** The sender writes
-the local pawn's raw `weaponEquipped?` with no other condition:
+`probe_pickup/` read both pawns side by side while a replay ghost was on screen and the player had
+never picked up the sword:
+
+| | ghost | player |
+|---|---|---|
+| `weaponEquipped?` | false | false |
+| `animEquippedWeapon` | false | false |
+| `weaponRef` | `<nil>` | `<nil>` |
+| **`WeaponMesh.bVisible`** | **TRUE** | **false** |
+
+The flag sync is correct. What is visible is the **`WeaponMesh` component**, and nothing mirrors it.
+
+### The rule that explains all three cases the user saw
+
+A ghost is spawned from `BP_PlayerGoatMain_C`, whose defaults disagree with each other:
+`weaponEquipped?` false, `WeaponMesh.bVisible` **true**. The apply gate is
+`!weapon_equip_call_armed || target != last_synced`, so the first tick does call
+`changeEquippedWeapon(ghost, target)` — but that is the game's own function, and it early-outs when
+the value it is handed already matches the ghost's property. So the mesh only ever changes when
+there is a real EDGE:
+
+| clip | `weapon_equipped` | edge on the ghost? | result |
+|---|---|---|---|
+| recorded before the pickup | `0` throughout | ghost flag already false — **none** | **sword shown** WRONG |
+| recorded while thrown | `1` -> `0` | yes | no sword, correct |
+| recorded after re-pickup | `1` throughout | false -> 1 is an edge | sword shown, correct |
+
+**So the defect is exactly "the ghost's INITIAL mesh state is never established, only transitions
+are."** One broken case, and it is the one the user hit.
+
+`Plugin.cpp:19494`'s own comment predicted this failure mode — *"it would always see old==new and
+silently do nothing"* — but was written and fixed for `false -> true`. The case where both sides are
+already false, so there is no change for the function to notice at all, was never covered.
+
+### The fix, and why it is this one
+
+Mirror `WeaponMesh.bVisible` **directly** from `target_weapon_equipped`, the way `shadow_on` already
+mirrors `BlobShadow` — a component visibility write on our own actor, no game function, so it cannot
+depend on an edge and cannot cross-wire. Measured proof that this is the right signal: on the real
+player all four flip together on one sample at a throw — `weaponEquipped? true->false`,
+`WeaponMesh.bVisible true->false`, `animEquippedWeapon true->false`,
+`weaponRef <nil>->BP_looseWeapon_C_...`.
+
+### The two theories that were wrong, kept because of HOW they died
+
+- ~~`weaponEquipped?` reads true before the pickup, so we record a wrong value.~~ **Measured false.**
+  The probe's baseline on a fresh save: `weaponEquipped? = false`. The send side was correct all
+  along, and so was the clip — `weapon_equipped:0` appears in the recorded ndjson.
+- ~~The ghost always shows a sword, so a thrown-sword clip would show two.~~ **Predicted, then
+  contradicted by the user the same hour**: a clip recorded while the sword was thrown showed no
+  sword at all. That contradiction is what produced the edge rule above — the model only became
+  correct once a prediction failed.
+
+**The method note worth keeping:** the answer came from reading TWO pawns in one census and diffing
+them, not from tracing one field. Every wrong theory here came from reasoning about a single value.
+
+## [OPEN] MEASURED 2026-09-04 -- world-spawned VFX are UNOWNED and outlive the ghost — one cause, three symptoms
+
+**User-confirmed on screen:** dust in wrong positions after a replay restarts/loops; and, separately,
+*"i picked up the sword now, but i still see the sword ground vfx"* — a landed-sword glow left behind
+after the ghost that made it was gone. **Root cause found by reading, not yet fixed.**
+
+### The cause
+
+`spawn_niagara_at_location` (`Plugin.cpp:5520`) calls
+`NiagaraFunctionLibrary::SpawnSystemAtLocation`. That spawns a **free-standing, world-space**
+component — the `world_context` argument is a world handle, not a parent. **Nothing is attached to
+the ghost.** Every path that assumes otherwise is wrong, and one says so in a comment:
+
+```cpp
+it->second.weapon_glow_component = nullptr;  // attached to the flyer; dies with the ghost
+```
+
+(`Plugin.cpp:10683`, and the bare `nullptr` at `:10797`.) It is not attached and it does not die with
+the ghost: the release path drops the only handle to a live, visible Niagara ring. The code already
+knows how to destroy one — `DestroyComponent` at `:8485`, used when the sword returns to hand — the
+release path simply never calls it.
+
+### The three symptoms, all the same defect
+
+1. **The landed-sword glow is left in the world** when a ghost is released. Directly what the user
+   saw, and the simplest proof of the cause.
+2. **Dust bursts outlive the `remotes` entry.** The detection pass builds its "ours, do not measure"
+   exclusion set by walking `remotes`, so a component whose ghost has been erased falls OUT of it and
+   can be attributed to the player.
+3. **That poisons `observed_world_offset_z`**, which is learned at runtime from the local player's own
+   effect, is file-scope rather than per-peer by design, and is NEVER reset — so one bad sample moves
+   every later burst, which is why the dust lands in the wrong place and why the tester tied it to
+   *"the height of ghost sybil when it despawns"*: the error IS the ghost's despawn height minus the
+   player's.
+
+### Why a replay makes it constant
+
+`replayPlayer.seam` (`core/replay.go:522`) is drop -> wait a render tick -> re-admit, and it has four
+callers: **every seek (restart, rewind, fast-forward), the loop's end-to-start, a recorded gap longer
+than `replayGapSeamMs`, and a clock step-back.** So a replay despawns its ghost repeatedly during
+ordinary playback — the third one with nobody touching a key — and each despawn strands whatever it
+had spawned.
+
+### The fix, one shape for all three
+
+**Destroy these components explicitly before the `remotes` entry is erased**, since nothing else owns
+them. That also removes the offset poisoning for free: a destroyed component cannot be
+mis-attributed. Per-ghost counters (`vfx_counts`, `last_seen_*`) should reset on release in the same
+pass — but note they are the SECOND half, and resetting them alone would remove the symptom that
+makes the leak visible while leaving the leak. Both, or neither.
+
+**Still unmeasured:** the `observed_world_offset_z` poisoning itself. It is file-scope C++, invisible
+to a Lua probe, so confirming it needs a log line on every change to that value naming what it was
+measured against — cheap, and it belongs in the same rebuild as the fix.
+
+## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
+
+**The user:** *"recordings look a bit weird as if you are just floating in the air/frozen for a bit"*
+when picking an item up. **Measured with `probe_pickup/`** across a real pickup. **Not fixed.**
+
+### What was measured, exactly
+
+Picking up the Dream Breaker opens a modal popup (*"a small popup that comes up when picking an item,
+explaining what the item does/how to use it, and need to press continue"*). Across it:
 
 ```
-"weapon_equipped":{}   <-  (weapon_equipped_ptr && *weapon_equipped_ptr) ? 1 : 0
+s=3439  t=823.3   weaponEquipped? / WeaponMesh.bVisible / animEquippedWeapon   all false -> true
+s=3439..4519      1081 samples, ~110 seconds, EVERY SAMPLED VALUE BYTE-IDENTICAL:
+                  loc=-3527,4898,147   h=550.0   v=-290.6   move=1   act=0   caps=65.0
+s=4520  t=933.6   continue pressed: moveState 1->0, MovementMode 3->1, landed? false->true
 ```
 
-and `PLAYER_FIELDS.md:264` already records that `weaponEquipped?` means **the sword is IN HAND**,
-not that the player owns one: *"Thrown = actor exists AND `weaponEquipped?` false AND transform not
-at origin."* **Nothing in this repo establishes what it reads BEFORE the Dream Breaker is picked up
-at all.** If the game initialises it true -- which is entirely plausible for a flag whose real job
-is "not currently thrown" -- then a recording made on a fresh save faithfully carries `1`, the
-adapter faithfully applies it, and every layer is doing exactly what it was told while the result
-is wrong. That would make this a MEANING bug, not a show/hide bug.
+**The frozen values are mid-air motion values.** `h=550.0` is full running speed and `v=-290.6` is
+falling — the pickup was taken mid-jump, and the game froze the pawn for the popup while leaving the
+velocity fields at their last in-flight values. `MovementMode` stayed 3 (falling) for the whole
+110 seconds. The resume is instantaneous: the fall completes and lands inside a single sample.
 
-**THE ONE MEASUREMENT THAT SETTLES IT, and it is cheap:** read the local player's `weaponEquipped?`
-on a save that has not picked up the Dream Breaker. True there is the whole answer. A Lua probe can
-ask it without a rebuild (`../CLAUDE.md`: hot reload is the default loop), and the adapter already
-logs this value under `WEAPON_SYNC_TRACE`.
+### Why it looks like floating
 
-**SCENARIO CONFIRMED BY THE USER, 2026-09-04: the clip was recorded BEFORE the pickup.** So this is
-not faithful playback of a run that had the sword -- the recording was made on a save with no Dream
-Breaker and the ghost wears one anyway. **A straight bug, and on the SEND side**, exactly where the
-reading above pointed.
+The adapter samples and sends `horizontalSpeed`, `verticalSpeed` and `moveState`. During the popup it
+therefore transmits *position not moving, running at 550, falling at 290*. A ghost fed that has a
+static position with its blend space driven by run+fall, so it plays a running-fall animation on the
+spot — for however long the player reads the popup. The real player is frozen with their animation
+frozen too; the ghost's AnimBP keeps running on stale numbers. **The recording is numerically
+faithful and visually wrong.**
 
-**THE MECHANISM THAT NOW FITS, and it explains why the player and their own ghost disagree.** If
-`weaponEquipped?` reads true before the pickup -- plausible for a flag whose real job is "not
-currently thrown" -- then the local player carries it true while no sword is on screen, because
-their sword is absent for a DIFFERENT reason (they have not got one). The adapter then sends `1`,
-and the receive side does not merely write a property: it CALLS the game's own
-`changeEquippedWeapon`/`updateWeaponEquip` on the ghost. Those are the pickup path. So the ghost is
-told to equip a weapon it should not have, and does, while the player's own pawn never ran that
-path. **The two characters differ because one had a function called on it.**
+### What is NOT the fix
 
-If that holds, `weaponEquipped?` alone is the wrong signal and a second one is needed: whether this
-character actually HAS the Dream Breaker. That is a progression/unlock fact and its field is not
-identified anywhere in this repo yet -- finding it is the work, and it is a probe question.
+Both obvious answers fail against the standing rule that a recording reproduces what was recorded
+(`_template/README.md`):
 
-**Two measurements, in this order, both cheap and neither needing a rebuild** (`../CLAUDE.md`: hot
-reload is the default loop):
+- **Stop sending during the popup** — the ghost holds its last position but its AnimBP still runs on
+  `h=550/v=-290`, so it still animates in place. Fixes nothing.
+- **Send zeroed speeds** — the ghost stands idle, but the player was frozen MID-FALL, so an idle
+  stand is a different wrong picture.
 
-1. **Read the local player's `weaponEquipped?` on a save that has not picked up the sword.** True
-   there is the whole diagnosis. `WEAPON_SYNC_TRACE` already logs this value, so it may not even
-   need a probe.
-2. **If it is true, find the field that distinguishes "owns the Dream Breaker" from "is holding
-   it".** `PLAYER_FIELDS.md` lists `weaponRef`, `WeaponMesh` and the `spawnWeapon`/`recallWeapon`/
-   `changeEquippedWeapon` functions around this state; an unlock flag is likely a separate save-backed
-   bool on the pawn or the GameInstance. Enumerate what you can NAME rather than walking reflection
-   blindly (`../CLAUDE.md`).
+The faithful result is a ghost frozen in the same mid-fall pose, which means pausing the ghost's
+ANIMATION rather than adjusting its numbers — a lever nothing currently syncs.
 
-**THE DESIGN RULE, settled by the user the same day, and it is wider than this bug:** *"recordings
-should be identical to when they were recorded. the state of the current player is irrelevant to
-that"*. So a replay ghost is never filtered through the viewer's progression -- no hiding gear the
-watcher has not unlocked, no config toggle for it. That closes the second question this entry
-raised, and it decides `outfit_mesh` the same way. **It also sharpens what the fix must be:** the
-answer is to record the RIGHT value, never to suppress a recorded one at playback.
+### IT IS NOT THE PICKUP POPUP -- it is ANY state where the game freezes the player
+
+**The user, immediately after the above:** *"same for using the pause menu"*. So the pickup popup is
+the instance that got measured, not the scope. The pause menu does the same thing, and by the same
+reasoning so does anything else that holds the player still while the world waits -- a map screen, an
+inventory, any modal.
+
+**That changes what the fix may be.** A pickup-specific check would be a bandage by construction: it
+would leave the pause menu, which is far more common, doing exactly what the measurement above shows.
+What is wanted is the general fact *the player is frozen and this is not gameplay*, produced once and
+honoured by the adapter (hold the pose), the chaser (do not advance the delay) and the recorder (mark
+the span) alike.
+
+**It also makes the chaser half much worse than the measurement suggests.** 110 seconds was a
+deliberately long hold for a probe; a player pausing to answer the door is unbounded. Every second of
+it is delay the chaser silently spends, so a long pause ends with the chaser sitting inside the
+player with no way back except playing until the buffer refills.
+
+**Worth checking when this is picked up, since it is the same question asked twice:** whether a
+ZONE TRANSITION is a third instance. The adapter already knows about transitions
+(`../CLAUDE.md`: a transition invalidates every cached reference and produces a new pawn), so the
+signal may partly exist there already.
+
+### THE CHASER MUST PAUSE TOO, and this is the half that reaches the CORE
+
+**The user, 2026-09-04:** *"chase ghosts should be paused temporarily during this, so they don't just
+get on top of you instantly after having picked up an item"*.
+
+**Why it happens, and the measurement above is the proof.** A chaser renders the player's own state
+from N seconds ago. While the player is frozen at one position for the whole popup, every sample in
+that window is the SAME position — so after N seconds the chaser is drawing that position too, and it
+converges onto the player and sits on them. At the 110 seconds measured here the chaser spends
+roughly 107 of them parked inside the player. Resuming does not undo it: the chaser is now level, and
+the delay it was configured for is simply gone until enough new samples push it back.
+
+**So the fix is not only "freeze the ghost's animation".** Two different things need the same signal:
+
+- an ADAPTER concern: a ghost should hold the pose the player is frozen in, rather than run-falling on
+  the spot with stale `h`/`v`;
+- a CORE concern: a chaser's delay clock must not advance while the player is frozen, or the delay is
+  silently spent. Same for a recording's own timeline, which is what makes a clip reproduce the pause
+  at the right length rather than as a stall.
+
+**That raises the bar on what the "a modal is open" signal has to be.** An adapter-local workaround
+cannot fix the chaser, because the chaser is core-invented (ADR 0047) and the core never touches the
+game. The signal has to reach the core — which means it is a bridge-visible fact, not a private
+adapter detail, and adding one is an ADR.
+
+**Not designed, and deliberately not designed here.** Whether the core should suspend the clock,
+whether the recorder should mark the span, and what the ghost does with the marked span, are three
+separate decisions. What is established is that all three want the same input and nothing currently
+produces it.
 
 
-**Related and worth checking in the same pass:** `outfit_mesh` rides the same envelope and is the
-same class of question (a peer-named asset resolved through the catalog gate), so an outfit the
-viewer has not unlocked may behave the same way. Untested.
+### THIS IS A BLOCKER FOR `chaser_contact`, not merely a cosmetic annoyance
 
-## [OPEN] dust VFX land in wrong/weird positions after a replay ghost restarts or loops (2026-09-04)
+**The user, closing the thread:** *"else once we add some kind of dmg/ability to hurt the player, it
+wouldn't really work that well"*. That is the right reading and it changes the priority of this
+entry.
 
-**Reported by the user, with a second observation from a tester on Discord. Nothing below has been
-reproduced or measured by the agent and no fix has been attempted** — but the two reports together
-point at one specific mechanism, and it is visible in the code.
+`session_policy.chaser_contact` already exists in the contract (ADR 0047) as **the one effect a
+cosmetic ghost may ever have** -- an overlap that hurts on touch. No shipped adapter honours it yet.
+The measurement above says that a chaser converges INTO the frozen player and stays there for the
+whole modal: so with contact enabled, a player who opens the pause menu would be stood inside a
+damaging ghost, for an unbounded time, with no way to react because the game is frozen.
 
-- The user: *"dust vfx appearing in wrong/weird positions after restarting/looping a replay ghost"*.
-- A tester, on the recording: *"seems to be somewhat related to the height of ghost sybil when it
-  despawns"*.
-- The user's own reading: *"my guess is that the ghost keep or don't reset some values whenever the
-  replay restart/loop. but haven't confirmed it"*.
+**So the order is fixed rather than a preference: the frozen-player signal has to exist BEFORE
+`chaser_contact` is turned on for any adapter.** Enabling contact first would ship a mechanic whose
+worst case is "the pause menu kills you", and it would be blamed on contact rather than on this.
 
-**THE LEAD, and it explains both observations at once — including why HEIGHT AT DESPAWN would
-matter, which is the part a guess would not have produced.**
+Noted here rather than in the contract because nothing has changed about what `chaser_contact` MEANS
+-- only about what must be true before it is used. If it is ever implemented, the implementing ADR
+should cite this entry.
 
-`observed_world_offset_z[]` (`Plugin.cpp`, declared beside `MIRRORED_EFFECTS`) is how high the game
-actually puts each world-spawned effect. It is **learned at runtime from the LOCAL player's own
-effects** — the detection pass measures `dz` between the player and the component the game created
-and stores it — and the ghost's copy is then spawned at that observed height rather than at the
-table's guess. Its own comment says it is *"Not per-peer: it is a property of the effect in this
-game"*. It is file-scope, and **it is never reset**.
+### The open question, and it is the whole of the remaining work
 
-The detection pass must therefore exclude components that WE spawned on a ghost, or it would measure
-a ghost's dust and call it the player's. That exclusion exists and is deliberate
-(`recent_one_shot_components`, whose comment records the regression that put an echo back on screen
-when half of it was missing). **But the exclusion set is built by walking `remotes`** — so it only
-covers ghosts that still EXIST in that map.
+**Nothing we sample says "a modal is open".** `moveState` stayed 1 and `actionState` stayed 0
+throughout; `MovementMode` stayed 3. `probe_menuwatch/` does not help — despite the name it is the
+reset-world fingerprint, not a menu detector. So the work is to find the signal that marks this
+state, and the nearest precedent for acting on one is the title-screen send gate.
 
-A one-shot burst is fire-and-forget: the Niagara component outlives the tick that spawned it. When a
-replay ghost is despawned on a loop, `remotes.erase` takes its `recent_one_shot_components` with it
-**while the dust it spawned is still alive in the world**. In that window the component is no longer
-excluded, the detection pass can attribute it to the player, and `dz` is then measured from the
-player to a GHOST's dust — at whatever height that ghost happened to be when it despawned. That
-value is written into `observed_world_offset_z[dl]` and every subsequent dust burst, on any ghost,
-for the rest of the session, is spawned at the poisoned offset.
-
-**Why the tester's phrasing fits exactly:** the wrong offset IS the ghost's height at the moment it
-despawned, minus the player's. A clip that ends mid-air or mid-fall poisons it by a lot; one that
-ends on the ground poisons it by little, which would read as "somewhat related".
-
-**A second, independent mechanism is also live and would compound it:** `vfx_counts` is never
-cleared and `vfx_counts_baselined` is only ever set true, so when a clip loops and its recorded `dl`
-counter restarts, bursts are suppressed until the count climbs past the pre-loop high-water mark.
-That predicts dust that is first MISSING after a loop and then reappears — at the wrong offset, from
-the mechanism above.
-
-**IT IS NOT ONLY LOOP AND RESTART — and this was checked in the core rather than guessed
-(2026-09-04, prompted by the user asking whether backward/forward hit it too).** The answer is yes,
-by the identical code path, and the set is wider than either report.
-
-`replayPlayer.seam` (`core/replay.go:522`) is `dropLocalPeer` -> wait one render tick so the
-`despawn_remote` actually reaches the adapter -> `admitLocalPeer`. **A despawn is the precondition
-for the offset poisoning above**, so everything that seams is a candidate. There are four callers:
-
-| Seam | Triggered by |
-|---|---|
-| `:598` | **every seek** -- `restart`, `rewind`, `fast_forward` alike; `seek` ends with `return p.seam(tag)` |
-| `:632` | the loop's end-to-start |
-| `:644` | a recorded gap longer than `replayGapSeamMs`, or a `forcedSeam` from `skip_gaps` |
-| `:666` | the clock stepping back, e.g. a relay session reset mid-replay |
-
-The file's own header states the design plainly: anything that must look like a jump *"is a leave and
-a rejoin: drop the peer, wait one render tick so the despawn reaches the adapter, admit it again"*.
-That is correct for the interpolation buffer -- it is what stops a jump being blended into a glide --
-and it is exactly what strands a fire-and-forget component outside the exclusion set.
-
-**So the third row matters most for reproducing it: a recorded loading screen or a long menu seams
-during ORDINARY PLAYBACK, with nobody touching a key.** That makes this reachable well beyond
-"after restarting/looping", and it may be why it was noticed by a tester rather than in a
-deliberate test.
-
-**THE USER'S INSTINCT IS RIGHT AND FIXES EXACTLY HALF, WHICH IS THE part worth writing down.** Their
-reading: *"anything that moves the ghost around a bit is probly good to properly reset the ghost
-at"*. `seam()` is already the single concept for "the ghost jumped", so it is the right hook. But
-the two mechanisms need opposite things:
-
-- **Per-ghost state -- `vfx_counts`, the `last_seen_*` counters -- SHOULD be reset when a ghost is
-  released.** That is mechanism two, and resetting on release closes it.
-- **The exclusion list and `observed_world_offset_z` are NOT per-ghost, and resetting the ghost
-  makes that half no better -- erasing the entry is what CAUSES the leak.** The component outlives
-  the `remotes` entry, so the exclusion has to outlive it too.
-
-Doing the easy half and calling it done would leave the poisoning untouched while removing the
-symptom that made it visible. Both, or neither.
-
-**How to settle it, cheapest first:**
-
-1. **Read the log across a seam.** `MIRRORVFX ghost ... burst 'dl' (count=N)` lines: does N go
-   backwards or stall after it? That confirms or kills the counter half on its own, with no game
-   watching needed beyond one recorded session. The core logs every seek (`core: replay <file>:
-   rewind -> ... into the clip`), so the two logs line up on a timestamp. **A rewind is the cheapest
-   trigger to drive deliberately** -- a loop needs the clip to run out, a recorded gap needs the
-   right recording, and a rewind is one keypress.
-2. **Log `observed_world_offset_z[dl]` whenever it CHANGES**, with the actor it was measured
-   against. If it moves at a loop point, the poisoning is confirmed and the value tells you by how
-   much. This is the decisive measurement and it is a one-line diagnostic.
-3. Only then watch it on screen.
-
-**If it holds, the shape of the fix is already implied and should not be guessed at instead:** the
-exclusion has to survive the ghost that spawned the component (the components outlive the entry, so
-the list cannot live only on the entry), and the observed offset should not be writable from a
-sample taken while any ghost's one-shot is in flight. Both are stated as direction, not as a
-decision — the measurement comes first.
-
-**Instrument already in the tree, disarmed:** `probe_dustlight/`. Read `_template/probes.md` on cost
-before arming it, and note the standing rule that a probe which spawns an effect must not be live
-while that effect is being judged.
-
-**Scope note:** this is the REPLAY/CHASER path (`cosmetic: true`, ADR 0047). A real networked peer's
-counters only ever climb and its ghost is not despawned on a loop, which would explain why none of
-this has been seen in ordinary play.
+**Same shape as the sword finding on the same day:** the game reached a state through a path none of
+our sampled fields describe.
 
 ## [READY] a non-ASCII display name should now render as itself, not as mojibake (2026-09-04)
 

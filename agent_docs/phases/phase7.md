@@ -2339,3 +2339,54 @@ when the watcher has none), since that would have concealed the real defect.
 **Method note for both:** the useful move each time was to read the code for what it ACTUALLY does
 and report what that rules OUT, rather than to accept the reported location. Two guesses at the
 render, two causes upstream.
+
+## 2026-09-04 (night) — a live pickup run: three defects measured, and two of my own theories killed
+
+**The user ran it; I only read.** A new save, walked to the Dream Breaker, held the pickup popup open
+deliberately so it could be sampled, then threw and re-caught the sword. `probe_pickup/` (written
+this session, named reads only) logged on change at 10Hz throughout. All three findings are in
+`pseudoregalia/UNVERIFIED.md`; none is fixed.
+
+**1. The sword is `WeaponMesh.bVisible`, and only TRANSITIONS are applied.** A census of BOTH pawns
+side by side settled it in one line: ghost `WeaponMesh.bVisible = true` while the player's is
+`false`, with `weaponEquipped?`, `animEquippedWeapon` and `weaponRef` identical and correct on both.
+The ghost's class defaults disagree with each other — flag false, mesh visible — and
+`changeEquippedWeapon` early-outs when handed a value the ghost already holds, so a clip in which the
+peer never held the sword never produces an edge and the default-visible mesh is never touched.
+
+**TWO OF MY THEORIES DIED HERE, and how they died is the lesson.** First: *"`weaponEquipped?` reads
+true before the pickup, so we send a wrong value"* — measured false on the fresh save, and the
+recorded ndjson carries `weapon_equipped:0`, so the send side and the clip were both right all along.
+Second: *"the ghost always shows a sword, so a thrown-sword clip would show two"* — the user
+contradicted it within the hour with a clip recorded while the sword was thrown, which showed no
+sword at all. **That contradiction is what produced the correct rule**; the model only became right
+once a prediction failed. The general form: the answer came from reading TWO pawns and diffing them,
+where every wrong theory came from reasoning about one field.
+
+**2. World-spawned VFX are UNOWNED.** `spawn_niagara_at_location` calls
+`NiagaraFunctionLibrary::SpawnSystemAtLocation`, which is free-standing and world-space — the
+`world_context` argument is a world handle, not a parent. So `Plugin.cpp:10683`'s comment
+(*"attached to the flyer; dies with the ghost"*) is false, and the release path drops the only handle
+to a live ring. The user saw it directly: *"i picked up the sword now, but i still see the sword
+ground vfx"*. **This unifies three separate reports** — the left-behind glow, the stranded dust, and
+the poisoned `observed_world_offset_z` (which is learned at runtime, file-scope, and never reset) are
+one defect, and a replay makes it constant because `seam` despawns the ghost on every seek, loop and
+recorded gap.
+
+**3. The item-pickup popup freezes the pawn but not what we send.** 1081 samples — about 110 seconds
+— byte-identical at `loc=-3527,4898,147 h=550.0 v=-290.6 move=1`, i.e. full running speed and falling,
+held for the whole modal. So we transmit "static position, running, falling" and a ghost run-falls on
+the spot for as long as the player reads the popup. Nothing we sample marks the state:
+`moveState` 1, `actionState` 0, `MovementMode` 3 throughout. Both obvious fixes fail the
+recording-fidelity rule (see `_template/README.md`) — the faithful result is a ghost frozen in the
+same mid-fall pose, which means pausing its ANIMATION, a lever nothing currently syncs.
+
+**A defect in my own instrument, found by using it.** `on_change` stayed silent on a key's first
+sighting so the baseline census could print it — which meant a ghost spawning LATER had its entire
+starting state swallowed, and the log had nothing to say about the one thing being measured. Fixed
+mid-session and hot-reloaded (the reloader worked; sample counter reset to 1). **An instrument that
+hides first sightings cannot answer a question about how something STARTS**, which was the question.
+
+**Rig state at the end:** relay stopped, `record_on_launch` restored to the shipped `false`, probe
+disarmed in the install. Clips from the run are kept in the install's `replay/` folder — the
+pre-pickup one (`rec-20260904-165557.ndjson`, 4515 samples) is the reproduction for the sword bug.

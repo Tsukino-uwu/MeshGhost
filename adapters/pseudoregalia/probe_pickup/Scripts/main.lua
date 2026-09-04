@@ -79,12 +79,21 @@ local function num(v)
     return n
 end
 
+-- A KEY'S FIRST SIGHTING IS DATA, NOT NOISE -- swallowing it hid the whole answer once
+-- (2026-09-04). Before the baseline census this stays quiet, because the census prints those keys
+-- itself. AFTER it, a key appearing for the first time means a NEW ACTOR arrived -- a replay ghost
+-- spawning -- and its starting state is exactly what "does the ghost wear a sword it never had"
+-- needs. The first version printed only transitions, so every ghost's initial weapon state went
+-- into the table silently and the log had nothing to say about the one thing being measured.
 local function on_change(key, value)
     if last[key] ~= value then
         local was = last[key]
         last[key] = value
         if was ~= nil then
             print(string.format("%s CHANGE %s: %s -> %s  t=%.1f s=%d\n", TAG, key, tostring(was), value, os.clock(), samples))
+            context_left = CONTEXT_SAMPLES
+        elseif last["__census"] then
+            print(string.format("%s FIRST %s = %s  t=%.1f s=%d\n", TAG, key, value, os.clock(), samples))
             context_left = CONTEXT_SAMPLES
         end
     end
