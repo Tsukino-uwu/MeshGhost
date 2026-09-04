@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - MEASURED 2026-09-04 — a ghost's sword is `WeaponMesh.bVisible`, never established at spawn; only TRANSITIONS are applied, so a peer who never held one shows one
 - MEASURED 2026-09-04 — world-spawned VFX are UNOWNED and outlive the ghost: the left-behind sword glow, the stranded dust, and the poisoned dust offset are one defect
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -62,6 +63,35 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
+
+**Lowest-confidence entry in this file, and deliberately short.** Second-hand and unconfirmed: the
+user WATCHED someone else testing chasers and thought the spawns looked wrong. Their own words, with
+their own caveat: *"it looked like some of them were spawning/despawning a bit weird. like 1,2,3,4,5
+working but then despawned 6,7 and then 8 was still shown. i haven't checked anything or confirmed
+myself"*. Nothing here has been reproduced or measured by anyone.
+
+**The shape is the only real information, and it is worth keeping** because it argues against the
+first thing anyone would guess. A gap in the MIDDLE (6 and 7 gone while 8 remains) is not what a cap
+produces -- a cap truncates the tail. So "we hit a limit" is the wrong first theory.
+
+**Cheaply ruled out already, by reading:** it is not the core's roster cap.
+`admitToRosterLocked` (`core/remotenames.go:38`) refuses only at `protocol.MaxRosterSize`, which is
+512; eight chasers are nowhere near it. `admitLocalPeer` returning false is therefore not the
+explanation, though it does mean a refusal has a log line if it ever happens.
+
+**The first fork, and it is free** -- the core logs every local peer it admits and drops, and the
+adapter logs every ghost it spawns and releases. Comparing the two across one session says whether
+the CORE stopped feeding those chasers or the ADAPTER stopped drawing them, which halves the problem
+before anything is instrumented. Do that before writing a probe.
+
+**Worth holding in mind, but NOT assumed:** this session established that a replay/chaser ghost is
+despawned and re-admitted on every `seam` (`core/replay.go:522` -- seeks, loops, recorded gaps,
+clock step-backs), and that world-spawned VFX are stranded when that happens. Whether chasers seam
+for their own reasons, and whether a seam is what was being seen here, is unknown. Do not merge this
+entry into that one until something is measured; two unconfirmed reports sharing a plausible
+mechanism is exactly how a wrong theory gets load-bearing.
 
 ## [OPEN] MEASURED 2026-09-04 -- the sword on a ghost is `WeaponMesh.bVisible`, never established at spawn
 
