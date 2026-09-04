@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN — a replay ghost shows the Dream Breaker on a save that has not picked it up (2026-09-04), user-reported, not reproduced
 - OPEN — dust VFX land in wrong positions after a replay ghost restarts/loops (2026-09-04), user-reported, not reproduced
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -60,6 +61,52 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+
+## [OPEN] a replay ghost shows the Dream Breaker on a save that has not picked it up (2026-09-04)
+
+**The user's report:** *"the sword is visible on the recorded ghost even if the player don't have it
+yet -- so we probly don't set it to be hidden/shown properly?"*. Not reproduced or measured by the
+agent; what follows is code reading, and it points AWAY from the show/hide path.
+
+**The apply path looks correct, so it is probably not where the fault is.** The gate is
+`if (!weapon_equip_call_armed || target != last_synced)`, and `weapon_equip_call_armed` starts
+false and is reset to false on every release and re-acquire path. So the FIRST tick of any ghost
+applies the value unconditionally, whatever it is -- a ghost cannot sit on a stale `false` and skip
+the hide. `WEAPON_SYNC_INVERT` is `false`, and an absent `weapon_equipped` parses to 0, so an older
+clip missing the field yields "no sword" rather than "sword". Both of the obvious show/hide faults
+are therefore ruled out by reading.
+
+**THE LIKELIER FAULT IS WHAT WE SEND, and it turns on what the property MEANS.** The sender writes
+the local pawn's raw `weaponEquipped?` with no other condition:
+
+```
+"weapon_equipped":{}   <-  (weapon_equipped_ptr && *weapon_equipped_ptr) ? 1 : 0
+```
+
+and `PLAYER_FIELDS.md:264` already records that `weaponEquipped?` means **the sword is IN HAND**,
+not that the player owns one: *"Thrown = actor exists AND `weaponEquipped?` false AND transform not
+at origin."* **Nothing in this repo establishes what it reads BEFORE the Dream Breaker is picked up
+at all.** If the game initialises it true -- which is entirely plausible for a flag whose real job
+is "not currently thrown" -- then a recording made on a fresh save faithfully carries `1`, the
+adapter faithfully applies it, and every layer is doing exactly what it was told while the result
+is wrong. That would make this a MEANING bug, not a show/hide bug.
+
+**THE ONE MEASUREMENT THAT SETTLES IT, and it is cheap:** read the local player's `weaponEquipped?`
+on a save that has not picked up the Dream Breaker. True there is the whole answer. A Lua probe can
+ask it without a rebuild (`../CLAUDE.md`: hot reload is the default loop), and the adapter already
+logs this value under `WEAPON_SYNC_TRACE`.
+
+**A SECOND, DIFFERENT QUESTION IS TANGLED WITH IT AND MUST NOT BE ANSWERED BY ACCIDENT.** Even with
+the property read correctly, a clip recorded WITH the sword and played back on a save WITHOUT it
+would still show one -- because that is what the recording says happened. Whether a replay ghost
+should reproduce the run it recorded, or be filtered through the viewer's own progression, is a
+design decision for the user and is NOT a defect on its face. The two have different fixes and only
+the first is unambiguously a bug, so **which scenario was actually seen decides which of these is
+being fixed.** Asked, not assumed.
+
+**Related and worth checking in the same pass:** `outfit_mesh` rides the same envelope and is the
+same class of question (a peer-named asset resolved through the catalog gate), so an outfit the
+viewer has not unlocked may behave the same way. Untested.
 
 ## [OPEN] dust VFX land in wrong/weird positions after a replay ghost restarts or loops (2026-09-04)
 
