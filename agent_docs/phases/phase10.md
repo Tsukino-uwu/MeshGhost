@@ -387,3 +387,34 @@ truncation bug lived inside an op ORDER `FuzzEverything` already generates and w
 because it also needed 64KiB of recording before the writer's buffer flushed mid-line. A fuzz
 target explores order well and scale badly — `testing.md`'s Traps now says so, and it is the same
 shape as this phase's open item, where a compressed clock cannot reach a wall-clock threshold.
+
+## 2026-09-04 (late) — three test fixes, and what this file is actually for
+
+**Read this before adding another pointer entry.** `preflight.ps1`'s `$phaseMap` names
+**this file as the Go side's running log** — `core`, `relay`, `protocol`, `transport`, `bridge`,
+`netx`, `cmd`, `internal` — so every Go-side commit belongs here whatever phase's story it is part
+of. Three entries today said "this is Phase 11's work, see phase11.md" and then tripped the same
+check again on the next commit, which is what fighting a tool looks like. The narrative can live in
+the active phase's file; the log line lives here.
+
+**The three, all test-side, all found by CI after a green local run:**
+
+- **`FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane`, red in eleven seconds** on
+  `{"Client":{"replAY":{"sAve_lAst":"0"}}}`. The client was right: it decodes into a struct, so
+  `encoding/json` matches tags case-insensitively and `"0"` is a duration a player chose. The
+  test's own mirror is a `map[string]any`, where a key keeps the file's case, so its lookup for
+  `save_last` missed and it called a correct outcome a bug. **A test that mirrors a decoder must
+  mirror how that decoder matches names.** Second failure of this target in two days and the same
+  shape one layer down — the first (2026-09-03) did not know an explicit zero from a bad value.
+- **A one-tick race in a test written the same day.**
+  `TestALocalGhostStillInterpolatesRatherThanEdgeHolding` read `nowMs()` twice — once to place its
+  samples, once to compute the render time — so a millisecond boundary between them moved the
+  answer by one. Green locally, green in CI, and **red in the release workflow on the same
+  commit**. Fixed by deriving both ends from one reading rather than by widening the comparison,
+  which would have hidden the next real off-by-one. `testing.md`, Traps.
+- **Three of my own comments cited durations rather than dates**, which `CLAUDE.md` forbids because
+  they are false on arrival. The tree-only gate caught it in CI; my last local preflight predated
+  the files.
+
+**Standing item for this phase, unchanged:** the due-wait sleeps are still wall-clock and the
+advance-until-quiescent helper is unbuilt.
