@@ -4899,3 +4899,30 @@ same like ghosts being stuck in garbagecollection after leaving?"*
 **So what is verified here is what a player sees, and the residue is tracked as open work in
 `UNVERIFIED.md`.** The instrumented build that names it (`N candidates -> X destroyed, Y
 hidden+stopped only`) is written and waits on a rebuild.
+
+## 2026-09-04 — the sword mirror on LIVE PEERS, not replays (user-confirmed on screen)
+
+Everything else confirmed that day came through the replay path. This is the same fix exercised over
+the relay by two synthetic peers (`meshghost-fakeadapter`, `weapon_equipped` 0 and 1, same room and
+`area_id` as the real client), which is a genuinely different door: `handle_bridge_line` sets
+`target_weapon_equipped` from any `render_remote`, and a replay only reaches it as a local fake peer
+(ADR 0047). Confirmed with the local player owning NO sword, which is what makes the second line
+mean something.
+
+- **A peer sending `weapon_equipped: 0` renders with empty hands.** User: *"no sword don't have one
+  equipped"*.
+- **A peer sending `weapon_equipped: 1` renders holding the Dream Breaker WHILE THE WATCHER HAS
+  NEVER PICKED ONE UP.** User: *"has sword, has the dream breaker equipped even if i haven't picked
+  it up myself"*. This is the design rule the user set the same morning, holding on the live path:
+  *"recordings should be identical to when they were recorded. the state of the current player is
+  irrelevant"* — and it is worth stating as the general form, since a ghost is constructed from the
+  LOCAL player's own pawn class and could easily have inherited the watcher's progression.
+- **No blade aura on the armed peer**, on a save with `obtainedLight?` false: *"it also does not
+  have the sword mesh glow blade aura"*. The `bPropagateToChildren` regression is closed on the live
+  path too, not only on replays.
+
+**Method note.** The stronger test was available BEFORE the obvious one and cost nothing: the user
+offered to pick the sword up first and then spawn an armed peer, but spawning it while they were
+still swordless is what makes "the peer's state wins" a real observation rather than a coincidence
+of the watcher and the peer agreeing. **Ask what the watcher's state is doing in every ghost test** —
+here it was the whole question.

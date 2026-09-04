@@ -5727,9 +5727,51 @@ namespace MeshGhostPseudo
                 {
                     component->ProcessEvent(stop_fn, nullptr);
                 }
-                if (UFunction* destroy_fn = component->GetFunctionByNameInChain(STR("DestroyComponent")))
+                // **RESOLVED BY PATH, not by walking the chain (2026-09-04, measured).**
+                // `GetFunctionByNameInChain(STR("DestroyComponent"))` returns null on every
+                // NiagaraComponent in this build -- the instrumented log said so four candidates
+                // at a time -- while a Lua probe reading the same live objects reports the member
+                // present (`probe_leakcount/verbs.lua`). Two lookup mechanisms, one build, opposite
+                // answers, and the chain walk is the one that is wrong: `K2_DestroyComponent` is
+                // declared on `UActorComponent`, several classes up from a Niagara component.
+                //
+                // The same disagreement already cost this file a wrong conclusion once: the glow
+                // teardown records "no DeactivateImmediate on this build" from the identical chain
+                // walk, and Lua says that function exists too. **Treat a negative from
+                // `GetFunctionByNameInChain` as "not found HERE", never as "absent from the
+                // build".** Resolving by full path is what the rest of this file already does for
+                // engine functions (SpawnSystemAtLocation, CollectGarbage).
+                //
+                // `K2_DestroyComponent` takes one parameter, the object requesting the destroy,
+                // and the engine uses it only for an authority check on a networked component --
+                // ours are client-side and unowned, so the component itself is a valid argument.
+                static UFunction* destroy_by_path = UObjectGlobals::StaticFindObject<UFunction*>(
+                    nullptr, nullptr, STR("/Script/Engine.ActorComponent:K2_DestroyComponent"));
+                UFunction* destroy_fn = component->GetFunctionByNameInChain(STR("DestroyComponent"));
+                if (!destroy_fn)
                 {
-                    component->ProcessEvent(destroy_fn, nullptr);
+                    destroy_fn = destroy_by_path;
+                }
+                if (destroy_fn)
+                {
+                    // One pointer-wide argument, written through the function's own reflected
+                    // parameter rather than a guessed struct: the layout is the engine's, not ours.
+                    const int32_t parms_size = destroy_fn->GetPropertiesSize();
+                    std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size > 0 ? parms_size : 0), 0);
+                    for (FProperty* param : TFieldRange<FProperty>(destroy_fn, EFieldIterationFlags::None))
+                    {
+                        if (!param)
+                        {
+                            continue;
+                        }
+                        const int32_t offset = param->GetOffset_Internal();
+                        if (offset >= 0 && offset + static_cast<int32_t>(sizeof(UObject*)) <= parms_size)
+                        {
+                            *std::bit_cast<UObject**>(params_buffer.data() + offset) = component;
+                        }
+                        break;
+                    }
+                    component->ProcessEvent(destroy_fn, params_buffer.empty() ? nullptr : params_buffer.data());
                     ++destroyed;
                 }
                 else
@@ -5739,7 +5781,23 @@ namespace MeshGhostPseudo
                     ++hidden_only;
                 }
             }
-            Output::send(STR("[MeshGhostPseudo] VFXCLEANUP {}: {} candidate(s) -> {} destroyed, {} hidden+stopped only (no DestroyComponent on this build), {} already gone.\n"),
+            // Which lookup actually supplied the destroy, said ONCE: "it was called" is exactly the
+            // claim this file has been burned by before (`K2_DestroyActor` "was reflected and
+            // called" on ghosts that then needed a garbage collection to disappear), so the
+            // independent check is the population census in `probe_leakcount/`, not this line.
+            static bool lookup_logged = false;
+            if (!lookup_logged && !wanted.empty())
+            {
+                lookup_logged = true;
+                UFunction* chain = wanted.front()->GetFunctionByNameInChain(STR("DestroyComponent"));
+                Output::send(STR("[MeshGhostPseudo] VFXCLEANUP: DestroyComponent via chain walk = {}; K2_DestroyComponent by path = {}\n"),
+                             chain ? STR("found") : STR("NOT FOUND"),
+                             UObjectGlobals::StaticFindObject<UFunction*>(
+                                 nullptr, nullptr, STR("/Script/Engine.ActorComponent:K2_DestroyComponent"))
+                                 ? STR("found")
+                                 : STR("NOT FOUND"));
+            }
+            Output::send(STR("[MeshGhostPseudo] VFXCLEANUP {}: {} candidate(s) -> {} destroyed, {} hidden+stopped only (neither lookup resolved a destroy), {} already gone.\n"),
                          reason, static_cast<int>(wanted.size()), destroyed, hidden_only, already_gone);
         }
 
