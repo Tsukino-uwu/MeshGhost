@@ -261,3 +261,35 @@ player's cue because a ghost already holds the instances — and they want diffe
   matters more than usual for this one:** it applies the same fix the DLL now carries, so an armed
   copy would make the shipped fix untestable -- the run would pass whether or not the C++ works.
   Rename it back only to re-measure the Lua version.
+## `probe_pickup/` — what a Dream Breaker pickup does to the state we SEND (2026-09-04)
+
+**Two user reports, one event, so one run answers both.** A replay ghost wears the Dream Breaker
+from a clip recorded BEFORE the pickup; and *"recordings look a bit weird as if you are just
+floating in the air/frozen for a bit"* when picking an item up.
+
+**The first question is answered by the probe's very first block.** Reading had already cleared the
+show/hide path (`UNVERIFIED.md`), leaving the SEND side: `PLAYER_FIELDS.md:264` records that
+`weaponEquipped?` means the sword is IN HAND rather than owned, and nothing established what it
+reads before the pickup. The probe prints a BASELINE census as soon as a pawn exists — if
+`weaponEquipped?` is already `true` on a fresh save, that is the whole diagnosis and the adapter is
+sending a wrong value in good faith.
+
+**The second is the per-sample TRACK line** across the pickup: position, `horizontalSpeed`,
+`verticalSpeed`, `moveState`, `actionState`, `CapsuleHalfHeight` — exactly the fields the adapter
+puts on the wire, so a "frozen/floating" clip can be read back against what was sampled while it
+was recorded.
+
+**No window to hit.** Everything logs on change, with ~3s of per-sample context after each one.
+Stand around a moment, then go and get the sword; take as long as you like.
+
+**What it CANNOT see, stated because an enumeration is only as wide as its filter.** It reads a
+NAMED list and nothing else — `ForEachProperty` is banned in an armed probe (`preflight.ps1`; a
+blind walk crashed three live sessions on 2026-08-29). So it cannot FIND an "owns the sword" flag,
+only prove whether `weaponEquipped?` is the wrong signal. If it is, the next instrument is the mod's
+own `OBJECT_REFLECTION_DUMP`, which `Plugin.cpp:848` already names as the right tool rather than
+guessing a second name list. It also reports, in a `COVERAGE:` line, any named field that never
+resolved.
+
+**Cost:** one object-space walk per sample over one class at 10Hz — cheaper than
+`probe_swordthrow/`'s three-class 250ms walk. Read-only. **Unload it before judging anything**: a
+loaded probe is a suspect in every later report.
