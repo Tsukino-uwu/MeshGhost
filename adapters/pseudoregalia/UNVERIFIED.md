@@ -76,6 +76,36 @@ myself"*. Nothing here has been reproduced or measured by anyone.
 first thing anyone would guess. A gap in the MIDDLE (6 and 7 gone while 8 remains) is not what a cap
 produces -- a cap truncates the tail. So "we hit a limit" is the wrong first theory.
 
+**A SECOND, SHARPER DETAIL from the same clip (2026-09-04):** *"chase ghost 4,5,6 and 7
+despawned/spawned back/forth a bit weird when the player walked in a circle"*. Still second-hand and
+unconfirmed, but it narrows the search in three ways and is worth more than the original report:
+
+- **It is tied to an ACTION**, so it is reproducible rather than random -- walk a circle and watch.
+- **It cycles**, back and forth, rather than losing ghosts once. So this is not "some failed to
+  spawn"; something is repeatedly deciding they should and should not exist.
+- **It is the MIDDLE of the set again** (4-7 of 8), consistent with the first report and still not
+  the shape a cap makes.
+
+**What it is probably NOT, ruled out by reading rather than guessed:** the area filter. A chaser is
+the player's own past, so it carries the player's own `area_id` by construction, and walking a circle
+inside one level does not change it. `own_area_only` and the relay-side filter (ADR 0041) therefore
+have nothing to act on. `culling.md`'s distance-culling ideas are unscheduled and unshipped, so they
+are not running either.
+
+**Two directions worth looking at first, named as directions and not as theories:**
+
+1. **A visibility or engine-side cull that we then undo.** Walking a circle sweeps ghosts in and out
+   of the camera's view, and `../CLAUDE.md`'s first performance rule is precisely about an engine
+   culling an actor and an adapter respawning it in a loop -- "allocate, cull, allocate". A
+   back-and-forth cycle tied to turning is that signature.
+2. **The interpolation buffer running dry per chaser.** Chasers sit at increasing delays
+   (`delay`, `+spacing`, `+2*spacing`...), so the LATER ones live furthest back in the buffer and
+   would starve first -- which would pick out a contiguous middle-to-late band rather than the tail.
+
+**The free first check still comes before either**: diff the core's admit/drop lines against the
+adapter's spawn/release for one circle-walking session. If the core never dropped them, direction 1;
+if it did, direction 2 and the reason will be in the same log.
+
 **Cheaply ruled out already, by reading:** it is not the core's roster cap.
 `admitToRosterLocked` (`core/remotenames.go:38`) refuses only at `protocol.MaxRosterSize`, which is
 512; eight chasers are nowhere near it. `admitLocalPeer` returning false is therefore not the
