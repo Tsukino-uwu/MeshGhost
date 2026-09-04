@@ -2708,6 +2708,21 @@ contact with the rules:
    STATE: any divergence is either the game's non-determinism or ours, and today we cannot tell those
    apart at all.
 
+**The user's own use cases, added the same day and both better than the three above at saying what
+this is FOR:**
+
+- **A TAS-shaped tool for HUMAN inputs.** *"something similar to TAS, but player inputs not frame
+  perfect inputs"* — the interesting artifact is not an optimal robot run, it is a real person's run
+  made re-playable, inspectable and shareable as the inputs that produced it. That reframes the
+  determinism problem too: a TAS needs frame-perfect reproduction or it desyncs, while "here is what
+  I actually pressed, roughly re-driven" tolerates drift the way a ghost already does.
+- **An agent that plays, or learns by COMPARISON.** *"AI playing the game or learning how to play by
+  comparing to what a player did"* — with inputs on one side and the resulting state on the other,
+  a run becomes a paired record: what was pressed, and what the game did about it. That is the shape
+  imitation learning wants, and it is exactly the pairing a state-only recording cannot provide, which
+  is why this entry exists at all. **Note what it does NOT need: a model of the game.** The game
+  supplies the outcome for any input; the missing half has always been the input.
+
 **Why it is not simply "add a field", and what has to be answered first:**
 
 - **Playback means WRITING to the game.** Feeding inputs to a pawn is not a cosmetic act; it is the
