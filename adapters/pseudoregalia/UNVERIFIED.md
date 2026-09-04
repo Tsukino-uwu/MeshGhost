@@ -44,7 +44,7 @@ entry without one.
 
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
-- OPEN — `observed_world_offset_z` is re-learned every sample a burst is alive, so the player's own vertical motion rewrites it: 90 units of drift measured 2026-09-04. Fix written, waits on a rebuild
+- CONFIRMED ONCE (hedged) 2026-09-04 — the dust offset fix: *"looks like the dust thing is fixed, its only appearing where its intended/supposed to"*. Held for one session; wants a second before `VERIFIED.md`
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -2290,9 +2290,21 @@ on every peer.
 the wrong-height dust was never about the leak at all, and the tester's *"related to the height of
 ghost sybil when it despawns"* has a sibling cause that needs no despawn.
 
-**The fix, written and waiting on a rebuild:** learn it only when `newly_seen` is true — the one
-sample where the component did not exist before, which is exactly when the effect is where the game
-just put it. That flag is already computed one line above for the burst counter.
+**The fix:** learn it only when `newly_seen` is true — the one sample where the component did not
+exist before, which is exactly when the effect is where the game just put it. That flag is already
+computed one line above for the burst counter.
+
+**BUILT, DEPLOYED AND WATCHED 2026-09-04 — confirmed ONCE, and the user's own hedge is kept.** Their
+words after a session of jumping around a looping ghost: *"yee looks like the dust thing is fixed,
+its only appearing where its intended/supposed to"*. **Held here rather than moved to `VERIFIED.md`
+because a first positive reaction is not a settled one** (the standing rule after a reaction that
+later reversed) — it wants one more session, ideally with somebody deliberately falling past their
+own dust, which is the case that produced the drift.
+
+**The instrument agrees, which is why the hedge is only about durability and not about the
+mechanism.** After the fix every `VFXOFFSET` line cites a DIFFERENT component id and the values sit
+in a -61..-75 band; before it, one stationary component dragged the shared value -61 -> +30 as the
+player fell. Learning per burst is what it always claimed to do.
 
 ## [OPEN] MEASURED 2026-09-04 -- the cleanup's own log line reports numbers the code cannot produce
 
