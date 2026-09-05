@@ -21723,6 +21723,7 @@ namespace MeshGhostPseudo
                     }
                     targets[1] = remote.weapon_fly_component;
                     int changed = 0;
+                    bool deferred = false;
                     for (UObject* mesh : targets)
                     {
                         // Same liveness rule as the sender: never call into a component the
@@ -21730,6 +21731,20 @@ namespace MeshGhostPseudo
                         // but the check costs nothing and the crash it prevents costs a session.
                         if (!mesh || mesh->IsUnreachable())
                         {
+                            continue;
+                        }
+                        // **Only a component the game is currently SHOWING gets a new mesh.** A
+                        // tester's dump on 2026-09-05 puts the fault 21 seconds into the game, at
+                        // the first ghost spawn, in this very call on a hand the game had not yet
+                        // shown (the sword mirror shows it once the peer's equipped flag arrives)
+                        // and may not have finished registering. The engine's reset chain read a
+                        // garbage pointer there. Hidden means "not yet": the target stays pending
+                        // and the edge gate retries next tick, so the model lands the moment the
+                        // sword appears -- which is also the first moment anyone could see it.
+                        // Read through mg_read_bool: bVisible is a bitfield (the 2026-09-05 audit).
+                        if (!mg_read_bool(mesh, STR("bVisible"), false) || !mg_read_bool(mesh, STR("bRegistered"), false))
+                        {
+                            deferred = true;
                             continue;
                         }
                         // **No call for an asset the component already holds.** Until 2026-09-05
@@ -21753,10 +21768,15 @@ namespace MeshGhostPseudo
                         call_set_skeletal_mesh_asset(mesh, weapon_mesh_obj);
                         ++changed;
                     }
-                    remote.last_synced_weapon_mesh = remote.target_weapon_mesh;
-                    remote.last_failed_weapon_mesh.clear();
-                    // Already holding it and nothing called: synced by inspection, and no log line,
-                    // because nothing happened. Only a real change earns the readback below.
+                    if (!deferred || changed > 0)
+                    {
+                        remote.last_synced_weapon_mesh = remote.target_weapon_mesh;
+                        remote.last_failed_weapon_mesh.clear();
+                    }
+                    // A deferred target (hidden or unregistered hand) stays pending: not synced,
+                    // not failed, retried next tick. Already holding it and nothing called: synced
+                    // by inspection, no log line, because nothing happened. Only a real change
+                    // earns the readback below.
                     if (changed > 0)
                     {
                         UObject** rb_skel_mesh = nullptr;
