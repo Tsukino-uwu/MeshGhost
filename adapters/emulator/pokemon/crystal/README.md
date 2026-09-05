@@ -1,16 +1,21 @@
 # Pokémon Crystal
 
 **Status: shipping, and under active work — Phase 9.** `meshghost_crystal.lua` dials the bridge,
-spawns a real in-game object event for each peer, walks it with the game's own step mechanism, and
-ships in the release (`release.yml` runs `dev-scripts/stage-release.ps1`, which stages it into
-`games/pokemon/crystal/`). It
-**writes game RAM** — object RAM only, never a save.
+reads each peer's sprite and gait off the cartridge, **paints** every peer over the emulator's
+output in step with the game's own camera, and ships in the release (`release.yml` runs
+`dev-scripts/stage-release.ps1`, which stages it into `games/pokemon/crystal/`). It can also
+**spawn a real in-game object event** for a peer and walk it with the game's own step mechanism —
+that was the shipped tier until 2026-09-02 and is a dev opt-in since (step 26). In that mode it
+**writes game RAM** — object RAM only, never a save; a painted peer takes no engine slot at all.
 
-**Three tiers, which is this adapter's headline structure.** A peer is rendered by the best one
-that will take it, and never dropped: **spawned** (a real object event the engine walks, animates
-and occludes for us), then **hardware** (written straight into the game's own sprite buffer so the
-PPU draws it — shipped OFF, see [FLAGS.md](FLAGS.md)), then **drawn** (painted over the emulator
-for any peer the first two have no room for).
+**Three tiers, which is this adapter's headline structure — and only one of them ships.** A peer
+can be rendered **spawned** (a real object event the engine walks, animates and occludes for us),
+**hardware** (written straight into the game's own sprite buffer so the PPU draws it), or **drawn**
+(painted over the emulator). Since 2026-09-02 the shipped configuration is **drawn only**, the
+user's call after watching the spawned ghost snap at a map seam where the painted one walked clean
+(step 26, [FLAGS.md](FLAGS.md) `MESHGHOST_CRYSTAL_SPAWN_TIER`); spawned and hardware are dev
+opt-ins, kept as the comparison and the record of how the object system works. Everything below
+about the spawned tier describes that mode.
 
 **Last live confirmation 2026-08-27**: the first **mixed-build room** — one Archipelago client and
 one vanilla client, two emulators, two cores — where seven faults were found and fixed on screen.
@@ -82,11 +87,13 @@ and method: [agent_docs/crowd-limits.md](../../../../agent_docs/crowd-limits.md)
   frame a second past ~34); at 158 the frame rate halves. Both are an order of magnitude past any
   real session. **Those numbers are a FLOOR** — the synthetic crowd never exercised the drawn
   tier's stepping animation, so a crowd of real walking peers costs more.
-- **In practice**: everyone is visible, and the engine's slots go to whoever is actually moving.
-  A peer that has not changed tile for **a minute** stops blocking and moves to the drawn tier, and
-  a peer you shove into stops blocking within half a second — so nobody can park on a doorway.
-  (Five seconds until 2026-08-26 — that described "stood still briefly". [FLAGS.md](FLAGS.md).)
-  Ghosts stack on each other freely; they collide with the player, not with one another.
+- **In practice, as shipped (drawn only since 2026-09-02)**: everyone is visible, nothing takes an
+  engine slot and nothing blocks the player — a painted ghost has no collision to give up. **With
+  the spawned tier opted in**, the engine's slots go to whoever is actually moving: a peer that has
+  not changed tile for **a minute** stops blocking and moves to the drawn tier, and a peer you
+  shove into stops blocking within half a second — so nobody can park on a doorway. (Five seconds
+  until 2026-08-26 — that described "stood still briefly". [FLAGS.md](FLAGS.md).) Spawned ghosts
+  stack on each other freely; they collide with the player, not with one another.
 
 ## How this adapter differs from Emerald's — the reason it exists
 
@@ -258,6 +265,19 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     one.** Read it against the open list directly below, which still has Teleport unbuilt and
     RUNNING's gait unmeasured on the Archipelago build; whether those sit inside or outside this
     call is the user's to say. `UNVERIFIED.md` carries the question.
+26. Made **drawn the only shipped tier** and the spawned ladder a dev opt-in — the user's call,
+    2026-09-02, after watching both side by side: the spawned ghost snapped a little whenever IT
+    crossed a map seam ahead of or behind the player, and the painted one walked the same seam
+    clean; the painted tier also keeps a faster-cartridge peer at the right speed, never flaps
+    between tiers mid-walk, and has no engine slot to run out of. Cost decided nothing — 12
+    painted peers measure the same as an empty screen here, where on Emerald painting is the
+    expensive rung, which is why that adapter keeps spawned first. The spawned code stays as the
+    comparison and the record. [FLAGS.md](FLAGS.md) `MESHGHOST_CRYSTAL_SPAWN_TIER`; the shipped
+    mode itself is still unwatched as shipped ([UNVERIFIED.md](UNVERIFIED.md)).
+27. Re-judged the interpolation delay on the worst-case link — NA↔EU ping plus bad wifi — and
+    450ms ships here like everywhere else (2026-09-02, ADR 0046), the user's explicit call for
+    this game from the other three. Also confirmed the same week: ghosts survive relay-side area
+    filtering, read from the release files themselves (2026-08-28). [VERIFIED.md](VERIFIED.md).
 
 ### Further work past "good enough"
 
@@ -271,10 +291,11 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
 - **Nothing crosses builds by assumption.** Sprite ids, item ids and gaits each differ between
   vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed;
   **RUNNING is untested and its gait unmeasured**, and surf is unreached on that build.
-- **The shipped 250ms interpolation has not been re-judged** since the drawn tier was rebuilt.
-  Every confirmation above is at the dev rig's `-interp=0ms`, which is the configuration a 1:1
-  judgement needs and the one that hides a whole class of fault.
-- **The hardware (OAM) tier has never been judged on screen**, and ships off for that reason.
+- **The shipped interpolation is 450ms since 2026-09-02** (step 27), judged on the drawn tier on the
+  worst-case link. Most confirmations above predate that and were made at the dev rig's
+  `-interp=0ms`, which is the configuration a 1:1 judgement needs and the one that hides a whole
+  class of fault; the drawn-only shipped mode itself has not been watched as shipped.
+- **The hardware (OAM) tier has never been judged on screen**, and stays a dev opt-in for that reason.
 - **Teleport is the last action class** — not built, not measured, not watched.
 - **A ghost does not survive a battle** — fixed 2026-08-19 (the stale bookkeeping used to drive one
   of the game's own NPCs around); a real battle still needs watching.
@@ -286,8 +307,10 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
 
 ## What's here
 
-- `meshghost_crystal.lua` — **the adapter, and the only file that ships.** It walks bridge ports
-  7778-7785 for a core that will have it, gates every spawn on the game's own map-state bytes,
+- `meshghost_crystal.lua` — **the adapter, and the only file of ours that ships** (the release also
+  stages a copy of Emerald's `lib/`, the same BizHawk LuaSocket build, beside it). It walks bridge
+  ports 7778-7785 for a core that will have it, paints every peer as shipped, and — with the spawned
+  tier opted in — gates every spawn on the game's own map-state bytes,
   spawns one object event per peer (a map object plus an object struct, cross-linked, built from a
   live NPC template wearing the player's sprite), and moves each ghost by writing the game's own
   step-initiation set once per tile. For every peer the engine can hold it draws, animates and
@@ -299,7 +322,7 @@ authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting
 - `probes/` — every development tool, and none of it ships. Eighty scripts covering the address
   hunt, the spawn recipe worked out one failure at a time, the Archipelago re-measurement, and the
   savestate-driven rigs that make an expensive state (a fly, a ledge, a whirlpool) repeatable.
-  **Twenty of them WRITE and seventeen hold the controller**; they are indexed, one line each, in
+  **About twenty of them WRITE and seventeen hold the controller**; they are indexed, one line each, in
   [PROBES.md](PROBES.md) — read that rather than the folder listing.
 - `logs/` — where the adapter's own runs land, one timestamped `.log` per script load (probes write
   theirs beside themselves in `probes/`). A run therefore leaves a record without anyone copying

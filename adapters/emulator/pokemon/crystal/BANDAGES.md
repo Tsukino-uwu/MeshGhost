@@ -5,7 +5,8 @@ was to build this adapter without starting from a compensation: *"i want to actu
 intended now for crystal, so we don't start doing this game with bandaids from the get go"*
 (2026-08-17). It carried nothing under Shipped for two days.
 
-**It carries four live**: the drawn-overflow tier (#1, 2026-08-19), the standing ghost's re-anchor
+**It carries four live**: the drawn tier (#1, 2026-08-19 as an overflow; **the ONLY shipped tier
+since 2026-09-02**, the user's call — see the note inside the entry), the standing ghost's re-anchor
 (#2), that tier's camera-clocked beat (#3, 2026-08-25), and the step-state repair (#5, cause still
 unknown). A fifth — the fly-arrival drop (#4) — was added and retired on 2026-08-26, and is kept
 below marked as such: the route out was written
@@ -27,9 +28,23 @@ the user's standing position that a bandage is a state to leave rather than rest
 
 **What it is.** `meshghost_crystal.lua`'s drawn tier renders a peer with `gui.*` primitives over
 the emulator's output when the engine cannot give it a slot. `MESHGHOST_CRYSTAL_DRAW_OVERFLOW`
-(FLAGS.md) turns it off; it is **ON by default**, which is the opposite polarity to Emerald's
-equivalent and is deliberate — Emerald's is off because its UI regions are not yet locatable, and
-Crystal's are (`VERIFIED.md`, 2026-08-19).
+(FLAGS.md) turns it off; it is **ON by default**. (Until 2026-09-02 that was the opposite polarity
+to Emerald's equivalent, deliberately — Emerald's was off because its UI regions were not yet
+locatable and Crystal's were, `VERIFIED.md` 2026-08-19; Emerald's panel detector shipped 2026-08-19
+and its rung went on by default 2026-09-02, so both are on now.)
+
+**Updated 2026-09-02 — this is no longer an overflow; it is the shipped tier.** The user, after
+watching the spawned and painted ghosts side by side, chose drawn for EVERY peer: the spawned ghost
+snapped a little whenever it crossed a map seam ahead of or behind the player and the painted one
+walked the same seam clean; the painted tier also holds a faster-cartridge peer at the right speed,
+never flaps between tiers mid-walk, and has no engine slot to run out of (`FLAGS.md`,
+`MESHGHOST_CRYSTAL_SPAWN_TIER`; `README.md` step 26). So the paragraph below about "overflow, not
+fallback" describes the entry as it was taken on 2026-08-19, and by its own test — *"if it ever
+starts carrying peers the engine could have held, it has become the thing the temptation warned
+about"* — the temptation recorded at the end of this file HAS now been taken, by a deliberate
+decision rather than a slip, and is annotated there. What the shipped tier gives up (the engine's
+own collision, animation and scenery ordering) is exactly the cost list below; what it buys is
+that every peer is rendered the same way, by code that never writes game RAM.
 
 **What it compensates for.** A hard ceiling that is genuinely the game's: 13 object structs, 16 map
 objects, 40 hardware sprites at 4 per character, so 10 characters on screen. Past that a peer
@@ -255,6 +270,11 @@ the obvious next move, and naming them early makes taking one a decision rather 
   draws only what the engine has no room for, and spawning is still first choice for every peer
   that fits. If a future change ever starts drawing peers the engine could have held, this
   temptation has been taken after all.
+  **TAKEN 2026-09-02, deliberately** — the shipped tier is drawn only and spawning is a dev
+  opt-in (Shipped entry 1, the 2026-09-02 note). Not for the reason this line feared: spawning did
+  not prove unreliable, the painted ghost was judged BETTER on screen at a map seam and under a
+  faster cartridge. Kept struck through so the original distinction stays legible; the decision
+  and its reasons are in `FLAGS.md` under `MESHGHOST_CRYSTAL_SPAWN_TIER`.
 - **Writing an object struct directly instead of going through a map object.** It renders, and it
   was the first thing that worked — but it produces a half-owned object the engine does not
   maintain, with collision and sprite drifting apart. Any future use of that shortcut is a bandage

@@ -102,6 +102,9 @@ host adapter resolves `SCRIPT_DIR` and passes it in.**
 {...}`), not one name each. **And when a change to a big adapter mysteriously does nothing, check the
 loader log for `LOAD FAILED` before anything else.** It is one line, and it scrolls away.
 
+**Touch a JSON decoder, run `adapters/emulator/tests/json_fuzz.lua` first** — it loads both shipped
+decoders out of their files (`emulator.yml` runs it in CI) and found a 5000-level nesting acceptance and a `\uXXXX` substitution nothing else did (2026-09-03).
+
 ---
 
 ## Part 2 — BizHawk, and the GBA/GB hardware underneath

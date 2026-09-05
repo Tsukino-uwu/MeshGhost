@@ -86,8 +86,8 @@ full note.
   delay only makes it harder to tell whether a remote ghost's animation genuinely matches the
   real player frame-for-frame. **Two exceptions keep their own files**, because the filename is
   what records which rig produced a reading: `run-core-emerald-trail.bat` (a real
-  `-interp=200ms`, for the loopback-trail launcher) and `run-core-crystal-shipped.bat` (shipped
-  250ms, judging what a real player receives).
+  `-interp=200ms`, for the loopback-trail launcher) and `run-core-crystal-shipped.bat` (the shipped
+  interp, 450ms since 2026-09-02, judging what a real player receives).
 
   **Replaces nine near-identical scripts, collapsed 2026-08-25** — `run-core-emerald.bat`,
   `run-core-emerald2.bat`, `run-core-crystal.bat`, `run-core-tevi.bat`, `run-core-tevi2.bat`,
@@ -115,6 +115,13 @@ full note.
   long pipeline trace confirmed the code was fine the whole time — the test setup was the bug.
   See `agent_docs/pitfalls.md`'s "Running two instances of the same emulator/game silently
   collide on a shared default port" entry.
+- `run-bizhawk-crystal.local.bat` / `run-bizhawk-crystal2.local.bat` /
+  `run-bizhawk-apcrystal.local.bat` / `run-bizhawk-crystal-xmap1.local.bat` /
+  `run-bizhawk-crystal-xmap2.local.bat` — **not tracked**, Crystal's counterparts to the pair above:
+  vanilla, a second vanilla instance on its own bridge port, the Archipelago ROM, and the two
+  cross-map savestate rigs (`running-the-rig.md`). Unlike the Emerald pair these attach
+  `bizhawk-dev-loader.lua` with `--lua=` and name a per-instance target file in
+  `MESHGHOST_DEV_LOADER_TARGET`, so a script can be swapped live; recreate them the same way.
 - `run-bizhawk-emerald-loopback-trail.local.bat` — **not tracked**, same shape as
   `run-bizhawk-emerald.local.bat` above but also sets `MESHGHOST_LOOPBACK_TRAIL=1`. Pair with
   `run-relay-loopback.bat` below AND `run-core-emerald-trail.bat` specifically, not the plain
@@ -390,8 +397,8 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   script's own line — a reload that hit a Lua error reports there and leaves the OLD script
   running, which looks like no change at all.
 - `run-core-crystal-shipped.bat` — the **complement** of `run-core.bat crystal`: no flags beyond game and bridge, so
-  interpolation is `core.DefaultInterpolationDelay` (250ms) and the send rate is the default.
-  Here the 250ms is the subject of the test rather than a nuisance in it. Launch it explicitly
+  interpolation is `core.DefaultInterpolationDelay` (450ms since 2026-09-02, ADR 0046) and the send
+  rate is the default. Here the shipped delay is the subject of the test rather than a nuisance in it. Launch it explicitly
   rather than leaning on adapter autostart — relying on autostart is what made two sessions of
   stutter work ambiguous ([phase9.md](../agent_docs/phases/phase9.md)): the settings were right
   by accident and unlogged, so nothing recorded which rig produced which reading.
@@ -490,7 +497,7 @@ expect from a game with momentum and a game that moves 2px on a beat.
 
 | Flag | What it decides | Default |
 |---|---|---|
-| `-interp` | how far behind live a ghost is drawn | `250ms` |
+| `-interp` | how far behind live a ghost is drawn | `450ms` (since 2026-09-02, ADR 0046; `250ms` before) |
 | `-curve` | how it moves BETWEEN two samples: `linear` or `catmull-rom` | `linear` |
 | `-extrapolate` | how far PAST the newest sample it keeps going on its last velocity | `0` (off) |
 | `-predict` | HOW it keeps going: `linear`, `damped` (per-axis trust), `accelerated` | `linear` |

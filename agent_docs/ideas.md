@@ -2322,7 +2322,7 @@ fuzzers are independent of both.
 **TWO OF THREE BUILT, 2026-09-03. What the entry below assumed about the work was wrong in three
 ways worth keeping, because each was wrong in the direction of "harder than it is".**
 
-- **Lua — BUILT.** `adapters/emulator/tests/json_fuzz.lua`, second job in `lua.yml`. It needed no
+- **Lua — BUILT.** `adapters/emulator/tests/json_fuzz.lua`, a job in `emulator.yml` (it started in `lua.yml`; the adapter workflow was split out of it 2026-09-04). It needed no
   adapter edit and no shared module first: the prefix of each adapter up to the end of `jsonDecode`
   is pure declarations, so it loads under a stub `_ENV`, with the cut point found structurally so an
   edit to the decoder cannot silently point it at the wrong text. Each decode runs in a coroutine

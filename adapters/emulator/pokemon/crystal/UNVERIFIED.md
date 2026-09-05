@@ -43,22 +43,22 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
-- WATCHED 2026-09-02 — LOSS COVER (ADR 0045): A/B on one netsim seed, cover off is worse, no teleport at any interp; shipped 250ms stands (loopback overstates by one-way latency), 275-300ms to be re-judged with two real clients
-- OPEN — the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUnreliable` until `341a768`); the fixed relay is unwatched on this game (from `status.md`, 2026-09-02)
-- OPEN — reproduce the savestate-load crash; and hop a ledge THEN cast a rod in one session (shared vtile `$fc`) (from `status.md`, 2026-09-02)
-- Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
-- Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
-- MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)
-- 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
-- 2026-08-27 — Crystal: the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
-- Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
-- 2026-08-26/27 — the mixed vanilla + Archipelago session: what was measured, fixed and left open
-- 2026-08-26 — Crystal: running and the faster bike on a patched build (MEASURED, unwatched)
-- 2026-08-26 — Crystal: TELEPORT is the last action class, and nothing has been built or measured
-- 2026-08-26 — Crystal: the jump shadow and the fishing rod SHARE A TILE, and the pair is untested
-- 2026-08-26 — Crystal: a savestate BAKES IN whatever ghosts were on screen
+- READY — LOSS COVER (ADR 0045): A/B on one netsim seed, cover off is worse, no teleport at any interp (WATCHED 2026-09-02 on loopback, which overstates by one-way latency); to be re-judged with two real clients at the shipped 450ms
+- READY — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
+- READY — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
+- READY — the config's bridge port, and the relay-down backoff, on Crystal (MEASURED 2026-08-28, unwatched)
+- READY — 2026-08-27 — Crystal cross-map: what is still unwatched, and four dated NEGATIVE results
+- READY — 2026-08-27 — the map-connection block, and the cross-map arithmetic for all four directions (MEASURED, unwatched)
+- READY — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
+
+**Parked as work, not waiting on eyes (OPEN):** the 2026-09-02 interp ladder was first judged on the
+BROKEN relay (the limiter hid `WriteUnreliable` until `341a768`) — the 450ms verdict on the fixed relay
+is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load crash; hop a ledge
+THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
+Teleport, the savestate bake-in) stay below with their own headings.
 
 ## [READY] `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
 
@@ -130,7 +130,7 @@ sweeps past it while that child lives; the child is forgotten only when its port
 on silence. Emerald's sweep also runs every 30 frames instead of every frame. Built and deployed (TEVI,
 Pseudoregalia DLLs; both Lua files); unwatched beyond one Emerald reload that reattached cleanly.
 
-## [READY] Pending — Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
+## [READY] Crystal: a peer's sprite that the local player is NOT wearing (2026-08-19)
 
 The no-regression half is CONFIRMED and has moved to `verified.md` — a loopback ghost looks like
 the player, indoors and out. What is still unwatched is the case the lookup exists for.
@@ -142,7 +142,7 @@ the player, indoors and out. What is still unwatched is the case the lookup exis
       yourself — and indoors it falls back to your own sprite rather than drawing garbage.
       **The adapter prints `PROBE FLAG IN USE` while this is set; clear it afterwards.**
 
-## [READY] Pending — Crystal: re-check the battle and the door after the fixes (2026-08-19)
+## [READY] Crystal: re-check the battle and the door after the fixes (2026-08-19)
 
 Both were WATCHED and both were broken — see `verified.md` for what was seen. Fixed the same
 session; the fixes themselves have not been watched.
@@ -152,7 +152,7 @@ session; the fixes themselves have not been watched.
 - [ ] **Out of Elm's lab.** *Correct:* the ghost square on its tile, not a few pixels off it.
 - [ ] **In and out of a door generally**, since the placement code changed for every case.
 
-## [READY] Pending — Crystal's drawn tier (2026-08-19)
+## [READY] Crystal's drawn tier (2026-08-19)
 
 The screen-filling half is **confirmed** (`verified.md`); these landed after that and have not
 been watched. All of them concern peers past the engine's cap, which are painted rather than
@@ -241,7 +241,7 @@ half of the screen earlier that day. A generalised test needs the visibility hal
 third check (the far end of the row) happens to fail on the leftover tiles; that is luck, not
 design. **Log-line evidence, agent-verified; no visual claim.**
 
-## [READY] Pending — Crystal's drawn tier: what a crowd on VANILLA showed (2026-08-19)
+## [READY] Crystal's drawn tier: what a crowd on VANILLA showed (2026-08-19)
 
 The queue above ("Pending — Crystal's drawn tier") asks for five things. This is what a synthetic
 crowd could establish without the user, on **vanilla Crystal in New Bark Town**, ~60 peers offered
@@ -296,7 +296,7 @@ the numbers, and the two entries below rest on them rather than on any image.
 bookkeeping stops when the peers' `area_id` no longer matches, which is the leak fixed earlier that
 day still holding. Log-line evidence.
 
-## [READY] Pending — Crystal: a drawn ghost no longer paints over a full-screen menu (2026-08-19)
+## [READY] Crystal: a drawn ghost no longer paints over a full-screen menu (2026-08-19)
 
 **The user reported this while watching:** *"the ghost is being drawn while in the menu's."* The
 cause was not the menu clipping being broken in general — the START menu was always clipped
@@ -337,7 +337,7 @@ value. Both in `pitfalls.md`.
       Archipelago agent's memory reads rather than on a run of the fixed build.
 
 
-## [READY] Pending — Crystal: four changes from 2026-08-21, none confirmed on screen
+## [READY] Crystal: four changes from 2026-08-21, none confirmed on screen
 
 All four were made in one session while the user watched a loopback session. Each is **measured but
 not confirmed**: the measurements are mine, so per `CLAUDE.md` none of this is verified until the
@@ -372,7 +372,7 @@ sprite. The first version of that rule was wrong in a way worth recording — it
 peer was demoted and the spawned tier was silently off. Caught by the adapter's own drawn-tier line
 reading `0 spawned as real objects`.
 
-## [READY] Pending — Crystal's hardware tier (2026-08-21)
+## [READY] Crystal's hardware tier (2026-08-21)
 
 Built on the user's request as the middle rung of **spawned -> hardware -> drawn**, behind
 `MESHGHOST_CRYSTAL_OAM_OVERFLOW` (off by default). What is **measured**, by me, and therefore not
@@ -398,7 +398,7 @@ the decomp that the screen may well refute:
    right. Each copy is pinned to one rung — without that the hardware tier claims the drawn copy
    too and the comparison silently becomes a renderer against itself.
 
-## [READY] Pending — Crystal, after the 2026-08-22 session
+## [READY] Crystal, after the 2026-08-22 session
 
 1. **The drawn tier's STRIDE animation is unconfirmed.** With the facing fixed, only one frame per
    facing was ever captured in the runs watched, and the tier's own summary line has read
@@ -478,7 +478,7 @@ the engine acts on the following frame.
 
 Neither is scheduled. Both are measured, and the numbers above are what any fix has to beat.
 
-## [READY] Crystal's drawn tier at the SHIPPED 250ms: the stutter, and what it turned out to be — 2026-08-23
+## [READY] Crystal's drawn tier at the then-shipped 250ms (450ms since 2026-09-02): the stutter, and what it turned out to be — 2026-08-23
 
 **Status: measured and fixed in code, NOT confirmed on screen.** The user reported it live —
 *"the drawn ghost still looks a bit stuttery/jittery while moving around"* — while playing the
@@ -609,7 +609,7 @@ Read from `pret/pokecrystal`, not measured, and nothing has been built on it yet
 
 Whether the trade is worth taking is undecided; it is written down so the option is not rediscovered.
 
-## [READY] Crystal's drawn tier at the SHIPPED 250ms: one snap fixed, a small one left (2026-08-23)
+## [READY] Crystal's drawn tier at the then-shipped 250ms (450ms since 2026-09-02): one snap fixed, a small one left (2026-08-23)
 
 **Fixed and judged better by the user.** Two independent causes of the end-of-walk snap, both of
 which only fire when the camera parks — which is only when the player stops:
@@ -2523,7 +2523,7 @@ made a standing peer move twice as far as the world.
   compiles because new functions were hung on existing tables. `agent_docs/ideas.md` has the
   modules refactor.
 
-## [READY] Pending — what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
+## [READY] what "FEATURE COMPLETE, 2026-08-27" covers has not been stated
 
 The user added that line to `README.md`'s build story by hand, as build-story step 25, and
 **deliberately left it without a description**. So the date and the words are theirs; the scope is
@@ -2768,7 +2768,7 @@ above — before the fix, that address could not even have been reached to fail.
 **What is still not measured on this adapter:** anything a player sees. No ghost, no seam, no tier
 handover was part of this run.
 
-## [READY] Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
+## [READY] the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
 
 `meshghost_crystal.lua`, three changes, `luac -p` clean, not run:
 
@@ -2804,7 +2804,7 @@ around a seam crossing with the ghost leading is the first instrument.
 The same run raised the question of shipping Crystal DRAWN-ONLY; that is a decision for the user,
 recorded in `phases/phase9.md` for 2026-09-02 when made.
 
-## [READY] Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
+## [READY] the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
 
 **Decided on the first run after ADR 0044**, with both tiers side by side in compare mode: the
 spawned ghost snapped a little whenever it crossed a seam ahead of or behind the player and the
@@ -2851,7 +2851,7 @@ is a 16-frame beat, a 10Hz packet lands every 100ms, so some steps arrive as one
 the painted model glides the distance rather than stepping it. More interp cannot buy that back. Kept here rather than `VERIFIED.md` because a rate is a taste judged on one link's dice roll
 (`dev-scripts/README.md`, "one netsim run is one dice roll"); the file's own number is the record.
 
-## [DONE] The interp ladder on a 100–200ms link, judged on Crystal by the user (2026-09-02): 250ms stands, prediction stays off
+## [DONE] The interp ladder on a 100–200ms link, judged on Crystal by the user (2026-09-02): the then-shipped 250ms stood, prediction stays off — SUPERSEDED later the same day by 450ms on the worst-case link (ADR 0046, the `[DONE] 450ms` entry near the top, `VERIFIED.md` 2026-09-02)
 
 **Rig:** vanilla Crystal in SHIPPED mode (adapter on the command line, no dev loader, no compare
 copy, drawn only), one painted loopback ghost two tiles right; relay 15Hz; `meshghost-netsim` at
@@ -2892,7 +2892,7 @@ the client suppresses unchanged states (68% of frames in that run), so losing th
 because they share the frame. Neither transport's behaviour under loss had been watched on screen
 before today.
 
-## [READY] Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
+## [READY] LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
 
 **What changed (Go side, confirmed with the tools):** at 25Hz and slower every state carries the
 sample before it as a delta; a receiver that missed a packet gets the sample from the next one. The
