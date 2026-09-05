@@ -193,6 +193,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — the recording indicator's shapes: red square, clock box and nametags, pixel-aligned (user-confirmed with ShareX zoom)
 - 2026-09-05 — the recording indicator draws the same from its BAKED defaults, with no tuning file (user-confirmed on screen)
 - 2026-09-05 — the reset-to-save crash is CLOSED AGAIN: the pause menu's Reset-button hook was the crash, and it is gone (user-confirmed)
+- 2026-09-05 — the chaser HOLDS through the pause menu and an item popup (ADR 0053, user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5017,3 +5018,26 @@ and crashing anyway) and one survivor. The rule that came out of it, on the Unre
 subtract the hook before subtracting what it does, and a hook that arms by scanning arms by luck —
 log its arming and read that log. Trail: `agent_docs/phases/phase7.md`, 2026-09-05;
 `agent_docs/pitfalls/by-lesson.md`, "A UE4SS pre-hook on the pause menu's Reset delegate".
+
+## 2026-09-05 — the chaser HOLDS through the pause menu and an item popup (ADR 0053, user-confirmed)
+
+**User, after six pauses of 1 to 24 seconds with a 3-second chaser on:** *"yee looks like its
+pausing when in menu/item etc"*. The log carries a `PLAYER_FROZEN: frozen` / `resumed` pair for
+each, on the samples the menu opened and closed.
+
+**What it is.** The adapter reads `WorldSettings.PauserPlayerState` every tick (the game's own
+pause, which the pause menu and the item popup both use -- measured by `probe_frozen/` the same
+day) and sends `player_frozen` to the core on change. The core's chaser clock stands still while
+it is set and frames taken during the pause are never offered to the chaser, so a pause costs the
+chaser no delay and it never converges onto a player who cannot move -- the 2026-09-04 defect (110
+seconds of `h=550 v=-290` across a popup, chaser inside the player). Recordings and replay ghosts
+are untouched by the user's call. The intro cutscene does not set the pauser and needs no hold:
+the game moves the pawn there.
+
+**How it was found.** One Lua probe reading three families of candidate by name with a coverage
+line for what did not resolve; the engine pause answered both real cases, the controller input
+gates turned out unreadable from Lua, and the widget census named every event. The Go half was
+built first with a regression test that fails without it (`core/chaser_test.go`); the adapter half
+was one property read placed BEFORE the tick's paused early-return, because the pause menu flips
+the cursor on the same sample it sets the pauser. Trail: `agent_docs/phases/phase7.md`,
+2026-09-05; ADR 0053; `PROBES.md`, `probe_frozen/`.

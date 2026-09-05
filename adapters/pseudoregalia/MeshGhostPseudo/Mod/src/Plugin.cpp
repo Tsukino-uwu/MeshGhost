@@ -21047,8 +21047,13 @@ namespace MeshGhostPseudo
                 if (UObject** ghost_weapon_mesh = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh"));
                     ghost_weapon_mesh && *ghost_weapon_mesh)
                 {
-                    if (bool* visible = mg_property_value<bool>((*ghost_weapon_mesh), STR("bVisible"));
-                        visible && *visible != want_weapon_mesh)
+                    // **Through the BITFIELD MASK (2026-09-05).** `bVisible` shares its byte with
+                    // its neighbours, and the plain byte read this shipped with on 2026-09-04 read
+                    // true whenever any of them was set -- so the compare never settled and this
+                    // block rewrote the visibility AND logged it every tick for every ghost (~140
+                    // lines a second per ghost, seen live with a chaser). The file's own case-filed
+                    // trap, walked into a third time; mg_read_bool exists for exactly this.
+                    if (mg_read_bool(*ghost_weapon_mesh, STR("bVisible"), want_weapon_mesh) != want_weapon_mesh)
                     {
                         // **NOT propagated to children (2026-09-04, measured).** `LightMesh` hangs
                         // off `WeaponMesh`, so the propagating write this first shipped with lit

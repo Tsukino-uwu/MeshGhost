@@ -42,10 +42,10 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — a CHASER should now HOLD while you sit in the pause menu or an item popup, and resume the same distance behind: the adapter sends `player_frozen` from `WorldSettings.PauserPlayerState` (built 2026-09-05, deploys at the next game exit, unwatched)
+- READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
-- MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
+- DONE — the frozen-player state (item popup, pause menu): the CHASER half is fixed and CONFIRMED 2026-09-05 (`VERIFIED.md`); a recording still shows the run-fall on the spot, by the user's call (chaser only)
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
 - READY — no state is sent from the title screen, so a recording starts at your first real frame; built and deployed 2026-09-04, unwatched — **set up for the 2026-09-04 run**
@@ -64,24 +64,6 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
-
-## [READY] the chaser holds through the pause menu and an item popup: `player_frozen` is sent (2026-09-05)
-
-**The adapter half of ADR 0053.** Every tick, before the mod goes quiet for a pause, it reads
-`WorldSettings.PauserPlayerState` (two named property reads down from the controller's world) and
-sends `player_frozen` to the core on change. The core's chaser clock stops while it is set (Go side
-tested, `core/chaser_test.go`). The signal is what `probe_frozen/` measured the same day: set on the
-sample the pause menu or the item popup appears, cleared on the sample it closes (`PROBES.md`). The
-intro cutscene does not set it, by design: the game moves the pawn there, so the chaser has a trail
-to follow.
-
-**What to watch.** Chaser on (any delay), two fake peers or none. Run for ten seconds, open the
-pause menu, wait longer than the chaser's delay, close it. Correct is: the chaser is where it was
-when you paused, not on top of you, and it resumes following at the same distance. Same with an
-item popup. The log shows `PLAYER_FROZEN: frozen` and `PLAYER_FROZEN: resumed` on the edges, and
-the core log `player frozen (adapter): the chaser pack holds` / `player resumed`. **What would be
-wrong:** the chaser inside you after a long pause (the 2026-09-04 defect), or a chaser that
-despawns and respawns across the pause (a seam where there should be none).
 
 ## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
 
@@ -311,7 +293,7 @@ run after run, where it has been drifting to wrong heights. The `VFXOFFSET` line
 `meshghost.log`/`UE4SS.log` are mine to read afterwards; they should only ever cite a component
 measured against your own player.
 
-## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
+## [DONE] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send -- the chaser half CONFIRMED fixed 2026-09-05
 
 **2026-09-05 (later) — the probe RAN twice (`probe_frozen/`, `PROBES.md`): the pause menu AND the
 item popup are the engine's own pause, and the cutscene is a scripted possession with no readable

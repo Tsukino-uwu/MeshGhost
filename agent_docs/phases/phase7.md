@@ -2622,3 +2622,11 @@ restored.
 the cursor on the same sample it sets the pauser, so a read after that return would miss the rising
 edge); reset at every hello so a core attaching mid-pause is told. Deploys at the next game exit;
 the look is a chaser that holds through a pause menu and resumes the same distance behind.
+
+**Confirmed: the chaser holds through a pause.** Six pauses of 1 to 24 seconds with a 3-second
+chaser: *"yee looks like its pausing when in menu/item etc"*. ADR 0053 is done end to end and the
+frozen-player defect is closed for the chaser. Found on the way: the 2026-09-04 sword mirror read
+`WeaponMesh.bVisible` through a plain byte -- the bitfield trap, a third time -- and rewrote plus
+logged it every tick per ghost (~140 lines/s per ghost, seen with the chaser); fixed with
+`mg_read_bool`, built, deploys at the next game exit. Sixty-five other `mg_property_value<bool>`
+reads want the same audit.
