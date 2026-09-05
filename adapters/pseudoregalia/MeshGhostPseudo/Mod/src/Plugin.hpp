@@ -1265,6 +1265,9 @@ namespace MeshGhostPseudo
 
         // Edge latch for the pause-menu ghost clear; see the tick.
         bool pause_ghosts_cleared{false};
+        // The last `player_frozen` value sent to the core (ADR 0053); reset to false at every
+        // hello so a core that attaches mid-pause is told on the next tick rather than never.
+        bool player_frozen_sent{false};
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};

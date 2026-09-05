@@ -2616,3 +2616,9 @@ and is only collected ~12s after the end, so no Lua-readable edge; the controlle
 C++ read if an edge is ever needed, and the chaser does not need one. So the adapter's
 `player_frozen` is one property: `WorldSettings.PauserPlayerState != null`. Probe unloaded, stub
 restored.
+
+**The adapter half of ADR 0053 is built.** `player_frozen` is sent on change from
+`WorldSettings.PauserPlayerState`, read before the tick's paused early-return (the pause menu flips
+the cursor on the same sample it sets the pauser, so a read after that return would miss the rising
+edge); reset at every hello so a core attaching mid-pause is told. Deploys at the next game exit;
+the look is a chaser that holds through a pause menu and resumes the same distance behind.

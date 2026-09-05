@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — a CHASER should now HOLD while you sit in the pause menu or an item popup, and resume the same distance behind: the adapter sends `player_frozen` from `WorldSettings.PauserPlayerState` (built 2026-09-05, deploys at the next game exit, unwatched)
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -63,6 +64,24 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [READY] the chaser holds through the pause menu and an item popup: `player_frozen` is sent (2026-09-05)
+
+**The adapter half of ADR 0053.** Every tick, before the mod goes quiet for a pause, it reads
+`WorldSettings.PauserPlayerState` (two named property reads down from the controller's world) and
+sends `player_frozen` to the core on change. The core's chaser clock stops while it is set (Go side
+tested, `core/chaser_test.go`). The signal is what `probe_frozen/` measured the same day: set on the
+sample the pause menu or the item popup appears, cleared on the sample it closes (`PROBES.md`). The
+intro cutscene does not set it, by design: the game moves the pawn there, so the chaser has a trail
+to follow.
+
+**What to watch.** Chaser on (any delay), two fake peers or none. Run for ten seconds, open the
+pause menu, wait longer than the chaser's delay, close it. Correct is: the chaser is where it was
+when you paused, not on top of you, and it resumes following at the same distance. Same with an
+item popup. The log shows `PLAYER_FROZEN: frozen` and `PLAYER_FROZEN: resumed` on the edges, and
+the core log `player frozen (adapter): the chaser pack holds` / `player resumed`. **What would be
+wrong:** the chaser inside you after a long pause (the 2026-09-04 defect), or a chaser that
+despawns and respawns across the pause (a seam where there should be none).
 
 ## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
 

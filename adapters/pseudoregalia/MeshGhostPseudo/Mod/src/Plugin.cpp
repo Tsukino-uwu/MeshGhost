@@ -15170,6 +15170,55 @@ namespace MeshGhostPseudo
         // walked into it anyway.
         if (auto [pause_controller, pause_pawn] = find_local_controller_and_pawn(); pause_controller)
         {
+            // **`player_frozen` (ADR 0053): ONE property, sent on change, and read HERE -- before
+            // the paused early-return below, because the pause menu flips the cursor on the same
+            // sample it sets the pauser, so a read placed after that return would never see the
+            // rising edge.** Measured 2026-09-05 by `probe_frozen/` (PROBES.md):
+            // `WorldSettings.PauserPlayerState` is set on the sample the pause menu or the item
+            // popup appears and cleared on the sample it closes -- the two states that produced
+            // the 110-second freeze the chaser spent. The intro cutscene does not set it and needs
+            // no clock stop: the game moves the pawn. Two named reads per tick, `UWorld::
+            // PersistentLevel` and `ULevel::WorldSettings` (both UPROPERTYs in the UE reference,
+            // dev.epicgames.com/documentation, UWorld and ULevel), then the pauser pointer; the
+            // steady cost is three pointer reads and no send.
+            {
+                bool frozen = false;
+                bool resolved = false;
+                if (UWorld* world = pause_controller->GetWorld())
+                {
+                    if (UObject** level = mg_property_value<UObject*>(world, STR("PersistentLevel")); level && *level)
+                    {
+                        if (UObject** settings = mg_property_value<UObject*>(*level, STR("WorldSettings")); settings && *settings)
+                        {
+                            if (UObject** pauser = mg_property_value<UObject*>(*settings, STR("PauserPlayerState")))
+                            {
+                                resolved = true;
+                                frozen = *pauser != nullptr;
+                            }
+                        }
+                    }
+                }
+                if (resolved && frozen != player_frozen_sent)
+                {
+                    player_frozen_sent = frozen;
+                    if (bridge)
+                    {
+                        bridge->send_line(frozen ? R"({"type":"player_frozen","payload":{"frozen":true}})"
+                                                 : R"({"type":"player_frozen","payload":{"frozen":false}})");
+                    }
+                    Output::send(STR("[MeshGhostPseudo] PLAYER_FROZEN: {} (WorldSettings.PauserPlayerState {}).\n"),
+                                 frozen ? STR("frozen") : STR("resumed"), frozen ? STR("set") : STR("cleared"));
+                }
+                else if (!resolved)
+                {
+                    static bool warned = false;
+                    if (!warned)
+                    {
+                        warned = true;
+                        Output::send(STR("[MeshGhostPseudo] WARNING: PauserPlayerState did not resolve -- player_frozen will never be sent on this build.\n"));
+                    }
+                }
+            }
             bool cursor_shown = false;
             if (UClass* pc_class = pause_controller->GetClassPrivate())
             {
@@ -22252,6 +22301,9 @@ namespace MeshGhostPseudo
             if (bridge->send_line(hello))
             {
                 bridge->mark_hello_sent();
+                // A fresh core starts unfrozen (StartChasers resets its clock); forget what the
+                // old one was told so the current pause state is re-sent on the next tick.
+                player_frozen_sent = false;
             }
         }
 
