@@ -57,13 +57,13 @@ If a Unity game ships `GameAssembly.dll` rather than `Assembly-CSharp.dll`, it i
 needing unhollowing, and a materially harder access model. Establish which one before estimating
 any Unity adapter.
 
-## Configuration goes through BepInEx's own config, not an environment variable
+## Configuration goes through the player's config.json first, BepInEx's config second, never a new env var
 
-This host has a real config system and the player already knows where it lives, so the bridge
-port's primary home is a BepInEx `BridgePort` entry rather than an env var — unlike the emulator
-adapters, which have no such system and use the environment. The shared `MESHGHOST_BRIDGE_PORT`
-launcher override still exists and wins over the config entry, so one launcher script can aim
-every game. `_template/PROTOCOL.md` has the port-walk contract both feed.
+The keys every game shares — `local_game_bridge`, `autostart` — are read from the `config.json` in
+the game's root folder (2026-08-28, 2026-09-03), because that is the one file every README tells a
+player to edit; a BepInEx `BridgePort` entry only wins when changed from its default (`Plugin.cs`,
+the tie-break). The shared `MESHGHOST_BRIDGE_PORT` launcher override still wins over both, so one
+launcher script can aim every game. `_template/PROTOCOL.md` has the port-walk contract all feed.
 
 ## Launching the core: no console window
 

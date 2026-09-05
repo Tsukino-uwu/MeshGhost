@@ -93,19 +93,29 @@ off before believing a result.
 
 | Switch | How it is set | Default | What it does |
 |---|---|---|---|
-| `MESHGHOST_NO_AUTOSTART` | environment (any value) | unset — the adapter starts a core itself | Turns autostart OFF, so the adapter uses only a core that is already running and never spawns one. **Supported configuration, not a debug switch**: an antivirus objecting to one program launching another is a real thing that happens to real players, and this is the documented answer — set it and run `meshghost.exe` by hand. Every adapter honours the same name. |
-| `BridgePort` | BepInEx config, `[Network]` section of `BepInEx/config/dev.meshghost.tevi.cfg` | `7778` (`DefaultBridgePort`) | Which local core port this instance STARTS from. Since 2026-08-27 the adapter walks `BridgePortCount = 8` ports from here (`BridgeClient.cs`), so a second instance finds its own core without anyone touching this — the setting is now the pin-the-base override, not the two-instance mechanism (`BANDAGES.md`). |
+| `"autostart": false` | `config.json` in the game's root folder (the file the player already edits) | absent — `true`, the adapter starts a core itself | Turns autostart OFF, so the adapter uses only a core that is already running and never spawns one (`CoreLauncher.ConfigSaysNoAutostart`, 2026-09-03, the user's call: *"environment variable" means nothing to most players*). **Supported configuration, not a debug switch**: an antivirus objecting to one program launching another is a real thing that happens to real players, and this is the documented answer — set it and run `meshghost.exe` by hand. Every adapter honours the same key. |
+| `MESHGHOST_NO_AUTOSTART` | environment (any value) | unset | The older way to say the same thing; still honoured, either one saying no is a no. Kept so an existing setup keeps working; the player-facing docs now point at the config key above. |
+| `"local_game_bridge"` | `config.json` in the game's root folder, `"host:port"` | absent — `7778` | Where the bridge port walk STARTS, read by the adapter since 2026-08-28 (`CoreLauncher.ResolveBridgeBasePort`; until then this key moved the core and not the adapter, and the two silently never met). Only consulted while `BridgePort` below is at its default — see that row for the tie-break. |
+| `BridgePort` | BepInEx config, `[Network]` section of `BepInEx/config/dev.meshghost.tevi.cfg` | `7778` (`DefaultBridgePort`) | Which local core port this instance STARTS from. Since 2026-08-27 the adapter walks `BridgePortCount = 8` ports from here (`BridgeClient.cs`), so a second instance finds its own core without anyone touching this — the setting is now the pin-the-base override, not the two-instance mechanism (`BANDAGES.md`). **Tie-break with `local_game_bridge` (`Plugin.cs`):** a `BridgePort` that differs from 7778 is a decision made in THIS game's config and wins; left at 7778, config.json's `local_game_bridge` decides. |
 | `MESHGHOST_BRIDGE_PORT` | environment | unset | Overrides the bridge BASE port and **wins over the BepInEx setting** (`CoreLauncher.cs` — same variable name the two Lua adapters use, so one launcher script can aim every game). |
 | `MESHGHOST_CORE_DIR` | environment | unset | Prepends a directory to the core-executable search, for running against a dev-built `meshghost.exe`. |
 | `BridgeHost` | not settable — `const`, `127.0.0.1` | — | Deliberately fixed. An adapter may hold a socket to its own local core and nothing else; a configurable host would be the first step toward an adapter that talks to a relay, which the contract forbids. |
 | `ReconnectInterval` | not settable — `BridgeClient.cs`, `2` seconds | — | How often a disconnected bridge retries. |
+| `BridgePortCount` | not settable — `BridgeClient.cs`, `8` | — | How many ports the walk covers from the base: 7778-7785 by default, matching the other three adapters and `_template/PROTOCOL.md`. |
+| `RefusalsBeforeWalking` | not settable — `BridgeClient.cs`, `4` | — | How many consecutive refused connects on the current port before the walk cursor moves to the next one. Counted rather than immediate on purpose: a refusal is the normal first thing on a cold start (the adapter dials before its own core has bound), so at the 2s reconnect interval this waits ~8s, past the launcher's 5s spawn cooldown, and only a genuinely dead port loses the cursor. Load-bearing: it is what broke the launcher/walk deadlock recorded in `UNVERIFIED.md` (2026-09-02). |
+| `BusyPortCooldown` | not settable — `BridgeClient.cs`, `10` seconds | — | How long a port whose core answered "busy" (a live core that is simply not ours) is left alone before it is dialled again; matches the other adapters. |
+| `RelayDownBackoff` | not settable — `BridgeClient.cs`, `10` seconds | — | How long the adapter stays put on a core that reports its relay is down, instead of cooling that port and walking on — a core that cannot reach the relay is still a perfectly good core, and walking would leave the adapter with nowhere to go (Crystal's guard since 2026-08-19; TEVI got it 2026-08-28, the last of the four). |
+| `HelloAnswerTimeout` / `MinDrainsBeforeHelloTimeout` | not settable — `BridgeClient.cs`, `1.5` seconds / `20` drains | — | How long a sent `hello` may go unanswered before the port is judged not to be a core. BOTH must be true: the time has passed AND the main thread has drained the socket that many times since — the answer once sat unread through every main-menu launch because the drain only ran in play, so a wall clock alone walked the cursor on a perfectly good core. |
+| `SpawnCooldown` | not settable — `CoreLauncher.cs`, `5` seconds | — | The least time between two core spawns, so a core that dies on start cannot be relaunched in a tight loop. |
 
-**No flag files, and only the three environment variables above** (`MESHGHOST_NO_AUTOSTART`,
-`MESHGHOST_BRIDGE_PORT`, `MESHGHOST_CORE_DIR` — the names shared across adapters). Everything
-else a tester changes goes through BepInEx's own config, which is visible in a file the player
-already knows about rather than in an exported shell variable nobody can see afterwards. (This
-paragraph said "no environment variables" until 2026-09-01, while the adapter read three — the
-exact drift the register exists to catch.)
+**No flag files. Two `config.json` keys** (`autostart`, `local_game_bridge`, read from the file in the
+game's root folder) **and three environment variables** (`MESHGHOST_NO_AUTOSTART`,
+`MESHGHOST_BRIDGE_PORT`, `MESHGHOST_CORE_DIR` — the names shared across adapters) are the whole
+runtime surface; everything else a tester changes goes through BepInEx's own config. Prefer the
+config.json key where one exists: it is a file the player already knows about rather than an
+exported shell variable nobody can see afterwards. (This paragraph said "no environment variables"
+until 2026-09-01 while the adapter read three, and "only the three environment variables" until
+2026-09-06 while it read two config keys — the exact drift the register exists to catch.)
 
 ## When a comment and a value disagree
 

@@ -165,7 +165,10 @@ rather than by a gap in our understanding -- but it is still a compensation and 
 - **It mirrors `OnTriggerStay2D`, per frame, not Enter/Exit.** The first version mirrored the
   transitions and shut a portal with a ghost still standing in it whenever the local player walked
   off (found and fixed 2026-08-28, `VERIFIED.md`). The EXIT is still a transition on purpose. Both
-  directions are now confirmed on screen.
+  directions are now confirmed on screen. **A disconnect is a third edge the mirror had to learn**:
+  a peer closing the game while standing in a portal left it on its "assembling" glow until somebody
+  walked on and off it, because no EXIT ever came; the ghost's release now clears the device
+  (confirmed on screen 2026-09-02, `VERIFIED.md`).
 
 **What would retire it:** a way to let a ghost's collider fire only the visual half -- a layer the
 warp's trigger does not filter on, or a game build where the animation is driven separately from

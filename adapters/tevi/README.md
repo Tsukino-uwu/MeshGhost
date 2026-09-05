@@ -37,8 +37,10 @@ Phase 6 fully done 2026-08-13.**
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
-- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-08-28** (the build
-  carrying the trail/warp/pooled-VFX/hitstop work below). The 2026-08-18 build before it added
+- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-09-05** (the build that
+  looks for `meshghost.exe` and `config.json` in the game's root folder only; `built-from.txt`
+  beside the staged DLL records the exact commit). The 2026-08-28 build before it carried the
+  trail/warp/pooled-VFX/hitstop work below, and the 2026-08-18 build before that added
   three bridge/lifecycle behaviours — `bridge_ready` and `reject` are handled explicitly instead of
   falling into the unknown-message default, the bridge is drained only after the local player is
   confirmed to exist, and returning to the **main menu** despawns every peer ghost. The despawn
@@ -63,6 +65,9 @@ start tracking again after a peer left and rejoined (2026-08-28, not investigate
 and `lib/Newtonsoft.Json.dll` copied in once from your own TEVI install (proprietary, gitignored,
 never committed — which is also why CI cannot build this adapter and the DLL is checked in).
 After a rebuild, also copy the DLL to the live game install(s), not just `packaging/release/`.
+The mod looks for `meshghost.exe`, its `config.json`, `meshghost.log` and the `replay\` folder in
+the **game's root folder** (the one with `TEVI.exe`) and nowhere else, since 2026-09-05; a dev
+build can point it elsewhere with `MESHGHOST_CORE_DIR` ([FLAGS.md](FLAGS.md)).
 
 ## How this adapter was built
 
@@ -104,6 +109,16 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
 12. Gave ghosts the charged attack's effects. Three name-guesses failed, so a probe was written
     that reports the prefab the game itself spawns; it named them immediately. The ghost also holds
     on the impact frame now, which needed the clip's PHASE synced, not just its name. (2026-08-28)
+13. Stopped sending what a ghost can derive for itself. The animation phase was the one field TEVI
+    sent that changes every frame by construction — an idle is a looping clip — and it alone kept
+    the core's unchanged-state suppression from ever firing here. It is now left out while the
+    current clip loops (attacks and one-shots still carry it), so a standing player's states stop
+    going out: 70% of them suppressed, upload down to a third, and the ghost looked identical to
+    the user on the netsim rig (2026-08-28, [VERIFIED.md](VERIFIED.md)).
+14. Made a portal settle once the last ghost standing in it disconnects. The per-frame mirror in
+    step 11 kept a warp device on its "assembling" glow after the peer closed the game, until
+    somebody walked on and off it; the disconnect now releases it, watched by the user with two
+    real instances (2026-09-02, [VERIFIED.md](VERIFIED.md)).
 
 ### Further work past "good enough"
 
