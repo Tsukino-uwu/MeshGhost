@@ -137,7 +137,7 @@ adapters are per-game anyway. **The mechanism for this ALREADY SHIPPED; what is 
 measurements.**
 
 **What exists today (do not rebuild it).** ADR 0040 made the render model three per-game knobs, and
-`packaging/release/games/<game>/client-config-overrides.json` is applied onto the shared
+`packaging/config-overrides/<game>.json` (moved out of the release tree 2026-09-05) is applied onto the shared
 `client-config-template.json` when the release is staged. TEVI already ships `interp: 175ms` this
 way, with the sweep quotes recorded in the file itself. Pseudoregalia ships `ghost_collision:
 disabled`. **Emerald and Crystal have no overrides file at all** and silently keep the template's

@@ -7,10 +7,10 @@ builds the Go `.exe`s and then delegates the assembly to `dev-scripts/stage-rele
 (also the local dry-run/rehearsal path), which copies the Emerald and Crystal adapter files in,
 and drops a `config.json` into every game's folder (TEVI's and Pseudoregalia's mod folders,
 `games/pokemon/emerald/` and `games/pokemon/crystal/`) — the root `config.json`'s `client` block
-with that game's `client-config-overrides.json` merged on top. Since 2026-09-02 they all carry the
+with that game's `packaging/config-overrides/<game>.json` merged on top (a staging input that stays OUT of the zip -- it shipped as an empty `{}` until 2026-09-05 and a player asked whether it was where name and colour go). Since 2026-09-02 they all carry the
 same values (450ms interp, collision disabled), trimmed to the player-facing keys (basics,
 collision, the render group; the rest take built-in defaults), and no game overrides anything; the two
-`client-config-overrides.json` files are empty and stay for the day a game needs its own value. The workflow zips the whole `packaging/release/` folder as the
+overrides files are empty and stay for the day a game needs its own value. The workflow zips the whole `packaging/release/` folder as the
 Windows release asset. It does **not** stage a copy of the client beside those mods — see "One
 copy of the client, copied in by hand" below. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
@@ -211,7 +211,7 @@ staging step in `dev-scripts/stage-release.ps1` (which `release.yml` runs) when 
 genuinely ready to ship — see the Emerald and Crystal blocks there for the pattern (copy the
 script, copy a `lib/` next to it; Crystal reuses Emerald's, which is the same BizHawk LuaSocket
 build), and TEVI below for what a compiled adapter needs instead. A game whose mod folder ships a
-`config.json` also needs a `games/<game>/client-config-overrides.json` (or a deliberate decision
+`config.json` also needs a `packaging/config-overrides/<game>.json` (or a deliberate decision
 not to override anything).
 
 Every game also gets a hand-written, committed `games/<publisher>/<game>/README.txt` — the

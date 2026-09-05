@@ -108,13 +108,16 @@ $modFolders = @(
     'packaging\release\games\pokemon\emerald',
     'packaging\release\games\pokemon\crystal'
 )
-# Where each folder's overrides live: games\<game>\ for the mod-folder games (the mod folder is a
-# level or more below), the folder itself for the Pokemon pair (the script IS the folder).
+# Where each folder's overrides live: packaging\config-overrides\<game>.json, OUTSIDE the release
+# tree. They sat inside it as games\<game>\client-config-overrides.json until 2026-09-05 and so
+# shipped in every zip as an empty {} that no runtime reads -- a player found one and asked whether
+# it was where name and colour go. A staging input has no business in the download; a game with
+# no file here simply gets the root client block unchanged.
 $overridesFor = @{
-    'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo' = 'packaging\release\games\pseudoregalia\client-config-overrides.json'
-    'packaging\release\games\tevi\MeshGhost' = 'packaging\release\games\tevi\client-config-overrides.json'
-    'packaging\release\games\pokemon\emerald' = 'packaging\release\games\pokemon\emerald\client-config-overrides.json'
-    'packaging\release\games\pokemon\crystal' = 'packaging\release\games\pokemon\crystal\client-config-overrides.json'
+    'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo' = 'packaging\config-overrides\pseudoregalia.json'
+    'packaging\release\games\tevi\MeshGhost' = 'packaging\config-overrides\tevi.json'
+    'packaging\release\games\pokemon\emerald' = 'packaging\config-overrides\emerald.json'
+    'packaging\release\games\pokemon\crystal' = 'packaging\config-overrides\crystal.json'
 }
 foreach ($f in $modFolders) {
     New-Item -ItemType Directory -Force $f | Out-Null
