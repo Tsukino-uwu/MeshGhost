@@ -2566,3 +2566,18 @@ keeping: a FILTER (stop offering frames) is not enough, because queued frames st
 the wall clock and the first frame after is a seam — a CLOCK fixes both. **The adapter half is
 open and is a probe:** what Pseudoregalia's own frozen signal is (`UNVERIFIED.md`, the frozen
 entry). No adapter sends the message yet, so nothing changes on screen until it does.
+
+**Later still — the frozen-signal probe ran, and a reset-to-save crash named the indicator.**
+`probe_frozen/` (`PROBES.md`) through the scratch slot, three faults fixed by hot reload without a
+relaunch. **Result:** the pause menu is the engine's own pause — `WorldSettings.PauserPlayerState`
+flips on the exact samples the menu opens and closes, across the options submenu and a 100ms
+open/close spam, so the adapter's `player_frozen` signal for the pause menu is that field. Five
+controller input gates do not resolve through UE4SS on this build. The item popup, the intro
+cutscene (a fourth frozen state the user found by loading a new save) and a zone transition are
+still unmeasured, because the run ended in a crash: *reset to last save* with a recording running.
+`read-minidump.py --stack` put the reset-hook lambda on the crash thread; the probe's next sample
+was 70ms away and is cleared by timing. **The user named the cause before the dump was open** — the
+recording indicator's components, dropped but never removed, *"this is like the 3rd or 4th time"* —
+and it is the fourth handle in the reset-crash family. Fix: `destroy_recording_indicator` at the
+reset button's PRE hook, built and deployed, UNWATCHED. Promoted to a rule the user asked for:
+`checklists/before-spawning-in-unreal.md`, first bold line.

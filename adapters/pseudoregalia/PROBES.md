@@ -294,6 +294,39 @@ resolved.
 `probe_swordthrow/`'s three-class 250ms walk. Read-only. **Unload it before judging anything**: a
 loaded probe is a suspect in every later report.
 
+## `probe_frozen/` — the game's own "player is frozen" signal, for the chaser's clock (2026-09-05)
+
+**The question (ADR 0053).** The chaser's clock now stops on a `player_frozen` message, and
+`probe_pickup/` had proved nothing the adapter samples marks a freeze. So what does the game itself
+set? Three families read by NAME at 10Hz, no UFunction on anything `FindAllOf` returned, no
+`ForEachProperty`: the engine's pause (`WorldSettings.PauserPlayerState`, `TimeDilation`), the
+controller's input gates, and a census of every live `UserWidget` with its `Visibility`, printed as a
+DIFF on change. Every named field that does not resolve is listed in a COVERAGE line rather than
+skipped.
+
+**Measured 2026-09-05, first live run (the record is in `UNVERIFIED.md`):**
+
+- **The PAUSE MENU is the engine's own pause.** `WorldSettings.PauserPlayerState` goes from empty to
+  the player's `PlayerState` on the sample the `UI_PauseMenu_C` widget appears, and back to empty on
+  the sample it closes; `bShowMouseCursor` flips with it. Held across the options submenu; caught on
+  every edge of a 100ms open/close spam. **That is the adapter's signal for the pause menu.**
+- **Five controller gates do not resolve through UE4SS's property read on this build**
+  (`IgnoreMoveInput`, `IgnoreLookInput`, `bCinematicMode`, `bCinemaDisableInputMove/Look`) — they
+  come back as an INVALID object wrapper, which the probe now names `<unresolved>` instead of
+  printing an address that changes every sample (its first ten seconds of output).
+- **Unmeasured:** the item popup, the intro cutscene (*"can't move during that cutscene"* — a fourth
+  frozen state, reached by loading a new save) and a zone transition. The session ended in a
+  reset-to-save crash attributed to the mod's indicator, not this probe (`pitfalls/by-lesson.md`).
+- **Not an event, but worth knowing:** the game rebuilds `UI_HUD_C` plus eight `UI_Heart_C` every
+  ~9s and lets garbage collection sweep the copies; the pause menu leaves a full copy per open.
+
+**Three probe faults fixed live, each one a lesson already filed:** a value that is a fresh wrapper
+every read is not a change (stringify by TYPE, not by address); `GetFullName`'s first token is the
+CLASS, so a match inside the path named every widget after the engine object that outers them; and
+three hundred widgets make a full signature unreadable, so print the diff. Hot-reloaded through
+`probe_scratch/`'s slot via `probe_reloader/`; the stub was restored afterwards.
+
+
 ## `probe_scratch/` — the always-registered EMPTY slot (2026-09-04)
 
 **Not a probe. A permanently enabled, deliberately empty mod folder, so a NEW probe can be

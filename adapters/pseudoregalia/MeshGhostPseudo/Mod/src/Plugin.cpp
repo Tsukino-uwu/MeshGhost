@@ -8780,6 +8780,68 @@ namespace MeshGhostPseudo
 
         bool g_recording_indicator_visible = false;
 
+        // **REMOVES the indicator's three components -- destroyed, not merely dropped -- at the ONE
+        // moment this file knows to be safe for calling into the level: the pause menu's Reset
+        // button PRE hook, before the game's own reset runs (the same moment release_ghost destroys
+        // the ghosts there).** Added 2026-09-05 after a reset-to-save with a recording running died
+        // in ProcessEvent one frame after the reset guard finished -- the user's read, and the
+        // shape of every crash in this family: *"don't think we ever void those ... this is like
+        // the 3rd or 4th time"*. These components are OURS on the LOCAL pawn, attached across
+        // actors to the camera manager's transform, and a same-zone reset need not destroy the pawn
+        // at all -- so unlike a ghost's components, nothing else was ever going to remove them.
+        // Prints N of M so a subtraction that reached nothing says so (probes.md's rule).
+        // LoadMap PRE / InitGameState PRE keep the drop-only treatment: calling into the level
+        // there is what this file has crashed on before.
+        auto destroy_recording_indicator(const wchar_t* reason) -> void
+        {
+            int wanted = 0;
+            int destroyed = 0;
+            for (UObject* part : {g_recording_dot, g_recording_time, g_recording_time_plate})
+            {
+                if (!part)
+                {
+                    continue;
+                }
+                ++wanted;
+                UFunction* destroy_fn = part->GetFunctionByNameInChain(STR("DestroyComponent"));
+                if (!destroy_fn)
+                {
+                    destroy_fn = UObjectGlobals::StaticFindObject<UFunction*>(
+                        nullptr, nullptr, STR("/Script/Engine.ActorComponent:K2_DestroyComponent"));
+                }
+                if (!destroy_fn)
+                {
+                    continue;
+                }
+                // Same calling shape as the VFX cleanup's destroy: the one parameter is the
+                // object requesting the destroy.
+                const int32_t parms_size = destroy_fn->GetPropertiesSize();
+                std::vector<uint8_t> params_buffer(static_cast<size_t>(parms_size > 0 ? parms_size : 0), 0);
+                for (FProperty* param : TFieldRange<FProperty>(destroy_fn, EFieldIterationFlags::None))
+                {
+                    if (!param)
+                    {
+                        continue;
+                    }
+                    const int32_t offset = param->GetOffset_Internal();
+                    if (offset >= 0 && offset + static_cast<int32_t>(sizeof(UObject*)) <= parms_size)
+                    {
+                        *std::bit_cast<UObject**>(params_buffer.data() + offset) = part;
+                    }
+                    break;
+                }
+                part->ProcessEvent(destroy_fn, params_buffer.empty() ? nullptr : params_buffer.data());
+                ++destroyed;
+            }
+            if (wanted > 0)
+            {
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: {} of {} component(s) destroyed ({}); rebuilt on the next recording tick.\n"),
+                             destroyed, wanted, reason);
+            }
+            clear_recording_indicator();
+            g_recording_indicator_visible = false;
+        }
+
         // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
         //
         // See the constants above for the design and why this is the nametag's mechanism twice.
@@ -11766,6 +11828,10 @@ namespace MeshGhostPseudo
                     {
                         release_ghost(id);
                     }
+                    // **And OUR components on the LOCAL pawn, destroyed here for the same reason
+                    // the ghosts are** (2026-09-05, see destroy_recording_indicator): the game's
+                    // reset is about to run, and nothing else removes them.
+                    destroy_recording_indicator(STR("pause menu reset"));
 
                     // **And the FULL teardown, not just the pawns.** release_ghost destroys a
                     // ghost and its prop; release_all_ghosts drops everything else this file holds

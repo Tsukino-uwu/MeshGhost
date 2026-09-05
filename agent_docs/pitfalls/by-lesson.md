@@ -5971,3 +5971,35 @@ call rebuilds last is the one that wins.
 **The general form, worth more than the fix:** when a reflected setter is missing, a property write
 is not a fallback — it is half of one. Ask what rebuilds the thing, and prove the pixels changed
 rather than the field.
+
+## Anything WE create in the level must be REMOVED at the reset guard, not just forgotten — the fourth handle to crash a reset (Pseudoregalia, 2026-09-05)
+
+**Symptom.** *Reset to last save* while a recording was running: `Fatal error!`, EXCEPTION_ACCESS_VIOLATION
+reading address 0, inside the game's ProcessEvent, written 16ms after the reset guard's last log
+line — one frame. `dev-scripts/read-minidump.py --stack` put the mod's reset-hook lambda on the
+crash thread (`Plugin.cpp:11833`, symbolized against the matching PDB). A Lua probe was loaded and
+was the first suspect; its next sample was due ~70ms later, so timing alone cleared it.
+
+**The user named the family before the dump was read:** *"maybe its due to using reset save while
+we had the recording interface up/enabled? don't think we ever void those"* — and *"this is like the
+3rd or 4th time i think this same exact issue has happened"*. It is: the camera fallback pointer
+(2026-08-27, "new save" crash), the thrown prop, the VFX map, the nametag trio (2026-09-01, the
+reset-to-save crash) — every one a handle to something in the level that outlived the level.
+
+**What was different this time, and why "clear the pointer" was not enough.** The indicator's five
+handles WERE annotated stale-safe and WERE dropped in `release_all_ghosts`, which the reset guard
+calls — the 2026-09-01 lesson had been applied. But the ghosts' components die with the ghosts we
+destroy; the indicator's components are OURS on the LOCAL pawn, attached across actors to the camera
+manager's transform, and a same-zone reset need not destroy that pawn at all. Dropping the handle
+leaves the thing alive; nothing else was ever going to remove it.
+
+**Fix (built 2026-09-05, awaiting the user's reproduction).** `destroy_recording_indicator` — the
+components are DESTROYED at the reset button's PRE hook, the one moment this file knows to be safe
+for calling into the level (release_ghost already destroys the ghosts there), and only DROPPED at
+LoadMap PRE / InitGameState PRE, where calling in has crashed before. Prints `N of M destroyed`.
+
+**The rule, promoted because this is a repeat:** anything the mod CREATES in the level — actor or
+component, ghost-owned or player-owned — gets three things in the same commit: a `stale-safe:`
+annotation (preflight checks it), a DROP in `release_all_ghosts`, and a DESTROY at the reset guard.
+The third is the one this entry adds; ask "who removes this?" and if the answer is "the level", ask
+whether a same-zone reset even tears that actor down.

@@ -286,3 +286,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A free needs the identity of the RANGE, and "the bits are still set" is not it (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - A dev-mode trace keyed by ONE shared "last value" fires once per peer per frame with a crowd (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - Reboot Core in BizHawk 2.11 crashes the front end when a Lua memory callback is registered (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
+- Anything WE create in the level must be REMOVED at the reset guard, not just forgotten — the fourth handle to crash a reset (Pseudoregalia, 2026-09-05) [RULE: checklists/before-spawning-in-unreal.md]

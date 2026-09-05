@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — RESET TO LAST SAVE while RECORDING should no longer crash: the indicator's three components are now DESTROYED at the reset button, built and deployed 2026-09-05 (crashed once at 03:56 with a recording running; user's read of the cause)
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -63,6 +64,30 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [READY] reset to last save while recording: the indicator is now destroyed at the reset button (2026-09-05)
+
+**What happened.** With a recording running (the red square and clock on screen) and two fake peers
+plus a replay ghost present, *reset to last save* killed the game: EXCEPTION_ACCESS_VIOLATION reading
+address 0 inside the game's ProcessEvent, 16ms after the mod's reset guard finished destroying the
+three ghosts. `read-minidump.py --stack` put the reset-hook lambda on the crash thread. **The user's
+read, before the dump was open:** the recording indicator — *"don't think we ever void those"* —
+and it fits: its components are ours, on the local pawn, attached across actors to the camera
+manager's transform, dropped-but-not-destroyed at the reset, and a same-zone reset need not tear
+that pawn down. The Lua probe loaded at the time was cleared by timing: its next sample was ~70ms
+away. Record and rule: `agent_docs/pitfalls/by-lesson.md`, "Anything WE create in the level must
+be REMOVED at the reset guard".
+
+**What changed.** `destroy_recording_indicator`: at the reset button's PRE hook the three
+components are destroyed (K2_DestroyComponent, the VFX cleanup's own call shape) before
+`release_all_ghosts` drops the handles; the indicator rebuilds itself on the next recording tick.
+LoadMap PRE / InitGameState PRE stay drop-only.
+
+**What to watch.** Start a recording, then *reset to last save* from the pause menu, a few times,
+same-zone and after a zone change. Correct is: no crash, the log shows `RECINDICATOR: 3 of 3
+component(s) destroyed (pause menu reset)`, and the red square and clock are back within a second
+of the reload, still counting. If it still crashes, the dump is the next measurement and the
+previous DLLs are staged for a bisect (`8d6117bf`, `c517ce2e` — before the indicator's nametag work).
 
 ## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
 
@@ -293,6 +318,16 @@ run after run, where it has been drifting to wrong heights. The `VFXOFFSET` line
 measured against your own player.
 
 ## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
+
+**2026-09-05 (later) — the probe RAN (`probe_frozen/`, `PROBES.md`), and the pause menu is
+answered: it is the engine's own pause.** `WorldSettings.PauserPlayerState` flips from empty to the
+player's PlayerState on the sample the pause-menu widget appears and back on the sample it closes,
+held across the options submenu, caught on every edge of a 100ms open/close spam. That is the
+adapter's `player_frozen` signal for the pause menu. **Still unmeasured:** the item popup, the intro
+cutscene (*"can't move during that cutscene"*, reached by loading a new save) and a zone transition
+— the run ended in a reset-to-save crash (the indicator's, see the READY entry above; not the
+probe's, cleared by timing). Five controller input gates do not resolve on this build through
+UE4SS's property read; the engine pause, time dilation, the pawn's gates and the widget census do.
 
 **2026-09-05 — the CHASER half is decided and built on the Go side; the adapter half is a probe
 away.** ADR 0053: a `player_frozen` bridge message (adapter -> core, on change) stops the chaser's
