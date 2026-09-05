@@ -1,9 +1,11 @@
 package core
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
@@ -262,5 +264,91 @@ func TestChaserPackClampsAnAbsurdSpacingFast(t *testing.T) {
 		}
 	}
 	c.chaserMu.Unlock()
+	c.StopChasers()
+}
+
+// TestChaserHoldsWhileThePlayerIsFrozen (ADR 0053): while the adapter says the
+// player is frozen -- a pickup popup, the pause menu -- the chaser stops where
+// it is instead of spending the pause converging onto a player who cannot
+// move, and once play resumes it follows again the same distance behind, with
+// no seam. Measured live 2026-09-04: a 110-second popup left the chaser inside
+// the player, which is what blocks chaser_contact. Without the fix the chaser
+// walks the whole gap during the freeze and the first assertion fails.
+func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
+	c, _, fa := startLocalPeerCore(t)
+	c.mu.Lock()
+	c.ChaserEnabled = true
+	c.ChaserDelay = 100 * time.Millisecond
+	c.ChaserSpawnDelay = 50 * time.Millisecond
+	c.mu.Unlock()
+	if n := c.StartChasers(); n != 1 {
+		t.Fatalf("StartChasers = %d, want 1", n)
+	}
+	const id = "chaser:1"
+	frozen := func(f bool) {
+		payload, _ := json.Marshal(bridge.PlayerFrozen{Frozen: f})
+		env, _ := json.Marshal(bridge.Envelope{Type: bridge.TypePlayerFrozen, Payload: payload})
+		if err := fa.conn.Send(env); err != nil {
+			t.Fatalf("send player_frozen: %v", err)
+		}
+	}
+	// Move until the chaser is on screen and behind.
+	start := time.Now()
+	var x float64
+	deadline := time.Now().Add(testTimeout)
+	seen := false
+	for time.Now().Before(deadline) && !seen {
+		x = float64(time.Since(start) / (10 * time.Millisecond))
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+		time.Sleep(10 * time.Millisecond)
+		if st, ok := fa.rendersOf(id); ok && x > 30 && x-st.Position[0] >= 5 {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatalf("chaser never appeared behind the player")
+	}
+	// FREEZE: the pawn holds still for 400ms (four times the delay) while the
+	// adapter keeps sending the same frame, as a real freeze does.
+	frozen(true)
+	held := x
+	at, _ := fa.rendersOf(id)
+	atFreeze := at.Position[0]
+	until := time.Now().Add(400 * time.Millisecond)
+	for time.Now().Before(until) {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{held, 0}})
+		time.Sleep(10 * time.Millisecond)
+	}
+	at, _ = fa.rendersOf(id)
+	// One 50ms sleep slice of samples may still land after the message; any
+	// more than that means the clock kept running.
+	if at.Position[0] > atFreeze+6 {
+		t.Fatalf("chaser advanced from %v to %v during a freeze (player held at %v); it should hold", atFreeze, at.Position[0], held)
+	}
+	if at.Position[0] >= held-2 {
+		t.Fatalf("chaser converged onto the frozen player: at %v, player at %v", at.Position[0], held)
+	}
+	// RESUME from where the player stood: the chaser follows again, about a
+	// delay behind, and was never despawned (a 400ms freeze is under the seam
+	// threshold on the wall clock, and no gap at all on the gameplay clock).
+	frozen(false)
+	base := time.Now()
+	var lag float64 = -1
+	deadline = time.Now().Add(testTimeout)
+	for time.Now().Before(deadline) {
+		x = held + float64(time.Since(base)/(10*time.Millisecond))
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+		time.Sleep(10 * time.Millisecond)
+		if st, ok := fa.rendersOf(id); ok && x > held+40 {
+			lag = x - st.Position[0]
+			break
+		}
+	}
+	if lag < 5 || lag > 20 {
+		t.Fatalf("after resume the chaser lag = %v samples, want about 10 for a 100ms delay", lag)
+	}
+	if n := drainDespawns(fa, id); n != 0 {
+		t.Fatalf("the chaser despawned %d time(s) across a freeze; a freeze is not a seam", n)
+	}
 	c.StopChasers()
 }

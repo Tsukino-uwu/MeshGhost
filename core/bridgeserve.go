@@ -300,6 +300,12 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			} else {
 				log.Printf("core: replay_control %q from the adapter: %s", msg.Action, what)
 			}
+		case bridge.TypePlayerFrozen:
+			var msg bridge.PlayerFrozen
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			c.SetPlayerFrozen(msg.Frozen)
 		case bridge.TypeEvent:
 			var msg bridge.Event
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {

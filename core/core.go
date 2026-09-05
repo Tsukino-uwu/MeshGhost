@@ -759,6 +759,15 @@ type Core struct {
 	ChaserSpawnDelay time.Duration
 	chaserMu         sync.Mutex
 	chasers          []*chaser
+	// The chaser's GAMEPLAY clock (ADR 0053): wall time minus every span the
+	// adapter reported the player frozen. frozenSince is the wall instant the
+	// current freeze began (0 when not frozen); frozenTotalMs is every finished
+	// freeze since the pack was (re)started. Under frozenMu, never c.mu: the
+	// readers are the tap and the chaser goroutines, both of which already
+	// take c.mu for nowMs and must not nest it.
+	frozenMu      sync.Mutex
+	frozenSince   int64
+	frozenTotalMs int64
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.

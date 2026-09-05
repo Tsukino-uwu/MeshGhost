@@ -111,9 +111,15 @@ func (ch *chaser) run() {
 				continue
 			}
 		}
-		// Sleep in slices so a stop is prompt.
+		// Sleep in slices so a stop is prompt. GAMEPLAY time on both sides
+		// (ADR 0053): the stamp came from gameplayStamp and the clock here
+		// stands still while the adapter says the player is frozen, so a
+		// pause menu costs this chaser no delay -- it holds where it is and
+		// resumes the same distance behind, instead of spending the pause
+		// converging onto a player who cannot move.
+		var now int64
 		for {
-			now := ch.c.nowMs()
+			now = ch.c.gameplayNowMs()
 			if now >= due {
 				break
 			}
@@ -134,7 +140,11 @@ func (ch *chaser) run() {
 			}
 			admitted = true
 		}
-		s.Timestamp = due
+		// Back to the WALL clock for the render side, which interpolates every
+		// local peer against nowMs: the wall instant `due` fell on is exactly
+		// (wall now - gameplay now) later than the gameplay instant, since no
+		// freeze can sit between a passed due time and now.
+		s.Timestamp = ch.c.nowMs() - now + due
 		if !ch.c.feedLocalPeer(ch.id, s) {
 			select {
 			case <-ch.stop:
@@ -191,6 +201,13 @@ func (c *Core) StartChasers() int {
 		count = room
 	}
 
+	// A fresh pack starts on a fresh gameplay clock: the accumulator only
+	// ever means "since these chasers began", and this runs on attach, where
+	// the adapter's first frozen report is still to come.
+	c.frozenMu.Lock()
+	c.frozenSince, c.frozenTotalMs = 0, 0
+	c.frozenMu.Unlock()
+
 	c.chaserMu.Lock()
 	clamped := false
 	for i := 0; i < count; i++ {
@@ -241,6 +258,57 @@ func (c *Core) StopChasers() {
 		}
 		c.dropLocalPeer(ch.id)
 	}
+}
+
+// SetPlayerFrozen is the bridge's player_frozen message (ADR 0053): the
+// adapter says the game is holding the player still outside gameplay, or has
+// let go. Only a CHANGE does anything, so an adapter may repeat itself. The
+// chaser pack is the one consumer; nothing else in the core reads this.
+func (c *Core) SetPlayerFrozen(frozen bool) {
+	now := c.nowMs()
+	c.frozenMu.Lock()
+	was := c.frozenSince != 0
+	if frozen && !was {
+		c.frozenSince = now
+	} else if !frozen && was {
+		c.frozenTotalMs += now - c.frozenSince
+		c.frozenSince = 0
+	}
+	total := c.frozenTotalMs
+	c.frozenMu.Unlock()
+	if frozen != was {
+		if frozen {
+			log.Printf("core: player frozen (adapter): the chaser pack holds")
+		} else {
+			log.Printf("core: player resumed (adapter): the chaser pack follows again, %s of pauses excluded so far", time.Duration(total)*time.Millisecond)
+		}
+	}
+}
+
+// gameplayNowMs is nowMs with every frozen span taken out -- the clock a
+// chaser sleeps on. It stands still for as long as the adapter says the
+// player is frozen.
+func (c *Core) gameplayNowMs() int64 {
+	now := c.nowMs()
+	c.frozenMu.Lock()
+	defer c.frozenMu.Unlock()
+	g := now - c.frozenTotalMs
+	if c.frozenSince != 0 {
+		g -= now - c.frozenSince
+	}
+	return g
+}
+
+// gameplayStamp converts the tap's wall stamp of a frame taken NOW into the
+// gameplay clock, or reports false for a frame taken while frozen -- which
+// the chaser must never see (recorder.go says why).
+func (c *Core) gameplayStamp(wallMs int64) (int64, bool) {
+	c.frozenMu.Lock()
+	defer c.frozenMu.Unlock()
+	if c.frozenSince != 0 {
+		return 0, false
+	}
+	return wallMs - c.frozenTotalMs, true
 }
 
 // offerChasers is recordLocal's hand-off: one lock, one non-blocking send per

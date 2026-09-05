@@ -77,6 +77,16 @@ const (
 	// hotkeys perform. Optional -- an adapter that never sends it loses
 	// nothing, because the hotkeys exist regardless (ADR 0048).
 	TypeReplayControl MessageType = "replay_control"
+	// TypePlayerFrozen is adapter -> core, added 2026-09-05 (ADR 0053), pushed
+	// ON CHANGE: the game is holding the player still and this is not gameplay
+	// (an item popup, the pause menu, any modal). The core's ONE consumer is the
+	// chaser pack, whose clock stops while it is set -- so a pause costs the
+	// chaser no delay and it never converges onto a player who cannot move. The
+	// recorder, the replay ghosts and the wire are untouched by design (the
+	// user's call, 2026-09-05: "only want it to affect chaser, not
+	// recordings/replay ghosts"). Optional: an adapter that never sends it keeps
+	// today's behaviour exactly.
+	TypePlayerFrozen MessageType = "player_frozen"
 	// TypeSessionPolicy is core -> adapter, added 2026-08-19: the room-wide
 	// rules the host set, that the adapter is the only party able to apply.
 	// See SessionPolicy for why this is a message of its own rather than a
@@ -381,6 +391,13 @@ type SessionPolicy struct {
 type ReplayControl struct {
 	Action  string `json:"action"`
 	Seconds int    `json:"seconds,omitempty"`
+}
+
+// PlayerFrozen is the payload of TypePlayerFrozen: true while the game holds
+// the player still outside gameplay, false when play resumes. STATE, not an
+// event, and sent on change only; a repeat of the current value is harmless.
+type PlayerFrozen struct {
+	Frozen bool `json:"frozen"`
 }
 
 // Reject is sent core -> adapter when a Hello cannot be accepted, immediately

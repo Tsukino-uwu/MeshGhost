@@ -302,6 +302,23 @@ Actions: `record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_la
 configured `replay.seek`. Do not register the same chord the core already owns for its hotkey:
 the core registered first and yours will fail.
 
+## Player frozen (optional, adapter -> core, 2026-09-05)
+
+When the game holds the player still outside gameplay -- an item popup, the pause menu, any
+modal -- say so, ON CHANGE, and say when it lets go:
+
+```json
+{"type":"player_frozen","payload":{"frozen":true}}
+{"type":"player_frozen","payload":{"frozen":false}}
+```
+
+The core's only consumer is the chaser pack (ADR 0053): its clock stops while you are frozen, so
+a pause costs it no delay and it never ends up inside a player who cannot move. Recordings and
+replay ghosts are untouched. **What "frozen" is must be the game's own fact**, found with a probe
+-- a pause state, the input mode the modal switches to -- never "the position has not changed for
+a while", which fires on a wall-hug and fires late. An adapter that never sends this keeps the
+old behaviour; a repeat of the current value is harmless.
+
 ## The tick loop (the part every real adapter gets wrong the first time)
 
 ```text

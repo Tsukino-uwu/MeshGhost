@@ -294,6 +294,18 @@ measured against your own player.
 
 ## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
 
+**2026-09-05 — the CHASER half is decided and built on the Go side; the adapter half is a probe
+away.** ADR 0053: a `player_frozen` bridge message (adapter -> core, on change) stops the chaser's
+clock, so a pause costs it no delay and it never converges onto a frozen player. Tested
+(`core/chaser_test.go`, fails without the fix). **Scope is the user's call, 2026-09-05: chaser
+only — recordings and replay ghosts are NOT touched**, so the "floating in the air" picture below
+stays as it is by decision, and the "what is NOT the fix" section is now moot for replays. **What
+this adapter still owes:** the game's own frozen signal, found with a probe (`/write-a-probe`) —
+the 2026-09-04 measurement shows `MovementMode` never changes, so nothing sampled today marks it;
+candidates are a pause state or the input mode the popup switches to, and the probe should also
+ask whether a zone transition trips it. Then a `player_frozen` send on change, then a chaser
+watched across a pause menu.
+
 **The user:** *"recordings look a bit weird as if you are just floating in the air/frozen for a bit"*
 when picking an item up. **Measured with `probe_pickup/`** across a real pickup. **Not fixed.**
 

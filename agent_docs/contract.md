@@ -146,6 +146,13 @@ every other cosmetic rule (never solid, blocking, damageable, targetable) holds 
 the core's own system-wide hotkeys (ADR 0048), never a replacement: every action works in every
 game without it, and an adapter that sends it only gains a key its own settings screen can show.
 
+**`player_frozen` (adapter -> core, added 2026-09-05, ADR 0053)** is optional and pushed on
+change: `frozen` (bool) — the game is holding the player still outside gameplay (an item popup,
+the pause menu, any modal). Its ONE consumer is the chaser pack, whose clock stands still while
+it is set, so a pause costs the chaser no delay and it never converges onto a player who cannot
+move. The recorder, replay ghosts and the wire never see it. What counts as frozen is the
+adapter's per-game fact, found by measurement, never a heuristic on the sample stream.
+
 **`remote_name` (core -> adapter)** carries a peer's sanitized nametag (`player_id`,
 `display_name`, colour), sent when it becomes known: on join, and once per already-present peer on
 attach. Never re-sent after `despawn_remote`, so an adapter keys names by `player_id` for the

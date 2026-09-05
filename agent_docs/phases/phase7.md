@@ -2554,3 +2554,15 @@ was touched, and the last two edits were ~2px nudges of `dot_up` alone.
 **Also this session:** three ShareX GIFs shrunk with the user's `make-gif.bat` (40/54/82 MB → 6/8/8
 MB); my tool sandbox refuses writes to their Screenshots folder, so the bat runs unsandboxed. Not a
 repo fact — noted in agent memory only.
+
+**Later the same session — the frozen-player defect, chaser half (ADR 0053).** The user asked how it
+gets fixed and set the scope in one line: *"I only want it to affect chaser, not recordings/replay
+ghosts"*. Built and tested on the Go side: a `player_frozen` bridge message (adapter -> core, on
+change) and a GAMEPLAY clock for the chaser — wall time minus every frozen span — that its sleeps
+run on, with frames taken while frozen never offered to it. Regression test
+`TestChaserHoldsWhileThePlayerIsFrozen` fails without the fix (the chaser walked 21 -> 31 onto a
+player held at 31) and passes with it; full suite and `-race` green. The design point worth
+keeping: a FILTER (stop offering frames) is not enough, because queued frames still fall due on
+the wall clock and the first frame after is a seam — a CLOCK fixes both. **The adapter half is
+open and is a probe:** what Pseudoregalia's own frozen signal is (`UNVERIFIED.md`, the frozen
+entry). No adapter sends the message yet, so nothing changes on screen until it does.

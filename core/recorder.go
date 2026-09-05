@@ -238,7 +238,16 @@ func (c *Core) recordLocal(state *protocol.State) {
 	// The ring stamps its own seq: what it drains becomes a file of its own,
 	// numbered from 1 there, and the chaser never looks at seq at all.
 	c.ring.add(st)
-	c.offerChasers(st)
+	// The chaser alone runs on GAMEPLAY time (ADR 0053): a frame taken while
+	// the adapter says the player is frozen is recorded above, as it always
+	// was, and never offered here -- the chaser's clock is stopped, so the
+	// sample would only pile up to be replayed all at once on resume. What IS
+	// offered carries a gameplay stamp, so a freeze between two samples is no
+	// gap to the chaser's seam check.
+	if gs, ok := c.gameplayStamp(ts); ok {
+		st.Timestamp = gs
+		c.offerChasers(st)
+	}
 }
 
 // writeLocked appends one sample, opening the file (and writing the header)
