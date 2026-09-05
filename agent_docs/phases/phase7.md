@@ -2630,3 +2630,11 @@ frozen-player defect is closed for the chaser. Found on the way: the 2026-09-04 
 logged it every tick per ghost (~140 lines/s per ghost, seen with the chaser); fixed with
 `mg_read_bool`, built, deploys at the next game exit. Sixty-five other `mg_property_value<bool>`
 reads want the same audit.
+
+**The chaser blink, reproduced and fixed the same hour.** Eight chasers on: 3..8 cycled
+despawn/respawn, 1 and 2 never. The release timestamps per chaser gave the answer before any
+theory: period = delay + 3s spawn window. The core's chaser queue is sized for 100 samples/s and
+this adapter sends ~180 (read off the bridge counter), so every chaser more than ~6s behind filled
+its queue, lost a run of samples longer than the seam threshold, despawned and came back on the
+player. The tap now thins to 100Hz; regression test in `core/chaser_test.go`; core rebuilt and
+deployed to every install. `pitfalls/by-lesson.md` has the rule. UNWATCHED.

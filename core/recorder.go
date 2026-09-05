@@ -245,8 +245,21 @@ func (c *Core) recordLocal(state *protocol.State) {
 	// offered carries a gameplay stamp, so a freeze between two samples is no
 	// gap to the chaser's seam check.
 	if gs, ok := c.gameplayStamp(ts); ok {
-		st.Timestamp = gs
-		c.offerChasers(st)
+		// **At most one sample per chaserOfferIntervalMs (2026-09-05).** Each chaser's
+		// queue is sized for 100 samples a second of its delay; Pseudoregalia's adapter
+		// sends ~180 (one per frame). A queue that fills drops the NEWEST samples until
+		// its oldest fall due, which cut a hole of ~0.44*delay-1.1s into every chaser's
+		// trail -- under the seam threshold at 3s and 5s, over it from 7s up -- so
+		// chasers 3..8 despawned and respawned on the player with a period of exactly
+		// delay+spawn, watched live and read off the log to the second. Thinning here
+		// makes the sizing an invariant: the queue cannot fill from rate alone. The
+		// recorder and the ring above still take every frame; a chaser renders through
+		// interpolation and never needed more than this.
+		if gs-c.lastChaserOfferMs >= chaserOfferIntervalMs {
+			c.lastChaserOfferMs = gs
+			st.Timestamp = gs
+			c.offerChasers(st)
+		}
 	}
 }
 

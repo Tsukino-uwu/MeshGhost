@@ -6011,3 +6011,34 @@ found by scanning arms by luck** — log its arming and read that log before bel
 reproduction or any "fix". (c) The handle rule from 2026-09-01 (annotate, drop in
 `release_all_ghosts`) stands; "destroy it at the reset guard", written at 04:07 and refuted at
 04:15, does not.
+
+## A queue sized from an ASSUMED rate drops the newest, and a dropped run is a seam -- the tell was a period of exactly delay+spawn (core, 2026-09-05)
+
+**Symptom.** With eight chasers, chasers 3..8 despawned and respawned on the player every few
+seconds, *"and also teleporting sometimes"*; chasers 1 and 2 never did. Reported second-hand on
+2026-09-04 as *"4,5,6,7 despawned/spawned back/forth when the player walked in a circle"* and
+filed with the note that a cap cannot make a gap in the middle.
+
+**Cause.** `core/chaser.go` sized each chaser's channel as `(delay + 2s)` worth of samples at
+100Hz, "the adapter's fastest rate". Pseudoregalia sends one sample per frame, ~180Hz. A full
+channel drops the NEWEST sample, and it stays full until its oldest sample falls due -- so the
+drop is not one sample but a RUN of about `0.44 x delay - 1.1s` of them, and a run longer than
+`replayGapSeamMs` (1.5s) is read by the chaser as a live gap: despawn, spawn window, respawn on
+the player. Under the threshold at 3s and 5s, over it from 7s up.
+
+**How it was found, and what to reach for first next time.** Not from a theory: from writing
+down the release timestamps per chaser and seeing each one's period was its delay plus the 3s
+spawn window, with the two shortest delays exempt. A period that is a function of the delay says
+"a buffer sized from the delay"; an exemption for the short delays says "a threshold the short
+ones stay under". The rate was then read off the bridge's own `send_ok` counter (120 per 0.66s),
+not assumed. **Write the timings down before the theory** -- the same rule as the 2026-08-17
+table, and it took one look.
+
+**Fix.** The tap thins what it hands the pack to one sample per 10ms
+(`chaserOfferIntervalMs`), which turns the sizing into an invariant.
+`TestChaserTapThinsTheAdapterFrameRate` fails without it.
+
+**The rule.** A queue sized from an assumed input rate is a queue that will fill on the first
+adapter that runs faster -- size from a rate you ENFORCE at the producer, or measure the rate
+and assert it. And when a queue must drop, know which end: dropping the newest turns a rate
+mismatch into a hole in time.

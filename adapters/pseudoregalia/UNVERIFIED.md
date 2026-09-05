@@ -43,7 +43,7 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
-- OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
+- READY — chasers 3..8 no longer cycle despawn/respawn every delay+3s: the core's tap thins the adapter's ~180Hz to the 100Hz the chaser queues were sized for (REPRODUCED on screen and in the log 2026-09-05, fixed in the core with a regression test, core deployed, unwatched)
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - DONE — the frozen-player state (item popup, pause menu): the CHASER half is fixed and CONFIRMED 2026-09-05 (`VERIFIED.md`); a recording still shows the run-fall on the spot, by the user's call (chaser only)
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
@@ -65,64 +65,29 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
-## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
+## [READY] chasers 3..8 cycled despawn/respawn with a period of delay+3s -- the chaser queue was sized for 100Hz and the adapter sends ~180 (2026-09-05)
 
-**Lowest-confidence entry in this file, and deliberately short.** Second-hand and unconfirmed: the
-user WATCHED someone else testing chasers and thought the spawns looked wrong. Their own words, with
-their own caveat: *"it looked like some of them were spawning/despawning a bit weird. like 1,2,3,4,5
-working but then despawned 6,7 and then 8 was still shown. i haven't checked anything or confirmed
-myself"*. Nothing here has been reproduced or measured by anyone.
+**Reproduced first-hand.** Eight chasers at 3s + 2s spacing: *"chasers are despawning/respawning,
+and also teleporting sometimes i think"*. The log had it to the second: chaser 3 (7s) released at
+:00, :10, :20, :30 ...; chaser 4 (9s) every 12s; 5 every 14s; 6 every 16s; 7 every 18s; 8 (17s)
+every 20s -- **period = delay + 3s spawn window**, and chasers 1 (3s) and 2 (5s) never once. The
+core wrote nothing on the drop and simply re-announced the nametag ~5s later.
 
-**The shape is the only real information, and it is worth keeping** because it argues against the
-first thing anyone would guess. A gap in the MIDDLE (6 and 7 gone while 8 remains) is not what a cap
-produces -- a cap truncates the tail. So "we hit a limit" is the wrong first theory.
+**Cause (core, not adapter).** Each chaser's queue holds `delay + 2s` of samples at an assumed 100
+a second; the bridge stats put this adapter at ~180 (one per frame). A full queue drops the NEWEST
+samples until its oldest fall due, which cuts a hole of about `0.44 x delay - 1.1s` into the trail:
+under the 1.5s seam threshold at 3s and 5s, over it from 7s up. The seam despawns the chaser, the
+spawn window holds it 3s, and it reappears where the player is -- the teleport. The earlier
+second-hand report (2026-09-04, *"4,5,6,7 despawned/spawned back/forth"*) is this exactly.
 
-**A SECOND, SHARPER DETAIL from the same clip (2026-09-04):** *"chase ghost 4,5,6 and 7
-despawned/spawned back/forth a bit weird when the player walked in a circle"*. Still second-hand and
-unconfirmed, but it narrows the search in three ways and is worth more than the original report:
+**Fix.** The recorder's tap hands the pack at most one sample per 10ms (`chaserOfferIntervalMs`),
+so the queue's sizing is an invariant rather than a hope. `TestChaserTapThinsTheAdapterFrameRate`
+fails without it (473 of 500 queued) and passes with it. The recording and the ring still take every
+frame.
 
-- **It is tied to an ACTION**, so it is reproducible rather than random -- walk a circle and watch.
-- **It cycles**, back and forth, rather than losing ghosts once. So this is not "some failed to
-  spawn"; something is repeatedly deciding they should and should not exist.
-- **It is the MIDDLE of the set again** (4-7 of 8), consistent with the first report and still not
-  the shape a cap makes.
-
-**What it is probably NOT, ruled out by reading rather than guessed:** the area filter. A chaser is
-the player's own past, so it carries the player's own `area_id` by construction, and walking a circle
-inside one level does not change it. `own_area_only` and the relay-side filter (ADR 0041) therefore
-have nothing to act on. `culling.md`'s distance-culling ideas are unscheduled and unshipped, so they
-are not running either.
-
-**Two directions worth looking at first, named as directions and not as theories:**
-
-1. **A visibility or engine-side cull that we then undo.** Walking a circle sweeps ghosts in and out
-   of the camera's view, and `../CLAUDE.md`'s first performance rule is precisely about an engine
-   culling an actor and an adapter respawning it in a loop -- "allocate, cull, allocate". A
-   back-and-forth cycle tied to turning is that signature.
-2. **The interpolation buffer running dry per chaser.** Chasers sit at increasing delays
-   (`delay`, `+spacing`, `+2*spacing`...), so the LATER ones live furthest back in the buffer and
-   would starve first -- which would pick out a contiguous middle-to-late band rather than the tail.
-
-**The free first check still comes before either**: diff the core's admit/drop lines against the
-adapter's spawn/release for one circle-walking session. If the core never dropped them, direction 1;
-if it did, direction 2 and the reason will be in the same log.
-
-**Cheaply ruled out already, by reading:** it is not the core's roster cap.
-`admitToRosterLocked` (`core/remotenames.go:38`) refuses only at `protocol.MaxRosterSize`, which is
-512; eight chasers are nowhere near it. `admitLocalPeer` returning false is therefore not the
-explanation, though it does mean a refusal has a log line if it ever happens.
-
-**The first fork, and it is free** -- the core logs every local peer it admits and drops, and the
-adapter logs every ghost it spawns and releases. Comparing the two across one session says whether
-the CORE stopped feeding those chasers or the ADAPTER stopped drawing them, which halves the problem
-before anything is instrumented. Do that before writing a probe.
-
-**Worth holding in mind, but NOT assumed:** this session established that a replay/chaser ghost is
-despawned and re-admitted on every `seam` (`core/replay.go:522` -- seeks, loops, recorded gaps,
-clock step-backs), and that world-spawned VFX are stranded when that happens. Whether chasers seam
-for their own reasons, and whether a seam is what was being seen here, is unknown. Do not merge this
-entry into that one until something is measured; two unconfirmed reports sharing a plausible
-mechanism is exactly how a wrong theory gets load-bearing.
+**What to watch.** Eight chasers again, walk and circle for a minute: none of them should vanish or
+jump. Correct is eight `spawned ghost for remote chaser:N` lines in the log and NO `releasing remote
+chaser:N` until you leave the zone.
 
 ## [DONE] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured, FIXED and CONFIRMED ON SCREEN 2026-09-04 -- see `VERIFIED.md`; kept here for the two dead theories and the method)
 

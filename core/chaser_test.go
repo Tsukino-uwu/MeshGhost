@@ -352,3 +352,41 @@ func TestChaserHoldsWhileThePlayerIsFrozen(t *testing.T) {
 	}
 	c.StopChasers()
 }
+
+// TestChaserTapThinsTheAdapterFrameRate (2026-09-05): a chaser's queue is
+// sized for 100 samples a second of its delay, and an adapter that sends one
+// sample per frame at ~180fps filled it -- a full queue drops the NEWEST
+// samples until the oldest fall due, cutting a hole longer than the seam
+// threshold into every chaser more than ~6s behind, which then despawned and
+// respawned on the player with a period of delay+spawn (watched live, read off
+// the log). The tap now hands the pack at most one sample per 10ms. Driven on
+// the fake clock: 500 frames 2ms apart must reach the chaser as ~100, not 500.
+// Without the thinning this counts 500 and fails.
+func TestChaserTapThinsTheAdapterFrameRate(t *testing.T) {
+	clk := newFakeClock()
+	c := New()
+	c.timeSrc = clk
+	c.ChaserEnabled = true
+	c.ChaserDelay = 10 * time.Second // nothing falls due inside the test
+	// A short spawn window: the goroutine DRAINS the queue until the player has
+	// moved for this long (samples before that are skipped, not delayed), then
+	// blocks on the first due sample and everything after it queues up.
+	c.ChaserSpawnDelay = 50 * time.Millisecond
+	if n := c.StartChasers(); n != 1 {
+		t.Fatalf("StartChasers = %d, want 1", n)
+	}
+	defer c.StopChasers()
+	for i := 0; i < 500; i++ {
+		clk.Advance(2 * time.Millisecond)
+		x := float64(i)
+		c.recordLocal(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
+	}
+	c.chaserMu.Lock()
+	ch := c.chasers[0]
+	c.chaserMu.Unlock()
+	// 500 frames over 1s at 2ms: one sample per 10ms is 100, minus the handful
+	// the goroutine consumed inside the spawn window before it blocked.
+	if got := len(ch.in); got < 80 || got > 101 {
+		t.Fatalf("chaser queue holds %d samples after 500 frames 2ms apart; want ~100 (one per 10ms)", got)
+	}
+}

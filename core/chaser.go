@@ -41,10 +41,20 @@ const (
 	// ghost of a different session; anything past this is clamped and logged.
 	maxChaserBehind = 10 * time.Minute
 	// chaserQueueSlack is how much beyond its delay a chaser's channel
-	// holds, at the adapter's fastest rate. A full channel drops the NEWEST
-	// sample for that chaser (the player is outrunning the drain, which
-	// means the goroutine stalled); nothing blocks the frame.
+	// holds, at chaserOfferIntervalMs. A full channel drops the NEWEST
+	// sample for that chaser; nothing blocks the frame. "At the adapter's
+	// fastest rate" is what this used to say, and it was not: the sizing
+	// assumed 100Hz while Pseudoregalia sends ~180, so every chaser more than
+	// ~6s behind filled its queue, lost a hole longer than the seam threshold,
+	// and cycled despawn/respawn on the player with a period of delay+spawn
+	// (2026-09-05, watched live). The tap now thins to the rate assumed here,
+	// which turns the sizing into an invariant instead of a hope.
 	chaserQueueSlack = 2 * time.Second
+	// chaserOfferIntervalMs is the minimum spacing, in gameplay milliseconds,
+	// between samples the tap hands to the pack -- 100 a second, the rate the
+	// queues are sized for. A chaser renders through interpolation and never
+	// needed more.
+	chaserOfferIntervalMs = 10
 )
 
 type chaser struct {

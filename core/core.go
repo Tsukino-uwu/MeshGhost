@@ -768,6 +768,11 @@ type Core struct {
 	frozenMu      sync.Mutex
 	frozenSince   int64
 	frozenTotalMs int64
+	// lastChaserOfferMs is the gameplay stamp of the last sample handed to the
+	// chaser pack (recorder.go's tap thins the adapter's frame rate to what the
+	// chaser queues are sized for). Written only from the tap, which runs on the
+	// one goroutine that delivers adapter frames.
+	lastChaserOfferMs int64
 	// ticks counts render ticks (tickRenders), atomically; the seek primitive
 	// in localpeer.go waits on it so a despawn reaches the adapter before the
 	// re-feed that follows it.
