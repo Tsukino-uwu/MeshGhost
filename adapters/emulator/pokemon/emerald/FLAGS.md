@@ -106,13 +106,14 @@ global-then-environment shape when a switch needs to be flipped without restarti
 Believe the value, then find out why the comment drifted before changing either.
 And the harder version: **a flag flip is not a revert** — verify the switch disables the
 *work*, not merely the decision the work feeds, or revert the commit instead.
-[`agent_docs/pitfalls.md`](../../../../agent_docs/pitfalls.md#diagnostic-methodology) has the case that established it.
+[`agent_docs/checklists/before-declaring-a-fix.md`](../../../../agent_docs/checklists/before-declaring-a-fix.md) carries the check, and `agent_docs/pitfalls/` the case that established it.
 
 ## Added 2026-08-21 (water/warp session)
 
 | Flag | Where | Default | What it does |
 | --- | --- | --- | --- |
 | `MESHGHOST_EMERALD_DRAWN_COMPARE_DX` | global | unset — **-2** | Where the PAINTED comparison copy stands, in tiles from the player. Exists because the three copies stand in three columns and a shoreline is not a straight line: to tell *"this renderer is wrong"* from *"this copy is standing further from the water"*, two copies have to be put on the same tile and compared there. **A probe, not behaviour** — it only moves a dev-only comparison ghost. |
+| `MESHGHOST_EMERALD_HW_COMPARE_DX` / `_DY` | global | unset — **-6, 0** | Where the HARDWARE comparison copy stands, in tiles relative to the SPAWNED copy (which is at `+2, 0` from the player). Same probe-only status as the row above; rows added 2026-09-06 after an audit found the pair described only in the prose note below. |
 
 **Changed defaults, same session:** `MESHGHOST_EMERALD_HW_COMPARE_DX` / `_DY` moved from `0,-2` to
 **`-6,0`**. They are relative to the SPAWNED ghost, which stands at `(+2, 0)` from the player, so

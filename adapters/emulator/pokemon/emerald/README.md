@@ -1,17 +1,20 @@
 # Pokémon Emerald
 
-**Status: feature complete 2026-08-21 — the user's call**, in their words: *"i consider the
-game to be fully synced up animation and effect wise now."* Every way this game moves a character
+**Shipping, and open like every adapter here.** The user called it **feature complete on
+2026-08-21**, in their words: *"i consider the game to be fully synced up animation and effect wise
+now"* — a playable-state milestone, not the end of the work. Every way this game moves a character
 and every field effect it hangs off one is mirrored, on all three rendering tiers. First game
-targeted, shipped, and live-tested with real two-player sessions.
+targeted, shipped, and live-tested with real two-player sessions; the ladder **spawned → OAM →
+drawn** has been the shipped default since 2026-09-02 (step 39).
 
-**Reopened 2026-08-26 to finish Fly**, which was one of the two states that call had never
-actually tested. Fly is now built and partly confirmed but **not complete** — the user, that day:
-*"good nuff for now"*, and *"not properly working fully yet"*. Four compensations are named in
-[BANDAGES.md](BANDAGES.md) §4. The **boat** is the other state: built, and never once watched.
-**Rails are neither** — not built, not measured (step 38 below;
-[UNVERIFIED.md](UNVERIFIED.md), [status.md](../../../../agent_docs/status.md)). See
-[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md) for the full record.
+**What is open, as of 2026-09-06:** Fly is built and partly confirmed but **not complete** — the
+user, 2026-08-26: *"good nuff for now"*, and *"not properly working fully yet"*; four compensations
+are named in [BANDAGES.md](BANDAGES.md) §4. The **boat** is built and never once watched. **Rails
+are neither** — not built, not measured (step 38). A peer on a **bike** shows only when you are on
+one too, because the peer-graphic path is off pending a 32px sprite fix — deterministic, not
+intermittent (filed 2026-09-03). The queue is [UNVERIFIED.md](UNVERIFIED.md); what is open across
+the project is [status.md](../../../../agent_docs/status.md); the running log is
+[agent_docs/phases/phase8.md](../../../../agent_docs/phases/phase8.md).
 
 - Platform: GBA, played via BizHawk.
 - Confirmed working roms: "Vanilla", "Archipelago 0.6.7".
@@ -36,7 +39,8 @@ actually tested. Fly is now built and partly confirmed but **not complete** — 
   the engine's own object cap a peer gets **real GBA hardware sprite entries** in the shadow-OAM
   window the engine never touches, so the PPU draws it with background priority and the live
   palette (step 27). Past that it is **painted** with `gui.*` pixels — steps 1–9's original path,
-  which survives as the overflow tier. Both overflow rungs ship OFF; the ladder, its exceptions
+  which survives as the overflow tier. Both overflow rungs ship ON since 2026-09-02 (the user's
+  call, step 39; they were off until then); the ladder, its exceptions
   and every switch are in [FLAGS.md](FLAGS.md), and what each rung compensates for is in
   [BANDAGES.md](BANDAGES.md). **The hardware rung has two of those exceptions**: it stands down
   under a screen-covering semi-transparent sheet (weather fog, underwater), and it is **vanilla
@@ -94,8 +98,9 @@ Measured 2026-08-19 and 2026-08-21 with real peers over the real relay. Full tab
   engine's own; the pre-split measurement — all 56 as bodies, **67 characters on screen** — still
   measured 60.0fps, indistinguishable from a bare emulator.
 - **The painted tier is the rung that costs.** Those same 56 peers painted instead cost a third of
-  the frame rate. That comparison is why the ladder is ordered the way it is, and why both overflow
-  rungs are opt-in.
+  the frame rate. That comparison is why the ladder is ordered the way it is: painting is the
+  last rung, reached only by a peer both engine tiers refused, which a room at the shipped 8
+  seats does not produce on a map with slots to spare.
 - **Past every rung, extra peers are refused and never appear**; nothing is corrupted and no NPC is
   displaced. That path used to cost the game its frame rate — 3fps at 24 peers — because the
   adapter re-scanned and logged per unplaceable peer per frame; fixed 2026-08-19, now a flat
@@ -140,9 +145,12 @@ let TEVI (Phase 6) reuse it directly.
 
 See [agent_docs/phases/phase1.md](../../../../agent_docs/phases/phase1.md) through
 [phase5_5.md](../../../../agent_docs/phases/phase5_5.md) for the detailed, dated log of this
-work, and [agent_docs/pitfalls.md](../../../../agent_docs/pitfalls.md) for the transferable
-lessons pulled out of it (memory probing methodology, overlay rendering gotchas, map-transition
-read glitches).
+work. The transferable lessons pulled out of it (memory probing methodology, overlay rendering
+gotchas, map-transition read glitches) live as checks in
+[agent_docs/checklists/](../../../../agent_docs/checklists/) and as the dated record in
+[agent_docs/pitfalls/by-lesson.md](../../../../agent_docs/pitfalls/by-lesson.md);
+[agent_docs/pitfalls.md](../../../../agent_docs/pitfalls.md) is the front door that says how a
+lesson is filed.
 
 ### Further work past "good enough"
 
@@ -198,7 +206,7 @@ order:
     slid 8px sideways whenever the frame changed. Two things fixed it: asking the engine to animate
     the ghost through its own `enableAnim` switch, and computing the sprite offset from the frame
     the ghost is actually showing rather than copying the player's, at the point in the frame where
-    the game itself does it. ([pitfalls.md](../../../../agent_docs/pitfalls.md) has all three
+    the game itself does it. ([pitfalls/by-lesson.md](../../../../agent_docs/pitfalls/by-lesson.md) has all three
     write-ups; [probes.md](../../../_template/probes.md) has how it was finally measured.)
 23. Took ghosts across the seam. A peer on a *connected* neighbouring route is now visible from
     this one, while a peer inside a house is correctly not — the difference being that indoor maps
@@ -236,7 +244,7 @@ order:
     flip lives in the animation command), and the ghost trailed. The trailing turned out to be a
     bug in the SHARED movement filter that the painted tier had shipped with: it measured the
     peer's speed frame-to-frame against a stream that arrives in bursts, so it read zero on most
-    frames and could not follow a running player. ([pitfalls.md](../../../../agent_docs/pitfalls.md)
+    frames and could not follow a running player. ([pitfalls/by-lesson.md](../../../../agent_docs/pitfalls/by-lesson.md)
     has that one and the four ways the comparison itself was measured wrong first.)
 30. Finished the Acro Bike, which the user called the single hardest thing in this adapter. A
     ghost now gets a real shadow SPRITE under it rather than a painted one, landing dust on all
@@ -246,7 +254,7 @@ order:
     the engine calls every live sprite's callback with no null check and a zero there is a jump to
     the console's reset vector. Facing while hopping took five attempts, four of which fixed damage
     done by the first.
-    ([pitfalls.md](../../../../agent_docs/pitfalls.md) has all seven, and the methods matter more
+    ([pitfalls/by-lesson.md](../../../../agent_docs/pitfalls/by-lesson.md) has all seven, and the methods matter more
     than the fixes: sort a RESET apart from a glitch, audit the expensive FAILURE path, and never
     let "it is the network" stand in for a frame counter.)
 31. Took the ghosts onto the water, and found that most of what a character does there had never
@@ -306,6 +314,19 @@ order:
     user's call, *"good nuff for now"* — with four compensations named in
     [BANDAGES.md](BANDAGES.md) §4, and one confirmed case: a same-town fly watched from a second
     instance. **The boat is still assumed**, and rails were never built at all.
+39. Made the whole ladder the shipped default — spawned → OAM → drawn, both overflow rungs on —
+    on the user's call (2026-09-02): *"spawned works everywhere, OAM should be preferred everywhere
+    whenever possible, Drawn should be used underwater or whenever OAM can't render due to fog"*.
+    Watched with a 24-peer synthetic crowd through sand, fog, a cave and four seam crossings, which
+    is what exposed three tile leaks and a double-free in the hardware tier that a lone loopback
+    ghost never could; all four fixed and re-watched the same evening (*"didn't see any
+    weird/glitched sprites now"*). Two real clients were then confirmed on screen (2026-09-03),
+    and the spawned tier's collision with the player was logged as the thing the shipped
+    `ghost_collision` setting still does not reach. Detail: [UNVERIFIED.md](UNVERIFIED.md), the
+    2026-09-02 WATCHED entry; [phase8.md](../../../../agent_docs/phases/phase8.md).
+40. Re-judged the interpolation delay on the worst-case link — NA↔EU ping plus bad wifi, on the
+    fixed relay — and 450ms is what ships for this game, like every other (2026-09-02, ADR 0046).
+    Confirmed by the user on screen: [VERIFIED.md](VERIFIED.md), 2026-09-02.
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.
@@ -326,8 +347,13 @@ index** — including the scripts that WRITE, one of which alters the save. Read
 any of them. The adapter's own switches are in [FLAGS.md](FLAGS.md), and
 [adapters/_template/probes.md](../../../_template/probes.md) is the probe method itself.
 
-**How to run one**: point `dev-scripts/bizhawk-dev-loader.target` at it — the loader swaps scripts
-live with no emulator relaunch (step 15 above, `agent_docs/environment.md`).
+**How to run one**: write its path into the loader's target file — `dev-scripts/bizhawk-dev-loader.target`,
+or the per-instance file a launcher names in `MESHGHOST_DEV_LOADER_TARGET`
+(`bizhawk-dev-loader-emerald.target`, `-emerald2.target`) — and the loader swaps scripts live with
+no emulator relaunch (step 15 above, `docs/live-reload.md`). That only works when the emulator was
+launched with `--lua=dev-scripts/bizhawk-dev-loader.lua`; a launcher that opens the adapter script
+directly has no loader to talk to. The adapter's own runs land in [logs/](logs/), one timestamped
+`.log` per script load, all gitignored.
 
 The handful reached for most often, as orientation rather than an index:
 

@@ -160,6 +160,12 @@ the overflow tier below. Deleting them is no longer what ends this; the entry be
 
 ## The drawn overflow tier — a bandage by construction (2026-08-19)
 
+**Updated 2026-09-02: both overflow rungs are ON in the shipped configuration now** — the user's
+call, after watching the full ladder with a 24-peer crowd (`README.md` step 39, `FLAGS.md`). So
+this tier is no longer opt-in: it is what a peer gets once the engine's object slots AND the
+hardware tier's tile ranges are both spent, which a room at the shipped 8 seats does not produce
+on a map with slots to spare. Everything below still describes what it costs when it is reached.
+
 **Updated 2026-08-21: it is no longer the SECOND rung, it is the third, and that shrinks the
 exposure without closing this entry.** A hardware-sprite tier now sits between spawning and
 painting (`FLAGS.md`, `plans.md` Phase 8.1, the 2026-08-21 ADR): peers past the engine's object cap
@@ -180,7 +186,8 @@ instead of being spawned, so that every peer is visible instead of the ones past
 existing on screen. Asked for by the user in those terms — *"npc's always shown, ghosts try to
 fill, drawn otherwise"*, *"i don't want things to pop in/out all the time"* — and designed in
 `agent_docs/ideas.md` ("Spawn to the game's cap, then DRAW above it"), which called it a bandage
-before a line of it was written. Off by default (`MESHGHOST_EMERALD_DRAWN_OVERFLOW`, `FLAGS.md`).
+before a line of it was written. On by default since 2026-09-02; `MESHGHOST_EMERALD_DRAWN_OVERFLOW=0`
+turns it off (`FLAGS.md`).
 
 **Why it is a bandage and not a feature.** It does not make the game able to hold more characters;
 it paints over the game's finished frame to hide that it cannot. Every one of these costs is
@@ -236,7 +243,8 @@ pixel), and peers whose sprite falls outside the 240x160 screen are skipped enti
 
 **What would make it unnecessary:** nothing available. The 16-entry object array is the engine's,
 and no adapter-side cleverness adds an entry to it. The honest alternative is the pre-existing
-behaviour — peers past the cap are not shown at all — which is what the flag falls back to.
+behaviour — peers past the cap are not shown at all — which is what setting the flag to `"0"`
+returns to.
 
 ## A hand-drawn shadow under a jumping ghost (2026-08-19)
 
