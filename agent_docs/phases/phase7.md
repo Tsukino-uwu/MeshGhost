@@ -2661,3 +2661,14 @@ level, so 32 nested arrays around a number were refused by the walk and accepted
 the walk now tests the bound on containers only, the failing input is committed as a seed under
 `protocol/testdata/fuzz/`, and 30s of local fuzzing found nothing more. Suite and `-race` green,
 binaries rebuilt and deployed.
+
+**And a third red job the morning after (run 33942692231), from the fix commit's own push:** the
+race job failed `TestReliablePayloadIsNotAckedWhenItCannotBeDelivered` in `netx/udpconn` -- "the
+retransmitted payload never arrived after the receive queue drained", 8.5s. A test-harness race,
+not a product bug: the retry ticker starts at the Write, the test slept exactly two retry ticks,
+so the second resend could land while the test's blind `<-srv.in` drain loop ran and be swallowed as
+filler -- delivered, so acked, so the sender had nothing left to resend, and the wait timed out.
+The drain now goes through the same Read loop that waits for the payload, so a resend arriving
+mid-drain counts. 40/40 under `-race` locally (the old loop never failed locally either; the
+sleep-equals-two-ticks alignment only bites on a loaded runner). Same lesson as the 09-04 harness
+race: a test that pokes a Conn's queue directly must not also let the other side keep filling it.

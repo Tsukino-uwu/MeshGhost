@@ -362,10 +362,13 @@ func TestReliablePayloadIsNotAckedWhenItCannotBeDelivered(t *testing.T) {
 			"accepted — it was acked before delivery, so it will never be retransmitted and is lost")
 	}
 
-	// And once the reader catches up, the retransmission must land.
-	for len(srv.in) > 0 {
-		<-srv.in
-	}
+	// And once the reader catches up, the retransmission must land. The
+	// filler is drained through the same Read loop that waits for it, so a
+	// retransmit that arrives mid-drain still counts. This used to drain with
+	// a blind `<-srv.in` first, and the sleep above is exactly two retry
+	// ticks: the second resend could land while that loop ran, be swallowed
+	// as filler and acked, leaving the sender nothing to resend and the wait
+	// below to time out (CI, 2026-09-05).
 	deadline := time.Now().Add(8 * time.Second)
 	buf := make([]byte, MaxDatagramBytes)
 	for time.Now().Before(deadline) {
