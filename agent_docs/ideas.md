@@ -2777,3 +2777,43 @@ sword and two weapon mods changed ONLY the asset name -- so the outfit recipe ap
 flying sword follows for free. Confirmed from the other side the same night: a peer holding a modded sword
 showed the stock one on the watcher's screen. **BUILT 2026-09-05, the same night, as `weapon_mesh`** -- the
 outfit block's twin in `Plugin.cpp`; unwatched until two machines with the same weapon mod look.
+
+## Pool despawned ghosts: freeze them the way the pause menu freezes the player, revive instead of respawn (user's idea, filed 2026-09-06)
+
+**The user's words:** *"possible ghost lag solution, pause them similar to what the pause menu does after
+they are despawned/removed?"* -- filed at session end, not discussed further; "ghost lag" here is read
+as the hitch a ghost SPAWN costs, which is the reading to confirm with the user first.
+
+**Why it is plausible.** Everything measured says the spawn is the expensive part of a ghost: a full
+pawn-clone construction whose BeginPlay runs inside SpawnActor (the vertex light registering, the
+audio listener being stolen, the camera rig arriving, the black flash on spawn -- all spawn-time
+symptoms in `VERIFIED.md`), and `run-ghostload-pseudoregalia.bat -churn-every` exists precisely
+because spawn/despawn was expected to cost more than steady-state rendering. Every seam despawn,
+every area change and every peer that leaves and rejoins pays it again. A ghost that is FROZEN and
+HIDDEN instead of destroyed, then revived for the next peer (or the same peer coming back), pays the
+construction once per session per slot.
+
+**The mechanism to try, in order.** The pause menu's freeze is the engine's world pause
+(`WorldSettings.PauserPlayerState`, `documentation.md`); a per-actor equivalent is
+`CustomTimeDilation = 0` plus `SetActorTickEnabled(false)` plus `SetActorHiddenInGame(true)` and
+collision off -- all stock AActor calls, and the game does hide/show its own actors this way.
+Revive = the reverse, then the normal spawn-time writes (outline strip, decouple, light hold) which
+already run per tick and would simply keep holding.
+
+**Traps that are already known, so they are not re-learned.** (1) A pool DIES WITH THE LEVEL:
+`release_all_ghosts` runs in the LoadMap PRE hook for a reason (calling into an actor during
+teardown crashed), so the pool must empty there and refill after -- a same-level save reload
+(`InitGameState PRE`) too. (2) A frozen pawn still owns its `CollisionCylinder`, the component the
+audio-listener steal points at; a revive must not re-run BeginPlay (it would not -- that is the whole
+point) but the guard must not treat a revived pawn as a NEW spawn either. (3) The afterimage
+attribution by proximity: a hidden frozen pawn parked at its last position is still "near" whatever
+spawns there; park it far away or exclude hidden ghosts from the proximity fallback. (4) The
+outline hold and the sweeps iterate `remotes`; a pooled-but-unassigned ghost needs a state so the
+per-tick work skips it, or the pool costs every tick what it saved at spawn. (5) A revived pawn
+carries the previous peer's outfit, weapon model, nametag and trail colour until the new peer's
+first state arrives -- the edge gates (`last_synced_*`) must be reset on revive, as they are on
+LoadMap today.
+
+**How to measure before building.** The churn rig already exists; the number to beat is the
+frame-time spike per spawn on the user's machine (`stat unit`, the 08-30 perf timers), and the
+comparison is spawn-vs-revive with the same ghost count. Not scheduled.
