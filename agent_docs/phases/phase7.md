@@ -2724,3 +2724,11 @@ DLL and the game-root layout. Rig torn down and verified gone; scratch slot rest
 working with no big issues; one rare visual fault logged at no priority: a remote ghost came back
 glitched (fragments, floating sword, shadow intact) after its peer's reset-to-save following a hit;
 the watcher's own reset cleared it; the peer saw nothing and could not reproduce it. `UNVERIFIED.md`.
+
+**Night, 2026-09-05 — the sword model.** The user asked whether weapons sync like outfits. Reading the
+state: everything the sword DOES is sent, nothing about how it LOOKS. `weapon.lua`, hot-loaded into the
+live two-machine session: the hand sword is one skeletal mesh asset on `WeaponMesh` at `handSlot_RSocket`;
+the user swapped BusterSword -> Dream Breaker Keyblade -> stock and only the asset line changed. The peer
+confirmed their modded sword shows as stock on the user's screen. Filed as buildable (`ideas.md`), the
+facts in `documentation.md`; not built tonight. Two rare no-priority items logged from the same session:
+a glitched remote ghost after a peer's reset-to-save, and a nametag occasionally too low.

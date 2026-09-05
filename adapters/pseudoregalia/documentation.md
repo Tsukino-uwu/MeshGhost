@@ -485,6 +485,26 @@ Three more facts about the same pass, measured 2026-09-05 (`probe_outline/`, use
   per pixel, which is also why the player's own sword is never outlined through the player's own body
   while both write custom depth — and is, the moment the body stops.
 
+## The sword is one skeletal mesh asset on `WeaponMesh`, and a weapon mod swaps only that
+
+> **Fields** `WeaponMesh.SkeletalMesh` (also readable as `SkinnedAsset`), `AttachParent`,
+> `AttachSocketName`, `RelativeLocation/Rotation/Scale3D` · **Functions on the pawn** `spawnWeapon`,
+> `recallWeapon`, `changeEquippedWeapon`, `changeCanSummonWeapon`
+
+Measured live 2026-09-05 (`probe_outline/Scripts/weapon.lua`, read-only, the user swapping weapons on
+request): the hand sword is a `SkeletalMeshComponent` named `WeaponMesh`, attached to `VisualMesh` at
+socket `handSlot_RSocket` with relative rotation (0, 90, 0), zero offset and unit scale. The stock asset
+is `mainWeapon`; two weapon mods read as `mainWeapon_BusterSword` and `mainWeapon_Dream_Breaker_Keyblade`.
+**Swapping weapons changed the asset and nothing else** -- socket, offset and scale were identical across
+all three, printed on change and never printed again. A weapon model is therefore the same kind of thing
+as an outfit: one asset name on one component, in a socket the game owns. `SkeletalMeshAsset` does not
+resolve as a property on this build; `SkeletalMesh` does, as the outfit path already found. The pawn
+class exposes four weapon verbs and none of them is a model swap; the weapon mods change the asset the
+component starts with.
+
+*Confidence: high for the three assets seen; a fourth mod that also moves the socket or scale would show
+up as a change on the attach line, which never fired.*
+
 ## Animation montages
 
 The character's animation assets are prefixed `dreamLady_`; the pawn class itself is

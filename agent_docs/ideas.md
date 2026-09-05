@@ -2771,6 +2771,8 @@ outfit path reads `VisualMesh`'s, send it as `weapon_mesh`, resolve on the recei
 catalog gate (`resolve_peer_named_asset`, `SkeletalMesh`), apply with the same setter the outfit uses
 (`SetSkeletalMeshAsset` -- the T-pose lesson), and let the flying sword keep reading the hand mesh so
 it follows for free. Same requirement as outfits: the watcher needs the same mod installed. Where the
-sword sits is a different question (socket/attachment on the hand, and the modded model's own origin);
-`documentation.md` says the weapon socket is the game's, so a model that fits the stock socket fits.
-Not scheduled.
+sword sits is answered (measured 2026-09-05, `documentation.md`, "The sword is one skeletal mesh asset"):
+`WeaponMesh` hangs off `VisualMesh` at `handSlot_RSocket`, rotation (0,90,0), and swapping between the stock
+sword and two weapon mods changed ONLY the asset name -- so the outfit recipe applies unchanged, and the
+flying sword follows for free. Confirmed from the other side the same night: a peer holding a modded sword
+showed the stock one on the watcher's screen. Buildable in one pass; not scheduled until asked.

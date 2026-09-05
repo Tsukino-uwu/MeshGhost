@@ -354,6 +354,11 @@ setter and watch the screen**.
   dump of an afterimage's object properties with the owner of each value (named `cachedMesh`); and
   RESTORE: `SetRenderCustomDepth(true)` on the body and sword when `outline_resync.txt` appears. The
   restore made the silhouette vanish on screen; the next attack brought it back.
+- **`Scripts/weapon.lua`** (read-only, 2026-09-05, same folder for the shared idioms) — the hand sword's asset
+  under three candidate property names, its attach parent, socket and relative transform, the pawn's
+  `weaponRef`/`weaponEquipped?`, the loose weapons in the world, and every pawn function naming weapon/
+  sword/equip; on change, so a live weapon swap prints one line. Established that a weapon mod is an asset
+  swap on `WeaponMesh` and nothing else (`documentation.md`), and that a peer's modded sword is not mirrored.
 - **`Scripts/stencil.lua`** (stage 3, WRITES to ghost meshes while it runs) — ghosts on stencil 1,
   then 255, with custom depth on (arm `keep_custom_depth.txt` first). Answer: the outline pass
   ignores stencil; ghosts writing custom depth show through walls. The user chose to keep them stripped.
