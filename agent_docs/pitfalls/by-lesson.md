@@ -5972,34 +5972,42 @@ call rebuilds last is the one that wins.
 is not a fallback — it is half of one. Ask what rebuilds the thing, and prove the pixels changed
 rather than the field.
 
-## Anything WE create in the level must be REMOVED at the reset guard, not just forgotten — the fourth handle to crash a reset (Pseudoregalia, 2026-09-05)
+## Never destroy anything inside the game's own Reset click — the hook's destroy WAS the instant crash, hidden since 2026-08-30 by arming-by-accident (Pseudoregalia, 2026-09-05)
 
-**Symptom.** *Reset to last save* while a recording was running: `Fatal error!`, EXCEPTION_ACCESS_VIOLATION
-reading address 0, inside the game's ProcessEvent, written 16ms after the reset guard's last log
-line — one frame. `dev-scripts/read-minidump.py --stack` put the mod's reset-hook lambda on the
-crash thread (`Plugin.cpp:11833`, symbolized against the matching PDB). A Lua probe was loaded and
-was the first suspect; its next sample was due ~70ms later, so timing alone cleared it.
+**Symptom.** *Reset to last save*: `Fatal error!`, EXCEPTION_ACCESS_VIOLATION reading address 0
+inside the game's ProcessEvent, written 16ms after the mod's reset-button hook finished. Twice on
+2026-09-05, both dumps read with `dev-scripts/read-minidump.py --stack` and symbolized against the
+matching PDB: the hook lambda's return address on the crash thread, the game's own Reset handler
+faulting a few hundred microseconds after it returned.
 
-**The user named the family before the dump was read:** *"maybe its due to using reset save while
-we had the recording interface up/enabled? don't think we ever void those"* — and *"this is like the
-3rd or 4th time i think this same exact issue has happened"*. It is: the camera fallback pointer
-(2026-08-27, "new save" crash), the thrown prop, the VFX map, the nametag trio (2026-09-01, the
-reset-to-save crash) — every one a handle to something in the level that outlived the level.
+**Two wrong theories first, each refuted by one measurement.** (1) A Lua probe loaded at the time
+— cleared by timing, its next sample was ~70ms away. (2) The user's read, the recording indicator
+never being removed (*"don't think we ever void those ... this is like the 3rd or 4th time"*) — a
+fair call from the handle family, so the three components were destroyed at the hook, rebuilt,
+redeployed: the reset crashed identically with the destroy line in the log. A fix that changes
+nothing is a diagnosis, and this one said the indicator was not it.
 
-**What was different this time, and why "clear the pointer" was not enough.** The indicator's five
-handles WERE annotated stale-safe and WERE dropped in `release_all_ghosts`, which the reset guard
-calls — the 2026-09-01 lesson had been applied. But the ghosts' components die with the ghosts we
-destroy; the indicator's components are OURS on the LOCAL pawn, attached across actors to the camera
-manager's transform, and a same-zone reset need not destroy that pawn at all. Dropping the handle
-leaves the thing alive; nothing else was ever going to remove it.
+**What the log said all along.** Nineteen resets that night with three ghosts and a recording
+running were CLEAN — every one had gone through LoadMap PRE without the hook, because the hook had
+not armed. Both crashes had the hook armed. And the 2026-08-31 note in the hook itself had already
+recorded the split: *"destroying ghosts at the click crashes INSTANTLY; leaving them alone crashes
+LATER"*. The LATER crash was the nametag's stale pointer, closed 2026-09-01. The INSTANT one was the
+hook's own work, and it was never removed.
 
-**Fix (built 2026-09-05, awaiting the user's reproduction).** `destroy_recording_indicator` — the
-components are DESTROYED at the reset button's PRE hook, the one moment this file knows to be safe
-for calling into the level (release_ghost already destroys the ghosts there), and only DROPPED at
-LoadMap PRE / InitGameState PRE, where calling in has crashed before. Prints `N of M destroyed`.
+**Why it looked intermittent from 2026-08-30 to 2026-09-05.** The tick is silent while the game is paused; the
+pause-menu widget exists only while paused; so the every-10-ticks scan that arms the hook can only
+ever find a CLOSED menu's not-yet-collected copy. Open-and-reset never arms it. Open, close, wait,
+open, reset does — which is the user's *"spam opening/closing the pause menu, then reset"* recipe
+that reproduced it on demand. Every reset crash since 2026-08-30 needed that accident first.
 
-**The rule, promoted because this is a repeat:** anything the mod CREATES in the level — actor or
-component, ghost-owned or player-owned — gets three things in the same commit: a `stale-safe:`
-annotation (preflight checks it), a DROP in `release_all_ghosts`, and a DESTROY at the reset guard.
-The third is the one this entry adds; ask "who removes this?" and if the answer is "the level", ask
-whether a same-zone reset even tears that actor down.
+**Fix (built 2026-09-05, awaiting the user's spam-then-reset).** The hook is OBSERVE-ONLY by
+default: it logs the click and destroys nothing; LoadMap PRE releases the ghosts as it does for
+every other reset. `guard_destroy.txt` restores the old behaviour for an A/B.
+
+**The rules, both promoted because this is a repeat:** (a) **nothing is destroyed from inside a
+game UI callback** — the `Construct` hook crashed on 2026-08-31 for the same reason and the file
+already said "not something to retry"; a Reset click is a UI callback. (b) **A hook that must be
+found by scanning is a hook that arms by luck** — log its arming and read the log before believing a
+reproduction; a crash that needs the hook armed is a crash the hook causes until proven otherwise.
+The handle rule from 2026-09-01 (annotate, drop in `release_all_ghosts`) stands; "and destroy it at
+the reset guard" does not, and was wrong between 03:56 and 04:15 on 2026-09-05.

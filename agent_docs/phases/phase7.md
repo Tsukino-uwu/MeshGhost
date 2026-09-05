@@ -2581,3 +2581,16 @@ recording indicator's components, dropped but never removed, *"this is like the 
 and it is the fourth handle in the reset-crash family. Fix: `destroy_recording_indicator` at the
 reset button's PRE hook, built and deployed, UNWATCHED. Promoted to a rule the user asked for:
 `checklists/before-spawning-in-unreal.md`, first bold line.
+
+**And then the reset crash was reproduced on demand, and the indicator theory fell.** The user's
+recipe: *"spam opening/closing the pause menu, and then doing reset to last save"*. It crashed
+identically WITH the indicator's destroy line in the log — so the indicator was not it. What the
+night's log actually said: nineteen resets with three ghosts and a recording running were clean, and
+every one of them had skipped the reset-button hook, because that hook only ARMS when a closed
+menu's uncollected widget copy is still around (the tick is silent while paused; the widget exists
+only while paused). Both crashes had it armed. The hook's own destroy-at-click — which its
+2026-08-31 comment already called the INSTANT crash, next to a LATER crash that 2026-09-01 fixed —
+was the cause all along, and the accidental arming is why it read as intermittent from 2026-08-30 on.
+**Fix:** the hook is observe-only by default (`guard_destroy.txt` for the A/B), built and deployed,
+UNWATCHED. The pitfall written at 04:07 was rewritten to the right lesson: never destroy
+anything from inside a game UI callback, and a hook that arms by scanning arms by luck.

@@ -8780,18 +8780,14 @@ namespace MeshGhostPseudo
 
         bool g_recording_indicator_visible = false;
 
-        // **REMOVES the indicator's three components -- destroyed, not merely dropped -- at the ONE
-        // moment this file knows to be safe for calling into the level: the pause menu's Reset
-        // button PRE hook, before the game's own reset runs (the same moment release_ghost destroys
-        // the ghosts there).** Added 2026-09-05 after a reset-to-save with a recording running died
-        // in ProcessEvent one frame after the reset guard finished -- the user's read, and the
-        // shape of every crash in this family: *"don't think we ever void those ... this is like
-        // the 3rd or 4th time"*. These components are OURS on the LOCAL pawn, attached across
-        // actors to the camera manager's transform, and a same-zone reset need not destroy the pawn
-        // at all -- so unlike a ghost's components, nothing else was ever going to remove them.
-        // Prints N of M so a subtraction that reached nothing says so (probes.md's rule).
-        // LoadMap PRE / InitGameState PRE keep the drop-only treatment: calling into the level
-        // there is what this file has crashed on before.
+        // **Destroys the indicator's three components. ONLY reachable under `guard_destroy.txt`
+        // (the reset hook's A/B path), and kept as the record of a refuted theory.** Written
+        // 2026-09-05 on the user's read that the reset-to-save crash was the indicator never being
+        // removed; the reset then crashed identically WITH this line in the log, which is what
+        // proved the crash was the hook's own destroy-at-click (see the hook). Dropping the handles
+        // at LoadMap PRE is the right and sufficient treatment: nineteen resets with a recording
+        // running were clean through that path the same night. Prints N of M so a subtraction that
+        // reached nothing says so (probes.md's rule).
         auto destroy_recording_indicator(const wchar_t* reason) -> void
         {
             int wanted = 0;
@@ -11770,12 +11766,24 @@ namespace MeshGhostPseudo
 
             pause_reset_hook_id = reset_fn->RegisterPreHook(
                 [this](UnrealScriptFunctionCallableContext&, void*) {
-                    // **`guard_off.txt` makes this observe-only.** Every trace so far has had the
-                    // guard destroying ghosts at the click, so the game's UNASSISTED reset has
-                    // never actually been recorded -- the tail we keep reading is our own teardown.
-                    // With this present the hook still logs, and nothing is destroyed or
-                    // suppressed, which is the control the investigation is missing.
-                    if (dev_toggle_present(STR("guard_off.txt")))
+                    // **OBSERVE-ONLY BY DEFAULT since 2026-09-05; `guard_destroy.txt` restores the
+                    // destroy-at-click for an A/B.** The 2026-08-31 note below already said it:
+                    // "destroying ghosts at the click crashes INSTANTLY; leaving them alone crashes
+                    // LATER" -- and the LATER crash was the nametag's stale pointer, fixed
+                    // 2026-09-01. What was left was the INSTANT one, which is this hook's own work:
+                    // two dumps on 2026-09-05 (one with the recording indicator destroyed here as
+                    // well, which changed nothing) put this lambda on the crash thread, with the
+                    // game's own Reset handler dereferencing null a few hundred microseconds after
+                    // it returned. The same reset through LoadMap PRE alone, where the ghosts die
+                    // with the level, was clean nineteen times that night with three ghosts and a
+                    // recording running.
+                    //
+                    // WHY IT LOOKED INTERMITTENT FROM 2026-08-30 TO 2026-09-05: this hook only ARMS by accident. The
+                    // tick is silent while paused, the pause-menu widget exists only while paused,
+                    // so the every-10-ticks scan can only find a closed menu's uncollected copy --
+                    // open-and-reset never arms it, open-close-wait-open-reset does. Every "reset
+                    // crash" since 2026-08-30 needed that accident first.
+                    if (!dev_toggle_present(STR("guard_destroy.txt")))
                     {
                         // **THE UNTESTED COMBINATION, and the evidence points straight at it.**
                         // Destroying ghosts at the click crashes INSTANTLY; leaving them alone
@@ -11786,16 +11794,11 @@ namespace MeshGhostPseudo
                         // does not reliably reach.
                         //
                         // So `suppress` holds the respawn WITHOUT destroying anything.
-                        if (dev_toggle_contains(STR("guard_off.txt"), "suppress"))
-                        {
-                            suppress_ghost_spawn_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
-                            quiet_until_tick = tick_count + RESET_SPAWN_SUPPRESS_TICKS;
-                            Output::send(STR("[MeshGhostPseudo] RESET GUARD: SUPPRESS-ONLY -- ghosts left alive, respawns held.\n"));
-                            return;
-                        }
-                        Output::send(STR("[MeshGhostPseudo] RESET GUARD: OBSERVE-ONLY (guard_off.txt) -- not destroying ghosts, not suppressing spawns.\n"));
+                        Output::send(STR("[MeshGhostPseudo] RESET GUARD: OBSERVE-ONLY (the default) -- {} ghost(s) left for LoadMap PRE to release; nothing destroyed inside the click.\n"),
+                                     static_cast<int>(remotes.size()));
                         return;
                     }
+                    Output::send(STR("[MeshGhostPseudo] RESET GUARD: guard_destroy.txt is present -- destroying at the click, the path that crashed twice on 2026-09-05.\n"));
 
                     // **Spawning stops FIRST.** Destroying the ghosts alone was measured
                     // insufficient on 2026-08-30: the next tick simply spawned them again, into the
