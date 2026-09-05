@@ -166,7 +166,7 @@ about networking, only about **adapter behaviour that depends on the peer differ
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target (all fourteen) | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target — 19 of the 25 targets; the table below says which six run as seed-corpus tests only, and why | no |
 | **gofmt** | yes (`dev-scripts/preflight.ps1`) | yes — `gofmt -l` on tracked `.go`, added 2026-08-18 | no |
 
 **The race detector used to be the one real hole, and it cost a round trip before it was
@@ -218,7 +218,7 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   wire**. That test has a deliberate negative control in the same function (with `tls` off the
   room code *is* captured), so it fails both when the feature breaks and when the test stops
   watching the right traffic.
-- **`bridge`** — has `bridge_test.go` since 2026-08-25 (seven tests plus two fuzz targets;
+- **`bridge`** — has `bridge_test.go` since 2026-08-25 (eight tests plus two fuzz targets;
   before that it had none at all). It is also covered where it is used: `core`'s
   `dialFakeAdapter` speaks real bridge NDJSON, and `internal/e2e` drives a real adapter
   across it.
@@ -234,6 +234,9 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   a new wire field. Each was proven to fail against a deliberate violation before being kept.
 - **`cmd/meshghost`, `cmd/meshghost-relay`, `cmd/meshghost-netsim`** — each has its own tests,
   mostly around config/flag precedence and, for netsim, the fault injection itself.
+- **`internal/cfg`, `internal/textfmt`, `internal/hotkey`** — the three production `internal/`
+  packages each carry their own unit tests (config-file plumbing and log rotation; number
+  formatting; chord parsing plus a fuzz target, since a chord is a string a player typed).
 - **`internal/e2e`** — builds and launches the real `meshghost-server.exe` and `meshghost.exe`,
   then drives a real adapter over the bridge and asserts a ghost completes the round trip. This
   is the only thing covering `cmd/`'s flag parsing and config wiring **end to end, against the
@@ -408,8 +411,22 @@ checks):
 | `FuzzRelaySurvivesArbitraryPostJoinMessages` | A live relay fed arbitrary messages *after* a real join still serves clients — the only coverage of the dispatch reaching `handleEvent`/`handleLease`/`handleEscrow`/`handleWorld`. |
 | `FuzzEnvelopeUnmarshalNeverPanics` (**bridge**) / `FuzzHelloUnmarshalNeverPanics` (bridge) | The bridge's outermost decode and its `hello` decode fail cleanly on arbitrary bytes — an adapter is third-party code and the bridge had no fuzzing (and no tests) until 2026-08-25. |
 | `FuzzClampRatesAlwaysLandInRange` | Every rate the relay resolves from a hello lands inside the honoured clamp range, whatever the inputs (added with the 15Hz default change, 2026-09-01). |
+| `FuzzDepthBoundsAgreeAndNeverPanic` | The two `MaxJSONDepth` checkers — a raw-byte scan and a walk of the decoded value — agree on every input, so no shape rides in through the field only the scanner sees. Found a real off-by-one on 2026-09-05 (a scalar leaf counted as a level). |
+| `FuzzParseReplayNeverPanics` (**core**) | A replay file is a stranger's bytes; the loader refuses or accepts without panicking, and anything accepted passes the same validation a relay packet does, sample by sample (ADR 0047). |
+| `FuzzEverything` (core) | One whole client's configuration, event order, timing and values fuzzed at once — the replay-era features on top of the adapter and relay paths — against invariants a player would state. No relay socket, so it can run in CI where the schedule fuzzers cannot. |
+| `FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords` (**internal/hotkey**) | A chord string from config.json never panics the parser, and anything accepted is a documented modifier set plus one documented key that prints back to itself. |
+| `FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane` (**cmd/meshghost**) | Any hand-edited config.json value leaves the flag default in place rather than a zero or garbage, and never panics. |
 
-**Two targets have now shipped written-but-unwired**, a pattern rather than a slip:
+**Six targets exist that CI does NOT campaign** (2026-09-06; they still run in every `go test` on
+their seed corpus, and each has a stated reason):
+
+| Target | Why no CI step |
+|---|---|
+| `FuzzSchedule` (core) and `FuzzNameDeliverySurvivesAnyConnectOrdering` (core) | Stand up real relay sockets per iteration; a continuous campaign is socket-bound long before it is idea-bound (ephemeral-port exhaustion, TIME_WAIT). Deliberately opt-in, run short and at low parallelism by hand; the file headers say so. |
+| `FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog`, `FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing` (protocol) | Sanitizer idempotence and output-safety pins written 2026-08-28; never given a `ci.yml` step. No stated reason — a candidate for wiring, same as the two that shipped unwired before. |
+| `FuzzAppendEnvelopeMatchesMarshal`, `FuzzExtrasSizingMatchesMarshal` (protocol) | Encoder-vs-`encoding/json` pins (escaping, U+2028/9, invalid UTF-8, float formatting). No stated reason either; same candidate status. |
+
+**Two targets have shipped written-but-unwired**, a pattern rather than a slip:
 `FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and `FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having
 never once run). **Adding a target is not done until `.github/workflows/ci.yml` has a step for it**,
 and this table is where the next session checks. The udp one is the most exposed of them: udp
@@ -429,13 +446,13 @@ regression test.
 - **A fuzz target explores ORDER well and SCALE badly, and the difference is where bugs hide (2026-09-04).** `FuzzEverything`'s alphabet already contained `ctl.recordToggle` and `ctl.replayLast`, so "record, play frames, replay-last while still recording" was a reachable ordering -- and the target never found the bug that ordering has. The bug needed **64KiB of recording** before the writer's buffer flushed mid-line, and every clip a fuzz step writes is a few hundred bytes. **So when a hand-found bug turns out to be inside a sequence the fuzzer already generates, ask what SIZE or DURATION precondition it also needed** -- and write the regression test by hand, because making the fuzzer reach it would cost every iteration. Found by a user asking whether the replay-last hotkey works mid-recording; the same truncation is what a killed game leaves behind, so it was never really an edge case.
 
 - **A fuzz target must not stand up a SOCKET per iteration -- FIXED 2026-09-03, and the fix is the
-  interesting part.** `FuzzEverything` and `FuzzScheduleConvergence` each opened a bridge listener
+  interesting part.** `FuzzEverything` and `FuzzSchedule` (`schedule_convergence_fuzz_test.go`) each opened a bridge listener
   and dialled it every iteration, twelve workers at a time; on Windows that exhausts the ephemeral
   port range in ten to fifteen seconds of a real campaign. **The two targets then failed in
   opposite, equally misleading ways**: `FuzzEverything` died with `dial bridge: Only one usage of
   each socket address is normally permitted` and wrote the running schedule into the seed corpus as
   if it had found a bug (it had not -- that input passes when re-run alone, which is the tell), and
-  `FuzzScheduleConvergence`, which swallowed the dial error on purpose, ran the whole rest of its
+  `FuzzSchedule`, which swallowed the dial error on purpose, ran the whole rest of its
   campaign **with no adapter attached, exercising nothing while passing**. Confirmed to be nothing
   to do with the code under test by reproducing it on a stashed, unmodified tree.
   **Both now serve the bridge over an in-memory `net.Pipe` (`pipeListener`, `core/core_test.go`):

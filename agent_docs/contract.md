@@ -220,12 +220,12 @@ signal joins/leaves — `despawn_remote(id)` has nothing to trigger it without a
 
 | Message | Direction | Carries |
 |---|---|---|
-| `hello` | client → relay | protocol version, `game_id`, room name, display name, `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
-| `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
+| `hello` | client → relay | protocol version, `game_id`, room name, display name and `name_color` (the nametag's colour, `#RRGGBB` or empty; sanitized like the name and never a reason to refuse), `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
+| `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's `ghost_collision` policy (ADR 0035; advisory, forwarded to the adapter as `session_policy`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
 | `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
 | `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a room that negotiated `snapshot.v1`, where a joining client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
-| `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); answered with `prefs_ack`. Added 2026-08-28 |
+| `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); applied silently, nothing is sent back (the relay's `TypePrefs` case in `relay.go` updates the client's flag under its lock and returns) — a client that wants confirmation observes the next `state` it does or does not receive. Added 2026-08-28; "answered with `prefs_ack`" stood here until 2026-09-06 and no such type ever existed |
 | `leave` | **both directions** | relay → client: a peer's `player_id` — this is what drives `despawn_remote`. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
 | `state` | both directions | the packet schema above |
 | `event` | both directions | an opaque payload, a `to` addressee (or absent for room broadcast), a relay-stamped `from`, a room-wide `seq`, and an optional `corr_id`. **Implemented 2026-08-17**; requires `event.v1`. See Extensibility below |
@@ -396,8 +396,10 @@ both opaque to the core and relay (never parsed, compared only where noted below
   against its own configured code before accepting a join. An empty configured code (the
   default) means auth is off — the original friend-hosted posture. **Crosses the wire in
   plaintext unless the session is encrypted** — `quic` always is, and `tcp` is when the `tls`
-  setting is on (the binaries default to `off`; the shipped `packaging/release/config.json`
-  sets `auto` on both sides — see the TLS-over-tcp ADR in `architecture.md`). Encrypted or
+  setting is on (`auto` is both binaries' built-in default AND what the shipped
+  `packaging/release/config.json` sets on both sides — see the TLS-over-tcp ADR in
+  `architecture.md`; this line said the binaries default to `off` until 2026-09-06, which the
+  Transport section below never did). Encrypted or
   not, the code itself is still what is sent, so this raises the bar from "anyone with the
   address" to "anyone with the address and the code," not to "safe against a network-level
   attacker." See `docs/security.md`.
@@ -839,6 +841,14 @@ core stays as game-ignorant as ever; the flag *removes* an area judgment from th
 than adding one. Emerald sets it for cross-map ghosts, where the adapter knows the game's own
 map-connection graph and the core's equality test cannot.
 
+An adapter may also declare `"interpolate_orientation": true` here (added 2026-08-30, ADR 0043):
+the core then computes and sends the orientation bracket (`orientation_from`/`orientation_to`/
+`interp_t` on every `render_remote`) so an adapter with a CONTINUOUS facing can interpolate it
+itself. Opt-in for efficiency, not safety: a stepped facing (four compass directions, a flipped
+sprite) has no midpoint to render, so sending two extra blobs per peer per frame to an adapter
+that discards them is waste. Absent means false, byte-for-byte what shipped before the bracket
+existed. Adapter-local like `render_all_areas`: nothing on the wire changes.
+
 An adapter may also declare `"features"` here — the capabilities it needs the core to negotiate
 on its behalf (see `features` above). The core advertises the union of that and its own
 configured list. **This is not a breach of "an adapter has no say in how the core reaches the
@@ -909,6 +919,18 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - A carried `prev` (ADR 0045) meets every bound above on its own fields (`protocol.validPrev`,
   called from `ValidateState` at both enforcement points) and cannot nest; the line cap bounds the
   whole message.
+- Max NESTING depth of `extras` and `orientation`: **32 levels** (`MaxJSONDepth`, added
+  2026-09-03). The byte caps bound how much a peer sends and nothing about its shape: ~490 nested
+  containers fit in the 1024 bytes `extras` allows, and every receiver — four hand-written decoders
+  in three languages — walks that structure. Checked by two means that must agree (a raw-byte scan
+  for `orientation`, a walk of the decoded value for `extras`; `FuzzDepthBoundsAgreeAndNeverPanic`
+  pins them against each other and found an off-by-one on 2026-09-05). Sits below the 64 both Lua
+  adapters enforce on their own, so nothing an adapter would refuse ever reaches the core.
+- Display name: **64 bytes AND 24 runes** (`MaxDisplayNameBytes` / `MaxDisplayNameRunes`,
+  `protocol/displayname.go`, 2026-08-28), applied by `SanitizeDisplayName` at the relay and again
+  at every client. Both bounds, because either alone lets something through — 64 bytes of combining
+  marks is one smeared glyph, 24 four-byte runes is 96 bytes on a 4096-byte line. Truncated, never
+  refused: a long name is not a reason to lose a connection.
 - Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
 - Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
   `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them

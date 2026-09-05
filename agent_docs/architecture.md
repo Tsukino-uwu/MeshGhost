@@ -18,9 +18,10 @@ are a record, and a record is capped by splitting it, not by refusing entries
              |  plus the opt-in planes event/lease/lease_state/escrow/escrow_state/
              |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only. 15 types:
+             |  adapter bridge: NDJSON/TCP, localhost-only. 18 types:
              |  hello/bridge_ready/reject/session_policy/local_state/render_remote/
-             |  despawn_remote/remote_name, plus the same opt-in planes (bridge/bridge.go)
+             |  despawn_remote/remote_name/replay_control/player_frozen/recording_state,
+             |  plus the same opt-in planes (bridge/bridge.go is the list)
      [ Adapter contract ]
         /    |    \
    Emerald  Crystal  TEVI  Pseudoregalia   (per-game, rewritten each time)
@@ -83,6 +84,11 @@ internal/cfg        — production, added 2026-08-25. The config-file plumbing s
 internal/textfmt    — production, added 2026-08-28. Number formatting for the one-line
                        status summaries; extracted because core/stats.go and
                        relay/introspect.go carried byte-identical copies.
+internal/hotkey     — production, added 2026-09-03 (ADR 0048). Parses a chord string from
+                       config.json and registers it system-wide; the Windows build talks to
+                       the OS, every other build is a no-op that still parses. Imported by
+                       cmd/meshghost only: the hotkeys belong to the core PROCESS, not to
+                       the core package, which stays free of any OS-specific call.
 internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
                        the bridge; imports bridge, netx, protocol, transport. Ships no
                        production code, so nothing imports it.
@@ -95,9 +101,9 @@ internal/gameblind  — test-only, added 2026-08-20. Five tests over the source 
                        above a chosen set rather than the residue of deleting a directory.
 
 cmd/* are package main and were never importable:
-cmd/meshghost       — desktop app entry point. Imports core, netx, protocol and internal/cfg
-                       (the Phase 3 note here once predicted transport/bridge imports; they
-                       never arrived).
+cmd/meshghost       — desktop app entry point. Imports core, netx, protocol, internal/cfg and
+                       internal/hotkey (the Phase 3 note here once predicted transport/bridge
+                       imports; they never arrived).
 cmd/meshghost-relay — standalone relay entry point. Imports relay, netx, protocol, internal/cfg.
 cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core, netx
                        and protocol.

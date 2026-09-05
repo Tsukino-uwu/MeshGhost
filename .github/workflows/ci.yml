@@ -3,10 +3,12 @@ name: CI
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
 # short fuzz campaign against nineteen targets across eight packages (protocol 9,
-# bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1 -- count them with
-# `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l` rather than trusting
-# this line, which said eleven across four for as long as the two bridge targets
-# below have existed). Until this existed,
+# bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1).
+# That is NOT every target in the tree: `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l`
+# counts 25 on 2026-09-06, and agent_docs/testing.md names the six with no step here and why
+# (two are socket-bound schedule fuzzers that are opt-in on purpose; four are encoder and
+# sanitizer pins nobody wired). Count both rather than trusting this line, which said eleven
+# across four for as long as the two bridge targets below had existed. Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
 #
