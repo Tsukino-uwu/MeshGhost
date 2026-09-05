@@ -2746,3 +2746,10 @@ caught a Linux-only relay flake (a Reject lost to a TCP reset; `phase10.md`), fi
 A second tester's access violation came with a `UE4SS.log` in the OLD 2.5 layout, no C++ mod started
 and no MeshGhost line at all: an older Archipelago-era UE4SS whose loader never reads `ue4ss\Mods\`.
 A clean game reinstall fixed it; README.txt now says the UE4SS replace is necessary, not just usual.
+
+**Later still, 2026-09-05 — a second tester crash, this one plausibly ours.** Weapon swap with a replay
+playing, sometimes, on v1.1.7; no dump yet. The one asymmetry between the outfit path (never crashed)
+and its new weapon twin: a sword-swap mod may tear down and rebuild the hand component or its asset
+while the sender reads it every tick and while a recorded swap replays onto a ghost. Liveness guards
+(`IsUnreachable`) added on both ends, DLL rebuilt, handed to the tester through the Desktop folder;
+the dump decides the rest. `UNVERIFIED.md`.

@@ -15589,9 +15589,16 @@ namespace MeshGhostPseudo
             // screen (both players confirmed it the same night). Empty when unresolved this tick,
             // which the receiver reads as "unchanged", like outfit_mesh.
             std::string weapon_mesh;
-            if (UObject** hand_mesh_ptr = mg_property_value<UObject*>(pawn, STR("WeaponMesh")); hand_mesh_ptr && *hand_mesh_ptr)
+            // Unlike the body, the hand sword is something a WEAPON-SWAP mod may tear down and
+            // rebuild while we read it -- a tester's game crashed on a swap with a replay ghost
+            // present (2026-09-05, evening). So both the component and its asset are checked
+            // alive before anything is called on them; a dying one reads as "no data this tick",
+            // which the receiver treats as unchanged, exactly like a missing field.
+            if (UObject** hand_mesh_ptr = mg_property_value<UObject*>(pawn, STR("WeaponMesh"));
+                hand_mesh_ptr && *hand_mesh_ptr && !(*hand_mesh_ptr)->IsUnreachable())
             {
-                if (UObject** skel_mesh_ptr = mg_property_value<UObject*>((*hand_mesh_ptr), STR("SkeletalMesh")); skel_mesh_ptr && *skel_mesh_ptr)
+                if (UObject** skel_mesh_ptr = mg_property_value<UObject*>((*hand_mesh_ptr), STR("SkeletalMesh"));
+                    skel_mesh_ptr && *skel_mesh_ptr && !(*skel_mesh_ptr)->IsUnreachable())
                 {
                     std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
                     size_t space_pos = full_name.find(' ');
@@ -21672,6 +21679,10 @@ namespace MeshGhostPseudo
                                  to_wide_ascii(remote.target_weapon_mesh), weapon_mesh_obj->GetClassPrivate()->GetName());
                     weapon_mesh_obj = nullptr;
                 }
+                if (weapon_mesh_obj && weapon_mesh_obj->IsUnreachable())
+                {
+                    weapon_mesh_obj = nullptr; // an asset on its way out is not one to hand a component
+                }
                 if (weapon_mesh_obj)
                 {
                     UObject* targets[] = {nullptr, nullptr};
@@ -21682,7 +21693,10 @@ namespace MeshGhostPseudo
                     targets[1] = remote.weapon_fly_component;
                     for (UObject* mesh : targets)
                     {
-                        if (!mesh)
+                        // Same liveness rule as the sender: never call into a component the
+                        // engine has already let go of. The flyer is ours and nulled on release,
+                        // but the check costs nothing and the crash it prevents costs a session.
+                        if (!mesh || mesh->IsUnreachable())
                         {
                             continue;
                         }
