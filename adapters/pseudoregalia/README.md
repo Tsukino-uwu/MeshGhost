@@ -365,6 +365,22 @@ Roughly in order:
     above, and the plumbing that starts the client — **together with what it does not cover**: the
     black flash when a ghost appears, two uncaught crash reports, the port walk's second-instance
     case, and anything confirmed only in loopback. [VERIFIED.md](VERIFIED.md) has both halves.
+54. **A recording indicator, and the shapes tuned live** (2026-09-04/05): a red square and an
+    elapsed clock in the top right while the core records, parented to the view. Every number
+    was judged through a tuning file the mod re-reads while the game runs, then baked as the
+    defaults once the user pixel-peeped it; the whole thing is plates, because coloured text draws
+    black here. [VERIFIED.md](VERIFIED.md), both entries dated 2026-09-05.
+55. **The reset-to-save crash, closed by removing our own hook** (2026-09-05): three symbolized
+    dumps in one night showed the pause menu's Reset click reading null with the mod's pre-hook
+    armed, whatever the hook did -- including nothing. The hook was a 2026-08-30 mitigation that
+    only ever armed by accident; it is gone, resets release ghosts at LoadMap PRE, eleven resets
+    clean by the user's spam recipe. [VERIFIED.md](VERIFIED.md).
+56. **The chaser holds through a pause, and stops blinking** (2026-09-05): the adapter sends
+    `player_frozen` from the world's pauser field (the pause menu and the item popup both use the
+    engine's pause -- a Lua probe found it, `PROBES.md`) and the core's chaser clock stands still
+    while it is set. The same night, eight chasers reproduced the despawn/respawn cycle: the
+    core's chaser queue was sized for 100 samples a second and this adapter sends ~180; the tap
+    now thins to 100. Both confirmed on screen. [VERIFIED.md](VERIFIED.md), ADR 0053.
 
 54. Fixed three bugs the same evening, all one family: state that outlives a level and is never
     dropped before the level's teardown. The VFX mirror's component map crashed "retry last save";

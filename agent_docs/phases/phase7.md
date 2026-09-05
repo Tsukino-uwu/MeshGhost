@@ -2642,3 +2642,12 @@ deployed to every install. `pitfalls/by-lesson.md` has the rule. UNWATCHED.
 **Confirmed.** Eight chasers, two minutes of walking and circling: *"Seems to be working, no random
 teleporting & they also don't despawn randomly anymore"* -- eight spawns, zero releases in the log.
 In `VERIFIED.md`.
+
+**Session close, 2026-09-05.** Fifteen commits (plus this close), pushed at the user's ask. Confirmed
+on screen today: the indicator's shapes twice, the reset crash closed, the chaser holding through a
+pause, the chaser blink gone. Built and UNWATCHED: the sword-mirror bitfield read (one WEAPONMESH
+line per change instead of per tick). Open for the next session: the 65 other
+`mg_property_value<bool>` reads that want the bitfield audit; the older Pseudoregalia queue entries
+nobody has watched; a cutscene edge if a chaser ever needs one (C++ read of the controller input
+gates); the other three adapters do not send `player_frozen` yet. Rig torn down and verified gone;
+the Steam install's config restored to the shipped one (chaser back off).

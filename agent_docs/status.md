@@ -33,7 +33,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 - 2026-09-03 **Phase 11 replays: recording, playback and the chaser pack CONFIRMED ON SCREEN in Pseudoregalia (first time any of it has been watched); that session ran the pre-`73615c56` client, so the cosmetic-flag fix is NOT covered by it** — `verified.md`, `phases/phase11.md`, ADR 0047/0048.
 - 2026-09-03 **Phase 11 follow-ons still unwatched: split times, anchors, adapter-side contact damage, an offline client mode, and replay/chaser on the other three adapters** — `phases/phase11.md`.
 - 2026-09-03 **Two shipped settings do nothing: `ghost_collision` reaches no adapter, nametags reach one of four. SEEN LIVE on Emerald in a two-client session — a spawned ghost is solid and blocks the player**; for that game the mechanism already exists (`freeGhostCollision`, behind a dev flag) and only the `session_policy` wiring is missing — `plans.md`, "Settings: defined once, honoured everywhere".
-- 2026-09-05 **RUNNING: the Pseudoregalia rig is up and left up by the user's call** — relay on `127.0.0.1:7777`, two fake peers (parchment default, red), the game closed between looks; rig setups and savestate slots: `running-the-rig.md`, "Rig notes".
+- 2026-09-05 **Nothing is running** — the relay, both fake peers and every core were stopped and verified gone at the end of 2026-09-05 (port 7777 free); the Steam install's config restored to the shipped one; rig setups and savestate slots: `running-the-rig.md`, "Rig notes".
 
 ## Where the rest lives
 
