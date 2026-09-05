@@ -5997,7 +5997,7 @@ open, close, wait, open, reset did. Every reset crash since 2026-08-30 needed th
 and the hook's own 2026-08-31 comment had already recorded "destroying at the click crashes
 INSTANTLY" without anyone asking whether not-destroying-but-still-hooked did too.
 
-**Fix (built 2026-09-05, awaiting the user's spam-then-reset).** The hook is not registered unless
+**Fix (built 2026-09-05; CONFIRMED the same night — eleven resets, spam and slow, recording on and off, no crash).** The hook is not registered unless
 `guard_hook.txt` asks; `guard_destroy.txt` additionally restores the old destroy-at-click. Resets
 release ghosts at LoadMap PRE, which every clean reset already did. The user's own question closed
 the design side: *"do we even need the pause menu hook?"* — no; it was never a feature, only a

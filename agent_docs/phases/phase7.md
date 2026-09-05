@@ -2602,3 +2602,8 @@ longer registered (`guard_hook.txt` for the A/B); resets release at LoadMap PRE,
 clean resets already used. The user closed the design question — *"do we even need the pause menu
 hook?"* — no, it was never a feature. The pitfall was rewritten a second time, to the rule that
 should have come first: subtract the hook before subtracting what it does.
+
+**Confirmed.** Eleven resets on the hook-free build, spam and slow, recording on and off, three
+ghosts each: *"don't think its crashing anymore, even if i spam or do it slow, or with recording
+on/off"*. In `VERIFIED.md`. The frozen-signal probe still owes the item popup, the intro cutscene
+and a zone transition.

@@ -192,6 +192,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-04 — landing dust sits at the ghost's feet, and stays there through restarts and seeks (user-confirmed on screen, twice)
 - 2026-09-05 — the recording indicator's shapes: red square, clock box and nametags, pixel-aligned (user-confirmed with ShareX zoom)
 - 2026-09-05 — the recording indicator draws the same from its BAKED defaults, with no tuning file (user-confirmed on screen)
+- 2026-09-05 — the reset-to-save crash is CLOSED AGAIN: the pause menu's Reset-button hook was the crash, and it is gone (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4988,3 +4989,31 @@ the DLL. The indicator is out of `UNVERIFIED.md` entirely; it shipped in the bui
 2026-09-05 (`3a29ce7f`). What this game refuses (coloured text draws black, a space has no
 advance, a string write does not redraw) stays recorded in `agent_docs/phases/phase7.md`'s two
 2026-09-05 entries and `agent_docs/pitfalls/by-lesson.md`.
+
+## 2026-09-05 — the reset-to-save crash is CLOSED AGAIN: the pause menu's Reset-button hook was the crash, and it is gone (user-confirmed)
+
+**User, after eleven resets in the log with three ghosts each, a recording running for five of
+them:** *"don't think its crashing anymore, even if i spam or do it slow, or with recording
+on/off"*. The spam recipe is the one that reproduced the crash on demand three times earlier the
+same night, so this is the reproduction turned around, not a quiet run.
+
+**What the crash was.** A UE4SS pre-hook the mod registered on the pause menu's Reset button
+(2026-08-30, a mitigation for the respawn crash that 2026-09-01 then fixed properly). With the hook
+armed, the click read null inside the game's ProcessEvent 16ms after the pre-hook returned — with
+the hook destroying ghosts, with it destroying the recording indicator too, and with a callback
+that only wrote a log line. Three dumps, all symbolized with `dev-scripts/read-minidump.py`.
+Without the hook, every reset releases ghosts at LoadMap PRE and is clean: nineteen that night
+before the fix, eleven after it.
+
+**Why it looked intermittent since 2026-08-30.** The hook only ever armed when a closed pause
+menu's not-yet-collected widget copy was around to be found (the tick is silent while paused, and
+the widget exists only while paused). Open-and-reset never armed it; open, close, wait, open,
+reset did. The user's design call closed it: *"do we even need the pause menu hook?"* — no; it was
+never a feature.
+
+**How it was found, for the next one:** three subtractions in one night (the Lua probe by timing,
+the indicator by destroying it and crashing anyway, the hook's destroy by making it observe-only
+and crashing anyway) and one survivor. The rule that came out of it, on the Unreal checklist:
+subtract the hook before subtracting what it does, and a hook that arms by scanning arms by luck —
+log its arming and read that log. Trail: `agent_docs/phases/phase7.md`, 2026-09-05;
+`agent_docs/pitfalls/by-lesson.md`, "A UE4SS pre-hook on the pause menu's Reset delegate".
