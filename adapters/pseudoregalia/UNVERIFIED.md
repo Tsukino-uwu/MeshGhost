@@ -294,8 +294,14 @@ measured against your own player.
 
 ## [OPEN] MEASURED 2026-09-04 -- a FROZEN-PLAYER state (item popup, pause menu) freezes the pawn but NOT the fields we send
 
-**2026-09-05 (later) — the probe RAN (`probe_frozen/`, `PROBES.md`), and the pause menu is
-answered: it is the engine's own pause.** `WorldSettings.PauserPlayerState` flips from empty to the
+**2026-09-05 (later) — the probe RAN twice (`probe_frozen/`, `PROBES.md`): the pause menu AND the
+item popup are the engine's own pause, and the cutscene is a scripted possession with no readable
+edge.** Popup: `PauserPlayerState` set on the sample `UI_NewUpgradePrompt_C` appeared, cleared on
+continue, a 19-second span with exact edges. Cutscene: pause off, dilation 1.0, the game moving the
+pawn itself; a `UI_CutsceneSkipListener_C` widget marks the start and is collected ~12s after the
+end; the controller input gates need a C++ read (`FBoolProperty`, as the cursor flag is read). **The
+adapter's `player_frozen` signal is `WorldSettings.PauserPlayerState != null`**, which covers the two
+states that produced the 110s freeze; the cutscene moves the pawn and needs no clock stop. Pause menu: `WorldSettings.PauserPlayerState` flips from empty to the
 player's PlayerState on the sample the pause-menu widget appears and back on the sample it closes,
 held across the options submenu, caught on every edge of a 100ms open/close spam. That is the
 adapter's `player_frozen` signal for the pause menu. **Still unmeasured:** the item popup, the intro

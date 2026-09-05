@@ -304,21 +304,29 @@ controller's input gates, and a census of every live `UserWidget` with its `Visi
 DIFF on change. Every named field that does not resolve is listed in a COVERAGE line rather than
 skipped.
 
-**Measured 2026-09-05, first live run (the record is in `UNVERIFIED.md`):**
+**Measured 2026-09-05, two live runs (the record is in `UNVERIFIED.md`):**
 
-- **The PAUSE MENU is the engine's own pause.** `WorldSettings.PauserPlayerState` goes from empty to
-  the player's `PlayerState` on the sample the `UI_PauseMenu_C` widget appears, and back to empty on
-  the sample it closes; `bShowMouseCursor` flips with it. Held across the options submenu; caught on
-  every edge of a 100ms open/close spam. **That is the adapter's signal for the pause menu.**
-- **Five controller gates do not resolve through UE4SS's property read on this build**
-  (`IgnoreMoveInput`, `IgnoreLookInput`, `bCinematicMode`, `bCinemaDisableInputMove/Look`) — they
-  come back as an INVALID object wrapper, which the probe now names `<unresolved>` instead of
-  printing an address that changes every sample (its first ten seconds of output).
-- **Unmeasured:** the item popup, the intro cutscene (*"can't move during that cutscene"* — a fourth
-  frozen state, reached by loading a new save) and a zone transition. The session ended in a
-  reset-to-save crash attributed to the mod's indicator, not this probe (`pitfalls/by-lesson.md`).
+- **The PAUSE MENU and the ITEM POPUP are both the engine's own pause.** `WorldSettings.PauserPlayerState`
+  goes from empty to the player's `PlayerState` on the sample the menu widget (`UI_PauseMenu_C`) or
+  the popup widget (`UI_NewUpgradePrompt_C`) appears, and back to empty on the sample it closes.
+  Held across the options submenu; caught on every edge of a 100ms open/close spam; a 19-second
+  popup read as one span. **That field is the adapter's `player_frozen` signal.** The mouse cursor
+  flag follows it for the menu and lags it by 5s for the popup (the prompt's button arming), so
+  the cursor is NOT the signal.
+- **The intro CUTSCENE is not a freeze but a scripted possession, and it has no edge in anything
+  Lua can read here.** The game drove the pawn itself (full run speed, two jumps, then a hold) with
+  the engine pause off, `TimeDilation` and `CustomTimeDilation` at 1.0 and `bBlockInput` false
+  throughout. A `UI_CutsceneSkipListener_C` widget is created on the sample the cutscene starts
+  and is only collected ~12s after it ends, so its lifetime marks the start and not the end. The
+  five controller input gates, the fields a cutscene most plausibly sets, do not resolve through
+  UE4SS's Lua property read on this build (an invalid object wrapper comes back) but ARE readable
+  from the C++ mod through the `FBoolProperty` path it already uses for the cursor flag — that is
+  the next instrument if the cutscene ever needs an edge. The chaser does not need one: a pawn
+  the cutscene moves is a pawn that moves.
+- **Zone transition:** not measured as its own event; the pawn swap on a save load
+  (`pc.Pawn` changing) is visible and nothing pause-related fires around it.
 - **Not an event, but worth knowing:** the game rebuilds `UI_HUD_C` plus eight `UI_Heart_C` every
-  ~9s and lets garbage collection sweep the copies; the pause menu leaves a full copy per open.
+  ~9s and lets garbage collection sweep the copies; every pause-menu open leaves a full copy too.
 
 **Three probe faults fixed live, each one a lesson already filed:** a value that is a fresh wrapper
 every read is not a change (stringify by TYPE, not by address); `GetFullName`'s first token is the

@@ -2607,3 +2607,12 @@ should have come first: subtract the hook before subtracting what it does.
 ghosts each: *"don't think its crashing anymore, even if i spam or do it slow, or with recording
 on/off"*. In `VERIFIED.md`. The frozen-signal probe still owes the item popup, the intro cutscene
 and a zone transition.
+
+**The probe finished its list.** Item popup: the engine's pause, `PauserPlayerState` set on the
+sample the upgrade prompt appeared and cleared on continue, a 19-second span with exact edges — the
+same signal as the pause menu. Intro cutscene: not a freeze but a scripted possession (the game ran
+and jumped the pawn itself), engine pause off, dilation 1.0; a skip-listener widget marks the start
+and is only collected ~12s after the end, so no Lua-readable edge; the controller input gates want a
+C++ read if an edge is ever needed, and the chaser does not need one. So the adapter's
+`player_frozen` is one property: `WorldSettings.PauserPlayerState != null`. Probe unloaded, stub
+restored.
