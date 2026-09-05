@@ -453,3 +453,30 @@ timeout reads like a slow suite rather than a defect.
 **Tested:** both edges (start pushes with a start time, stop pushes with it zeroed so nothing can
 keep counting under a hidden indicator) and the de-dupe, which is what makes the unconditional
 attach-time push affordable. Full suite green twice.
+
+## 2026-09-05 — the chaser gets a gameplay clock and a rate-safe tap, and the depth bound gets its off-by-one
+
+**`player_frozen` and the gameplay clock (ADR 0053, commit 72741a66).** A new bridge message,
+adapter → core, on change. The chaser pack's sleeps now run on wall time minus every frozen span
+(`Core.gameplayNowMs`), and frames taken while frozen are never offered to it — so a pause menu or
+item popup costs the chaser no delay and it never converges onto a player who cannot move. A
+CLOCK rather than a filter, because queued frames would still fall due on the wall clock and the
+first frame after a freeze would read as a seam. Recordings, the ring and the wire are untouched by
+the user's call. `TestChaserHoldsWhileThePlayerIsFrozen` fails without it (the chaser walked 21 →
+31 onto a player held at 31). Pseudoregalia sends it from the engine's own pause state; the other
+three adapters do not yet.
+
+**The tap thins to 100 samples a second (commit 02d689b7).** Each chaser's queue was sized as
+`delay + 2s` at an ASSUMED 100Hz; Pseudoregalia sends ~180 (one per frame). A full queue drops the
+NEWEST samples until its oldest fall due — a run of ~0.44×delay−1.1s — over the 1.5s seam threshold
+from a 7s delay up, so chasers 3..8 despawned and respawned on the player with a period of exactly
+delay + spawn window, watched live and read off the log. `chaserOfferIntervalMs` makes the sizing
+an invariant; `TestChaserTapThinsTheAdapterFrameRate` fails without it (473 of 500 queued). The
+lesson is in `pitfalls/by-lesson.md`: size from a rate you enforce, and know which end you drop.
+
+**Two CI reds after the push (commit 09cc7269).** A harness data race in the recording-state tests
+(`ReplayDir` set after attach while `StartReplays` read it on the bridge goroutine — flaky, fixed by
+setting it before the bridge serves), and a real finding from `FuzzDepthBoundsAgreeAndNeverPanic`:
+`jsonDepthWithinLimit` tested the bound on entry, so the scalar inside 32 nested arrays counted as a
+33rd level and the walk refused what the byte scanner accepted. Containers only now; the input is a
+committed seed. Suite and `-race` green after each.
