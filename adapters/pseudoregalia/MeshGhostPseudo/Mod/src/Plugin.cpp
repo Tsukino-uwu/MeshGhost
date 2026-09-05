@@ -15237,7 +15237,17 @@ namespace MeshGhostPseudo
         // FindAllOf and would be unacceptable as a steady cost; it is bounded because it stops the
         // moment the hook is registered, and the hook lives on the CLASS's UFunction, so arming
         // once covers every pause menu the session ever opens.
-        if (pause_reset_hook_id == 0 && tick_count % 10 == 0)
+        // **NOT ARMED unless `guard_hook.txt` asks (2026-09-05).** Three symbolized dumps in one
+        // night: with the hook destroying ghosts at the click, with it destroying the recording
+        // indicator too, and with it doing NOTHING but write a log line -- the click read null a
+        // few hundred microseconds after the pre-hook returned, every time. Nineteen resets
+        // without the hook were clean with three ghosts and a recording running. The hook's
+        // existence is the crash; what it does is irrelevant. It was a 2026-08-30 mitigation for
+        // the respawn crash that 2026-09-01 fixed (the nametag's stale pointers), and it only
+        // ever armed by accident -- see try_hook_pause_reset's comment. Kept behind a toggle for
+        // the A/B, checked at a tenth of the old cadence because a file stat every 10 ticks
+        // forever would be a steady cost for a dev switch.
+        if (pause_reset_hook_id == 0 && tick_count % 600 == 0 && dev_toggle_present(STR("guard_hook.txt")))
         {
             try_hook_pause_reset();
         }

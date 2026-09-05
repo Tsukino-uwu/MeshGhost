@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — RESET TO LAST SAVE after SPAMMING the pause menu should no longer crash: the reset hook is OBSERVE-ONLY by default now, nothing destroyed inside the click (crashed twice 2026-09-05, both dumps symbolized; the indicator theory was tried first and refuted)
+- READY — RESET TO LAST SAVE after SPAMMING the pause menu should no longer crash: the reset-button HOOK is no longer registered at all (crashed three times 2026-09-05 with it armed, once with a callback that did nothing; all three dumps symbolized)
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -65,35 +65,31 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
-## [READY] reset to last save after spamming the pause menu: the reset hook no longer destroys anything inside the click (2026-09-05)
+## [READY] reset to last save after spamming the pause menu: the reset-button hook is gone (2026-09-05)
 
-**What happened, twice.** *Reset to last save* killed the game: EXCEPTION_ACCESS_VIOLATION reading
-address 0 inside the game's ProcessEvent, 16ms after the mod's reset-button hook finished. Both
-dumps read with `read-minidump.py --stack` and symbolized: the hook lambda on the crash thread,
-the game's own Reset handler faulting right after it returned. **The user's recipe reproduces it
-on demand:** *"spam opening/closing the pause menu, and then doing reset to last save"*.
+**What happened, three times.** *Reset to last save* killed the game: EXCEPTION_ACCESS_VIOLATION
+reading address 0 inside the game's ProcessEvent, 16ms after the mod's pre-hook on the Reset button
+returned. **The user's recipe reproduces it on demand:** *"spam opening/closing the pause menu, and
+then doing reset to last save"*. Three dumps read with `read-minidump.py --stack` and symbolized.
 
-**Two theories refuted first.** The Lua probe loaded at the time (its next sample was ~70ms away),
-and the recording indicator never being removed (the user's read; its three components were
-destroyed at the hook, redeployed, and the reset crashed identically with the destroy line in the
-log). Record: `agent_docs/pitfalls/by-lesson.md`, "Never destroy anything inside the game's own
-Reset click".
+**Three theories refuted, one each.** The Lua probe (70ms from its next sample); the recording
+indicator never being removed (destroyed at the hook: crashed identically); the hook's own
+destroy-at-click (made observe-only, a log line and nothing else: crashed identically). What
+survived is the hook itself. Nineteen resets the same night — three ghosts, a recording running,
+no hook — went through LoadMap PRE and were all clean. The hook only ever ARMED by accident (the
+tick is silent while paused; the widget exists only while paused; the scan can only find a closed
+menu's uncollected copy), which is why open-and-reset never crashed and the spam recipe does.
+Record: `agent_docs/pitfalls/by-lesson.md`, "A UE4SS pre-hook on the pause menu's Reset delegate".
 
-**The cause, and why it took a week to see.** The hook destroys the three ghost pawns INSIDE the
-Reset click, a few hundred microseconds before the game's reset logic runs, and that logic then
-reads null. Nineteen resets the same night — three ghosts, a recording running, no hook — went
-through LoadMap PRE alone and were all clean. The hook only ARMS by accident: the tick is silent
-while paused and the menu widget exists only while paused, so the scan can only find a closed
-menu's uncollected copy. Open-and-reset never arms it; the spam recipe does. Every "reset crash"
-since 2026-08-30 needed that accident.
-
-**What changed.** The hook is observe-only by default: it logs the click and leaves the ghosts for
-LoadMap PRE, as every clean reset already did. `guard_destroy.txt` restores the old path for an A/B.
+**What changed.** The hook is not registered unless `guard_hook.txt` asks (`guard_destroy.txt`
+additionally restores the old destroy-at-click); resets release ghosts at LoadMap PRE as before.
+The user's call on the design: the hook was never a feature (*"do we even need the pause menu
+hook?"*), so nothing is lost.
 
 **What to watch.** With a recording running and both fake peers present: spam the pause menu open
-and closed a few times, then Reset. Correct is: the log shows `RESET GUARD armed` and then
-`RESET GUARD: OBSERVE-ONLY (the default)`, the level reloads, ghosts and the red square and clock
-come back, no crash. Repeat a few times, and once after a zone change.
+and closed a few times, then Reset. Correct is: NO `RESET GUARD armed` line in the log, the level
+reloads, ghosts and the red square and clock come back, no crash. Repeat a few times, and once
+after a zone change.
 
 ## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
 

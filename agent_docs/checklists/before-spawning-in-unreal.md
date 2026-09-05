@@ -4,14 +4,14 @@
 
 **Read the four in bold, then skim the rest: one line each, the title IS the lesson, the link is the record.**
 
-- **Never destroy anything from inside a game UI callback — the pause menu's Reset click included.** Drop handles at LoadMap PRE and let the level take them; the reset hook's own destroy-at-click was the instant reset crash from 2026-08-30 to 2026-09-05, and it only ever armed by accident.
+- **Do not pre-hook a Blueprint UI event and expect the click to survive it** — the pause menu's Reset hook crashed the click with a callback that only wrote a log line (three dumps, 2026-09-05); release at LoadMap PRE and let the level take things. A hook that must be found by scanning arms by luck: log its arming and read that log before believing any reproduction.
 - **A runtime-created component carries its CLASS DEFAULT until you overwrite it** — blank it at creation, not where you would normally write.
 - **A cosmetic ghost must never fire the world's triggers**, and spawn-time overlaps fire inside `SpawnActor` — suppress on the class template around the spawn.
 - **Resolve UFunctions through the class chain, never a hardcoded `/Script` path** — the miss is silent.
 
 ## Every lesson filed here
 
-- Never destroy anything inside the game's own Reset click — the hook's destroy WAS the instant crash, hidden since 2026-08-30 by arming-by-accident (Pseudoregalia, 2026-09-05) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A UE4SS pre-hook on the pause menu's Reset delegate crashes the click whatever the callback does — and it only ever armed by accident, since 2026-08-30 (Pseudoregalia, 2026-09-05) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A ghost pawn steals the player's audio attenuation listener, and takes it to the grave (2026-09-04) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A corrective SECOND call belongs in the POST hook -- in PRE the engine overwrites it; better still, rewrite the argument (2026-09-04) — [method.md](../pitfalls/method.md)
 - A hardcoded /Script path finds nothing and says nothing — resolve UFunctions through the class chain (Pseudoregalia, 2026-08-28) — [by-lesson.md](../pitfalls/by-lesson.md)

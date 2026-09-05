@@ -2594,3 +2594,11 @@ was the cause all along, and the accidental arming is why it read as intermitten
 **Fix:** the hook is observe-only by default (`guard_destroy.txt` for the A/B), built and deployed,
 UNWATCHED. The pitfall written at 04:07 was rewritten to the right lesson: never destroy
 anything from inside a game UI callback, and a hook that arms by scanning arms by luck.
+
+**Third crash, same recipe, with the hook doing NOTHING.** Observe-only was not enough: a
+pre-hook whose callback only wrote a log line still crashed the click. Three dumps, three
+subtractions (probe, indicator, destroy-at-click), one survivor: the hook's existence. It is no
+longer registered (`guard_hook.txt` for the A/B); resets release at LoadMap PRE, which nineteen
+clean resets already used. The user closed the design question — *"do we even need the pause menu
+hook?"* — no, it was never a feature. The pitfall was rewritten a second time, to the rule that
+should have come first: subtract the hook before subtracting what it does.

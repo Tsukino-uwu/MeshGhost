@@ -227,7 +227,8 @@ file beside the DLL is ignored. Acceptance run quoted in `VERIFIED.md` 2026-08-3
 | `decouple_off.txt` | Skips parts of the shared-state decouple; a keyword on the file's first line (e.g. `lightdestroy`) selects which part. Split instrument for the decouple ladder. |
 | `dump_arrays.txt` | Arms `census_object_counts`/`census_singleton_arrays` — object-count dumps at labelled moments, for leak/orphan hunts. |
 | `force_gc.txt` | Requests an engine garbage-collection sweep (`CollectGarbage`, deferred by UE to a safe point) at the instrumented moment. |
-| `guard_destroy.txt` | Restores the reset hook's destroy-at-click (ghosts and the recording indicator) for an A/B. **Log-only is the DEFAULT since 2026-09-05**: two symbolized dumps put the destroy-at-click under the instant reset crash, and nineteen resets through LoadMap PRE alone were clean. Replaces `guard_off.txt`, whose meaning was the inverse. |
+| `guard_hook.txt` | Registers the pause menu's Reset-button pre-hook at all. **Off by default since 2026-09-05**: three symbolized dumps showed the click reading null with the hook armed whatever its callback did (including nothing), and nineteen unhooked resets were clean. Replaces `guard_off.txt`. |
+| `guard_destroy.txt` | With `guard_hook.txt`: the hook also destroys the ghosts and the recording indicator at the click, the 2026-08-30 behaviour. For the A/B only. |
 | `log_reset_fns.txt` | Logs the functions the game runs during a reset. Costly; its own comment says never leave it on. |
 | `perf_report.txt` | **Per-subsystem frame-cost timer** (2026-08-30). Prints accumulated us/frame per subsystem every ~2s: `tick_total` plus each block, so every slot reads as a share of the whole and the unattributed remainder is itself the finding. Disarmed it is one bool test per scope. This is what found four whole-world scans costing half the frame rate -- `../../agent_docs/pitfalls/method.md`. **Never leave it armed while judging anything visual.** |
 

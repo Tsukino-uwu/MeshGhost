@@ -286,4 +286,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A free needs the identity of the RANGE, and "the bits are still set" is not it (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - A dev-mode trace keyed by ONE shared "last value" fires once per peer per frame with a crowd (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
 - Reboot Core in BizHawk 2.11 crashes the front end when a Lua memory callback is registered (Emerald, 2026-09-02) [RULE: checklists/before-touching-lua.md]
-- Never destroy anything inside the game's own Reset click — the hook's destroy WAS the instant crash, hidden since 2026-08-30 by arming-by-accident (Pseudoregalia, 2026-09-05) [RULE: checklists/before-spawning-in-unreal.md]
+- A UE4SS pre-hook on the pause menu's Reset delegate crashes the click whatever the callback does — and it only ever armed by accident, since 2026-08-30 (Pseudoregalia, 2026-09-05) [RULE: checklists/before-spawning-in-unreal.md]

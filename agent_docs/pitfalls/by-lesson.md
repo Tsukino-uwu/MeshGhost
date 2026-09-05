@@ -5972,42 +5972,42 @@ call rebuilds last is the one that wins.
 is not a fallback — it is half of one. Ask what rebuilds the thing, and prove the pixels changed
 rather than the field.
 
-## Never destroy anything inside the game's own Reset click — the hook's destroy WAS the instant crash, hidden since 2026-08-30 by arming-by-accident (Pseudoregalia, 2026-09-05)
+## A UE4SS pre-hook on the pause menu's Reset delegate crashes the click whatever the callback does — and it only ever armed by accident, since 2026-08-30 (Pseudoregalia, 2026-09-05)
 
 **Symptom.** *Reset to last save*: `Fatal error!`, EXCEPTION_ACCESS_VIOLATION reading address 0
-inside the game's ProcessEvent, written 16ms after the mod's reset-button hook finished. Twice on
-2026-09-05, both dumps read with `dev-scripts/read-minidump.py --stack` and symbolized against the
-matching PDB: the hook lambda's return address on the crash thread, the game's own Reset handler
-faulting a few hundred microseconds after it returned.
+inside the game's ProcessEvent, written 16ms after the mod's pre-hook on the Reset button returned.
+Three times on 2026-09-05 (03:56, 04:15, 04:22), every dump read with
+`dev-scripts/read-minidump.py --stack` and symbolized against the matching PDB: the hook lambda's
+return address on the crash thread, the game's own handler faulting right after. **The user's
+recipe reproduces it on demand:** *"spam opening/closing the pause menu, and then doing reset to
+last save"*.
 
-**Two wrong theories first, each refuted by one measurement.** (1) A Lua probe loaded at the time
-— cleared by timing, its next sample was ~70ms away. (2) The user's read, the recording indicator
-never being removed (*"don't think we ever void those ... this is like the 3rd or 4th time"*) — a
-fair call from the handle family, so the three components were destroyed at the hook, rebuilt,
-redeployed: the reset crashed identically with the destroy line in the log. A fix that changes
-nothing is a diagnosis, and this one said the indicator was not it.
+**Three theories, refuted in order, each by one measurement.** (1) The Lua probe loaded at the time
+— its next sample was ~70ms away. (2) The recording indicator never being removed (the user's read,
+from the handle family) — its components were destroyed at the hook; the reset crashed identically
+with the destroy line in the log. (3) The hook's destroy-at-click — made observe-only, a callback
+that only writes a log line; the reset crashed identically again. **What survived every subtraction
+was the hook itself.** Nineteen resets the same night with three ghosts and a recording running went
+through LoadMap PRE alone, unhooked, and were all clean.
 
-**What the log said all along.** Nineteen resets that night with three ghosts and a recording
-running were CLEAN — every one had gone through LoadMap PRE without the hook, because the hook had
-not armed. Both crashes had the hook armed. And the 2026-08-31 note in the hook itself had already
-recorded the split: *"destroying ghosts at the click crashes INSTANTLY; leaving them alone crashes
-LATER"*. The LATER crash was the nametag's stale pointer, closed 2026-09-01. The INSTANT one was the
-hook's own work, and it was never removed.
+**Why it looked intermittent from 2026-08-30 to 2026-09-05.** The tick is silent while the game is
+paused; the pause-menu widget exists only while paused; so the every-10-ticks scan that armed the
+hook could only ever find a CLOSED menu's not-yet-collected copy. Open-and-reset never armed it;
+open, close, wait, open, reset did. Every reset crash since 2026-08-30 needed that accident first,
+and the hook's own 2026-08-31 comment had already recorded "destroying at the click crashes
+INSTANTLY" without anyone asking whether not-destroying-but-still-hooked did too.
 
-**Why it looked intermittent from 2026-08-30 to 2026-09-05.** The tick is silent while the game is paused; the
-pause-menu widget exists only while paused; so the every-10-ticks scan that arms the hook can only
-ever find a CLOSED menu's not-yet-collected copy. Open-and-reset never arms it. Open, close, wait,
-open, reset does — which is the user's *"spam opening/closing the pause menu, then reset"* recipe
-that reproduced it on demand. Every reset crash since 2026-08-30 needed that accident first.
+**Fix (built 2026-09-05, awaiting the user's spam-then-reset).** The hook is not registered unless
+`guard_hook.txt` asks; `guard_destroy.txt` additionally restores the old destroy-at-click. Resets
+release ghosts at LoadMap PRE, which every clean reset already did. The user's own question closed
+the design side: *"do we even need the pause menu hook?"* — no; it was never a feature, only a
+2026-08-30 mitigation. Mechanism not established: whether a UE4SS function hook on a K2
+component-bound event handler breaks the Blueprint VM's call into it is a question for a probe,
+not a guess — the fix does not depend on the answer.
 
-**Fix (built 2026-09-05, awaiting the user's spam-then-reset).** The hook is OBSERVE-ONLY by
-default: it logs the click and destroys nothing; LoadMap PRE releases the ghosts as it does for
-every other reset. `guard_destroy.txt` restores the old behaviour for an A/B.
-
-**The rules, both promoted because this is a repeat:** (a) **nothing is destroyed from inside a
-game UI callback** — the `Construct` hook crashed on 2026-08-31 for the same reason and the file
-already said "not something to retry"; a Reset click is a UI callback. (b) **A hook that must be
-found by scanning is a hook that arms by luck** — log its arming and read the log before believing a
-reproduction; a crash that needs the hook armed is a crash the hook causes until proven otherwise.
-The handle rule from 2026-09-01 (annotate, drop in `release_all_ghosts`) stands; "and destroy it at
-the reset guard" does not, and was wrong between 03:56 and 04:15 on 2026-09-05.
+**The rules, promoted because this is a repeat.** (a) **A hook is a suspect in every crash that
+needs it armed** — subtract the hook before subtracting what it does. (b) **A hook that must be
+found by scanning arms by luck** — log its arming and read that log before believing any
+reproduction or any "fix". (c) The handle rule from 2026-09-01 (annotate, drop in
+`release_all_ghosts`) stands; "destroy it at the reset guard", written at 04:07 and refuted at
+04:15, does not.
