@@ -143,13 +143,15 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `README.md` | Immediately — the build story, one numbered step per thing that happened | see "Writing the new adapter's own README" below |
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
-| `FLAGS.md` | Once you pass a handful of compile-time switches — sooner than feels necessary | [FLAGS.md](FLAGS.md) |
+| `FLAGS.md` | **Immediately, with its first row** — mandated for every adapter and checked by `preflight.ps1` alongside the five files below (a Lua adapter registers its environment variables and globals here; "no compile-time switches" is not "no switches") | [FLAGS.md](FLAGS.md) |
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
 | `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
 | `PROBES.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
 
-**`README.md`, `BANDAGES.md` and `documentation.md` are expected of EVERY adapter, with no
-exceptions.** Create all three when the folder is created.
+**`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `VERIFIED.md` and `UNVERIFIED.md` are
+expected of EVERY adapter, with no exceptions** — `dev-scripts/preflight.ps1`'s adapter-file-set
+check fails on a missing one. Create all six when the folder is created; four of them start empty.
+(This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27.)
 
 **All three of those templates were written on 2026-08-25.** The table had mandated the files and
 pointed at "any shipped adapter's" since it was written, which is exactly how four copies of the

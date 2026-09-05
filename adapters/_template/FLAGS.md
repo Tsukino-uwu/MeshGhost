@@ -133,6 +133,16 @@ both files ask. A number that cannot answer it is a bandage that has not been lo
   of the file, and citing it by bare name elsewhere reads as though it were file-scope. Note the
   enclosing function in its row.
 
+**Audit the numbers the way the bools are audited, and on the same day.** The bool half has a
+mechanical check (`preflight.ps1` counts `constexpr bool` against the register); the number half
+does not, and the drift is silent for exactly that reason. Pseudoregalia's 2026-09-02 sweep found
+six unregistered bools and stopped; a 2026-09-06 audit of the same file found **thirty-one** named
+non-bool constants with no row, several of them behaviour-deciding (a mirror radius, an asset-name
+bound, two spawn holds). The cheap version: `grep -E "constexpr [A-Za-z_:<>*]+ [A-Z_0-9]+ ="` (or
+the Lua equivalent, `^local [A-Z_0-9]+ =`) on the adapter, diffed against this file's rows — and
+**"not recorded" is a legitimate provenance** when the constant's own comment says what it is for
+and not how the value was chosen. Write that rather than inventing a measurement.
+
 **Probe constants go in their own table.** A cadence or a threshold that only runs while a `false`
 flag is on is dead code in every shipped build, and mixing it in with live behaviour makes the
 live list look far more dangerous than it is. Keep them, though — turning a probe back on should
@@ -190,10 +200,18 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
 7. **A probe flag-file must set every flag it owns explicitly, `false` included.** A dev loader
    typically shares ONE interpreter environment across reloads, so "not mentioned" is not "off" —
    an unset flag keeps its value from the previous load.
-8. **A mod framework's own config file is a legitimate switch channel, often the best one.** TEVI
-   exposes its bridge port through BepInEx's config rather than an environment variable, on the
-   argument that the player already knows that file and already edits it. Worth preferring
-   wherever the host framework has one.
+8. **The player's own `config.json` is the first switch channel; a mod framework's config file is
+   the second; a new environment variable is the last.** TEVI first exposed its bridge port through
+   BepInEx's config (the player knows that file), then learned that `local_game_bridge` in
+   `config.json` moved the core and not the adapter, so the two silently never met (2026-08-28);
+   `autostart` followed the same route on 2026-09-03 because *"environment variable" means nothing
+   to most players*. A key every game shares belongs in the file every README already tells the
+   player to edit; a framework's own file is for what only that game has.
+9. **A compile-time gate must not sit over a PLAYER setting.** Pseudoregalia's dev-toggle master
+   gate came to carry the poll that re-reads `replay.indicator*` from `config.json` (2026-09-05),
+   so the flag its own register said "must go `false` before release" can no longer go `false`
+   without freezing three shipped keys. Keep the player-facing read on its own path, outside any
+   flag that exists to be turned off.
 
 **Announce a probe or bar-lowering switch with the exact string `PROBE FLAG IN USE`**, followed by
 the flag's name and what it changes. The behaviour was already required below; naming the string

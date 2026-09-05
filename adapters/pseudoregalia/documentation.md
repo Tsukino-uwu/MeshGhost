@@ -16,7 +16,9 @@ forever?* — applied to prose. No, or merely unclear, means out. Full guidance 
 worth knowing: [adapters/_template/README.md](../_template/README.md).
 
 > Everything here is **measured from a running game** during Phases 2, 5 and 7 and the work that
-> followed them (2026-08-11 through 2026-08-27), using engine reflection against a running instance
+> followed them (2026-08-11 through 2026-09-05; the range is re-dated whenever a section is added —
+> it read "through 2026-08-27" until 2026-09-06 while holding measurements from 2026-08-29, -30 and
+> 2026-09-05), using engine reflection against a running instance
 > to learn real type and member *names*. This game has **no public source**, and no decompiled or
 > disassembled material was used in producing it. **No asset content or verbatim dump is reproduced
 > here** — only facts, per `agent_docs/licensing.md` (assessed 2026-08-17, re-checked 2026-08-27).
@@ -605,6 +607,38 @@ is the through-walls outline and a visibly different look.
 save rather than to what the character is currently doing: `PlayerLight`'s vertex light, `LightMesh`
 for the blade, and the pawn's own `PointLight`. Anything reasoning about "is this character lit"
 has to ask all three, and none of them is visible to a search for lights.
+
+## Pausing: the engine's pauser, set by the pause menu and the item popup alike
+
+**Fields:** `WorldSettings.PauserPlayerState` (reached as `UWorld.PersistentLevel` →
+`ULevel.WorldSettings`, both `UPROPERTY`s in the public engine reference). **Components:** none
+move. **Where we read it:** once per tick, before anything that returns early on "paused".
+
+The game pauses through the engine's own mechanism, not a flag of its own: `PauserPlayerState` is
+set on the very sample the pause menu OR an item popup appears, and cleared on the sample it
+closes. Both use the same field — there is no second pause state to look for. The intro cutscene
+does **not** set it: the game keeps the world running and moves the pawn itself. Confidence:
+**high** — measured 2026-09-05 with `probe_frozen/` (`PROBES.md`) across pauses of 1 to 24
+seconds, each showing a clean set/clear pair; confirmed on screen the same day (`VERIFIED.md`,
+2026-09-05). The pause menu also flips the cursor on the same sample it sets the pauser, so any
+read placed after a cursor-based early-return never sees the rising edge.
+
+## A spawned player pawn claims the audio listener
+
+**Fields:** the `PlayerController`'s audio attenuation override. **Components:** the pawn's
+`CollisionCylinder`. **Where we read it:** the `SetAudioListenerAttenuationOverride` call, via a
+hook.
+
+`BP_PlayerGoatMain_C` calls `APlayerController::SetAudioListenerAttenuationOverride` with its own
+`CollisionCylinder` during `BeginPlay`. The call is unconditional and global: **any** instance of
+the player pawn that begins play re-points the listener at itself, and the game has no reason to
+guard against a second instance because it never spawns one. Spatialized sounds attenuate against
+that component; 2D sounds (the music) never consult it, which is why a listener parked on a
+destroyed component silences every effect and leaves the music intact. Confidence: **high** —
+caught in the log with its arguments on every spawn, 2026-09-04, and the two silences it explains
+were confirmed gone on screen once the listener was put back (`VERIFIED.md`, 2026-09-04). Second
+instance of the rule the loose sword established on 2026-09-01: **anything a player pawn registers
+globally on `BeginPlay`, a second player pawn re-registers**.
 
 ## Known unknowns
 

@@ -22,7 +22,7 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 | [PLAYER_FIELDS.md](PLAYER_FIELDS.md) | Which fields exist, which we sync, how to promote one |
 | [FLAGS.md](FLAGS.md) | What every compile-time switch does, and which are recorded negatives |
 | [BANDAGES.md](BANDAGES.md) | Where we compensate instead of reproducing the mechanism |
-| [PROBES.md](PROBES.md) | The dev-only Lua probes (eleven folders as of 2026-09-01), what each was for |
+| [PROBES.md](PROBES.md) | The dev-only Lua probes (nineteen folders as of 2026-09-06), what each was for |
 | [VERIFIED.md](VERIFIED.md) | Dated, user-confirmed evidence — append-only |
 | [UNVERIFIED.md](UNVERIFIED.md) | Believed working, nobody has watched it yet |
 
@@ -367,30 +367,6 @@ Roughly in order:
     above, and the plumbing that starts the client — **together with what it does not cover**: the
     black flash when a ghost appears, two uncaught crash reports, the port walk's second-instance
     case, and anything confirmed only in loopback. [VERIFIED.md](VERIFIED.md) has both halves.
-54. **A recording indicator, and the shapes tuned live** (2026-09-04/05): a red square and an
-    elapsed clock in the top right while the core records, parented to the view. Every number
-    was judged through a tuning file the mod re-reads while the game runs, then baked as the
-    defaults once the user pixel-peeped it; the whole thing is plates, because coloured text draws
-    black here. [VERIFIED.md](VERIFIED.md), both entries dated 2026-09-05.
-55. **The reset-to-save crash, closed by removing our own hook** (2026-09-05): three symbolized
-    dumps in one night showed the pause menu's Reset click reading null with the mod's pre-hook
-    armed, whatever the hook did -- including nothing. The hook was a 2026-08-30 mitigation that
-    only ever armed by accident; it is gone, resets release ghosts at LoadMap PRE, eleven resets
-    clean by the user's spam recipe. [VERIFIED.md](VERIFIED.md).
-56. **The chaser holds through a pause, and stops blinking** (2026-09-05): the adapter sends
-    `player_frozen` from the world's pauser field (the pause menu and the item popup both use the
-    engine's pause -- a Lua probe found it, `PROBES.md`) and the core's chaser clock stands still
-    while it is set. The same night, eight chasers reproduced the despawn/respawn cycle: the
-    core's chaser queue was sized for 100 samples a second and this adapter sends ~180; the tap
-    now thins to 100. Both confirmed on screen. [VERIFIED.md](VERIFIED.md), ADR 0053.
-57. **The blue outline that stuck to the player's sword** (2026-09-05): the afterimage sweep
-    stripped custom depth from everything an afterimage referenced, and an afterimage's
-    `cachedMesh` is the player's own body -- so a player afterimage attributed to a ghost turned the
-    body's outline off for good, and the sword drew through it. Found with three hot-loaded Lua
-    probes (flags, a pre/post hook on the engine setter with owner attribution, a restore call);
-    fixed by making both strips prove ownership first. The outline on the player behind a ghost
-    stays, by the user's call: the pass ignores stencil, and a ghost writing custom depth shows
-    through walls. Confirmed on screen. [VERIFIED.md](VERIFIED.md), `probe_outline/`.
 
 54. Fixed three bugs the same evening, all one family: state that outlives a level and is never
     dropped before the level's teardown. The VFX mirror's component map crashed "retry last save";
@@ -431,6 +407,40 @@ Roughly in order:
     peer-named-asset catalog gate landed the same day: a peer's asset name resolves only through
     the local game's own loaded assets.
 
+60. **Gave the player their sound effects back** (2026-09-04): every ghost, being a clone of the
+    player pawn, re-pointed the game's audio listener at its own capsule on spawn, so once it
+    despawned every spatialized sound attenuated to nothing while the music played on. Proven in
+    Lua first at the user's request, then built: the mod corrects the call AFTER the engine has
+    applied it, because in front of it the ghost's value simply overwrote the fix. Both silences
+    (despawn, zone crossing) confirmed gone. [VERIFIED.md](VERIFIED.md); the game fact is in
+    [documentation.md](documentation.md).
+61. **A recording indicator, and the shapes tuned live** (2026-09-04/05): a red square and an
+    elapsed clock in the top right while the core records, parented to the view. Every number
+    was judged through a tuning file the mod re-reads while the game runs, then baked as the
+    defaults once the user pixel-peeped it; the whole thing is plates, because coloured text draws
+    black here. [VERIFIED.md](VERIFIED.md), both entries dated 2026-09-05.
+62. **The reset-to-save crash, closed by removing our own hook** (2026-09-05): three symbolized
+    dumps in one night showed the pause menu's Reset click reading null with the mod's pre-hook
+    armed, whatever the hook did -- including nothing. The hook was a 2026-08-30 mitigation that
+    only ever armed by accident; it is gone, resets release ghosts at LoadMap PRE, eleven resets
+    clean by the user's spam recipe. [VERIFIED.md](VERIFIED.md).
+63. **The chaser holds through a pause, and stops blinking** (2026-09-05): the adapter sends
+    `player_frozen` from the world's pauser field (the pause menu and the item popup both use the
+    engine's pause -- a Lua probe found it, `PROBES.md`) and the core's chaser clock stands still
+    while it is set. The same night, eight chasers reproduced the despawn/respawn cycle: the
+    core's chaser queue was sized for 100 samples a second and this adapter sends ~180; the tap
+    now thins to 100. Both confirmed on screen. [VERIFIED.md](VERIFIED.md), ADR 0053.
+64. **The blue outline that stuck to the player's sword** (2026-09-05): the afterimage sweep
+    stripped custom depth from everything an afterimage referenced, and an afterimage's
+    `cachedMesh` is the player's own body -- so a player afterimage attributed to a ghost turned the
+    body's outline off for good, and the sword drew through it. Found with three hot-loaded Lua
+    probes (flags, a pre/post hook on the engine setter with owner attribution, a restore call);
+    fixed by making both strips prove ownership first. The outline on the player behind a ghost
+    stays, by the user's call: the pass ignores stencil, and a ghost writing custom depth shows
+    through walls. Confirmed on screen. [VERIFIED.md](VERIFIED.md), `probe_outline/`.
+    (Steps 60-64 were numbered 54-57 and sat above 54-59 until 2026-09-06; `phase7.md`'s
+    2026-09-05 entry cites the outline fix as "step 57" — it is this one.)
+
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**
 > The house style for these steps is 2–4 lines each (see `CLAUDE.md`), and that rule is a good one:
@@ -461,15 +471,19 @@ pointer instead of five bullets:
 - **[agent_docs/status.md](../../agent_docs/status.md)** — the cross-cutting items that are not
   only this adapter's, and the ones waiting on a second machine.
 
-The shape of what remains, so this section says something: one visual defect nobody has explained
-(a black flash the moment a ghost appears, with two mechanisms ruled out by measurement), two crash
-reports whose cause was never established, several things confirmed only in loopback that a real
-second player would judge differently, and a handful of built-but-unwatched changes. Nothing
-outstanding is a ghost failing to do something the player can do.
+The shape of what remains, so this section says something (re-checked 2026-09-06): one crash
+family at a new engine fault site, reported by testers on v1.1.7 with the weapon-model apply on one
+of the stacks — a hardened DLL is deployed and unproven, and if it recurs that feature ships off;
+one visual defect nobody has explained (a black flash the moment a ghost appears, with two
+mechanisms ruled out by measurement); a frame-rate residue after a ghost despawns that persists
+until a zone change (user report, 2026-09-06); an audit of the remaining plain-byte bool reads for
+the bitfield trap, first item for the next session; several things confirmed only in loopback that
+a real second player would judge differently; and a handful of built-but-unwatched changes.
+Nothing outstanding is a ghost failing to do something the player can do.
 
 ## Dev tools
 
-Seventeen dev-only Lua probe scripts across eleven mod folders (2026-09-01 count — each probe is
+Thirty-two dev-only Lua probe scripts across nineteen mod folders (2026-09-06 count — each probe is
 its own UE4SS mod directory), **indexed in [PROBES.md](PROBES.md)** — that file is
 their one home; this section says only why they exist and what to be careful of. None of them ships:
 the release contains the compiled `MeshGhostPseudo` DLL plus a bundled UE4SS runtime to load it, and

@@ -66,12 +66,12 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | `AFTERIMAGE_REQUIRE_SPAWN_PROXIMITY` | Birth-proximity check, so a recycled pooled actor is not counted as a new afterimage. |
 | `RECALL_GLOW_ENABLED` | Mirrors whether the real glow is present rather than reimplementing "empty-handed AND near a save crystal". Whatever rule the game actually applies is mirrored for free and cannot drift. |
 | `GHOST_AFTERIMAGE_NO_OUTLINE` | **ZERO frames, user-confirmed 2026-08-27** — the outline is refused at the native `SetRenderCustomDepth` call itself (`register_afterimage_outline_guard`), never merely stripped after. The game enables custom depth BEFORE setting `copyActor` (measured), so an unattributable enable while a ghost is alive is refused and RESTORED a tick later by the sweep if the image is the player's own — the failure mode inverted into the invisible direction. Attribution: `copyActor` equality when set; birth proximity as the labelled fallback (continuous proximity was tried first and REVERTED for taking the local player's outline with it). The per-tick sweep stays as backstop and logs anything that got past the hook. |
-| `GHOST_HOLD_OUTLINE_OFF` | A ghost is never drawn through walls: custom depth is stripped from everything it OWNS (`component_is_owned_by`, 2026-09-05 -- a property that points at another actor's component is skipped and logged; `cachedMesh` on an afterimage was the player's body), every tick, plus a ~30Hz sweep for components attached at RUNTIME that no property points at. Generalised from a five-name list on the user's rule — *"i don't want it to apply to the ghosts at all, no matter what/where. only to the player itself."* The asymmetry is the point: a peer's position behind geometry is information. **Has never once found custom depth on**, which is how the afterimage carrier was eventually identified. |
+| `GHOST_HOLD_OUTLINE_OFF` | A ghost is never drawn through walls: custom depth is stripped from everything it OWNS (`component_is_owned_by`, 2026-09-05 -- a property that points at another actor's component is skipped and logged; `cachedMesh` on an afterimage was the player's body), every tick, plus a ~30Hz sweep for components attached at RUNTIME that no property points at. Generalised from a five-name list on the user's rule — *"i don't want it to apply to the ghosts at all, no matter what/where. only to the player itself."* The asymmetry is the point: a peer's position behind geometry is information. **The sweep has never once found custom depth ON on anything a ghost actually owns** — every enable it kept catching was the PLAYER's own body, reached through an afterimage's `cachedMesh`, which is how the afterimage carrier was identified and why the ownership check (2026-09-05) exists. |
 | `GHOST_HOLD_LIGHT_OFF` | **BUILT 2026-08-29, never watched.** Holds a ghost's ascendant-light `PointLight` at intensity 0. Measured first: the player's reads 0 and the ghost's reads 5000, same class, same attach point (`WeaponMesh`) — so 5000 is the pawn Blueprint's own DEFAULT, which the game drives down on a real player through logic a ghost never runs, and nothing was ever being copied. Additive across peers, which is why the user saw the room brighten with company. Attributed up the ATTACH chain (a `ChildActorComponent`'s actor outers to the LEVEL, so an outer walk finds nobody), and the engine call is made ONLY on a component attributed to one of our ghosts — `FindAllOf` hands back class-default objects and calling a UFunction on one crashed a live session twice the same day. **Deliberately does not touch `bVisible`/`bIsActive`: both lights report them false, including the one lighting the room.** Paired with `LIGHT_SWEEP_INTERVAL_TICKS`. |
 | `GHOST_NAMETAGS` | **The nametag feature, confirmed by three peers 2026-08-29.** Renders a peer's `remote_name` as a `UTextRenderComponent` above the ghost, using only the engine's own cooked font/material (`RobotoDistanceField` / `DefaultTextMaterialOpaque`, confirmed present by `NAMETAG_CENSUS_PROBE`) — nothing of ours ships, which is what ruled out the UMG-widget approach another mod took. |
 | `NAMETAG_COLOR_PLATE` | **The coloured plate behind a nametag, confirmed 2026-08-29.** Uses the engine's opaque+unlit `DebugMeshMaterial` ("Color" parameter) because every translucent material vanished behind the game's own translucency sorting and every game opaque master is lit/stylized. Drawn only when the peer set a `name_color`. |
 | `GHOST_NEUTRALISE_CAMERA_RIGS` | Holds a ghost's spawned camera rig dark — the pawn Blueprint gives every spawn a camera nobody looks through, which the 2026-08-29 light hunt found contributing. Swept at `CAMERA_RIG_SWEEP_INTERVAL_TICKS` (~5/s); writes only to a rig that is not the local player's and not already neutral. |
-| `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` | **Deliberately `true` — the MASTER GATE for the file-toggle dev workflow**, no longer only the custom-depth A/B its name remembers: every `dev_toggle_present` poll, the subtraction toggles (`hide_ghost_*`, `ghost_light_on`, ...) and `perf_report.txt` arming all sit under it, so `false` disables the entire Runtime dev-toggle table below. Cost with no toggle file present is file-existence checks every `DEV_TOGGLE_POLL_TICKS`; the expensive sweeps run only while ARMED (the 2026-08-30 fix). Its comment said "must ship OFF" from its one-question days and shipped `true` anyway — the comment was corrected 2026-09-01, believing the value, per this file's own closing rule. |
+| `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` | **Deliberately `true` — the MASTER GATE for the file-toggle dev workflow**, no longer only the custom-depth A/B its name remembers: every `dev_toggle_present` poll, the subtraction toggles (`hide_ghost_*`, `ghost_light_on`, ...) and `perf_report.txt` arming all sit under it, so `false` disables the entire Runtime dev-toggle table below. Cost with no toggle file present is file-existence checks every `DEV_TOGGLE_POLL_TICKS`; the expensive sweeps run only while ARMED (the 2026-08-30 fix). Its comment said "must ship OFF" from its one-question days and shipped `true` anyway — the comment was corrected 2026-09-01, believing the value, per this file's own closing rule. **Since 2026-09-05 it also gates a PLAYER setting**: the same poll re-reads `config.json`'s `replay.indicator`, `indicator_color` and `indicator_timer_color` (`poll_recording_indicator_config`, reached from `poll_recording_indicator_tuning`), so flipping this `false` would freeze three shipped keys at their defaults. It can no longer go `false` without first moving that read out from under it — noted 2026-09-06 as a code item, not a doc one. |
 | `MIRROR_PEER_PROJECTILE` | **Confirmed 2026-08-27.** A peer's ranged shot, mirrored as the projectile's own Niagara EFFECT along the sampled path — never as the game's actor, which crashed the game when its pointer outlived it. The sender attributes a shot by `Instigator` and requires its `ProjectileMovement` to be ACTIVE, because this game pools actors and existence is not activity. |
 | `MIRROR_DEATH_FADE` | **Confirmed 2026-08-27.** Runs the pawn's own `dieFade(DieNotRez)` on a ghost — dying on the peer's health reaching zero, resurrecting when their `NS_RespawnSafe` starts. Found by two probes: the model is never hidden and its materials go dynamic (so it is an animated parameter), then a census named the function. |
 | `MIRROR_HURT_REACTION` | **Confirmed 2026-08-27, and the one flag with a runtime tripwire.** Runs the pawn's own `BPI_PerformDamageResponse` on a ghost whenever the peer's shared health DECREASES — a pit fall is 5 HP, damage rather than death, which is why the death fade could not carry it. Because health is a GameInstance singleton, the mirror reads `CurrentHp` around the call and **disarms itself for the session** if the value moves. It has never fired; that is a measured fact about the function, not an assumption. |
@@ -184,8 +184,9 @@ cutscenes), and that same ungated line is what pinned the 2026-08-27 camera-poin
 exact statement when the crash dialog carried no stack — so it has earned something. Still a
 defect by this file's own rule: gate it under the flag on the next FUNCTIONAL rebuild. Not fixed
 on the spot because the fix would have re-shipped an unwatched binary minutes after the user
-confirmed the current one, purely to remove a log line. **Still ungated as of 2026-09-01, having
-survived every functional rebuild since** — the deferral clause has quietly become permanent, so
+confirmed the current one, purely to remove a log line. **Still ungated as of 2026-09-06, having
+survived every functional rebuild since — including v1.1.5, v1.1.6, v1.1.7 and the 2026-09-05
+hardened DLL** — the deferral clause has quietly become permanent, so
 either gate it on the next rebuild for real or accept it here as a deliberate always-on line.
 
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS` is derived, not set: it is true whenever either montage
@@ -201,7 +202,11 @@ changed mid-session without a rebuild or a relaunch, which is how the light hunt
 subtractions in one game session — and exactly what makes them dangerous: **a shipped build with
 these compiled in behaves differently for anyone who happens to create a file with the right
 name.** They are gated behind `GHOST_CUSTOM_DEPTH_DEV_TOGGLE`, which is `true` in the committed
-build and must go `false` (with the toggles removed) before release.
+build. This paragraph said it "must go `false` (with the toggles removed) before release" until
+2026-09-06; every release since v0.2.0 has shipped with it `true`, and since 2026-09-05 the same
+poll also carries the player-facing `replay.indicator*` keys (that flag's own row) — so the honest
+statement is that the toggles SHIP, disarmed, and the risk named here is accepted rather than
+closed. Removing them from a release build means separating the config poll from the dev poll first.
 
 **Three light toggles were RETIRED on 2026-08-30 — promoted to shipped defaults, their files no
 longer read** (user's call: *"properly implement it"*): the ghost vertex-light kill
@@ -230,6 +235,7 @@ file beside the DLL is ignored. Acceptance run quoted in `VERIFIED.md` 2026-08-3
 | `guard_hook.txt` | Registers the pause menu's Reset-button pre-hook at all. **Off by default since 2026-09-05**: three symbolized dumps showed the click reading null with the hook armed whatever its callback did (including nothing), and nineteen unhooked resets were clean. Replaces `guard_off.txt`. |
 | `guard_destroy.txt` | With `guard_hook.txt`: the hook also destroys the ghosts and the recording indicator at the click, the 2026-08-30 behaviour. For the A/B only. |
 | `log_reset_fns.txt` | Logs the functions the game runs during a reset. Costly; its own comment says never leave it on. |
+| `rec_indicator.txt` | **The recording indicator's and the nametag's live-tuning file** (2026-09-04/05), the one toggle that carries VALUES rather than presence: `key=value` lines for the indicator's forward/right/up offsets, gap, dot and text scales, plate margins, and since 2026-09-05 the nametag's height, size and plate depth. Re-read on the dev poll; absent (the shipped state) the baked defaults apply, which the user confirmed draw identically (`VERIFIED.md` 2026-09-05). Exists because judging "a bit more to the right" one rebuild at a time is the loop `CLAUDE.md`'s hot-reload rule forbids. Row added 2026-09-06 after an audit found it in the code and the README's step 61 but not here. |
 | `perf_report.txt` | **Per-subsystem frame-cost timer** (2026-08-30). Prints accumulated us/frame per subsystem every ~2s: `tick_total` plus each block, so every slot reads as a share of the whole and the unattributed remainder is itself the finding. Disarmed it is one bool test per scope. This is what found four whole-world scans costing half the frame rate -- `../../agent_docs/pitfalls/method.md`. **Never leave it armed while judging anything visual.** |
 
 **Two of these subtractions LIE and are not to be trusted** (measured 2026-08-29): the nametag and
@@ -280,8 +286,9 @@ work feeds, or revert the commit instead.
 
 ## Tunable constants — the `constexpr` NUMBERS
 
-**A bool register is only half the switches.** `Plugin.cpp` carries ~95 `constexpr`
-numbers (2026-09-01 count, roughly a third of them function-local — see below), and several of
+**A bool register is only half the switches.** `Plugin.cpp` carries ~100 named non-bool
+`constexpr` declarations (101 by the 2026-09-06 recount of `constexpr <type> NAME =` lines; ~95 on
+2026-09-01; a good third of them function-local — see below), and several of
 them decide behaviour as completely as any flag: a hold window, a guard,
 an offset, a threshold. They are listed here for the same reason the bools are — so a number with
 a measurement behind it is not "tidied" by someone who reads it as arbitrary, and so a number that
@@ -312,6 +319,45 @@ bounds, log budgets) live beside their use sites — **find one with
 **This paragraph named four until 2026-08-27 and nine until 2026-09-01**, which is exactly the
 failure it exists to prevent — a constant added function-local is added here in the same edit,
 or the count above is at least re-dated.
+
+### Registered 2026-09-06 — the number half of the 2026-09-02 bool sweep
+
+The 2026-09-02 preflight check that found six unregistered bools was never repeated for numbers; a
+2026-09-06 audit found thirty-one named constants in `Plugin.cpp` with no row. They are listed here
+with the value the code carries today and, where the constant's own comment records one, its
+provenance; **"not recorded" means exactly that** — the comment at the constant says what it is
+for and not how the number was chosen, so treat it as tuned-by-eye until someone measures. Line
+numbers are deliberately not given: find each with `grep -n "constexpr.*<NAME>" Plugin.cpp` and
+note its enclosing function before citing it.
+
+| Constant | Value | What it decides | Provenance |
+|---|---|---|---|
+| `NAMETAG_HEIGHT_ABOVE_GHOST` | `110.0` | How far above the ghost the nametag sits; the baked default `rec_indicator.txt`'s `name_up` overrides live | **Tuned by eye**, confirmed 2026-09-05 |
+| `NAMETAG_WORLD_SIZE` | `18.0f` | The nametag's world size; `name_size` in the tuning file overrides live | **Tuned by eye**, confirmed 2026-09-05 |
+| `NAMETAG_PLATE_BEHIND` | `4.0` | Units the colour plate sits behind the glyphs along the facing | not recorded |
+| `NAMETAG_MATERIAL_OVERRIDE` | `""` | An optional material path for the nametag text; empty keeps the component's own material, which draws readable text in the engine's default | Sized — empty is the shipped and confirmed state |
+| `MAX_REMEMBERED_NAMETAGS` | `1024` | The cap on remembered peer names — names are kept across `despawn_remote` on purpose, so without a ceiling a stream of fresh ids grew the map for the life of the process (2026-09-02 adversarial review) | **Sized** as a ceiling; the margin is not recorded at the constant |
+| `MAX_PEER_AFTERIMAGE_SPAWN` | `64` | The largest afterimage burst a PEER may ask this game to spawn; every build seen sends 6, so this is a ceiling on a hostile sender, not a knob (2026-09-02) | **Sized** against the observed 6 |
+| `GHOST_FAR_SPAWN_Z_OFFSET` | `5000.0` | How far above the player `ghost_spawn_far.txt` births a ghost — far enough that its vertex light cannot paint the player's floor, close enough that the next state pulls it back in | **Sized** |
+| `HEALTH_PROBE_INTERVAL_TICKS` | `30` | How often the peer-health mirror re-reads the shared health singleton (~0.2s at this build's ~150-180Hz; health changes are discrete, so nothing aliases past one) | **Sized** against the tick rate |
+| `OUTLINE_HUNT_INTERVAL_TICKS` | `1` | How often the outline hunt runs while its probe flag is on | **Measured** — was 30 until 2026-08-27, when the under-sampling reported "only the player is outlined" as a finding; a probe cadence, paid for one run |
+| `OUTLINE_SWEEP_INTERVAL_TICKS` / `AFTERIMAGE_SWEEP_INTERVAL_TICKS` | `5` / `5` | The ~30Hz runtime-attach sweeps behind `GHOST_HOLD_OUTLINE_OFF` and `GHOST_AFTERIMAGE_NO_OUTLINE` — ~35ms at ~144fps, below the time an afterimage is on screen long enough to read; deliberately NOT per tick, a full enumeration per frame being the shape of this adapter's worst regression | **Sized** |
+| `OUTLINE_SWEEP_MAX_COMPONENTS` | `256` | The most components one attach-tree walk will visit; a pawn carries a couple of dozen, so this exists only so a cycle cannot hang the game thread | **Sized** as a cost bound |
+| `RESET_SPAWN_SUPPRESS_TICKS` / `POST_WORLD_SPAWN_SUPPRESS_TICKS` | `0` / `0` | How long after a reset / a new world spawns are held back. **Zero since 2026-09-01**: the crash the holds chased was the respawn dereferencing nametag residue, now cleared at every release, not timing; the window machinery stays, one constant from re-arming | **Measured** — by subtraction with the user watching, 2026-09-01 |
+| `PROJECTILE_RESCAN_INTERVAL_TICKS` | `30` | How often the pooled projectile actors are re-FOUND (the read stays at the sample cadence); ~0.2s | **Sized** against the tick rate |
+| `PROJECTILE_CLASS_NEEDLE` | `"PRJ"` | The class-name substring that identifies projectile classes; deliberately broad, because `PRJ_PlayerCutter_C` was recorded from a log rather than established and a filter that only matches what we already believe cannot correct us | **Measured** from a log, widened on purpose |
+| `PEER_ASSET_CATALOG_REFRESH_MS` | `10000` | How often the local asset catalog a peer's named asset must resolve through is rebuilt | **Sized** — a stated limit |
+| `PEER_ASSET_NAME_MAX_BYTES` | `512` | The longest peer-supplied asset name the catalog gate will look up | **Sized** — a stated bound on a stranger's string |
+| `MIRROR_PLAYER_VFX_INTERVAL_TICKS` | `5` | How often the local side asks which mirrored effects are active; deliberately not per tick (the 2026-08-16 regression) | **Sized** |
+| `MIRROR_WORLD_VFX_RADIUS` | `600.0` | How close a world-spawned effect must be to the player to count as the player's own | **Measured** — the capture logged both heal waves at 130-260 units and a character is ~130 tall, so 600 is a couple of body lengths |
+| `MIRRORED_EFFECT_COUNT` | derived | The length of the `MIRRORED_EFFECTS` table | derived, not a knob |
+| `MAX_TRACKED_ONE_SHOTS` | `32` | The most one-shot effects tracked per ghost at once | not recorded |
+| `WEAPON_DUST_FLOOR_DROP` / `WEAPON_GLOW_FLOOR_DROP` / `WEAPON_GLOW_FLOOR_DROP_TICK` | `38.0` each | How far below the flyer's origin the landed sword's dust and glow sit | **Measured** — the real landed sword's origin-to-floor distance |
+| `AFTERIMAGE_COLOR_BURST_LOG_COUNT` / `AFTERIMAGE_COLOR_SPECIAL_LOG_COUNT` | `400` / `200` | Log budgets for the two afterimage-colour traces; runaway backstops, not expected limits | **Sized** as log budgets |
+| `OFFSET_LOG_EPSILON` | `0.5` | Below this the `VFXOFFSET` measurement does not log a change — "change" means a real move, not a re-observed wave at the same height | **Sized** |
+| `NON_GAMEPLAY_MAP_FRAGMENTS` | `{"TitleScreen"}` | Map-name fragments where no ghost is spawned and nothing is recorded; each entry is a claim about this game and lands with its evidence | **Measured** — the title screen's map name |
+| `RAD_TO_DEG` | `180/π` | A unit conversion | mathematics |
+| `SETTERS` | a table | The candidate setter names the weapon-model apply tries, in order (2026-09-05) | see the constant's own comment |
 
 ### Shipped behaviour
 

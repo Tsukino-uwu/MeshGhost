@@ -8,23 +8,28 @@ were each settled by something in this list.
 
 **Why this file is `PROBES.md` at the adapter root, and not a `probes/` folder.** UE4SS loads a
 Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Seventeen directories, twenty-six
-scripts, one index (2026-09-04 count, measured not incremented; six directories and nine scripts when this was written
+— there is no single `probes/` folder to index from the inside. Nineteen directories, thirty-two
+scripts, one index (2026-09-06 count, measured not incremented — `ls -d probe probe_*` and a `find`
+for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
 Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatch/` and
-`probe_slashvfx/` followed on 2026-08-31 and 2026-09-01.
+`probe_slashvfx/` followed on 2026-08-31 and 2026-09-01, `probe_frozen/` and `probe_outline/` on
+2026-09-05.
 
-## Every probe here is READ-ONLY, with ONE named exception
+## Every probe here is READ-ONLY, with the exceptions named here
 
 None writes game memory and none writes a save. The two that touch anything outside the process
 are the socket stages, and they only open a local TCP connection to our own bridge.
 
-**The exception, added 2026-09-04, is `probe_audiofix/`, and it is named here so the claim above
-stays true.** It calls one native UFunction on the live `PlayerController` to put the audio
+**The exceptions are named here so the claim above stays true.** `probe_audiofix/` (2026-09-04)
+calls one native UFunction on the live `PlayerController` to put the audio
 attenuation listener back on the player's capsule — a fix being tested before it is built into the
 C++ mod, at the user's request (*"try with lua first, so we actually test the fix before making
-it"*). It still writes no save, no game state and no memory. **Unload it before judging anything
+it"*). `probe_outline/` (2026-09-05) has two writing stages: `hooks.lua` restores custom depth on
+the player's body and sword, but ONLY when a trigger file appears, and `stencil.lua` writes stencil
+values and custom depth onto ghost meshes for as long as it runs. None of the three writes a save,
+game state or memory. **Unload them before judging anything
 else**: `../../agent_docs/checklists/before-a-probe.md` — a writing probe left armed is a suspect
 in every later report.
 
@@ -134,7 +139,8 @@ instrument.
   survivable, and calling into one is the line `probe_dustlight/` crossed.
 - **A new mod folder cannot be hot-reloaded in.** `probe_reloader/` calls `RestartMod`, which
   answers *"Could not find mod to reinstall"* for anything UE4SS did not load at launch (measured
-  2026-08-29). It carries an `enabled.txt`, so it arms itself on the NEXT game start.
+  2026-08-29). It ships disarmed (no `enabled.txt`); create one and it arms itself on the NEXT game
+  start — or drop the script into `probe_scratch/`'s slot to run it in the current one.
 
 ## `probe_namecensus/` — the census that ended the glow hunt (2026-08-29, evening)
 
@@ -176,9 +182,10 @@ without incident. One census 3s after each (re)load; write the reloader trigger 
   keeps AFTER pickup and can leave stale — a UFunction call on an object nobody owns, the exact
   line `probe_dustlight/` crossed), and `World:SpawnActor` of a gameplay-bearing Blueprint from
   Lua. The split it wanted now lives in the adapter as `skip_ghost_weapon_state.txt`, with the
-  C++ guards. It is not `main.lua`, so it never auto-loads — but note the FOLDER is armed:
-  `probe_swordthrow/enabled.txt` exists for the folder's `main.lua` (unlike `probe_dustlight/`,
-  which ships disarmed).
+  C++ guards. It is not `main.lua`, so it never auto-loads — and the folder itself is PARKED:
+  `probe_swordthrow/enabled.txt.off` is the convention `probe_slashvfx/` later copied; rename it
+  back to `enabled.txt` to arm the folder's `main.lua` on the next game start. (This line said the
+  folder was armed until 2026-09-06; the filesystem said otherwise.)
 
 ## `probe_menuwatch/` — the reset-world fingerprint (2026-08-31)
 
@@ -449,3 +456,9 @@ that stays high across several cycles is.
 **Cost:** two `FindAllOf` calls a second, read-only, printing only on change. **It was the first
 probe to load through `probe_scratch/`'s slot** — written, deployed and answering inside a running
 game in about a minute, which is the loop that slot exists to make possible.
+
+- **`Scripts/verbs.lua`** — the folder's second file (2026-09-04): asks which teardown verbs
+  (`DestroyComponent` and its relatives) actually RESOLVE on a `NiagaraComponent` in this build,
+  and prints the answer. It never calls any of them — a named lookup only — because the adapter's
+  own log had reported `0 destroyed` on a despawn the user watched come out clean, and this build
+  was already known to lack `DeactivateImmediate`. Read-only, same as `main.lua`.

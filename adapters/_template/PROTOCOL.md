@@ -199,7 +199,7 @@ four. **They are not optional, and they are not new: both ship today.**
 
 ```json
 {"type":"session_policy","payload":{"ghost_collision":"enabled"}}
-{"type":"remote_name","payload":{"player_id":"p2","display_name":"Alice"}}
+{"type":"remote_name","payload":{"player_id":"p2","display_name":"Alice","color":"#A89975"}}
 {"type":"recording_state","payload":{"recording":true,"started_unix_ms":1788538686000}}
 ```
 
@@ -227,6 +227,10 @@ four. **They are not optional, and they are not new: both ship today.**
   (2026-09-01). Ids are safe to key on: the relay never reuses a player_id.
   Drawing it is per-game work — Pseudoregalia draws text on a coloured plate above the ghost — and
   a game where readable text is genuinely impractical should log that once, for the same reason.
+  **It also carries `color`**, `"#RRGGBB"` or absent: the peer's chosen nametag colour, already
+  sanitized by the relay and the core, so an adapter may read it as three bytes with no parser. An
+  adapter that cannot colour text ignores it and still draws the name. (Absent from this file until
+  2026-09-06, while `bridge/bridge.go` and `contract.md` both carried it.)
 
 - **`recording_state`** (ADR 0052) says whether the CORE is recording right now, pushed on change
   and again when you attach. **It exists because the record hotkey is system-wide and lives in the

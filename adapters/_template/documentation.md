@@ -189,3 +189,20 @@ So when this file describes a state, describe three things, not one:
 
 A description that stops at the pose reads as complete and produces a half-finished character, and
 the missing half is the part a player notices first.
+
+## Document what a player pawn REGISTERS globally, not only what it draws — 2026-09-06
+
+A singleplayer game's player code assumes it is *the* player. Anything it registers with the engine
+on `BeginPlay` — an audio listener, a view target, a "the player is here" material parameter, a
+claim on a loose pickup — it registers unconditionally, because the game never spawns a second
+instance. **A ghost that is a real player-pawn clone runs that same code and re-registers every
+one of them**, and the symptom lands somewhere else entirely: Pseudoregalia's player lost every
+sound effect when a ghost DESPAWNED, because the ghost had taken the audio listener on spawn and
+its destruction left the listener on a component that no longer existed (2026-09-04); the loose
+sword claimed the watcher's player the same way (2026-09-01). Both were found by hooking the call
+and reading its arguments, not by watching the ghost.
+
+So when this file describes what a pawn does on spawn, list the **global registrations** beside the
+components and the pose, with the engine call each one goes through. That list is what an adapter
+hooks to give the claim back to the local player, and it is the list a player-facing symptom with
+no visible cause should be checked against first.
