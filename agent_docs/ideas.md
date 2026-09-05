@@ -2751,3 +2751,26 @@ this is FOR:**
 **NOT scheduled, and deliberately not attached to any replay work.** Filed so the distinction the
 user drew — state versus input — is written down rather than re-derived the next time someone asks
 why a ghost cannot be learned from.
+
+## Weapon MODEL sync, the way outfits sync (filed 2026-09-05)
+
+**What exists.** The Pseudoregalia state carries everything about what the sword DOES: `weapon_equipped`
+(in hand and visible), `weapon_thrown`, `weapon_pos`/`weapon_rot`/`weapon_bounce`, `weapon_state`,
+`weapon_glow`, and `weapon_class` (the peer's loose-weapon class, logged and kept as
+`target_weapon_class`). All of it is exercised by `MeshGhostPseudo.Tests/peer_json_fuzz.cpp` and the
+mirror is user-confirmed on live peers (`VERIFIED.md`, 2026-09-01 and 2026-09-04).
+
+**What does not exist.** Nothing says what the sword LOOKS like. There is no `weapon_mesh` field the way
+there is `outfit_mesh`; the ghost's hand `WeaponMesh` keeps the pawn class's own asset, and the flying
+sword we build reads its mesh off that same hand component. A peer with a modded sword model shows the
+stock sword on everyone else's screen. Nobody assumed this worked -- it was never built and never
+tested; the user asked on 2026-09-05 after confirming outfits and trail colours between two machines.
+
+**Shape, if wanted.** Read the local `WeaponMesh`'s `SkeletalMesh`/`SkinnedAsset` name the way the
+outfit path reads `VisualMesh`'s, send it as `weapon_mesh`, resolve on the receiver through the same
+catalog gate (`resolve_peer_named_asset`, `SkeletalMesh`), apply with the same setter the outfit uses
+(`SetSkeletalMeshAsset` -- the T-pose lesson), and let the flying sword keep reading the hand mesh so
+it follows for free. Same requirement as outfits: the watcher needs the same mod installed. Where the
+sword sits is a different question (socket/attachment on the hand, and the modded model's own origin);
+`documentation.md` says the weapon socket is the game's, so a model that fits the stock socket fits.
+Not scheduled.

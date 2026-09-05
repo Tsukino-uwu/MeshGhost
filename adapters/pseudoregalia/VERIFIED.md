@@ -198,6 +198,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — MeshGhost v1.1.5 and the Archipelago randomizer coexist in BOTH install orders, on a fresh Steam reinstall (user-confirmed on screen)
 - 2026-09-05 — the client, its config.json, log and replays live in the GAME'S ROOT folder and the mod looks nowhere else; Pseudoregalia (user-confirmed on screen)
 - 2026-09-05 — the stuck blue outline on the player's sword: the afterimage sweep stripped the PLAYER's body through `cachedMesh`; fixed with an ownership check (user-confirmed on screen)
+- 2026-09-05 — outfit sync and afterimage colour CONFIRMED between two real machines over the internet: a modded outfit and two different trail colours, each seen on the other's screen
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5190,3 +5191,23 @@ a ghost overlaps the player on screen and is nearer the camera) was offered and 
 **Scope.** Pseudoregalia, the Steam build of 2026-09-05, v1.1.6's DLL. Open cousin: a player afterimage
 born on top of a ghost can still be attributed to the ghost by proximity and lose its OWN silhouette
 (`UNVERIFIED.md`); it can no longer touch the player.
+
+## 2026-09-05 — outfit sync and afterimage colour CONFIRMED between two real machines over the internet: a modded outfit and two different trail colours, each seen on the other's screen
+
+**What was seen (the user with a second player on another machine, v1.1.6, 2026-09-05 evening).** The
+peer wore a MODDED outfit and it rendered on their ghost on the user's screen; the two players had
+different afterimage (trail) colours and each saw the other's own colour. The user's words: *"outfit +
+after image has been confirmed working. i tested live together with the tester, they had a modded outfit
+and we both had different after image colors."* Both mechanisms had been confirmed before only in the
+loopback rig and replays (the outfit entry above, 2026-08-27; the `afterimageColor` reading); this is
+the first confirmation with two distinct real players, which is the case the catalog gate and the
+live-read colour exist for. Outfit swaps mid-session kept working (*"keeps swapping outfits properly"*).
+
+**Scope.** Both machines had the same outfit mod installed, which is the documented requirement
+(README: "if you have the same mod installed as another player it will get synced"). What a peer's
+modded outfit looks like WITHOUT the mod on the watcher's side was not tested tonight.
+
+**Not covered by this, and never built:** the hand weapon's MODEL. The state carries the sword's
+visibility, thrown flag, position, rotation, bounce count, glow and the peer's loose-weapon class, and
+the ghost's own hand `WeaponMesh` asset is whatever the pawn class gives it -- no `weapon_mesh` field
+exists the way `outfit_mesh` does, so a modded sword model is not mirrored. Filed as an idea, not a bug.
