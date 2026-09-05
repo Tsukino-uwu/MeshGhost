@@ -55,9 +55,10 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
    `udp`, which are two separate rules on most routers**. The server prints exactly what to forward
    when it starts.
 
-TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` copied into
-that mod's folder once, and they read the `config.json` that sits beside it rather than the one in
-the folder you unzipped. Emerald and Crystal run from the release folder itself and need neither.
+TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` and that
+game's `config.json` (from `games\<game>\`) copied into the game's own folder once — the one Steam
+installed — and that copy of `config.json` is the one they read, not the one in the folder you
+unzipped. Emerald and Crystal run from the release folder itself and need neither.
 Setting `"autostart": false` in that `config.json` turns autostart off, if you would rather run the
 client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still works.)
 

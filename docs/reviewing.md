@@ -106,7 +106,9 @@ go test -race -count=3 ./...
 
 **The fuzzers.** These feed inputs nobody chose into the parsers and the listeners, and they are
 the part that does not share the author's blind spots. Run any of them for as long as your
-suspicion lasts; CI runs a short campaign against every one on each push. Nothing here needs
+suspicion lasts; CI runs a short campaign against the parser and listener targets on each push
+(the list of steps in `.github/workflows/ci.yml`; the property-style targets that pin an encoder
+against its decoder run there as ordinary tests instead). Nothing here needs
 trusting CI — the targets are ordinary `go test -fuzz` functions:
 
 ```sh
@@ -120,8 +122,9 @@ go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./prot
 go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./bridge
 ```
 
-The full list is `grep -rn '^func Fuzz' --include=*_test.go .`, and CI counts the targets the
-same way rather than trusting a written list.
+The full list is `grep -rn '^func Fuzz' --include=*_test.go .`. The CI campaign is a written list
+of steps in `ci.yml`, one per target, so compare the two yourself: a target the grep finds and the
+workflow lacks is one only a local run has ever fuzzed.
 
 **Verify a release binary came from this source.** Releases are built with `-trimpath` and no cgo,
 so a build of the same tag with the same Go version is byte-identical to the shipped file. The

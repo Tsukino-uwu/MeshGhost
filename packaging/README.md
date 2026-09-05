@@ -123,8 +123,11 @@ Copying a file is something a user already understands and that cannot rot. The 
 copy, so both mods name the exact folder in their log when the exe is missing rather than doing
 nothing.
 
-`MESHGHOST_NO_AUTOSTART` (set to anything) turns the whole thing off in all four adapters, which is
-the documented answer for an antivirus that objects to one program starting another.
+`"autostart": false` in the `config.json` a game reads turns the whole thing off in every adapter,
+and is the documented answer for an antivirus that objects to one program starting another
+(`packaging/release/README.txt`, "Turning autostart off", since 2026-09-03). The older
+`MESHGHOST_NO_AUTOSTART` environment variable (set to anything) still counts as "no" and is kept so
+an existing setup keeps working; it is no longer what the player-facing docs point at.
 
 ## Room-code auth (added 2026-08-14)
 
@@ -214,9 +217,10 @@ the easy case only because `meshghost_emerald.lua` *is* the shipped file. Each g
 staging step in `dev-scripts/stage-release.ps1` (which `release.yml` runs) when its adapter is
 genuinely ready to ship — see the Emerald and Crystal blocks there for the pattern (copy the
 script, copy a `lib/` next to it; Crystal reuses Emerald's, which is the same BizHawk LuaSocket
-build), and TEVI below for what a compiled adapter needs instead. A game whose mod folder ships a
-`config.json` also needs a `packaging/config-overrides/<game>.json` (or a deliberate decision
-not to override anything).
+build), and TEVI below for what a compiled adapter needs instead. A game that ships its own
+`config.json` MAY carry a `packaging/config-overrides/<game>.json` for the keys it wants changed
+from the root client block; a game with no file there simply gets the root client block unchanged
+(`stage-release.ps1`), which is what Emerald and Crystal do today.
 
 Every game also gets a hand-written, committed `games/<publisher>/<game>/README.txt` — the
 end-user-facing setup steps for that specific game (what's in the folder, where to drag/copy it,
@@ -300,7 +304,9 @@ a console, keybind hooks, an actor dumper — **enabled**, none of them used.
 
 Manual only, deliberately — nothing publishes on its own just from pushing a commit or tag.
 On GitHub: repo → **Actions** tab → **Release** workflow → **Run workflow** → type a version
-(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content → run. It builds both
+(e.g. `v0.1.0`), tick **prerelease** if this cut includes untested content, optionally type a few
+**highlights** lines saying what the release is FOR (they appear above the generated changelog;
+empty means the changelog alone) → run. It builds both
 `.exe`s for Windows/amd64 — the only platform the *full* bundle supports, since BizHawk's
 LuaSocket vendoring is Windows-only (per
 [agent_docs/licensing.md](../agent_docs/licensing.md)) — plus client and server binaries for
@@ -309,7 +315,8 @@ outputs aren't stale (the TEVI plugin, the Pseudoregalia plugin, and the bundled
 each gated on its own `built-from.txt`-style hash record), assembles the three assets, creates
 the tag if it doesn't already exist, and attaches them to a new GitHub Release.
 
-The release body is just GitHub's generated changelog. **Do not add a SHA-256 table to it** —
+The release body is the optional `highlights` input followed by GitHub's generated changelog, and
+nothing else. **Do not add a SHA-256 table to it** —
 GitHub already computes and shows a `sha256:` digest beside every uploaded asset's download button,
 and returns the same value from the API. One was added on 2026-08-18 and removed the same day for
 exactly that reason.

@@ -473,6 +473,14 @@ happens when each one trips*.
   already-buffered line. The earlier `ReadBytes` approach grew its buffer without bound until it
   found a newline, so a peer streaming bytes with no newline could force unbounded memory
   growth. Trips → the read loop fails, `fail` (`transport.go`) reports and closes.
+- **Nesting depth** — `protocol.MaxJSONDepth` (32) bounds how deep the two free-form fields,
+  `extras` and `orientation`, may nest. The byte caps bound how MUCH a peer sends and say
+  nothing about SHAPE: ~490 nested levels fit in the 1024 bytes `extras` allows, and every
+  receiver walks that structure. Trips → the state is rejected like any other invalid one.
+  Every shipped adapter puts a flat map here, and both Lua adapters refuse at 64 on their own.
+- **Display name** — `protocol.MaxDisplayNameBytes` (64) and `MaxDisplayNameRunes` (24), both,
+  on `hello.display_name`: a name over either is truncated by the sanitizer, never a reason to
+  refuse the connection.
 - **Flood cap** — a tumbling one-second window at `relay.go`. Over
   `max(120, send_hz × 6)` (`MaxMessagesPerSecondFor`, `relay/limits.go`) the relay sends a
   `reject` with `ReasonRateLimited` and **closes**, rather than silently dropping the excess: a

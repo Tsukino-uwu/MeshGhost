@@ -29,9 +29,11 @@ The heuristic isn't being stupid; it just can't tell the difference yet.
   so it is not something we could get wrong or forge. Check yours with
   `Get-FileHash <file> -Algorithm SHA256` on Windows or `shasum -a 256 <file>` elsewhere; if it
   matches, it's the file CI produced.
-- If it's specifically an adapter starting `meshghost.exe` that your scanner objects to,
-  set the environment variable `MESHGHOST_NO_AUTOSTART` to anything and start the client yourself —
-  that path is unchanged and fully supported.
+- If it's specifically an adapter starting `meshghost.exe` that your scanner objects to, set
+  `"autostart": false` in the `config.json` that game reads and start the client yourself — that
+  path is unchanged and fully supported, and the release `README.txt` walks through it under
+  "Turning autostart off". (The older `MESHGHOST_NO_AUTOSTART` environment variable still counts
+  as "no" if you already have it set.)
 
 **What we intend to do about it:** get the binaries code-signed, via SignPath's free offering for
 open-source projects. That work hasn't started. It should help with both causes, but it's worth

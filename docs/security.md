@@ -317,8 +317,12 @@ player's machine — it would have to compromise the core itself first, a separa
 **Misbehavior limits exist and defend against both a malformed and a malicious peer**
 (`relay/limits.go`, `protocol/limits.go`): `MaxLineBytes` (4096, now enforced
 during the read itself, not after), `MaxExtrasBytes` (1024), `MaxPositionLen` (8),
-`MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxHelloFieldLen` (128, in
-`protocol/online.go`),
+`MaxOrientationBytes` (256), `MaxAreaIDLen`/`MaxAnimLen` (256), `MaxJSONDepth` (32 — how deep
+`extras` and `orientation` may NEST, a bound on shape that the byte caps do not give, enforced by
+every receiver; the depth fuzzer found and fixed an off-by-one in it on 2026-09-05),
+`MaxDisplayNameBytes`/`MaxDisplayNameRunes` (64 bytes AND 24 runes, `protocol/displayname.go`,
+because either alone lets a smear of combining marks or a wire-heavy name through),
+`MaxHelloFieldLen` (128, in `protocol/online.go`),
 `DefaultMaxClients` (8, server-wide across all rooms, configurable per relay),
 `MaxMessagesPerSecond` (120 — a floor, not a flat cap: the real per-client limit is
 `max(120, send_hz * RateLimitHeadroomMultiple)` with the multiple at 6, and at the default 15Hz
