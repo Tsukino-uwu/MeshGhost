@@ -8020,6 +8020,11 @@ namespace MeshGhostPseudo
         double g_rec_up = 55.0;          // + is up
         double g_rec_time_right = 15.0;  // the time sits this much further right than the dot
         double g_rec_plate_behind = 0.6; // the white box, pushed away from the camera behind the digits
+        // The box's own vertical nudge, added to `up`. The plate is centred on the digits' QUAD,
+        // and the ink sits high in that quad (descender room below), so a box that hugs the top
+        // of the digits has spare space under them; shrinking `plate_h` eats the top too. Judged
+        // on screen 2026-09-05: "a bit too much space below".
+        double g_rec_plate_up = 0.0;
         double g_rec_text_size = 9.0;    // the digits; the user judged 4 "really tiny"
         double g_rec_dot_size = 14.0;    // the dot glyph is short next to digits
         // U+25CF renders as a solid BAR in this game's text font, not a circle (user, twice), so
@@ -8747,6 +8752,7 @@ namespace MeshGhostPseudo
                 else if (key == "dot_w") { g_rec_dot_scale_w = std::clamp(bounded, 0.05, 10.0); }
                 else if (key == "dot_h") { g_rec_dot_scale_h = std::clamp(bounded, 0.05, 10.0); }
                 else if (key == "dot_up") { g_rec_dot_up = bounded; }
+                else if (key == "plate_up") { g_rec_plate_up = bounded; }
                 // The nametag's three: height above the ghost, glyph size (0 = class default),
                 // and how far the colour plate sits behind the text.
                 else if (key == "name_up") { g_nametag_up = std::clamp(bounded, -500.0, 500.0); }
@@ -8861,7 +8867,7 @@ namespace MeshGhostPseudo
                 set_component_relative_transform(g_recording_time, g_rec_forward, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
                 // The plate sits FURTHER from the camera than the time, so the black digits
                 // depth-sort in front of the white box they need behind them.
-                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up + g_rec_plate_up, 0.0, 180.0, 0.0);
 
                 // COLOURED TEXT, not a plate: a plate material fills the glyph quad and draws a
                 // solid rectangle whatever character it is given (measured on screen -- U+25CF a
@@ -8921,7 +8927,7 @@ namespace MeshGhostPseudo
                 set_component_relative_scale(g_recording_dot, 1.0, g_rec_dot_scale_w, g_rec_dot_scale_h);
                 set_component_relative_transform(g_recording_dot, g_rec_forward, g_rec_right, g_rec_up + g_rec_dot_up, 0.0, 180.0, 0.0);
                 set_component_relative_transform(g_recording_time, g_rec_forward, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
-                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up, 0.0, 180.0, 0.0);
+                set_component_relative_transform(g_recording_time_plate, g_rec_forward + g_rec_plate_behind, g_rec_right + g_rec_time_right, g_rec_up + g_rec_plate_up, 0.0, 180.0, 0.0);
                 set_text_render_string(g_recording_dot, g_rec_glyph.c_str());
                 if (g_recording_dot_mid)
                 {
