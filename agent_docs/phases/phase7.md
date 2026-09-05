@@ -2522,3 +2522,33 @@ that satisfied both, and the fix was separating width from height, not searching
 **The user's own framing drove two of the three mechanism changes** — that padding should be
 constant rather than proportional (a multiplier gives a long name a huge gap and a short clock
 none), and that the square needed the same per-axis freedom as the box.
+
+## 2026-09-05 (second session) — the indicator's shapes settled, and the order that got there
+
+**Ask:** *"fix the nametag, red square, white/timer square size/positions first mainly"*. Rigs
+already up (relay `127.0.0.1:7777`, two fake peers). **Outcome:** nametags judged fine on the first
+look; the square, gap and box went through nine live edits and one rebuild to *"think they are
+actually pixel perfect now"* — hedged, so `UNVERIFIED.md` keeps it with the one look left (the
+BAKED defaults, no tuning file). Numbers: `UNVERIFIED.md`'s table.
+
+**Two rebuilds, both mechanism, both paid for themselves the same afternoon:**
+
+1. **The nametag's knobs made live** (`name_up name_size name_behind`, plus `plate_margin`/`plate_h`
+   re-applying to tags already on screen via a tuning GENERATION each tag stamps itself with).
+   Its height and plate offset were `constexpr`, its plate scale applied once at spawn — so any
+   verdict would have cost a relaunch. Spent BEFORE the first look, on the last session's own
+   lesson. As it turned out the nametags needed nothing, which is the cheap way to learn that.
+2. **`plate_up`, the timer box's own vertical offset.** The box is centred on the digits' QUAD and
+   the ink sits high in it, so the box's spare space was all BELOW — and `plate_h` shrinks about
+   the centre, so 0.68 clipped the tops while leaving the bottom. The tell was the same as last
+   session's `plate_w`: one knob being asked for two things (cover the top, lose the bottom).
+
+**The order that worked, worth writing down because the wrong order cost three looks: CENTRE
+FIRST, THEN SIZE.** A box that is off-centre cannot be sized — every height reads wrong on one
+edge and the fix looks like the other knob. Once `plate_up` had it centred (one overshoot, 1.0 →
+0.7), `plate_h` converged in two edits. Same for the square: its height matched before its position
+was touched, and the last two edits were ~2px nudges of `dot_up` alone.
+
+**Also this session:** three ShareX GIFs shrunk with the user's `make-gif.bat` (40/54/82 MB → 6/8/8
+MB); my tool sandbox refuses writes to their Screenshots folder, so the bat runs unsandboxed. Not a
+repo fact — noted in agent memory only.

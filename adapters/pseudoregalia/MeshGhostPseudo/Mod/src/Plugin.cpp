@@ -8016,21 +8016,24 @@ namespace MeshGhostPseudo
         // vertical of ~0.563 -- a 16:9 frame at ~92 degrees horizontal, consistent, so the same
         // solve puts the corner at right 88 and up 55.
         double g_rec_forward = 140.0;    // how far in front of the camera the pair floats
-        double g_rec_right = 88.0;       // + is right, toward the corner
-        double g_rec_up = 55.0;          // + is up
-        double g_rec_time_right = 15.0;  // the time sits this much further right than the dot
+        double g_rec_right = 112.0;      // + is right, toward the corner
+        double g_rec_up = 72.0;          // + is up
+        double g_rec_time_right = 13.5;  // the time sits this much further right than the dot
         double g_rec_plate_behind = 0.6; // the white box, pushed away from the camera behind the digits
         // The box's own vertical nudge, added to `up`. The plate is centred on the digits' QUAD,
         // and the ink sits high in that quad (descender room below), so a box that hugs the top
         // of the digits has spare space under them; shrinking `plate_h` eats the top too. Judged
         // on screen 2026-09-05: "a bit too much space below".
-        double g_rec_plate_up = 0.0;
+        double g_rec_plate_up = 0.7;
         double g_rec_text_size = 9.0;    // the digits; the user judged 4 "really tiny"
-        double g_rec_dot_size = 14.0;    // the dot glyph is short next to digits
+        double g_rec_dot_size = 9.0;     // same size as the digits; the shape comes from dot_w/dot_h below
         // U+25CF renders as a solid BAR in this game's text font, not a circle (user, twice), so
         // the shape is a tuning value now rather than a constant: the file can name any character
         // and the answer is one keypress away instead of one rebuild.
-        StringType g_rec_glyph = STR("\u25CF");
+        // Settled on "H" 2026-09-05: the plate material fills the glyph's whole quad, so the
+        // character only chooses the quad and dot_w/dot_h below make it the square the user judged
+        // "pixel perfect" against the clock's box.
+        StringType g_rec_glyph = STR("H");
         bool g_rec_tuning_dirty = false;
         // The digits currently on screen. See the write site for why this is not a local.
         StringType g_recording_time_text;
@@ -8046,13 +8049,13 @@ namespace MeshGhostPseudo
         double g_plate_margin_chars = 0.35;
         // Height stays a multiplier, and may go BELOW 1: a text component's box is taller than the
         // ink it holds, so hugging the glyphs means shrinking past the box rather than growing.
-        double g_plate_scale_h = 0.95;
+        double g_plate_scale_h = 0.78;
         // The recording square's own two axes. Its proportions used to be whichever box the glyph
         // came with -- a narrow bar for one character, a wide block for another -- so making it an
         // actual SQUARE meant hunting for a character shaped like one. These make the shape a
         // number instead, and the glyph merely something for the material to fill.
-        double g_rec_dot_scale_w = 1.0;
-        double g_rec_dot_scale_h = 1.0;
+        double g_rec_dot_scale_w = 0.85;
+        double g_rec_dot_scale_h = 0.78;
         // The NAMETAG's own numbers, live through the same file (2026-09-05). These were compile-
         // time constants, and the plate scale was applied once at spawn -- so judging "the tag is
         // too high / too big / the box too wide" cost a rebuild per look, which is the exact loop
@@ -8079,7 +8082,7 @@ namespace MeshGhostPseudo
         // video capture, since a screen indicator lands in one like any other UI.
         bool g_rec_indicator_enabled = true;
         // The square's own vertical nudge, added to `up`. See above for why it needs its own.
-        double g_rec_dot_up = 0.0;
+        double g_rec_dot_up = 0.4;
 
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition

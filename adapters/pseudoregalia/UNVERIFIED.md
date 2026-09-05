@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — the recording indicator (red square + clock, top right): confirmed counting, following the screen and hiding on stop; four numbers left to judge, and the last build is BUILT NOT DEPLOYED
+- READY — the recording indicator (red square + clock, top right): shapes judged *"pixel perfect"* (hedged) 2026-09-05; ONE look left, the BAKED defaults with no tuning file, deploys at the next game exit
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -2378,21 +2378,30 @@ the console is hidden by default.
 - **Colours land as chosen**: `#EE4B2B` reads as red rather than salmon after the sRGB fix, and the
   nametag parchment is *"good/better imo"* darker and richer than before.
 
-### STILL BEING JUDGED, and all four are live-tunable rather than rebuilds
+### JUDGED 2026-09-05 (second session) — the shapes, and one look left
 
-**DEPLOYED to both installs 2026-09-05**, with the tuning file set to the values below. Nothing to
-build before the next look — launch, record, judge. It carries:
+**The user's words on the last edit: *"think they are actually pixel perfect now"*** — a hedge
+(*"think"*), so it sits here rather than in `VERIFIED.md` until it holds on a second look. What was
+settled, nine live edits after the first screenshot, no rebuild for any number:
 
-| Complaint | What was actually wrong | Setting |
+| Judged | Settled at | What the edit taught |
 |---|---|---|
-| box too tall | `plate_h` was clamped at a minimum of 1.0, and a text component's box is taller than its ink — hugging needs BELOW 1 | `plate_h=0.92` |
-| names too wide, clock too tight | a MULTIPLIER pads proportionally: a fifth of the text's own width is nothing on `0:01` and a lot on a long name | `plate_margin=0.35` (character widths, constant per side) |
-| square misaligned | its shape came from whichever glyph the material filled | `dot_w` / `dot_h` / `dot_up` |
+| nametags | `name_up=110 name_size=0 name_behind=4` (unchanged defaults) | *"nametags look fine/good now"* on the first look; the knobs exist now but nothing moved |
+| red square height and place | `dot=9 dot_w=0.85 dot_h=0.78 dot_up=0.4 glyph=H` | height first, then position; the last two looks were single-knob nudges of ~2px each |
+| gap square-to-clock | `gap=13.5` | 15 was too wide, 12.5 too tight |
+| timer box | `plate_h=0.78 plate_up=0.7 plate_margin=0.35` | **the box was centred BELOW the digits, so every shrink cut the top** — `plate_h` alone could not fix it and made it worse (0.68 clipped the digit tops). `plate_up` was the missing knob: ONE rebuild, then centre it, THEN shrink |
+
+**THE ONE LOOK LEFT: the BAKED build.** These numbers are now the source DEFAULTS (built and committed
+2026-09-05) so a fresh install draws this with no tuning file. Deployed at the next game exit; the
+check is that a launch with `rec_indicator.txt` DELETED draws exactly the screen above. Until then
+the installs draw it from the file, which is the same numbers by a different route.
 
 ### The live-tuning loop, which is the part worth keeping
 
 `dlls/rec_indicator.txt` beside the DLL is re-read ~5x/second: `forward right up gap dot text glyph
-plate_margin plate_h dot_w dot_h dot_up`. Geometry is developer tuning and stays there; the
+plate_margin plate_h plate_up dot_w dot_h dot_up name_up name_size name_behind` (the nametag three
+and `plate_up` joined 2026-09-05, second session; `plate_margin`/`plate_h` re-apply to live tags
+now). Geometry is developer tuning and stays there; the
 **player-facing** settings are in `config.json` under `replay` — `indicator` (on/off),
 `indicator_color`, `indicator_timer_color` — and are re-read live too.
 
