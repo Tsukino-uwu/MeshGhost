@@ -2740,3 +2740,9 @@ beside `outfit_mesh`; stored with the same empty-means-unchanged rule; applied o
 writes, one edge-gated readback log, the same retry throttle. The fuzz test carries the field. Built and
 fuzzed locally, deployed where the DLL was not locked; UNWATCHED -- needs two machines with the same
 weapon mod on v1.1.7 (`UNVERIFIED.md`).
+
+**Night, 2026-09-05 — v1.1.7 out; one tester crash that was not ours.** The release job's own Go step
+caught a Linux-only relay flake (a Reject lost to a TCP reset; `phase10.md`), fixed and re-released.
+A second tester's access violation came with a `UE4SS.log` in the OLD 2.5 layout, no C++ mod started
+and no MeshGhost line at all: an older Archipelago-era UE4SS whose loader never reads `ue4ss\Mods\`.
+A clean game reinstall fixed it; README.txt now says the UE4SS replace is necessary, not just usual.
