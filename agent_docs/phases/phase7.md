@@ -2672,3 +2672,16 @@ The drain now goes through the same Read loop that waits for the payload, so a r
 mid-drain counts. 40/40 under `-race` locally (the old loop never failed locally either; the
 sleep-equals-two-ticks alignment only bites on a loaded runner). Same lesson as the 09-04 harness
 race: a test that pokes a Conn's queue directly must not also let the other side keep filling it.
+
+**Afternoon, 2026-09-05 — v1.1.5 released; Archipelago coexistence re-checked on a fresh reinstall, both
+orders.** The user reinstalled Pseudoregalia, applied v1.1.5 then the Archipelago zip, and asked
+for the pair to be confirmed in both orders. Hashing first: the two zips overlap on exactly three
+files (the UE4SS runtime and its .ini), both builds are RE-UE4SS `733e5969`, everything else is
+disjoint. Order one (Archipelago's runtime) with loopback, chaser, two fake peers: user-confirmed
+with a screenshot of items arriving. Order two (our runtime copied on top): user-confirmed the
+same. Record: `pseudoregalia/VERIFIED.md`. Rig notes: the mod autostarted the shipped client from
+its folder when the dev core was restarted and took the bridge port — the realistic setup, kept;
+the chaser was flipped in the install's config and the client killed so the adapter respawned it;
+a scratch script waited for the session's first `STATESEND` line and launched the fake peer itself.
+The `tasklist` process name is truncated to `pseudoregalia-Win64-Shipp`, so a monitor grepping the
+full name never fires — match on `pseudoregalia-Win64`. Rig torn down, install config restored.

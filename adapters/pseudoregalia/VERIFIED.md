@@ -195,6 +195,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — the reset-to-save crash is CLOSED AGAIN: the pause menu's Reset-button hook was the crash, and it is gone (user-confirmed)
 - 2026-09-05 — the chaser HOLDS through the pause menu and an item popup (ADR 0053, user-confirmed)
 - 2026-09-05 — eight chasers no longer despawn, respawn or teleport: the core's chaser queue could not keep up with this adapter's frame rate (user-confirmed)
+- 2026-09-05 — MeshGhost v1.1.5 and the Archipelago randomizer coexist in BOTH install orders, on a fresh Steam reinstall (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5065,3 +5066,46 @@ its delay plus the spawn window, and the two shortest delays were exempt -- a bu
 the delay, and a threshold the short ones stayed under. Record and rule:
 `agent_docs/pitfalls/by-lesson.md`, "A queue sized from an ASSUMED rate drops the newest". The
 2026-09-04 second-hand report (*"4,5,6,7 despawned/spawned back/forth"*) was this.
+
+## 2026-09-05 — MeshGhost v1.1.5 and the Archipelago randomizer coexist in BOTH install orders, on a fresh Steam reinstall (user-confirmed on screen)
+
+**What was done.** The user reinstalled Pseudoregalia from Steam, dragged in `MeshGhost-full-v1.1.5.zip`'s
+`games\pseudoregalia\pseudoregalia` folder, then `pseudoregalia-archipelago(4).zip` (its `AP_Randomizer`
+mod, stock Lua mods, `mods.txt`/`mods.json`, and its own UE4SS runtime). That is order ONE, MeshGhost
+first. For order TWO the agent copied the same MeshGhost folder back on top afterwards, exactly the
+drag a user would do.
+
+**What each order leaves on disk (hashed, not assumed).** Archipelago's zip and ours both carry the
+shared runtime — `dwmapi.dll`, `ue4ss\UE4SS.dll`, `ue4ss\UE4SS-settings.ini` — so whichever is applied
+LAST owns those three; nothing else overlaps. Order one runs Archipelago's UE4SS build (`B37957B4…`,
+16,240,640 bytes, the same build recorded 2026-08-13) with its settings (hot reload off, UObject array
+cache off). Order two runs ours (`B36FF0D1…`, from `ue4ss-runtime-built-from.txt`) with ours. Both
+builds are the SAME RE-UE4SS commit, `733e5969`, which is why neither direction is the 2026-08-12
+`0x7f` break (that was 83 commits apart). `Mods\AP_Randomizer\` (8 files, `main.dll` `0B0CD2FA…`),
+`mods.txt` and the Lua mods were byte-identical before and after our copy; `Mods\MeshGhostPseudo\`
+was byte-identical to the release before and after Archipelago's. We ship no `mods.txt`, so
+Archipelago's list survives us; our C++ mod loads from `enabled.txt` and needs no entry in it.
+
+**What the user saw, order one** (Archipelago's runtime): *"replay,chase,loopback,fake peer etc
+works. and archipelago is sending items properly"*, with a screenshot of the Archipelago text log
+showing the client joined and six item pickups delivered ("Tsukino found their Magic Power (Castle
+Sansa - Gazebo Stool)" and five more). Rig: loopback relay `-ghost-collision=disabled`, the shipped
+v1.1.5 client autostarted by the mod from its own folder (config.json's chaser flipped on for the
+run and restored after), two `meshghost-fakeadapter` peers aimed from the mod's `STATESEND` line.
+
+**What the user saw, order two** (our runtime): *"ghosts worked properly, and items still got sent
+with archipelago"*. `UE4SS.log` for that launch: both mods start from `enabled.txt`, Archipelago's
+three hooks (`ProcessEvent`, `ProcessConsoleExec`, `BeginPlay`) install, `[APRandomizer] Attempting
+to connect to archipelago.gg:...`, no `Failed to load dll`. Loopback ghost plus two fake peers.
+
+**Scope.** Archipelago zip as downloaded 2026-09-05 (identical size to the 2026-08-29 and 08-31
+downloads); MeshGhost v1.1.5; Steam build of that day. A future Archipelago release that moves its
+RE-UE4SS pin reopens this — re-hash the runtime and re-check before saying it still holds
+(`CLAUDE.md`, dated facts). Where the install was left: order two, our runtime.
+
+**Method worth keeping.** Hash the three shared files against BOTH zips before launching anything:
+that turns "did it overwrite something?" into a table, and names which runtime the run is actually
+on. The mod's `STATESEND` line aims a fake peer without asking the user where they are; a script
+that waits for the first line of the new session and launches the peer itself removes the manual
+step. And the "kill the client, the adapter respawns it" recipe (`running-the-rig.md`) applied the
+chaser toggle with no relaunch.
