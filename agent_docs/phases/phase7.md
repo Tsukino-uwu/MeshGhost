@@ -2719,3 +2719,8 @@ on the player behind a ghost is accepted. Records: `VERIFIED.md`, `documentation
 `pitfalls/by-lesson.md`, `PROBES.md`, README step 57. Lessons: the UE4SS Lua placeholder-object read,
 pre-hook ordering, `tasklist` truncating process names. The Pseudoregalia copy install got the same
 DLL and the game-root layout. Rig torn down and verified gone; scratch slot restored.
+
+**Later still, 2026-09-05 — a two-machine session over the internet on v1.1.6.** Online reported as
+working with no big issues; one rare visual fault logged at no priority: a remote ghost came back
+glitched (fragments, floating sword, shadow intact) after its peer's reset-to-save following a hit;
+the watcher's own reset cleared it; the peer saw nothing and could not reproduce it. `UNVERIFIED.md`.

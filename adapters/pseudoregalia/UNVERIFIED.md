@@ -43,6 +43,7 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
+- OPEN, NO PRIORITY — seen ONCE 2026-09-05 in a two-machine session: a remote peer's ghost flashed red (took damage), vanished on their reset-to-save, and came back GLITCHED (body gone but for scattered fragments, sword and blob shadow intact); the watcher's own reset-to-save cleared it; the peer saw nothing; not reproduced. Entry below.
 - OPEN — small cousin: a player afterimage born ON a ghost can be attributed to the ghost by birth proximity and lose its own silhouette (`copyActor` is null on its first tick); harmless to the player since the ownership fix, unwatched.
 - READY — TEVI: meshghost.exe + config.json now live in the GAME ROOT (beside TEVI.exe) and the plugin looks nowhere else; deployed to both installs 2026-09-05, unwatched (Pseudoregalia's half CONFIRMED, `VERIFIED.md`).
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
@@ -66,6 +67,29 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [OPEN, no priority] a remote ghost came back GLITCHED after its peer's reset-to-save -- seen once, 2026-09-05, not reproduced
+
+**What was seen (the user, watching a real second player over the internet, v1.1.6 DLL).** While testing
+whether damage shows on a ghost: the peer's ghost flashed red (the hit), then disappeared -- the peer had
+done a reset to last save -- then reappeared in a broken state: the body mesh gone except for a few
+floating fragments, the sword floating upright at full size, the blob shadow drawn normally underneath
+(screenshot in the session, not saved). It stayed that way; the user's OWN reset to last save cleared it
+and the ghost has looked normal since, outfit swaps included. The peer saw nothing wrong on their side,
+and could not reproduce it by taking damage, changing outfits or resetting again.
+
+**What is and is not known.** Only that the sequence was hit -> peer's reset-to-save -> despawn ->
+respawn glitched, once, and that a watcher-side world reset fixed it. Candidates named in the session,
+none measured: something of the ghost's not released before the peer's save reload rebuilt the world
+(the class of bug `release_all_ghosts` exists for), garbage collection of a pawn clone mid-rebuild, or
+a costume mod on the peer's side (they run many mods, and one costume is known to them as odd). The
+user's rule holds: anything the mod holds in the world must be dropped before a reset-to-save, a return
+to the main menu or a zone transition, or it crashes or misdraws.
+
+**Why it is logged at all.** The tester's ask: *"Log it as 'has occurred, no priority' ... just for
+having any documentation when it comes back to it."* If it recurs, the first instrument is the watcher's
+`UE4SS.log` around the peer's despawn/respawn (`releasing remote` / `spawned ghost for remote` lines) and
+the sword-mirror and outfit lines for that ghost right after the respawn. No steps to reproduce exist.
 
 ## [DONE] the blue outline that stuck to the player's sword: cause found, fixed and CONFIRMED 2026-09-05 -- see `VERIFIED.md`; kept for the measurements and the method
 
