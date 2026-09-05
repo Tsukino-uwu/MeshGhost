@@ -517,3 +517,15 @@ blocks the player and can be talked to.
 So the work is "let `session_policy` reach the switch that already exists", plus the once-at-startup
 honest-fallback log `bridge.go` already asks for. Not "find the mechanism". Details and the same
 shape in Crystal's `GHOSTS_PASSABLE`: `plans.md`, "Settings: defined once, honoured everywhere".
+
+## 2026-09-05 — queue-only: two open halves moved in from `status.md`, nothing built or watched
+
+No Emerald work this session (it was a Pseudoregalia day — `phase7.md`, 2026-09-05). The three
+commits since the last entry here are `bba6fa56` (the bike issue filed as deterministic, logged
+above under 2026-09-03), `6047c6f2` (a replay-seam finding, Pseudoregalia's, that touched this
+adapter's queue in passing) and `e968507e`, the `status.md` curation: the 2026-09-02 items whose
+detail lived nowhere but `status.md` got one line each in `UNVERIFIED.md`'s "This run" block —
+the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUnreliable` until
+`341a768`) and wants a re-run on the fixed one; and after the spawned -> OAM -> drawn ship, the
+attach NAMETAG BURST, rung churn and drawn clipping under a text box are unexercised. Both OPEN,
+neither new; this entry exists so the log stays complete.

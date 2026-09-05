@@ -191,6 +191,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-04 — the sword mirror on LIVE PEERS, not replays (user-confirmed on screen)
 - 2026-09-04 — landing dust sits at the ghost's feet, and stays there through restarts and seeks (user-confirmed on screen, twice)
 - 2026-09-05 — the recording indicator's shapes: red square, clock box and nametags, pixel-aligned (user-confirmed with ShareX zoom)
+- 2026-09-05 — the recording indicator draws the same from its BAKED defaults, with no tuning file (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4977,3 +4978,13 @@ shrinking `plate_h` cut the top before the bottom's spare space went — `plate_
 for the box alone) was the missing knob. **Centre first, then size**: an off-centre box cannot be
 sized, every height reads wrong on one edge. Trail: `agent_docs/phases/phase7.md`, 2026-09-05
 (second session).
+
+## 2026-09-05 — the recording indicator draws the same from its BAKED defaults, with no tuning file (user-confirmed on screen)
+
+`rec_indicator.txt` renamed out of both installs, a fresh launch, a recording started: *"Still
+perfect"*. So the numbers in the entry above are the source defaults and draw identically through
+the default path, not only through the file — a fresh install gets this screen with nothing beside
+the DLL. The indicator is out of `UNVERIFIED.md` entirely; it shipped in the build committed
+2026-09-05 (`3a29ce7f`). What this game refuses (coloured text draws black, a space has no
+advance, a string write does not redraw) stays recorded in `agent_docs/phases/phase7.md`'s two
+2026-09-05 entries and `agent_docs/pitfalls/by-lesson.md`.
