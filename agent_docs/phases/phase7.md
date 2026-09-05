@@ -2753,3 +2753,14 @@ and its new weapon twin: a sword-swap mod may tear down and rebuild the hand com
 while the sender reads it every tick and while a recorded swap replays onto a ghost. Liveness guards
 (`IsUnreachable`) added on both ends, DLL rebuilt, handed to the tester through the Desktop folder;
 the dump decides the rest. `UNVERIFIED.md`.
+
+**Night, 2026-09-05 — v1.1.7 crashes.** Three dumps on the user's machine and one on a tester's, all
+at a fault site (exe+0x36CCF98, the skeletal-mesh reset chain) that ninety earlier dumps never show.
+The tester's stack has our weapon-model apply and its `SetSkeletalMeshAsset` call; the user's have no
+frame of ours, reached from the game's own Blueprints -- state left behind, not a call in progress.
+The suspect is what v1.1.7 alone did: a full mesh reset of the stock sword onto every ghost's hand at
+spawn, then raw property writes. Hardened DLL deployed (no call for a held asset, setter only,
+destroyed-asset and Skeleton checks); a crash watcher saves each new dump with its logs. Unproven
+until an evening of play passes clean. Record: `UNVERIFIED.md`, the HIGH entry. Method that paid off:
+`read-minidump.py --stack` plus `--symbolize` against our PDB, and the image sizes to tell two
+`main.dll`s apart -- and the crash-folder HISTORY, which made "new since v1.1.7" a fact in one listing.

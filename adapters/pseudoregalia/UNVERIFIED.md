@@ -43,7 +43,7 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
-- OPEN — a tester reports the game CRASHING sometimes on a WEAPON SWAP while a replay recording plays (v1.1.7, 2026-09-05 night); no dump or log yet, so unattributed. First response, built the same night: the weapon-model path now checks the hand component, its asset, the ghost's hand mesh and the flyer are alive (`IsUnreachable`) before touching them -- a swap mod may rebuild the hand component while we read it ~180 times a second, which the body never does. Ask for: `UE4SS.log`, the newest `Saved\Crashes` folder, and an A/B with replays and chasers OFF. Outfit and trail colour take the unchanged 2026-08 paths.
+- OPEN, HIGH — **v1.1.7 CRASHES: a NEW fault site, exe+0x36CCF98, inside the engine's skeletal-mesh reset chain; three dumps on the user's machine 20:56/21:01/21:02 (an Archipelago connect, a zone change) plus a tester's, none at that site in ~90 dumps since 2026-08-12.** The tester's dump has our frames: `game_thread_tick` (weapon-model apply) -> `call_set_skeletal_mesh_asset` -> ProcessEvent -> the fault, with a chaser's `weapon_mesh` after a swap. The user's two have NO frame of ours: engine tick -> Blueprint -> a hooked native -> the same chain, i.e. state v1.1.7 left behind. v1.1.7 ran a FULL SetSkeletalMeshAsset of the stock sword onto every ghost's hand at spawn plus two raw property writes. Hardened build `A81C7D23` deployed 21:03 (same-asset = no call; setter only; resolver refuses destroyed assets; Skeleton must be alive) -- UNPROVEN; the crash watcher is armed. Entry below.
 - READY — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. What to look at: with the same weapon mod on both machines, the peer's ghost holds THEIR sword, and a thrown one flies as that model; without the mod, the stock sword and one throttled warning in the log. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
 - DONE — a tester's EXCEPTION_ACCESS_VIOLATION (2026-09-05) was NOT ours: their `UE4SS.log` showed the old UE4SS 2.5 layout (`Win64\Mods\`), no C++ mod started from `enabled.txt`, not one `[MeshGhostPseudo]` line -- our folder sat unread beside an older Archipelago install's runtime. A clean game reinstall plus both drags fixed it. Lesson for the README: an old UE4SS must be let go of, or nothing of ours loads.
 - OPEN, NO PRIORITY — the NAMETAG sometimes sits too LOW / in the wrong place over a ghost (user, 2026-09-05, two-machine session); rare and inconsistent, no reproduction. If seen again: which ghost, what it was doing (crouch? slide? outfit swap? just spawned?), and whether it recovered on its own -- the tag rewrites its transform every tick (`by-lesson.md`, 2026-09-05), so a low tag is a wrong INPUT to that rewrite (the pawn's capsule half-height or the mesh offset), not a stale one.
@@ -94,6 +94,40 @@ to the main menu or a zone transition, or it crashes or misdraws.
 having any documentation when it comes back to it."* If it recurs, the first instrument is the watcher's
 `UE4SS.log` around the peer's despawn/respawn (`releasing remote` / `spawned ghost for remote` lines) and
 the sword-mirror and outfit lines for that ghost right after the respawn. No steps to reproduce exist.
+
+## [OPEN] HIGH — v1.1.7 crashes at exe+0x36CCF98, the engine's skeletal-mesh reset chain (2026-09-05 night)
+
+**The evidence, in order of arrival.**
+- A tester (v1.1.7 DLL from the pre-release share) crashed "sometimes on a weapon swap while a replay
+  played". Their dump: fault in the game exe at +0x36CCF98; `--stack` shows `main.dll` frames that our
+  PDB names `Plugin::game_thread_tick` at the weapon-model apply, then
+  `call_set_skeletal_mesh_asset` at its ProcessEvent call, then UE4SS, then the engine chain
+  `+0x37BCDBC .. +0x35BF1C3 .. +0x36BDE40 .. +0x36CCF98`. Their client log: chaser on, two replays just
+  finished, pause-menu events last. The two `main.dll` modules are told apart by image size: ours is
+  the 0xD9000 one (`SizeOfImage` of our build), Archipelago's the 0x1CF000 one.
+- The user (same DLL) crashed on an Archipelago connect (20:56) and on a zone change (21:02), plus one
+  at 21:01. All three at the SAME site with the SAME chain, and **no frame of ours on any of the
+  three stacks** (400-frame scan): engine tick hook -> ProcessEvent -> Blueprint VM three deep ->
+  a hooked native (FFrame detour) -> the chain -> fault. So the game's own code trips over state
+  the mod left behind, not a call in progress.
+- `Saved\Crashes` history: 0x36CCF98 never occurred in ~90 dumps from 2026-08-12 to today 04:22;
+  three times tonight. The 04:xx dumps are the old 0x1CD9A60 reset-hook crash, fixed that day.
+
+**What v1.1.7 did that nothing before it did.** On every ghost spawn, and on every `weapon_mesh`
+change, `SetSkeletalMeshAsset` on the ghost's hand `WeaponMesh` (and a live flyer) -- a FULL mesh
+reset even when the target was the stock sword the hand already held -- followed by two raw writes
+of `SkeletalMesh` and `SkinnedAsset`. A weapon mesh is a component the game itself re-targets on
+equip, throw and recall; the body mesh the outfit path swaps is not.
+
+**Built and deployed 21:03 (`A81C7D23`, both installs), UNPROVEN:** same-asset targets are synced by
+inspection with no engine call; the setter only, no raw writes; `resolve_peer_named_asset` returns
+nothing for an object that is unreachable or has `RF_BeginDestroyed`/`RF_FinishDestroyed`; a weapon
+asset without a live `Skeleton` is refused; every component the path touches is checked alive. The
+crash watcher (scratchpad `crashes/`) saves each new dump with that session's `UE4SS.log` and
+`meshghost.log` before a relaunch can overwrite them. **The measurement that closes this: the user's
+evening of play on `A81C7D23` with peers, Archipelago connects and zone changes, and no new
+0x36CCF98 dump.** A recurrence with no frame of ours means the mechanism is still not understood
+and the feature ships OFF behind a flag until it is.
 
 ## [DONE] the blue outline that stuck to the player's sword: cause found, fixed and CONFIRMED 2026-09-05 -- see `VERIFIED.md`; kept for the measurements and the method
 
