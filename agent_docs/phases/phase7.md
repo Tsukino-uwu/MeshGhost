@@ -2764,3 +2764,11 @@ destroyed-asset and Skeleton checks); a crash watcher saves each new dump with i
 until an evening of play passes clean. Record: `UNVERIFIED.md`, the HIGH entry. Method that paid off:
 `read-minidump.py --stack` plus `--symbolize` against our PDB, and the image sizes to tell two
 `main.dll`s apart -- and the crash-folder HISTORY, which made "new since v1.1.7" a fact in one listing.
+
+**Session close, early 2026-09-06.** Four commits ahead of origin, not pushed: the weapon-model
+hardening in three steps (liveness guards; no call for a held asset, setter only, destroyed-asset and
+Skeleton checks; wait for a shown, registered hand), and the crash evidence. The DLL in both installs
+and in the tester share (`0b86bc66`) is the last of those. The user's session on the previous hardened
+build passed with no new dump; the two testers' dumps are the proof of mechanism. Next session:
+push, watch CI, and cut v1.1.8 on the user's word if the watcher stays quiet; if 0x36CCF98 recurs
+without a frame of ours, ship the weapon-model sync OFF behind a flag. Rig down and verified.
