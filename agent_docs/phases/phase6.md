@@ -417,3 +417,13 @@ found in a Go fuzz target the same day.
 
 CI: `tevi.yml`, path-filtered on `adapters/tevi/**`, Linux runner. It cannot build the plugin (that
 needs the user's own game assemblies) and does not try to.
+
+**2026-09-05 — the client and its config move to the TEVI folder; the plugin looks nowhere else.** The
+user's call, made on Pseudoregalia and applied to both UE launchers the same afternoon: `meshghost.exe`,
+`config.json`, `meshghost.log` and `replay\` live in the game's root (the folder with `TEVI.exe`), the
+DLL stays in `BepInEx\plugins\MeshGhost\`. `CoreLauncher.cs`'s search list is now `MESHGHOST_CORE_DIR`
+then `Paths.GameRootPath`; the plugin folder and `BepInEx\scripts` are no longer fallbacks, the start
+log names the folder used, and `tevi-hotreload.ps1` checks the root. Staging puts TEVI's config at
+`games/tevi/config.json` beside the README. Built, deployed to both installs (Steam and the standalone
+copy) with the files moved up -- **UNWATCHED on TEVI**; Pseudoregalia's half was confirmed on screen
+(`../../adapters/pseudoregalia/VERIFIED.md`). Queue: `../../adapters/tevi/UNVERIFIED.md`.

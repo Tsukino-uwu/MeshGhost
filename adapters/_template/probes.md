@@ -2238,3 +2238,22 @@ stays, the bits are orphans, and if a warp then clears them the engine was never
 in the count names the path. Three leaks and a double-free were found this way in one evening, none of
 which any log line reported.
 
+
+## Hook the engine SETTER pre and post, with the OWNER of each call, before theorising about who writes a value (Pseudoregalia, 2026-09-05)
+
+A flag read healthy on a fresh pawn and OFF after an attack, and three theories about who turned it off
+were all reading code. One `RegisterHook` on `/Script/Engine.PrimitiveComponent:SetRenderCustomDepth`
+with BOTH callbacks, each call labelled by walking the context's outer chain to its actor (PLAYER pawn,
+GHOST pawn, AFTERIMAGE, other), replaced the theories with a line: `HOOK ... PRE on PLAYER ...VisualMesh
+= false` at a timestamp, 0.2 s after the first afterimage of the slide, and never a `true`. Then a
+one-shot dump of the suspect actor's object properties WITH THE OWNER OF EACH VALUE named the pointer that
+crossed actors (`cachedMesh`). Then a RESTORE through the same setter, watched on screen, proved the
+mechanism before any fix was written. Three stages, all hot-loaded through the scratch slot; the only
+restart was the one that re-armed the reloader after a reinstall wiped it.
+
+Two traps to build in from the first line: **a missing property read through UE4SS Lua returns a
+placeholder object, not `nil`** — filter on `type(v) == "boolean"`, or every object property "carries" the
+flag; and **a Lua pre-hook runs after an earlier-registered C++ pre-hook**, so the parameter it sees may
+already be rewritten — print pre and post both, and know who registered first.
+
+The shape to copy: `adapters/pseudoregalia/probe_outline/Scripts/hooks.lua`.

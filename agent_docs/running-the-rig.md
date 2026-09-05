@@ -327,3 +327,9 @@ the buffering.
 and prefer a signal carrying its own clock — the core's `meshghost.log` (written by the Go side,
 promptly), or a probe line with a sample counter, so a stalled instrument shows as a counter that
 stopped rather than as an absence of lines.
+
+## `tasklist` truncates the image name — match `pseudoregalia-Win64`, never the full name (2026-09-05)
+
+A process monitor that grepped `tasklist` for `pseudoregalia-Win64-Shipping` never fired: the column
+is cut to `pseudoregalia-Win64-Shipp`. Match a prefix (`pseudoregalia-Win64`), or ask `Get-Process`
+by name, which does not truncate. Cost one silent monitor and a launch nobody was told about.

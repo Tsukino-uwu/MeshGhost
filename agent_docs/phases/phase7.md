@@ -2702,3 +2702,20 @@ depth removes both symptoms until the first melee swing, then body and sword sta
 ghosts show through walls but not through the translucent void doors. `probe_outline/` written and
 staged in the scratch slot; the reinstall had wiped the reloader, so it arms on the next launch.
 Record: `UNVERIFIED.md`'s OPEN entry.
+
+**Evening, 2026-09-05 — the stuck blue outline, found in one session with three hot-loaded probes and
+fixed.** The report: sword silhouette through the player's own body after an attack or slide,
+permanent until a save reload; afterimages through the body; the player outlined behind a ghost.
+Stage 1 (flags) said the body read custom depth OFF after the attack on a pawn the game had recreated
+at a same-level reload; stage 2 (pre/post hook on `SetRenderCustomDepth` with owner attribution) caught
+ONE `false` on the PLAYER's body 0.2 s after the first afterimage and its property dump named
+`BP_AfterImage_C.cachedMesh` -> the player's `VisualMesh`; RESTORE through the same setter cleared the
+screen at once. Cause: the afterimage sweep strips every object property with a custom-depth flag with
+no ownership check, and a player afterimage attributed to a ghost by proximity carried the player's
+body. Fix: `component_is_owned_by` on both strips, per-property announce. Built, deployed at the next
+close, user-confirmed on the first run. Stage 3 (stencil 1 and 255 on ghosts with `keep_custom_depth`)
+proved the outline pass ignores stencil; the user chose option 3 -- ghosts stay stripped, the outline
+on the player behind a ghost is accepted. Records: `VERIFIED.md`, `documentation.md` (three facts),
+`pitfalls/by-lesson.md`, `PROBES.md`, README step 57. Lessons: the UE4SS Lua placeholder-object read,
+pre-hook ordering, `tasklist` truncating process names. The Pseudoregalia copy install got the same
+DLL and the game-root layout. Rig torn down and verified gone; scratch slot restored.

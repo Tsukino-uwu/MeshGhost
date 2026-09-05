@@ -197,6 +197,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — eight chasers no longer despawn, respawn or teleport: the core's chaser queue could not keep up with this adapter's frame rate (user-confirmed)
 - 2026-09-05 — MeshGhost v1.1.5 and the Archipelago randomizer coexist in BOTH install orders, on a fresh Steam reinstall (user-confirmed on screen)
 - 2026-09-05 — the client, its config.json, log and replays live in the GAME'S ROOT folder and the mod looks nowhere else; Pseudoregalia (user-confirmed on screen)
+- 2026-09-05 — the stuck blue outline on the player's sword: the afterimage sweep stripped the PLAYER's body through `cachedMesh`; fixed with an ownership check (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5138,3 +5139,54 @@ location swap worked properly"*. `meshghost.log` and `replay\` now sit in that f
 **Scope.** Pseudoregalia only. TEVI's half is built and deployed to both installs and UNWATCHED
 (`UNVERIFIED.md`). A player upgrading from v1.1.5 or earlier has to move the two files up once; the
 READMEs say so.
+
+## 2026-09-05 — the stuck blue outline on the player's sword: the afterimage sweep stripped the PLAYER's body through `cachedMesh`; fixed with an ownership check (user-confirmed on screen)
+
+**The report (user, with a screenshot):** among ghosts, the player's own sword drew the game's blue
+through-walls silhouette THROUGH THE PLAYER'S BODY after a melee attack or a slide, and stayed that
+way until a save reload. Afterimages drew through the body too. And the player was outlined whenever
+a ghost stood between camera and player. *"the players sword is never supposed to have a blue outline
+against the player itself"*; *"think its better if we just make it so ghosts can't give the blue
+outline to the player or the players sword at all"*.
+
+**Cause (measured, then confirmed by fixing it).** Three Lua probes in one session (`probe_outline/`,
+stages 1-3, loaded through the scratch slot without a restart):
+- Stage 1: on a fresh pawn the body (`VisualMesh`) and sword (`WeaponMesh`) both read
+  `bRenderCustomDepth=true`; stage 2's census on the pawn after an attack read the BODY false and the
+  sword true. That is the picture: the custom-depth pass keeps the nearest writer per pixel, so a sword
+  behind a body that no longer writes custom depth is "behind scene depth" and gets the silhouette.
+- Stage 2 hooked `PrimitiveComponent:SetRenderCustomDepth` pre and post: one call of `false` on the
+  PLAYER's `VisualMesh`, ~0.2 s after the first afterimage of the slide or attack, and never a `true`.
+  Its dump of a live `BP_AfterImage_C`'s object properties named the path: **`cachedMesh` points at the
+  copied pawn's `VisualMesh`** -- the PLAYER's own, on a player afterimage.
+- The mod's afterimage sweep (`Plugin.cpp`, the `GHOST_AFTERIMAGE_NO_OUTLINE` tick pass) walks every
+  object-typed property of an afterimage attributed to a ghost and calls `SetRenderCustomDepth(false)`
+  on any value with a custom-depth flag, with no check that the value belongs to the afterimage. A
+  player afterimage attributed to a ghost by birth proximity (the player standing among ghosts, or on
+  the fake peer parked at their position) had its `cachedMesh` stripped: the player's body. Nothing in
+  the game re-enables the body's custom depth until the pawn is recreated. The ghost hold has the
+  identical shape over 389 pawn properties and got the same fix.
+- Stage 2's RESTORE (`SetRenderCustomDepth(true)` on the body) made the silhouette vanish on screen at
+  once; the next attack brought it back. Mechanism confirmed both ways before a line of C++ changed.
+
+**Fix.** `component_is_owned_by(object, actor)`: both strips skip any value whose outer chain does not
+reach the actor being swept, and log the skipped property once (`ghost outline: afterimage property
+'cachedMesh' points at a component another actor owns -- NOT stripping it`, seen in the first run of the
+fixed DLL). The per-session announce flag became per-property, so a strip is never again unlogged
+behind an earlier one.
+
+**What the user saw with the fixed DLL, 2026-09-05:** *"works as intended now / no perm stuck outline
+for the player itself / or the player sword against the player model / ghosts don't show a outline when
+standing inside a wall/attacking/sliding / the player has a outline when behind ghosts"*.
+
+**The other half, measured and DECIDED (option 3).** A ghost writing no custom depth is opaque scene
+depth to the outline pass, so a ghost between camera and player outlines the player. Measured with
+`keep_custom_depth.txt` and stage 3: ghosts writing custom depth remove that outline in every case,
+AND draw their own silhouette through walls; the pass ignores `CustomDepthStencilValue` (1 and 255
+both drew). The user chose to keep ghosts stripped: *"think 3?"* -- no ghost ever shows through a wall;
+the player outlined behind a ghost is the accepted cost. A conditional variant (custom depth only while
+a ghost overlaps the player on screen and is nearer the camera) was offered and not taken.
+
+**Scope.** Pseudoregalia, the Steam build of 2026-09-05, v1.1.6's DLL. Open cousin: a player afterimage
+born on top of a ghost can still be attributed to the ghost by proximity and lose its OWN silhouette
+(`UNVERIFIED.md`); it can no longer touch the player.

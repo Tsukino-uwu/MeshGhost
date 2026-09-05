@@ -337,16 +337,26 @@ three hundred widgets make a full signature unreadable, so print the diff. Hot-r
 
 ## `probe_outline/` — who turns the PLAYER's through-walls outline on and off (2026-09-05)
 
-- **`Scripts/main.lua`** — READ-ONLY. Every 500 ms for 90 s from the moment the player pawn exists:
-  the custom-depth flag, stencil value, main-pass flag and visibility of `VisualMesh`/`WeaponMesh`/
-  `LightMesh` on the player and on every ghost, printed on change; a **CROSS-OWNER** walk of every
-  object-typed property on each ghost's class chain, naming any value that carries a custom-depth
-  flag and is owned by another actor (the one way `GHOST_HOLD_OUTLINE_OFF` could strip the player
-  silently), with coverage counts; and every live afterimage's `copyActor` and outline state.
-- **The report it answers:** the player, and the player's sword through the player's own body, going
-  blue around ghosts and staying blue after a melee attack (`UNVERIFIED.md`, 2026-09-05). What it
-  cannot see is what is DRAWN -- a flag can read healthy with a stale render state.
-- Staged in the scratch slot on 2026-09-05, unrun: the reinstall had wiped the reloader.
+**Ships WITHOUT an `enabled.txt`** -- two of its stages walk reflection and one writes, so the folder must never arm itself; each stage is copied over the scratch slot by hand.
+
+Three stages, each hot-loaded through the scratch slot, that found and then proved the cause of the
+blue silhouette stuck to the player's sword (`VERIFIED.md`, 2026-09-05). The method they add:
+**hook the engine setter pre AND post with owner attribution**, then **restore through the same
+setter and watch the screen**.
+
+- **`Scripts/main.lua`** (stage 1, read-only) — flags on the named meshes of the player and every
+  ghost, on change; a cross-owner walk of a ghost's object properties; afterimage attribution. Found
+  the pawn had been recreated mid-run and 113 afterimages alive; its cross-owner filter was wrong
+  (a missing property reads back as a placeholder object, not nil).
+- **`Scripts/hooks.lua`** (stage 2, writes ONLY on a trigger file) — `RegisterHook` on
+  `SetRenderCustomDepth` and `SetCustomDepthStencilValue`, pre and post, each call labelled PLAYER /
+  GHOST / AFTERIMAGE by its outer chain; a census of EVERY mesh component the player owns; a one-shot
+  dump of an afterimage's object properties with the owner of each value (named `cachedMesh`); and
+  RESTORE: `SetRenderCustomDepth(true)` on the body and sword when `outline_resync.txt` appears. The
+  restore made the silhouette vanish on screen; the next attack brought it back.
+- **`Scripts/stencil.lua`** (stage 3, WRITES to ghost meshes while it runs) — ghosts on stencil 1,
+  then 255, with custom depth on (arm `keep_custom_depth.txt` first). Answer: the outline pass
+  ignores stencil; ghosts writing custom depth show through walls. The user chose to keep them stripped.
 
 ## `probe_scratch/` — the always-registered EMPTY slot (2026-09-04)
 

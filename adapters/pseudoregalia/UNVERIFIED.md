@@ -42,7 +42,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- OPEN — **HIGH PRIORITY: ghosts give the PLAYER the blue through-walls outline** (behind a ghost), and after a MELEE attack the player's body AND sword stay blue; measured 2026-09-05 with `keep_custom_depth.txt`: both gone until the first melee swing, then permanent — probe staged, cause not found. Entry below.
+- DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
+- OPEN — small cousin: a player afterimage born ON a ghost can be attributed to the ghost by birth proximity and lose its own silhouette (`copyActor` is null on its first tick); harmless to the player since the ownership fix, unwatched.
 - READY — TEVI: meshghost.exe + config.json now live in the GAME ROOT (beside TEVI.exe) and the plugin looks nowhere else; deployed to both installs 2026-09-05, unwatched (Pseudoregalia's half CONFIRMED, `VERIFIED.md`).
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
@@ -66,7 +67,7 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
-## [OPEN] HIGH PRIORITY — ghosts give the player the blue outline, and a melee attack makes it stick (2026-09-05)
+## [DONE] the blue outline that stuck to the player's sword: cause found, fixed and CONFIRMED 2026-09-05 -- see `VERIFIED.md`; kept for the measurements and the method
 
 **The report (user, on screen, with a screenshot).** Standing among ghosts, the player gets the game's
 blue "behind something" silhouette whenever a ghost is between camera and player; and the player's

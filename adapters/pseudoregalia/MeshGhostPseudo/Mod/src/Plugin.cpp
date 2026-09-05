@@ -4501,6 +4501,28 @@ namespace MeshGhostPseudo
         //
         // Same shape as call_set_collision_object_type above: size the buffer from the function's
         // own PropertiesSize and write at the reflected offset, never a hand-rolled struct.
+        // True when `object`'s outer chain reaches `actor` -- i.e. the component is one of that
+        // actor's own, not something the actor merely holds a reference to. Both outline strips
+        // below MUST pass this before disabling custom depth on anything: they walk every
+        // object-typed property of a ghost or an afterimage, and an afterimage's `cachedMesh` IS
+        // THE COPIED PAWN'S VisualMesh. Measured live 2026-09-05 (probe_outline, stage 2): a
+        // player afterimage attributed to a ghost had the sweep call SetRenderCustomDepth(false)
+        // on the PLAYER's body, once, ~0.2s after the first afterimage of a slide or attack, and
+        // nothing ever re-enables it -- the player's sword then drew its silhouette through the
+        // player's own body until the pawn was recreated. The ghost hold has the same shape and
+        // gets the same check, whether or not any of its 389 properties points outward today.
+        auto component_is_owned_by(UObject* object, UObject* actor) -> bool
+        {
+            for (UObject* outer = object ? object->GetOuterPrivate() : nullptr; outer; outer = outer->GetOuterPrivate())
+            {
+                if (outer == actor)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         auto call_set_render_custom_depth(UObject* component, bool value) -> void
         {
             if (!component)
@@ -19080,12 +19102,27 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
-                    static bool announced_afterimage = false;
-                    if (!announced_afterimage)
+                    // Announced once PER PROPERTY, not once per session as before: the session-wide
+                    // flag named 'PoseableMesh' at the first strip and then said nothing while
+                    // 'cachedMesh' -- the player's body -- was stripped for the rest of the run.
+                    static std::set<StringType> announced_afterimage_props;
+                    const StringType prop_name = property->GetName();
+                    if (!component_is_owned_by(*component, image))
                     {
-                        announced_afterimage = true;
+                        // NOT this afterimage's component: a reference outward. `cachedMesh` is the
+                        // copied pawn's VisualMesh -- the player's own when the image is the
+                        // player's, however it was attributed. Never ours to strip.
+                        if (announced_afterimage_props.insert(prop_name + STR(" (foreign, skipped)")).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage property '{}' points at a component another actor owns -- NOT stripping it.\n"),
+                                         prop_name);
+                        }
+                        continue;
+                    }
+                    if (announced_afterimage_props.insert(prop_name).second)
+                    {
                         Output::send(STR("[MeshGhostPseudo] ghost outline: afterimage component '{}' had custom depth ON past the enable-time guard -- holding it off.\n"),
-                                     property->GetName());
+                                     prop_name);
                     }
                     call_set_render_custom_depth(*component, false);
                 }
@@ -20381,9 +20418,18 @@ namespace MeshGhostPseudo
                         {
                             continue; // already off -- no engine call, which is what keeps this cheap
                         }
-                        // Logged the first time per component: "something turned it back on" is a
-                        // fact about this game worth having, not just a thing we quietly undo.
                         static std::set<StringType> announced;
+                        if (!component_is_owned_by(*component, owner))
+                        {
+                            // A reference outward, not one of this ghost's components -- see
+                            // component_is_owned_by. Skipped and said once.
+                            if (announced.insert(prop_name + STR(" (foreign, skipped)")).second)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] ghost outline: '{}' points at a component another actor owns -- NOT stripping it.\n"),
+                                             prop_name);
+                            }
+                            continue;
+                        }
                         if (announced.insert(prop_name).second)
                         {
                             Output::send(STR("[MeshGhostPseudo] ghost outline: '{}' had custom depth ON -- holding it off.\n"),

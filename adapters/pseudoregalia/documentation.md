@@ -471,6 +471,20 @@ Two things about it are non-obvious and cost real time to discover:
 *Confidence: high — both components read back the same flags, the silhouette is visible through
 geometry, and the ordering was measured live 2026-08-27.*
 
+Three more facts about the same pass, measured 2026-09-05 (`probe_outline/`, user-watched):
+
+- **`BP_AfterImage_C.cachedMesh` is a reference to the copied pawn's `VisualMesh`** — the component the
+  image's `PoseableMesh` copies its pose from. An afterimage therefore holds a pointer to ANOTHER
+  actor's mesh; anything that walks an afterimage's object properties reaches the player's body.
+- **The outline pass ignores `CustomDepthStencilValue`.** Meshes on stencil 1 and on stencil 255 drew
+  the same blue silhouette as stencil 0. Stencil cannot be used to exclude an actor from the outline.
+- **Any opaque actor that writes no custom depth occludes the outline like a wall does:** a character
+  standing between camera and player outlines the player. Writing custom depth on that actor removes
+  the outline on the player and gives the actor its own silhouette through walls; there is no
+  per-component setting that does one without the other. The custom-depth pass keeps the NEAREST writer
+  per pixel, which is also why the player's own sword is never outlined through the player's own body
+  while both write custom depth — and is, the moment the body stops.
+
 ## Animation montages
 
 The character's animation assets are prefixed `dreamLady_`; the pawn class itself is

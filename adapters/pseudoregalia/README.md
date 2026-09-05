@@ -381,6 +381,14 @@ Roughly in order:
     while it is set. The same night, eight chasers reproduced the despawn/respawn cycle: the
     core's chaser queue was sized for 100 samples a second and this adapter sends ~180; the tap
     now thins to 100. Both confirmed on screen. [VERIFIED.md](VERIFIED.md), ADR 0053.
+57. **The blue outline that stuck to the player's sword** (2026-09-05): the afterimage sweep
+    stripped custom depth from everything an afterimage referenced, and an afterimage's
+    `cachedMesh` is the player's own body -- so a player afterimage attributed to a ghost turned the
+    body's outline off for good, and the sword drew through it. Found with three hot-loaded Lua
+    probes (flags, a pre/post hook on the engine setter with owner attribution, a restore call);
+    fixed by making both strips prove ownership first. The outline on the player behind a ghost
+    stays, by the user's call: the pass ignores stencil, and a ghost writing custom depth shows
+    through walls. Confirmed on screen. [VERIFIED.md](VERIFIED.md), `probe_outline/`.
 
 54. Fixed three bugs the same evening, all one family: state that outlives a level and is never
     dropped before the level's teardown. The VFX mirror's component map crashed "retry last save";

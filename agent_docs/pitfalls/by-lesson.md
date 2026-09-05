@@ -6042,3 +6042,42 @@ table, and it took one look.
 adapter that runs faster -- size from a rate you ENFORCE at the producer, or measure the rate
 and assert it. And when a queue must drop, know which end: dropping the newest turns a rate
 mismatch into a hole in time.
+
+## Never strip a component you do not OWN — an actor's object properties point outward, and `cachedMesh` was the player's body (Pseudoregalia, 2026-09-05)
+
+**Symptom.** After a melee attack or a slide among ghosts, the player's own sword drew the blue
+through-walls silhouette through the player's own body, permanently, until a save reload recreated the
+pawn. Afterimages drew through the body too. Reported with a screenshot; *"never supposed to"*.
+
+**Cause.** Two strips in `Plugin.cpp` — the ghost hold (`GHOST_HOLD_OUTLINE_OFF`) and the afterimage
+sweep (`GHOST_AFTERIMAGE_NO_OUTLINE`) — walk EVERY object-typed property of the actor they sweep and
+call `SetRenderCustomDepth(false)` on any value carrying a custom-depth flag. An afterimage's
+`cachedMesh` is the copied pawn's `VisualMesh`. A player afterimage attributed to a ghost (birth
+proximity; `copyActor` is null on the image's first tick) therefore stripped the PLAYER's body, once,
+and nothing in the game ever re-enables it. The body no longer writing custom depth is exactly "sword
+outlined through body": the pass keeps the nearest custom-depth writer per pixel.
+
+**How it was found, and what to reach for first next time.** Three Lua probes through the scratch
+slot, no restart after the first launch: (1) flags on the named meshes, on change — healthy on a fresh
+pawn, body OFF after the attack once the census widened to EVERY mesh component the pawn owns;
+(2) a pre AND post `RegisterHook` on the engine setter, naming the owner kind of every call — one
+`false` on the PLAYER's body 0.2s after the first afterimage, no `true` ever; plus a one-shot dump of
+a live afterimage's object properties WITH THE OWNER OF EACH VALUE, which named `cachedMesh`;
+(3) a RESTORE call on the body through the same setter — the silhouette vanished on screen at once,
+and the next attack brought it back. **Reach for the setter hook with owner attribution first**: it
+turned "who touches the player" from a theory into a line in the log with a timestamp. And when a walk
+over an actor's properties is about to WRITE, ask of every value: whose is it?
+
+**Two instrument traps paid for on the way.** A missing property read through UE4SS Lua comes back as
+a PLACEHOLDER OBJECT, not `nil` — `if v == nil` passes, and the first cross-owner walk listed every
+object property as "has a custom-depth flag"; test `type(v) == "boolean"`. And a Lua pre-hook runs
+AFTER an earlier-registered C++ pre-hook, so the value it sees may already be rewritten — log pre and
+post both, and know the registration order.
+
+**Fix.** `component_is_owned_by(object, actor)` gates both strips: a value whose outer chain does not
+reach the swept actor is skipped and logged once by property name. The session-wide announce flag
+became per-property. Confirmed by the user on the first fixed run, and the log named the skip.
+
+**The rule.** A reflected walk that writes must prove ownership of each target before writing — an
+actor's properties reference the world, not just the actor. And a write to something the game never
+re-writes is permanent: strip only what you will also restore, or what is provably yours.

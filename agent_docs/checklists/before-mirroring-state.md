@@ -51,3 +51,4 @@ The 1:1 bar, and every way a copy has looked right and been wrong. `adapters/CLA
 - AN ID IS NOT PORTABLE, AND NEITHER IS A CONSTANT — one table further along than an address — [by-lesson.md](../pitfalls/by-lesson.md)
 - A bypass that freezes a countdown instead of spending it (Crystal, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
 - Proximity is not identity, and a loopback rig makes that worse (Pseudoregalia, 2026-08-27) — [by-lesson.md](../pitfalls/by-lesson.md)
+- Never strip a component you do not OWN: a reflected walk that WRITES must prove each value's outer chain reaches the swept actor — `cachedMesh` was the player's body (Pseudoregalia, 2026-09-05) — [by-lesson.md](../pitfalls/by-lesson.md)
