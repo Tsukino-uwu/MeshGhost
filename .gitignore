@@ -261,3 +261,7 @@ adapters/**/config.json
 /build-*.err.log
 /fake-*.log
 /netsim-*.log
+# The undashed shape too: a `relay.err.log` sat untracked at the root on 2026-09-06 because every
+# pattern above expects `relay-<run>.err.log`.
+/relay.err.log
+/core.err.log

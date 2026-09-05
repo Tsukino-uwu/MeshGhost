@@ -58,7 +58,8 @@ measurement.**
 
 ## Where the results go
 
-- Your measurements go to **`agent_docs/unverified.md`**, as measurements.
+- Your measurements go to **that adapter's own `UNVERIFIED.md`**, as measurements (the per-game
+  queues since 2026-08-25; `agent_docs/unverified.md` is only their index).
 - **Nothing adapter/game-side on a vanilla game becomes "verified" until the USER confirms it on
   screen.** No probe log, console read, or screenshot of yours substitutes. A patched ROM
   (Archipelago etc.) is yours to confirm visually — say so.

@@ -353,7 +353,9 @@ with no `frameadvance` between.
 - **Only on an instance you own** — one agent per BizHawk instance, `environment.md`. Never drive
   an emulator the user is sitting at.
 - **Savestates: allowed everywhere, and actively wanted on a measurement trip.** Slot 1 is the
-  user's on every instance; use 2+. On a trip whose point is reaching one state — "get to a trainer
+  user's on every instance; the slots a rig has already reserved for named seam states are listed
+  in `running-the-rig.md` (Crystal and the Emerald Fly rig both hold several), so **check that table
+  before choosing a slot** and take a free one. On a trip whose point is reaching one state — "get to a trainer
   battle so `wBattleMode` can be read" — **bank one at every milestone and name the slots in the
   report**: a state that took ten minutes to reach outlives the measurement it enabled, because
   every later session inherits it.

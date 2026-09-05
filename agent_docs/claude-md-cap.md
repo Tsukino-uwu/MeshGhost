@@ -72,9 +72,12 @@ Capping one is actively harmful, in a way a line count cannot see:
 - **`UNVERIFIED.md`** and `status.md` — queues. Size tracks what is open, and the way to shrink
   one is to do the work, never to trim the file.
 
-**So a file declares one of two things, and silence is a failure.** `<!-- line-cap: N -->` for
-bounded content — rules, reference, a guide, an index — and `<!-- line-cap: none -- reason -->`
-for a record. `dev-scripts/preflight.ps1` fails a tracked `.md` that declares neither.
+**So a file declared one of two things, and silence was a failure — the rule as it stood from
+2026-08-25 to 2026-09-02, kept here in its own tense because the reversal below only makes sense
+against it.** `<!-- line-cap: N -->` for bounded content — rules, reference, a guide, an index —
+and `<!-- line-cap: none -- reason -->` for a record; `dev-scripts/preflight.ps1` failed a tracked
+`.md` that declared neither. **Today only the seven instruction files carry a header, and a header
+on any other file is the FAIL** — "The sixth case: the reversal" further down.
 
 **Why silence had to become a failure:** the check used to look only at files that declared a cap,
 so an unbudgeted file was invisible to it. On 2026-08-25 that meant the 15 declaring files sat at

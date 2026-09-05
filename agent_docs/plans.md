@@ -13,7 +13,8 @@ detail lives in `agent_docs/contract.md`.
 
 Target games: **Pokémon Emerald** (BizHawk, first) → **TEVI** (Unity, second) →
 **Pseudoregalia** (UE5, third) → **Pokémon Crystal** (BizHawk, fourth — Phase 9, shipping since
-2026-08-18). **Four adapters ship.** See `agent_docs/architecture.md`'s decision log for why
+2026-08-18). Every adapter that ships is listed in the root `README.md`; the fifth game takes
+Phase 12. See `agent_docs/architecture.md`'s decision log for why
 TEVI replaced the brief's original Ori: Will of the Wisps pick.
 
 ## Non-goals for early work
@@ -509,13 +510,22 @@ resolution, and two rendering paths in one adapter.
 
 ### Phase 11 — Replays: recording, playback ghosts, the chaser pack, hotkeys, split times (planned 2026-09-03)
 
-**Decided and built 2026-09-03 (Stages 1–9, one commit each, suite and race green at each; nothing
-watched in a game yet)** — ADR 0047 (the model) and ADR 0048 (hotkeys), log in `phases/phase11.md`. The wire format is already a replay format: a recording is the adapter's own
-`protocol.State` samples written one per line to `replay/<file>.ndjson` under the client's config
-folder; playback is a *local fake peer* fed through `storeRemoteState`, so every renderer, adapter
+**Decided and built 2026-09-03 (Stages 1–9, one commit each, suite and race green at each)** — ADR
+0047 (the model) and ADR 0048 (hotkeys), log in `phases/phase11.md`. **Watched since, on
+Pseudoregalia only** (the other three adapters render a replay ghost by construction and nobody has
+looked): a zip of two recordings playing as two ghosts and a quoted display name reaching the
+nametag (2026-09-04); the chaser holding through the pause menu and an item popup (ADR 0053) and no
+longer despawning under this adapter's ~180Hz (2026-09-05); the recording indicator, twice
+(2026-09-05, ADR 0052); shipped in v1.1.5–v1.1.7. What is still unwatched sits in
+`adapters/pseudoregalia/UNVERIFIED.md` and the follow-ons in `phase11.md`. The wire format is
+already a replay format: a recording is the adapter's own `protocol.State` samples, one per line,
+delta-encoded plain text (ADR 0051; `.ndjson`, optionally gzipped) in the `replay\` folder beside
+`meshghost.exe` — which for TEVI and Pseudoregalia is the game's root folder since 2026-09-05;
+playback is a *local fake peer* fed through `storeRemoteState`, so every renderer, adapter
 and knob works unchanged and no adapter changes for any of it. `replay/active/` IS the list of what
 plays. The **chaser** is the same engine on a ring buffer of the live stream: `count` ghosts of the
-player's own past, `delay + i*spacing` behind. **Split times** come from the two position streams
+player's own past, `delay + i*spacing` behind, rendered on its own delay (ADR 0049) and on gameplay
+time (ADR 0053). **Split times** come from the two position streams
 and ride the existing nametag. Hotkeys (record, save-last, replay-last, restart, seek) are
 system-wide and owned by `meshghost.exe`; everything else is config.
 
