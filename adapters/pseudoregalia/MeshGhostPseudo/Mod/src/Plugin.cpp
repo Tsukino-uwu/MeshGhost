@@ -3142,7 +3142,21 @@ namespace MeshGhostPseudo
             // The catalog's own bytes, not the peer's -- byte-identical on a hit, but the
             // invariant "nothing peer-controlled reaches the global lookup" holds by
             // construction rather than by equality reasoning.
-            return UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(*it).c_str());
+            UObject* found = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, to_wide_ascii(*it).c_str());
+            // **An asset that is still FINDABLE is not an asset that is still USABLE.** Two games
+            // crashed inside the engine's mesh-reset chain on 2026-09-05 with a weapon asset name
+            // in play. An asset a mod has unloaded stays in the object array until the next
+            // garbage collection: StaticFindObject still returns it and IsUnreachable is still
+            // false (that flag is set DURING collection), but BeginDestroy has run and its render
+            // data is gone -- handing it to a component is the fault. A resolved object that has
+            // begun or finished destruction is therefore "not present" here, which every caller
+            // already treats as a throttled retry. Costume mods keep every costume loaded, which is
+            // why the outfit path never met this; it is protected the same way regardless.
+            if (found && (found->IsUnreachable() || found->HasAnyFlags(static_cast<EObjectFlags>(RF_BeginDestroyed | RF_FinishDestroyed))))
+            {
+                return nullptr;
+            }
+            return found;
         }
 
         // Best-effort extra safety margin for the hijack design (user-requested 2026-08-13):
@@ -21679,9 +21693,26 @@ namespace MeshGhostPseudo
                                  to_wide_ascii(remote.target_weapon_mesh), weapon_mesh_obj->GetClassPrivate()->GetName());
                     weapon_mesh_obj = nullptr;
                 }
-                if (weapon_mesh_obj && weapon_mesh_obj->IsUnreachable())
+                if (weapon_mesh_obj)
                 {
-                    weapon_mesh_obj = nullptr; // an asset on its way out is not one to hand a component
+                    // A skeletal mesh the engine can bind has a live Skeleton behind it. A sword a
+                    // swap mod unloaded, or a half-built one, does not -- and the resolver's
+                    // destroyed-flags check cannot see an asset whose skeleton went first. Read,
+                    // never assumed: an absent or dead skeleton means this asset is refused
+                    // (throttled retry, like an unresolved name), not handed to the component.
+                    UObject** skeleton = mg_property_value<UObject*>(weapon_mesh_obj, STR("Skeleton"));
+                    const bool skeleton_alive = skeleton && *skeleton && !(*skeleton)->IsUnreachable() &&
+                                                !(*skeleton)->HasAnyFlags(static_cast<EObjectFlags>(RF_BeginDestroyed | RF_FinishDestroyed));
+                    if (!skeleton_alive)
+                    {
+                        static std::set<std::string> announced_no_skeleton;
+                        if (announced_no_skeleton.insert(remote.target_weapon_mesh).second)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] weapon mesh '{}' has no live Skeleton -- not handing it to ghost {} (a sword a mod unloaded, most likely; will retry periodically).\n"),
+                                         to_wide_ascii(remote.target_weapon_mesh), to_wide_ascii(id));
+                        }
+                        weapon_mesh_obj = nullptr;
+                    }
                 }
                 if (weapon_mesh_obj)
                 {
@@ -21691,6 +21722,7 @@ namespace MeshGhostPseudo
                         targets[0] = *g_hand;
                     }
                     targets[1] = remote.weapon_fly_component;
+                    int changed = 0;
                     for (UObject* mesh : targets)
                     {
                         // Same liveness rule as the sender: never call into a component the
@@ -21700,28 +21732,43 @@ namespace MeshGhostPseudo
                         {
                             continue;
                         }
+                        // **No call for an asset the component already holds.** Until 2026-09-05
+                        // (v1.1.7) every ghost spawn ran a full SetSkeletalMeshAsset of the stock
+                        // sword onto a hand already holding the stock sword -- a mesh reset for
+                        // nothing, on every player's game, which is the only way this feature
+                        // reached people with no weapon mod at all. Two crashes inside the engine's
+                        // mesh-reset chain that day (a tester's, then the user's own on an
+                        // Archipelago connect) sit downstream of exactly this kind of call. A swap
+                        // is a CHANGE; the stock sword arriving on a stock sword is not one.
+                        if (UObject** current = mg_property_value<UObject*>(mesh, STR("SkeletalMesh")); current && *current == weapon_mesh_obj)
+                        {
+                            continue;
+                        }
+                        // The engine's own setter and nothing else. The outfit path also writes the
+                        // two properties directly afterwards as a safety net; a WEAPON mesh is one
+                        // the game itself re-targets on equip, throw and recall, and a raw write
+                        // racing that is a state the render thread cannot be asked to survive. If
+                        // the setter did not take, the readback below says so and the edge gate
+                        // retries -- that is the honest failure, not a write behind the engine's back.
                         call_set_skeletal_mesh_asset(mesh, weapon_mesh_obj);
-                        if (UObject** g_skel_mesh = mg_property_value<UObject*>(mesh, STR("SkeletalMesh")))
-                        {
-                            *g_skel_mesh = weapon_mesh_obj;
-                        }
-                        if (UObject** g_skinned_asset = mg_property_value<UObject*>(mesh, STR("SkinnedAsset")))
-                        {
-                            *g_skinned_asset = weapon_mesh_obj;
-                        }
+                        ++changed;
                     }
                     remote.last_synced_weapon_mesh = remote.target_weapon_mesh;
                     remote.last_failed_weapon_mesh.clear();
-
-                    UObject** rb_skel_mesh = nullptr;
-                    if (UObject** rb_hand = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh")); rb_hand && *rb_hand)
+                    // Already holding it and nothing called: synced by inspection, and no log line,
+                    // because nothing happened. Only a real change earns the readback below.
+                    if (changed > 0)
                     {
-                        rb_skel_mesh = mg_property_value<UObject*>((*rb_hand), STR("SkeletalMesh"));
+                        UObject** rb_skel_mesh = nullptr;
+                        if (UObject** rb_hand = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh")); rb_hand && *rb_hand)
+                        {
+                            rb_skel_mesh = mg_property_value<UObject*>((*rb_hand), STR("SkeletalMesh"));
+                        }
+                        Output::send(STR("[MeshGhostPseudo] weapon mesh applied for ghost {}: target='{}' readback={}{}\n"),
+                                     to_wide_ascii(id), to_wide_ascii(remote.target_weapon_mesh),
+                                     (rb_skel_mesh && *rb_skel_mesh) ? (*rb_skel_mesh)->GetFullName() : STR("null"),
+                                     remote.weapon_fly_component ? STR(" (flyer updated too)") : STR(""));
                     }
-                    Output::send(STR("[MeshGhostPseudo] weapon mesh applied for ghost {}: target='{}' readback={}{}\n"),
-                                 to_wide_ascii(id), to_wide_ascii(remote.target_weapon_mesh),
-                                 (rb_skel_mesh && *rb_skel_mesh) ? (*rb_skel_mesh)->GetFullName() : STR("null"),
-                                 remote.weapon_fly_component ? STR(" (flyer updated too)") : STR(""));
                 }
                 else
                 {
