@@ -204,6 +204,7 @@ func (c *Core) replayLast() error {
 
 	c.replayMu.Lock()
 	defer c.replayMu.Unlock()
+	c.pruneFinishedReplaysLocked()
 	if p, ok := c.replays[id]; ok {
 		select {
 		case <-p.done:

@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -93,5 +94,59 @@ func TestATruncatedLastLineLosesOnlyThatLine(t *testing.T) {
 	}
 	if _, err := loadReplay(middle); err == nil {
 		t.Fatal("a corrupt line in the MIDDLE was accepted; only a truncated final line may be dropped")
+	}
+}
+
+// TestReplayLastIsNotCappedByReplaysThatAlreadyFinished pins the fix for a
+// tester's 2026-09-06 log line, "16 replays are already active (the cap)", in a
+// session where nothing was playing: finished players stayed in c.replays and
+// the cap counted them. Sixteen finished players in the map, then replay_last
+// on a real recording -- it must play. Fails without pruneFinishedReplaysLocked
+// with exactly the tester's error.
+func TestReplayLastIsNotCappedByReplaysThatAlreadyFinished(t *testing.T) {
+	c, fa := replayCore(t)
+	if _, err := c.StartRecording(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 20; i++ {
+		c.forwardLocalState(&protocol.State{AreaID: "a", Position: []float64{float64(i), 0}, Anim: "run"})
+	}
+	if _, _, err := c.StopRecording(); err != nil {
+		t.Fatal(err)
+	}
+	// Sixteen players that have RUN AND FINISHED -- what sixteen record/replay
+	// cycles of distinct clips leave behind. White-box: a player is finished when
+	// its run closed done, which is the only thing the pruning looks at.
+	c.replayMu.Lock()
+	if c.replays == nil {
+		c.replays = make(map[string]*replayPlayer)
+	}
+	for i := 0; i < maxActiveReplays; i++ {
+		id := localPeerReplayPrefix + "finished-" + strconv.Itoa(i) + ".ndjson"
+		p := newReplayPlayer(c, id, &replayClip{})
+		close(p.done)
+		c.replays[id] = p
+	}
+	c.replayMu.Unlock()
+
+	if err := c.replayLast(); err != nil {
+		t.Fatalf("replay_last refused with %d finished players in the map: %v", maxActiveReplays, err)
+	}
+	c.launchPendingReplays()
+	pumpUntil(t, fa, func() bool {
+		fa.mu.Lock()
+		defer fa.mu.Unlock()
+		for id := range fa.rendered {
+			if strings.HasPrefix(id, localPeerReplayPrefix) {
+				return true
+			}
+		}
+		return false
+	}, "the new recording to play despite sixteen finished replays")
+	c.replayMu.Lock()
+	live := len(c.replays)
+	c.replayMu.Unlock()
+	if live != 1 {
+		t.Fatalf("c.replays holds %d entries after pruning; want 1 (the one that is playing)", live)
 	}
 }

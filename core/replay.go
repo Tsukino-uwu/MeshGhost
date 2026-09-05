@@ -730,6 +730,7 @@ func (c *Core) StartReplays() int {
 
 	c.replayMu.Lock()
 	defer c.replayMu.Unlock()
+	c.pruneFinishedReplaysLocked()
 	for _, name := range names {
 		if len(c.replays) >= maxActiveReplays {
 			log.Printf("core: replay %s skipped: %d replays are already active (the cap)", name, maxActiveReplays)
@@ -783,6 +784,28 @@ func (c *Core) launchPendingReplays() {
 	defer c.replayMu.Unlock()
 	for _, p := range c.replays {
 		p.launch()
+	}
+}
+
+// pruneFinishedReplaysLocked drops every player whose run has ended from
+// c.replays. Callers hold replayMu.
+//
+// Found 2026-09-06 from a tester's log: "hotkey replay_last: 16 replays are
+// already active (the cap)" in a session where nothing was playing. A player
+// that finishes closes its done channel and is otherwise left in the map, and
+// every cap check here counted the map's LENGTH -- so sixteen record-and-replay
+// cycles of DISTINCT clips in one session (each recording is its own file, each
+// replay_last its own player) exhausted the cap for good, with every one of
+// them long finished. replayLast's own same-file path already looked at done;
+// nothing ever removed the entry. The cap is meant to bound LIVE ghosts, which
+// is what this makes it count.
+func (c *Core) pruneFinishedReplaysLocked() {
+	for id, p := range c.replays {
+		select {
+		case <-p.done:
+			delete(c.replays, id)
+		default:
+		}
 	}
 }
 

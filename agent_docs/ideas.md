@@ -2781,8 +2781,17 @@ outfit block's twin in `Plugin.cpp`; unwatched until two machines with the same 
 ## Pool despawned ghosts: freeze them the way the pause menu freezes the player, revive instead of respawn (user's idea, filed 2026-09-06)
 
 **The user's words:** *"possible ghost lag solution, pause them similar to what the pause menu does after
-they are despawned/removed?"* -- filed at session end, not discussed further; "ghost lag" here is read
-as the hitch a ghost SPAWN costs, which is the reading to confirm with the user first.
+they are despawned/removed?"* -- and, asked what "ghost lag" meant: *"the fps/performance impact after a
+ghost is despawned/removed. until going to another zone/reset save/back to menu ... it stays around and
+not properly garbage collected, lowering fps."* So the symptom is RESIDUE: whatever a despawned ghost
+leaves behind keeps costing frames until the level is rebuilt. That is the OPEN leak item in
+`adapters/pseudoregalia/UNVERIFIED.md` (world-spawned VFX hidden not destroyed, ~2 Niagara components
+per despawn resident; 113 afterimages alive after 90 s in the 2026-09-05 outline probe), now with the
+user's own FPS reading behind it. The idea reads two ways and both are worth having:
+(a) as a STOPGAP, freeze the residue -- tick off, hidden -- so what leaks at least stops costing per frame;
+(b) as the design below, keep the whole ghost frozen and revive it, so nothing new is spawned per
+despawn/respawn cycle and there is less to leak. The real fix for (a) remains finding and destroying
+what stays resident; `probe_leakcount/` is the instrument.
 
 **Why it is plausible.** Everything measured says the spawn is the expensive part of a ghost: a full
 pawn-clone construction whose BeginPlay runs inside SpawnActor (the vertex light registering, the

@@ -492,3 +492,13 @@ behaviour, which is why 40 Windows runs never showed it. Fix: `transport.CloseGr
 drain under a deadline, close on the peer's FIN or the deadline) used by the rate-limit path, plus a
 `rateRejected` latch so the drained lines are ignored. New regression test in `transport`; suite and
 `-race` run before the commit. Record: `pitfalls/by-lesson.md`, `testing.md` Traps.
+
+## 2026-09-06 — the replay cap counted the dead
+
+A tester's log: `hotkey replay_last: 16 replays are already active (the cap)` with nothing playing.
+A finished player closed its `done` channel and stayed in `c.replays`; every cap check measured the
+map's length, so sixteen record-and-replay cycles of distinct clips in one session (each recording its
+own file, each replay_last its own player) exhausted the cap for the rest of the session. Fix:
+`pruneFinishedReplaysLocked` before every cap check, so the cap bounds LIVE ghosts, which is what it
+was for. `TestReplayLastIsNotCappedByReplaysThatAlreadyFinished` fails without it with the tester's
+exact message. Suite and `-race` run before the commit.
