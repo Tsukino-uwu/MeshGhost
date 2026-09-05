@@ -2528,8 +2528,10 @@ none), and that the square needed the same per-axis freedom as the box.
 **Ask:** *"fix the nametag, red square, white/timer square size/positions first mainly"*. Rigs
 already up (relay `127.0.0.1:7777`, two fake peers). **Outcome:** nametags judged fine on the first
 look; the square, gap and box went through nine live edits and one rebuild to *"think they are
-actually pixel perfect now"* — hedged, so `UNVERIFIED.md` keeps it with the one look left (the
-BAKED defaults, no tuning file). Numbers: `UNVERIFIED.md`'s table.
+actually pixel perfect now"* — first read as a hedge, then made a confirmation by the user's own
+method: *"I was trying to pixel peep, and even used sharex to line up with the zoom for taking a
+picture and the pixels were aligned"*. **In `VERIFIED.md`**; `UNVERIFIED.md` keeps the one look
+left (the BAKED defaults, no tuning file). Numbers: the `VERIFIED.md` entry.
 
 **Two rebuilds, both mechanism, both paid for themselves the same afternoon:**
 

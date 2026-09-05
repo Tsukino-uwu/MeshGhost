@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — the recording indicator (red square + clock, top right): shapes judged *"pixel perfect"* (hedged) 2026-09-05; ONE look left, the BAKED defaults with no tuning file, deploys at the next game exit
+- READY — the recording indicator's shapes are CONFIRMED (`VERIFIED.md`, 2026-09-05); ONE look left: the BAKED defaults, deployed, should draw the same with `rec_indicator.txt` DELETED
 - OPEN — chaser ghosts may be spawning/despawning unintentionally (2026-09-04), second-hand and unconfirmed by anyone
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - MEASURED 2026-09-04 — a frozen-player state (item popup, pause menu) freezes the pawn but not the fields we send: 110s of `h=550 v=-290`, so a ghost run-falls on the spot and a chaser converges onto you
@@ -63,6 +63,7 @@ entry without one.
 - BUILT 2026-08-29, NEVER WATCHED — the ghost's light is now held at 0
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
+- OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
 ## [OPEN] chaser ghosts may be spawning/despawning unintentionally (2026-09-04)
 
@@ -2378,11 +2379,12 @@ the console is hidden by default.
 - **Colours land as chosen**: `#EE4B2B` reads as red rather than salmon after the sRGB fix, and the
   nametag parchment is *"good/better imo"* darker and richer than before.
 
-### JUDGED 2026-09-05 (second session) — the shapes, and one look left
+### CONFIRMED 2026-09-05 (second session) — the shapes; one look left on the baked build
 
-**The user's words on the last edit: *"think they are actually pixel perfect now"*** — a hedge
-(*"think"*), so it sits here rather than in `VERIFIED.md` until it holds on a second look. What was
-settled, nine live edits after the first screenshot, no rebuild for any number:
+**Confirmed, and the record is in `VERIFIED.md`:** the user pixel-peeped it with ShareX's zoom
+lined up on the capture — *"the pixels were aligned. it is as pixel perfect as it can be"*, and
+*"I think its perfect" was my confirmation about it*. What was settled, nine live edits after the
+first screenshot, no rebuild for any number:
 
 | Judged | Settled at | What the edit taught |
 |---|---|---|

@@ -190,6 +190,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-04 — a despawning ghost takes its landed sword and the ground VFX with it (user-confirmed on screen; MECHANISM still open)
 - 2026-09-04 — the sword mirror on LIVE PEERS, not replays (user-confirmed on screen)
 - 2026-09-04 — landing dust sits at the ghost's feet, and stays there through restarts and seeks (user-confirmed on screen, twice)
+- 2026-09-05 — the recording indicator's shapes: red square, clock box and nametags, pixel-aligned (user-confirmed with ShareX zoom)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -4954,3 +4955,25 @@ player above a burst standing still" — 90 units of drift measured in one fall,
 with no ghost involved. **The instrument that found it was added to check something else**
 (`VFXOFFSET`, named per component), which is the recurring lesson: log WHAT a value was measured
 against, not only that it changed.
+
+## 2026-09-05 — the recording indicator's shapes: red square, clock box and nametags, pixel-aligned (user-confirmed with ShareX zoom)
+
+**What was confirmed.** With the tuning file at the numbers below, the red square and the clock's
+white box are the same height and share their top and bottom edges, the box has equal space above
+and below the digits, the gap between them reads right, and the nametags (parchment and red) sit
+and size as before. The user's method beat any screenshot reading: *"I was trying to pixel peep, and
+even used sharex to line up with the zoom for taking a picture and the pixels were aligned. it is as
+pixel perfect as it can be"*, and *"'I think its perfect' was my confirmation about it"*.
+
+**The numbers, now the source DEFAULTS** (`g_rec_*` and `g_plate_scale_h` in `Plugin.cpp`, built
+and committed the same day): `forward=140 right=112 up=72 gap=13.5 dot=9 text=9 glyph=H
+plate_margin=0.35 plate_h=0.78 plate_up=0.7 dot_w=0.85 dot_h=0.78 dot_up=0.4`; nametags
+`name_up=110 name_size=0 name_behind=4` (unchanged). Still owed one look: that the baked build draws
+the same with `rec_indicator.txt` deleted (`UNVERIFIED.md`).
+
+**How it was found, for the next shape.** Nine live edits, no rebuild for any number, and one
+rebuild for a MECHANISM: the box is centred on the digits' quad while the ink sits high in it, so
+shrinking `plate_h` cut the top before the bottom's spare space went — `plate_up` (a vertical offset
+for the box alone) was the missing knob. **Centre first, then size**: an off-centre box cannot be
+sized, every height reads wrong on one edge. Trail: `agent_docs/phases/phase7.md`, 2026-09-05
+(second session).

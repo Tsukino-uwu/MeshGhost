@@ -45,7 +45,9 @@ entry without one.
 
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
-- Pending — LOSS COVER built (ADR 0045): the 2% loss netsim run that teleported, repeated with the cover on, unwatched
+- WATCHED 2026-09-02 — LOSS COVER (ADR 0045): A/B on one netsim seed, cover off is worse, no teleport at any interp; shipped 250ms stands (loopback overstates by one-way latency), 275-300ms to be re-judged with two real clients
+- OPEN — the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUnreliable` until `341a768`); the fixed relay is unwatched on this game (from `status.md`, 2026-09-02)
+- OPEN — reproduce the savestate-load crash; and hop a ledge THEN cast a rod in one session (shared vtile `$fc`) (from `status.md`, 2026-09-02)
 - Pending — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
 - Pending — the main loop runs under `pcall`, and two field guards (2026-09-02 adversarial review), unwatched
 - MEASURED: the config's bridge port, and the relay-down backoff, on Crystal (2026-08-28)

@@ -50,6 +50,8 @@ entry without one.
 - WATCHED 2026-09-02 — `extras.gender` accepts only `male`/`female` (adversarial review): a female save drew May on all three tiers
 - MEASURED: the config's bridge port, the relay-down backoff, and a config file nobody was reading (2026-08-28)
 - Emerald: the boat and Fly are BUILT and UNWATCHED; rails are still only assumed (2026-08-26)
+- OPEN — the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUnreliable` until `341a768`); the fixed relay is unwatched on this game (from `status.md`, 2026-09-02)
+- OPEN — after the spawned -> OAM -> drawn ship (2026-09-02): the attach NAMETAG BURST (the core never prunes names, the adapter hello times out), rung churn, and drawn clipping under a text box, all unexercised (from `status.md`)
 - Emerald compiles again, but has not been RUN since the fix (2026-08-22)
 - 2026-08-21 (ice/fog/cave session) — what the user has NOT confirmed
 - 2026-08-21 (dive session, evening) — the surf transition work, and what remains unjudged
