@@ -124,6 +124,13 @@ const (
 // the startup banner lie the moment this rule changed — found in a review
 // pass 2026-08-16. An unexported alias in front of this one was deleted in
 // the 2026-08-18 audit: it only duplicated the doc comment.
+// rateLimitDrain bounds how long a rate-limited connection is kept half-open
+// after its Reject so the client's remaining flood can be read instead of
+// reset -- see transport.CloseGracefully. Long enough for the client to see
+// the Reject and close first (which is what ends the drain early); short
+// enough that a client that never closes cannot hold a slot.
+const rateLimitDrain = 2 * time.Second
+
 func MaxMessagesPerSecondFor(sendHz int) int {
 	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
 		return limit

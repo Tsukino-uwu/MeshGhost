@@ -1253,6 +1253,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		// redundant defense-in-depth.
 		rateWindow time.Time
 		rateCount  int
+		// rateRejected is set once the rate limit has tripped, so the lines
+		// still arriving while the connection drains are ignored rather than
+		// each re-tripping the limit (which used to log one "rejecting and
+		// closing" per queued line, and one failed Reject send behind it).
+		rateRejected bool
 
 		// loopbackGhostSent tracks whether this connection has already been
 		// sent a Join for its own synthetic "<id>-ghost" — needed once
@@ -1336,6 +1341,12 @@ func (s *Server) handleConn(conn net.Conn) {
 		// dropping the offending messages: a client flooding the relay
 		// isn't behaving as this project's own adapters do, and there's
 		// nothing to gain from staying connected to find out why.
+		if rateRejected {
+			// Already rejected: the connection is half-closed and draining this
+			// client's remaining flood (see CloseGracefully). Nothing more to do
+			// with any of it, and certainly not a second Reject per line.
+			return
+		}
 		now := time.Now()
 		if now.Sub(rateWindow) >= time.Second {
 			rateWindow = now
@@ -1352,7 +1363,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			// time. See the ADR in agent_docs/architecture.md.
 			log.Printf("relay: client exceeded %d messages/second, rejecting and closing connection", msgLimit)
 			sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonRateLimited})
-			_ = nd.Close()
+			// Graceful, not Close(): the flood that tripped this is still mostly
+			// unread on our side, and a plain close would answer it with a TCP
+			// reset that can throw the Reject away before the client reads it
+			// (transport.CloseGracefully). The client sees Reject, then FIN.
+			rateRejected = true
+			nd.CloseGracefully(rateLimitDrain)
 			return
 		}
 

@@ -6081,3 +6081,32 @@ became per-property. Confirmed by the user on the first fixed run, and the log n
 **The rule.** A reflected walk that writes must prove ownership of each target before writing — an
 actor's properties reference the world, not just the actor. And a write to something the game never
 re-writes is permanent: strip only what you will also restore, or what is provably yours.
+
+## A Close() behind unread data is a TCP RESET, and a reset can throw away the last line you sent (relay, 2026-09-05)
+
+**Symptom.** The v1.1.7 release job's Go test step failed `TestRateLimitedClientReceivesRejectBeforeClose`
+on the Linux runner: the client never saw the Reject the relay had just written. The relay's own log
+showed the reject logged, then the SAME connection re-tripping the limit once per remaining queued line
+with a failed Reject send behind each. 40 local Windows runs never reproduced it; Go had not changed.
+
+**Cause.** The rate-limit path did `Send(Reject)` then `Close()`. Send is synchronous, so the Reject
+was in the kernel before the close — but the client's 170-message flood was still mostly UNREAD on the
+relay side, and a close on a socket holding unread received data goes out as RST rather than FIN. On
+the client, a reset can discard data still queued unread in its receive buffer: the Reject. Windows
+and Linux differ here, which is why only CI saw it. The repeated re-trips were a second defect: the
+read loop kept delivering the queued flood to the same callback after the first reject.
+
+**Fix.** `transport.NDJSONConn.CloseGracefully(drain)`: half-close (`CloseWrite`, so the FIN follows
+the Reject), then keep the read loop DRAINING the peer's unread data under a short deadline, and close
+when the peer's own FIN arrives or the drain ends; transports whose connection cannot half-close fall
+back to `Close()`. The relay's rate-limit path uses it (`rateLimitDrain`, 2s) and sets `rateRejected`
+so later lines on that connection are ignored. `TestCloseGracefullyDeliversTheLastLineThenEOF` pins the
+shape: last line arrives, then a clean EOF, then the server side lets go on its own.
+
+**The rule.** Any place that sends a final message and then closes must close gracefully, or the
+message is only sometimes delivered — and "sometimes" is the CI runner. Look for `Send(...)` followed
+by `Close()` on a connection the peer is still writing to.
+
+**Instrument trap paid for on the way.** The first version of the regression test stalled the server's
+callback to keep data unread, which also stopped the read loop from ever reaching the drain deadline;
+slow the callback, never block it.

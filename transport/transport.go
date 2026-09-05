@@ -141,6 +141,12 @@ type NDJSONConn struct {
 	IdleTimeout  time.Duration
 	WriteTimeout time.Duration
 
+	// drainUntil, when set, is the read deadline readLoop uses instead of the idle timeout:
+	// CloseGracefully has half-closed the socket and the loop is only draining what the peer
+	// already sent so the close arrives as a FIN, not a reset. Guarded by drainMu.
+	drainMu    sync.Mutex
+	drainUntil time.Time
+
 	writeMu sync.Mutex
 	// writeBuf is Send's scratch space for joining payload and '\n' into a
 	// single Write. Guarded by writeMu, reused across calls so the hot
@@ -271,13 +277,23 @@ func (c *NDJSONConn) readLoop() {
 	})
 
 	for {
-		if idle > 0 {
+		c.drainMu.Lock()
+		drainUntil := c.drainUntil
+		c.drainMu.Unlock()
+		if !drainUntil.IsZero() {
+			_ = c.conn.SetReadDeadline(drainUntil)
+		} else if idle > 0 {
 			_ = c.conn.SetReadDeadline(time.Now().Add(idle))
 		}
 
 		if !scanner.Scan() {
 			err := scanner.Err()
 			if err == nil {
+				err = io.EOF
+			}
+			if !drainUntil.IsZero() {
+				// A drain ending -- by the peer's FIN or by the drain deadline -- is the close
+				// CloseGracefully already decided on, not a failure to report.
 				err = io.EOF
 			}
 			if errors.Is(err, bufio.ErrTooLong) && overflowHead != nil {
@@ -497,4 +513,38 @@ func (c *NDJSONConn) Close() error {
 		err = c.conn.Close()
 	})
 	return err
+}
+
+// CloseGracefully closes the connection so that whatever Send wrote last still
+// reaches the peer. Close() alone does not promise that over TCP: if the peer
+// has sent data this side never read, the kernel answers the close with a RESET
+// instead of a FIN, and a reset can discard what is still queued unread in the
+// PEER's receive buffer -- including the line just sent. That is exactly the
+// rate-limit case: a client that flooded the relay has most of its flood unread
+// server-side at the moment the Reject goes out.
+//
+// So: stop writing (CloseWrite sends the FIN behind the last Send), keep READING
+// for up to drain so the unread flood is consumed rather than reset, and let
+// readLoop close the socket when the peer's own FIN arrives or the drain ends.
+// A transport whose connection cannot half-close (anything without CloseWrite)
+// falls back to Close.
+//
+// Found 2026-09-05: TestRateLimitedClientReceivesRejectBeforeClose timed out on
+// a Linux runner waiting for a Reject the relay had written and the client
+// never saw; 40 local Windows runs never reproduced it.
+func (c *NDJSONConn) CloseGracefully(drain time.Duration) {
+	type closeWriter interface{ CloseWrite() error }
+	cw, ok := c.conn.(closeWriter)
+	if !ok || drain <= 0 {
+		_ = c.Close()
+		return
+	}
+	c.drainMu.Lock()
+	c.drainUntil = time.Now().Add(drain)
+	c.drainMu.Unlock()
+	// Wake a Scan blocked on the idle deadline so it picks up the drain deadline.
+	_ = c.conn.SetReadDeadline(c.drainUntil)
+	if err := cw.CloseWrite(); err != nil {
+		_ = c.Close()
+	}
 }

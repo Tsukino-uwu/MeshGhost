@@ -289,3 +289,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A UE4SS pre-hook on the pause menu's Reset delegate crashes the click whatever the callback does — and it only ever armed by accident, since 2026-08-30 (Pseudoregalia, 2026-09-05) [RULE: checklists/before-spawning-in-unreal.md]
 - A queue sized from an ASSUMED rate drops the newest, and a dropped run is a seam -- the tell was a period of exactly delay+spawn (core, 2026-09-05) [CHECK: TestChaserTapThinsTheAdapterFrameRate]
 - Never strip a component you do not OWN — an actor's object properties point outward, and `cachedMesh` was the player's body (Pseudoregalia, 2026-09-05) [RULE: checklists/before-mirroring-state.md]
+- A Close() behind unread data is a TCP RESET, and a reset can throw away the last line you sent (relay, 2026-09-05) [CHECK: transport.TestCloseGracefullyDeliversTheLastLineThenEOF]

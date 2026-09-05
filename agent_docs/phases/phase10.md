@@ -480,3 +480,15 @@ setting it before the bridge serves), and a real finding from `FuzzDepthBoundsAg
 `jsonDepthWithinLimit` tested the bound on entry, so the scalar inside 32 nested arrays counted as a
 33rd level and the walk refused what the byte scanner accepted. Containers only now; the input is a
 committed seed. Suite and `-race` green after each.
+
+## 2026-09-05 (night) — the release job found a Linux-only flake: a Reject lost to a TCP reset
+
+The v1.1.7 release job's own Go test step failed `TestRateLimitedClientReceivesRejectBeforeClose`
+while every path-filtered gate on the same commit was green and no Go had changed. The relay's log
+showed the tell: one reject logged, then the same connection re-tripping the limit per queued line
+with a failed send behind each. Cause: `Send(Reject)` then `Close()` on a socket holding the client's
+unread flood is a RST, and a reset can discard the Reject in the client's receive buffer — Linux
+behaviour, which is why 40 Windows runs never showed it. Fix: `transport.CloseGracefully` (half-close,
+drain under a deadline, close on the peer's FIN or the deadline) used by the rate-limit path, plus a
+`rateRejected` latch so the drained lines are ignored. New regression test in `transport`; suite and
+`-race` run before the commit. Record: `pitfalls/by-lesson.md`, `testing.md` Traps.

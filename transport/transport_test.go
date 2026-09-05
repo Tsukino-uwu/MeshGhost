@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -571,5 +572,80 @@ func TestFailedWritePoisonsConnection(t *testing.T) {
 	}
 	if err := c.Send([]byte(`{"seq":2}`)); err == nil {
 		t.Fatal("Send on a poisoned connection must fail, not silently write onto a mangled stream")
+	}
+}
+
+// TestCloseGracefullyDeliversTheLastLineThenEOF pins what CloseGracefully is
+// for: a line written just before the close reaches a peer that still has
+// unread data of its own in flight, and the peer then sees a clean EOF rather
+// than a connection reset. A plain Close on a socket with unread incoming data
+// makes the kernel send a reset, which can discard that last line in the
+// peer's receive buffer -- the relay's rate-limit Reject was lost exactly that
+// way on a Linux CI runner (2026-09-05). Also pins that the server side closes
+// on its own once the drain ends, so a peer that never hangs up cannot hold
+// the connection open.
+func TestCloseGracefullyDeliversTheLastLineThenEOF(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			accepted <- c
+		}
+	}()
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+	var serverRaw net.Conn
+	select {
+	case serverRaw = <-accepted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("accept timed out")
+	}
+
+	// The server reads what the client sends SLOWLY: a callback that dawdles
+	// keeps most of the client's lines sitting unread in the server's kernel
+	// buffer at the moment of the close, which is the condition that turns a
+	// plain Close into a reset -- while still letting the read loop reach the
+	// drain deadline and consume them.
+	server := FromConnWithLimits(serverRaw, DefaultMaxLineBytes, 0, 0)
+	server.OnReceive(func([]byte) { time.Sleep(2 * time.Millisecond) })
+	closed := make(chan struct{})
+	server.OnDisconnect(func(error) { close(closed) })
+
+	line := []byte(`{"type":"state"}`)
+	for i := 0; i < 200; i++ {
+		if _, err := client.Write(append(append([]byte(nil), line...), '\n')); err != nil {
+			t.Fatalf("client write %d: %v", i, err)
+		}
+	}
+
+	if err := server.Send([]byte(`{"type":"reject"}`)); err != nil {
+		t.Fatalf("server send: %v", err)
+	}
+	server.CloseGracefully(2 * time.Second)
+
+	// The client must read the reject, then a clean EOF -- never a reset.
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	got, err := io.ReadAll(client)
+	if err != nil {
+		t.Fatalf("client read ended with %v, want a clean EOF; got %q so far", err, got)
+	}
+	if !bytes.Contains(got, []byte(`{"type":"reject"}`)) {
+		t.Fatalf("the last line before the close never arrived; client read %q", got)
+	}
+
+	// And the server side lets go on its own when the drain ends.
+	select {
+	case <-closed:
+	case <-time.After(3 * time.Second):
+		t.Fatal("the draining server connection never closed after its drain deadline")
 	}
 }
