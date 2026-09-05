@@ -184,6 +184,15 @@ namespace MeshGhostPseudo
         std::string last_failed_outfit_mesh;
         uint64_t last_outfit_attempt_tick{0};
 
+        // Weapon MODEL mirror, 2026-09-05: the outfit fields' twin for the hand WeaponMesh. A weapon
+        // mod is only a different SkeletalMesh asset on that component (measured live, three
+        // weapons, socket/offset/scale identical -- documentation.md), so the same path-string,
+        // edge gate and retry throttle apply. Empty target = the peer never said (older build).
+        std::string target_weapon_mesh;
+        std::string last_synced_weapon_mesh;
+        std::string last_failed_weapon_mesh;
+        uint64_t last_weapon_mesh_attempt_tick{0};
+
         // Thrown Dream Breaker, added 2026-08-15 after the WEAPON_ACTOR_TRACE capture (see that
         // flag in Plugin.cpp, and verified.md). Everything else in this struct mirrors a state OF
         // the peer's character; this is the first thing that mirrors a SEPARATE world object.

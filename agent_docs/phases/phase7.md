@@ -2732,3 +2732,11 @@ the user swapped BusterSword -> Dream Breaker Keyblade -> stock and only the ass
 confirmed their modded sword shows as stock on the user's screen. Filed as buildable (`ideas.md`), the
 facts in `documentation.md`; not built tonight. Two rare no-priority items logged from the same session:
 a glitched remote ghost after a peer's reset-to-save, and a nametag occasionally too low.
+
+**Later, 2026-09-05 — weapon MODEL sync built.** The user's call after the probe: build it. `weapon_mesh`
+is the outfit block's twin end to end: the hand `WeaponMesh`'s `SkeletalMesh` path read locally and sent
+beside `outfit_mesh`; stored with the same empty-means-unchanged rule; applied on the ghost's hand mesh
+(and a live flyer) through the catalog gate, the type check, `SetSkeletalMeshAsset` then the two direct
+writes, one edge-gated readback log, the same retry throttle. The fuzz test carries the field. Built and
+fuzzed locally, deployed where the DLL was not locked; UNWATCHED -- needs two machines with the same
+weapon mod on v1.1.7 (`UNVERIFIED.md`).

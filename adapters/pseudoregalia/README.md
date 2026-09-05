@@ -72,6 +72,8 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 
 - Outfit/costume mod support, if you have the same mod installed as another player it will get
   synced for you.
+- Weapon model mod support, the same way (2026-09-05): a peer's sword model is sent by asset name
+  and shows on their ghost if you have that weapon mod installed; the thrown sword follows.
 - Trail (afterimage) colour, including modded colours — the colour is read live off the real
   player and sent, rather than hardcoded, so a peer running a colour mod shows up with their own
   trail colour on your screen.

@@ -2775,4 +2775,5 @@ sword sits is answered (measured 2026-09-05, `documentation.md`, "The sword is o
 `WeaponMesh` hangs off `VisualMesh` at `handSlot_RSocket`, rotation (0,90,0), and swapping between the stock
 sword and two weapon mods changed ONLY the asset name -- so the outfit recipe applies unchanged, and the
 flying sword follows for free. Confirmed from the other side the same night: a peer holding a modded sword
-showed the stock one on the watcher's screen. Buildable in one pass; not scheduled until asked.
+showed the stock one on the watcher's screen. **BUILT 2026-09-05, the same night, as `weapon_mesh`** -- the
+outfit block's twin in `Plugin.cpp`; unwatched until two machines with the same weapon mod look.

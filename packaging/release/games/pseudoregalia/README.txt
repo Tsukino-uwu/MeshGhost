@@ -4,7 +4,7 @@ MeshGhost -- Pseudoregalia setup
 STATUS: FEATURE COMPLETE, but still EXPERIMENTAL. As of 2026-08-27 a ghost does
 essentially everything the character it copies does -- position, facing and the full
 animation set, the slide and crouch pose, wall riding, the afterimage trail in whatever
-colour the move actually produced, outfits, the Dream Breaker (equipped, thrown, and its
+colour the move actually produced, outfits and sword models from mods you both have, the Dream Breaker (equipped, thrown, and its
 landed glow), the healing and charge effects, the ranged shot, and dying and respawning.
 A real session with two players on two separate machines was confirmed 2026-08-16.
 

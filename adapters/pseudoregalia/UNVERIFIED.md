@@ -43,7 +43,7 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
-- OPEN — a peer's MODDED SWORD shows as the stock sword on the watcher's screen (both players confirmed it, 2026-09-05, two-machine session): no `weapon_mesh` field exists; measured that a weapon mod is only an asset swap on `WeaponMesh` in a fixed socket, so the outfit recipe applies -- `ideas.md`, "Weapon MODEL sync"; `documentation.md`.
+- READY — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. What to look at: with the same weapon mod on both machines, the peer's ghost holds THEIR sword, and a thrown one flies as that model; without the mod, the stock sword and one throttled warning in the log. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
 - OPEN, NO PRIORITY — the NAMETAG sometimes sits too LOW / in the wrong place over a ghost (user, 2026-09-05, two-machine session); rare and inconsistent, no reproduction. If seen again: which ghost, what it was doing (crouch? slide? outfit swap? just spawned?), and whether it recovered on its own -- the tag rewrites its transform every tick (`by-lesson.md`, 2026-09-05), so a low tag is a wrong INPUT to that rewrite (the pawn's capsule half-height or the mesh offset), not a stale one.
 - OPEN, NO PRIORITY — seen ONCE 2026-09-05 in a two-machine session: a remote peer's ghost flashed red (took damage), vanished on their reset-to-save, and came back GLITCHED (body gone but for scattered fragments, sword and blob shadow intact); the watcher's own reset-to-save cleared it; the peer saw nothing; not reproduced. Entry below.
 - OPEN — small cousin: a player afterimage born ON a ghost can be attributed to the ghost by birth proximity and lose its own silhouette (`copyActor` is null on its first tick); harmless to the player since the ownership fix, unwatched.
@@ -70,7 +70,7 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
-## [OPEN, no priority] a remote ghost came back GLITCHED after its peer's reset-to-save -- seen once, 2026-09-05, not reproduced
+## [OPEN] (no priority) a remote ghost came back GLITCHED after its peer's reset-to-save -- seen once, 2026-09-05, not reproduced
 
 **What was seen (the user, watching a real second player over the internet, v1.1.6 DLL).** While testing
 whether damage shows on a ghost: the peer's ghost flashed red (the hit), then disappeared -- the peer had

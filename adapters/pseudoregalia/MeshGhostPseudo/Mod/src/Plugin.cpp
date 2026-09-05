@@ -11983,6 +11983,8 @@ namespace MeshGhostPseudo
         it->second.last_synced_weapon_equipped = false;
         it->second.last_synced_outfit_mesh.clear();
         it->second.last_failed_outfit_mesh.clear();
+        it->second.last_synced_weapon_mesh.clear();
+        it->second.last_failed_weapon_mesh.clear();
         // The nametag trio is attached to the ghost and dies with it -- same clear as in
         // release_all_ghosts (see the dated comment there; this is the despawn-path half, so a
         // peer that despawns and respawns within one world also gets a fresh tag instead of a
@@ -12129,6 +12131,8 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.last_synced_weapon_mesh.clear();
+            remote.last_failed_weapon_mesh.clear();
             remote.crouch_event_shrunk = false;
             remote.crouch_input_shrunk = false;
             // **The NAMETAG components, added 2026-09-01 to fix the "reset to last save" crash --
@@ -14735,6 +14739,7 @@ namespace MeshGhostPseudo
             json_number_member(line, xb, xe, "bubble_charged", bubble_charged_num);
             bool bubble_charged = bubble_charged_num != 0;
             std::string outfit_mesh = json_string_member(line, xb, xe, "outfit_mesh"); // best-effort, empty if missing
+            std::string weapon_mesh = json_string_member(line, xb, xe, "weapon_mesh"); // same contract: empty = unchanged
             // Montage mirror -- see RemoteGhost::target_montage. Both best-effort: a peer on an
             // older build simply sends neither, leaving montage_count at 0 forever, which never
             // fires anything.
@@ -14961,6 +14966,10 @@ namespace MeshGhostPseudo
                 if (!outfit_mesh.empty())
                 {
                     it->second.target_outfit_mesh = outfit_mesh;
+                }
+                if (!weapon_mesh.empty())
+                {
+                    it->second.target_weapon_mesh = weapon_mesh;
                 }
                 // Montage mirror -- unlike outfit_mesh, an empty montage IS meaningful here (it's
                 // simply "nothing playing right now"), but it's the counter that drives the ghost,
@@ -15570,6 +15579,23 @@ namespace MeshGhostPseudo
                     std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
                     size_t space_pos = full_name.find(' ');
                     outfit_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
+                }
+            }
+            // The hand SWORD's asset, the same way. Measured 2026-09-05 (probe_outline/Scripts/
+            // weapon.lua, the user swapping between the stock sword and two weapon mods live): a
+            // weapon mod changes ONLY WeaponMesh's SkeletalMesh asset -- socket, offset and scale
+            // stayed identical across all three -- so the outfit recipe applies unchanged. Until
+            // this field existed a peer's modded sword showed as the stock one on every other
+            // screen (both players confirmed it the same night). Empty when unresolved this tick,
+            // which the receiver reads as "unchanged", like outfit_mesh.
+            std::string weapon_mesh;
+            if (UObject** hand_mesh_ptr = mg_property_value<UObject*>(pawn, STR("WeaponMesh")); hand_mesh_ptr && *hand_mesh_ptr)
+            {
+                if (UObject** skel_mesh_ptr = mg_property_value<UObject*>((*hand_mesh_ptr), STR("SkeletalMesh")); skel_mesh_ptr && *skel_mesh_ptr)
+                {
+                    std::string full_name = to_utf8((*skel_mesh_ptr)->GetFullName());
+                    size_t space_pos = full_name.find(' ');
+                    weapon_mesh = (space_pos != std::string::npos) ? full_name.substr(space_pos + 1) : full_name;
                 }
             }
 
@@ -18746,7 +18772,7 @@ namespace MeshGhostPseudo
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
                 "\"extras\":{{\"move_state\":{},\"action_state\":{},\"h_speed\":{},\"v_speed\":{},\"anim_jump_type\":{},\"movement_mode\":{},"
-                "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"afterimage_count\":{},"
+                "\"land_count\":{},\"jump_count\":{},\"weapon_equipped\":{},\"outfit_mesh\":\"{}\",\"weapon_mesh\":\"{}\",\"afterimage_count\":{},"
                 "\"montage\":\"{}\",\"montage_count\":{},\"montage_stop_count\":{},"
                 // slide_t: the slide Timeline's own track value (see SLIDE_TIMELINE_TRACK). Sent so
                 // a ghost can run the game's own pose curve at the peer's exact point in it rather
@@ -18783,6 +18809,7 @@ namespace MeshGhostPseudo
                 jumped_count,
                 (weapon_equipped_ptr && *weapon_equipped_ptr) ? 1 : 0,
                 json_escape(outfit_mesh),
+                json_escape(weapon_mesh),
                 afterimage_count,
                 json_escape(montage_path),
                 montage_count,
@@ -19227,6 +19254,8 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.last_synced_weapon_mesh.clear();
+            remote.last_failed_weapon_mesh.clear();
             remote.crouch_event_shrunk = false;
             remote.crouch_input_shrunk = false;
                 remote.ghost = nullptr;
@@ -19274,6 +19303,8 @@ namespace MeshGhostPseudo
             remote.last_synced_weapon_equipped = false;
             remote.last_synced_outfit_mesh.clear();
             remote.last_failed_outfit_mesh.clear();
+            remote.last_synced_weapon_mesh.clear();
+            remote.last_failed_weapon_mesh.clear();
             remote.crouch_event_shrunk = false;
             remote.crouch_input_shrunk = false;
                 remote.ghost = nullptr;
@@ -21620,6 +21651,70 @@ namespace MeshGhostPseudo
                     remote.last_outfit_attempt_tick = tick_count;
                     Output::send(STR("[MeshGhostPseudo] WARNING: outfit mesh '{}' not found via StaticFindObject -- ghost {} outfit not updated (will retry periodically).\n"),
                                  to_wide_ascii(remote.target_outfit_mesh), to_wide_ascii(id));
+                }
+            }
+
+            // Weapon MODEL mirror (2026-09-05) -- the outfit block above, applied to the ghost's hand
+            // WeaponMesh. Same edge gate, same retry throttle, same catalog-gated resolve, same type
+            // check, same setter-then-safety-net order, same independent readback. The flying sword
+            // (create_ghost_weapon_flyer) copies the hand mesh's asset when it is BUILT, so a swap
+            // that lands while a throw is in flight also updates the live flyer here, and the next
+            // throw inherits it for free.
+            bool weapon_mesh_is_new_target = !remote.target_weapon_mesh.empty() && remote.target_weapon_mesh != remote.last_synced_weapon_mesh;
+            bool weapon_mesh_retry_due = remote.target_weapon_mesh == remote.last_failed_weapon_mesh &&
+                                          (tick_count - remote.last_weapon_mesh_attempt_tick) < LOG_INTERVAL_TICKS;
+            if (weapon_mesh_is_new_target && !weapon_mesh_retry_due)
+            {
+                UObject* weapon_mesh_obj = resolve_peer_named_asset(STR("SkeletalMesh"), remote.target_weapon_mesh);
+                if (weapon_mesh_obj && weapon_mesh_obj->GetClassPrivate() && weapon_mesh_obj->GetClassPrivate()->GetName() != STR("SkeletalMesh"))
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: weapon mesh '{}' resolved to a non-SkeletalMesh object (class '{}') -- refusing to apply.\n"),
+                                 to_wide_ascii(remote.target_weapon_mesh), weapon_mesh_obj->GetClassPrivate()->GetName());
+                    weapon_mesh_obj = nullptr;
+                }
+                if (weapon_mesh_obj)
+                {
+                    UObject* targets[] = {nullptr, nullptr};
+                    if (UObject** g_hand = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh")); g_hand && *g_hand)
+                    {
+                        targets[0] = *g_hand;
+                    }
+                    targets[1] = remote.weapon_fly_component;
+                    for (UObject* mesh : targets)
+                    {
+                        if (!mesh)
+                        {
+                            continue;
+                        }
+                        call_set_skeletal_mesh_asset(mesh, weapon_mesh_obj);
+                        if (UObject** g_skel_mesh = mg_property_value<UObject*>(mesh, STR("SkeletalMesh")))
+                        {
+                            *g_skel_mesh = weapon_mesh_obj;
+                        }
+                        if (UObject** g_skinned_asset = mg_property_value<UObject*>(mesh, STR("SkinnedAsset")))
+                        {
+                            *g_skinned_asset = weapon_mesh_obj;
+                        }
+                    }
+                    remote.last_synced_weapon_mesh = remote.target_weapon_mesh;
+                    remote.last_failed_weapon_mesh.clear();
+
+                    UObject** rb_skel_mesh = nullptr;
+                    if (UObject** rb_hand = mg_property_value<UObject*>(remote.ghost, STR("WeaponMesh")); rb_hand && *rb_hand)
+                    {
+                        rb_skel_mesh = mg_property_value<UObject*>((*rb_hand), STR("SkeletalMesh"));
+                    }
+                    Output::send(STR("[MeshGhostPseudo] weapon mesh applied for ghost {}: target='{}' readback={}{}\n"),
+                                 to_wide_ascii(id), to_wide_ascii(remote.target_weapon_mesh),
+                                 (rb_skel_mesh && *rb_skel_mesh) ? (*rb_skel_mesh)->GetFullName() : STR("null"),
+                                 remote.weapon_fly_component ? STR(" (flyer updated too)") : STR(""));
+                }
+                else
+                {
+                    remote.last_failed_weapon_mesh = remote.target_weapon_mesh;
+                    remote.last_weapon_mesh_attempt_tick = tick_count;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: weapon mesh '{}' not found via StaticFindObject -- ghost {} sword model not updated (will retry periodically; the watcher needs that weapon mod installed).\n"),
+                                 to_wide_ascii(remote.target_weapon_mesh), to_wide_ascii(id));
                 }
             }
 

@@ -124,7 +124,8 @@ namespace
         "\"area_id\":\"ZONE_Dungeon\",\"position\":[1.5,-2.25,3.0],"
         "\"orientation\":[0.0,90.0,0.0],\"anim\":\"run\","
         "\"extras\":{\"h_speed\":420.5,\"move_state\":3,\"slide_t\":0.75,"
-        "\"outfit_mesh\":\"/Game/Char/SK_Sybil.SK_Sybil\"}}}}";
+        "\"outfit_mesh\":\"/Game/Char/SK_Sybil.SK_Sybil\","
+        "\"weapon_mesh\":\"/Game/Weapons/mainWeapon_BusterSword.mainWeapon_BusterSword\"}}}}";
 
     // Strings a hostile peer might send, plus strings a PERFECTLY LEGITIMATE modded peer sends.
     //
@@ -180,6 +181,7 @@ namespace
         expect_str("control area_id", json_string_field(l, "area_id"), "ZONE_Dungeon");
         expect_str("control anim", json_string_field(l, "anim"), "run");
         expect_str("control outfit_mesh", json_string_field(l, "outfit_mesh"), "/Game/Char/SK_Sybil.SK_Sybil");
+        expect_str("control weapon_mesh", json_string_field(l, "weapon_mesh"), "/Game/Weapons/mainWeapon_BusterSword.mainWeapon_BusterSword");
 
         double x = 0, y = 0, z = 0;
         expect_true("control position parses", json_vec3_field(l, "position", x, y, z));
@@ -431,6 +433,8 @@ namespace
             expect_num("scoped: control h_speed value", v, 420.5);
             expect_str("scoped: control outfit_mesh", json_string_member(kControlLine, b, e, "outfit_mesh"),
                        "/Game/Char/SK_Sybil.SK_Sybil");
+            expect_str("scoped: control weapon_mesh", json_string_member(kControlLine, b, e, "weapon_mesh"),
+                       "/Game/Weapons/mainWeapon_BusterSword.mainWeapon_BusterSword");
             expect_true("scoped: a key absent from extras reports absent",
                         !json_number_member(kControlLine, b, e, "no_such_key", v));
         }
