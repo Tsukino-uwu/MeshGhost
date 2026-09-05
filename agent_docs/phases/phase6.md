@@ -430,3 +430,15 @@ log names the folder used, and `tevi-hotreload.ps1` checks the root. Staging put
 `games/tevi/config.json` beside the README. Built, deployed to both installs (Steam and the standalone
 copy) with the files moved up -- **UNWATCHED on TEVI**; Pseudoregalia's half was confirmed on screen
 (`../../adapters/pseudoregalia/VERIFIED.md`). Queue: `../../adapters/tevi/UNVERIFIED.md`.
+
+## 2026-09-06 — the documentation fact check, as it touched TEVI's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-06) compared every
+doc against the code; this is what it corrected here, logged because a phase file is the complete
+running log.
+
+- `README.md`: the DLL date (2026-09-05, per `built-from.txt`, not 2026-08-28); the game-root lookup in "Building it"; steps 13 (anim-phase suppression, `VERIFIED.md` 2026-08-28) and 14 (a portal settles on disconnect, `VERIFIED.md` 2026-09-02).
+- `FLAGS.md`: rows for `"autostart"` and `"local_game_bridge"` (config.json, 2026-09-03 / 2026-08-28), the `BridgePort` tie-break, and seven bridge constants that had none; the "only the three environment variables" paragraph rewritten.
+- `CLAUDE.md`: the configuration rule now says config.json first, BepInEx second, never a new env var.
+- `BANDAGES.md` entry 7 gains the disconnect edge; `PROBES.md`'s garbled first paragraph fixed. The shipped `packaging/release/games/tevi/README.txt` bridge-port paragraph, which contradicted `Plugin.cs`, was fixed in the player-facing commit.
+- This file's header: "fully done" and the dead `status.md` pointer replaced with the live-log framing (the user, 2026-09-06: every adapter stays open).

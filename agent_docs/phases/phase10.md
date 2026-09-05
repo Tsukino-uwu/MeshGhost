@@ -502,3 +502,15 @@ own file, each replay_last its own player) exhausted the cap for the rest of the
 `pruneFinishedReplaysLocked` before every cap check, so the cap bounds LIVE ghosts, which is what it
 was for. `TestReplayLastIsNotCappedByReplaysThatAlreadyFinished` fails without it with the tester's
 exact message. Suite and `-race` run before the commit.
+
+## 2026-09-06 — the documentation fact check, as it touched the Go side's docs
+
+No Go code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-06) compared the
+contract and the people-facing docs against `protocol/`, `bridge/`, `relay/`, `core/`, the two mains
+and `ci.yml`.
+
+- `contract.md`: `hello` gains `name_color`, `welcome` gains `ghost_collision` (ADR 0035), `prefs` is applied silently and the `prefs_ack` it named never existed; the `tls` line said the binaries default to `off` while the Transport section and both mains say `auto`; the bridge `hello` gains `interpolate_orientation` (ADR 0043); Limits gains `MaxJSONDepth` (32) and `MaxDisplayNameBytes`/`Runes` (64/24). All match shipped code under existing ADRs; no revision.
+- `architecture.md`: the bridge has 18 types (`replay_control`, `player_frozen`, `recording_state` were missing); `internal/hotkey` listed and named in `cmd/meshghost`'s imports.
+- `testing.md`: "all fourteen" fuzz targets became 25 in the tree, 19 campaigned by CI; the table lists every target; the six without a `ci.yml` step are named with their reasons (`FuzzSchedule` and `FuzzNameDeliverySurvivesAnyConnectOrdering` are socket-bound by design; the two sanitizer pins and the two encoder pins were never wired, a decision written down as one); `FuzzScheduleConvergence` corrected to `FuzzSchedule`; the `internal/` test inventory.
+- `docs/config.md`: `autostart`, the three `replay.indicator*` keys and `predict: damped` documented; `ghost_collision` and `resume_grace_seconds` shipped values corrected; "one file ships" became the root file plus a client-only copy per game. `docs/security.md` and `docs/networking.md`: the depth and display-name bounds. `docs/reviewing.md`: CI fuzzes a written list, not every target. `.github/workflows/ci.yml`: the header comment says so too (comment only; the next push will run CI on it).
+- Left as a Go-side note: `core/schedule_convergence_fuzz_test.go`'s comment still says "the shipped 250ms interp", a test comment a docs pass does not touch.

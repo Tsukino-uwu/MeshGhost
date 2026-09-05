@@ -2773,3 +2773,15 @@ and in the tester share (`0b86bc66`) is the last of those. The user's session on
 build passed with no new dump; the two testers' dumps are the proof of mechanism. Next session:
 push, watch CI, and cut v1.1.8 on the user's word if the watcher stays quiet; if 0x36CCF98 recurs
 without a frame of ours, ship the weapon-model sync OFF behind a flag. Rig down and verified.
+
+## 2026-09-06 — the documentation fact check, as it touched Pseudoregalia's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-06) compared every
+doc against `Plugin.cpp`, the probe folders and the release tree; this is what it corrected here.
+
+- `README.md`: the 2026-09-04/05 batch had been inserted above steps 54-59 with the same numbers; it is steps 61-64 now, after a new step 60 for the audio-listener fix (`VERIFIED.md` 2026-09-04). **Correction to this file's 2026-09-05 entry: "README step 57" there is the outline fix, now step 64.** Probe counts 11 folders / 17 scripts became 19 / 32; "what is still open" names the v1.1.7 fault site, the post-despawn FPS residue and the bitfield audit.
+- `FLAGS.md`: `rec_indicator.txt` had no row; `GHOST_CUSTOM_DEPTH_DEV_TOGGLE` has gated the `replay.indicator*` config poll since 2026-09-05, so the register's "must go `false` before release" is withdrawn and the coupling is filed as a code item; thirty-one named constants registered from their own comments; `CAMERA_TRACE` re-stamped through v1.1.7.
+- `PROBES.md`: `probe_outline/` writes in two stages (the "ONE exception" claim was false), `probe_lightcheck/` ships disarmed, `probe_swordthrow/` is parked as `.off` (it said armed), `probe_leakcount/Scripts/verbs.lua` described.
+- `documentation.md`: the provenance range re-dated to 2026-09-05; two game facts shipped code depends on now have sections — `WorldSettings.PauserPlayerState` (ADR 0053) and the player pawn's `BeginPlay` taking the audio listener.
+- Back-ported to `_template/`: the numbers-audit rule, the switch-channel order, no compile-time gate over a player setting, "document what a pawn REGISTERS globally".
+- This file's header: "task list ends at 7.8" and the folded-back rule replaced with the live-log framing.

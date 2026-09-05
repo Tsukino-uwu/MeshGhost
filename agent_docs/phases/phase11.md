@@ -608,3 +608,16 @@ the payload such a reply would carry, so the expensive half of that is already d
 **Go side, so verified with the tools rather than by watching:** full `run-gotests.bat` green
 including `internal/e2e`, root binaries rebuilt, and `meshghost.exe` redeployed to all six copies
 across the four game installs.
+
+## 2026-09-06 — the documentation fact check, as it touched the replay docs
+
+No code changed. `plans.md`'s Phase 11 section still said "nothing watched in a game yet" and put
+recordings "under the client's config folder": rewritten to say what has been watched, on
+Pseudoregalia only (two recordings from a zip and a quoted name 2026-09-04; the chaser through a
+pause and under ~180Hz 2026-09-05; the indicator twice 2026-09-05), shipped in v1.1.5 through
+v1.1.7; the `replay\` folder sits beside `meshghost.exe`, which is the game's root for TEVI and
+Pseudoregalia since 2026-09-05; recordings are delta-encoded (ADR 0051); the chaser renders on its
+own delay (ADR 0049) and gameplay time (ADR 0053). `docs/config.md` documents the three
+`replay.indicator*` keys, read by the game's mod rather than by `meshghost.exe`. `architecture.md`
+lists the three bridge types this phase added. The follow-ons in this file's own list are unchanged
+and still unwatched.

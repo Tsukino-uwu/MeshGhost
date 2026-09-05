@@ -1025,3 +1025,15 @@ neither wrong in a way anything would have reported. That is the argument for th
 `ideas.md`'s deferred refactors, stated better by a measurement than by the entry.
 
 **Waiting on the user:** that the adapter still loads, connects and renders a ghost.
+
+## 2026-09-06 — the documentation fact check, as it touched Crystal's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-06) found that the
+2026-09-02 flip to a drawn-only shipped tier had reached `FLAGS.md` and this queue and nothing else.
+
+- `README.md`: the headline still said the adapter spawns an object event per peer; rewritten for the drawn-only shipped mode, with spawned as the dev opt-in; the collision paragraph split into as-shipped and opted-in; "the only file that ships" corrected (the release stages Emerald's `lib/` beside it); steps 26 (drawn-only, the user's 2026-09-02 call and reasons) and 27 (450ms; relay-side area filtering confirmed 2026-08-28).
+- `BANDAGES.md`: the drawn-tier entry marked as the shipped tier since 2026-09-02, the Emerald-polarity contrast corrected, and the struck-through temptation marked **TAKEN 2026-09-02, deliberately**, by its own written test.
+- `FLAGS.md`: the dead `#diagnostic-methodology` anchor repointed.
+- `UNVERIFIED.md`: the "This run" block holds ten READY entries; two "SHIPPED 250ms" headings and the `[DONE]` ladder verdict marked then-shipped / SUPERSEDED by the `[DONE] 450ms` entry; twelve `[READY] Pending —` headings normalised.
+- `dev-scripts/run-core-crystal-shipped.bat` and `dev-scripts/README.md` still said the shipped interp was 250ms; corrected, and the five Crystal `.local.bat` launchers described.
+- This file gained the dated-record note the other logs carry, with a line on why its title still says "spawn-based".

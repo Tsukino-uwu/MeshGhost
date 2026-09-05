@@ -817,3 +817,89 @@ needed. `by-lesson.md`'s entries that repeated were promoted, not deleted.
 Pseudoregalia 700, TEVI 622. Preflight sections: 28 → 37. Pitfalls outcomes as above. `ideas.md` 4,007
 → 2,124 lines. `status.md` 296 → 32. Every new check was negative-tested against a planted defect
 before being trusted; the phase-freshness logic against today's tree at threshold 1.
+
+## The fact check (2026-09-06) — stale claims against the code, ten commits
+
+**What started it**, the user: *"Do a full project documentation fact/stale check & refactor, some
+adapter readme's and phase files are probly outdated along with their documentation.md's."* Preflight
+was clean going in, so every mechanical gate held; what had drifted was semantic — docs describing
+behaviour the code no longer had, each written before a later dated decision. Three read-only audits
+compared each doc cluster against its source, scripts and git history; the fixes went in by cluster,
+one commit each, with tree-only preflight between them.
+
+**Two shapes account for most of it, and both are worth knowing before the next pass.**
+
+1. **A decision reached the register and stopped there.** The 2026-09-02 tier flips — Emerald's
+   overflow rungs ON, Crystal's shipped tier DRAWN ONLY — were recorded in each `FLAGS.md` the same
+   day and in nothing else: both READMEs still opened with the pre-flip world, both `BANDAGES.md`
+   files still called the drawn tier opt-in, and Crystal's struck-through temptation had tripped its
+   own written test without being annotated. The register is where a flag flip is *recorded*; it is
+   not where a reader *starts*.
+2. **A superseded number survives everywhere it was not the subject.** "250ms" stood in eleven places
+   across five files after 450ms shipped (ADR 0046), two of them `[DONE]` queue entries; "20Hz" in a
+   launcher header after 15Hz; "all fourteen" fuzz targets against 25 in the tree and 19 in CI;
+   `MESHGHOST_NO_AUTOSTART` as "the documented answer" after `"autostart": false` replaced it;
+   "binaries default to `off`" for TLS against `auto` in both mains and in the same file's transport
+   section. None of these was the subject of the sentence it sat in, which is why a grep is the
+   instrument and a re-read is not.
+
+**Player-facing, fixed first.** Root `README.md` (game-root install, 2026-09-05); `docs/config.md`
+(five shipped keys undocumented — `autostart`, the three `replay.indicator*` keys, `predict: damped`;
+two shipped values wrong; "one file ships" against five); `docs/antivirus.md` and `packaging/README.md`
+(the env var demoted to "the old way"; the `highlights` release input; the overrides rule matched to
+what `stage-release.ps1` allows); the shipped TEVI `README.txt` (a bridge-port paragraph that
+contradicted `Plugin.cs`); `docs/reviewing.md` ("CI fuzzes every target" — it runs a written list of
+19); `docs/security.md` and `docs/networking.md` (the depth and display-name bounds, missing from both).
+
+**Contract and Go-side docs.** `contract.md`: `name_color` and `ghost_collision` on the wire table, a
+`prefs_ack` that never existed, the TLS default, `interpolate_orientation` on the bridge hello,
+`MaxJSONDepth` and `MaxDisplayNameBytes/Runes` in Limits — all matching code shipped under existing
+ADRs, so no revision. `architecture.md`: 18 bridge types, `internal/hotkey`. `testing.md`: all 25 fuzz
+targets listed and the six CI does not campaign named with their reasons (two socket-bound by design,
+four never wired); the `ci.yml` header comment says the same.
+
+**Per adapter.** Emerald and Crystal as above, plus each queue's "This run" block trimmed to the ten
+READY entries it promises and the legacy `[READY] Pending —` headings normalised; Emerald gained
+build steps 39-40, Crystal 26-27, each backed by a VERIFIED entry or the user's quoted on-screen read.
+TEVI: the register learned the two `config.json` keys and seven bridge constants, the README its DLL
+date and steps 13-14, the host rule points at `config.json` first. Pseudoregalia: steps 54-57 were
+numbered twice (the 2026-09-05 batch sat above 54-59) and are 60-64 now with the audio-listener fix
+as 60; `rec_indicator.txt` and thirty-one named constants registered, provenance taken from each
+constant's own comment and "not recorded" written where it says none; `GHOST_CUSTOM_DEPTH_DEV_TOGGLE`
+found to gate a player setting since 2026-09-05, so its "must go false before release" instruction is
+withdrawn and the coupling is a code item; `PROBES.md` matched to the filesystem (two more writing
+stages, a parked folder described as armed, a folder described as armed that ships disarmed);
+`documentation.md` gained the pauser and the audio-listener facts and a truthful provenance range.
+
+**Template and rules.** `_template/FLAGS.md`: the numbers-audit rule, `config.json` before a
+framework's own file before a new env var, and no compile-time gate over a player setting;
+`_template/documentation.md`: document what a player pawn REGISTERS globally; `_template/README.md`:
+all six adapter files mandated, as preflight has checked since 2026-08-27; `_template/PROTOCOL.md`:
+`remote_name.color`. The emulator `CLAUDE.md` names the shared `json_fuzz.lua` harness in two lines,
+after a seven-line version pushed the emulator stack four lines over its 700-line budget and preflight
+caught it. `write-a-probe` points measurements at the adapter's own `UNVERIFIED.md`.
+
+**Phase files, the user's call.** Phases 1-5.5 are HISTORIC AND FROZEN: they mixed the server, the
+client and Emerald before each had a log of its own, and their work continues in phases 8 and 10.
+Their headers, and the live logs' headers (6-9), had their dates and status lines corrected in place
+— each still quoted a "fold back when done" rule reversed on 2026-09-02, phase 6 pointed at a
+`status.md` item long gone, phase 7 said its list "ends at 7.8" above 2,700 lines of log. **No entry
+was edited.** The user's framing, recorded in `phases/README.md`: every adapter and the Go side are
+always open; "feature complete" is a dated playable-state marker, never a closed component.
+
+**Deliberately NOT done, each for a stated reason.** No `VERIFIED.md` was touched (append-only). No
+ADR (every contract correction matched shipped code). Nothing was moved into `VERIFIED.md` on the
+strength of a WATCHED note in a queue — the ladder ship and the two-client run stay READY there, and
+the README steps that describe them quote the user rather than call them verified. Two code items
+were surfaced and not fixed: the dev-toggle gate over `replay.indicator*`, and the remaining
+`mg_property_value<bool>` reads (already the next Pseudoregalia session's first item). The six
+un-campaigned fuzz targets were documented, not wired: whether the four encoder/sanitizer pins deserve
+a `ci.yml` step is a decision, and it is written down as one. `status.md` was not re-dated: nothing in
+it was resolved by this pass. Historic "shipped 250ms" wording inside dated queue entries' BODIES was
+left as written; only headings, `[DONE]` verdicts and living prose were corrected.
+
+**Measurements not to re-derive.** 25 fuzz targets in the tree, 19 in `ci.yml`. Pseudoregalia:
+96 `constexpr bool`, 101 named non-bool `constexpr`, 19 probe folders, 32 probe scripts. Emerald:
+86 probe scripts indexed both ways; Crystal: 80, 17 driving the controller. Instruction stacks after
+the pass: emulator 700 (at budget), Pseudoregalia 700, TEVI 622. Ten commits, straight to `master`,
+nothing pushed.

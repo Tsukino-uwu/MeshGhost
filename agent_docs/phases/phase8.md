@@ -530,3 +530,14 @@ the interp verdict here was judged on the BROKEN relay (the limiter hid `WriteUn
 `341a768`) and wants a re-run on the fixed one; and after the spawned -> OAM -> drawn ship, the
 attach NAMETAG BURST, rung churn and drawn clipping under a text box are unexercised. Both OPEN,
 neither new; this entry exists so the log stays complete.
+
+## 2026-09-06 — the documentation fact check, as it touched Emerald's files
+
+No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-09-06) found that the
+2026-09-02 ladder ship had reached `FLAGS.md` and nothing else here.
+
+- `README.md`: both overflow rungs described as OFF/opt-in in two places, now ON since 2026-09-02; steps 39 (the ladder as the shipped default, watched with the 24-peer crowd, three tile leaks; two clients on screen 2026-09-03) and 40 (450ms, `VERIFIED.md` 2026-09-02); the header frames "feature complete 2026-08-21" as a playable-state marker and lists what is open, including the bike defect; four `pitfalls.md` pointers now reach `pitfalls/by-lesson.md` and `checklists/`; the dev-loader paragraph names the per-instance target files and the `--lua=` requirement; `logs/` documented.
+- `FLAGS.md`: rows for `MESHGHOST_EMERALD_HW_COMPARE_DX/_DY`; the dead `#diagnostic-methodology` anchor now points at `checklists/before-declaring-a-fix.md`.
+- `BANDAGES.md`: the drawn-tier entry's "off by default" passages updated for 2026-09-02.
+- `UNVERIFIED.md`: the "This run" block holds ten READY entries as promised (it held 16 mixed bullets); the `[DONE]` "shipped 250ms stands" heading marked SUPERSEDED by 450ms the same day; fourteen `[READY] Pending —` headings normalised.
+- This file's header: "in progress, but the peer-state work is closed / REOPENED" replaced with the live-log framing (the user, 2026-09-06).
