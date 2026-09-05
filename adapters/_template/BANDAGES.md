@@ -175,6 +175,22 @@ rather than at whatever triggered it — so a peer would have healed the watcher
 find the seam where the visual is driven separately (a flag its `Update` reads) and touch only
 that. Register which real route is closed and by which rule, so nobody re-proposes it.
 
+## A recorded temptation carries a TEST — re-run it whenever a default flips — 2026-09-06
+
+The "known temptations" list at the end of a register is written so that taking one is a decision
+rather than a slip, and the good entries say exactly what taking it would look like. Crystal's did:
+*"if a future change ever starts drawing peers the engine could have held, this temptation has been
+taken after all."* On 2026-09-02 the shipped tier became drawn-only and that sentence became true —
+by a deliberate, well-reasoned call recorded in `FLAGS.md` — and the register sat unchanged until a
+2026-09-06 audit read it. The entry had a test and nobody ran it, because a default flip is filed
+under the flag, not under the temptation it satisfies.
+
+**So a flag flip that changes what SHIPS re-reads this file's temptation list in the same edit**, and
+an entry whose test now passes is annotated in place (TAKEN, the date, the reason, and that it was
+a decision) rather than deleted — the distinction it was written to preserve is still the useful
+part. The same edit re-reads the Shipped entries whose "what it compensates for" the flip changed:
+Emerald's drawn tier was "off by default" in three places of its register after it went on.
+
 ## How to tell a bandage from a proper fix
 
 **This is the canonical version. The per-adapter registers carry a compact form and link here.**
