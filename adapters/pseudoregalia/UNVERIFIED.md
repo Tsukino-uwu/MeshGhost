@@ -43,7 +43,6 @@ mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](..
 entry without one.
 
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
-- READY — chasers 3..8 no longer cycle despawn/respawn every delay+3s: the core's tap thins the adapter's ~180Hz to the 100Hz the chaser queues were sized for (REPRODUCED on screen and in the log 2026-09-05, fixed in the core with a regression test, core deployed, unwatched)
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - DONE — the frozen-player state (item popup, pause menu): the CHASER half is fixed and CONFIRMED 2026-09-05 (`VERIFIED.md`); a recording still shows the run-fall on the spot, by the user's call (chaser only)
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
@@ -64,30 +63,6 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
-
-## [READY] chasers 3..8 cycled despawn/respawn with a period of delay+3s -- the chaser queue was sized for 100Hz and the adapter sends ~180 (2026-09-05)
-
-**Reproduced first-hand.** Eight chasers at 3s + 2s spacing: *"chasers are despawning/respawning,
-and also teleporting sometimes i think"*. The log had it to the second: chaser 3 (7s) released at
-:00, :10, :20, :30 ...; chaser 4 (9s) every 12s; 5 every 14s; 6 every 16s; 7 every 18s; 8 (17s)
-every 20s -- **period = delay + 3s spawn window**, and chasers 1 (3s) and 2 (5s) never once. The
-core wrote nothing on the drop and simply re-announced the nametag ~5s later.
-
-**Cause (core, not adapter).** Each chaser's queue holds `delay + 2s` of samples at an assumed 100
-a second; the bridge stats put this adapter at ~180 (one per frame). A full queue drops the NEWEST
-samples until its oldest fall due, which cuts a hole of about `0.44 x delay - 1.1s` into the trail:
-under the 1.5s seam threshold at 3s and 5s, over it from 7s up. The seam despawns the chaser, the
-spawn window holds it 3s, and it reappears where the player is -- the teleport. The earlier
-second-hand report (2026-09-04, *"4,5,6,7 despawned/spawned back/forth"*) is this exactly.
-
-**Fix.** The recorder's tap hands the pack at most one sample per 10ms (`chaserOfferIntervalMs`),
-so the queue's sizing is an invariant rather than a hope. `TestChaserTapThinsTheAdapterFrameRate`
-fails without it (473 of 500 queued) and passes with it. The recording and the ring still take every
-frame.
-
-**What to watch.** Eight chasers again, walk and circle for a minute: none of them should vanish or
-jump. Correct is eight `spawned ghost for remote chaser:N` lines in the log and NO `releasing remote
-chaser:N` until you leave the zone.
 
 ## [DONE] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured, FIXED and CONFIRMED ON SCREEN 2026-09-04 -- see `VERIFIED.md`; kept here for the two dead theories and the method)
 

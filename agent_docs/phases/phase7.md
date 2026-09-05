@@ -2638,3 +2638,7 @@ this adapter sends ~180 (read off the bridge counter), so every chaser more than
 its queue, lost a run of samples longer than the seam threshold, despawned and came back on the
 player. The tap now thins to 100Hz; regression test in `core/chaser_test.go`; core rebuilt and
 deployed to every install. `pitfalls/by-lesson.md` has the rule. UNWATCHED.
+
+**Confirmed.** Eight chasers, two minutes of walking and circling: *"Seems to be working, no random
+teleporting & they also don't despawn randomly anymore"* -- eight spawns, zero releases in the log.
+In `VERIFIED.md`.

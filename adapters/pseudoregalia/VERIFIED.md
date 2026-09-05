@@ -194,6 +194,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — the recording indicator draws the same from its BAKED defaults, with no tuning file (user-confirmed on screen)
 - 2026-09-05 — the reset-to-save crash is CLOSED AGAIN: the pause menu's Reset-button hook was the crash, and it is gone (user-confirmed)
 - 2026-09-05 — the chaser HOLDS through the pause menu and an item popup (ADR 0053, user-confirmed)
+- 2026-09-05 — eight chasers no longer despawn, respawn or teleport: the core's chaser queue could not keep up with this adapter's frame rate (user-confirmed)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5041,3 +5042,26 @@ built first with a regression test that fails without it (`core/chaser_test.go`)
 was one property read placed BEFORE the tick's paused early-return, because the pause menu flips
 the cursor on the same sample it sets the pauser. Trail: `agent_docs/phases/phase7.md`,
 2026-09-05; ADR 0053; `PROBES.md`, `probe_frozen/`.
+
+## 2026-09-05 — eight chasers no longer despawn, respawn or teleport: the core's chaser queue could not keep up with this adapter's frame rate (user-confirmed)
+
+**User, with eight chasers at 3s + 2s spacing, after two minutes of walking and circling:**
+*"Seems to be working, no random teleporting & they also don't despawn randomly anymore"*. The
+log for that launch: eight `spawned ghost for remote chaser:N` lines and zero
+`releasing remote chaser:N`. The launch before the fix, same settings, had chasers 3..8 releasing
+and respawning every delay+3s for as long as the game ran.
+
+**What it was, in the core, not the adapter.** Each chaser's queue held `delay + 2s` of samples
+sized at 100 a second; this adapter sends one per frame, ~180 a second (read off the bridge's own
+`send_ok` counter). A full queue drops the NEWEST samples until its oldest fall due, a run of about
+`0.44 x delay - 1.1s`, which is under the 1.5s seam threshold at 3s and 5s and over it from 7s up.
+The seam despawned the chaser, the 3s spawn window held it, and it came back where the player was
+-- the teleport. The core's tap now hands the pack at most one sample per 10ms, so the sizing is
+an invariant. Regression test `TestChaserTapThinsTheAdapterFrameRate` (core), fails without the
+change.
+
+**How it was found.** The release timestamps per chaser, written down: each chaser's period was
+its delay plus the spawn window, and the two shortest delays were exempt -- a buffer sized from
+the delay, and a threshold the short ones stayed under. Record and rule:
+`agent_docs/pitfalls/by-lesson.md`, "A queue sized from an ASSUMED rate drops the newest". The
+2026-09-04 second-hand report (*"4,5,6,7 despawned/spawned back/forth"*) was this.
