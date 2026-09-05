@@ -36,8 +36,10 @@ func waitRecordingState(t *testing.T, fa *fakeAdapter, want bool) bridge.Recordi
 // TestRecordingStateReachesTheAdapterOnBothEdges is the whole feature in one
 // test: start and the adapter is told, stop and it is told again.
 func TestRecordingStateReachesTheAdapterOnBothEdges(t *testing.T) {
-	c, _, fa := startLocalPeerCore(t)
-	c.ReplayDir = t.TempDir()
+	// The folder is set BEFORE the bridge serves: StartReplays reads it on the
+	// attach path, on the bridge goroutine, and setting it afterwards is a data
+	// race CI's -race run caught on 2026-09-05 (flaky: the next run passed).
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) { c.ReplayDir = t.TempDir() })
 
 	if _, err := c.StartRecording(); err != nil {
 		t.Fatalf("start recording: %v", err)
@@ -66,8 +68,10 @@ func TestRecordingStateReachesTheAdapterOnBothEdges(t *testing.T) {
 // repeat push is a redraw for nothing -- and the state is pushed on attach
 // unconditionally, which is only affordable if it de-dupes.
 func TestRecordingStateIsPushedOnChangeOnly(t *testing.T) {
-	c, _, fa := startLocalPeerCore(t)
-	c.ReplayDir = t.TempDir()
+	// The folder is set BEFORE the bridge serves: StartReplays reads it on the
+	// attach path, on the bridge goroutine, and setting it afterwards is a data
+	// race CI's -race run caught on 2026-09-05 (flaky: the next run passed).
+	c, _, fa := startLocalPeerCoreWith(t, func(c *Core) { c.ReplayDir = t.TempDir() })
 
 	if _, err := c.StartRecording(); err != nil {
 		t.Fatalf("start recording: %v", err)

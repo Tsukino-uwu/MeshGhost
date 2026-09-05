@@ -340,17 +340,26 @@ const maxPooledSizerCap = 8 * MaxExtrasBytes
 // exceeding it returns immediately — the bound is what makes the walk safe on
 // peer-controlled input rather than merely a check of it.
 func jsonDepthWithinLimit(v any, depth int) bool {
-	if depth > MaxJSONDepth {
-		return false
-	}
+	// The bound is tested on CONTAINERS only, never on a scalar leaf. Testing it
+	// on entry counted the number inside 32 nested arrays as a 33rd level and
+	// refused a value the byte scanner (which counts brackets) accepts -- found
+	// by FuzzDepthBoundsAgreeAndNeverPanic on CI, 2026-09-05, seed
+	// testdata/fuzz/FuzzDepthBoundsAgreeAndNeverPanic/bfd6034b400f74aa. Depth
+	// means containers deep, as the constant's own comment says.
 	switch t := v.(type) {
 	case map[string]any:
+		if depth > MaxJSONDepth {
+			return false
+		}
 		for _, e := range t {
 			if !jsonDepthWithinLimit(e, depth+1) {
 				return false
 			}
 		}
 	case []any:
+		if depth > MaxJSONDepth {
+			return false
+		}
 		for _, e := range t {
 			if !jsonDepthWithinLimit(e, depth+1) {
 				return false

@@ -2651,3 +2651,13 @@ line per change instead of per tick). Open for the next session: the 65 other
 nobody has watched; a cutscene edge if a chaser ever needs one (C++ read of the controller input
 gates); the other three adapters do not send `player_frozen` yet. Rig torn down and verified gone;
 the Steam install's config restored to the shipped one (chaser back off).
+
+**After the push: CI was red twice over, both fixed before bed.** (1) The race job: both
+recording-state tests set `ReplayDir` AFTER the adapter attached while `StartReplays` read it on the
+bridge goroutine -- a harness race from 2026-09-04, flaky (the next run passed); the field is now
+set before the bridge serves, through the helper made for exactly that. (2) The fuzz job:
+`FuzzDepthBoundsAgreeAndNeverPanic` found the decoded-walk depth check counting a scalar leaf as a
+level, so 32 nested arrays around a number were refused by the walk and accepted by the byte scan;
+the walk now tests the bound on containers only, the failing input is committed as a seed under
+`protocol/testdata/fuzz/`, and 30s of local fuzzing found nothing more. Suite and `-race` green,
+binaries rebuilt and deployed.
