@@ -110,6 +110,10 @@ namespace MeshGhostPseudo
         // Latches a failed creation so a build where this cannot work logs once rather than
         // once per frame per ghost.
         bool nametag_create_failed{false};
+        // Which edition of the live tuning (rec_indicator.txt) this tag's SIZE and plate SCALE
+        // were built with; compared against the global every tick and re-applied on mismatch,
+        // so a number judged on screen costs a file edit rather than a rebuild (2026-09-05).
+        unsigned nametag_tuning_gen{0};
         double target_x{}, target_y{}, target_z{};
         double target_pitch{}, target_yaw{}, target_roll{};
 

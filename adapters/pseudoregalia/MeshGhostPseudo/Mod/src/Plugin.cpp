@@ -8048,6 +8048,18 @@ namespace MeshGhostPseudo
         // number instead, and the glyph merely something for the material to fill.
         double g_rec_dot_scale_w = 1.0;
         double g_rec_dot_scale_h = 1.0;
+        // The NAMETAG's own numbers, live through the same file (2026-09-05). These were compile-
+        // time constants, and the plate scale was applied once at spawn -- so judging "the tag is
+        // too high / too big / the box too wide" cost a rebuild per look, which is the exact loop
+        // the indicator's file exists to replace. Zero for `name_size` means "leave the class
+        // default", which is what every tag drew with before this existed.
+        double g_nametag_up = NAMETAG_HEIGHT_ABOVE_GHOST;
+        double g_nametag_size = 0.0;
+        double g_nametag_behind = NAMETAG_PLATE_BEHIND;
+        // Bumped on every tuning read that changed something; each tag re-applies its size and
+        // plate scale once when it sees a generation it has not built with. Independent of
+        // g_rec_tuning_dirty, which is only consumed while recording.
+        unsigned g_nametag_tuning_gen = 1;
         // The recording square's colour, in the "#RRGGBB" form set_plate_color already takes.
         // From config.json's replay.indicator_color; the value here is the shipped default and is
         // what a player who deletes the key gets back.
@@ -8735,17 +8747,25 @@ namespace MeshGhostPseudo
                 else if (key == "dot_w") { g_rec_dot_scale_w = std::clamp(bounded, 0.05, 10.0); }
                 else if (key == "dot_h") { g_rec_dot_scale_h = std::clamp(bounded, 0.05, 10.0); }
                 else if (key == "dot_up") { g_rec_dot_up = bounded; }
+                // The nametag's three: height above the ghost, glyph size (0 = class default),
+                // and how far the colour plate sits behind the text.
+                else if (key == "name_up") { g_nametag_up = std::clamp(bounded, -500.0, 500.0); }
+                else if (key == "name_size") { g_nametag_size = std::clamp(bounded, 0.0, 500.0); }
+                else if (key == "name_behind") { g_nametag_behind = std::clamp(bounded, 0.0, 100.0); }
                 else { continue; }
                 g_rec_tuning_dirty = true;
             }
             if (g_rec_tuning_dirty)
             {
-                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: rec_indicator.txt read -- fwd={} right={} up={} gap={} dot={} text={} glyph=U+{:04X} color={} plate_margin={} plate_h={} dot_w={} dot_h={} dot_up={}\n"),
+                // Every live tag re-applies its size and plate scale on its next tick.
+                ++g_nametag_tuning_gen;
+                Output::send(STR("[MeshGhostPseudo] RECINDICATOR: rec_indicator.txt read -- fwd={} right={} up={} gap={} dot={} text={} glyph=U+{:04X} color={} plate_margin={} plate_h={} dot_w={} dot_h={} dot_up={} name_up={} name_size={} name_behind={}\n"),
                              g_rec_forward, g_rec_right, g_rec_up, g_rec_time_right,
                              g_rec_dot_size, g_rec_text_size,
                              g_rec_glyph.empty() ? 0 : static_cast<int>(g_rec_glyph[0]),
                              to_wide_ascii(g_rec_dot_color), g_plate_margin_chars, g_plate_scale_h,
-                             g_rec_dot_scale_w, g_rec_dot_scale_h, g_rec_dot_up);
+                             g_rec_dot_scale_w, g_rec_dot_scale_h, g_rec_dot_up,
+                             g_nametag_up, g_nametag_size, g_nametag_behind);
             }
         }
 
@@ -14217,6 +14237,31 @@ namespace MeshGhostPseudo
     // FAILURE IS LATCHED AND LOGGED ONCE. If this build cannot make a text component, saying so
     // every frame per ghost would be its own performance bug -- exactly the shape
     // adapters/emulator/CLAUDE.md prices at four to five frames per log line elsewhere.
+    // Applies the LIVE-TUNABLE part of a nametag's geometry -- glyph size and the plate's per-axis
+    // stretch -- and stamps the entry with the tuning generation it was built for. Called once
+    // at creation and again whenever rec_indicator.txt changes, so "the tag is too big / the box
+    // too wide" is a file edit while the game runs rather than a rebuild (2026-09-05). Size goes
+    // through the SETTER for the same reason the indicator's does: a property write changes what
+    // the component holds and nothing it draws.
+    static auto apply_nametag_tuning(RemoteGhost& entry, size_t name_chars) -> void
+    {
+        if (g_nametag_size > 0.0)
+        {
+            call_float_setter(entry.nametag_component, STR("SetWorldSize"), static_cast<float>(g_nametag_size));
+        }
+        if (entry.nametag_plate)
+        {
+            if (float* base = mg_property_value<float>(entry.nametag_component, STR("WorldSize")))
+            {
+                call_float_setter(entry.nametag_plate, STR("SetWorldSize"), plate_scale_for(*base));
+            }
+            set_component_relative_scale(entry.nametag_plate, 1.0,
+                                         plate_width_scale_for(name_chars),
+                                         g_plate_scale_h);
+        }
+        entry.nametag_tuning_gen = g_nametag_tuning_gen;
+    }
+
     auto Plugin::update_ghost_nametag(RemoteGhost& entry, UObject* local_pawn, const std::string& player_id,
                                       const FVector* viewer_override) -> void
     {
@@ -14283,13 +14328,7 @@ namespace MeshGhostPseudo
                     // Both are centred so the extra size is even rather than off one corner.
                     center_text_component(entry.nametag_component);
                     center_text_component(entry.nametag_plate);
-                    if (float* base = mg_property_value<float>(entry.nametag_component, STR("WorldSize")))
-                    {
-                        call_float_setter(entry.nametag_plate, STR("SetWorldSize"), plate_scale_for(*base));
-                    }
-                    set_component_relative_scale(entry.nametag_plate, 1.0,
-                                                 plate_width_scale_for(utf8_to_wide(wanted_name).size()),
-                                                 g_plate_scale_h);
+                    apply_nametag_tuning(entry, utf8_to_wide(wanted_name).size());
                     entry.nametag_plate_mid = create_plate_material(entry.nametag_plate);
                     if (!entry.nametag_plate_mid)
                     {
@@ -14366,7 +14405,7 @@ namespace MeshGhostPseudo
         const double gz = ghost_loc.Z();
         // Default the viewer a little to the side so the yaw below is defined even with no pawn
         // in hand; a tag facing an arbitrary direction is better than one facing NaN.
-        const double tag_z = gz + NAMETAG_HEIGHT_ABOVE_GHOST;
+        const double tag_z = gz + g_nametag_up;
         double px = gx, py = gy + 1.0, pz = tag_z;
         if (viewer_override)
         {
@@ -14404,12 +14443,24 @@ namespace MeshGhostPseudo
             // so "behind" is minus that direction. The text, being nearer, depth-sorts in front.
             const double yaw_rad = yaw_to_viewer / RAD_TO_DEG;
             const double pitch_rad = pitch_to_viewer / RAD_TO_DEG;
-            const double flat = std::cos(pitch_rad) * NAMETAG_PLATE_BEHIND;
+            const double flat = std::cos(pitch_rad) * g_nametag_behind;
             set_text_render_transform(entry.nametag_plate,
                                       gx - std::cos(yaw_rad) * flat,
                                       gy - std::sin(yaw_rad) * flat,
-                                      tag_z - std::sin(pitch_rad) * NAMETAG_PLATE_BEHIND,
+                                      tag_z - std::sin(pitch_rad) * g_nametag_behind,
                                       pitch_to_viewer, yaw_to_viewer, 0.0);
+        }
+
+        // The tuning file changed since this tag was last sized: re-apply size and plate scale
+        // once, then rebuild both meshes so the new size is what gets DRAWN, not just held.
+        if (entry.nametag_tuning_gen != g_nametag_tuning_gen)
+        {
+            apply_nametag_tuning(entry, utf8_to_wide(wanted_name).size());
+            force_text_rebuild(entry.nametag_component);
+            if (entry.nametag_plate)
+            {
+                force_text_rebuild(entry.nametag_plate);
+            }
         }
 
         // Once per name change, AFTER everything is applied and positioned, so what it reports is
