@@ -4,10 +4,13 @@
 > `adapters/bizhawk/` as `adapters/emulator/`. Left as written because a phase file records what
 > was true while the phase ran; the convention is in [../README.md](../README.md).
 
-Folded back into `agent_docs/plans.md` as complete (2026-08-11); kept here for the detailed
-task-by-task record. Per `agent_docs/README.md`'s rule: a phase earns a file when it's live,
-and gets folded back once it's done. Phase 2 followed this one; `agent_docs/status.md` has the current phase — see
-`agent_docs/phases/phase2.md`.
+**HISTORIC AND FROZEN — 2026-09-06, the user's call.** Phases 1 through 5.5 built the server, the
+client and Emerald's first adapter together, before each stream had a log of its own; nothing is
+appended here any more. Emerald's log continues in `phase8.md`, the Go side's in `phase10.md`.
+Complete since 2026-08-11 and summarised in `agent_docs/plans.md`; kept for the task-by-task record.
+Phase 2 followed this one (`phase2.md`); what is open today is in `agent_docs/status.md`. (The
+"fold a phase back when it is done" rule this header used to quote was reversed on 2026-09-02:
+phase files are never folded, split or edited past appending — `README.md` in this folder.)
 
 ## Purpose
 

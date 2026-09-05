@@ -1,7 +1,15 @@
 # Phase 9 — Pokémon Crystal (GBC), spawn-based rather than drawn
 
-**Status: in progress**, started 2026-08-17. The fourth game, and the first that renders a peer by
-**spawning a real in-game object** instead of drawing an overlay over the emulator.
+> **A dated record.** Each entry says what was true while it was written; paths, numbers and the
+> title above are left as they were. The title in particular: the spawned tier this phase was
+> named for became a dev opt-in on 2026-09-02 and the shipped tier is drawn only
+> (`adapters/emulator/pokemon/crystal/FLAGS.md`). The convention is in [README.md](README.md).
+
+**Status: LIVE — Crystal's whole running log, appended every session that touches it**, started
+2026-08-17. The fourth game, and the first that rendered a peer by **spawning a real in-game
+object** instead of drawing an overlay over the emulator; the user called it feature complete on
+2026-08-27, a playable-state milestone rather than an end. What is open now is in that adapter's
+`UNVERIFIED.md` and `agent_docs/status.md`, never here.
 
 Numbered after Phase 8 (Emerald, dedicated) in the same "one number per stream of work" scheme the
 earlier phases use. Nothing here renumbers anything.

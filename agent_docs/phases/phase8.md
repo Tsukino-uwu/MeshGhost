@@ -6,14 +6,15 @@
 > `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
 > while the phase ran.
 
-**Status: in progress, but the PEER-STATE work inside it is closed — Emerald is FEATURE COMPLETE
-as of 2026-08-21, the user's call** (`verified.md`): every way this game moves a character and
-every field effect it hangs off one is mirrored on all three tiers. **REOPENED 2026-08-26** for the
-two states that call was made without: Fly is built, bandaged and confirmed in one case only, and
-the boat is built and unwatched. Rails are not built at all. What remains beyond those is polish
-and custom features. `adapters/emulator/pokemon/emerald/UNVERIFIED.md` and `BANDAGES.md` §4.
-(This header read "the adapter is PARKED" until 2026-08-27 — the fourth doc carrying that after the
-2026-08-26 session, alongside `plans.md`, `risks.md` and `phases/README.md`.)
+**Status: LIVE — Emerald's whole running log, appended every session that touches it.** The user
+called Emerald **feature complete on 2026-08-21** (`adapters/emulator/pokemon/emerald/VERIFIED.md`):
+every way this game moves a character and every field effect it hangs off one is mirrored on all
+three tiers — a playable-state milestone, not the end of the work; every adapter here stays open
+(the user, 2026-09-06). Fly was taken up again on 2026-08-26 and is built, bandaged and confirmed in
+one case; the boat is built and unwatched; rails are not built; the ladder spawned → OAM → drawn
+became the shipped default on 2026-09-02. What is open now is in that adapter's `UNVERIFIED.md` and
+`agent_docs/status.md`, never here. (This header read "PARKED" until 2026-08-27 and "in progress,
+but the peer-state work is closed / REOPENED" until 2026-09-06; the entries below are as written.)
 
 Started 2026-08-14. Numbered next in sequence rather than folded back
 into 1–5.5 (which bundled Emerald's adapter work together with building the server/client/core

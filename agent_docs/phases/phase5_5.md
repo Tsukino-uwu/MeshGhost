@@ -4,7 +4,9 @@
 > `adapters/bizhawk/` as `adapters/emulator/`. Left as written because a phase file records what
 > was true while the phase ran; the convention is in [../README.md](../README.md).
 
-**Status: complete**, 2026-08-11. Inserted between Phase 5 and Phase 6 — see
+**Status: complete**, 2026-08-11. **HISTORIC AND FROZEN — 2026-09-06, the user's call**: the last
+of the six early files that mixed Emerald with the server and client; nothing is appended here any
+more, and Emerald's log continues in `phase8.md`. Inserted between Phase 5 and Phase 6 — see
 `agent_docs/plans.md`. Not a numbered roadmap phase in the original sense (it doesn't gate the
 game-count milestones), same treatment as the unnumbered "Post-Phase-4 — Room codes" entry, but
 the user explicitly wants Emerald's ghost rendering "finished" before Phase 6 (TEVI) starts.

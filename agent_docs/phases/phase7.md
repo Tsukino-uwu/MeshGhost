@@ -6,14 +6,15 @@
 > `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
 > while the phase ran.
 
-**Status: 7.0-7.8 done, and the adapter was declared FEATURE COMPLETE by the user on 2026-08-27**
-(scope written down in `adapters/pseudoregalia/VERIFIED.md`). 7.7 (real two-player test) confirmed
-2026-08-16 — two real players on two machines, with the Linux tester. Started 2026-08-12. **This
-file's task list ends at 7.8; work after 2026-08-17 has no phase number** — see the pointer at the
-bottom for where it lives. Per
-`agent_docs/README.md`'s convention: a phase
-earns a file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for
-the task-by-task record.
+**Status: LIVE — Pseudoregalia's whole running log, appended every session, and the largest record
+in this folder.** The numbered task list (7.0-7.8) was done by 2026-08-17 — 7.7, the real two-player
+test, confirmed 2026-08-16 with the Linux tester — and the user called the adapter **feature
+complete on 2026-08-27** (scope in `adapters/pseudoregalia/VERIFIED.md`): a playable-state milestone,
+not the end of the work, and the dated entries after it are the proof. Work after 2026-08-17 carries
+no task number; it is logged by date below. Started 2026-08-12. What is open now is in
+`adapters/pseudoregalia/UNVERIFIED.md` and `agent_docs/status.md`, never here. (This header quoted a
+"fold back when done" rule until 2026-09-06; it was reversed on 2026-09-02 — `README.md` in this
+folder.)
 
 ## Purpose
 

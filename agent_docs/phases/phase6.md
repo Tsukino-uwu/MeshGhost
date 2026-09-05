@@ -3,11 +3,14 @@
 > **A dated record. Package paths here predate the 2026-08-17 module move** — read any
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
 
-**Status: fully done, including 6.6 (two real players) and 6.7 (map markers)**, confirmed
-2026-08-13 — with one cosmetic gap still open, charged-attack VFX missing on the ghost (see
-Notes at the end of this file, and `status.md`). Started 2026-08-11. Per `agent_docs/README.md`'s convention: a phase earns a file
-when it's live, folded back into `agent_docs/plans.md` once done — kept here (rather than folded
-back) for the task-by-task record, matching `agent_docs/plans.md`'s own Phase 6 section.
+**Status: LIVE — TEVI's whole running log, appended every session that touches it.** The numbered
+task list below (6.0–6.7, including two real players and map markers) was confirmed complete on
+2026-08-13 and the adapter has shipped since; that is a playable-state milestone, not the end of the
+work — every adapter here stays open (the user, 2026-09-06). The charged-attack VFX gap this header
+once named as "still open" was closed on 2026-08-28 (`adapters/tevi/VERIFIED.md`); what is open now
+is in `adapters/tevi/UNVERIFIED.md` and `agent_docs/status.md`, never here. Started 2026-08-11.
+(This header said "fully done" and quoted a "fold back when done" rule until 2026-09-06; the rule
+was reversed on 2026-09-02 — `README.md` in this folder — and the task list below is kept as written.)
 
 ## Purpose
 

@@ -12,18 +12,23 @@ never referenced from anywhere. Added 2026-08-25.
 
 | Phase | What it covers | The log is... |
 | --- | --- | --- |
-| [phase1.md](phase1.md) | Emerald read-only verification — the first addresses, confirmed by walking. | Closed; Emerald continues in phase 8 |
-| [phase2.md](phase2.md) | Fake ghost, no network — proving the screen-position maths offline. | Closed; Emerald continues in phase 8 |
-| [phase3.md](phase3.md) | Loopback — one client sending state and rendering it back to itself. | Closed; the Go side continues in phase 10 |
-| [phase4.md](phase4.md) | Two players — joins, drops, and `area_id` mismatch. | Closed; the Go side continues in phase 10 |
-| [phase5.md](phase5.md) | Extract the template — the core running against a fake adapter, no game. | Closed; the Go side continues in phase 10 |
-| [phase5_5.md](phase5_5.md) | A real, gender-correct Emerald sprite in place of the magenta box. | Closed; Emerald continues in phase 8 |
+| [phase1.md](phase1.md) | Emerald read-only verification — the first addresses, confirmed by walking. | **Frozen 2026-09-06**; Emerald continues in phase 8 |
+| [phase2.md](phase2.md) | Fake ghost, no network — proving the screen-position maths offline. | **Frozen 2026-09-06**; Emerald continues in phase 8 |
+| [phase3.md](phase3.md) | Loopback — one client sending state and rendering it back to itself. | **Frozen 2026-09-06**; the Go side continues in phase 10 |
+| [phase4.md](phase4.md) | Two players — joins, drops, and `area_id` mismatch. | **Frozen 2026-09-06**; the Go side continues in phase 10 |
+| [phase5.md](phase5.md) | Extract the template — the core running against a fake adapter, no game. | **Frozen 2026-09-06**; the Go side continues in phase 10 |
+| [phase5_5.md](phase5_5.md) | A real, gender-correct Emerald sprite in place of the magenta box. | **Frozen 2026-09-06**; Emerald continues in phase 8 |
 | [phase6.md](phase6.md) | Second game: TEVI (Unity/Mono, BepInEx). | Live — TEVI's whole log |
 | [phase7.md](phase7.md) | Third game: Pseudoregalia (UE5, UE4SS). The largest record here. | Live — Pseudoregalia's whole log |
 | [phase8.md](phase8.md) | Emerald, dedicated — the post-5.5 animation and effect work. | Live — Emerald's whole log |
 | [phase9.md](phase9.md) | Fourth game: Pokémon Crystal (GBC) — the first **spawned** ghost rather than a drawn one. | Live — Crystal's whole log |
 | [phase10.md](phase10.md) | The online stack: relay, client core, protocol, transports — one component log for the whole Go side, backfilled to the repo's start. | Live — the Go side's whole log |
 | [phase11.md](phase11.md) | Replays: recording, playback ghosts, the chaser pack, system-wide hotkeys, split times — Go-side feature work (ADRs 0047, 0048). | Live — planned 2026-09-03 |
+
+**Frozen is not "done" (the user's call, 2026-09-06).** The six early files mixed the server, the
+client and Emerald together before each stream had a log of its own; their work continues in phases
+8 and 10, so nothing is appended to them and their headers say so. Every other log is live, and
+"feature complete" in any header is a dated playable-state marker, never a closed component.
 
 **There is no "done" column, on purpose (the user's call, 2026-09-02).** A game is never done —
 every shipped adapter is in progress for as long as the game has a state nobody has watched — so a

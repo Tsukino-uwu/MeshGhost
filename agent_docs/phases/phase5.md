@@ -3,9 +3,13 @@
 > **A dated record. Package paths here predate the 2026-08-17 module move** — read any
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
 
-**Status: complete** (2026-08-11). Per `agent_docs/README.md`'s convention: a phase earns a
-file when it's live, folded back into `agent_docs/plans.md` once done. Kept here for the
-task-by-task record.
+**Status: complete** (2026-08-11). **HISTORIC AND FROZEN — 2026-09-06, the user's call.** Phases 1
+through 5.5 built the server, the client and Emerald's first adapter together, before each stream
+had a log of its own; nothing is appended here any more. The Go side's log continues in
+`phase10.md`; the template this phase extracted lives on as `adapters/_template/`, which is never
+frozen (`CLAUDE.md`: the gold standard may never lag). Summarised in `agent_docs/plans.md`; kept
+for the task-by-task record. (The "fold back when done" rule this header used to quote was
+reversed on 2026-09-02 — `README.md` in this folder.)
 
 ## Purpose
 
