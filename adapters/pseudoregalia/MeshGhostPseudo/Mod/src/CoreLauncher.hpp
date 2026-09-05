@@ -20,6 +20,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace MeshGhostPseudo
 {
@@ -43,6 +44,10 @@ namespace MeshGhostPseudo
     // meshghost.exe, and the bridge needs it to find config.json, and two copies of a
     // path-resolution routine is exactly the kind of divergence this adapter has been bitten by.
     auto module_directory() -> std::wstring;
+    // The game's root folder (empty on failure) and the ordered list of folders the client,
+    // config.json and log may live in -- game root, mod folder, dlls folder. CoreLauncher.cpp.
+    auto game_root_directory() -> std::wstring;
+    auto config_search_dirs() -> std::vector<std::wstring>;
 
     // The base of the bridge port walk, resolved once at startup.
     //

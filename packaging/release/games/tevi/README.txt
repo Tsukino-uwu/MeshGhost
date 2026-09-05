@@ -26,25 +26,29 @@ Setup, once:
    creates the `BepInEx\plugins\` folder.
 3. Drag the MeshGhost folder (from this folder) into `BepInEx\plugins\`, so you end up with
    `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
-4. OPTIONAL -- only if you want the game to open and close the client for you:
-   copy meshghost.exe (two folders up, next to config.json) INTO that MeshGhost folder, so
-   you end up with `BepInEx\plugins\MeshGhost\meshghost.exe` sitting alongside
-   `BepInEx\plugins\MeshGhost\MeshGhostTevi.dll`.
+4. Copy meshghost.exe and config.json (two folders up from here, side by side at the top of
+   the folder you unzipped) INTO your TEVI folder -- the one with TEVI.exe in it, next to the
+   BepInEx\ folder:
 
-   Skip this and simply open meshghost.exe yourself before you play -- then it can live
-   wherever you like, AS LONG AS config.json sits in the same folder as it. The client
-   reads the config.json next to itself, so the two travel as a pair; on its own it falls
-   back to 127.0.0.1:7777 and never reaches your host. This mod folder is the ONLY place
-   the exe has to be for the mod to start it for you.
+       ...\Steam\steamapps\common\TEVI\meshghost.exe
+       ...\Steam\steamapps\common\TEVI\config.json
 
-   If you do copy it, do it again whenever you update MeshGhost.
+   That is the ONLY place the mod looks. It does not look inside its own plugin folder any
+   more (versions up to v1.1.5 did; if you are upgrading, move the two files up from
+   `BepInEx\plugins\MeshGhost\` to the TEVI folder). The mod DLL stays where it is; only the
+   two files you actually touch live up top, and meshghost.log and the replay\ folder appear
+   next to them. Copy meshghost.exe again whenever you update MeshGhost.
+
+   Open that config.json and set "connect_to" to your host's address, plus "room" and "name".
+   With "autostart": true (the default) the mod starts meshghost.exe from there when you
+   launch TEVI and stops it when you quit; with "autostart": false you double-click it
+   yourself before you play. It reads the config.json next to itself either way.
 
 Setup, every time you play:
 1. Launch TEVI normally through Steam.
-   - If you copied meshghost.exe into the mod folder: that is all. The mod starts it
-     hidden and shuts it down when you quit -- nothing to open, nothing to leave running.
-   - If you did not: open meshghost.exe yourself first, from wherever you keep it, and
-     close it when you are done.
+   - With meshghost.exe in your TEVI folder and autostart on: that is all. The mod starts
+     it hidden and shuts it down when you quit -- nothing to open, nothing to leave running.
+   - With autostart off: open meshghost.exe yourself first, and close it when you are done.
    Either way there is nothing to set in config.json about which game it is: the mod tells
    the client that on its own.
 2. Walk around. Once a friend joins the same server in the same room, you should see
@@ -54,7 +58,7 @@ If you copied the exe in but want to go back to starting it yourself -- an antiv
 objects to one program launching another, or you just want to watch its window -- you have
 two ways, and the first needs no settings at all:
 
-  - Take meshghost.exe back out of the MeshGhost plugin folder. With nothing there to
+  - Take meshghost.exe back out of your TEVI folder. With nothing there to
     start, the mod simply uses whichever client is already running.
   - Or put "autostart": false in this folder's config.json and leave the exe where it is.
     The mod checks that line before starting a client; with it set to false the mod starts

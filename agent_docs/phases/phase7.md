@@ -2685,3 +2685,20 @@ the chaser was flipped in the install's config and the client killed so the adap
 a scratch script waited for the session's first `STATESEND` line and launched the fake peer itself.
 The `tasklist` process name is truncated to `pseudoregalia-Win64-Shipp`, so a monitor grepping the
 full name never fires — match on `pseudoregalia-Win64`. Rig torn down, install config restored.
+
+**Later, 2026-09-05 — the client and its config move to the game root; a high-priority outline defect
+is measured but not yet found.** The user, after a question about `client-config-overrides.json`
+(a staging input that shipped as an empty `{}` -- moved out of the release tree), asked for the client
+and config to sit in the game's root folder with the DLL left deep in the mod folder, then made it a
+full swap: nothing read from the mod folder any more. Built for both UE launchers, READMEs and staging
+rewritten (per-game `config.json` now at `games/<game>/`), DLLs rebuilt and deployed, the three
+installs' files moved up. Pseudoregalia confirmed on screen (`VERIFIED.md`); TEVI unwatched.
+Two scripted-edit lessons paid for again: Python non-raw strings ate `\u` in `\ue4ss` and a `\/`
+inside a wide literal (the compiler said C4129 and the grep of the RESULT caught the second), and a
+CRLF README rejected an LF multi-line pattern -- read universal, write back `\r\n`.
+Then the outline: the player and the player's sword go blue around ghosts, and after a melee attack it
+sticks (screenshot). One live A/B with `keep_custom_depth.txt` (no restart): ghosts keeping custom
+depth removes both symptoms until the first melee swing, then body and sword stay blue permanently;
+ghosts show through walls but not through the translucent void doors. `probe_outline/` written and
+staged in the scratch slot; the reinstall had wiped the reloader, so it arms on the next launch.
+Record: `UNVERIFIED.md`'s OPEN entry.

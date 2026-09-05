@@ -42,6 +42,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN — **HIGH PRIORITY: ghosts give the PLAYER the blue through-walls outline** (behind a ghost), and after a MELEE attack the player's body AND sword stay blue; measured 2026-09-05 with `keep_custom_depth.txt`: both gone until the first melee swing, then permanent — probe staged, cause not found. Entry below.
+- READY — TEVI: meshghost.exe + config.json now live in the GAME ROOT (beside TEVI.exe) and the plugin looks nowhere else; deployed to both installs 2026-09-05, unwatched (Pseudoregalia's half CONFIRMED, `VERIFIED.md`).
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
 - OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident
 - DONE — the frozen-player state (item popup, pause menu): the CHASER half is fixed and CONFIRMED 2026-09-05 (`VERIFIED.md`); a recording still shows the run-fall on the spot, by the user's call (chaser only)
@@ -63,6 +65,46 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [OPEN] HIGH PRIORITY — ghosts give the player the blue outline, and a melee attack makes it stick (2026-09-05)
+
+**The report (user, on screen, with a screenshot).** Standing among ghosts, the player gets the game's
+blue "behind something" silhouette whenever a ghost is between camera and player; and the player's
+own SWORD showed the silhouette THROUGH THE PLAYER'S BODY, staying that way after the ghosts moved on.
+*"the players sword is never supposed to have a blue outline against the player itself."* The user's
+call: **a ghost must never trigger that outline on the player or the sword at all.**
+
+**What the picture says.** The outline is stock custom depth (`documentation.md`, "The through-walls
+outline"): body and sword both write it, the custom-depth pass keeps the nearest writer, so a sword
+behind the body is never "behind scene depth". A sword outlined through the body means the BODY
+stopped writing custom depth -- as a flag or as render state.
+
+**Measured live, 2026-09-05, one A/B with the dev toggle `keep_custom_depth.txt` (ghosts KEEP custom
+depth; the mod stops stripping it):**
+
+| ghosts' custom depth | player behind a ghost | sword through own body | ghosts through walls |
+|---|---|---|---|
+| stripped (shipped) | blue outline on the player | blue, and it stuck | none |
+| kept (toggle on) | **none** | **none** -- until ONE melee attack, then body AND sword blue, permanently | blue silhouettes (through walls, not through the translucent void doors -- expected, they write no depth) |
+
+So the occluder half is exactly what it looks like: an opaque ghost writing no custom depth is a wall
+as far as the outline pass is concerned. Ghosts writing custom depth removes it, at the cost of ghost
+silhouettes through walls -- the cost a different `CustomDepthStencilValue` for ghosts would avoid IF
+the game's post-process masks by stencil, which is unmeasured. **The stuck half is triggered by the
+player's melee attack** and is not yet explained. Ruled out by reading: the afterimage outline guard
+(a pre-hook on `SetRenderCustomDepth`) only ever touches components whose outer is a `BP_AfterImage_C`.
+Not ruled out: the per-tick hold walking every object-typed property on a ghost pawn and its thrown
+weapon and stripping any value with a custom-depth flag -- if one of those points at the player's own
+mesh, the player is stripped every tick with no log line; and whatever the game itself does to the
+player's custom depth or stencil around a melee swing.
+
+**The instrument, staged and unrun:** `probe_outline/` in the scratch slot (read-only; flags and
+stencil on the player's and every ghost's three meshes on change, a CROSS-OWNER walk of the ghost's
+object properties, afterimage attribution). The reinstall had wiped the reloader and the scratch slot,
+so it arms on the next launch. Run: stand still, one melee attack, stand still; read `UE4SS.log`.
+
+**Where it goes when found:** the mechanism to `documentation.md` (game fact), the mod change to the
+build story, symptom -> cause -> fix to `agent_docs/pitfalls/`.
 
 ## [DONE] the sword on a ghost is `WeaponMesh.bVisible`, and it is now mirrored (measured, FIXED and CONFIRMED ON SCREEN 2026-09-04 -- see `VERIFIED.md`; kept here for the two dead theories and the method)
 

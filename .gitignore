@@ -75,6 +75,11 @@
 # silently drifting from the real one. Named here for the reason the Emerald/Crystal
 # entries above are: a local dry run leaves them untracked in a tracked directory, which is
 # precisely the shape that swept ap_try.flag in on 2026-08-18 via one `git add -A`.
+/packaging/release/games/tevi/config.json
+/packaging/release/games/pseudoregalia/config.json
+# ...and the two paths above are where they sat until 2026-09-05, when the mods stopped
+# reading config.json from their own folder (game root only); kept so a stale local dry run
+# never shows them as untracked.
 /packaging/release/games/tevi/MeshGhost/config.json
 /packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/config.json
 /packaging/release/games/pokemon/emerald/config.json

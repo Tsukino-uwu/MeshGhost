@@ -52,40 +52,41 @@ ALREADY USING OTHER MODS? Read this one paragraph.
    needs; the rest of what is bundled exists only so someone with no UE4SS at all can
    install in one drag.
 
-Setup, once more -- OPTIONAL, and only for auto open/close:
-3. If you want the game to start and stop the client for you, copy meshghost.exe (from the
-   folder you unzipped, next to the outer config.json) INTO the MeshGhostPseudo mod folder
-   you just installed, so you end up with
+Setup, once more -- the client and its settings go in the GAME'S OWN FOLDER:
+3. Copy meshghost.exe and config.json (from the folder you unzipped, they sit side by side
+   at its top) INTO your Pseudoregalia folder -- the same outer folder you dragged the mod
+   into in step 1, the one Steam created:
 
-       ...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\meshghost.exe
+       ...\Steam\steamapps\common\Pseudoregalia\meshghost.exe
+       ...\Steam\steamapps\common\Pseudoregalia\config.json
 
-   sitting in the same folder as config.json and the dlls\ folder.
+   That is the ONLY place the mod looks. It does not look inside its own mod folder any
+   more (versions up to v1.1.5 did; if you are upgrading, move the two files up from
+   `pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\` to the folder above it all).
+   The mod itself stays where it is, deep inside; only the two files you actually touch live
+   up top. meshghost.log and the replay\ folder appear next to them, so everything you would
+   ever open is in one place. Copy meshghost.exe again whenever you update MeshGhost.
 
-   You can skip this entirely and just open meshghost.exe yourself before you play -- then
-   it can live anywhere you like, AS LONG AS a config.json sits in the same folder as it.
-   The client reads the config.json next to itself, so the two travel as a pair; on its own
-   it falls back to 127.0.0.1:7777 and never reaches your host. This mod folder is the ONLY
-   place the exe has to be for the mod to start it for you. If you do copy it, do it again whenever you update MeshGhost.
+4. Open that config.json and set "connect_to" to your host's address, plus "room" and "name".
+   This is the file the client reads -- NOT the config.json left in the folder you unzipped.
 
-Setup, once more -- where your settings live:
-4. Open config.json in the MeshGhostPseudo mod folder you just installed
-   (`...\Pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\config.json`)
-   and set "connect_to" to your host's address, plus "room" and "name". This is the file
-   the meshghost.exe you just copied in reads -- NOT the config.json in the folder you
-   unzipped. Once the mod is installed inside your game, that outer one is out of reach.
+   Do you have to let the game start the client? No. Leave "autostart": true and the mod
+   starts meshghost.exe from that folder when you launch and stops it when you quit --
+   nothing to open. Or set "autostart": false and double-click meshghost.exe yourself before
+   you play; it reads the config.json next to itself either way, so keep the two together.
 
 Setup, every time you play:
 1. Launch Pseudoregalia normally.
-   - If you copied meshghost.exe into the mod folder: that's the whole thing -- the mod
-     starts it for you, with no window to leave open and nothing to run first.
-   - If you did not: open meshghost.exe yourself first, from wherever you keep it.
+   - With meshghost.exe in your Pseudoregalia folder and autostart on: that's the whole
+     thing -- the mod starts it for you, with no window to leave open and nothing to run first.
+   - With autostart off: open meshghost.exe yourself first.
    The mod loads automatically via UE4SS either way, and tells MeshGhost which game it is
    on its own.
 2. Walk around. Once a friend joins the same server in the same room, you should see their
    goat as a ghost -- correct position, facing, animations, outfit and effects.
 
 Want to see it working rather than take it on faith? Read meshghost.log, which appears in
-the same mod folder. On WINDOWS you can also add "show_console": true to that config.json
+your Pseudoregalia folder next to meshghost.exe. On WINDOWS you can also add "show_console": true to that config.json
 for a live window.
 
 On Linux (Proton) and macOS (CrossOver) there is no window to show: Wine has no usable
@@ -102,7 +103,7 @@ check ue4ss\UE4SS.log, and see the antivirus note in the main README.txt.
 
 Prefer to run it yourself? Two ways, and the first needs no settings at all:
 
-  - Do not copy meshghost.exe into the MeshGhostPseudo folder (or take it back out). With
+  - Do not copy meshghost.exe into your Pseudoregalia folder (or take it back out). With
     nothing there to start, the mod uses whichever client is already running.
   - Or put "autostart": false in this folder's config.json and leave the exe where it is.
     The mod checks that line before starting a client; with it set to false the mod starts

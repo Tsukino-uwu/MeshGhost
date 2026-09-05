@@ -98,15 +98,12 @@ function Show-Status {
         Write-Output "  BOTH copies are present, so the adapter loads TWICE -- two bridge"
         Write-Output "  connections and two ghosts per peer. Run -On or -Off to pick one."
     }
-    # meshghost.exe has to sit beside whichever copy is live, or CoreLauncher finds no core and
-    # logs that it is not starting one. MESHGHOST_NO_AUTOSTART is the other way out of this: set
-    # it and start the core yourself, which is what a scripted live test does anyway.
-    foreach ($d in @($pluginDir, $scriptDir)) {
-        if (Test-Path (Join-Path $d 'MeshGhostTevi.dll')) {
-            $hasExe = Test-Path (Join-Path $d 'meshghost.exe')
-            Write-Output "                core beside the live DLL: $(if ($hasExe) { 'yes' } else { 'NO -- autostart will decline' })"
-        }
-    }
+    # meshghost.exe (with its config.json) sits in the GAME ROOT, beside TEVI.exe, since
+    # 2026-09-05 -- CoreLauncher looks there and nowhere else, whichever copy of the DLL is live,
+    # so hot-reload mode no longer needs the core copied into scripts\. MESHGHOST_NO_AUTOSTART is
+    # the other way out: set it and start the core yourself, which a scripted live test does anyway.
+    $hasExe = Test-Path (Join-Path $TeviDir 'meshghost.exe')
+    Write-Output "                core in the game root (beside TEVI.exe): $(if ($hasExe) { 'yes' } else { 'NO -- autostart will decline' })"
 }
 
 # ScriptEngine's own defaults are manual-only: EnableFileSystemWatcher is false and the reload

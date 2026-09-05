@@ -5,8 +5,9 @@ What actually goes in a release, and why it's laid out the way it is. Consumed b
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow
 builds the Go `.exe`s and then delegates the assembly to `dev-scripts/stage-release.ps1`
 (also the local dry-run/rehearsal path), which copies the Emerald and Crystal adapter files in,
-and drops a `config.json` into every game's folder (TEVI's and Pseudoregalia's mod folders,
-`games/pokemon/emerald/` and `games/pokemon/crystal/`) — the root `config.json`'s `client` block
+and drops a `config.json` into every game's folder (`games/tevi/` and `games/pseudoregalia/`, beside
+each README.txt — NOT inside the mod folder, since 2026-09-05; `games/pokemon/emerald/` and
+`games/pokemon/crystal/`) — the root `config.json`'s `client` block
 with that game's `packaging/config-overrides/<game>.json` merged on top (a staging input that stays OUT of the zip -- it shipped as an empty `{}` until 2026-09-05 and a player asked whether it was where name and colour go). Since 2026-09-02 they all carry the
 same values (450ms interp, collision disabled), trimmed to the player-facing keys (basics,
 collision, the render group; the rest take built-in defaults), and no game overrides anything; the two
@@ -105,9 +106,12 @@ the game. That changed what packaging has to do, in two different directions for
 adapter:
 
 - **TEVI and Pseudoregalia install INTO the game**, out of reach of the release folder, so each
-  mod folder gets its own `config.json` (cut from the root `config.json`) and needs a
-  `meshghost.exe` beside the DLL. The workflow ships the config — 1 KB — and leaves the exe as a
-  **one-time manual copy**, called out in each game's `README.txt`.
+  game gets its own `config.json` (cut from the root `config.json`), staged in `games/<game>/`
+  beside its README.txt. The player copies it and `meshghost.exe` into the **game's root folder**
+  (the one Steam installed) — the only place the mod looks since 2026-09-05, the user's call:
+  the DLL sits where the loader finds it, the two files a player touches sit where a player
+  looks, and `meshghost.log` and `replay\` land beside them. The workflow ships the config —
+  1 KB — and leaves the exe as a **one-time manual copy**, called out in each game's `README.txt`.
 - **Emerald and Crystal load from the release folder itself.** Their Lua walks up to the release
   root to find `meshghost.exe` and `config.json`, so nothing is copied and nothing is duplicated.
 

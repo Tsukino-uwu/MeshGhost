@@ -287,8 +287,14 @@ deliberately no template, since a stub with no content would go stale immediatel
    **If the adapter autostarts a core** — which it should; see "Start the client, and stop it
    again" below — check where it installs. A mod that drag-and-drops *into the game's own
    directory tree* has nothing pointing back at the unzipped release folder, so it needs a
-   `config.json` of its own in the mod folder, and the player copies `meshghost.exe` in beside it
-   once. **The client is deliberately NOT shipped in mod folders** (changed 2026-08-18): it is
+   `config.json` of its own, and the player copies `meshghost.exe` in beside it once — **both in
+   the GAME'S ROOT folder** (the one Steam installed: the folder with `TEVI.exe`, the outer
+   `Pseudoregalia` folder), **never in the mod folder, and the mod looks nowhere else** (the
+   user's call, 2026-09-05: the DLL has to sit where the loader finds it, the file a player
+   edits does not, and five folders deep is where nobody looks; `meshghost.log` and `replay\`
+   land beside them). The launcher logs the folder it used. Shipped configs are staged at
+   `games/<game>/config.json`, beside that game's `README.txt`, not inside the mod folder.
+   **The client is deliberately NOT shipped in mod folders** (changed 2026-08-18): it is
    9 MB, every such adapter would carry the same copy, and the alternative — a shared client found
    through a `%LOCALAPPDATA%` breadcrumb — is machinery that goes stale when a folder moves and
    silently picks the wrong one when two installs exist. `config.json` is 1 KB and does ship, so

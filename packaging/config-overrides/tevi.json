@@ -1,2 +1,3 @@
 {
+  "_comment": "Staging input for dev-scripts/stage-release.ps1, never shipped: string-valued client keys that tevi's config.json should carry instead of the root config.json's value. Empty means no difference. Keys starting with _comment are ignored."
 }

@@ -10,6 +10,8 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-05 — **HIGH PRIORITY, Pseudoregalia, user-reported on screen: the PLAYER and the player's SWORD get the game's blue "behind something" outline when a ghost stands between camera and player, and the outline can STICK to the sword after the ghost is gone. User's call: a ghost must never trigger that outline on the player or the sword at all** — measured 2026-09-05: with ghosts KEEPING custom depth both symptoms vanish until ONE melee attack, then body and sword stay blue; `probe_outline/` staged for the next launch — `pseudoregalia/UNVERIFIED.md`, the OPEN entry.
+- 2026-09-05 — **The client, config.json, log and replays moved to the GAME ROOT for TEVI and Pseudoregalia; the mods look nowhere else. Pseudoregalia CONFIRMED on screen; TEVI built and deployed to both installs, UNWATCHED** — `pseudoregalia/VERIFIED.md`, `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-04 **The vanishing player SFX are FIXED: every ghost stole the player's audio attenuation listener (cause and Lua fix user-confirmed); the shipped C++ rewrites the call instead and is UNWATCHED** -- `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-04 **Ghosts are AUDIBLE and should not be: confirmed by ear, parked as future work by the user's call -- silent by default with an opt-in setting; the silence clause covers one sound today** -- `ideas.md`, the SILENCE CLAUSE.
 - 2026-09-04 **Pseudoregalia CONFIRMED on screen: a display name with quotes reaches the nametag whole (the JSON escape fix), and a zip of two recordings plays as two ghosts; the title-screen gate from the same session is still unwatched** — `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.

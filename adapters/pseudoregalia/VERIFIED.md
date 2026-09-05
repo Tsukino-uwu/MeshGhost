@@ -196,6 +196,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — the chaser HOLDS through the pause menu and an item popup (ADR 0053, user-confirmed)
 - 2026-09-05 — eight chasers no longer despawn, respawn or teleport: the core's chaser queue could not keep up with this adapter's frame rate (user-confirmed)
 - 2026-09-05 — MeshGhost v1.1.5 and the Archipelago randomizer coexist in BOTH install orders, on a fresh Steam reinstall (user-confirmed on screen)
+- 2026-09-05 — the client, its config.json, log and replays live in the GAME'S ROOT folder and the mod looks nowhere else; Pseudoregalia (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5109,3 +5110,31 @@ on. The mod's `STATESEND` line aims a fake peer without asking the user where th
 that waits for the first line of the new session and launches the peer itself removes the manual
 step. And the "kill the client, the adapter respawns it" recipe (`running-the-rig.md`) applied the
 chaser toggle with no relaunch.
+
+## 2026-09-05 — the client, its config.json, log and replays live in the GAME'S ROOT folder and the mod looks nowhere else; Pseudoregalia (user-confirmed on screen)
+
+**The user's call, in their words:** *"if the mod itself sits in the mod folder, while client + config
+sits at the games root folder to be easily accessible/editable ... dll deep nested, client/config easy
+access"*, and then the full swap: *"the config shouldn't be read from inside the mod folder itself
+anymore. and just be sitting at the games root folder."* Roots named: `...\common\Pseudoregalia`,
+`...\common\TEVI`, and the standalone TEVI copy.
+
+**What was built.** `CoreLauncher.cpp` (`game_root_directory`, `config_search_dirs`): the game root is
+resolved from the GAME module's path, four levels above `pseudoregalia-Win64-Shipping.exe`, and it is
+the only folder searched for `meshghost.exe`, `config.json`'s `local_game_bridge` and `autostart`. The
+mod folder and the dlls folder are no longer fallbacks. `CoreLauncher.cs` (TEVI): `MESHGHOST_CORE_DIR`
+then `Paths.GameRootPath`, nothing else. Both launchers log the folder they used. The release stages
+each game's `config.json` at `games/<game>/` beside its README, no longer inside the mod folder; the
+READMEs, `stage-release.ps1`, `.gitignore`, `tevi-hotreload.ps1` and `_template/README.md` follow.
+
+**What the user saw (Pseudoregalia, Steam install, 2026-09-05):** with the mod folder holding only
+`dlls\` and `enabled.txt`, and `meshghost.exe` + `config.json` moved to `...\common\Pseudoregalia\`,
+the game launched, the mod started the client from there (`UE4SS.log`: *"using meshghost.exe from
+C:\...\Pseudoregalia -- its config.json, meshghost.log and replay folder live there"*; the client's
+banner names the same working directory and config), the loopback ghost and a fake peer rendered:
+*"This change also worked, i can see ghost and things so make it confirmed. the config + client exe
+location swap worked properly"*. `meshghost.log` and `replay\` now sit in that folder.
+
+**Scope.** Pseudoregalia only. TEVI's half is built and deployed to both installs and UNWATCHED
+(`UNVERIFIED.md`). A player upgrading from v1.1.5 or earlier has to move the two files up once; the
+READMEs say so.

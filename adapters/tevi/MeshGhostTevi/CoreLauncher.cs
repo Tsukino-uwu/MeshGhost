@@ -97,9 +97,9 @@ namespace MeshGhostTevi
                 // Said once, not every frame, and it names the folder rather than the failure:
                 // "meshghost.exe not found" with no location is the least useful form of this.
                 disabled = true;
-                log("MeshGhost: meshghost.exe is not beside this plugin -- not starting a core. " +
-                    "It should sit in the same MeshGhost folder as MeshGhostTevi.dll, alongside " +
-                    "config.json; if it was there, check whether antivirus removed it.");
+                log("MeshGhost: meshghost.exe was not found -- not starting a core. Put it in the TEVI " +
+                    "folder (the one with TEVI.exe) alongside config.json, or in the MeshGhost plugin " +
+                    "folder beside MeshGhostTevi.dll; if it was there, check whether antivirus removed it.");
                 return;
             }
 
@@ -122,7 +122,8 @@ namespace MeshGhostTevi
                 };
                 child = Process.Start(startInfo);
                 childPort = bridgePort;
-                log($"MeshGhost: started a core ({Path.GetFileName(exe)}, pid {child?.Id}) on bridge port {bridgePort}.");
+                log($"MeshGhost: started a core ({exe}, pid {child?.Id}) on bridge port {bridgePort} -- " +
+                    "its config.json, meshghost.log and replay folder live in that folder.");
             }
             catch (Exception e)
             {
@@ -301,33 +302,24 @@ namespace MeshGhostTevi
             }
         }
 
-        // Beside this assembly first, which is the shipping case and the only one a player ever
-        // hits. The rest exist because of ONE dev-only fact, measured 2026-08-28: BepInEx's
-        // ScriptEngine (the hot-reload tool, dev-scripts/tevi-hotreload.ps1) loads a plugin from
-        // BYTES, so Assembly.Location is the EMPTY STRING and "beside this assembly" resolves to
-        // nowhere. The adapter then correctly reported that no core sat beside it and declined to
-        // start one -- which is right, and left the whole hot-reload loop unable to autostart.
+        // Where the client, its config.json, its log and its replay folder live: the game's ROOT
+        // folder -- the one holding TEVI.exe and BepInEx\ -- and nowhere else. The user's call,
+        // 2026-09-05, a full swap: the DLL has to sit where BepInEx loads it, but the file a player
+        // edits does not, and five folders deep is where nobody looks. Until v1.1.5 this searched
+        // the plugin folder (and, for the hot-reload tool, BepInEx\scripts); those are deliberately
+        // NOT a fallback now, so there is exactly one place a config can be and the log names it.
         //
-        // Deliberately NOT a scan: each entry is a specific place meshghost.exe legitimately is.
-        // Paths.* are BepInEx's own; a wrong name here is a build error, not a silent miss, since
-        // this project compiles against BepInEx.Core (agent_docs/access-models.md).
+        // Paths.GameRootPath is BepInEx's own; a wrong name here is a build error, not a silent
+        // miss, since this project compiles against BepInEx.Core (agent_docs/access-models.md),
+        // and the installed BepInEx.dll carries the property (checked 2026-09-05).
+        //
+        // The environment override stays, ahead of the root: it is the dev escape hatch for
+        // running against a dev-built meshghost.exe (adapters/tevi/FLAGS.md), and it is not the
+        // mod folder.
         private static IEnumerable<string> CoreSearchDirs()
         {
-            string here = null;
-            try { here = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location); }
-            catch { }
-            yield return here;
-
-            // An explicit override wins over any guess, and is the escape hatch if a future
-            // loader breaks all of the below.
             yield return Environment.GetEnvironmentVariable("MESHGHOST_CORE_DIR");
-
-            // Where tevi-hotreload.ps1 puts the core in hot-reload mode.
-            yield return Path.Combine(Paths.BepInExRootPath, "scripts");
-            // And where the shipping layout puts it, for a hot-reloaded build whose core was
-            // never copied across.
-            yield return Path.Combine(Paths.PluginPath, "MeshGhostTevi");
-            yield return Path.Combine(Paths.PluginPath, "MeshGhost");
+            yield return Paths.GameRootPath;
         }
     }
 }

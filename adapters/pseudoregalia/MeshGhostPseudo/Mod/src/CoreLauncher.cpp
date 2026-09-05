@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <vector>
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -31,8 +32,8 @@ namespace MeshGhostPseudo
         // Resolved from the module rather than from the working directory or the game's install
         // path, because neither is reliable here: this mod is dropped into the GAME's UE4SS
         // Mods folder, so there is nothing to walk up to a MeshGhost release folder, and a
-        // game's working directory is whatever its launcher chose. The one thing that is always
-        // true is that meshghost.exe ships beside this DLL.
+        // game's working directory is whatever its launcher chose. This DLL's own folder is the
+        // fixed point; the client's folder is found from it (config_search_dirs).
         auto module_directory_impl() -> std::wstring
         {
             HMODULE self{};
@@ -83,6 +84,53 @@ namespace MeshGhostPseudo
         return module_directory_impl();
     }
 
+    // The folder Steam installed the game into -- the one holding the OUTER "pseudoregalia"
+    // folder, three levels above the game's own exe:
+    //   <Root>\pseudoregalia\Binaries\Win64\pseudoregalia-Win64-Shipping.exe
+    // Resolved from the GAME module (handle nullptr), not from this DLL, so it does not depend on
+    // how deep UE4SS nests its Mods folder. Empty on any failure; every caller skips empties.
+    auto game_root_directory() -> std::wstring
+    {
+        std::wstring path(MAX_PATH, L'\0');
+        for (;;)
+        {
+            DWORD len = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+            if (len == 0)
+            {
+                return {};
+            }
+            if (len < path.size())
+            {
+                path.resize(len);
+                break;
+            }
+            path.resize(path.size() * 2);
+        }
+        for (int up = 0; up < 4; ++up) // the exe name, Win64, Binaries, the inner pseudoregalia
+        {
+            auto slash = path.find_last_of(L"\\/");
+            if (slash == std::wstring::npos)
+            {
+                return {};
+            }
+            path.resize(slash);
+        }
+        return path;
+    }
+
+    // Where the client, its config.json, its log and its replay\ folder live: the game's ROOT
+    // folder, and nowhere else. The user's call, 2026-09-05, a full swap: "dll deep nested,
+    // client/config easy access" -- the DLL has to sit where UE4SS loads it, the file a player
+    // edits does not, and five folders deep is where nobody looks. Until v1.1.5 the mod folder
+    // (and the dlls folder beside this DLL) were searched instead; they are deliberately NOT a
+    // fallback now, so there is exactly one place a config can be and the log can name it. A
+    // list rather than a string so the callers' loops read the same as before, and so a second
+    // location can be added without touching them if that decision is ever revisited.
+    auto config_search_dirs() -> std::vector<std::wstring>
+    {
+        return {game_root_directory()};
+    }
+
     auto dev_toggle_present(const wchar_t* file_name) -> bool
     {
         const std::wstring dir = module_directory_impl();
@@ -104,14 +152,7 @@ namespace MeshGhostPseudo
     // else), which keeps the "what is a valid colour" answer in one place.
     auto config_string_value(const char* key, std::string& out) -> bool
     {
-        std::wstring dirs[2];
-        dirs[1] = module_directory();
-        dirs[0] = dirs[1];
-        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
-        {
-            dirs[0].resize(slash);
-        }
-        for (const std::wstring& dir : dirs)
+        for (const std::wstring& dir : config_search_dirs())
         {
             if (dir.empty())
             {
@@ -160,14 +201,7 @@ namespace MeshGhostPseudo
     // from a hotkey they pressed.
     auto config_bool_value(const char* key, bool missing) -> bool
     {
-        std::wstring dirs[2];
-        dirs[1] = module_directory();
-        dirs[0] = dirs[1];
-        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
-        {
-            dirs[0].resize(slash);
-        }
-        for (const std::wstring& dir : dirs)
+        for (const std::wstring& dir : config_search_dirs())
         {
             if (dir.empty())
             {
@@ -229,14 +263,7 @@ namespace MeshGhostPseudo
         //    Both are checked, parent first, matching how the launcher looks for meshghost.exe:
         //    the player's folder is the answer, and the dlls folder is there so a developer
         //    copying files by hand is not caught out.
-        std::wstring dirs[2];
-        dirs[1] = module_directory();
-        dirs[0] = dirs[1];
-        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
-        {
-            dirs[0].resize(slash);
-        }
-        for (const std::wstring& dir : dirs)
+        for (const std::wstring& dir : config_search_dirs())
         {
             if (dir.empty())
             {
@@ -278,14 +305,7 @@ namespace MeshGhostPseudo
     // resolve_bridge_base_port. Absent, or anything but false, means autostart.
     auto config_disables_autostart() -> bool
     {
-        std::wstring dirs[2];
-        dirs[1] = module_directory();
-        dirs[0] = dirs[1];
-        if (auto slash = dirs[0].find_last_of(L"\\/"); slash != std::wstring::npos)
-        {
-            dirs[0].resize(slash);
-        }
-        for (const std::wstring& dir : dirs)
+        for (const std::wstring& dir : config_search_dirs())
         {
             if (dir.empty())
             {
@@ -420,46 +440,37 @@ namespace MeshGhostPseudo
             return;
         }
 
-        std::wstring dir = module_directory();  // the exported one, same result
-        if (dir.empty())
+        // Where the client lives decides where its config.json, meshghost.log and replay\ folder
+        // live too: the child runs with that folder as its working directory. Game root first,
+        // then the mod folder, then the dlls folder -- see config_search_dirs for why that order.
+        std::wstring exe, dir;
+        for (const std::wstring& candidate : config_search_dirs())
         {
-            spawn_disabled = true;
-            Output::send(STR("[MeshGhostPseudo] could not resolve this mod's own folder -- not starting a core. "
-                             "Start meshghost.exe yourself.\n"));
-            return;
+            if (candidate.empty())
+            {
+                continue;
+            }
+            if (file_exists(candidate + L"\\meshghost.exe"))
+            {
+                dir = candidate;
+                exe = dir + L"\\meshghost.exe";
+                break;
+            }
         }
-
-        // UE4SS loads a C++ mod from <ModFolder>\dlls\main.dll, so the module directory is the
-        // dlls folder, NOT the folder a player drags into their game. The exe ships in the mod
-        // folder (one up) because that is the thing they can see and edit config.json in; the
-        // dlls folder is checked too so a developer copying files by hand isn't caught out.
-        std::wstring parent = dir;
-        if (auto slash = parent.find_last_of(L"\\/"); slash != std::wstring::npos)
-        {
-            parent.resize(slash);
-        }
-
-        std::wstring exe = parent + L"\\meshghost.exe";
-        if (!file_exists(exe))
-        {
-            exe = dir + L"\\meshghost.exe";
-        }
-        else
-        {
-            dir = parent;
-        }
-        if (!file_exists(exe))
+        if (exe.empty())
         {
             // Said once, then never again: a missing exe does not fix itself mid-session, and a
             // per-tick complaint would bury everything else in the log. This is also what an
             // antivirus quarantine looks like from in here, so the message names that
             // possibility -- see agent_docs/risks.md.
             spawn_disabled = true;
-            Output::send(STR("[MeshGhostPseudo] meshghost.exe is not in the MeshGhostPseudo folder -- not "
-                             "starting a core. It should sit next to this mod's dlls folder, alongside "
-                             "config.json; if it was there, check whether antivirus removed it.\n"));
+            Output::send(STR("[MeshGhostPseudo] meshghost.exe was not found -- not starting a core. Put it in the "
+                             "game's own folder (the one Steam installed, next to the inner pseudoregalia folder) "
+                             "alongside config.json, or in the MeshGhostPseudo mod folder; if it was there, check "
+                             "whether antivirus removed it.\n"));
             return;
         }
+        Output::send(STR("[MeshGhostPseudo] using meshghost.exe from {} -- its config.json, meshghost.log and replay folder live there.\n"), dir);
 
         // No relay settings here, on purpose -- see this class's header comment. The child reads
         // config.json out of the working directory set below.

@@ -39,11 +39,13 @@ Two ways to run the client -- pick either:
      folder, which is already set up that way.
 
   2. LET THE GAME OPEN AND CLOSE IT (optional -- location DOES matter)
-     Put meshghost.exe in the game's mod folder and the mod will start it
-     hidden when you launch the game and shut it down when you quit. Nothing
-     to open and nothing to remember. Each game's README in games\ says
-     exactly which folder, and it is the only thing that has to be in a
-     particular place.
+     Put meshghost.exe and config.json in the GAME'S OWN FOLDER (the one
+     Steam installed: for TEVI the folder with TEVI.exe, for Pseudoregalia
+     the outer Pseudoregalia folder) and the mod starts the client hidden
+     when you launch the game and stops it when you quit. Each game's README
+     in games\ shows the exact path. The mod itself sits deep inside the
+     game's mod folder; since v1.1.6 it looks for these two files ONLY in
+     the game's folder, never in its own.
 
      IF THIS TRIPS YOUR ANTIVIRUS, USE OPTION 1. A game launching a second
      program is a shape antivirus software watches for, and some will block
@@ -55,7 +57,7 @@ Two ways to run the client -- pick either:
      not have to uninstall anything: "autostart": false in that game's
      config.json -- see "Turning autostart off" below.
 
-     The pairing rule applies here too: a copy in a mod folder reads the
+     The pairing rule applies here too: the copy in the game's folder reads the
      config.json next to IT, not this one, so that is the file you edit for
      your host's address.
 
@@ -73,7 +75,7 @@ Turning autostart off (only if you want it):
   run MeshGhost, not a debug setting.
 
   YOU MAY NOT NEED IT AT ALL. For TEVI and Pseudoregalia, the mod only starts
-  the client because you copied meshghost.exe into the mod folder -- do not
+  the client because you copied meshghost.exe into the game's folder -- do not
   copy it in (or take it out again) and there is nothing to switch off. The
   setting matters most for the two Pokemon games, where the script looks for
   the client in the MeshGhost root and finds it whether you want it to or not.
@@ -322,7 +324,7 @@ Setup, once:
      "local_game_bridge" -- internal, on your own PC only. Leave this
                alone. Emerald and Crystal pick a free port by themselves,
                TEVI is told its port by its own mod, and Pseudoregalia
-               reads this key from its mod folder's config.json to decide
+               reads this key from the config.json in your Pseudoregalia folder to decide
                where its port range starts (see "two people on the SAME
                machine" below).
      "stats" -- "0s" (the default) is off. Any other duration, e.g. "10s",
@@ -681,9 +683,9 @@ Playing, every session (everyone, including the host):
    and close it again when you quit. There is no order to get right.
 
    Pseudoregalia and TEVI install their mod INTO the game, so they each
-   need the one-time copy of meshghost.exe into that game's mod folder,
+   need the one-time copy of meshghost.exe and config.json into that game's own folder,
    described in games\<your game>\README.txt. Their settings then live in
-   that same mod folder's config.json, NOT the config.json next to this
+   that copied config.json, NOT the config.json next to this
    README: once you drag the mod into your game, that's the copy it reads.
 
    Emerald and Crystal run from this folder. The script finds
@@ -738,7 +740,7 @@ saying which executable it was, which folder it read its config from, and
 whether a game started it or you did.
 
 If a game started MeshGhost for you and you want to SEE it working, set
-"show_console": true in that mod folder's config.json -- you'll get a real
+"show_console": true in that game folder's config.json -- you'll get a real
 window with live output. It's off by default on purpose.
 
 Common things to check:
@@ -755,10 +757,10 @@ Common things to check:
   port forwarded -- that's their setup, not yours.
 - Loaded your game's mod/script and nothing happened? Double-check you
   loaded it from the right folder under games\. For TEVI and
-  Pseudoregalia, check you did the one-time copy of meshghost.exe into
-  that game's mod folder -- their log names the exact folder it looked in.
-- Pseudoregalia, and nothing happens at all? Check meshghost.log in the
-  MeshGhostPseudo folder. No log file means the mod never started the
+  Pseudoregalia, check you did the one-time copy of meshghost.exe and config.json into
+  that game's own folder -- their log names the exact folder it looked in.
+- Pseudoregalia, and nothing happens at all? Check meshghost.log in your
+  Pseudoregalia folder. No log file means the mod never started the
   client: look in ue4ss\UE4SS.log, which will say whether meshghost.exe was
   missing (antivirus is a real possibility -- see the note below) or the
   start itself failed. Also make sure "autostart" is not false in that
@@ -814,7 +816,7 @@ What you can do:
    the build is public.
 
 2. If it is specifically the Pseudoregalia mod STARTING meshghost.exe that
-   your scanner objects to, put "autostart": false in the mod folder's
+   your scanner objects to, put "autostart": false in the game folder's
    config.json and start meshghost.exe yourself instead. That path is
    unchanged and fully supported.
 

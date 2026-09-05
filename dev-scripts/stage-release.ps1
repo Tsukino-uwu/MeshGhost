@@ -94,17 +94,21 @@ if (-not (Test-Path -LiteralPath $replayActive)) {
     New-Item -ItemType Directory -Force -Path $replayActive | Out-Null
 }
 
-# Each mod that installs INTO a game gets its own config.json, but NOT its own copy of the
-# client -- the mod starts the client from beside its own DLL, and shipping a 9 MB binary per
-# game was rejected on 2026-08-18. The player copies meshghost.exe in once per game, which is
-# the one manual step in the install and is called out in each game's README.txt.
-# Every folder that gets a config.json from the template. Emerald and Crystal joined on
-# 2026-09-02 (the user's ask; plans.md "Settings" step 3): their scripts point the core they
-# start at the config beside the script, so each Pokemon game carries its own settings the way
-# TEVI and Pseudoregalia do, and an overrides file beside the script works for them the same way.
+# Each game gets its own config.json, but NOT its own copy of the client -- shipping a 9 MB
+# binary per game was rejected on 2026-08-18. The player copies meshghost.exe in once per game,
+# which is the one manual step in the install and is called out in each game's README.txt.
+#
+# WHERE the per-game config is staged changed on 2026-09-05 (the user's call): for TEVI and
+# Pseudoregalia it sits in games\<game>\ beside that game's README.txt, NOT inside the mod folder
+# a player drags into the game. The mods now look for meshghost.exe and config.json in the
+# GAME'S ROOT folder only (CoreLauncher.cs / CoreLauncher.cpp), so a config staged inside the mod
+# folder would be dragged in with the mod and then read by nothing -- the exact trap a player
+# editing "the config.json in the mod folder" would fall into. The player copies this file up
+# with the exe. Emerald and Crystal are unchanged: their scripts run from the release folder and
+# read the config beside the script (joined 2026-09-02; plans.md "Settings" step 3).
 $modFolders = @(
-    'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo',
-    'packaging\release\games\tevi\MeshGhost',
+    'packaging\release\games\pseudoregalia',
+    'packaging\release\games\tevi',
     'packaging\release\games\pokemon\emerald',
     'packaging\release\games\pokemon\crystal'
 )
@@ -114,8 +118,8 @@ $modFolders = @(
 # it was where name and colour go. A staging input has no business in the download; a game with
 # no file here simply gets the root client block unchanged.
 $overridesFor = @{
-    'packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo' = 'packaging\config-overrides\pseudoregalia.json'
-    'packaging\release\games\tevi\MeshGhost' = 'packaging\config-overrides\tevi.json'
+    'packaging\release\games\pseudoregalia' = 'packaging\config-overrides\pseudoregalia.json'
+    'packaging\release\games\tevi' = 'packaging\config-overrides\tevi.json'
     'packaging\release\games\pokemon\emerald' = 'packaging\config-overrides\emerald.json'
     'packaging\release\games\pokemon\crystal' = 'packaging\config-overrides\crystal.json'
 }
