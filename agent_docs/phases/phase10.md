@@ -514,3 +514,18 @@ and `ci.yml`.
 - `testing.md`: "all fourteen" fuzz targets became 25 in the tree, 19 campaigned by CI; the table lists every target; the six without a `ci.yml` step are named with their reasons (`FuzzSchedule` and `FuzzNameDeliverySurvivesAnyConnectOrdering` are socket-bound by design; the two sanitizer pins and the two encoder pins were never wired, a decision written down as one); `FuzzScheduleConvergence` corrected to `FuzzSchedule`; the `internal/` test inventory.
 - `docs/config.md`: `autostart`, the three `replay.indicator*` keys and `predict: damped` documented; `ghost_collision` and `resume_grace_seconds` shipped values corrected; "one file ships" became the root file plus a client-only copy per game. `docs/security.md` and `docs/networking.md`: the depth and display-name bounds. `docs/reviewing.md`: CI fuzzes a written list, not every target. `.github/workflows/ci.yml`: the header comment says so too (comment only; the next push will run CI on it).
 - Left as a Go-side note: `core/schedule_convergence_fuzz_test.go`'s comment still says "the shipped 250ms interp", a test comment a docs pass does not touch.
+
+## 2026-09-06 — the local-ghost caps come out: chasers and replay files are bounded by the roster only
+
+A tester had been stopped at 8 chasers and blamed a relay capped at 16; it was `maxChasers` in
+`core/chaser.go`, with `maxActiveReplays` (16) over replays and chasers together in `core/replay.go`
+and `replaycontrol.go` -- neither ever touched the relay, since a local ghost never leaves the
+machine. Both removed on the user's call (*"just make it unlimited/no cap? allow people to do as much
+as their game can handle"*). The one bound left is `protocol.MaxRosterSize` (512 seats, shared with
+real peers): `admitLocalPeer` already refuses past it and logs once, and `startChasers` clamps a
+count to it so the fuzzer's 1<<20 never allocates a million queues. `maxChaserBehind` (10 min) stays.
+Tests pin the new behaviour -- `TestChaser...` 99 asked = 99 started and 1<<20 = 512;
+`TestReplayNoCapAndPrefixNeverEscapeTheFolder` 19 files = 19 loaded; the everything-fuzzer's
+local-ghost invariant is now files + chaser count. `run-gotests.bat` green, root binaries rebuilt
+with `-o`, `meshghost.exe` deployed to all four game roots and the release staging copy. The flag
+text and `docs/config.md` say "no cap". Context: `phase11.md` 2026-09-06 (the camera-rig session).
