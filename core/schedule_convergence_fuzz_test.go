@@ -93,7 +93,7 @@ const fuzzScheduleConfigBytes = 5
 // (see fuzzSchedule* above): every value here has to stay well inside
 // fuzzScheduleConvergeWait, or a slow-but-correct configuration reports as a
 // convergence failure and the target starts testing patience instead of code.
-// The shipped 250ms interp is NOT in this list for that reason -- what is
+// The shipped interp (450ms since 2026-09-02; 250ms before) is NOT in this list for that reason -- what is
 // being varied is the RELATIONSHIP between the knobs (is the delay above or
 // below the sample gap, is the keepalive above or below the stale window),
 // which is where the seams are, and that relationship is preserved by

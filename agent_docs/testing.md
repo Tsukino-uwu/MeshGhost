@@ -166,7 +166,7 @@ about networking, only about **adapter behaviour that depends on the peer differ
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target — 19 of the 25 targets; the table below says which six run as seed-corpus tests only, and why | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target — 23 of the 25 targets; the table below says which two run as seed-corpus tests only, and why | no |
 | **gofmt** | yes (`dev-scripts/preflight.ps1`) | yes — `gofmt -l` on tracked `.go`, added 2026-08-18 | no |
 
 **The race detector used to be the one real hole, and it cost a round trip before it was
@@ -416,15 +416,17 @@ checks):
 | `FuzzEverything` (core) | One whole client's configuration, event order, timing and values fuzzed at once — the replay-era features on top of the adapter and relay paths — against invariants a player would state. No relay socket, so it can run in CI where the schedule fuzzers cannot. |
 | `FuzzParseNeverPanicsAndOnlyAdmitsDocumentedChords` (**internal/hotkey**) | A chord string from config.json never panics the parser, and anything accepted is a documented modifier set plus one documented key that prints back to itself. |
 | `FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane` (**cmd/meshghost**) | Any hand-edited config.json value leaves the flag default in place rather than a zero or garbage, and never panics. |
+| `FuzzAppendEnvelopeMatchesMarshal` (protocol) | Our hand-built envelope is byte-identical to what `encoding/json` would produce, for every payload `encoding/json` itself produced — the hazard is encoding (HTML escaping, U+2028/9, invalid UTF-8 → U+FFFD, whitespace), not logic. Wired into CI 2026-09-06. |
+| `FuzzExtrasSizingMatchesMarshal` (protocol) | The fast `extras` sizer computes exactly the length `json.Marshal` would; a disagreement is a moved validation boundary, a state one end accepts and the other rejects. Wired 2026-09-06. |
+| `FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog` / `FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing` (protocol) | Whatever arrives, the sanitized name is safe to log and to re-send as JSON, the colour is `#RRGGBB` or empty, and sanitizing twice equals sanitizing once — the relay and every client both do it. Wired 2026-09-06. |
 
-**Six targets exist that CI does NOT campaign** (2026-09-06; they still run in every `go test` on
-their seed corpus, and each has a stated reason):
-
-| Target | Why no CI step |
-|---|---|
-| `FuzzSchedule` (core) and `FuzzNameDeliverySurvivesAnyConnectOrdering` (core) | Stand up real relay sockets per iteration; a continuous campaign is socket-bound long before it is idea-bound (ephemeral-port exhaustion, TIME_WAIT). Deliberately opt-in, run short and at low parallelism by hand; the file headers say so. |
-| `FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog`, `FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing` (protocol) | Sanitizer idempotence and output-safety pins written 2026-08-28; never given a `ci.yml` step. No stated reason — a candidate for wiring, same as the two that shipped unwired before. |
-| `FuzzAppendEnvelopeMatchesMarshal`, `FuzzExtrasSizingMatchesMarshal` (protocol) | Encoder-vs-`encoding/json` pins (escaping, U+2028/9, invalid UTF-8, float formatting). No stated reason either; same candidate status. |
+**Two targets exist that CI does NOT campaign** (they still run in every `go test` on their seed
+corpus): `FuzzSchedule` and `FuzzNameDeliverySurvivesAnyConnectOrdering` (both `core`) stand up real
+relay sockets per iteration, so a continuous campaign is socket-bound long before it is idea-bound
+(ephemeral-port exhaustion, TIME_WAIT). Deliberately opt-in, run short and at low parallelism by hand;
+the file headers say so. **Four more sat unwired until 2026-09-06** — the two encoder pins and the two
+sanitizer pins above — with no stated reason; the user's rule is that CI runs every Go test it can, so
+they have steps now.
 
 **Two targets have shipped written-but-unwired**, a pattern rather than a slip:
 `FuzzListenerSurvivesArbitraryDatagrams` (fixed 2026-08-17) and `FuzzValidateWorldIsStableAcrossTheWire` (written with `world.v1`, wired later the same day, having

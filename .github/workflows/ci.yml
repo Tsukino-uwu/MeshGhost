@@ -2,12 +2,12 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against nineteen targets across eight packages (protocol 9,
+# short fuzz campaign against twenty-three targets across eight packages (protocol 13,
 # bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1).
-# That is NOT every target in the tree: `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l`
-# counts 25 on 2026-09-06, and agent_docs/testing.md names the six with no step here and why
-# (two are socket-bound schedule fuzzers that are opt-in on purpose; four are encoder and
-# sanitizer pins nobody wired). Count both rather than trusting this line, which said eleven
+# That is every target in the tree but two: `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l`
+# counts 25 on 2026-09-06, and agent_docs/testing.md names the two with no step here and why
+# (both are socket-bound schedule fuzzers that are opt-in on purpose; they still run on their
+# seed corpus in the test job). Count both rather than trusting this line, which said eleven
 # across four for as long as the two bridge targets below had existed. Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
@@ -291,6 +291,21 @@ jobs:
       # than the walk is a hole in the field that never gets decoded.
       - name: Fuzz protocol - the two JSON depth bounds agree
         run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzDepthBoundsAgreeAndNeverPanic 30s
+      # Four pins that existed in the tree without a step here until 2026-09-06 (the user's
+      # call: CI runs every Go test it can). Two are encoder-vs-encoding/json pins -- our hand
+      # encoders must produce exactly the bytes json.Marshal would, or a size limit checked at
+      # one end and enforced at the other becomes a moved validation boundary. Two are the
+      # sanitizer pins -- a display name or colour must be safe to log and re-send whatever
+      # arrives, and sanitizing twice must equal sanitizing once, because the relay and every
+      # client both do it.
+      - name: Fuzz protocol - hand-built envelopes match encoding/json byte for byte
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzAppendEnvelopeMatchesMarshal 30s
+      - name: Fuzz protocol - the extras size check matches encoding/json's length
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzExtrasSizingMatchesMarshal 30s
+      - name: Fuzz protocol - a sanitized display name is always safe to show and log
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzSanitizeDisplayNameIsAlwaysSafeToShowAndLog 30s
+      - name: Fuzz protocol - a sanitized name colour is a hex colour or nothing
+        run: bash dev-scripts/ci-fuzz.sh ./protocol FuzzSanitizeNameColorIsAlwaysAHexColourOrNothing 20s
       - name: Fuzz relay - survives arbitrary bytes and still serves clients
         run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryLines 45s
       # The relay's POST-JOIN dispatch had no fuzz coverage at all until
