@@ -1175,7 +1175,7 @@ both exes lacked (`cmd/*/winres/winres.json` compiled by go-winres in `release.y
 recipe in `docs/reviewing.md`) — SignPath refuses to sign a file without product name and version
 metadata. **The two adapter DLLs stay unsigned by design:** the programme signs only verifiable CI
 builds and CI cannot build them; they are not flagged and are not user-launched. Linux/macOS are
-outside Authenticode. **Waiting on the user:** submitting the form at signpath.org/apply, which asks
+outside Authenticode. **Submitted by the user 2026-09-06** — the form at signpath.org/apply, which asks
 for reputation evidence the project barely has (0 stars, 64 asset downloads across 28 releases on
 2026-09-06) — a rejection on that ground is possible and would be worth re-applying after. **Then
 mine:** a secret named in the repo settings, two IDs, and the upload/submit/wait/package step.

@@ -10,6 +10,7 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-06 — **Code signing: the SignPath Foundation application was SUBMITTED 2026-09-06 (the user's form); waiting on their email. Policy page and Windows version resource shipped the same day. On approval: the user adds the API token as a repo secret and hands over the organization ID and project slug, then the signing step goes into `release.yml`** — `security-design.md`, the code signing entry; `docs/code-signing.md`.
 - 2026-09-05 — **HIGH: v1.1.7 CRASHES at a new engine fault site (three dumps tonight, one tester's; the weapon-model apply is on one stack). Hardened DLL deployed and UNPROVEN; the crash watcher is armed. If it recurs, the feature ships OFF** — `pseudoregalia/UNVERIFIED.md`, the HIGH entry.
 - 2026-09-05 — **The stuck blue sword outline is FIXED and CONFIRMED (afterimage sweep stripped the player's body via `cachedMesh`; ownership check); the outline on the player behind a ghost STAYS by the user's call (option 3). Open cousin: a player afterimage born on a ghost can lose its own silhouette** — `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-05 — **The client, config.json, log and replays moved to the GAME ROOT for TEVI and Pseudoregalia; the mods look nowhere else. Pseudoregalia CONFIRMED on screen; TEVI built and deployed to both installs, UNWATCHED** — `pseudoregalia/VERIFIED.md`, `pseudoregalia/UNVERIFIED.md`.
