@@ -255,6 +255,64 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
+## [OPEN] BUILT and MEASURED 2026-09-06 (later) -- the adapter's own per-ghost tick cut from 11.7 to 7.8 ms at 50 ghosts; the no-use parts switched off at spawn buy NOTHING measurable
+
+**What was built** (one DLL, deployed to both installs; `FLAGS.md` has the two new toggles):
+
+1. The outline hold (`tail_sweeps`) reads a per-class list of object properties resolved once
+   (`mg_object_properties`) instead of walking and NAMING every property of the pawn's class per
+   ghost per tick; the slide-timeline and blob-shadow function lookups go through a UFunction
+   cache (`mg_cached_function`); the per-tick location write resolves its four parameters and six
+   inner fields once (`StructTripleLayout`); the ghost-light sweep enumerates the world's lights
+   once per sweep tick for all ghosts instead of twice per ghost; the recall-glow scan and the VFX
+   mirror share one Niagara enumeration per tick, and the recall scan caches "owned by the pawn +
+   recall asset" per component pointer (`g_recall_identity`). Three sub-slots inside `ls_rest`.
+2. `strip_ghost_no_use_parts` at spawn: `SpringArm1` (tick off + Deactivate), `DialogueCam` tick,
+   `CapsuleComponent` tick, the ghost's `AIController` tick with `PathFollowingComponent` and
+   `ActionsComp`. **`SpringArm` stays on -- it is the blob shadow's arm** (the pawn dump's attach
+   tree: `SpringArm1`'s only child is `DialogueCam`; the arm mirror feeds `SpringArm`). Character
+   movement is opt-in (`ghost_charmove_off.txt`) until a moving peer has been watched.
+
+**Measured** (perf_report.txt, median of five 2-second reports per leg, ghost count verified from
+the nametag slot's calls-per-frame, player standing still on ZONE_Dungeon, cap 144, fake peers
+orbiting at radius 250; a settle of 60 s after the 50 spawned):
+
+| ms per frame | old DLL, 0 | old DLL, 50 | new, 0 | new, 50 parts kept | new, 50 parts off |
+|---|---|---|---|---|---|
+| adapter tick | 0.76-0.96 | 11.7 | 1.01 | 7.53 | 7.78 |
+| `tail_sweeps` | 0 | 3.7 | 0 | 0.80 | 0.79 |
+| `tail_light` | 0 | 0.86 | 0 | 0.37 | 0.45 |
+| `loop_pose_xf` | 0 | 2.13 | 0 | 2.10 | 2.02 |
+| `ls_rest` (of which recall / vfxmirror / json) | 0.66-0.81 | 2.29 | 0.85 (0.07 / 0.28 / 0.01) | 2.28 (0.13 / 0.45 / 0.02) | 2.44 (0.17 / 0.52 / 0.02) |
+| game fps | 144 | ~40 | 144 | 47 | 48 |
+
+**What it says.** (a) The caches took a third off the adapter's 50-ghost tick and the two world-walk
+slots fell by ~3.4 ms together. (b) `loop_pose_xf` did NOT move: its ~40 us per ghost is the
+engine's own `K2_SetActorLocationAndRotation` (a 28-component actor moved with teleport) plus the
+Blueprint slide-timeline handler call, not our lookups. (c) `ls_rest` still grows by ~1.5 ms from 0
+to 50 ghosts and the three named sub-slots explain ~0.3 of that; the rest of its ~2,900 lines needs
+splitting before it can be cut. (d) At zero ghosts the tick is 1.0 ms and the shared Niagara walk
+is 0.28 of it -- UE4SS's `FindAllOf` walks the entire object array with a superclass-chain compare
+per object, so one walk is ~1.4 ms in this session and grows with everything pooled. (e) **The
+no-use parts cost nothing measurable, adapter-side or in fps**, which agrees with the 50-ghost
+matrix (no single one of them left the all-off band). Whether that spawn-time change ships is the
+user's call; the agent's recommendation is not to ship a visual risk with no measured gain.
+
+**What the user has NOT judged yet:** the orbiting ghosts with the parts off (shadow on the ground,
+pose, anything odd); the white ball particles they see around ghosts (every ghost's
+`NE_Particles_System` spawns attached to its capsule -- the probe hook saw 51 of them -- and the
+user watched the balls thin out when ghosts despawned, so it is the leading candidate; the
+subtraction at 50 ghosts is unusable because `hide_ghost_fx.txt` re-walks the world per ghost per
+tick while armed, so it is a two-ghost test).
+
+**A freeze, attributed to the SCRATCH PROBE, one negative so far:** with `probe_partnames` loaded
+(Lua `RegisterHook` on `NiagaraFunctionLibrary:SpawnSystemAtLocation` and `:SpawnSystemAttached`),
+a melee sword attack among 50 ghosts froze the game thread at 16:06:39 while UE4SS's own thread
+kept logging; the last game-thread line was UE4SS's *"Tried to execute UFunction::FuncPtr hook but
+there was no function map entry for ... ExecuteUbergraph_BP_PlayerGoatMain. Executing original
+function instead."* The user force-closed it. Relaunched with the pristine stub and the same DLL,
+the same attack did not freeze. `pitfalls/by-lesson.md` 2026-09-06.
+
 ## [OPEN] MEASURED 2026-09-06 -- what a ghost costs, part by part, and half of it is the ADAPTER's own per-ghost tick
 
 **The user's ask:** *"what parts of the player are the most performance heavy? ... spawn ghosts

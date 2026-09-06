@@ -2926,6 +2926,85 @@ namespace MeshGhostPseudo
             return found;
         }
 
+        // **The UFunction cache (2026-09-06), the property cache's twin.** `GetFunctionByNameInChain`
+        // has the same shape as the property walk the cache above exists for -- an FName built from
+        // the literal, then a walk of every class in the chain's function list -- and three call
+        // sites made it PER GHOST PER TICK: the slide-timeline update handler (`loop_pose_xf`, 2.1
+        // ms at 50 ghosts), the blob-shadow driver (`loop_mirrors`) and the location/rotation write.
+        // The function a class exposes under a name cannot change while the class is loaded, so one
+        // resolution per (class, name) hands back the exact pointer every later call would have
+        // found; misses are cached for the same reason as above. **Cleared in `release_all_ghosts`**
+        // beside the property cache: the keys are UClass pointers of the level being torn down.
+        std::unordered_map<PropertyCacheKey, UFunction*, PropertyCacheHash, PropertyCacheEqual> g_function_cache;
+
+        auto mg_cached_function(UObject* object, const CharType* name) -> UFunction*
+        {
+            if (!object || !name)
+            {
+                return nullptr;
+            }
+            UClass* owner = object->GetClassPrivate();
+            if (!owner)
+            {
+                return nullptr;
+            }
+            const PropertyCacheProbe probe{owner, StringViewType(name)};
+            if (const auto it = g_function_cache.find(probe); it != g_function_cache.end())
+            {
+                return it->second;
+            }
+            UFunction* found = object->GetFunctionByNameInChain(name);
+            g_function_cache.emplace(PropertyCacheKey{owner, StringType(name)}, found);
+            return found;
+        }
+
+        // **The per-class OBJECT-PROPERTY list (2026-09-06)** -- what the outline hold walks. The
+        // hold visited every property of `BP_PlayerGoatMain_C`'s whole chain per ghost per tick,
+        // building two strings per property (the field-class name and the property name) to find
+        // the object-valued ones, then re-resolving each by name: `tail_sweeps`, 3.7-4.0 ms of a
+        // 50-ghost frame, ~80 us per ghost, for a walk that has never once found custom depth on
+        // (`FLAGS.md`, GHOST_HOLD_OUTLINE_OFF). The set of object properties a class declares is
+        // fixed for the life of the class, so it is resolved once per class and the per-tick work
+        // becomes the value reads alone. Same lifetime story and the same clear as the two above.
+        std::unordered_map<UClass*, std::vector<FProperty*>> g_object_property_cache;
+
+        auto mg_object_properties(UClass* owner_class) -> const std::vector<FProperty*>&
+        {
+            static const std::vector<FProperty*> none;
+            if (!owner_class)
+            {
+                return none;
+            }
+            if (const auto it = g_object_property_cache.find(owner_class); it != g_object_property_cache.end())
+            {
+                return it->second;
+            }
+            std::vector<FProperty*> found;
+            for (FProperty* property : TFieldRange<FProperty>(owner_class, EFieldIterationFlags::Default))
+            {
+                if (property && property->GetClass().GetName() == STR("ObjectProperty"))
+                {
+                    found.push_back(property);
+                }
+            }
+            return g_object_property_cache.emplace(owner_class, std::move(found)).first->second;
+        }
+
+        // **The recall-glow identity cache (2026-09-06).** The local recall-glow scan asked, for
+        // EVERY Niagara component in the world every 15 ticks, "is your full name under the local
+        // pawn, and is your asset the recall glow?" -- two full-name strings per component -- which
+        // is why `ls_rest` GREW with ghost count (each ghost brings its own Niagara components and
+        // every mirrored burst leaves a pooled one behind). Both answers are fixed for a component's
+        // life, so they are cached by pointer and rebuilt from the live enumeration on each scan,
+        // with the same stated limit as the VFX mirror's `vfx_identity`: a freed address handed to a
+        // different component inherits the old answer until the next rebuild. Keyed to the pawn it
+        // was built for and dropped with the other caches at level teardown, so a new pawn never
+        // reads the old one's answers.
+        // stale-safe: keys only, never dereferenced -- a pointer here is compared, and the map is
+        // rebuilt from the live enumeration every scan and cleared in release_all_ghosts.
+        std::unordered_map<UObject*, bool> g_recall_identity;
+        UObject* g_recall_identity_pawn = nullptr; // stale-safe: compared, never dereferenced; cleared in release_all_ghosts
+
         // The drop-in for `mg_property_value<T>(object, name)`. Same nullptr
         // contract: a missing property, a null object or a null class all read as nullptr, which
         // every call site in this file already handles.
@@ -6372,7 +6451,8 @@ namespace MeshGhostPseudo
             {
                 return false;
             }
-            UFunction* function = ghost->GetFunctionByNameInChain(STR("manageBlobShadow"));
+            // Cached (2026-09-06): called once per ghost per tick from `loop_mirrors`.
+            UFunction* function = mg_cached_function(ghost, STR("manageBlobShadow"));
             if (!function)
             {
                 return false;
@@ -6739,7 +6819,8 @@ namespace MeshGhostPseudo
             {
                 return false;
             }
-            UFunction* function = pawn->GetFunctionByNameInChain(function_name);
+            // Cached (2026-09-06): this is the slide-timeline driver's per-ghost-per-tick call.
+            UFunction* function = mg_cached_function(pawn, function_name);
             if (!function)
             {
                 return false;
@@ -6787,6 +6868,104 @@ namespace MeshGhostPseudo
             std::memcpy(params_buffer.data() + sizeof(float), &b, sizeof(float));
             pawn->ProcessEvent(function, params_buffer.data());
             return true;
+        }
+
+        // ---- THE PAWN PARTS A GHOST HAS NO USE FOR, switched off at spawn (2026-09-06) ------
+        //
+        // A ghost is a clone of the player pawn, so it is born with everything a controllable
+        // character carries. `probes/probe_strip/` priced the parts one at a time on 50 ghosts
+        // (`../../UNVERIFIED.md`, the 2026-09-06 price list): no single part stands out, they cost
+        // ~0.2 ms per ghost in COMBINATION, and the user's decision was to switch off at spawn the
+        // ones with no visual role. Through the engine's own setters -- `SetComponentTickEnabled`,
+        // `SetActorTickEnabled`, `Deactivate` -- the same calls the probe made, each parameter
+        // name read off the live UFunction (`bEnabled`), never assumed.
+        //
+        // What goes off, and what deliberately does NOT:
+        //   - `SpringArm1` (tick off + Deactivate): the 300-unit boom whose only attach child is
+        //     `DialogueCam` (the pawn dump, 2026-09-06). **`SpringArm` stays ON**: it is the
+        //     5000-unit arm the blob shadow hangs from, its per-tick collision trace is what puts
+        //     the shadow on the ground, and GHOST_BLOB_SHADOW_ARM_MIRROR feeds it every tick. The
+        //     handoff said "spring arms"; the attach tree says one of them is the shadow.
+        //   - `DialogueCam`: tick off ONLY. Never Activate/Deactivate a camera component on a
+        //     ghost: `Activate()` on one aborted the game (2026-09-06 14:12, the strip probe's
+        //     first pass), because an active camera is a view-target candidate.
+        //   - `CapsuleComponent` (CollisionCylinder): tick off. Collision is already off.
+        //   - The ghost's `AIController` (the pawn auto-possesses one at BeginPlay): actor tick off,
+        //     plus its `PathFollowingComponent` and `ActionsComp` ticks. A ghost is teleported by
+        //     us every tick and never steered.
+        //   - `CharacterMovement` (CharMoveComp): OPT-IN by `ghost_charmove_off.txt` until the
+        //     user has watched a MOVING peer with it off -- the animation blueprint may read the
+        //     component's velocity for walk/run/jump, and that is a visual question, not a cost one.
+        //
+        // `ghost_parts_keep.txt` beside this DLL keeps every part on (the A/B for perf_report.txt
+        // and for the user's eyes, no rebuild). Reported once per spawn, with what was actually
+        // reached: "absent" and "not reflected" are findings, not silence.
+        auto strip_ghost_no_use_parts(UObject* ghost, const std::string& player_id) -> void
+        {
+            if (!ghost)
+            {
+                return;
+            }
+            if (dev_toggle_present(STR("ghost_parts_keep.txt")))
+            {
+                static bool announced_keep = false;
+                if (!announced_keep)
+                {
+                    announced_keep = true;
+                    Output::send(STR("[MeshGhostPseudo] DEV: ghost no-use parts KEPT ON (ghost_parts_keep.txt present).\n"));
+                }
+                return;
+            }
+
+            std::string report;
+            auto tick_off = [&](UObject* component, const char* label) {
+                report += label;
+                if (!component)
+                {
+                    report += "=absent ";
+                    return;
+                }
+                const bool ok = call_bool_ufunction(component, STR("SetComponentTickEnabled"), STR("bEnabled"), false);
+                report += ok ? "=tick-off " : "=NOT-REFLECTED ";
+            };
+            auto named_component = [&](UObject* owner, const wchar_t* property) -> UObject* {
+                UObject** slot = owner ? mg_property_value<UObject*>(owner, property) : nullptr;
+                return (slot && *slot) ? *slot : nullptr;
+            };
+
+            if (UObject* boom = named_component(ghost, STR("SpringArm1")))
+            {
+                tick_off(boom, "SpringArm1");
+                report += call_named_no_arg(boom, STR("Deactivate")) ? "(deactivated) " : "(Deactivate NOT reflected) ";
+            }
+            else
+            {
+                report += "SpringArm1=absent ";
+            }
+            tick_off(named_component(ghost, STR("DialogueCam")), "DialogueCam");
+            tick_off(named_component(ghost, STR("CapsuleComponent")), "CapsuleComponent");
+
+            UObject* controller = named_component(ghost, STR("Controller"));
+            UClass* controller_class = controller ? controller->GetClassPrivate() : nullptr;
+            if (controller_class && controller_class->GetName().find(STR("AIController")) != StringType::npos)
+            {
+                const bool ok = call_bool_ufunction(controller, STR("SetActorTickEnabled"), STR("bEnabled"), false);
+                report += ok ? "AIController=tick-off " : "AIController=NOT-REFLECTED ";
+                tick_off(named_component(controller, STR("PathFollowingComponent")), "PathFollowing");
+                tick_off(named_component(controller, STR("ActionsComp")), "PawnActions");
+            }
+            else
+            {
+                report += controller ? "Controller=not-an-AIController " : "Controller=absent ";
+            }
+
+            if (dev_toggle_present(STR("ghost_charmove_off.txt")))
+            {
+                tick_off(named_component(ghost, STR("CharacterMovement")), "CharacterMovement");
+            }
+
+            Output::send(STR("[MeshGhostPseudo] ghost {}: no-use parts switched off at spawn -- {}\n"),
+                         to_wide_ascii(player_id), to_wide_ascii(report));
         }
 
         // One-shot: what slide/crouch-shaped functions does this pawn actually expose? Printed once
@@ -7075,6 +7254,70 @@ namespace MeshGhostPseudo
                 *std::bit_cast<double*>(base + struct_base + a_property->GetOffset_Internal()) = a;
                 *std::bit_cast<double*>(base + struct_base + b_property->GetOffset_Internal()) = b;
                 *std::bit_cast<double*>(base + struct_base + c_property->GetOffset_Internal()) = c;
+            }
+            return true;
+        }
+
+        // **The resolved-once form (2026-09-06)**, for the one caller that runs per ghost per tick.
+        // `write_struct_triple` above resolves three inner fields by FName on every call -- three
+        // name-table lookups and three struct walks, twice per ghost per tick in the location write
+        // -- and a UFunction's parameter layout cannot change while the process runs, so the caller
+        // resolves the layout once (static) and writes through it. Same float/double rule, same
+        // refuse-rather-than-half-write posture: a layout that failed to resolve writes nothing.
+        struct StructTripleLayout
+        {
+            int32_t a{-1};
+            int32_t b{-1};
+            int32_t c{-1};
+            bool ok{false};
+        };
+
+        auto resolve_struct_triple(FProperty* struct_property,
+                                   const FName& a_name, const FName& b_name, const FName& c_name) -> StructTripleLayout
+        {
+            StructTripleLayout layout;
+            if (!struct_property)
+            {
+                return layout;
+            }
+            UScriptStruct* inner_struct = static_cast<FStructProperty*>(struct_property)->GetStruct();
+            if (!inner_struct)
+            {
+                return layout;
+            }
+            FProperty* a_property = inner_struct->FindProperty(a_name);
+            FProperty* b_property = inner_struct->FindProperty(b_name);
+            FProperty* c_property = inner_struct->FindProperty(c_name);
+            if (!a_property || !b_property || !c_property)
+            {
+                return layout;
+            }
+            const int32_t struct_base = struct_property->GetOffset_Internal();
+            layout.a = struct_base + a_property->GetOffset_Internal();
+            layout.b = struct_base + b_property->GetOffset_Internal();
+            layout.c = struct_base + c_property->GetOffset_Internal();
+            layout.ok = true;
+            return layout;
+        }
+
+        auto write_struct_triple(uint8_t* base, const StructTripleLayout& layout, double a, double b, double c) -> bool
+        {
+            if (!base || !layout.ok)
+            {
+                return false;
+            }
+            static const bool use_float = Version::IsBelow(5, 0);
+            if (use_float)
+            {
+                *std::bit_cast<float*>(base + layout.a) = static_cast<float>(a);
+                *std::bit_cast<float*>(base + layout.b) = static_cast<float>(b);
+                *std::bit_cast<float*>(base + layout.c) = static_cast<float>(c);
+            }
+            else
+            {
+                *std::bit_cast<double*>(base + layout.a) = a;
+                *std::bit_cast<double*>(base + layout.b) = b;
+                *std::bit_cast<double*>(base + layout.c) = c;
             }
             return true;
         }
@@ -9184,10 +9427,14 @@ namespace MeshGhostPseudo
                 return;
             }
 
-            FProperty* location_property = function->FindProperty(FName(STR("NewLocation"), FNAME_Find));
-            FProperty* rotation_property = function->FindProperty(FName(STR("NewRotation"), FNAME_Find));
-            FProperty* sweep_property = function->FindProperty(FName(STR("bSweep"), FNAME_Find));
-            FProperty* teleport_property = function->FindProperty(FName(STR("bTeleport"), FNAME_Find));
+            // Resolved ONCE (2026-09-06): this is the most-run reflected call in the adapter, per
+            // ghost per tick, and each of these was a name-table lookup plus a parameter walk on
+            // every call (`loop_pose_xf`, 2.1 ms at 50 ghosts). The function pointer above is
+            // process-static, so its parameters are too.
+            static FProperty* location_property = function->FindProperty(FName(STR("NewLocation"), FNAME_Find));
+            static FProperty* rotation_property = function->FindProperty(FName(STR("NewRotation"), FNAME_Find));
+            static FProperty* sweep_property = function->FindProperty(FName(STR("bSweep"), FNAME_Find));
+            static FProperty* teleport_property = function->FindProperty(FName(STR("bTeleport"), FNAME_Find));
             if (!location_property || !rotation_property || !sweep_property || !teleport_property)
             {
                 Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation is missing an expected top-level parameter -- refusing to call it.\n"));
@@ -9227,8 +9474,15 @@ namespace MeshGhostPseudo
                 logged_once = true;
             }
 
-            if (!write_vector_param(base, location_property, new_location)
-                || !write_rotator_param(base, rotation_property, new_rotation))
+            // The inner X/Y/Z and Pitch/Yaw/Roll offsets, resolved once for the same reason as the
+            // parameters above (2026-09-06); `write_vector_param`/`write_rotator_param` stay for
+            // the callers that run on an edge rather than per tick.
+            static const StructTripleLayout location_layout = resolve_struct_triple(
+                location_property, FName(STR("X"), FNAME_Find), FName(STR("Y"), FNAME_Find), FName(STR("Z"), FNAME_Find));
+            static const StructTripleLayout rotation_layout = resolve_struct_triple(
+                rotation_property, FName(STR("Pitch"), FNAME_Find), FName(STR("Yaw"), FNAME_Find), FName(STR("Roll"), FNAME_Find));
+            if (!write_struct_triple(base, location_layout, new_location.X(), new_location.Y(), new_location.Z())
+                || !write_struct_triple(base, rotation_layout, new_rotation.GetPitch(), new_rotation.GetYaw(), new_rotation.GetRoll()))
             {
                 Output::send(STR("[MeshGhostPseudo] WARNING: K2_SetActorLocationAndRotation's NewLocation/NewRotation struct is missing an expected inner field -- refusing to call it.\n"));
                 return;
@@ -9350,6 +9604,14 @@ namespace MeshGhostPseudo
             PERF_LS_OUTFIT,
             PERF_LS_PROJECTILE,
             PERF_LS_REST,
+            // The ls_rest split, added 2026-09-06: ls_rest was 0.3 ms at zero ghosts and 2.4 ms
+            // at 50 -- the local player's own half growing with the peer count -- and it is ~2900
+            // lines. These are the three things in it that could plausibly scale: the recall-glow
+            // scan, the VFX-mirror sample (both enumerate the world's Niagara components) and the
+            // state JSON. They nest INSIDE ls_rest, so their sum is a share of it, not extra.
+            PERF_LS_RECALL,
+            PERF_LS_VFXMIRROR,
+            PERF_LS_JSON,
             PERF_SLOT_COUNT
         };
 
@@ -9359,7 +9621,8 @@ namespace MeshGhostPseudo
             STR("find_pawn    "), STR("local_state  "), STR("afterimg_swp "), STR("remotes_loop "),
             STR("loop_mirrors "), STR("loop_pose_xf "), STR("loop_head    "), STR("loop_tail    "),
             STR("tail_posetrc "), STR("tail_sweeps  "), STR("tail_light   "), STR("tail_events  "),
-            STR("ls_camrig    "), STR("ls_outfit    "), STR("ls_projectile"), STR("ls_rest      ")};
+            STR("ls_camrig    "), STR("ls_outfit    "), STR("ls_projectile"), STR("ls_rest      "),
+            STR("ls_recall    "), STR("ls_vfxmirror "), STR("ls_json      ")};
 
         bool g_perf_armed = false;
         long long g_perf_qpc[PERF_SLOT_COUNT] = {};
@@ -12288,6 +12551,12 @@ namespace MeshGhostPseudo
         // a wrong read, not a crash, which is the harder bug to find. Rebuilding it costs one
         // property walk per (class, name) in the new level.
         g_property_cache.clear();
+        // Its 2026-09-06 siblings, dropped here for exactly the same reason (UClass keys) --
+        // and the recall-glow identity map, whose keys are component pointers of this level.
+        g_function_cache.clear();
+        g_object_property_cache.clear();
+        g_recall_identity.clear();
+        g_recall_identity_pawn = nullptr;
 
         // **The hurt/death BASELINES, invalidated here 2026-08-27** -- the counters stay, only the
         // memory of "what was the health last tick" is dropped. A save-file swap goes through this
@@ -13862,6 +14131,10 @@ namespace MeshGhostPseudo
         }
 
         ghost->SetActorEnableCollision(GHOST_COLLISION_ENABLED);
+
+        // The parts a ghost has no use for, off at spawn -- see strip_ghost_no_use_parts. After
+        // the possess hand-back so the ghost's own AIController is the one found on `Controller`.
+        strip_ghost_no_use_parts(ghost, player_id);
 
         // **Cutting the ghost off from the player's SHARED and health state, 2026-08-27.** The
         // user's ask, in their words: *"can we just remove/disable anything health related on the
@@ -16096,6 +16369,29 @@ namespace MeshGhostPseudo
 
             perf_stop(PERF_LS_PROJECTILE);
             perf_start(PERF_LS_REST);
+
+            // **ONE world enumeration of Niagara components per tick, shared (2026-09-06).** Two
+            // consumers below -- the recall-glow scan (every 15 ticks) and the VFX-mirror sample
+            // (every 5) -- each asked UObjectGlobals for every NiagaraComponent in the world, and
+            // that call is a walk of the ENTIRE object array with a superclass-chain compare per
+            // object (`RE-UE4SS/.../UObjectGlobals.cpp`, FindAllOf). It is the fixed cost of
+            // `ls_rest` at zero ghosts (measured 0.3-0.8 ms a frame depending on how much the
+            // session has accumulated) and it grows with everything a ghost adds to the array.
+            // Built lazily by the first consumer on a tick, reused by the second; the FName is
+            // built once rather than per call. Behaviour is unchanged: both consumers see the
+            // same list they would have enumerated themselves, on the same ticks.
+            std::vector<UObject*> niagara_this_tick;
+            bool niagara_enumerated = false;
+            auto niagara_components_now = [&]() -> const std::vector<UObject*>& {
+                if (!niagara_enumerated)
+                {
+                    niagara_enumerated = true;
+                    static const FName niagara_class_name{STR("NiagaraComponent")};
+                    UObjectGlobals::FindAllOf(niagara_class_name, niagara_this_tick);
+                }
+                return niagara_this_tick;
+            };
+
             // Thrown Dream Breaker, local half -- see RemoteGhost::target_weapon_thrown for the
             // measured lifecycle this reads out of, and WEAPON_ACTOR_TRACE for the capture that
             // established it. Read every tick, not at a trace cadence: this is production sync.
@@ -16325,18 +16621,38 @@ namespace MeshGhostPseudo
             // DECISION rather than its rule: it asks "is the real effect showing right now?"
             // instead of trying to recompute "empty-handed and near a save crystal". Scanned at a
             // bounded cadence and held between scans, since it enumerates components.
+            perf_start(PERF_LS_RECALL);
             if (tick_count % RECALL_GLOW_SCAN_INTERVAL_TICKS == 0)
             {
-                std::vector<UObject*> niagara_components;
-                UObjectGlobals::FindAllOf(STR("NiagaraComponent"), niagara_components);
+                const std::vector<UObject*>& niagara_components = niagara_components_now();
                 const std::string pawn_name = to_utf8(pawn->GetName());
                 bool glow_now = false;
+                // The per-pointer identity cache -- see g_recall_identity. A new local pawn (a
+                // respawn, a level) starts it empty, so nothing carries over between pawns.
+                if (g_recall_identity_pawn != static_cast<UObject*>(pawn))
+                {
+                    g_recall_identity.clear();
+                    g_recall_identity_pawn = pawn;
+                }
+                std::unordered_map<UObject*, bool> recall_live;
+                recall_live.reserve(niagara_components.size());
                 for (UObject* component : niagara_components)
                 {
                     if (!component)
                     {
                         continue;
                     }
+                    if (const auto known = g_recall_identity.find(component); known != g_recall_identity.end())
+                    {
+                        recall_live.emplace(component, known->second);
+                        if (known->second && !glow_now && component_is_active(component))
+                        {
+                            glow_now = true;
+                        }
+                        continue;
+                    }
+                    // First sighting of this pointer: the two string tests below, once.
+                    recall_live.emplace(component, false);
                     // Owned by THIS pawn -- confirmed by the capture, where the real effect is a
                     // component of the player actor rather than a world-spawned one (unlike, say,
                     // footstep dust, which belongs to WorldSettings).
@@ -16353,14 +16669,18 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
+                    recall_live[component] = true;
                     // Active, not merely present -- see component_is_active for why existence alone
                     // left a ghost glowing forever once its peer walked away from the crystal.
-                    if (component_is_active(component))
+                    // No early break any more: the scan runs to the end so the identity map is
+                    // complete for the next one; the active test is still made only on the
+                    // handful of components that are the glow.
+                    if (!glow_now && component_is_active(component))
                     {
                         glow_now = true;
-                        break;
                     }
                 }
+                g_recall_identity = std::move(recall_live);
                 if (glow_now != local_recall_glow)
                 {
                     // Edge-logged so "is the LOCAL side even noticing the change?" is answerable
@@ -16372,6 +16692,7 @@ namespace MeshGhostPseudo
                 }
                 local_recall_glow = glow_now;
             }
+            perf_stop(PERF_LS_RECALL);
 
             // **Projectile watch -- see GHOST_PROJECTILE_WATCH's own comment for why this is the
             // measurement that is left.** Two halves, and the first exists because the class name
@@ -18573,6 +18894,7 @@ namespace MeshGhostPseudo
             // false again. That is precisely the recall-glow bug, already paid for once here --
             // see component_is_active's own comment.
             static std::string mirrored_vfx_keys;
+            perf_start(PERF_LS_VFXMIRROR);
             if constexpr (MIRROR_PLAYER_VFX)
             {
                 constexpr size_t MIRRORED_EFFECT_COUNT = sizeof(MIRRORED_EFFECTS) / sizeof(MIRRORED_EFFECTS[0]);
@@ -18593,8 +18915,8 @@ namespace MeshGhostPseudo
                     // here and would not be if this drove anything but a cosmetic.
                     static std::unordered_map<UObject*, int> vfx_identity;
 
-                    std::vector<UObject*> components;
-                    UObjectGlobals::FindAllOf(STR("NiagaraComponent"), components);
+                    // Shared with the recall-glow scan since 2026-09-06 -- see niagara_components_now.
+                    const std::vector<UObject*>& components = niagara_components_now();
 
                     const std::string pawn_name = to_utf8(pawn->GetName());
                     std::unordered_map<UObject*, int> live;
@@ -18889,6 +19211,8 @@ namespace MeshGhostPseudo
             // drives this flag itself -- measured 2026-09-01 (probe_swordthrow/shadow_sit):
             // BlobShadow.bVisible flips on the chair sit/stand edges, and the ghost's shadow
             // stayed on while sitting (user-reported). Missing property reads as visible.
+            perf_stop(PERF_LS_VFXMIRROR);
+
             int shadow_on = 1;
             if (UObject** shadow_ptr = mg_property_value<UObject*>(pawn, STR("BlobShadow")); shadow_ptr && *shadow_ptr)
             {
@@ -18897,6 +19221,7 @@ namespace MeshGhostPseudo
                 shadow_on = mg_read_bool(*shadow_ptr, STR("bVisible"), true) ? 1 : 0;
             }
 
+            perf_start(PERF_LS_JSON);
             std::string local_state = std::format(
                 "{{\"type\":\"local_state\",\"payload\":{{\"state\":{{\"area_id\":\"{}\",\"position\":[{},{},{}],"
                 "\"orientation\":[{},{},{}],\"anim\":\"idle\","
@@ -18975,6 +19300,7 @@ namespace MeshGhostPseudo
                 blink_count,
                 local_death_count,
                 local_hurt_count);
+            perf_stop(PERF_LS_JSON);
             if (in_non_gameplay_map)
             {
                 // Everything above still ran -- the ghosts, the camera rig, the mirrors -- and
@@ -20561,14 +20887,13 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
-                    for (FProperty* property : TFieldRange<FProperty>(owner_class, EFieldIterationFlags::Default))
+                    // The class's object properties, resolved once per class (2026-09-06, see
+                    // mg_object_properties): the per-tick cost is now one value read per property
+                    // and one cached flag read per component, no strings, no name walks. Same
+                    // properties, same order, same test as the walk it replaces.
+                    for (FProperty* property : mg_object_properties(owner_class))
                     {
-                        if (!property || property->GetClass().GetName() != STR("ObjectProperty"))
-                        {
-                            continue;
-                        }
-                        const StringType prop_name = property->GetName();
-                        UObject** component = mg_property_value<UObject*>(owner, prop_name.c_str());
+                        UObject** component = property->ContainerPtrToValuePtr<UObject*>(owner);
                         if (!component || !*component)
                         {
                             continue;
@@ -20578,6 +20903,7 @@ namespace MeshGhostPseudo
                         {
                             continue; // already off -- no engine call, which is what keeps this cheap
                         }
+                        const StringType prop_name = property->GetName(); // built only for the rare ON case
                         static std::set<StringType> announced;
                         if (!component_is_owned_by(*component, owner))
                         {
@@ -20811,30 +21137,55 @@ namespace MeshGhostPseudo
                 if (remote.ghost && tick_count % LIGHT_SWEEP_INTERVAL_TICKS == 0)
                 {
                     const std::string ghost_name = to_utf8(remote.ghost->GetName());
-                    std::vector<UObject*> lights;
-                    UObjectGlobals::FindAllOf(STR("PointLightComponent"), lights);
+                    // The target is 0 in every shipping configuration; the dev toggle raises it
+                    // to the birth value so the A/B can ask what this light looks like when it
+                    // is genuinely ON. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block.
+                    const float target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
+                    // **One enumeration per sweep tick, shared by every ghost (2026-09-06).** Every
+                    // ghost sweeps on the same tick, and each one used to walk the whole object
+                    // array twice for itself: at 50 ghosts that was ~3.3 world walks per FRAME
+                    // amortised, most of `tail_light`'s 0.86 ms. The list of lights not at the
+                    // target is the same for every ghost this tick, so it is built by the first
+                    // ghost to get here and reused by the rest; each ghost still attributes and
+                    // holds exactly what it did before.
+                    // stale-safe: same-tick only -- rebuilt before any read on a later tick, and
+                    // a light held by an earlier ghost this tick simply reads as at-target below.
+                    static uint64_t lit_lights_tick = ~0ull;
+                    static std::vector<UObject*> lit_lights;
+                    if (lit_lights_tick != tick_count)
                     {
-                        // Appended via its own vector, for the reason the outline sweep above
-                        // gives: whether FindAllOf clears its out-parameter is not something to
-                        // assume.
-                        std::vector<UObject*> spots;
-                        UObjectGlobals::FindAllOf(STR("SpotLightComponent"), spots);
-                        lights.insert(lights.end(), spots.begin(), spots.end());
-                    }
-                    for (UObject* light : lights)
-                    {
-                        if (!light)
+                        lit_lights_tick = tick_count;
+                        lit_lights.clear();
+                        std::vector<UObject*> lights;
+                        UObjectGlobals::FindAllOf(STR("PointLightComponent"), lights);
                         {
-                            continue;
+                            // Appended via its own vector, for the reason the outline sweep above
+                            // gives: whether FindAllOf clears its out-parameter is not something to
+                            // assume.
+                            std::vector<UObject*> spots;
+                            UObjectGlobals::FindAllOf(STR("SpotLightComponent"), spots);
+                            lights.insert(lights.end(), spots.begin(), spots.end());
                         }
-                        // The target is 0 in every shipping configuration; the dev toggle raises it
-                        // to the birth value so the A/B can ask what this light looks like when it
-                        // is genuinely ON. See GHOST_CUSTOM_DEPTH_DEV_TOGGLE's block.
-                        const float target = g_ghost_light_forced_on ? 5000.0f : 0.0f;
+                        for (UObject* light : lights)
+                        {
+                            if (!light)
+                            {
+                                continue;
+                            }
+                            float* intensity = mg_property_value<float>(light, STR("Intensity"));
+                            if (!intensity || *intensity == target)
+                            {
+                                continue; // already where we want it -- every level light lands here too
+                            }
+                            lit_lights.push_back(light);
+                        }
+                    }
+                    for (UObject* light : lit_lights)
+                    {
                         float* intensity = mg_property_value<float>(light, STR("Intensity"));
                         if (!intensity || *intensity == target)
                         {
-                            continue; // already where we want it -- every level light lands here too
+                            continue; // held by an earlier ghost's pass this tick
                         }
                         // **Attributed up the ATTACH chain, not the outer chain.** This light lives
                         // inside a ChildActorComponent, and a child actor's outer is the LEVEL --

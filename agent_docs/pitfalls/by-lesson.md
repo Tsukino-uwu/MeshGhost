@@ -6162,3 +6162,53 @@ is cheaper than the answer.
 **Rule.** A probe may stop a ghost camera's tick; it never activates one. Same family as "spawning a
 player Blueprint takes the player's camera" (2026-08-16): cameras on a clone are the game's, and the
 only safe direction is off. `probe_strip/` has the camera part tick-only with this note at the site.
+
+## A Lua `RegisterHook` on a NATIVE function that Blueprints call froze the game thread on a melee attack -- hook from the C++ adapter or not at all (Pseudoregalia, 2026-09-06, one negative)
+
+**Symptom.** With a scratch probe holding Lua `RegisterHook`s on
+`/Script/Niagara.NiagaraFunctionLibrary:SpawnSystemAtLocation` and `:SpawnSystemAttached` (logging
+only, arguments untouched, 59 calls logged cleanly), a melee sword attack among 50 ghosts froze the
+game visually. The process stayed alive, the overlay still said 49 fps, and `UE4SS.log` kept
+printing the adapter's bridge heartbeat every 0.66 s -- because that line comes from UE4SS's own
+`on_update` thread, not the game thread. The last game-thread line was UE4SS's *"Tried to execute
+UFunction::FuncPtr hook but there was no function map entry for UFunction ...
+ExecuteUbergraph_BP_PlayerGoatMain. Executing original function instead."* The user force-closed it;
+no crash dump. Relaunched with the pristine scratch stub and the same DLL, the same attack was fine.
+
+**What is established, and what is not.** One negative without the probe is a suspect, not a
+conviction. The host rule was about hooking a BLUEPRINT UFunction from C++; this is a native
+function hooked from Lua, reached from a Blueprint's ubergraph, and the UE4SS message names that
+ubergraph. **Rules until measured further:** an event-driven idea that needs a hook is built in the
+C++ adapter with its native `RegisterPreHook` machinery (the SetRenderCustomDepth guard is the
+model), never prototyped as a Lua hook in a session that will also be judged; and the game-thread
+liveness signal is a game-thread line (`PERF` reports, a ghost spawn line, `STATESEND`), never the
+bridge heartbeat.
+
+## UE4SS `FindAllOf` walks the ENTIRE object array with a superclass-chain compare per object -- never per ghost, share it per tick (Pseudoregalia, 2026-09-06)
+
+**Symptom.** `ls_rest` was 0.3 ms at zero ghosts one day and 0.66-0.85 the next in a longer
+session; `tail_light` was 0.86 ms at 50 ghosts for a sweep that "runs every 30 ticks".
+
+**Cause.** `UObjectGlobals::FindAllOf(name)` (`RE-UE4SS/deps/first/Unreal/src/UObjectGlobals.cpp`)
+is `ForEachUObject` over every live object, comparing the class name and then every superclass name,
+so one call costs proportionally to everything alive -- pooled effects, fifty pawns' subobjects --
+and measured ~1.4 ms per walk in a session that had run for hours. The light sweep called it TWICE
+PER GHOST on the sweep tick (100 walks in one frame at 50 ghosts); the recall-glow scan and the VFX
+mirror each called it on their own cadence. Sharing one enumeration per tick took `tail_light` from
+0.86 to 0.4 ms; the two local scans' walk is still 0.28 ms a frame at zero ghosts.
+
+**Rule.** A world enumeration is a per-TICK resource at most, built once and handed to every
+consumer; a per-ghost world walk is a bug by construction. And `hide_ghost_fx.txt`, which still
+walks per ghost per tick while armed, is a two-ghost instrument -- at 50 it turns the game into a
+slideshow (seen 2026-09-06; the user's freeze report that day was NOT this, see above, but the
+toggle at 50 would have produced one).
+
+## A `taskkill` from Git Bash can silently do nothing -- verify the process count after every kill, in the same script (rig, 2026-09-06)
+
+A scripted A/B ran `taskkill /IM meshghost-fakeadapter.exe /F` with its output silenced, then
+started a new fake-peer process per leg: three processes, 150 peers, the relay's known death
+zone, and three legs of numbers that meant nothing (a "0 ghosts" leg with a full remotes loop).
+`Get-Process ... | Stop-Process -Force` from PowerShell worked. **Rule:** a kill is followed by a
+count of what is left, printed, in the same script; and a leg's ghost count is READ (the perf
+report's `nametag` calls divided by frames is exactly the live ghost count), never assumed from a
+sleep.
