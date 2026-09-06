@@ -277,7 +277,7 @@ relay can stay dumb.
 | **Late-join world snapshot** | **BUILT 2026-08-17** — `Join.State` populated for a `snapshot.v1` room | **Yes** — relay keeps the last opaque state blob per player |
 | **Clock sync** | **BUILT 2026-08-17** — `Pong.ServerTimeMs`, lowest-RTT estimator, applied under `clock.v1` | **Yes** — relay serves time |
 | **Stable identity** | **BUILT 2026-08-17** — `resume_token`, a grace window, no leave/join seen by the room | **No** — was a new subsystem, and is one |
-| **Persistence** | **REFUSED** — rooms still deleted when empty; nothing on disk but the log | **No** — new subsystem, and see below |
+| **Persistence** | **REFUSED as the default**, and reopenable on a concrete game need as an opt-in (2026-09-07) — rooms still deleted when empty; nothing on disk but the log | **No** — new subsystem, and see below |
 | **Anti-cheat** | **impossible** | **Never** — catching a lie requires knowing what is true |
 
 Three rode the same opaque-blob trick and were cheap. One was a genuinely new subsystem and was
@@ -341,6 +341,37 @@ them is what this section refused.**
 something that can be corrupted, filled or leaked, and it is still a file the host now owns), so it
 is a smaller step rather than a free one. But the asynchronous family needs only the second kind, and
 pricing it against the first would overstate it substantially.
+
+#### If it is ever built: opt-in, never the default — the user's second condition, 2026-09-07
+
+*"I think its an option we should consider, but also as an opt in and not the default if possible?
+not all games will need it."* **That lands exactly on the rule §3 already ratified** — *"Everything
+past cosmetic is adapter-opt-in via `features`, never relay-imposed via `game_id`"* — so the shape is
+settled and the mechanism is already built: persistence would be one more `.v1` capability on the
+existing sticky, room-scoped feature set, alongside `world.v1` and `escrow.v1`. A game that does not
+need it never asks, and the code path never runs for that room.
+
+**But it is the first capability that would need TWO levels of opt-in, and that difference is the
+part worth recording.** Every other capability costs only the clients that negotiate it. This one
+costs **the person running the relay**, who owns the disk, the cleanup and the backup:
+
+1. **Relay-side, off unless the host turns it on.** No flag, no storage, no file — ever.
+2. **Room-side, negotiated via `features`**, exactly as today.
+3. **A room asking for it on a relay without storage is refused at join**, which needs no new
+   mechanism: `joinOrCreateRoom` already rejects a feature-set mismatch by string equality.
+
+**The invariant to preserve, stated so it can be tested rather than assumed: a relay nobody
+configured writes nothing but its log.** Worth knowing that this is currently true *structurally* —
+as of 2026-09-07 there is no file-writing call anywhere in `relay/` or `cmd/meshghost-relay/` outside
+a test, so the property is enforced by absence, which is the strongest form there is. **The moment
+storage exists, absence stops guaranteeing it and it becomes something a test must pin.**
+
+**And the honest half: opt-in makes the DEFAULT cost zero, not the TOTAL cost.** The code, its tests,
+its corruption handling and its security surface exist in the tree whether or not anyone enables it.
+A dead-drop is untrusted, client-keyed data written to a host's disk, so bounded total bytes, a TTL,
+and never deriving a filename from a client-supplied string are requirements rather than polish —
+see [security-design.md](security-design.md). "Opt-in" answers *who pays at runtime*; it does not
+answer *whether the project wants to carry it*, and that second question is the one §11 reserves.
 
 ---
 
