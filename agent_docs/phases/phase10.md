@@ -611,3 +611,70 @@ flood stays, because a join with no state renders nothing and 600 of them are ne
 Records: `verified.md` (the same 2026-09-06 entry, extended), `testing.md` (the cost rule, beside
 the order-vs-scale one).
 
+
+## 2026-09-07 — mapping the games this contract was NOT built for, and a refusal that became a door
+
+Docs only; no code, no adapter, no contract change. The user asked how online and co-op would work
+in games that are not one avatar in a world -- stage/lobby, turn-based, RTS, colony sims, cursor-only
+and point-and-click, base-builders, mode-switching party games, follower and character-swap parties,
+local co-op -- and said plainly that they had no mental model for it. New concept doc,
+`agent_docs/game-shapes.md` (915 lines), indexed in `agent_docs/README.md`, sitting beside
+`access-models.md` (how you READ a game), `beyond-cosmetic.md` (who has AUTHORITY) and
+`kill-credit.md` (who gets the REWARD). Nothing scheduled, no adapter proposed.
+
+**Three axes, the third the user's own framing** (*"some games have no coop/online, some games have
+local coop, some have limited/restricted online etc -- along with multiple different shapes"*): the
+SHAPE decides what crosses the wire, the SEAM decides what you can reach, the TIMING decides what it
+costs. Then presence and co-op asked separately, because they are anticorrelated more often than not.
+
+**What the file found, each grounded in something this repo had already paid for:**
+
+- Union Room did not fail for being the game's own co-op. It failed one test -- is the second player
+  driven by an INPUT SOURCE or a NETWORK SESSION -- and only the first is fabricable.
+- The overflow case for co-op is what MeshGhost already is: `ideas.md`'s "spawn to the game's cap,
+  then DRAW above it" generalises to a slot/ghost/cull ladder. Caps are often dynamic (Emerald's
+  16 object events are shared with the map's real NPCs).
+- Latency is free until a human waits on it. The shipped 450ms `interp` works precisely because
+  nobody controls the remote thing -- which is why netcode beats streaming on viewpoints and
+  bandwidth (~21 MB/h per stream against 5-9 GB/h video) rather than on ping.
+- Two local players through one core is the exact corruption ADR 0027 fixed; the cheap way out is
+  guest identity by hierarchy, which `relayOwner` already shapes.
+- Threading is not a protocol question, and BOTH ends are hard: off-thread work produced a false
+  finding about the GAME itself ("must hijack, can't spawn" was an artifact), while single-threaded
+  hosts have nowhere to offload -- the out-of-process core is the answer to the second.
+- Mod support can promise "fails visibly", never "works with everything": presence is robust to
+  gameplay mods by construction, and rebuilt binaries are the real limit.
+
+**Two corrections the user made to claims of mine that were too tidy**, both now in the file:
+the input-source/network-session test was a false binary -- you can PROVIDE the session rather than
+fabricate past it, which satisfies the gate by construction and is the principle already ratified by
+the Unreal adapter and the 2026-08-18 Emerald spawn ADR (four caveats recorded, including that a
+link trade writes a save through the game's own path, which is an ADR question); and "multithreaded
+is where the trap is" understated the single-threaded case.
+
+**The refusal that moved.** Tracing which families of online play MeshGhost cannot reach found that
+every asynchronous one (a note or mark left for someone to find later) needs storage and *nothing
+else* -- no simultaneity, no authority, no prediction -- so it is closed by §5's REFUSED persistence
+row rather than by netcode. Two dated positions from the user followed, both now in
+`beyond-cosmetic.md` §5:
+
+1. *"its kinda nice that the server don't really need to save/use anything or make any files except
+   for the log file. but i guess it can be considered if a game would ever need something
+   persistent"* -- so the row is now **REFUSED as the default**, reopened only for a concrete game
+   need, and the disk-free relay is a feature to keep rather than an accident.
+2. *"an option we should consider, but also as an opt in and not the default if possible? not all
+   games will need it"* -- which lands on §3's already-ratified rule, so persistence would be one
+   more `.v1` capability on the sticky room-scoped feature set.
+
+Also recorded there, as observations for whoever revisits and explicitly not permission: "persistence"
+is **two** things and only durable relay state carries the stated cost -- a bounded, expiring,
+opaque dead-drop is a shape the relay already holds in memory (escrow deposits, world custody,
+`Join.State` seeds), so the delta is surviving a restart plus a TTL, with no schema to migrate. It
+would be the first capability needing **two** levels of opt-in, because it is the first that costs
+the relay's operator rather than the negotiating clients. And the invariant that makes the default
+safe is currently free: as of 2026-09-07 there is no file-writing call anywhere in `relay/` or
+`cmd/meshghost-relay/` outside a test, so "a relay nobody configured writes nothing but its log"
+holds by ABSENCE -- the moment storage exists it becomes something a test must pin.
+
+Four commits (`fedd5259`, `d1e583d3`, `049b4928`, `b342c15a`), preflight clean throughout, not
+pushed. Records: `agent_docs/game-shapes.md`, `beyond-cosmetic.md` §5, `agent_docs/README.md`.
