@@ -465,3 +465,20 @@ game in about a minute, which is the loop that slot exists to make possible.
   and prints the answer. It never calls any of them — a named lookup only — because the adapter's
   own log had reported `0 destroyed` on a despawn the user watched come out clean, and this build
   was already known to lack `DeactivateImmediate`. Read-only, same as `main.lua`.
+
+- **`Scripts/census.lua`** — the folder's third file (2026-09-06), and the one that found the
+  leak: a FULL object walk (`ForEachUObject`, every UObject bucketed by class, diffed against the
+  first walk, new objects named with their outer chain and their `bIsActive`/`bHiddenInGame`
+  flags), plus a frame-time sampler (`GetWorldDeltaSeconds` 20x/s for 10s: mean / median / p95 /
+  worst), `FindAllOf` counts of seven watch classes, and a console-command request (used only to
+  send `t.MaxFPS 0` with the user's go-ahead, because at the 144 cap a leaked tick is invisible).
+  Four request files beside the mod, each consumed once. **The walk is why `main.lua`'s two-class
+  count was the wrong instrument**: it counted the classes it was told to, and the leftover was a
+  class nobody had named — `BP_PlayerCam_C`, the camera rig every ghost pawn spawns for itself.
+  **The walk also crashed the game once** ("Abort signal received"): `ForEachUObject` calls the Lua
+  callback from inside a C++ lambda, so a Lua error raised in there aborts the process past any
+  pcall — it fired on the walk's second load of the session, with the frame-time sampler's own
+  game-thread callbacks interleaved. Now the callback only appends to a list (every read happens
+  after the walk returns), one loop services all requests so nothing overlaps, and the walk is a
+  fresh-launch instrument: never hot-reload a changed copy and then walk (`pitfalls/by-lesson.md`,
+  2026-09-06). The measurements: `UNVERIFIED.md`, 2026-09-06.

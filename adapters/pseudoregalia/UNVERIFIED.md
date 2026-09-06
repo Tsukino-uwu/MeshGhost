@@ -51,7 +51,7 @@ entry without one.
 - OPEN — small cousin: a player afterimage born ON a ghost can be attributed to the ghost by birth proximity and lose its own silhouette (`copyActor` is null on its first tick); harmless to the player since the ownership fix, unwatched.
 - READY — TEVI: meshghost.exe + config.json now live in the GAME ROOT (beside TEVI.exe) and the plugin looks nowhere else; deployed to both installs 2026-09-05, unwatched (Pseudoregalia's half CONFIRMED, `VERIFIED.md`).
 - READY — the ghost sword mirror no longer rewrites `WeaponMesh.bVisible` (and logs it) every tick per ghost: the read goes through the bitfield mask now; nothing should LOOK different, the log should show one WEAPONMESH line per ghost per change (built 2026-09-05, deploys at the next game exit)
-- OPEN — world-spawned VFX are HIDDEN, not destroyed, when a ghost goes: the screen is clean (CONFIRMED 2026-09-04) and ~2 Niagara components per despawn stay resident **User, 2026-09-06: the FPS drop after a ghost despawns PERSISTS until a zone change, reset-to-save or main menu -- the residue costs frames, not just memory. Raises this item's priority; `probe_leakcount/` is the instrument, and the freeze-the-residue stopgap is in `ideas.md`.**
+- READY — **the FPS drop that outlives a ghost is the ghost's `BP_PlayerCam_C` camera rig: the pawn's own camera actor, never destroyed with the pawn, spring arm still ticking.** Found 2026-09-06 with a full object census; 68 orphans cost ~1.7 ms a frame uncapped, a level reload was the only thing reclaiming them. FIXED in the DLL (destroyed with the ghost + an orphan sweep), unwatched. The ~2 Niagara per despawn from 2026-09-04 did NOT show in the census (collected within 90s); that item is folded in here. Next: 150 fake peers, a few spawn/despawn rounds, baseline before vs after (user's test).
 - DONE — the frozen-player state (item popup, pause menu): the CHASER half is fixed and CONFIRMED 2026-09-05 (`VERIFIED.md`); a recording still shows the run-fall on the spot, by the user's call (chaser only)
 - READY — a non-ASCII display name should render as itself now, not mojibake (2026-09-04)
 - READY — the peer-JSON readers were rescoped and 42 call sites changed shape; nothing should look different, which is why it needs a look (2026-09-04)
@@ -254,6 +254,103 @@ all**, where before it always had one. Then the two cases that were already righ
 a clip recorded while the sword was thrown still shows an empty hand, and one recorded after the
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
+
+## [READY] MEASURED and FIXED 2026-09-06 -- a ghost's camera rig outlives the ghost, and that is the FPS that never comes back
+
+**The user's report (2026-09-06):** frame rate drops every time a ghost despawns -- a peer, a replay
+or a chaser alike -- and stays down until "reset to last save", a zone change or the main menu; the
+pause menu runs at full rate; after 150 ghosts they sat at 70 fps instead of 141-144. Their own
+reading of it was exact: something the WORLD owns (a level reload clears it) and something that
+costs a TICK (pausing stops it), accumulating one despawn at a time.
+
+### The census, and why the earlier probe missed it
+
+`probe_leakcount/Scripts/census.lua` walks EVERY UObject and buckets by class, then names what is
+new since the first walk. Two fake peers up, then gone, then 90s idle on ZONE_Dungeon:
+
+| class | baseline | 2 ghosts up | 90s after despawn |
+|---|---|---|---|
+| `BP_PlayerGoatMain_C` (ghost pawn) | 1 | 3 | 1 |
+| `AIController` | 6 | 8 | 6 |
+| `NiagaraComponent` | 40 | 42 | 40 |
+| `TimelineComponent` | 24 | 44 | 26 |
+| **`BP_PlayerCam_C`** | **1** | **3** | **3** |
+| `SpringArmComponent` | 8 | 14 | 10 |
+| `CameraComponent` | 4 | 10 | 8 |
+
+Everything a ghost brought was collected -- including the ~2 Niagara per despawn the 2026-09-04
+count had flagged, which that probe could not distinguish from the game's own churn. The ONE
+survivor is the camera rig: each ghost pawn's Blueprint spawns its own `BP_PlayerCam_C` (a
+`CameraBoom` spring arm, `MainCam`, `FirstPersonCamera`, a timeline), all `bIsActive=true`, and its
+`OwningActor` reads null once the pawn is gone. `Plugin.cpp` already knew the rig outlives the
+ghost (`GHOST_NEUTRALISE_CAMERA_RIGS`, 2026-08-29) and only zeroed its post-process weight. A
+spring arm ticks and sweeps every frame; that is the tick that stops in the pause menu and dies
+with the level. **The 2026-09-04 two-class counter could never have found this**: it counted the
+classes it had been told to, and the leftover was a class nobody had named.
+
+### The cost, measured with the cap off
+
+`t.MaxFPS 0` sent from the probe with the user's go-ahead (at the 144 cap the frame delta is a
+flat 6.94 ms whatever a leaked tick costs -- 36 orphan rigs read as "144 fps, nothing wrong").
+Player standing still on ZONE_Dungeon, 10s samples of the world's frame delta:
+
+| orphan rigs alive | mean | median | ~fps |
+|---|---|---|---|
+| 0 (after reset to last save) | 1.64 / 1.71 ms | 1.2 | 600 |
+| 36 | 2.56 / 2.80 ms | 2.1-2.5 | 370 |
+| 68 | 3.28 / 3.47 ms | 2.9 | 300 |
+| (32 ghosts UP, for scale) | 13.76 / 16.82 ms | 13.3-16.0 | 60-73 |
+
+A straight line, ~0.025 ms per rig. **It is real and it is not the whole story**: at 150 rigs it
+extrapolates to ~+3.7 ms, enough to take a heavy scene from 144 to ~110, not to the 70 fps the user
+saw after 150 ghosts -- so the 150-ghost session (replays and chasers, a different despawn path)
+left something else behind too. That is the next census: 150 fake peers, a few rounds, before vs
+after (the user's test, 2026-09-06).
+
+**Two instrument findings on the way.** Something re-applied the 144 cap mid-session, after a
+despawn round, without any settings change -- the probe now resends `t.MaxFPS 0` before each
+sample; what re-applies it is not known. And the walk crashed the game once, on its second load of
+the session (`pitfalls/by-lesson.md`, 2026-09-06).
+
+### The fix (built 2026-09-06) -- WATCHED BY THE INSTRUMENT the same day, not yet by the user
+
+Fresh launch on the new DLL, cap lifted, 150 fake peers, three spawn/despawn rounds, player
+standing still on ZONE_Dungeon:
+
+| point | mean frame | median | `BP_PlayerCam_C` | ghost pawns |
+|---|---|---|---|---|
+| before, twice | 1.78 / 1.76 ms | 1.3 / 1.2 | 1 | 1 |
+| 45s after round 1 | 1.89 ms | 1.2 | **1** | 1 |
+| 45s after round 2 | 1.52 ms | 1.1 | **1** | 1 |
+| 45s after round 3 | 1.62 ms | 1.1 | **1** | 1 |
+| after all rounds, twice | 1.80 / 2.12 ms | 1.1 / 1.4 | **1** | 1 |
+
+`release_ghost` destroyed exactly one rig per despawn (3,476 `CAMRIG release_ghost: 1 rig(s)`
+lines); the orphan sweep never had to fire. The world returns to one rig and one pawn after every
+round and the frame time to the pre-round baseline within the noise (the last sample's 2.12 ms is
+the one reading above the band; its p95 and worst are also the highest, and the counts are clean,
+so it reads as noise until a longer sample says otherwise). **Peer-path despawns leave nothing
+else behind.** Still READY rather than VERIFIED because the user has not yet reported the frame
+rate holding through a session of their own.
+
+**The load rig does not survive 150 fake peers, and that is a separate finding.** Each fake client
+receives every other peer's stream; at 150 the relay disconnects clients that are *"not draining"*
+(17 kicks, 300 joins for 150 peers, 51k failed sends in `relay.err.log`), they reconnect, and the
+game saw ~1,400 spawns and ~1,660 despawns per round instead of 150 -- 689 to 984 pawn objects
+alive at once (most of them destroyed and waiting for GC), 400 ms frames. A harder leak test than
+intended, and NOT a measurement of what 150 live ghosts cost; that needs a fake peer that drains,
+or fewer peers per process.
+
+**What the user's 70-fps-after-150-ghosts session still has that this test did not:** replays and
+chasers, which despawn through their own path. Unexercised.
+
+`GHOST_DESTROY_ORPHAN_CAMERA_RIGS`: `release_ghost` destroys the rigs whose `OwningActor` is the
+ghost, BEFORE destroying the ghost (afterwards that property is the only handle and it goes null
+within a GC cycle); the neutralise sweep additionally destroys any rig whose `OwningActor` reads
+null on three consecutive sweeps, the backstop for a despawn path that never reaches
+`release_ghost`. Null only -- a rig that names any pawn is somebody's. What settles it: the census
+counts `BP_PlayerCam_C` back at 1 after a despawn round, and the uncapped baseline after several
+150-ghost rounds equal to the one before.
 
 ## [OPEN] world-spawned VFX outlived the ghost — the SCREEN is fixed and confirmed 2026-09-04, the OBJECTS are not
 

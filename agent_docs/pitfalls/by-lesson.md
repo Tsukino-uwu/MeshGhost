@@ -6110,3 +6110,38 @@ by `Close()` on a connection the peer is still writing to.
 **Instrument trap paid for on the way.** The first version of the regression test stalled the server's
 callback to keep data unread, which also stopped the read loop from ever reaching the drain deadline;
 slow the callback, never block it.
+
+## A count of the classes you named cannot find a leak of a class you did not — and a Lua error inside `ForEachUObject` aborts the game (Pseudoregalia, 2026-09-06)
+
+**Symptom.** Frame rate down after every ghost despawn, staying down until a level reload, fine in
+the pause menu; 70 fps after 150 ghosts. The 2026-09-04 leak counter, watching `NiagaraComponent` and
+the pawn class, had reported "~2 Niagara per despawn stay resident" and nothing else.
+
+**Cause.** The leftover was a `BP_PlayerCam_C` — the camera rig each ghost pawn's Blueprint spawns
+for itself, whose `OwningActor` goes null with the pawn while its spring arm keeps ticking. The
+adapter knew the rig outlived the ghost and only zeroed its post-process weight. ~0.025 ms a frame
+per rig, uncapped; 68 of them ~1.7 ms. And the "~2 Niagara" were the game's own churn: a full census
+shows every Niagara collected within 90s.
+
+**How it was found.** A full-object walk (`ForEachUObject`, every class, diffed against a baseline,
+new objects named with their outer chain and active flags) through the scratch slot on a fresh
+launch: seven classes moved after the despawn, six of them back to baseline at 90s, one not. Then the
+cap off (`t.MaxFPS 0`, user's go-ahead) and a frame-delta sampler at 0 / 36 / 68 orphans — a straight
+line. **Reach for the full walk first**: a filter applied before looking is a guess about the answer,
+and here the guess was wrong twice (the Niagara it flagged were noise; the rig it could not see was
+the leak). Then measure cost UNCAPPED: at 144 the frame delta is a flat line and 36 rigs read as
+"nothing wrong".
+
+**The crash.** The walk's SECOND load of the session — a changed copy hot-reloaded, then walked while
+a new 20 Hz frame-time sampler scheduled its own game-thread callbacks — raised "attempt to call a
+nil value" at the callback call inside `ForEachUObject`, and the game aborted ("Abort signal
+received", no callstack). UE4SS invokes the callback from a C++ lambda; a Lua error there unwinds
+through C++ and no `pcall` reaches it. The first walk, alone on a fresh load, was clean. **Rules:**
+the callback does nothing but append to a list (read after the walk returns); one loop services
+every request so nothing this probe does overlaps; the walk is a fresh-launch instrument — do not
+hot-reload a changed copy and then walk. The user's rule the same day: *"you can't hotswap new
+things"* into a running probe and trust the next result.
+
+**Fix.** `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` (`Plugin.cpp`): `release_ghost` destroys the rigs whose
+`OwningActor` is the ghost before the ghost goes; the sweep destroys any rig orphaned for three
+consecutive sweeps. Unwatched as of this entry; `adapters/pseudoregalia/UNVERIFIED.md`.

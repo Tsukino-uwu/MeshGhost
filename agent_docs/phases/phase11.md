@@ -629,3 +629,37 @@ of that choice, the sketch and the reasoning is `agent_docs/claude-md-cap.md` (t
 the pass itself is logged in `agent_docs/doc-history.md` ("The root trim (2026-09-06)"). Six rules moved
 to the nested `CLAUDE.md`s, the stack budget went 700 → 650, preflight is green. Nothing in this phase's
 own list changed.
+
+## 2026-09-06 (later still) — the FPS that outlives a ghost: the camera rig, found by a full census
+
+**The user's report:** frame rate down after every ghost despawn (peer, replay or chaser), fine in
+the pause menu, back only after "reset to last save" or a zone change; 70 fps after 150 ghosts.
+
+**What happened.** Windows Defender had quarantined the game root's `meshghost.exe`
+(`Trojan:Script/Wacatac.B!ml`, a false positive on the unsigned Go binary) at the previous launch,
+so the adapter found no core; the rig ran off the repo's own `meshghost.exe` with the game root as
+its working directory, plus a local relay. A full-object census probe (`probe_leakcount/Scripts/
+census.lua`, through the scratch slot) with two fake peers found every ghost object collected within
+90s except `BP_PlayerCam_C`, the camera rig each ghost pawn spawns, still ticking with no owner.
+Uncapped (`t.MaxFPS 0`, user's go-ahead): 0 / 36 / 68 orphan rigs = 1.68 / 2.7 / 3.4 ms a frame,
+~0.025 ms per rig — real, and short of the 70 fps the 150-ghost session showed, so something else is
+left by that path too. The probe crashed the game once on a hot-reloaded second load (a Lua error
+inside `ForEachUObject` aborts the process); rewritten with a collect-only callback and one request
+loop. Fix built: `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` destroys the rig with the ghost and sweeps
+orphans; unwatched as of this entry. User's next test, their words: *"spawn/despawn 150 ghosts a few
+times, and see if the fps baseline stay the same or not"*. User also asked for the per-ghost
+component inventory to vet what a ghost can do without (listed in chat from the census; the
+candidates that tick are the pawn's two spring arms, `DialogueCam`, the auto-possessed
+`AIController`, and `CharMoveComp`). Records: `UNVERIFIED.md` 2026-09-06, `pitfalls/by-lesson.md`
+2026-09-06, `PROBES.md` (`census.lua`).
+
+**Result, same session.** New DLL, fresh launch, cap lifted, three rounds of 150 fake peers: after
+every round the world is back to one `BP_PlayerCam_C` and one pawn and the frame time back on the
+pre-round baseline (1.5-1.9 ms vs 1.76-1.78 before; one 2.12 ms sample at the end, counts clean).
+3,476 rigs destroyed by `release_ghost`, the sweep never fired. Peer-path despawns leave nothing
+else behind; the replay/chaser path is not yet exercised. The rounds themselves ran at 2.5 fps with
+689-984 pawn objects alive because the relay kicks fake clients that cannot drain 149 peers' streams
+and they reconnect -- the load rig's limit, recorded in `UNVERIFIED.md`. Preflight green (FindAllOf
+ratchet 49 -> 51, both new sites named per-event / per-interval). The uncapped state lives only in
+that game process. Committed; the install carries the first build of the same code, the comment-only
+rebuild redeploys at the next game close.

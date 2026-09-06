@@ -2146,6 +2146,29 @@ namespace MeshGhostPseudo
     // not the local player's and not already at 0.
     constexpr uint64_t CAMERA_RIG_SWEEP_INTERVAL_TICKS = 30;
 
+    // **A ghost's camera rig is DESTROYED with the ghost, and an orphaned one is destroyed on
+    // sight (2026-09-06).** Measured the same day with a full-object census (`probe_leakcount/
+    // Scripts/census.lua`): after a despawn every object a ghost brought was collected within
+    // 90s EXCEPT its `BP_PlayerCam_C`, whose `OwningActor` had gone with the pawn while its
+    // spring arm and two cameras stayed active. 68 such orphans cost ~1.7 ms a frame on an
+    // uncapped, standing-still ZONE_Dungeon (1.68 -> 3.37 ms, a straight ~0.025 ms per rig),
+    // and nothing short of a level reload reclaimed them -- which is the user's report exactly:
+    // frame rate down after every despawn, fine in the pause menu (no tick), fine after "reset
+    // to last save". The neutralise sweep above only ever zeroed their post-process weight.
+    //
+    // Two halves. `release_ghost` destroys the rigs whose `OwningActor` is the ghost it is
+    // about to destroy -- the normal path, immediate. The sweep below additionally destroys any
+    // rig whose `OwningActor` reads NULL on CAMERA_RIG_ORPHAN_SWEEPS_BEFORE_DESTROY consecutive
+    // sweeps -- the backstop for a rig whose owner left by a path that never reached
+    // release_ghost. NULL only, deliberately: a rig that still names a live pawn is somebody's,
+    // and a rig that names a pawn this code does not recognise (a load in progress, a pawn swap)
+    // is not this code's to judge. The consecutive-sweep debounce is for a rig the game has
+    // spawned but not yet claimed. Both halves call K2_DestroyActor on the game thread on an
+    // actor found live in that same call, which is the shape that has never crashed here; the
+    // crash this file remembers was a STALE pointer moved after a level transition.
+    constexpr bool GHOST_DESTROY_ORPHAN_CAMERA_RIGS = true;
+    constexpr int CAMERA_RIG_ORPHAN_SWEEPS_BEFORE_DESTROY = 3;
+
     // **Mirror the HURT reaction. Behaviour, 2026-08-27 -- and it carries a tripwire.**
     //
     // The user, after the respawn fade shipped: *"its not doing the dying/falling into the pit
@@ -6133,6 +6156,40 @@ namespace MeshGhostPseudo
             }
             actor->ProcessEvent(function, nullptr);
             return true;
+        }
+
+        // Destroys every `BP_PlayerCam_C` whose Blueprint `OwningActor` is `owner`, and says how
+        // many. See GHOST_DESTROY_ORPHAN_CAMERA_RIGS. Class-scoped FindAllOf, the actor is live in
+        // this same call, K2_DestroyActor through the reflected path -- nothing is cached.
+        auto destroy_camera_rigs_owned_by(UObject* owner, const wchar_t* why) -> int
+        {
+            if (!owner)
+            {
+                return 0;
+            }
+            // Cadence: PER-EVENT -- once per ghost despawn (release_ghost), never on a tick path.
+            std::vector<UObject*> rigs;
+            UObjectGlobals::FindAllOf(STR("BP_PlayerCam_C"), rigs);
+            int destroyed = 0;
+            for (UObject* rig : rigs)
+            {
+                if (!rig)
+                {
+                    continue;
+                }
+                UObject** owning = mg_property_value<UObject*>(rig, STR("OwningActor"));
+                if (!owning || *owning != owner)
+                {
+                    continue;
+                }
+                if (call_destroy_actor(static_cast<AActor*>(rig)))
+                {
+                    ++destroyed;
+                }
+            }
+            Output::send(STR("[MeshGhostPseudo] CAMRIG {}: {} rig(s) of {} candidate(s) owned by the ghost -> K2_DestroyActor called\n"),
+                         why, destroyed, rigs.size());
+            return destroyed;
         }
 
         auto call_change_weapon_state(UObject* weapon_actor, uint8_t new_state) -> void
@@ -12053,6 +12110,14 @@ namespace MeshGhostPseudo
                      static_cast<void*>(it->second.ghost),
                      static_cast<void*>(it->second.owning_world));
 
+        // The ghost's own camera rig goes FIRST, while `OwningActor` still names the ghost: once
+        // the pawn is destroyed that property is the only handle to the rig, and it reads null
+        // within a GC cycle -- which is how 68 of them piled up (GHOST_DESTROY_ORPHAN_CAMERA_RIGS).
+        if constexpr (GHOST_DESTROY_ORPHAN_CAMERA_RIGS)
+        {
+            destroy_camera_rigs_owned_by(it->second.ghost, STR("release_ghost"));
+        }
+
         // Try the game's own mechanism first, fall back to parking. See
         // GHOST_DESTROY_ON_DESPAWN for why this is worth attempting at all now.
         bool destroyed = false;
@@ -15487,6 +15552,49 @@ namespace MeshGhostPseudo
                                          serves ? STR("") : STR(" (ORPHANED -- its owner is gone)"));
                         }
                         *weight = 0.0f;
+                    }
+                }
+            }
+
+            // The orphan pass: see GHOST_DESTROY_ORPHAN_CAMERA_RIGS. Only while a real player pawn
+            // is up -- never during a load, when a rig can exist a moment before it is claimed.
+            if constexpr (GHOST_DESTROY_ORPHAN_CAMERA_RIGS)
+            {
+                if (tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0 && class_looks_like_player(pawn_obj))
+                {
+                    static std::map<UObject*, int> orphan_sightings; // rig -> consecutive sweeps with OwningActor null
+                    // Cadence: PER-INTERVAL -- every CAMERA_RIG_SWEEP_INTERVAL_TICKS (~5/s), one
+                    // class-scoped FindAllOf over a handful of rigs, the same shape as the
+                    // neutralise sweep above. Not per-tick, not per-ghost.
+                    std::vector<UObject*> rigs;
+                    UObjectGlobals::FindAllOf(STR("BP_PlayerCam_C"), rigs);
+                    std::set<UObject*> seen_orphaned;
+                    for (UObject* rig : rigs)
+                    {
+                        if (!rig)
+                        {
+                            continue;
+                        }
+                        UObject** owning = mg_property_value<UObject*>(rig, STR("OwningActor"));
+                        if (!owning || *owning != nullptr)
+                        {
+                            continue; // somebody's rig, or a build whose rig has no such property
+                        }
+                        seen_orphaned.insert(rig);
+                        const int sightings = ++orphan_sightings[rig];
+                        if (sightings < CAMERA_RIG_ORPHAN_SWEEPS_BEFORE_DESTROY)
+                        {
+                            continue;
+                        }
+                        const bool called = call_destroy_actor(static_cast<AActor*>(rig));
+                        Output::send(STR("[MeshGhostPseudo] CAMRIG sweep: '{}' has had no OwningActor for {} sweeps -> K2_DestroyActor {}\n"),
+                                     rig->GetName(), sightings, called ? STR("called") : STR("NOT reflected"));
+                    }
+                    // A rig not orphaned this sweep starts over; a destroyed one drops out here too,
+                    // so the map never holds an address the engine has freed.
+                    for (auto entry = orphan_sightings.begin(); entry != orphan_sightings.end();)
+                    {
+                        entry = seen_orphaned.count(entry->first) ? std::next(entry) : orphan_sightings.erase(entry);
                     }
                 }
             }
