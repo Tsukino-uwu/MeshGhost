@@ -255,7 +255,7 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
-## [MEASURED] 2026-09-06 -- what a ghost costs, part by part, and half of it is the ADAPTER's own per-ghost tick
+## [OPEN] MEASURED 2026-09-06 -- what a ghost costs, part by part, and half of it is the ADAPTER's own per-ghost tick
 
 **The user's ask:** *"what parts of the player are the most performance heavy? ... spawn ghosts
 with only that thing and nothing else ... so we can separate and make a proper list of what
