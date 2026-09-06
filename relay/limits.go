@@ -131,6 +131,27 @@ const (
 // enough that a client that never closes cannot hold a slot.
 const rateLimitDrain = 2 * time.Second
 
+// handshakeCloseDrain is rateLimitDrain's reason applied to the OTHER place
+// this relay writes a line and then hangs up: the handshake. A Reject, or the
+// transport offer a query-only client asked for, is the last thing written to a
+// connection that is about to close -- and `Close()` behind ANY unread bytes is
+// a RESET, which discards what is still sitting unread in the CLIENT's receive
+// buffer, including the line just sent. A client that wrote anything after its
+// hello (a keepalive, a queued state, a second hello) is exactly that case.
+//
+// Found 2026-09-06 on CI's Linux race job, where a core saw EOF with no Reject
+// and reported "the relay connection dropped before the welcome arrived" -- a
+// TRANSIENT error -- for a permanent game_version mismatch, so it kept retrying
+// instead of telling the player and closing the bridge
+// (core.TestBridgeHelloGameVersionReachesRelay; 30 local Windows runs under
+// -race never reproduced it). Same class as the rate-limit case fixed
+// 2026-09-05, in the path that fix did not cover.
+//
+// The cost is a refused connection held half-open until the client closes,
+// bounded by this: the drain ends the moment the client hangs up, which a
+// client that read its Reject does immediately.
+const handshakeCloseDrain = 2 * time.Second
+
 func MaxMessagesPerSecondFor(sendHz int) int {
 	if limit := sendHz * RateLimitHeadroomMultiple; limit > MaxMessagesPerSecond {
 		return limit

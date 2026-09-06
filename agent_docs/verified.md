@@ -126,6 +126,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-03 — A local ghost renders on its own delay: the defect, the fix, and why the whole suite was blind to it
 - 2026-09-03 — Recordings ship gzipped and trimmed: 310 MB/hour becomes about 9
 - 2026-09-06 — A tester's "the client died" at ~343 ghosts: the core refused its own game's reconnect
+- 2026-09-06 — CI's Linux race job: a refused hello lost its Reject to a reset, so the core retried a permanent refusal
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1624,3 +1625,32 @@ own thread at ~171 frames/s (its heartbeat counts them) while the game thread wa
 at 344 ghosts, and the core answers *every* frame with one render line per ghost: ~59,000 lines a
 second into a socket drained seventeen times a second. The core no longer breaks, and nothing yet
 bounds that volume -- `ideas.md`, the entry filed the same day.
+
+## 2026-09-06 — CI's Linux race job: a refused hello lost its Reject to a reset, so the core retried a permanent refusal
+
+**Go-side track.** Found by pushing, which is the point of the rule that says read what CI did.
+
+- **Date:** 2026-09-06
+- **Observed:** `Build, vet, test (race)` failed on `core.TestBridgeHelloGameVersionReachesRelay`
+  -- *"timed out waiting for the bridge connection to close after a game_version mismatch"*. Build,
+  vet, cross-compile, gofmt, the shipping-target job and the fuzz campaign were all green. The job's
+  own log carries the sequence: the relay refused bob's hello, the core logged *"the relay
+  connection dropped before the welcome arrived"* (its TRANSIENT branch, `relaysession.go`), went
+  "playing alone -- will keep retrying", connected again, was refused again, and only then read a
+  real `Reject`. By that point the refusal came from the retry loop, which does not close the bridge,
+  so the bridge never closed and the test timed out.
+- **Cause:** `rejectAndClose` sent the `Reject` and then `conn.Close()`. A close behind unread data
+  is a RESET, and a reset discards what is unread in the CLIENT's receive buffer -- the `Reject`
+  included. The rate-limit path had been fixed for exactly this on 2026-09-05
+  (`CloseGracefully(rateLimitDrain)`); the handshake paths had not.
+- **Fix:** `handshakeCloseDrain` (2s) and `CloseGracefully` at all three handshake sites -- the hello
+  rejection, the field-too-long rejection, and the transport offer a query-only client asked for.
+  `rejectAndClose` takes `*transport.NDJSONConn` now, which every caller already passed.
+- **Test:** `relay.TestARefusedHelloDeliversItsRejectBehindUnreadData` -- hello, then a wedge of
+  lines the relay never reads, then the `Reject` must arrive. **It fails without the fix on Windows
+  too** (`wsarecv: An existing connection was forcibly closed`), so it is a local gate, not a
+  Linux-only one; 10 runs fail before, 5 pass after.
+- **Notes:** 30 local Windows runs of the CORE test under `-race` never reproduced the original
+  failure, and a full local `-race -count=5` of the core package was clean. This is the second time
+  the reject-then-close class has cost a red CI run, which is why the pitfall now carries the rule
+  about grepping every write-then-hang-up site when the lesson is first filed.

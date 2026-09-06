@@ -558,3 +558,20 @@ is new and set inside the close itself. Regression:
 **Left open, measured not guessed:** the adapter sends frames from UE4SS's thread at ~171/s while
 its game thread rendered 17 fps, and the core answers every frame per ghost — ~59,000 lines a
 second. `ideas.md`, 2026-09-06.
+
+## 2026-09-06 (night) — the push, and what CI caught that no local run could
+
+The dead-adapter fix went to `master` and CI's **Linux race job** failed on
+`TestBridgeHelloGameVersionReachesRelay` -- everything else (build, vet, cross-compile, gofmt, the
+shipping-target job, the 13-minute fuzz campaign) green. Not the new code: the job's log shows a
+refused hello arriving at the core as a bare EOF, classified as a TRANSIENT drop, retried, and only
+recognised as permanent on the second attempt -- by which point the path that closes the bridge had
+been passed. Cause: `rejectAndClose` closed behind unread data, and a reset discards the `Reject` the
+client has not read yet. The 2026-09-05 graceful-close fix had been applied to the rate-limit path
+alone.
+
+Fixed at all three handshake sites with `handshakeCloseDrain`, and pinned by
+`relay.TestARefusedHelloDeliversItsRejectBehindUnreadData`, which fails with the reset on Windows
+too. Records: `verified.md`, `pitfalls/by-lesson.md` (with the rule about grepping every
+write-then-hang-up site when such a lesson is first filed), `status.md`.
+

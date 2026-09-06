@@ -1076,14 +1076,16 @@ func sendEnvelope(conn transport.Transport, t protocol.MessageType, payload any)
 // the relay's own log, so a host had no way to tell "nobody's trying to
 // connect" from "someone's trying and failing." One line per rejection —
 // this only fires at handshake, never per state message, so it can't spam.
-func rejectAndClose(conn transport.Transport, hello protocol.Hello, reason string) {
+func rejectAndClose(conn *transport.NDJSONConn, hello protocol.Hello, reason string) {
 	// Sanitized before logging, for the same reason the join line is: a refused
 	// hello is still attacker-controlled, and refusing it does not make its
 	// display_name safe to write into the host's log unaltered.
 	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q",
 		reason, hello.GameID, hello.Room, protocol.SanitizeDisplayName(hello.DisplayName))
 	sendEnvelope(conn, protocol.TypeReject, protocol.Reject{Reason: reason})
-	_ = conn.Close()
+	// Graceful, not Close: the Reject is the last line written and a reset
+	// would throw it away. See handshakeCloseDrain.
+	conn.CloseGracefully(handshakeCloseDrain)
 }
 
 // roomKey is the key a room lives under in Server.rooms: its game_id AND its
@@ -1405,7 +1407,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			if !protocol.ValidateHelloFields(hello) {
 				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen)
 				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
-				_ = nd.Close()
+				nd.CloseGracefully(handshakeCloseDrain) // the Reject must survive the close
 				return
 			}
 			// Versioning rule (agent_docs/contract.md): a mismatched major
@@ -1441,7 +1443,10 @@ func (s *Server) handleConn(conn net.Conn) {
 			// agent_docs/architecture.md.
 			if hello.QueryOnly {
 				sendEnvelope(nd, protocol.TypeTransports, protocol.Transports{Offers: s.transportOffers()})
-				_ = nd.Close()
+				// The offer is the whole point of a query-only hello and is the last
+				// line written: a reset here loses it and the client falls back to
+				// guessing a transport. See handshakeCloseDrain.
+				nd.CloseGracefully(handshakeCloseDrain)
 				return
 			}
 

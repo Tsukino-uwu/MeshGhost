@@ -6321,3 +6321,30 @@ other 1,200; and let the thing that checks "is someone already attached?" ask wh
 connection is CLOSED (`NDJSONConn.IsClosed`) rather than trusting bookkeeping a slower path owns.
 Test it by racing the reconnect against the close, not by sleeping first: a 50 ms wait passes with
 and without the fix.
+
+## The graceful close was applied to ONE path, and the class came back on the other (relay, 2026-09-06)
+
+**Symptom.** CI's Linux race job failed `core.TestBridgeHelloGameVersionReachesRelay`: a core whose
+game_version did not match the room saw a bare EOF instead of the relay's `Reject`, classified the
+PERMANENT refusal as a transient drop (*"the relay connection dropped before the welcome arrived"*),
+and kept retrying instead of telling the player and closing the bridge. Thirty local Windows runs
+under `-race` never reproduced it.
+
+**Cause, already written down.** `A Close() behind unread data is a TCP RESET, and a reset can throw
+away the last line you sent` -- the 2026-09-05 entry above. That fix went into the rate-limit path,
+`nd.CloseGracefully(rateLimitDrain)`, and nowhere else. Every HANDSHAKE rejection still used
+`_ = conn.Close()`, so a client that had written anything the relay would never read -- which is any
+client that keeps sending while it waits for an answer -- got a reset that discarded the `Reject`
+sitting unread in its own buffer.
+
+**Rule.** **When a lesson is filed as "close gracefully HERE", the next move is to grep for every
+other place the same code writes a line and then hangs up, and fix them in the same pass.** In this
+relay that was three: the hello rejection, the field-too-long rejection, and the transport offer a
+query-only client asked for. A lesson recorded against one call site is not the same as a lesson
+applied. And the sibling half: a client that treats "EOF with no reason" as transient will RETRY a
+permanent refusal forever, so the delivery of the reason is what makes the client's own
+classification correct.
+
+**Test.** `relay.TestARefusedHelloDeliversItsRejectBehindUnreadData` writes the hello, then a wedge
+of lines the relay never reads, then asserts the `Reject` arrives. It fails with the reset on
+Windows too, so it is a real local gate rather than a Linux-only one.

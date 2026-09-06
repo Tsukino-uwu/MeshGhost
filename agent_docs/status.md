@@ -10,6 +10,8 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-06 — **FIXED and confirmed by me (Go side): a refused hello lost its `Reject` to a TCP reset, so a core retried a PERMANENT refusal forever.** CI's Linux race job found it; the 2026-09-05 graceful-close fix had gone into the rate-limit path only. All three handshake sites now close gracefully — `verified.md` 2026-09-06, `pitfalls/by-lesson.md`.
+
 - 2026-09-06 — **FIXED on the Go side, mine to confirm and confirmed: a tester's "the client died" at ~343 ghosts was the core REFUSING ITS OWN GAME'S RECONNECT** (512 chasers; a write to a game that had stopped draining hit the 10s deadline, the socket closed, the game re-dialled 6 ms later and got "busy", so its mod started a second core). Three-part fix plus a regression test that fails 5/5 without it — `verified.md` 2026-09-06, `pitfalls/by-lesson.md`.
 - 2026-09-06 — **NOT fixed, filed with its measurement: the adapter's SEND rate sets what the core sends back.** The Pseudoregalia mod sends frames from UE4SS's thread at ~171/s while the game thread rendered 17 fps at 344 ghosts, so the core answered with ~59,000 render lines a second — `ideas.md`, the 2026-09-06 entry, with three approaches and what to measure first.
 
