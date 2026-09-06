@@ -380,7 +380,7 @@ hot-loaded at all.**
 
 **The gap it closes, found live and confirmed as a repeat.** UE4SS knows only the mods that were
 enabled when the game STARTED, so `RestartMod` — the whole mechanism behind
-[`probe_reloader/`](probe_reloader/) — answers *"Could not find mod to reinstall"* for a folder
+[`probe_reloader/`](probes/probe_reloader/) — answers *"Could not find mod to reinstall"* for a folder
 created since launch. Hot reload therefore covered iterating a probe that already existed and never
 covered writing a new one, which is the case that comes up first. The user, 2026-09-04: *"should we
 make a temp/reusable probe for things like this? its not the first time we can't load a new one"*.

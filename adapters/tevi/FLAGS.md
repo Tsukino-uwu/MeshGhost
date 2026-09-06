@@ -122,4 +122,4 @@ until 2026-09-01 while the adapter read three, and "only the three environment v
 Believe the value, then find out why the comment drifted before changing either.
 And the harder version: **a flag flip is not a revert** — verify the switch disables the
 *work*, not merely the decision the work feeds, or revert the commit instead.
-[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls.md#diagnostic-methodology) has the case that established it.
+[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls/method.md#diagnostic-methodology) has the case that established it.

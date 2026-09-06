@@ -10,7 +10,10 @@ with a regression test that fails without it, and a dated line in the security c
 **What is covered.** The relay (`meshghost-server`), the client core (`meshghost`), and each game
 adapter as shipped in a release. The threat model, what each transport does and does not protect,
 every limit and the known gaps that are deliberately not defended are in
-[docs/security.md](../docs/security.md). How to audit it yourself — which code a host runs, where
-the bytes go, and the fuzz and race commands — is [docs/reviewing.md](../docs/reviewing.md).
+[docs/security.md](https://github.com/Tsukino-uwu/MeshGhost/blob/master/docs/security.md). How to audit it yourself — which code a host runs, where
+the bytes go, and the fuzz and race commands — is [docs/reviewing.md](https://github.com/Tsukino-uwu/MeshGhost/blob/master/docs/reviewing.md).
+
+<!-- Absolute links on purpose: GitHub renders this file on the Security tab (/security/policy), where a
+     relative link resolves without the branch segment and 404s. Checked 2026-09-06. -->
 
 **Supported versions.** The latest release only. The project assumes everyone is on it.

@@ -453,7 +453,7 @@ Before building any spawn detector on identity, check whether the objects ever a
 
 A flag must gate the **work**, not merely the decision the work feeds. If you cannot point at the
 work it disables, revert the commit instead. **A flag flip is not a revert** —
-[pitfalls.md](pitfalls.md#diagnostic-methodology).
+[pitfalls.md](pitfalls/method.md#diagnostic-methodology).
 
 ### 6. One variable per run; never guess twice at the same symptom
 

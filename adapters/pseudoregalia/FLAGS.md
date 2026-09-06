@@ -282,7 +282,7 @@ one won. That is precisely how the 2026-08-17 confusion happened.
 
 **A flag flip is not a revert** — verify the flag disables the *work*, not merely the decision the
 work feeds, or revert the commit instead.
-[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls.md#diagnostic-methodology) has the case behind it.
+[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls/method.md#diagnostic-methodology) has the case behind it.
 
 ## Tunable constants — the `constexpr` NUMBERS
 
