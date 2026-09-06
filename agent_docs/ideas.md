@@ -67,6 +67,7 @@ is USED, that project is checked and recorded there first.
 - Replay hotkeys: the chord requirement, and an in-game RECORDING INDICATOR (top right, config-toggled) designed with the tester 2026-09-04; the log-clarity third of it FIXED the same day
 - The adapter's send rate, not its render rate, sets what the core sends back -- ~59,000 render lines a second into a socket drained 17 times a second (measured in a tester's logs, 2026-09-06)
 - Per-clip and per-chaser interpolation delay: an `interp` key in a replay file's header, and a `chaser.interp` beside `chaser.delay` (the user's ask, 2026-09-06)
+- Fuzz the PEER, not just ourselves: an adapter that stops reading, a write that fails, a reconnect racing the close (filed 2026-09-06, after a bug no peer COUNT would have found)
 
 ---
 
@@ -2945,4 +2946,36 @@ session. Per-clip interp makes the two-ghost comparison a single run.
 SUGGESTED interp from its own sample spacing (the recorder knows it) rather than a hand-typed one;
 and whether a per-chaser value or one value for the whole pack is what is wanted -- a pack whose
 members interpolate differently would look inconsistent, which argues for one key per pack.
+
+## Fuzz the PEER, not just ourselves (filed 2026-09-06)
+
+**The user's question, after the dead-adapter bug:** *"can't fuzzers catch things like this? having
+more/less peers etc"*. The honest answer is no, not as the targets stand, and not because of the
+count.
+
+**What `FuzzEverything` already does:** the real `ServeBridge`, `attach`/`detach` in its alphabet, a
+fuzzed chaser count and roster, 32 ops of order, timing, config and values. **What it has never
+done:** misbehave on the OTHER side of the socket. Its fake adapter drains promptly every time, so
+no write to it can fail, no socket can die inside a frame handler, and no reconnect can arrive
+before the close is noticed -- the three facts the 2026-09-06 bug was made of. `net.Pipe` closes
+that door twice over: a pipe write blocks until the peer reads instead of filling a buffer and
+expiring a write deadline, which is the mechanism that actually broke.
+
+**The extension, concretely, in the shape the existing target already has.**
+
+- **Three new ops:** `adapter.stopReading` (the fake adapter stops draining and keeps sending
+  frames), `adapter.slowReader` (drains n lines per step), `adapter.dirtyReconnect` (a fresh hello
+  the moment the old socket dies, rather than after a clean `detach`).
+- **A fuzzed `bridgeWriteTimeout`** on the Core, in the tens of milliseconds, so a stalled reader
+  reaches the deadline inside a fuzz step instead of ten seconds later. The field exists (added with
+  the fix); the fuzzer's compressed-clock argument covers it -- shipped code path, shorter number.
+- **A listener whose writes can actually BLOCK and time out**, since `net.Pipe` cannot: either a
+  bounded-buffer pipe of our own or a loopback TCP pair, weighed against the port wall that made the
+  pipe listener necessary in the first place (`testing.md`, the socket-per-iteration lesson).
+- **One new invariant, and it is the one that would have failed:** a hello is never answered `busy`
+  while the connection holding the slot is closed.
+
+**Cost to weigh before building:** a stalled-reader step spends real milliseconds waiting for a
+deadline, and the target's value comes from iteration count. Probably a separate, opt-in target
+rather than three more ops in the everything-fuzzer's alphabet.
 
