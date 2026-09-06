@@ -302,10 +302,9 @@ Player standing still on ZONE_Dungeon, 10s samples of the world's frame delta:
 | (32 ghosts UP, for scale) | 13.76 / 16.82 ms | 13.3-16.0 | 60-73 |
 
 A straight line, ~0.025 ms per rig. **It is real and it is not the whole story**: at 150 rigs it
-extrapolates to ~+3.7 ms, enough to take a heavy scene from 144 to ~110, not to the 70 fps the user
-saw after 150 ghosts -- so the 150-ghost session (replays and chasers, a different despawn path)
-left something else behind too. That is the next census: 150 fake peers, a few rounds, before vs
-after (the user's test, 2026-09-06).
+extrapolates to ~+3.7 ms -- and the user's 70 fps after 150 fake peers dates from before the first
+performance work, when the per-frame base was higher, so the rigs alone can account for it. The next
+test the user asked for: 150 fake peers, a few rounds, before vs after (2026-09-06, below).
 
 **Two instrument findings on the way.** Something re-applied the 144 cap mid-session, after a
 despawn round, without any settings change -- the probe now resends `t.MaxFPS 0` before each
@@ -341,8 +340,11 @@ alive at once (most of them destroyed and waiting for GC), 400 ms frames. A hard
 intended, and NOT a measurement of what 150 live ghosts cost; that needs a fake peer that drains,
 or fewer peers per process.
 
-**What the user's 70-fps-after-150-ghosts session still has that this test did not:** replays and
-chasers, which despawn through their own path. Unexercised.
+**The user's 70-fps session was 150 FAKE PEERS too, despawned, stuck until reset to last save** --
+corrected by the user 2026-09-06 after this entry first blamed replays and chasers; it dates from
+before the first performance work, so 150 orphan rigs (~3.7 ms) on top of that build's per-frame cost
+is a sufficient explanation. Recordings and chasers despawn through their own path and are the next
+census, at the user's request: *"we should probly check recording & chase ghosts as well"*.
 
 `GHOST_DESTROY_ORPHAN_CAMERA_RIGS`: `release_ghost` destroys the rigs whose `OwningActor` is the
 ghost, BEFORE destroying the ghost (afterwards that property is the only handle and it goes null

@@ -657,7 +657,9 @@ candidates that tick are the pawn's two spring arms, `DialogueCam`, the auto-pos
 every round the world is back to one `BP_PlayerCam_C` and one pawn and the frame time back on the
 pre-round baseline (1.5-1.9 ms vs 1.76-1.78 before; one 2.12 ms sample at the end, counts clean).
 3,476 rigs destroyed by `release_ghost`, the sweep never fired. Peer-path despawns leave nothing
-else behind; the replay/chaser path is not yet exercised. The rounds themselves ran at 2.5 fps with
+else behind. The user corrected an attribution here: their 70-fps session was 150 FAKE PEERS (before
+the first performance work), not replays or chasers, so the rig leak accounts for it; the
+recording/chaser despawn path is next at their request. The rounds themselves ran at 2.5 fps with
 689-984 pawn objects alive because the relay kicks fake clients that cannot drain 149 peers' streams
 and they reconnect -- the load rig's limit, recorded in `UNVERIFIED.md`. Preflight green (FindAllOf
 ratchet 49 -> 51, both new sites named per-event / per-interval). The uncapped state lives only in
