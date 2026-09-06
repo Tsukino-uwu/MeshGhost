@@ -55,7 +55,8 @@ Everyone holding a role uses two-factor authentication on GitHub and on SignPath
 
 The code itself is written by an AI agent under the maintainer's direction ([reviewing.md](reviewing.md)
 says so up front). The agent holds no role: it cannot push, merge, or approve a signing request, and
-every commit it produces is reviewed and committed by the maintainer, who is accountable for it.
+nothing it produces reaches GitHub until the maintainer has reviewed and pushed it, and the
+maintainer is accountable for it.
 
 **Outside contributions are welcome and carry no obligations for their author.** A pull request's
 author holds no role; the change reaches a signed build only after a reviewer has read and merged
