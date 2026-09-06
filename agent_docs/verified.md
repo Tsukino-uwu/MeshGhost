@@ -1615,7 +1615,9 @@ crashed: the core was alive and holding a slot for a socket that was already dea
 **Test.** `core.TestADeadAdapterSocketFreesTheCoreForTheReconnect`: 512 chasers, a 300 ms bridge
 write deadline, an adapter that stops reading, and a reconnect the instant the socket dies. On the
 code before the fix it **fails 5 of 5** with the tester's exact reject line; after, **10 of 10**
-pass. `run-gotests.bat` and the race job green.
+pass. Gates run for this change: `run-gotests.bat` green (every package, x2);
+`run-gotests-race.bat` green -- `go test -race -count=3`, the same command CI runs, on MSYS2's GCC
+after the PATH step `testing.md` records; and the new test alone at `-count=10`.
 
 **Not fixed, and the reason the stall existed at all.** The adapter sends `local_state` from UE4SS's
 own thread at ~171 frames/s (its heartbeat counts them) while the game thread was rendering ~17 fps
