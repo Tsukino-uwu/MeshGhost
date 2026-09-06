@@ -665,3 +665,20 @@ and they reconnect -- the load rig's limit, recorded in `UNVERIFIED.md`. Preflig
 ratchet 49 -> 51, both new sites named per-event / per-interval). The uncapped state lives only in
 that game process. Committed; the install carries the first build of the same code, the comment-only
 rebuild redeploys at the next game close.
+
+**Later the same session -- the other two despawn paths, the local-ghost caps, the dump probe.**
+Replays: ten copies of a 20s clip recorded offline by the fake adapter (`-record`), dropped in the
+game root's `replay/active/`, played by three core restarts; after each round one rig, one pawn,
+frame time in the baseline band. Chasers: five enabled in the config (a failed PowerShell `-replace`
+truncated `config.json` to 3 bytes on the way; restored from the backup taken a line earlier -- edit
+configs with Python, never a one-line PowerShell replace), the user walked, six pawns counted, the
+core killed so they left by the bridge-drop path: five `CAMRIG release_ghost` lines, one rig, one
+pawn, 1.85 ms. **All three despawn paths clean on the new DLL.** A tester had been stopped at 8
+chasers the day before; that was the core's own `maxChasers`, with `maxActiveReplays` 16 over
+replays and chasers together -- neither ever had anything to do with the relay. Both removed on the
+user's call (*"allow people to do as much as their game can handle"*); the one bound left is the
+roster's 512 seats, which a fuzzed count of 1<<20 is clamped to rather than allocating a million
+queues. Tests pin the new behaviour (99 asked = 99 started; 19 files = 19 loaded). And `probe_dump/`:
+any live object's properties as JSON without dereferencing a pointee -- first run on the local pawn
+with 28 components, 3,015 properties, 0 errors; the tool for the component vetting the user wants
+next. It sits in the deployed scratch slot for now; the pristine stub goes back at the session's end.

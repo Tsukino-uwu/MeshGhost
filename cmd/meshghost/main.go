@@ -687,7 +687,7 @@ func main() {
 	saveLast := flag.Duration("replay-save-last", 30*time.Second,
 		"how many seconds of recent play the save-last hotkey writes out (config: replay.save_last)")
 	chaserOn := flag.Bool("chaser", false, "follow yourself: a pack of your own past as cosmetic ghosts (config: chaser.enabled)")
-	chaserCount := flag.Int("chaser-count", 1, "how many chasers (1-8; config: chaser.count)")
+	chaserCount := flag.Int("chaser-count", 1, "how many chasers (no cap beyond the roster's 512 seats; config: chaser.count)")
 	chaserDelay := flag.Duration("chaser-delay", 3*time.Second, "how far behind you the first chaser runs (config: chaser.delay)")
 	chaserSpacing := flag.Duration("chaser-spacing", 2*time.Second, "how much further behind each next chaser runs (config: chaser.spacing)")
 	// BLANK BY DEFAULT, the user's call 2026-09-04: a chaser is you, and a tag

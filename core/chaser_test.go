@@ -106,11 +106,22 @@ func TestChaserPackIsSpacedAndNumbered(t *testing.T) {
 	}
 	c.StopChasers()
 
+	// No count cap (2026-09-06): 99 asked is 99 started. The old cap of 8 is
+	// what a tester hit; this line fails if it ever comes back.
 	c.mu.Lock()
 	c.ChaserCount = 99
 	c.mu.Unlock()
-	if n := c.StartChasers(); n != maxChasers {
-		t.Fatalf("count 99 started %d, want the cap %d", n, maxChasers)
+	if n := c.StartChasers(); n != 99 {
+		t.Fatalf("count 99 started %d, want all 99 (no cap)", n)
+	}
+	c.StopChasers()
+	// The one bound left is the roster itself: a count past every seat is
+	// clamped to the roster's size rather than allocating that many queues.
+	c.mu.Lock()
+	c.ChaserCount = 1 << 20
+	c.mu.Unlock()
+	if n := c.StartChasers(); n != protocol.MaxRosterSize {
+		t.Fatalf("count 1<<20 started %d, want the roster size %d", n, protocol.MaxRosterSize)
 	}
 	c.StopChasers()
 }

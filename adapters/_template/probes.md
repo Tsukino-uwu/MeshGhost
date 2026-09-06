@@ -499,6 +499,20 @@ no ghost in it. A probe does not fail when it measures the wrong instant — it 
 question persuasively. Delay to a known state, and log the state alongside the reading so the
 mismatch is visible.
 
+- **Census EVERY object by class, diffed against a baseline, before naming a suspect (Pseudoregalia,
+  2026-09-06).** A leak counter watching two named classes reported "~2 Niagara per despawn" and
+  missed the real leftover entirely — a `BP_PlayerCam_C` camera rig, a class nobody had named. A
+  full `ForEachUObject` walk bucketed by class, taken at baseline / ghosts up / 90s after despawn,
+  showed seven classes move and six return; the one that did not was the answer, with its owner in
+  its full name. `probe_leakcount/Scripts/census.lua`. Two rules from the same day: the callback
+  inside `ForEachUObject` may only append to a list (a Lua error in there aborts the game past any
+  pcall), and a frame-time verdict needs the cap OFF — at 144 fps a leaked tick is a flat line.
+- **Dump an object's properties WITHOUT dereferencing any of them (Pseudoregalia, 2026-09-06).**
+  `probe_dump/`: scalars in full, structs by field, object properties as address + declared class,
+  owned components followed through the actor's own arrays and no further, sorted keys so two dumps
+  diff. It is the safe form of the reflection walk that crashed this adapter four times, and the
+  tool for "what does this actor carry, and what changed".
+
 ## Or play to it — reaching a state is a legitimate way to measure it (2026-08-19)
 
 The section below says to edit the world rather than travel to it, and that is usually right. The

@@ -43,7 +43,8 @@ import (
 //     relay id never does, and nothing with a local prefix ever reaches the
 //     relay transport (the never-on-the-wire rule, ADR 0047);
 //   - the roster never exceeds protocol.MaxRosterSize, and local ghosts never
-//     exceed maxActiveReplays;
+//     exceed the files written plus the chaser count asked for (no cap of
+//     their own since 2026-09-06; the roster is the bound);
 //   - the relay clock never runs backwards, however the offset moves;
 //   - after the last step the core still answers an adapter frame.
 //
@@ -340,8 +341,8 @@ func FuzzEverything(f *testing.F) {
 			if roster > protocol.MaxRosterSize {
 				t.Fatalf("after %s: roster %d exceeds the cap (%s; ran %s)", step, roster, cfg, strings.Join(ran, " "))
 			}
-			if local > maxActiveReplays+maxChasers {
-				t.Fatalf("after %s: %d local ghosts (%s; ran %s)", step, local, cfg, strings.Join(ran, " "))
+			if bound := files + cfg.chaserCount; local > bound && local > protocol.MaxRosterSize {
+				t.Fatalf("after %s: %d local ghosts, more than %d files + %d chasers (%s; ran %s)", step, local, files, cfg.chaserCount, cfg, strings.Join(ran, " "))
 			}
 			// Cosmetic on every local render, never on a relay one.
 			if fa != nil {

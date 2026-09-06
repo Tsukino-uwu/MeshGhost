@@ -2799,3 +2799,28 @@ adapter's `CLAUDE.md`, `PROBES.md` (which had said there is no `probes/` folder 
 the scratch stub's own comment. `pseudo-hotreload.ps1 -Watch` already watched the adapter folder
 recursively. Records (`VERIFIED.md`, `pitfalls/`, the entries above) keep the old paths as written;
 `PROBES.md` says how to read them.
+
+## 2026-09-06 — the FPS that outlives a ghost: its camera rig; every despawn path censused; the dump probe
+
+The full narrative sits in `phase11.md` (2026-09-06, "the FPS that outlives a ghost" and the entry
+after it) because the session ran through replays and chasers; this is the adapter-side record.
+**Found:** a ghost pawn's own `BP_PlayerCam_C` camera rig outlived the ghost with its spring arm
+ticking -- ~0.025 ms a frame per rig, cleared only by a level reload; found with a full-object
+census (`probes/probe_leakcount/Scripts/census.lua`), not the two-class counter of 2026-09-04, whose
+"~2 Niagara per despawn" was the game's own churn. **Fixed:** `GHOST_DESTROY_ORPHAN_CAMERA_RIGS`
+(`Plugin.cpp`, `FLAGS.md`): the rig is destroyed in `release_ghost` while `OwningActor` still names
+the ghost, and the sweep destroys any rig orphaned three sweeps running. **Watched by the
+instrument on all three despawn paths** -- peer leaving (three rounds of 150 fake peers, ~1,660
+despawns each), replay ending (ten clips, three rounds), bridge drop (five chasers) -- each back to
+one rig, one pawn, baseline frame time with the cap off; still READY in `UNVERIFIED.md` until the
+user reports a session of their own. **New tools:** `probes/probe_dump/` (any object's properties
+as JSON, never dereferencing a pointee; 3,015 properties and 28 components on the local pawn, 0
+errors) and the census probe's frame-time sampler and console-command request (`t.MaxFPS 0`, user's
+go-ahead). **Lessons filed:** `pitfalls/by-lesson.md` 2026-09-06 (count only what you named; a Lua
+error inside `ForEachUObject` aborts the game; never hot-reload a changed probe and walk). **Rig
+notes:** Defender quarantined the game root's `meshghost.exe` (`Wacatac.B!ml`, the unsigned-Go false
+positive; needs the user's Restore/Allow and an exclusion) so the core ran from the repo copy with
+the game root as working directory; the load rig does not survive 150 fake peers (relay kicks
+non-draining clients); a PowerShell one-line `-replace` truncated the install's `config.json` and
+the backup taken a line earlier restored it. The scratch slot holds `probe_dump` until the session
+ends; the pristine stub goes back then.

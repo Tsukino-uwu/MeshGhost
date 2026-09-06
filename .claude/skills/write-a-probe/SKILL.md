@@ -42,6 +42,8 @@ measurement.**
 | a scripted interaction that moves the player | "A scripted interaction must return the game to a known state — and prove it did" |
 | before writing any script at all | "Look first, then write the script — not the other way round" |
 | judging cost | "The cost warning"; "A probe's read budget is real" |
+| see everything an object holds, or what changed on it | "Ways of finding things that worked" (2026-09-06: the no-dereference dump, `pseudoregalia/probes/probe_dump/`) |
+| find what is left behind after something despawns | "Ways of finding things that worked" (2026-09-06: the every-object census, `probe_leakcount/Scripts/census.lua`) |
 
 ## Rules the probe itself must satisfy
 

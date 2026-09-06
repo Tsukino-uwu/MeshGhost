@@ -30,7 +30,13 @@ import (
 )
 
 const (
-	maxChasers = 8
+	// No cap on the chaser COUNT since 2026-09-06 (the user's call: "allow
+	// people to do as much as their game can handle"). The 8 that stood here
+	// was hit by a tester the day before. What remains is the roster:
+	// protocol.MaxRosterSize seats shared with every real peer, which is what
+	// bounds startChasers below -- past it admitLocalPeer refuses anyway, and
+	// a fuzzed count of 1<<20 must not allocate a million queues first.
+	//
 	// maxChaserBehind caps how far behind the player any chaser may run.
 	// FOUND BY THE EVERYTHING-FUZZER on its first run (2026-09-03): a legal
 	// config of count 8 and spacing 48h asked the eighth chaser for a queue
@@ -187,9 +193,9 @@ func (c *Core) StartChasers() int {
 	if count < 1 {
 		count = 1
 	}
-	if count > maxChasers {
-		log.Printf("core: chaser count %d clamped to %d", count, maxChasers)
-		count = maxChasers
+	if count > protocol.MaxRosterSize {
+		log.Printf("core: chaser count %d clamped to %d, the roster's whole size", count, protocol.MaxRosterSize)
+		count = protocol.MaxRosterSize
 	}
 	delay := c.ChaserDelay
 	if delay <= 0 {
@@ -205,12 +211,6 @@ func (c *Core) StartChasers() int {
 	}
 	name := protocol.SanitizeDisplayName(c.ChaserName)
 	color := protocol.SanitizeNameColor(c.ChaserColor)
-	room := maxActiveReplays - c.ActiveReplays()
-	if count > room {
-		log.Printf("core: only %d of %d chasers started: %d local ghosts is the cap and %d replays are active", room, count, maxActiveReplays, c.ActiveReplays())
-		count = room
-	}
-
 	// A fresh pack starts on a fresh gameplay clock: the accumulator only
 	// ever means "since these chasers began", and this runs on attach, where
 	// the adapter's first frozen report is still to come.

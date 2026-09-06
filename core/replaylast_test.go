@@ -121,7 +121,7 @@ func TestReplayLastIsNotCappedByReplaysThatAlreadyFinished(t *testing.T) {
 	if c.replays == nil {
 		c.replays = make(map[string]*replayPlayer)
 	}
-	for i := 0; i < maxActiveReplays; i++ {
+	for i := 0; i < 16; i++ {
 		id := localPeerReplayPrefix + "finished-" + strconv.Itoa(i) + ".ndjson"
 		p := newReplayPlayer(c, id, &replayClip{})
 		close(p.done)
@@ -130,7 +130,7 @@ func TestReplayLastIsNotCappedByReplaysThatAlreadyFinished(t *testing.T) {
 	c.replayMu.Unlock()
 
 	if err := c.replayLast(); err != nil {
-		t.Fatalf("replay_last refused with %d finished players in the map: %v", maxActiveReplays, err)
+		t.Fatalf("replay_last refused with %d finished players in the map: %v", 16, err)
 	}
 	c.launchPendingReplays()
 	pumpUntil(t, fa, func() bool {

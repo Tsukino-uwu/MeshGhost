@@ -11,8 +11,8 @@ fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directo
 as one; since 2026-09-06 those directories sit together under `probes/` (the user's call, to keep
 the adapter root readable — they were loose at the root before, so a record dated earlier that says
 `adapters/pseudoregalia/probe_x/` means `adapters/pseudoregalia/probes/probe_x/`). This index stays
-at the adapter root because it is one of the adapter's files, not a probe. Nineteen directories,
-thirty-two scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
+at the adapter root because it is one of the adapter's files, not a probe. Twenty directories,
+thirty-four scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
 for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -426,6 +426,32 @@ are printed so they can disagree out loud. It reads three NAMED meshes, so an au
 fourth component nobody has named would leave three clean readings and the glow still on screen.
 
 **Cost:** one object-space walk over one class at 2Hz. Read-only. Unload it before judging anything.
+
+## `probe_dump/` — any live object's reflected properties as JSON, without crashing the game (2026-09-06)
+
+**The user's ask:** a tester compares objects with the UE4SS GUI console's object dump; the user
+wanted the same from a probe, *"especially if it avoids us to kinda dump things without crashing the
+game"*, and as the tool for vetting a ghost's components one at a time.
+
+**Why it does not crash, when every earlier reflection walk here did.** The four crashes from walks
+(three on 2026-08-29, one on 2026-09-05) all came from DEREFERENCING an object-valued property —
+stringifying the pointee, `GetFullName` on it, a UFunction on it — and a `pcall` does not catch an
+access violation. This dump never touches a pointee: an object property is written as the pointer's
+address plus the property's DECLARED class (metadata on the property itself). Scalars in full; known
+structs (Vector, Rotator, Quat, Vector2D, LinearColor, Color) by field; arrays by element up to 32;
+delegates, maps, sets by type name only. The only objects it follows are the target's OWN components,
+through the arrays the actor owns (`RootComponent`, `BlueprintCreatedComponents`,
+`InstanceComponents`, each scene component's `AttachChildren`) — a live actor's owned components are
+live. Keys are `Class.Property` and sorted, so two dumps `diff` cleanly.
+
+**Request:** `dump_request.txt` beside the mod, `path=<full object path>` or
+`class=<ClassName>` (+ `name=<substring>`), `components=1`, `out=<label>`. Output
+`dumps/<label>-<HHMMSS>.json`; the log line carries the coverage (walked / read / refs / errors /
+skipped types) so an empty dump and a broken walk cannot be confused.
+
+**First run, 2026-09-06, through the scratch slot:** the local pawn with `components=1` — 3,015
+properties walked, 3,015 read, 166 object references, 0 errors, 28 components, 266 KB, game
+untouched. Unreal/UE4SS only; a future Unreal game copies the folder as is.
 
 ## `probe_leakcount/` — does anything stay resident after a ghost leaves (2026-09-04)
 

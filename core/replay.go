@@ -47,10 +47,11 @@ import (
 )
 
 const (
-	// maxActiveReplays caps what replay/active/ may start: each is a roster
-	// seat and an adapter render slot, and the Pokemon adapters have a small
-	// fixed number of the latter.
-	maxActiveReplays = 16
+	// There is no cap on how many files replay/active/ may start (the 16 that
+	// stood here came out 2026-09-06, the user's call: as many as the game can
+	// handle). Each replay is a roster seat, so protocol.MaxRosterSize is the
+	// bound, refused by admitLocalPeer and logged once; an adapter with a small
+	// fixed number of render slots (the Pokemon ones) renders what it can.
 	// replayGapSeamMs: a recorded gap longer than this is a seam, not a
 	// blend. Under the 3s stale age-out so the despawn is ours and explicit
 	// rather than the age-out's a second later.
@@ -732,10 +733,6 @@ func (c *Core) StartReplays() int {
 	defer c.replayMu.Unlock()
 	c.pruneFinishedReplaysLocked()
 	for _, name := range names {
-		if len(c.replays) >= maxActiveReplays {
-			log.Printf("core: replay %s skipped: %d replays are already active (the cap)", name, maxActiveReplays)
-			continue
-		}
 		// filepath.Join of the LISTING's own name, cleaned: nothing inside a
 		// file ever chooses a path, and a listing entry cannot escape dir.
 		path := filepath.Join(dir, filepath.Base(name))
@@ -746,10 +743,6 @@ func (c *Core) StartReplays() int {
 		}
 		for _, lc := range loaded {
 			name, clip := lc.name, lc.clip
-			if len(c.replays) >= maxActiveReplays {
-				log.Printf("core: replay %s skipped: %d replays are already active (the cap)", name, maxActiveReplays)
-				continue
-			}
 			if game != "" && clip.header.Game != "" && clip.header.Game != game {
 				log.Printf("core: replay %s skipped: recorded for game %q, this is %q", name, clip.header.Game, game)
 				continue

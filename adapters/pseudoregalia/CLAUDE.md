@@ -137,6 +137,9 @@ of every property it names is not a named read: an object-valued one hands you a
 stringifying it dereferences whatever that was. **Enumerate what you can name, never what an object
 happens to hold** — grow a written list between runs instead.
 
+**The safe dump exists: `probes/probe_dump/`** (2026-09-06) — every property, object values as address plus
+declared class, never a pointee touched; reach for it before writing another walk.
+
 **Scope the enumeration to the object you are asking about.** `FindAllOf` answers "does this build
 have any of these"; it is the wrong tool for "what does this actor have", and reaching for it there
 is what put a whole-world walk in a probe that only ever needed two pawns' components.

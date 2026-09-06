@@ -218,9 +218,6 @@ func (c *Core) replayLast() error {
 			}
 		}
 	}
-	if len(c.replays) >= maxActiveReplays {
-		return fmt.Errorf("%d replays are already active (the cap)", maxActiveReplays)
-	}
 	// FLUSH FIRST IF WE ARE READING WHAT WE ARE WRITING. The most natural
 	// moment to press replay-last is mid-recording -- "let me see what I just
 	// did" -- and the newest file is then the open one. parseReplay tolerates a

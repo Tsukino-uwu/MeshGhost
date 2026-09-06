@@ -332,15 +332,17 @@ func TestParseReplayTrimAndSkipGaps(t *testing.T) {
 	}
 }
 
-// TestReplayCapAndPrefixNeverEscapeTheFolder: more than the cap is skipped
-// with a log line, and the id is the listing name, never anything from inside.
-func TestReplayCapAndPrefixNeverEscapeTheFolder(t *testing.T) {
+// TestReplayNoCapAndPrefixNeverEscapeTheFolder: every file starts (the cap
+// of 16 came out 2026-09-06; this fails if one comes back), and the id is the
+// listing name, never anything from inside.
+func TestReplayNoCapAndPrefixNeverEscapeTheFolder(t *testing.T) {
 	c, _ := replayCore(t)
-	for i := 0; i < maxActiveReplays+3; i++ {
+	const files = 19
+	for i := 0; i < files; i++ {
 		writeActive(t, c, fmt.Sprintf("r%02d.ndjson", i), clipBytes(map[string]any{"name": "../../etc"}, walkStates(2, 50)))
 	}
-	if n := c.StartReplays(); n != maxActiveReplays {
-		t.Fatalf("loaded %d, want the cap %d", n, maxActiveReplays)
+	if n := c.StartReplays(); n != files {
+		t.Fatalf("loaded %d, want all %d (no cap)", n, files)
 	}
 	c.replayMu.Lock()
 	for id := range c.replays {
