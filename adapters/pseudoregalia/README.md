@@ -92,17 +92,25 @@ on 2026-08-30, **a single ghost cost the game half its frame rate** (144fps → 
 whole-world scans running per tick; those were found with a per-subsystem frame timer and scoped
 to what a ghost actually owns. After all of it:
 
-| Peers | ~Frame rate (144fps machine) |
-|---|---|
-| 0 | ~143 |
-| 4 | ~133 |
-| 8 | ~124 |
-| 16 | ~82 |
-| 32 | ~53 |
-| 100 | ~12 |
-| 150 | ~4.5 |
+| Peers | 2026-09-01 | 2026-09-06 |
+|---|---|---|
+| 0 | ~143 | 144 (the cap) |
+| 4 | ~133 | 144 |
+| 8 | ~124 | 143 |
+| 16 | ~82 | 143 |
+| 32 | ~53 | 96 (median 106) |
+| 100 | ~12 | 30 (median 33) |
+| 150 | ~4.5 | 17 (median 14) |
 
-So a **~30-player room stays above 50fps** on the test machine, ~16 stays above 80 — and 150
+The 2026-09-06 column is the same ladder after a day of measuring what a ghost costs (`VERIFIED.md`
+and `UNVERIFIED.md`, that date): the adapter's own per-ghost work cut, its fixed cost with no ghosts
+gone, a leak closed, and the per-spawn light repair off. Player idle in the dungeon, cap on, each
+count held a minute before a 10 s sample. For 100 and 150 the synthetic peers had to be throttled
+(the relay fanning out at 20 Hz, each fake client rendering 5 times a second) or the rig itself
+churned; they run on the same machine as the game and take CPU from it, so those two rows are a
+floor, not the adapter's ceiling.
+
+So a **~16-player room costs nothing you can see, ~30 stays above 90fps** on the test machine — and 150
 ghosts *work*, in the sense that every one spawns, animates and wears its nametag, degrading into
 a stable slideshow rather than a freeze, and recovering within seconds of the crowd leaving. The
 caveats and the exact per-ghost numbers live in

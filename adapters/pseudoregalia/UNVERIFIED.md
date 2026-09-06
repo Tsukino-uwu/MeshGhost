@@ -317,6 +317,27 @@ now, confirmed unnecessary on screen (`VERIFIED.md`), spawns spaced one per two 
 costs the adapter ~0.6 ms of its own work. Tiers A/B at 11 ghosts: tiers off vs on 7.10 vs 7.10
 mean, p95 7.39 vs 6.94.
 
+**The README's peer ladder, re-run the same night (cap on, player idle in ZONE_Dungeon, one
+minute's settle, a 10 s sample each; the adapter's tick beside it):**
+
+| peers | fps (mean / median) | p95 ms | adapter tick ms | per ghost us |
+|---|---|---|---|---|
+| 0 | 144 / 144 | 6.94 | 0.16 | -- |
+| 4 | 144 / 144 | 6.94 | 0.57 | 76 |
+| 8 | 143 / 144 | 6.94 | 0.77 | 63 |
+| 16 | 143 / 144 | 7.01 | 1.25 | 56 |
+| 32 | 96 / 106 | 15.2 | 2.47 | 59 |
+| 100 | 30 / 33 | 49.3 | 7.64 | 63 |
+| 150 | 17 / 14 | 116 | 15.8 | 105 |
+
+Against 2026-09-01's ~143 / 133 / 124 / 82 / 53 / 12 / 4.5. The first 100-peer attempt at the
+rig's defaults was NOT a measurement: the relay dropped and re-admitted clients continuously
+(each fake client saw 17-55 remotes), the game spawned and released 2,918 ghosts and sat near 9
+fps; the two big legs were re-run with the relay at 20 Hz and the fake clients at 5 renders/s,
+every fake client then holding N-1 remotes for the whole leg. The fake cores run on the same CPU
+as the game, so 100 and 150 are a floor. The game recovered to 144.0 / 6.98 ms worst after 3,187
+spawn-release cycles. `README.md` carries the new column.
+
 **Still UNWATCHED as of the end of 2026-09-06:** (a) a dormant ghost's nametag FOLLOWING the peer
 (the last builds keep the tag and move the hidden actor; the user saw tags at the far end before
 that change, not after a peer moved while dormant); (b) a MOVING real peer with the no-use parts
