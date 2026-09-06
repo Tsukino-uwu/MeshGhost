@@ -1167,6 +1167,19 @@ would be exactly the sort of thing `CLAUDE.md`'s "nothing that couldn't be publi
 dropper-shaped), and TLS (which would add cert generation plus encrypted traffic on top). It is the
 only one of those where the work is bounded and the benefit reaches users directly.
 
+**Started 2026-09-06.** Prompted by a tester's VirusTotal scan of a locally built `meshghost.exe`
+(2/70: Bkav's generic Go hit and Defender's `!ml`; the mod DLL 0/71; the release zip 1/67, Bkav
+only). What shipped in the repo that day, all of it needing nothing from SignPath: the policy page
+`docs/code-signing.md` (roles, what is and is not signed, privacy); the Windows version resource
+both exes lacked (`cmd/*/winres/winres.json` compiled by go-winres in `release.yml`, deterministic,
+recipe in `docs/reviewing.md`) — SignPath refuses to sign a file without product name and version
+metadata. **The two adapter DLLs stay unsigned by design:** the programme signs only verifiable CI
+builds and CI cannot build them; they are not flagged and are not user-launched. Linux/macOS are
+outside Authenticode. **Waiting on the user:** submitting the form at signpath.org/apply, which asks
+for reputation evidence the project barely has (0 stars, 64 asset downloads across 28 releases on
+2026-09-06) — a rejection on that ground is possible and would be worth re-applying after. **Then
+mine:** a secret named in the repo settings, two IDs, and the upload/submit/wait/package step.
+
 ## Replay files: one entry point for remote state (2026-09-03)
 
 **The user's requirement:** *"just want to avoid someone ever being able to share a malicious replay

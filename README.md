@@ -172,6 +172,7 @@ is the internal working record of how it got built.
 - [live-reload.md](docs/live-reload.md) — how a code change reaches a running game without
   restarting it, and why each host (BizHawk, BepInEx, UE4SS) needed its own answer.
 - [antivirus.md](docs/antivirus.md) — why the binaries get flagged, and what you can check.
+- [code-signing.md](docs/code-signing.md) — what a signature on a release vouches for, and who holds the keys (nobody).
 
 **`agent_docs/`**
 

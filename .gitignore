@@ -4,6 +4,9 @@
 *.dll
 *.so
 *.dylib
+# Windows version resources: release.yml generates cmd/*/rsrc_windows_amd64.syso from the
+# committed cmd/*/winres/winres.json at build time (docs/code-signing.md). Never committed.
+*.syso
 
 # The Linux/macOS client and server (their own release downloads, built by release.yml's
 # unix-binaries job into stage/). They have NO file extension, so *.exe above does not cover

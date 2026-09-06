@@ -138,6 +138,9 @@ Then, on any machine, with that Go version installed:
 
 ```sh
 git checkout v1.2.3
+# The Windows version resource (Properties > Details) is generated at build time, so it has to be
+# regenerated the same way; the version is the tag without its v. Skip this for a Linux or macOS build.
+go run github.com/tc-hib/go-winres@v0.3.3 make --in cmd/meshghost-relay/winres/winres.json --out cmd/meshghost-relay/rsrc --arch amd64 --product-version 1.2.3 --file-version 1.2.3
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
 sha256sum meshghost-server.exe         # compare with the digest GitHub shows beside the release asset
 ```

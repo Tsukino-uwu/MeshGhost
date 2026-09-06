@@ -91,6 +91,7 @@ paragraph in the existing flow, or a line in `docs/config.md`, not a heading of 
 - [../docs/reviewing.md](../docs/reviewing.md) — the reviewer's front door: which code a host runs, where the claims are, how to run the fuzzers and the race suite yourself.
 - [../docs/integrating.md](../docs/integrating.md) — putting MeshGhost into a game you own, in any language; unsupported and untested by us, but the wire facts are here.
 - [../docs/antivirus.md](../docs/antivirus.md) — why the unsigned binaries get flagged and what a user can verify.
+- [../docs/code-signing.md](../docs/code-signing.md) — the SignPath code-signing policy: what is signed, what is not, the roles.
 - [../docs/live-reload.md](../docs/live-reload.md) — how each host reloads adapter code into a running game.
 
 ## How to use this folder

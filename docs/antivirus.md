@@ -36,7 +36,8 @@ The heuristic isn't being stupid; it just can't tell the difference yet.
   as "no" if you already have it set.)
 
 **What we intend to do about it:** get the binaries code-signed, via SignPath's free offering for
-open-source projects. That work hasn't started. It should help with both causes, but it's worth
+open-source projects. [code-signing.md](code-signing.md) is the policy that programme requires and
+says where the application stands. It should help with both causes, but it's worth
 being straight that signing is a lever rather than a switch — an ML verdict weighs reputation as
 well as signing, and reputation is something a new certificate earns over time rather than arrives
 with. If your scanner flags a MeshGhost binary, reporting it to that vendor as a false positive

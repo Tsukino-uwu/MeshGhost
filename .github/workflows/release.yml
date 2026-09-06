@@ -155,6 +155,27 @@ jobs:
       # beside each asset proves the asset came from this source, not merely that it downloaded
       # intact. docs/reviewing.md carries the recipe. Stack traces are unaffected: paths in them
       # become module-relative, which is what a bug report wants anyway.
+      # Windows version resource (2026-09-06): the Product name / File version block Windows
+      # shows under Properties > Details. Go writes none, and SignPath's code-signing policy
+      # requires it on every file it signs (docs/code-signing.md). go-winres (ISC, in
+      # agent_docs/licensing.md) compiles the committed cmd/<x>/winres/winres.json into
+      # rsrc_windows_amd64.syso, which go build links into a Windows build automatically and
+      # every other GOOS ignores. Generated here, never committed (.gitignore). Its output is
+      # deterministic -- two runs gave byte-identical .syso files and exes on 2026-09-06 -- so
+      # the reproducible-build recipe in docs/reviewing.md still holds; it just includes this
+      # step. The version is the workflow input without its leading v; a pre-release suffix
+      # such as -rc1 is accepted.
+      - name: Windows version resource
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          v="${VERSION#v}"
+          for c in meshghost meshghost-relay; do
+            go run github.com/tc-hib/go-winres@v0.3.3 make --in "cmd/$c/winres/winres.json" --out "cmd/$c/rsrc" --arch amd64 --product-version "$v" --file-version "$v"
+          done
+          ls -l cmd/meshghost/rsrc_windows_amd64.syso cmd/meshghost-relay/rsrc_windows_amd64.syso
+
       - name: Build meshghost.exe
         run: go build -trimpath -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
 
