@@ -1,6 +1,7 @@
 package core
 
 import (
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
@@ -352,4 +353,79 @@ func TestReplayNoCapAndPrefixNeverEscapeTheFolder(t *testing.T) {
 	}
 	c.replayMu.Unlock()
 	c.StopReplays()
+}
+
+// More replay clips than the roster has seats: the cap decides how many ghosts
+// exist, nothing panics, and the core still answers a frame afterwards.
+//
+// Written as an ordinary test rather than a fuzz step on purpose. The
+// everything-fuzzer reached this shape once (a zip of MaxRosterSize+40 clips)
+// and it cost ~10 s per execution -- 512 local ghosts rendering over the bridge
+// -- which took the target from 207 executions a second to none and got the
+// worker killed as hung. Scale that costs every iteration belongs in a test that
+// runs once (testing.md, 2026-09-04).
+func TestAZipOfMoreClipsThanTheRosterHasSeats(t *testing.T) {
+	c, fa := replayCore(t)
+
+	const clips = protocol.MaxRosterSize + 40
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	body := clipBytes(nil, walkStates(2, 50))
+	for i := 0; i < clips; i++ {
+		w, err := zw.Create(fmt.Sprintf("c%04d.ndjson", i))
+		if err != nil {
+			t.Fatalf("zip entry %d: %v", i, err)
+		}
+		if _, err := w.Write(body); err != nil {
+			t.Fatalf("write entry %d: %v", i, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("close zip: %v", err)
+	}
+	writeActive(t, c, "crowd.zip", buf.Bytes())
+
+	loaded := c.StartReplays()
+	defer c.StopReplays()
+	if loaded == 0 {
+		t.Fatal("a zip of clips loaded nothing at all")
+	}
+	// A replay ghost appears only once the PLAYER has sent a frame (a clip
+	// starts at the first in-game sample, never in the menu), so the frames
+	// drive the loop rather than following it.
+	//
+	// Every clip may load -- there is no cap on FILES since 2026-09-06 -- but
+	// the ROSTER is the bound on how many can ever be ADMITTED, and that is the
+	// invariant a crowd is here to test.
+	peak := 0
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		fa.frame(&protocol.State{AreaID: "a", Position: []float64{1, 1}, Anim: "walk"})
+		c.mu.Lock()
+		roster, local := len(c.roster), len(c.localPeers)
+		c.mu.Unlock()
+		if roster > protocol.MaxRosterSize {
+			t.Fatalf("roster %d exceeds the cap of %d", roster, protocol.MaxRosterSize)
+		}
+		if local > peak {
+			peak = local
+		}
+		if peak >= protocol.MaxRosterSize {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if peak == 0 {
+		t.Fatal("not one replay ghost was ever admitted, so nothing here tested the cap")
+	}
+	t.Logf("peak local ghosts %d from %d clips (roster cap %d)", peak, clips, protocol.MaxRosterSize)
+
+	// And the core is still alive underneath the crowd: a frame in, still capped.
+	fa.frame(&protocol.State{AreaID: "a", Position: []float64{2, 2}, Anim: "walk"})
+	c.mu.Lock()
+	roster := len(c.roster)
+	c.mu.Unlock()
+	if roster > protocol.MaxRosterSize {
+		t.Fatalf("after a frame: roster %d exceeds the cap of %d", roster, protocol.MaxRosterSize)
+	}
 }

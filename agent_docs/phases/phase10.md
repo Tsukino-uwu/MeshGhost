@@ -594,3 +594,20 @@ a send failure, successor-guarded). Corpus entry committed at
 executions, 80 new interesting inputs, clean. Records: `verified.md`, `pitfalls/by-lesson.md`,
 `ideas.md`, `status.md`.
 
+## 2026-09-06 (night, later) — the third axis: recordings, and the point where scale stops paying
+
+The user, checking the widening: *"so now we are doing a random amount of peer, recording & chasing
+ghosts ? above/below the cap and also invalid stuffs ?"*. Answered by reading the target rather than
+from memory: chasers already (0, 1, 2, 3, 8, 9, -1, 1,048,576), peers now, recordings only for
+CONTENT -- at most ~24 files a run, so the 512-seat roster was never approached from that side.
+
+A zip of `MaxRosterSize + 40` clips closed it and then had to be pulled back out. 512 replay ghosts
+rendering over the bridge cost ~10 s an execution; the target went from 207 execs/s to zero and the
+engine killed the worker as hung (that input does not reproduce and is not committed). The fuzzer
+keeps eight clips a zip; the crowd became
+`core.TestAZipOfMoreClipsThanTheRosterHasSeats` -- 552 clips, exactly 512 admitted, 0.04 s. The peer
+flood stays, because a join with no state renders nothing and 600 of them are nearly free.
+
+Records: `verified.md` (the same 2026-09-06 entry, extended), `testing.md` (the cost rule, beside
+the order-vs-scale one).
+

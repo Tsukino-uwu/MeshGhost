@@ -1689,3 +1689,22 @@ peers: *"it should test high amount of peers + above the cap/invalid stuffs as w
   lacked was the SHAPE -- a busy roster making a write fail while a recording was starting -- which
   eight peers could not produce. Widening an axis that looks unrelated to the change is what found
   it.
+
+**The third axis, and where scale had to stop.** The user asked whether peers, recordings and
+chasers were all fuzzed for count, above and below the cap, and invalid. Checked one by one:
+CHASERS already were (the count is drawn from 0, 1, 2, 3, 8, 9, -1 and 1,048,576 -- below, around,
+absurdly above, and a negative); PEERS now are; RECORDINGS were fuzzed for CONTENT only (valid,
+garbage, another game's, a line over the wire cap, a zip of one or two clips plus a non-clip entry)
+and never for COUNT, so with at most ~24 files per run the 512-seat roster was never approached from
+that side.
+
+A zip carrying `MaxRosterSize + 40` clips fixed that and then had to come back OUT of the fuzzer,
+with the measurement that says why: 512 replay ghosts rendering over the bridge took ONE execution
+from milliseconds to **~10 s**, throughput fell from **207 execs/s to zero**, and Go's engine killed
+the worker as hung. That failing input does not reproduce -- it was cost, not a bug, and it is not
+committed. The fuzzer now tops out at eight clips a zip, and the crowd is a plain test:
+`core.TestAZipOfMoreClipsThanTheRosterHasSeats` loads 552 clips, watches exactly **512** admitted
+and the roster hold, in **0.04 s**. The peer flood stays in the fuzzer because it is not the same
+case -- a join with no state admits an id and renders nothing, so 600 of them are nearly free. Same
+trade as the 2026-09-04 entry in `testing.md`: scale that costs every iteration belongs in a test
+that runs once.

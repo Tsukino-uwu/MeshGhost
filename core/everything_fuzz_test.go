@@ -122,19 +122,33 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 // path (one archive becoming several ghosts) is exercised too. A zip this
 // function builds is always structurally valid; what varies is what is INSIDE
 // it, which is the half the loader has to survive.
-func fuzzZipOf(data []byte, twice bool) []byte {
+func fuzzZipOf(data []byte, clips int) []byte {
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
-	names := []string{"a.ndjson"}
-	if twice {
-		names = append(names, "b.ndjson")
+	if clips < 1 {
+		clips = 1
 	}
-	for _, n := range names {
-		w, err := zw.Create(n)
+	// A CROWD of clips is one file write and many ghost ids, which is the only
+	// way a fuzz step can put more replay ghosts on the roster than the run has
+	// steps (2026-09-06: replay files were fuzzed for CONTENT -- valid,
+	// garbage, another game's, a line over the wire cap -- but never for COUNT,
+	// so at most ~24 could exist and the 512-seat roster was never approached
+	// from this side. Peers and chasers both reach past it; this is the third).
+	// Past a handful the clip body is a MINIMUM valid one rather than the
+	// fuzzed bytes: the point of the crowd is the id count and the admission
+	// path, and repeating a multi-kilobyte body hundreds of times would buy
+	// nothing but a slower target.
+	small := clipBytes(nil, walkStates(2, 1))
+	for i := 0; i < clips; i++ {
+		w, err := zw.Create(fmt.Sprintf("c%03d.ndjson", i))
 		if err != nil {
 			return data
 		}
-		if _, err := w.Write(data); err != nil {
+		body := data
+		if i > 1 {
+			body = small
+		}
+		if _, err := w.Write(body); err != nil {
 			return data
 		}
 	}
@@ -448,8 +462,32 @@ func FuzzEverything(f *testing.F) {
 				// ORDER of operations, not the bytes inside a file -- FuzzReplay
 				// already throws arbitrary bytes at the parser.
 				if files%3 == 0 {
+					// Every third file is a zip; every sixth carries two clips;
+					// every ninth carries eight.
+					//
+					// EIGHT, not a crowd past the roster cap, and the number is
+					// a cost decision made with a measurement: a zip of
+					// MaxRosterSize+40 clips put 512 replay ghosts on the
+					// roster, and rendering that many over the bridge took ONE
+					// execution from milliseconds to ~10 s -- throughput fell
+					// from 207 execs/s to zero and the engine killed the worker
+					// as hung. A fuzz target's value is iterations, so scale
+					// that costs every iteration belongs in a test that runs
+					// once: TestAZipOfMoreClipsThanTheRosterHasSeats. Same
+					// trade the 2026-09-04 entry in testing.md records.
+					//
+					// The PEER flood above is not the same case and stays: a
+					// join with no state admits an id and renders nothing, so
+					// 600 of them cost almost nothing per execution.
+					clips := 1
+					switch {
+					case files%9 == 0:
+						clips = 8
+					case files%6 == 0:
+						clips = 2
+					}
 					name = strings.TrimSuffix(name, ".ndjson") + ".zip"
-					data = fuzzZipOf(data, files%6 == 0)
+					data = fuzzZipOf(data, clips)
 				}
 				os.WriteFile(name, data, 0o644)
 			case "startReplays":
