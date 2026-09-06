@@ -9,6 +9,8 @@ The instrument is the first suspect. When a person sees what the numbers deny, t
 - **Two renderers disagreeing name the field.** List the symptom per tier before forming a theory, and use the one that is right as the control.
 
 ## Every lesson filed here
+- **A frame-time read at the frame cap is a flat line, whatever a leaked tick costs** — lift the cap for the sample and put it back after (36 orphaned camera rigs read as "144 fps, nothing wrong"; [UNVERIFIED.md](../../adapters/pseudoregalia/UNVERIFIED.md), 2026-09-06).
+- **A reading taken inside the spawn warm-up is inflated** — a fresh 50 ghosts read ~9 ms above the same 50 settled, and one pass built a whole wrong ranking on it; sample after the count has been steady for a minute, and repeat (2026-09-06).
 
 - An instrument that logs only its success path proves nothing (2026-08-27) — [method.md](../pitfalls/method.md)
 - An aggregate over a mixed series invents a defect that is not there (2026-08-25) — [method.md](../pitfalls/method.md)

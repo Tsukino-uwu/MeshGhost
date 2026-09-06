@@ -2837,3 +2837,22 @@ ghost count, and 0.37 ms a frame at zero ghosts. Full tables: `UNVERIFIED.md` 20
 component (tick-only now; `pitfalls/by-lesson.md`); the user relaunched and the adapter autostarted
 its own core from the game folder for the first time since the quarantine. User's names rule from
 the same session: their handle and testers' handles never enter a tracked file.
+
+**Handoff for the next session (the user is opening a new chat for it).** The user's decision:
+first the "certain" bucket -- the adapter's own per-ghost slots (`tail_sweeps` = the per-tick
+`GHOST_HOLD_OUTLINE_OFF` walk, make it event-driven off the custom-depth hook; `loop_pose_xf`;
+`ls_rest`, which grows with ghost count and is 0.37 ms at zero ghosts; the per-tick nametag update),
+then the pawn parts with no visual role switched off at spawn (`SpringArm`, `SpringArm1`,
+`DialogueCam` tick only -- never Activate a camera, capsule tick, the AIController's tick and
+path-following), then `CharMoveComp` after one look at a MOVING peer's walk/run/jump animations;
+`NE_Particles_System` and the animation throttle only with the user's eyes; then the distance
+tiers (`ideas.md`, Pseudoregalia 7: full to ~3k, throttled to ~10k, dormant beyond, one config key,
+never despawn). Instruments ready: `perf_report.txt` in `MeshGhostPseudo\dlls\` for the adapter's
+slots (never armed while judging visuals), `probe_strip/` for the parts, `probe_dump/` for "what
+changed". Rig state at handoff: the strip probe was unloaded and the pristine scratch stub restored;
+the local relay (`-max-clients 200`) and the adapter's own core were left running with the game;
+the frame cap is back at 144 and every sampling script restores it after each sample (the user's
+rule, same day); the install's `config.json` is the shipped one again; the test clips are gone from
+`replay/`. Lessons filed today: `pitfalls/by-lesson.md` (two entries), `checklists/before-a-probe.md`
+and `before-trusting-a-reading.md` (two lines each), `running-the-rig.md` (four rig facts),
+`_template/probes.md` (two methods), `ideas.md` (distance tiers), `status.md` (two lines).

@@ -23,6 +23,7 @@ game points here. `playing.md` is the sibling for driving the game itself once i
 - Rig notes carried out of `status.md` (2026-09-02)
 - Changing a client setting WITHOUT relaunching the game — kill the core, the adapter respawns it (2026-09-04)
 - `UE4SS.log` is written with a DELAY, and an empty tail is not a quiet game (2026-09-04)
+- Four rig facts from the ghost-cost session (2026-09-06): Defender vs `meshghost.exe`, editing an install's config, `show_console`, the 150-peer limit
 
 ---
 
@@ -333,3 +334,27 @@ stopped rather than as an absence of lines.
 A process monitor that grepped `tasklist` for `pseudoregalia-Win64-Shipping` never fired: the column
 is cut to `pseudoregalia-Win64-Shipp`. Match a prefix (`pseudoregalia-Win64`), or ask `Get-Process`
 by name, which does not truncate. Cost one silent monitor and a launch nobody was told about.
+
+## Four rig facts from the ghost-cost session (2026-09-06)
+
+- **Defender may quarantine the game root's `meshghost.exe` on a signature update, with no change
+  on our side.** `Trojan:Script/Wacatac.B!ml` is a machine-learning verdict per file hash per model
+  version: a build that ran three times passed, then failed at its first run after the 05:21
+  signature update; a rebuild is a new hash and is judged fresh. The adapter then logs *"meshghost.exe
+  was not found"* once and never spawns a core for that session. Until the file is signed, run the
+  core from the repo copy with the game root as its WORKING DIRECTORY (it reads that folder's
+  `config.json`) and `-exit-with-pid=<game pid> -bridge=127.0.0.1:7778`; the adapter attaches and
+  logs *"using a MeshGhost core that was already running"*. The user's Restore/Allow and a folder
+  exclusion are the bridge; SignPath is the fix.
+- **Edit an install's `config.json` with a Python script, never a PowerShell one-liner.** A
+  `-replace` that failed to parse left `$c2` null and `Set-Content` wrote a 3-byte file; the backup
+  taken one statement earlier is what saved it. Take the backup first, every time.
+- **`show_console` can only open a console for a core that was started with NONE.** A core the agent
+  starts with `Start-Process -WindowStyle Hidden` already has a (hidden) console, so `AllocConsole`
+  fails and the setting does nothing. To honour it from a script, start the process with
+  `ProcessStartInfo.CreateNoWindow = true` -- the same flag the adapter uses.
+- **The fake-peer rig does not survive 150 peers in one room.** Each fake client receives every
+  other peer's stream; at 150 the relay disconnects clients that are *"not draining"*, they reconnect,
+  and the game sees ~1,400 spawns and ~1,660 despawns per round instead of 150 -- a harder leak test
+  than intended and NOT a measurement of 150 live ghosts. 50 in one process was clean. The relay
+  needs `-max-clients` above the default 8 for any of this (64 and 200 were used).
