@@ -575,3 +575,22 @@ Fixed at all three handshake sites with `handshakeCloseDrain`, and pinned by
 too. Records: `verified.md`, `pitfalls/by-lesson.md` (with the rule about grepping every
 write-then-hang-up site when such a lesson is first filed), `status.md`.
 
+## 2026-09-06 (night) — the fuzzer's peer space, widened, deadlocked the evening's own fix
+
+The user, told that `FuzzEverything` only ever exercised eight relay peers: *"it should test high
+amount of peers + above the cap/invalid stuffs as well i think ?"*. Widened the same evening -- a
+wide id space off the step index, a flood of `MaxRosterSize + 88` joins in one step, eight hostile
+ids, and leaves that do not always match a join.
+
+**It failed 11.5 s into a 120 s campaign, on the dead-adapter fix committed earlier the same evening (`7334a38c`).**
+`StartRecording` holds `c.rec.mu`, pushes the recording state, the write fails, and the new failure
+path ran `StopRecording` -- which waits for that lock. The reproduction hung for the full ten
+minutes rather than failing; the goroutine dump named both frames.
+
+The disconnect handling is now split by which locks it needs: `releaseAdapterSlot` (one `c.mu`
+section, calls nothing, still immediate) and `finishBridgeTeardown` (other locks, own goroutine from
+a send failure, successor-guarded). Corpus entry committed at
+`core/testdata/fuzz/FuzzEverything/37fd8ac0c532160b`. A 3-minute campaign after the fix: 27,413
+executions, 80 new interesting inputs, clean. Records: `verified.md`, `pitfalls/by-lesson.md`,
+`ideas.md`, `status.md`.
+

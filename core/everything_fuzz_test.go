@@ -322,6 +322,37 @@ func FuzzEverything(f *testing.F) {
 		files := 0
 		ran := make([]string, 0, len(steps))
 
+		// THE PEER ID SPACE, widened 2026-09-06 at the user's ask: "it should
+		// test high amount of peers + above the cap/invalid stuffs as well".
+		//
+		// It used to be `fmt.Sprintf("p%d", b>>5)` -- the step byte's top three
+		// bits, so eight peers, ever. The roster holds protocol.MaxRosterSize
+		// (512) and the rig has been driven at 150, so eight exercised none of
+		// the things that only appear with a crowd: the roster refusing a join,
+		// a nametag push per peer at scale, the render/despawn diff over a big
+		// map, or an id arriving for someone who was never admitted.
+		//
+		// The step byte has no bits left (five pick the op, three are the
+		// parameter), so the width comes from the STEP INDEX instead: the same
+		// parameter at a different point in the run names a different peer, and
+		// a run walks a wide id space rather than the same eight names.
+		peerID := func(param byte, step int) string {
+			return fmt.Sprintf("p%d", int(param)+step*8)
+		}
+		// The ids a well-behaved relay would never send. Every one must be
+		// dropped rather than admitted, and the invariants above are what say
+		// so -- the roster cap, and "nothing local on the wire".
+		hostileIDs := []string{
+			"",
+			strings.Repeat("x", 4096),
+			"p1\u0000hidden",
+			"replay:f01.ndjson",
+			"chaser:1",
+			"../../etc/passwd",
+			"p1 p2",
+			"\ufeffp1",
+		}
+
 		// The relay clock must never run backwards, whatever the offset does.
 		// nowMsLocked clamps it (online.go's "Never go backwards"), and the
 		// clock.backStep variant below is what tries to break that clamp.
@@ -363,7 +394,7 @@ func FuzzEverything(f *testing.F) {
 			}
 		}
 
-		for _, b := range steps {
+		for i, b := range steps {
 			op := fuzzEverythingOps[b&0x1F]
 			ran = append(ran, op)
 			switch op {
@@ -440,11 +471,43 @@ func FuzzEverything(f *testing.F) {
 			case "ctl.nonsense":
 				_, _ = c.ReplayControl(ReplayAction(string(seed)), -1)
 			case "relay.join":
-				relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: fmt.Sprintf("p%d", b>>5), Nametag: &protocol.Nametag{Name: "P"}})
+				// Three shapes off the parameter bits, so one op covers the
+				// ordinary case, the crowd, and the hostile one:
+				//   7 -- a FLOOD past the roster cap in a single step. 24 steps
+				//        could never reach 512 one join at a time, and the cap
+				//        is only interesting when something crosses it. Each
+				//        join carries a nametag, so this is also the only thing
+				//        here that pushes remote_name to the adapter at scale.
+				//   6 -- an id no honest relay sends (see hostileIDs).
+				//   0-5 -- an ordinary peer, from the widened space.
+				switch {
+				case b>>5 == 7:
+					for n := 0; n < protocol.MaxRosterSize+88; n++ {
+						relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: fmt.Sprintf("flood%d", n), Nametag: &protocol.Nametag{Name: "F"}})
+					}
+				case b>>5 == 6:
+					relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: hostileIDs[i%len(hostileIDs)], Nametag: &protocol.Nametag{Name: "P"}})
+				default:
+					relayMsg(protocol.TypeJoin, protocol.Join{PlayerID: peerID(b>>5, i), Nametag: &protocol.Nametag{Name: "P"}})
+				}
 			case "relay.state":
-				relayMsg(protocol.TypeState, protocol.State{PlayerID: fmt.Sprintf("p%d", b>>5), Timestamp: c.nowMs(), AreaID: "a", Position: []float64{float64(b), 1}})
+				// A state for someone never admitted is the common hostile case
+				// and must be dropped by the roster; parameter 6 sends one.
+				id := peerID(b>>5, i)
+				if b>>5 == 6 {
+					id = hostileIDs[i%len(hostileIDs)]
+				}
+				relayMsg(protocol.TypeState, protocol.State{PlayerID: id, Timestamp: c.nowMs(), AreaID: "a", Position: []float64{float64(b), 1}})
 			case "relay.leave":
-				relayMsg(protocol.TypeLeave, protocol.Leave{PlayerID: fmt.Sprintf("p%d", b>>5)})
+				// Leaves deliberately do NOT always match a join: half of them
+				// name a peer from an earlier step, which is how a roster entry
+				// actually goes away here, and the rest name someone who was
+				// never there.
+				away := i
+				if b&0x20 != 0 && i > 0 {
+					away = i - 1
+				}
+				relayMsg(protocol.TypeLeave, protocol.Leave{PlayerID: peerID(b>>5, away)})
 			case "relay.stateLocalPrefix":
 				// A hostile relay naming a local id: it must be dropped, not
 				// steer a local ghost. (Never admitted: no Join carries it.)

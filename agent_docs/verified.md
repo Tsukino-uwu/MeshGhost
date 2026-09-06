@@ -127,6 +127,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-03 — Recordings ship gzipped and trimmed: 310 MB/hour becomes about 9
 - 2026-09-06 — A tester's "the client died" at ~343 ghosts: the core refused its own game's reconnect
 - 2026-09-06 — CI's Linux race job: a refused hello lost its Reject to a reset, so the core retried a permanent refusal
+- 2026-09-06 — The fuzzer's peer space widened past the roster cap, and it deadlocked that same evening's fix at 11.5 s
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1654,3 +1655,37 @@ bounds that volume -- `ideas.md`, the entry filed the same day.
   failure, and a full local `-race -count=5` of the core package was clean. This is the second time
   the reject-then-close class has cost a red CI run, which is why the pitfall now carries the rule
   about grepping every write-then-hang-up site when the lesson is first filed.
+
+## 2026-09-06 — The fuzzer's peer space widened past the roster cap, and it deadlocked that same evening's fix at 11.5 s
+
+**Go-side track.** The user, after being told the everything-fuzzer only ever exercised eight relay
+peers: *"it should test high amount of peers + above the cap/invalid stuffs as well i think ?"*.
+
+- **What was widened.** The peer id came from the step byte's top three bits, so eight names for the
+  life of the target. The step byte has no spare bits, so the width now comes from the STEP INDEX as
+  well: the same parameter at a different point names a different peer. On top of that, one
+  parameter value floods `protocol.MaxRosterSize + 88` joins in a single step (24 steps could never
+  reach 512 one at a time, and a cap is only interesting when something crosses it -- this is also
+  the only thing here that pushes `remote_name` at scale), and another sends ids no honest relay
+  would: empty, 4 KiB, an embedded NUL, a local `replay:`/`chaser:` prefix, a path traversal, an
+  embedded space, a BOM. Leaves no longer always match a join.
+- **What it found, 11.5 s into a 120 s campaign:** a **deadlock in the dead-adapter fix committed
+  earlier the same evening (`7334a38c`)**. `StartRecording` holds `c.rec.mu`, pushes the recording state to the
+  adapter, the write fails, and the new failure path ran `StopRecording`, which waits for that same
+  lock. The reproduction HUNG (600 s, killed) rather than failing, and the goroutine dump named both
+  frames.
+- **Fix:** the disconnect handling is split by which locks it needs. `releaseAdapterSlot` takes one
+  `c.mu` section and calls nothing, so it is safe from any goroutine and still frees the slot
+  immediately -- which is what the tester's reconnect needed. `finishBridgeTeardown` stops replays,
+  chasers and the recording, takes other locks, and therefore runs on its own goroutine from a send
+  failure, guarded by a successor check so a new adapter's freshly started session is never torn
+  down by the old one's cleanup. Both halves idempotent.
+- **Evidence:** the failing input is committed at
+  `core/testdata/fuzz/FuzzEverything/37fd8ac0c532160b`, so the deadlock is a permanent regression
+  case; it passes in 0.8 s now. A fresh 3-minute campaign on the widened target: **27,413
+  executions, 80 new interesting inputs, no failures**. `run-gotests.bat` and
+  `run-gotests-race.bat` green.
+- **Note for next time:** the bug lived in code the everything-fuzzer already covered. What it
+  lacked was the SHAPE -- a busy roster making a write fail while a recording was starting -- which
+  eight peers could not produce. Widening an axis that looks unrelated to the change is what found
+  it.

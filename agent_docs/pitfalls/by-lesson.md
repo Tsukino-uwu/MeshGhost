@@ -6348,3 +6348,30 @@ classification correct.
 **Test.** `relay.TestARefusedHelloDeliversItsRejectBehindUnreadData` writes the hello, then a wedge
 of lines the relay never reads, then asserts the `Reject` arrives. It fails with the reset on
 Windows too, so it is a real local gate rather than a Linux-only one.
+
+## A failure handler that runs INLINE inherits every lock its call site holds -- the cleanup half belongs off that stack (core, 2026-09-06)
+
+**Symptom.** 11.5 s into the first campaign after the everything-fuzzer's peer space was widened, it produced a failing
+input whose reproduction HUNG rather than failed -- `go test` sat until the 10-minute timeout and
+dumped goroutines. The stack: `StartRecording` -> `pushRecordingStateValues` -> a write to the
+adapter that failed -> the new `sendToAdapter` failure path -> `bridgeConnGone` -> `StopRecording`
+-> blocked on `c.rec.mu`, which `StartRecording` was still holding two frames up.
+
+**Cause.** The dead-adapter fix earlier the same day made a failed write run the whole disconnect
+cleanup on the spot -- which was right for the SLOT (that has to be immediate, and costs one
+`c.mu` section) and wrong for everything else, because stopping the recorder, the replays and the
+chaser pack takes locks the sending call site may already hold. A send happens wherever it happens;
+a handler hanging off it runs on whatever stack that is.
+
+**Rule.** **Split a failure handler by which locks it needs.** The part that must be immediate takes
+one lock and calls nothing; the part that stops machinery goes on its own goroutine, guarded so a
+successor is not torn down (here: only stop what the gone adapter had running if no new adapter has
+taken the slot). Both halves idempotent, so whoever notices second does nothing. And the tell that
+this class is present at all: a fuzz failure whose REPRODUCTION hangs instead of failing is a
+deadlock, not a crash -- read the goroutine dump, the two frames holding the same mutex are named
+in it.
+
+**Method worth keeping.** This was found by widening a fuzz target's PEER space (the user's ask the
+same evening: high peer counts, past the cap, invalid ids), not by widening the target that covered
+the changed code. The deadlock needed a busy roster to make a write fail while a recording was
+starting -- a shape eight peers never produced.

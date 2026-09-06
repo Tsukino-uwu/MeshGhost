@@ -68,6 +68,7 @@ is USED, that project is checked and recorded there first.
 - The adapter's send rate, not its render rate, sets what the core sends back -- ~59,000 render lines a second into a socket drained 17 times a second (measured in a tester's logs, 2026-09-06)
 - Per-clip and per-chaser interpolation delay: an `interp` key in a replay file's header, and a `chaser.interp` beside `chaser.delay` (the user's ask, 2026-09-06)
 - Fuzz the PEER, not just ourselves: an adapter that stops reading, a write that fails, a reconnect racing the close (filed 2026-09-06, after a bug no peer COUNT would have found)
+- The everything-fuzzer's peer space: eight ids became a wide space, a flood past the roster cap and eight hostile ids (the user's ask; BUILT 2026-09-06, and it found a deadlock the same evening)
 
 ---
 
@@ -2974,6 +2975,8 @@ expiring a write deadline, which is the mechanism that actually broke.
   pipe listener necessary in the first place (`testing.md`, the socket-per-iteration lesson).
 - **One new invariant, and it is the one that would have failed:** a hello is never answered `busy`
   while the connection holding the slot is closed.
+
+**BUILT 2026-09-06, the peer-COUNT half only** (the user: *"it should test high amount of peers + above the cap/invalid stuffs as well i think ?"*): the id space is now wide, one parameter value floods `MaxRosterSize + 88` joins in a single step, another sends hostile ids, and leaves no longer always match a join. It found a deadlock in that evening's own fix 11.5 s into a 120 s campaign -- `verified.md`. The misbehaving-PEER half above is still unbuilt.
 
 **Cost to weigh before building:** a stalled-reader step spends real milliseconds waiting for a
 deadline, and the target's value comes from iteration count. Probably a separate, opt-in target

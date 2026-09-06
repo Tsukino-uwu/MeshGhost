@@ -265,98 +265,92 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 // adapter has attached, does nothing. Two callers: the transport's
 // OnDisconnect (the read loop ended), and onAdapterFrame the moment a write
 // to the adapter fails -- see the note there for why the second one exists.
+// bridgeConnGone is the whole of what a bridge connection's end means to the
+// Core, in two halves that must not be merged again.
+//
+// releaseAdapterSlot is the half that has to happen NOW and can happen
+// anywhere: one c.mu section that calls nothing. finishBridgeTeardown is the
+// half that stops the machinery, and it takes OTHER locks -- the recorder's,
+// the chaser pack's -- so it may never run on a stack that might already hold
+// one. FuzzEverything found that the hard way on 2026-09-06, seconds after the
+// peer space was widened: StartRecording holds `c.rec.mu`, pushes the new
+// recording state to the adapter, the write fails, and the failure ran
+// StopRecording, which waits for `c.rec.mu`. The test hung rather than failed.
+//
+// Both halves are idempotent, and every branch checks that nd is STILL the
+// connection it would act on, so a second call, or a call after another adapter
+// has attached, does nothing.
 func (c *Core) bridgeConnGone(nd transport.Transport) {
-	// The adapter (game) is gone -- closing the relay connection turns
-	// this into a real disconnect the relay can broadcast as a Leave,
-	// so this player's ghost actually disappears for everyone else
-	// instead of freezing in place forever. See the OnDisconnect
-	// handler in ConnectRelay for the other half: it clears c.relay so
-	// a future bridge Hello (the adapter reconnecting) can redial.
-	//
-	// Only do this if nd is the connection that actually established
-	// the current relay session (c.relayOwner) -- found in a review
-	// pass: this used to fire unconditionally, so a second bridge
-	// connection that never became the adapter at all (e.g. refused
-	// for a mismatched game_id) closing here tore down a completely
-	// unrelated, working relay session out from under the real
-	// adapter.
+	wasAdapter, owns, relay := c.releaseAdapterSlot(nd)
+	c.finishBridgeTeardown(wasAdapter, owns, relay)
+}
+
+// releaseAdapterSlot clears everything a gone bridge connection owns that c.mu
+// protects, and does nothing else -- no other lock, no call out. That is what
+// makes it safe from any goroutine, including one already holding the
+// recorder's or the pack's lock. It reports what the connection was, so the
+// caller can hand that to finishBridgeTeardown.
+func (c *Core) releaseAdapterSlot(nd transport.Transport) (wasAdapter, ownsRelay bool, relay transport.Transport) {
 	c.mu.Lock()
-	relay := c.relay
-	owns := c.relayOwner == nd
-	wasAdapter := c.attachedAdapter == nd
-	// Free the admission slot whether or not this connection owned the
-	// relay: a Core whose adapter has gone is available again, which is
-	// what lets a relaunched game reuse it instead of walking to a new
-	// port every time.
-	if c.attachedAdapter == nd {
+	defer c.mu.Unlock()
+	relay = c.relay
+	ownsRelay = c.relayOwner == nd
+	wasAdapter = c.attachedAdapter == nd
+	// Free the admission slot whether or not this connection owned the relay:
+	// a Core whose adapter has gone is available again, which is what lets a
+	// relaunched game reuse it instead of walking to a new port every time.
+	if wasAdapter {
 		c.attachedAdapter = nil
 		c.adapterReady = false
-		// The next adapter may be an ordinary one: its Hello decides
-		// afresh, and until then the core's own filter is the default.
+		// The next adapter may be an ordinary one: its Hello decides afresh,
+		// and until then the core's own filter is the default.
 		c.adapterRenderAllAreas = false
 		c.adapterWantsOrientBracket = false
 	}
-	if owns {
-		// Disarm auto-retry (see autoRetryGameID's doc comment) before
-		// closing — this Close is the adapter/game intentionally going
-		// away, not an unexpected relay drop, so ConnectRelay's own
-		// OnDisconnect handler must NOT reconnect behind its back. Found
-		// by a real test failure this fix introduced
-		// (TestReconnectAfterBridgeDisconnectGetsFreshPlayerID): without
-		// this, a deliberate bridge-driven relay close raced against the
-		// new auto-retry and silently reconnected with a fresh
-		// player_id before the disconnect could even be observed,
-		// defeating the entire point of closing the relay connection on
-		// a real adapter disconnect (broadcasting a real Leave and
-		// letting a later Hello start clean).
+	if ownsRelay {
+		// Disarm auto-retry (see autoRetryGameID's doc comment): this Close is
+		// the adapter/game intentionally going away, not an unexpected relay
+		// drop, so ConnectRelay's own OnDisconnect handler must NOT reconnect
+		// behind its back. Found by a real test failure this fix introduced.
 		c.autoRetryGameID = ""
 		c.autoRetryAdapterGameVersion = ""
 		c.autoRetryBridgeConn = nil
-		// The game closed. That is a real departure the rest of the room
-		// should see as a leave, so the resume credential is discarded
-		// here — resumption exists for the connection dropping underneath
-		// a still-running game, which is a different event even though
-		// both arrive as a closed socket. Without this, relaunching the
-		// game would silently reclaim the old identity and nobody would
-		// ever have seen the ghost go.
 		c.resumeToken = ""
 	}
-	c.mu.Unlock()
-	if relay != nil && owns {
-		// Tell the relay this is a deliberate departure before hanging up,
-		// so it announces a real leave instead of holding this identity
-		// for its resume grace. Clearing c.resumeToken above only decides
-		// where the NEXT connection lands; it tells the relay nothing about
-		// this one, and without this the room watches a frozen ghost for
-		// the whole grace window every time someone quits the game. Found
-		// live 2026-08-17, in the loopback session that was meant only to
-		// re-confirm the cosmetic path.
-		//
-		// Best effort: a failure here just means the relay falls back to
-		// treating it as an unexplained drop, which is the pre-existing
-		// behaviour and still correct, only slower.
+	return wasAdapter, ownsRelay, relay
+}
+
+// finishBridgeTeardown stops what the gone adapter had running. It takes locks
+// other than c.mu, so callers that might hold one run it on its own goroutine.
+//
+// The successor check is why this is safe to run late: if another adapter has
+// taken the slot in the meantime, its own Hello has already restarted replays
+// and chasers, and stopping them here would tear down the NEW session. Closing
+// the relay is guarded by ownership for the same reason (c.relayOwner), so a
+// late teardown cannot close a relay connection the successor established.
+func (c *Core) finishBridgeTeardown(wasAdapter, ownsRelay bool, relay transport.Transport) {
+	if relay != nil && ownsRelay {
+		// Closing the relay connection turns this into a real disconnect the
+		// relay can broadcast as a Leave, so this player's ghost actually
+		// disappears for everyone else instead of freezing in place forever.
+		// See the OnDisconnect handler in ConnectRelay for the other half: it
+		// clears c.relay so a future bridge Hello can redial.
 		sendGoodbye(relay)
 		_ = relay.Close()
 	}
-	if wasAdapter {
-		// AFTER the goodbye, never before it (CI's race job, 2026-09-03):
-		// these waits -- up to a second per replay player or chaser whose
-		// goroutine is mid-seam -- sat between the socket closing and the
-		// Leave reaching the relay, and a game relaunched inside that
-		// window was handed its old identity back under the resume grace
-		// (TestARelaunchedGameIsANewIdentityNotAResumedOne, red on the
-		// runner, green locally twenty of twenty). The relay must hear the
-		// departure first; the local ghosts can be torn down after.
-		//
-		// The game closed: every replay stops with it, so a relaunch starts
-		// each one from the top rather than mid-clip; a launch-to-quit
-		// recording ends here, and so does a manual one. StopRecording is
-		// a no-op when nothing was armed.
-		c.StopReplays()
-		c.StopChasers()
-		if _, _, err := c.StopRecording(); err != nil {
-			log.Printf("core: closing the recording on adapter disconnect: %v", err)
-		}
+	if !wasAdapter {
+		return
+	}
+	c.mu.Lock()
+	successor := c.attachedAdapter != nil
+	c.mu.Unlock()
+	if successor {
+		return
+	}
+	c.StopReplays()
+	c.StopChasers()
+	if _, _, err := c.StopRecording(); err != nil {
+		log.Printf("core: closing the recording on adapter disconnect: %v", err)
 	}
 }
 
@@ -642,7 +636,17 @@ func transportIsClosed(t transport.Transport) bool {
 func (c *Core) sendToAdapter(nd transport.Transport, t bridge.MessageType, payload any) error {
 	err := sendBridgeEnvelope(nd, t, payload)
 	if err != nil {
-		c.bridgeConnGone(nd)
+		// The slot goes NOW, inline: that is the whole point, and it costs one
+		// c.mu section. The teardown that stops replays, chasers and the
+		// recording goes on its own goroutine, because this call site is
+		// wherever a send happened to be -- including inside code holding the
+		// recorder's lock, where running it inline deadlocks (FuzzEverything,
+		// 2026-09-06). Both halves are idempotent; the read loop's own
+		// disconnect call afterwards is a no-op.
+		wasAdapter, owns, relay := c.releaseAdapterSlot(nd)
+		if wasAdapter || owns {
+			go c.finishBridgeTeardown(wasAdapter, owns, relay)
+		}
 	}
 	return err
 }
