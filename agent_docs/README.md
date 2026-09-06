@@ -27,6 +27,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - …run a live test: [running-the-rig.md](running-the-rig.md) — start the scaffolding hidden, the netsim default, two games at once, several agents, crash dumps, the savestate slots (split out of `environment.md` 2026-09-02).
 - …set up or trust the machine: [environment.md](environment.md) — host, toolchain, BizHawk's Lua capabilities, the decomp workspaces, Unity/UE installs, onboarding, conventions.
 - …propose anything past Tier 2: [beyond-cosmetic.md](beyond-cosmetic.md) — sync models, the five authority models, the readiness gaps; and [kill-credit.md](kill-credit.md) for enemy/boss sync. Nothing in either is scheduled.
+- …reason about a game that is not one avatar in a world: [game-shapes.md](game-shapes.md) — the three axes (shape, seam, timing), what presence and co-op each mean per shape, the slot-cap fallback, threading, and what mod support can honestly promise. Nothing is scheduled.
 - …write a probe: `adapters/_template/probes.md` — how to build one that answers something, and the ways an instrument lies. Sits with the template because it is adapter work; `/write-a-probe` sequences it.
 
 ## The records
