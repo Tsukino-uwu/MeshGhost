@@ -6192,7 +6192,7 @@ session; `tail_light` was 0.86 ms at 50 ghosts for a sweep that "runs every 30 t
 **Cause.** `UObjectGlobals::FindAllOf(name)` (`RE-UE4SS/deps/first/Unreal/src/UObjectGlobals.cpp`)
 is `ForEachUObject` over every live object, comparing the class name and then every superclass name,
 so one call costs proportionally to everything alive -- pooled effects, fifty pawns' subobjects --
-and measured ~1.4 ms per walk in a session that had run for hours. The light sweep called it TWICE
+and measured ~1.4 ms per walk in a lived-in world. The light sweep called it TWICE
 PER GHOST on the sweep tick (100 walks in one frame at 50 ghosts); the recall-glow scan and the VFX
 mirror each called it on their own cadence. Sharing one enumeration per tick took `tail_light` from
 0.86 to 0.4 ms; the two local scans' walk is still 0.28 ms a frame at zero ghosts.

@@ -199,6 +199,10 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-05 — the client, its config.json, log and replays live in the GAME'S ROOT folder and the mod looks nowhere else; Pseudoregalia (user-confirmed on screen)
 - 2026-09-05 — the stuck blue outline on the player's sword: the afterimage sweep stripped the PLAYER's body through `cachedMesh`; fixed with an ownership check (user-confirmed on screen)
 - 2026-09-05 — outfit sync and afterimage colour CONFIRMED between two real machines over the internet: a modded outfit and two different trail colours, each seen on the other's screen
+- 2026-09-06 — the per-spawn `FixAllLights` repair is not needed: fake peers spawning beside the player inside a dark area leave the ghosts and the player dark (user-confirmed on screen)
+- 2026-09-06 — the distance tiers' numbers are the user's own two marks, measured in a long hall of the lower castle (user-confirmed on screen)
+- 2026-09-06 — the nametag follows the outfit's height, up and down, across swaps (user-confirmed on screen)
+- 2026-09-06 — modded sword models now reach ghosts, replays and real peers alike (user-confirmed on screen)
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
