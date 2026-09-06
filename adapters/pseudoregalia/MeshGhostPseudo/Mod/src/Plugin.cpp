@@ -31,6 +31,7 @@
 #include <Unreal/FHitResult.hpp>
 #include <Unreal/FWeakObjectPtr.hpp>
 #include <Unreal/Hooks.hpp>
+#include <Unreal/UnrealInitializer.hpp>
 #include <Unreal/UFunctionStructs.hpp>
 #include <Unreal/UnrealVersion.hpp>
 #include <Unreal/UObject.hpp>
@@ -3005,6 +3006,182 @@ namespace MeshGhostPseudo
         std::unordered_map<UObject*, bool> g_recall_identity;
         UObject* g_recall_identity_pawn = nullptr; // stale-safe: compared, never dereferenced; cleared in release_all_ghosts
 
+        // ---- OBJECT REGISTRIES (2026-09-06): the whole-world walks, replaced by lists fed by events ----
+        //
+        // The user's target that evening: *"8 ghosts ... should not be affecting fps in any bad way
+        // at all"*, and *"performance ... good all the time"*. The adapter's fixed cost with ZERO
+        // ghosts was ~1.0 ms a frame, and every part of it was a `UObjectGlobals::FindAllOf` on a
+        // short cadence -- the VFX mirror (every 5 ticks), the afterimage observer (6-10), the
+        // afterimage outline sweep (5), the camera-rig sweeps (30, twice), the recall-glow scan
+        // (15). `FindAllOf` walks the entire object array with a superclass compare per object
+        // (`RE-UE4SS/.../UObjectGlobals.cpp`), ~1 ms in a lived-in world, so five cadenced walks
+        // cost 20 fps at 140 whether or not a single ghost existed.
+        //
+        // A registry is the same list built the other way round: SEEDED once by a real `FindAllOf`
+        // (so pre-placed components and everything alive at seed time are in it), then FED by the
+        // event that creates its members -- every object construction, seen through UE4SS's StaticConstructObject callback
+        // (`register_object_registry_feed`), and the SetRenderCustomDepth pre-hook that already sees
+        // every afterimage's reuse -- and RESEEDED on a slow belt (`REGISTRY_RESEED_TICKS`, ~4 s at
+        // 144 Hz) so a member created by a route no hook covers is late by at most one belt
+        // interval, once, and then registered for life. Consumers read `live()`, which drops the
+        // dead: members are `FWeakObjectPtr`, the engine's own serial-checked handle, so nothing
+        // here is ever a dangling raw pointer. Cleared with the other caches in
+        // `release_all_ghosts` (level teardown) and re-seeded on first use in the new level.
+        //
+        // Cost: `live()` is a pass over ~400 weak pointers (a serial compare each), microseconds;
+        // the belt is one walk per 600 ticks per registry. Behaviour: the same objects the walk
+        // returned, at the same cadences, so every consumer's logic is untouched.
+        constexpr uint64_t REGISTRY_RESEED_TICKS = 600;
+        uint64_t g_registry_tick = 0; // set at the top of game_thread_tick; the registries' clock
+
+        struct ObjectRegistry
+        {
+            const wchar_t* class_name;
+            // stale-safe: FWeakObjectPtr values, Get() per use; the raw keys are compared only and a
+            // key whose pointee died is overwritten by add() (the serial no longer matches) or
+            // dropped by live().
+            std::unordered_map<UObject*, FWeakObjectPtr> members;
+            uint64_t seeded_at_tick{0};
+            bool seeded{false};
+
+            auto seed(uint64_t tick) -> void
+            {
+                std::vector<UObject*> found;
+                UObjectGlobals::FindAllOf(class_name, found);
+                members.clear();
+                members.reserve(found.size());
+                for (UObject* object : found)
+                {
+                    if (object)
+                    {
+                        members.emplace(object, FWeakObjectPtr(object));
+                    }
+                }
+                seeded = true;
+                seeded_at_tick = tick;
+            }
+
+            auto add(UObject* object) -> void
+            {
+                if (!object)
+                {
+                    return;
+                }
+                auto it = members.find(object);
+                if (it != members.end() && it->second.Get() == object)
+                {
+                    return; // already registered, and still the same object
+                }
+                members[object] = FWeakObjectPtr(object); // new, or a reused address: re-point
+            }
+
+            // Everything alive right now, in no particular order; the dead are dropped as they
+            // are met. Re-seeds first when the belt is due or nothing was ever seeded.
+            auto live(uint64_t tick, std::vector<UObject*>& out) -> void
+            {
+                if (!seeded || tick - seeded_at_tick >= REGISTRY_RESEED_TICKS)
+                {
+                    seed(tick);
+                }
+                out.clear();
+                out.reserve(members.size());
+                for (auto it = members.begin(); it != members.end();)
+                {
+                    if (UObject* object = it->second.Get())
+                    {
+                        out.push_back(object);
+                        ++it;
+                    }
+                    else
+                    {
+                        it = members.erase(it);
+                    }
+                }
+            }
+
+            auto clear() -> void
+            {
+                members.clear();
+                seeded = false;
+            }
+        };
+
+        ObjectRegistry g_niagara_registry{STR("NiagaraComponent")};
+        ObjectRegistry g_afterimage_registry{STR("BP_AfterImage_C")};
+        ObjectRegistry g_camera_registry{STR("CameraComponent")};
+        ObjectRegistry g_camrig_registry{STR("BP_PlayerCam_C")};
+
+        // **The feed: every object the engine constructs, filtered by class chain.** Registered
+        // as UE4SS's StaticConstructObject post-callback (`register_object_registry_feed`), which
+        // is how UE4SS's own Lua `NotifyOnNewObject` works and involves no hook on any game
+        // function. The two Niagara spawn functions were hooked first, from Lua and then from C++,
+        // and each time the game thread hung the moment a Blueprint ubergraph called one (UE4SS:
+        // "no function map entry for ... ExecuteUbergraph_*", 2026-09-06, melee attack and then
+        // the first level load) -- `pitfalls/by-lesson.md`. The class test is an FName compare up
+        // the superclass chain, no strings, so a level load's hundred thousand constructions cost
+        // a few milliseconds once. Objects are constructed on the loading thread too, so a
+        // construction seen off the game thread is staged under a mutex and drained at the top of
+        // the next tick; one seen on the game thread is added at once.
+        std::mutex g_registry_pending_mutex;
+        std::vector<std::pair<ObjectRegistry*, FWeakObjectPtr>> g_registry_pending;
+
+        auto registry_for_class(UClass* object_class) -> ObjectRegistry*
+        {
+            static const FName registry_names[4] = {FName(STR("NiagaraComponent")), FName(STR("BP_AfterImage_C")),
+                                                    FName(STR("CameraComponent")), FName(STR("BP_PlayerCam_C"))};
+            ObjectRegistry* const registries[4] = {&g_niagara_registry, &g_afterimage_registry,
+                                                   &g_camera_registry, &g_camrig_registry};
+            for (UStruct* node = object_class; node; node = node->GetSuperStruct())
+            {
+                const FName node_name = node->GetNamePrivate();
+                for (int i = 0; i < 4; ++i)
+                {
+                    if (node_name.Equals(registry_names[i]))
+                    {
+                        return registries[i];
+                    }
+                }
+            }
+            return nullptr;
+        }
+
+        auto registry_note_constructed(UObject* object) -> void
+        {
+            if (!object)
+            {
+                return;
+            }
+            ObjectRegistry* registry = registry_for_class(object->GetClassPrivate());
+            if (!registry)
+            {
+                return;
+            }
+            if (IsInGameThread())
+            {
+                registry->add(object);
+                return;
+            }
+            std::lock_guard<std::mutex> lock(g_registry_pending_mutex);
+            g_registry_pending.emplace_back(registry, FWeakObjectPtr(object));
+        }
+
+        // Game thread, at the top of every tick: what the loading thread constructed since.
+        auto registry_drain_pending() -> void
+        {
+            std::vector<std::pair<ObjectRegistry*, FWeakObjectPtr>> batch;
+            {
+                std::lock_guard<std::mutex> lock(g_registry_pending_mutex);
+                batch.swap(g_registry_pending);
+            }
+            for (auto& [registry, weak] : batch)
+            {
+                if (UObject* object = weak.Get())
+                {
+                    registry->add(object);
+                }
+            }
+        }
+
         // The drop-in for `mg_property_value<T>(object, name)`. Same nullptr
         // contract: a missing property, a null object or a null class all read as nullptr, which
         // every call site in this file already handles.
@@ -5697,7 +5874,15 @@ namespace MeshGhostPseudo
         // `yaw_degrees`: optional facing for a DIRECTIONAL system (the melee slash arcs outward);
         // 0.0 for the omnidirectional rows leaves the parameter exactly as the zeroed buffer had
         // it, so their behaviour is unchanged by this parameter existing.
-        auto spawn_niagara_at_location(UObject* world_context, UObject* system_asset, const FVector& location, double yaw_degrees = 0.0) -> UObject*
+        // `auto_destroy` (2026-09-06): a ONE-SHOT burst passes true and the engine frees the
+        // component when its system finishes; a HELD effect (the landed sword's glow, the
+        // projectile, a looping world row) passes false and stays ours to stop and destroy. Before
+        // this every world-spawned effect was born with auto-destroy off, the adapter remembered
+        // only the last 32 one-shots per ghost, and everything older lived forever: a census in a
+        // session with eight looping replay ghosts counted 3,257 NiagaraComponents growing by
+        // ~2 per second, and the VFX-mirror scan that walks them all every 5 ticks had gone from
+        // 0.28 ms to 1.8 ms a frame -- the "fps slowly dropping" the user reported that day.
+        auto spawn_niagara_at_location(UObject* world_context, UObject* system_asset, const FVector& location, double yaw_degrees = 0.0, bool auto_destroy = false) -> UObject*
         {
             if (!system_asset || !world_context)
             {
@@ -5791,9 +5976,11 @@ namespace MeshGhostPseudo
                 }
                 else if (param_name == STR("bAutoDestroy"))
                 {
-                    // Unattached, so nothing else owns its lifetime: the mirror stops it explicitly
-                    // when the peer's effect ends, exactly as it does for the attached rows.
-                    *slot = 0;
+                    // Unattached, so nothing else owns its lifetime. A HELD effect (false): the
+                    // mirror stops it explicitly when the peer's effect ends, exactly as it does
+                    // for the attached rows. A ONE-SHOT (true): the engine frees it when the
+                    // system finishes -- see the parameter's comment for the leak this closes.
+                    *slot = auto_destroy ? 1 : 0;
                 }
                 else if (param_name == STR("ReturnValue"))
                 {
@@ -6699,7 +6886,7 @@ namespace MeshGhostPseudo
             const FVector pawn_loc = static_cast<AActor*>(pawn)->K2_GetActorLocation();
 
             std::vector<UObject*> afterimages;
-            UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+            g_afterimage_registry.live(g_registry_tick, afterimages); // was a whole-world walk every 6-10 ticks (2026-09-06)
             obs.images_found = static_cast<int>(afterimages.size());
 
             for (UObject* image : afterimages)
@@ -7161,6 +7348,16 @@ namespace MeshGhostPseudo
             }
             call_bool_ufunction(ghost, STR("SetActorHiddenInGame"), STR("bNewHidden"), dormant);
             call_bool_ufunction(ghost, STR("SetActorTickEnabled"), STR("bEnabled"), !dormant);
+            // The nametag and its plate are components we created on the ghost; whether the
+            // actor's hidden flag reaches them is not something to assume (the user saw tags at
+            // the far end of a loop, 2026-09-06), so they are hidden and shown explicitly.
+            for (UObject* tag_part : {remote.nametag_component, remote.nametag_plate})
+            {
+                if (tag_part)
+                {
+                    call_set_visibility(tag_part, !dormant);
+                }
+            }
             if (UObject** movement = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); movement && *movement)
             {
                 // Only the dormant tier touches the movement component: whether a MOVING peer
@@ -9737,6 +9934,10 @@ namespace MeshGhostPseudo
         {
             srcd_function->UnregisterHook(afterimage_outline_hook_id);
         }
+        if (registry_construct_callback_id != Hook::ERROR_ID && registry_construct_callback_id != 0)
+        {
+            Hook::UnregisterCallback(registry_construct_callback_id);
+        }
         if (svpv_function && svpv_hook_id != -1)
         {
             svpv_function->UnregisterHook(svpv_hook_id);
@@ -10439,7 +10640,7 @@ namespace MeshGhostPseudo
                 {
                     constexpr double WEAPON_DUST_FLOOR_DROP = 38.0; // same measured origin-to-floor as the glow
                     const FVector dust_at(remote.target_weapon_x, remote.target_weapon_y, remote.target_weapon_z - WEAPON_DUST_FLOOR_DROP);
-                    UObject* dust_component = spawn_niagara_at_location(remote.ghost, land_dust_asset, dust_at);
+                    UObject* dust_component = spawn_niagara_at_location(remote.ghost, land_dust_asset, dust_at, 0.0, /*auto_destroy=*/true);
                     // REGISTERED for echo exclusion, like every one-shot the mirror spawns --
                     // this is the `dl` row's own asset, and unregistered it re-entered the local
                     // detection as "my player's landing dust" and bounced back onto the OTHER
@@ -10514,7 +10715,7 @@ namespace MeshGhostPseudo
             if (bounce_asset)
             {
                 FVector bounce_at(remote.render_weapon_x, remote.render_weapon_y, remote.render_weapon_z);
-                spawn_niagara_at_location(remote.ghost, bounce_asset, bounce_at);
+                spawn_niagara_at_location(remote.ghost, bounce_asset, bounce_at, 0.0, /*auto_destroy=*/true);
             }
         }
 
@@ -11341,7 +11542,7 @@ namespace MeshGhostPseudo
                 // A directional burst (the slash) points where the GHOST faces; target_yaw is the
                 // peer's own reported facing, the same value the ghost's body is turned by.
                 const double burst_yaw = effect.use_performer_yaw ? remote.target_yaw : 0.0;
-                UObject* burst_component = spawn_niagara_at_location(remote.ghost, burst_asset, burst_at, burst_yaw);
+                UObject* burst_component = spawn_niagara_at_location(remote.ghost, burst_asset, burst_at, burst_yaw, /*auto_destroy=*/true);
                 // **Registered so local detection can exclude it.** Not doing this is what
                 // reinstated the echo the moment one-shots stopped being retained -- see
                 // RemoteGhost::recent_one_shot_components. Nothing else reads this list.
@@ -12482,6 +12683,28 @@ namespace MeshGhostPseudo
 
     auto Plugin::release_ghost(const std::string& player_id) -> void
     {
+        // Timed always, like the spawn (SPAWNCOST): a release is the other half of every loop
+        // seam and every area change, and the user feels it. Logged only when a ghost was
+        // actually released (the early returns below log nothing).
+        struct ReleaseTimerReport
+        {
+            const std::string& id;
+            LARGE_INTEGER before{};
+            bool armed{false};
+            ReleaseTimerReport(const std::string& player) : id(player) { QueryPerformanceCounter(&before); }
+            ~ReleaseTimerReport()
+            {
+                if (!armed)
+                {
+                    return;
+                }
+                LARGE_INTEGER end{}, freq{};
+                QueryPerformanceCounter(&end);
+                QueryPerformanceFrequency(&freq);
+                const long long total_us = freq.QuadPart > 0 ? ((end.QuadPart - before.QuadPart) * 1000000LL) / freq.QuadPart : 0;
+                Output::send(STR("[MeshGhostPseudo] RELEASECOST {}: {} us\n"), to_wide_ascii(id), total_us);
+            }
+        } release_timer_report{player_id};
         auto it = remotes.find(player_id);
         if (it == remotes.end())
         {
@@ -12591,6 +12814,25 @@ namespace MeshGhostPseudo
                      to_wide_ascii(player_id),
                      static_cast<void*>(it->second.ghost),
                      static_cast<void*>(it->second.owning_world));
+        release_timer_report.armed = true;
+
+        // **The ghost's own AIController dies with the ghost (2026-09-06).** The pawn Blueprint
+        // auto-possesses one at BeginPlay, and destroying the pawn does not destroy it: a census
+        // in a session of eight looping replay ghosts (every loop seam is a release and a
+        // respawn) counted 42 AIControllers for 9 pawns. Only THIS ghost's controller, read off
+        // the pawn while it still names it -- never a sweep, because the game's own enemies can
+        // legitimately hold a pawn-less controller mid-respawn.
+        if (UObject** controller = mg_property_value<UObject*>(static_cast<UObject*>(it->second.ghost), STR("Controller"));
+            controller && *controller)
+        {
+            UClass* controller_class = (*controller)->GetClassPrivate();
+            if (controller_class && controller_class->GetName().find(STR("AIController")) != StringType::npos)
+            {
+                const bool controller_destroyed = call_destroy_actor(reinterpret_cast<AActor*>(*controller));
+                Output::send(STR("[MeshGhostPseudo] releasing remote {}: its AIController -> K2_DestroyActor {}.\n"),
+                             to_wide_ascii(player_id), controller_destroyed ? STR("called") : STR("NOT reflected"));
+            }
+        }
 
         // The ghost's own camera rig goes FIRST, while `OwningActor` still names the ghost: once
         // the pawn is destroyed that property is the only handle to the rig, and it reads null
@@ -12776,6 +13018,12 @@ namespace MeshGhostPseudo
         g_object_property_cache.clear();
         g_recall_identity.clear();
         g_recall_identity_pawn = nullptr;
+        // The object registries (2026-09-06): their members die with the level; re-seeded on
+        // first use in the next one.
+        g_niagara_registry.clear();
+        g_afterimage_registry.clear();
+        g_camera_registry.clear();
+        g_camrig_registry.clear();
 
         // **The hurt/death BASELINES, invalidated here 2026-08-27** -- the counters stay, only the
         // memory of "what was the health last tick" is dropped. A save-file swap goes through this
@@ -12957,6 +13205,10 @@ namespace MeshGhostPseudo
         if (!hook_disabled("afterimage"))
         {
             register_afterimage_outline_guard();
+        }
+        if (!hook_disabled("registry"))
+        {
+            register_object_registry_feed();
         }
         if (!hook_disabled("playerlocation"))
         {
@@ -13556,6 +13808,10 @@ namespace MeshGhostPseudo
                 {
                     return;
                 }
+                // Every afterimage's reuse comes through here (the game re-enables custom depth
+                // per reuse -- the guard's own premise), so this is the afterimage registry's
+                // feed (2026-09-06, see ObjectRegistry): recorded before any early return below.
+                g_afterimage_registry.add(image);
 
                 // Attribution at enable time, strongest first -- and MEASURED necessary, not
                 // assumed: the first ghost image of the 2026-08-27 session reached the tick pass
@@ -13630,6 +13886,21 @@ namespace MeshGhostPseudo
             nullptr);
 
         Output::send(STR("[MeshGhostPseudo] afterimage outline guard armed on SetRenderCustomDepth.\n"));
+    }
+
+    // The object registries' feed (2026-09-06): UE4SS's StaticConstructObject post-callback, the
+    // same global hook UE4SS's own Lua `NotifyOnNewObject` rides, with no hook on any game
+    // function. See registry_note_constructed for why the Niagara spawn functions are NOT hooked
+    // (they were, twice, and the game thread hung both times). Read-only: it records, it never
+    // alters a construction. Unregistered with the other global callbacks at teardown.
+    auto Plugin::register_object_registry_feed() -> void
+    {
+        registry_construct_callback_id = Hook::RegisterStaticConstructObjectPostCallback(
+            [](Hook::TCallbackIterationData<UObject*>& data, const FStaticConstructObjectParameters&) {
+                registry_note_constructed(data.GetCurrentResolvedReturnValue());
+            },
+            Hook::FCallbackOptions{.bReadonly = true, .OwnerModName = STR("MeshGhostPseudo"), .HookName = STR("ObjectRegistryFeed")});
+        Output::send(STR("[MeshGhostPseudo] registry feed armed (StaticConstructObject post-callback).\n"));
     }
 
     auto Plugin::register_damage_guard_hooks() -> void
@@ -14091,7 +14362,31 @@ namespace MeshGhostPseudo
             }
         }
 
+        // Timed always, not only under perf_report.txt: a spawn is rare and the user feels each
+        // one (*"a spike everytime a ghost spawns in"*, 2026-09-06), so every spawn logs its two
+        // halves -- the engine's SpawnActor (a 28-component pawn clone) and everything this
+        // function does to the clone afterwards -- in microseconds, so the split is a number.
+        LARGE_INTEGER spawn_qpc_before{};
+        QueryPerformanceCounter(&spawn_qpc_before);
         AActor* ghost = world->SpawnActor(pawn_class, &spawn_loc, &spawn_rot);
+        LARGE_INTEGER spawn_qpc_after_engine{};
+        QueryPerformanceCounter(&spawn_qpc_after_engine);
+        struct SpawnTimerReport
+        {
+            const std::string& id;
+            LARGE_INTEGER before;
+            LARGE_INTEGER after_engine;
+            ~SpawnTimerReport()
+            {
+                LARGE_INTEGER end{}, freq{};
+                QueryPerformanceCounter(&end);
+                QueryPerformanceFrequency(&freq);
+                const long long engine_us = freq.QuadPart > 0 ? ((after_engine.QuadPart - before.QuadPart) * 1000000LL) / freq.QuadPart : 0;
+                const long long ours_us = freq.QuadPart > 0 ? ((end.QuadPart - after_engine.QuadPart) * 1000000LL) / freq.QuadPart : 0;
+                Output::send(STR("[MeshGhostPseudo] SPAWNCOST {}: SpawnActor {} us, adapter after-spawn work {} us\n"),
+                             to_wide_ascii(id), engine_us, ours_us);
+            }
+        } spawn_timer_report{player_id, spawn_qpc_before, spawn_qpc_after_engine};
 
         // **`bare_ghost.txt` stops here: the actor exists and NOTHING is done to it.**
         // Proven 2026-08-31: the crash follows the ghost SPAWN after a reset, not the reset. This
@@ -14716,6 +15011,10 @@ namespace MeshGhostPseudo
         remote.distance_tier = 0;
         remote.spawned_at_tick = tick_count;
         remote.ambient_fx_stripped = strip_ghost_ambient_particles(ghost, player_id);
+        // The pawn's camera rig and camera components are constructed during its own BeginPlay,
+        // which the object-registry feed sees like any other construction -- no re-seed here.
+        // (A per-spawn re-seed, two world walks, was the first draft and the user felt it: *"a
+        // spike everytime a ghost spawns in"*, 2026-09-06.)
         // What the game does for its OWN enemies and NPCs (measured 2026-09-06, tick option 1 on
         // every non-player character): animate always, refresh the bones only while rendered. The
         // player's meshes sit at 0 (refresh even off-screen) and a ghost is born with the player's
@@ -15774,6 +16073,8 @@ namespace MeshGhostPseudo
         // The instrument's own two lines. tick_total is what every other slot is a share OF,
         // so a subsystem that does not show up in it is not on this thread and is not this cost.
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
+        g_registry_tick = tick_count; // the object registries' clock (belt re-seeds)
+        registry_drain_pending();     // constructions the loading thread saw since last tick
         perf_report_if_due();
 
         // **Silent while the game is PAUSED, too.** The pause menu stops the game ticking its
@@ -16006,7 +16307,7 @@ namespace MeshGhostPseudo
                 if (tick_count % CAMERA_RIG_SWEEP_INTERVAL_TICKS == 0)
                 {
                     std::vector<UObject*> cameras;
-                    UObjectGlobals::FindAllOf(STR("CameraComponent"), cameras);
+                    g_camera_registry.live(g_registry_tick, cameras); // re-seeded at every ghost spawn and on the belt (2026-09-06)
                     for (UObject* camera : cameras)
                     {
                         if (!camera)
@@ -16077,7 +16378,7 @@ namespace MeshGhostPseudo
                     // class-scoped FindAllOf over a handful of rigs, the same shape as the
                     // neutralise sweep above. Not per-tick, not per-ghost.
                     std::vector<UObject*> rigs;
-                    UObjectGlobals::FindAllOf(STR("BP_PlayerCam_C"), rigs);
+                    g_camrig_registry.live(g_registry_tick, rigs); // re-seeded at every ghost spawn and on the belt (2026-09-06)
                     std::set<UObject*> seen_orphaned;
                     for (UObject* rig : rigs)
                     {
@@ -16623,8 +16924,9 @@ namespace MeshGhostPseudo
                 if (!niagara_enumerated)
                 {
                     niagara_enumerated = true;
-                    static const FName niagara_class_name{STR("NiagaraComponent")};
-                    UObjectGlobals::FindAllOf(niagara_class_name, niagara_this_tick);
+                    // The registry since 2026-09-06 (later): the same list, fed by the spawn
+                    // hooks and re-seeded on the belt, instead of a walk of the object array.
+                    g_niagara_registry.live(g_registry_tick, niagara_this_tick);
                 }
                 return niagara_this_tick;
             };
@@ -19683,7 +19985,7 @@ namespace MeshGhostPseudo
             }
 
             std::vector<UObject*> afterimages;
-            UObjectGlobals::FindAllOf(STR("BP_AfterImage_C"), afterimages);
+            g_afterimage_registry.live(g_registry_tick, afterimages); // was a whole-world walk every 5 ticks (2026-09-06)
             std::set<UObject*> alive_this_tick;
             for (UObject* image : afterimages)
             {
@@ -19978,6 +20280,30 @@ namespace MeshGhostPseudo
             // this runs every tick and puts them back, so the toggle logged HIDDEN while the user
             // still saw the tag -- the exact "never log the value you just wrote" trap, caught by
             // the user looking rather than by the log.
+            // **Distance tiers** -- see apply_ghost_distance_tier. Decided on the peer's target
+            // position (already known, no engine call) against the local pawn's; only a change of
+            // tier costs anything. A dormant ghost is skipped from here on -- BEFORE the nametag
+            // update, which would otherwise redraw the tag every tick on a ghost that is hidden --
+            // hidden and ticking nothing, it has no pose, mirror, hold or nametag to keep, and the
+            // next tick after it wakes puts it where the peer is. The liveness check above still
+            // runs for it every tick, so a level transition releases it like any other.
+            if (have_local_loc)
+            {
+                const double dx = remote.target_x - local_loc.X();
+                const double dy = remote.target_y - local_loc.Y();
+                const double dz = remote.target_z - local_loc.Z();
+                const int tier = ghost_tier_for_distance(std::sqrt(dx * dx + dy * dy + dz * dz), remote.distance_tier);
+                if (tier != remote.distance_tier)
+                {
+                    apply_ghost_distance_tier(remote, id, tier);
+                }
+                if (remote.distance_tier >= 3)
+                {
+                    perf_stop(PERF_LOOP_HEAD);
+                    continue;
+                }
+            }
+
             if (!g_ghost_nametag_hidden)
             {
                 PerfScope perf_nametag(PERF_NAMETAG);
@@ -20026,28 +20352,6 @@ namespace MeshGhostPseudo
             if (!remote.ambient_fx_stripped && tick_count < remote.spawned_at_tick + 120)
             {
                 remote.ambient_fx_stripped = strip_ghost_ambient_particles(remote.ghost, id);
-            }
-
-            // **Distance tiers** -- see apply_ghost_distance_tier. Decided on the peer's target
-            // position (already known, no engine call) against the local pawn's; only a change of
-            // tier costs anything. A dormant ghost is skipped from here on: hidden and ticking
-            // nothing, it has no pose, mirror, hold or nametag to keep, and the next tick after it
-            // wakes puts it where the peer is.
-            if (have_local_loc)
-            {
-                const double dx = remote.target_x - local_loc.X();
-                const double dy = remote.target_y - local_loc.Y();
-                const double dz = remote.target_z - local_loc.Z();
-                const int tier = ghost_tier_for_distance(std::sqrt(dx * dx + dy * dy + dz * dz), remote.distance_tier);
-                if (tier != remote.distance_tier)
-                {
-                    apply_ghost_distance_tier(remote, id, tier);
-                }
-                if (remote.distance_tier >= 3)
-                {
-                    perf_stop(PERF_LOOP_HEAD);
-                    continue;
-                }
             }
 
             // See GHOST_PREHIT_PLAYER. Checked every tick rather than written once at spawn: the

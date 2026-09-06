@@ -255,6 +255,48 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
+## [OPEN] BUILT 2026-09-06 (night) -- the leak behind "fps slowly dropping", and the world walks replaced by event-fed registries
+
+**The user's target, stated that evening:** *"8 ghosts can be assumed to be a pretty small/decent
+expected lobby, i don't think this amount of ghosts should be affecting fps in any bad way at
+all ... performance to be good all the time even if ghosts are nearby/far and also when they
+spawn/despawn so there are no random performance spikes."* Testers had reported 120 -> 100 fps
+with a couple of ghosts; the user sees 3-5 fps on their machine.
+
+**1. The leak (FIXED, measured before and after).** With four looping replay ghosts (eight, with a
+zip of the same clips) the user's fps drifted 135-144 -> 125-130 -> 112-115 over ~20 minutes. The
+census probe counted `NiagaraComponent` 3,257 -> 3,390 in one minute, never down: every one-shot
+effect the adapter mirrors onto a ghost was spawned with auto-destroy OFF and only the last 32 per
+ghost were destroyed at despawn, so everything older lived forever, and the VFX-mirror scan that
+walked them all every 5 ticks had grown from 0.28 to 1.8 ms a frame. Fix:
+`spawn_niagara_at_location(..., auto_destroy)`, true at the three one-shot sites, and the ghost's
+own `AIController` destroyed with the ghost in `release_ghost` (every loop seam is a release plus
+a respawn). After the fix, same rig: 425 -> 541 -> 346 across a forced GC and 90 s -- the count
+now rides the GC cycle instead of climbing. `pitfalls/by-lesson.md` 2026-09-06, the leak entry.
+
+**2. The fixed cost with ZERO ghosts (BUILT, unmeasured as of this entry).** With the leak gone
+and 8 replay ghosts, the adapter's tick was 2.05 ms a frame at 138 fps and 1.3 of it was the LOCAL
+half, which runs with no ghosts at all: the afterimage observer 0.5, the VFX-mirror walk 0.34, the
+camera-rig sweep 0.11, the afterimage outline sweep 0.09, the recall scan 0.08 -- every one a
+`FindAllOf` on a short cadence, and one such walk is ~1 ms in a lived-in world. They now read
+**object registries** (`ObjectRegistry`, Plugin.cpp): seeded once by a real walk, FED by the event
+that creates their members -- the two Niagara spawn functions, post-hooked natively
+(`register_niagara_spawn_hooks`, the return value), and the SetRenderCustomDepth pre-hook that
+already sees every afterimage reuse -- and re-seeded on a slow belt (600 ticks) so a member no hook
+covers is late once by at most ~4 s. Members are `FWeakObjectPtr`; the camera registries are
+re-seeded at every ghost spawn (the rig is the pawn's). Consumers are unchanged in logic and
+cadence. **Expected:** the local half near zero with no ghosts; per ghost ~60 us. **To measure:**
+`perf_report.txt` at 0 ghosts, then 3 and 8 fake peers, and the census probe's `ft_request.txt`
+(mean / p95 / worst) for the spikes; then a walk away from the ring for the tiers.
+
+**3. Dormant ghosts hid neither their nametag nor their plate** (the user saw tags at the far end
+of the loop): both are now hidden and shown explicitly with the tier, and the tier decision moved
+ahead of the per-tick nametag update so a dormant ghost's tag is not redrawn every tick.
+
+**Still open on the way to the target:** the spawn spike itself (a 28-component pawn clone plus
+warm-up), and the loop seam being a despawn + respawn by design (core: `replayPlayer.seam`); an
+interpolation reset without a respawn is the untested idea, core-side.
+
 ## [OPEN] BUILT 2026-09-06 (evening), deployed to both installs, UNWATCHED -- the distance tiers, the ambient emitter off, the enemies' animation tick option, and a tester zip
 
 **Built and deployed (DLL hash `71713748f788`, both installs; the tester zip on the user's desktop

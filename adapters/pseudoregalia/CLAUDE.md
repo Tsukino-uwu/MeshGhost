@@ -61,6 +61,11 @@ functions, **crashes** on Blueprint ones. Two took the game down on 2026-08-15.
 Blueprint.** If it is Blueprint, poll instead. That change also traded a *confirmed-working*
 mechanism for an unproven one — don't, until the tidier one has been watched.
 
+**Native is not always enough: `NiagaraFunctionLibrary:SpawnSystemAtLocation`/`SpawnSystemAttached`
+hang the game thread when hooked from Lua or C++ (2026-09-06, twice).** "Every new object of class
+X" comes from `Hook::RegisterStaticConstructObjectPostCallback` (`ObjectRegistry`), never a hook on
+the function that spawns it; `pitfalls/by-lesson.md`.
+
 ## The vendored SDK marshals `FRotator` as `float`, whatever the engine uses
 
 RE-UE4SS's bundled SDK marshals `FRotator` components as `float` regardless of the engine

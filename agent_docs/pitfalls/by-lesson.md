@@ -6212,3 +6212,49 @@ zone, and three legs of numbers that meant nothing (a "0 ghosts" leg with a full
 count of what is left, printed, in the same script; and a leg's ghost count is READ (the perf
 report's `nametag` calls divided by frames is exactly the live ghost count), never assumed from a
 sleep.
+
+## "fps slowly dropping over time" was 3,257 particle components that nothing ever destroyed -- a one-shot spawned with auto-destroy OFF plus a bounded tracking list is a leak by construction (Pseudoregalia, 2026-09-06)
+
+**Symptom.** Four looping replay ghosts (eight, with a zip of the same clips) on the user's own
+route; 135-144 fps at the start, 125-130 after a while, 112-115 later -- *"feels like its actually
+still dropping slowly over time"*. `perf_report.txt` said the ghosts themselves cost 0.5 ms and the
+LOCAL half 2.6 ms, of which the VFX-mirror scan 1.8 ms (0.28 with an empty world) and the afterimage
+block 0.7.
+
+**Measurement that settled it.** The census probe (`probes/probe_leakcount/Scripts/census.lua` in
+the scratch slot, counts only), twice a minute apart: `NiagaraComponent` 3,257 -> 3,390, ~2 a
+second, never down; `AIController` 42 for 9 pawns; everything else flat. The scan's cost is the
+count times the cadence, so the fps drift IS the count.
+
+**Cause, two halves.** Every world-spawned effect the adapter mirrors onto a ghost was born with
+`bAutoDestroy = 0` -- right for a HELD effect the mirror stops itself, wrong for a one-shot burst
+-- and the adapter remembered only the last 32 one-shots per ghost for the despawn cleanup, so
+every older burst outlived everything. Each loop seam is a release plus a respawn (the core
+despawns across the jump on purpose), and the respawn's auto-possessed `AIController` was never
+destroyed with its pawn: 33 orphans after 126 seams.
+
+**Fix.** `spawn_niagara_at_location(..., auto_destroy)`: true at the three one-shot call sites
+(landing dust, weapon bounce, the mirrored bursts), false for the held ones; `release_ghost`
+destroys the ghost's own AIController, read off the pawn, never by sweep. **Rules:** a world-
+spawned one-shot is auto-destroy or it is a leak; a bounded "recent" list is bookkeeping for
+echoes, never a cleanup list; and the first move on "fps drifts down" is two censuses a minute
+apart, not a reading of any per-frame slot.
+
+## Hooking `NiagaraFunctionLibrary:SpawnSystemAtLocation` / `SpawnSystemAttached` hangs the game thread when a Blueprint ubergraph calls one -- from Lua AND from C++; the feed for "every new component" is UE4SS's StaticConstructObject callback (Pseudoregalia, 2026-09-06, twice)
+
+**Symptom, both times.** The game freezes visually while the process lives and UE4SS's own thread
+keeps logging; the last game-thread line is UE4SS's *"Tried to execute UFunction::FuncPtr hook but
+there was no function map entry for UFunction ... ExecuteUbergraph_<some Blueprint>. Executing
+original function instead."* First from a Lua `RegisterHook` on both functions (a melee attack:
+`ExecuteUbergraph_BP_PlayerGoatMain`), then from a C++ `RegisterPostHook` on the same two (the first
+level load: `ExecuteUbergraph_BP_JumpBubble`, the first Blueprint that spawns a Niagara effect). The
+same DLL without the hooks: fine. The host rule said "hook native, or poll"; `SetRenderCustomDepth`
+and `GameplayStatics:ApplyDamage` are native and hook fine -- these two do not, and the mechanism
+was not chased: the rule is cheaper than the answer.
+
+**Rule.** These two functions are never hooked, by anything. A registry of "every object of class
+X that exists" is fed by `Hook::RegisterStaticConstructObjectPostCallback` (UE4SS's global hook,
+the one its Lua `NotifyOnNewObject` rides), filtered by an FName compare up the class chain,
+staged under a mutex when the construction happens off the game thread, plus a slow re-seed belt
+(`ObjectRegistry`, `Plugin.cpp`). And a freeze is a game-thread signal: read `PERF` lines or spawn
+lines, never the bridge heartbeat.

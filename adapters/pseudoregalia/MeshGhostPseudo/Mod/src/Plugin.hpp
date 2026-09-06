@@ -752,6 +752,7 @@ namespace MeshGhostPseudo
         // native-function RegisterPreHook shape as the camera and fade guards (a BLUEPRINT
         // UFunction hook crashes this build -- see the warning above load_map_pre_callback_id).
         auto register_afterimage_outline_guard() -> void;
+        auto register_object_registry_feed() -> void;
         auto register_playerlocation_guard() -> void;
         auto register_audio_listener_guard() -> void;
 
@@ -1291,6 +1292,11 @@ namespace MeshGhostPseudo
         int32_t fade_hook_id{-1};
         RC::Unreal::UFunction* srcd_function{nullptr}; // cached "SetRenderCustomDepth", found once
         int32_t afterimage_outline_hook_id{-1};
+        // UE4SS's StaticConstructObject post-callback (2026-09-06): the feed of the object
+        // registries that replaced the whole-world walks -- see ObjectRegistry in Plugin.cpp.
+        // NOT a UFunction hook: hooking the Niagara spawn functions themselves hung the game thread
+        // the moment a Blueprint ubergraph called one (twice that day, from Lua and from C++).
+        uint64_t registry_construct_callback_id{0};
 
         // MPC PlayerLocation guard (2026-08-29): KismetMaterialLibrary::SetVectorParameterValue
         // pre-hook plus the objects it needs. guard_local_* is the local player's position, cached
