@@ -6,7 +6,7 @@ Anything `python`, `perl` or a heredoc writes into a file is unverified until re
 
 - **Never pipe a multi-line script through bash inline, and never chain `powershell -ExecutionPolicy Bypass` inside a bash command** — Defender flags that shape as Trojan:Win32/PowhidSubExec.B (2026-09-03, blocked mid-session, a Severe alert on the user's screen). Write the script to the scratchpad and run it by path; run `.ps1` files from the PowerShell tool.
 - **One edit per script, and grep the RESULT** — a later `assert` discards every earlier replacement that did match, and an unmatched pattern fails silently.
-- **`file <path>` must not say CRLF** on anything LF-pinned; normalize, then build, then commit. Preflight checks it, after the fact.
+- **`file <path>` must not say CRLF** on anything LF-pinned (`.gitattributes` lists them); normalize with `perl -pi -e 's/\r\n/\n/g' <path>`, then build, then commit — the release staleness gate hashes those sources, so a CRLF tree bakes a hash CI can never match and the DLL reads as stale forever (live twice, last 2026-08-15). Preflight checks it, after the fact; prefer the Edit tool, which never writes CRLF.
 - **Never write a backslash escape inline in a heredoc, and never compute an insert index** — one collapsed in transit four times in a session, the other landed a thousand lines away.
 
 ## Every lesson filed here

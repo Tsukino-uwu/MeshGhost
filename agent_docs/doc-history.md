@@ -903,3 +903,33 @@ left as written; only headings, `[DONE]` verdicts and living prose were correcte
 86 probe scripts indexed both ways; Crystal: 80, 17 driving the controller. Instruction stacks after
 the pass: emulator 700 (at budget), Pseudoregalia 700, TEVI 622. Ten commits, straight to `master`,
 nothing pushed.
+
+## The root trim (2026-09-06) — 274 → 183 lines, cap 300 → 200, no rule deleted
+
+**Why.** Anthropic's memory docs (read 2026-09-06) say to target under 200 lines per `CLAUDE.md`; the
+root sat at 274/300 and two of three session stacks at exactly their 700-line budget, so no adapter
+session could take a single line without one leaving first. The user asked what 200 and 60 would look
+like, was shown both, and chose 200. The reasoning, the 60-line sketch and the periphery-bias finding
+that now orders the file: `claude-md-cap.md`, the seventh case.
+
+**What moved, and where.** Every bullet kept its imperative, one reason clause, one date and one pointer;
+narratives whose record lives in `pitfalls/` or a checklist became the date and the link; rules preflight
+already fails shrank to the imperative plus the check's name; RULE 0 went from 31 lines to 8. Six rules
+left the root for the nested file that already loads where they apply: emulator Lua-only (already in
+`adapters/emulator/CLAUDE.md`), the `EnableHotReloadSystem` check and the Pseudoregalia rebuild
+(`adapters/pseudoregalia/CLAUDE.md`), the TEVI rebuild-then-deploy (`adapters/tevi/CLAUDE.md`, a new
+section), the `FLAGS.md` and `documentation.md` conventions (`adapters/CLAUDE.md`, a new section). The
+CRLF rule's remedy and its reason (the release gate hashes the sources) went to
+`checklists/before-a-scripted-edit.md`, its home. Sections went from three to eight, ordered by cost of
+violation. The `.claude/rules/` option was recorded in `ideas.md` and not taken.
+
+**Checks.** A "no rule lost" script ran every bold span of the old root (4-word windows) against the new
+instruction files and checklists: 20 misses, every one a reworded rule or RULE 0 explanation now in
+`claude-md-cap.md`; three real drops it caught were restored before the commit (the status.md
+overwrite-on-phase-change clause, the README list's name, the CRLF reason). Preflight green end to end,
+after one FAIL: the 60-line sketch restated "a flag flip is not a revert" without the register's link.
+Stack budget 700 → 650. Counts after: root 183, `adapters/` 283, stacks emulator 615, Pseudoregalia 621,
+TEVI 544 (from 700 / 700 / 622).
+
+**Caveat, on record.** Lines fell by a third and tokens by more; distinct imperatives by under a tenth.
+The next lever for adherence is `adapters/CLAUDE.md` at 283, the larger half of every adapter stack.

@@ -275,3 +275,9 @@ the peer twice, a tile apart, which is worse than the blink.
 Finally, **do not "fix" a handover by removing the transition** — Crystal's is the idle rule that
 stops a stationary ghost blocking a doorway, and it is load-bearing. Make the seam invisible instead.
 
+## Two files every adapter keeps honest
+
+- **`FLAGS.md` is the compile-time flag register: when a flag's comment and its value disagree, the
+  register and the value win.** Flags that only work as a set are marked there; never switch one off alone.
+- **`documentation.md` records how the GAME works — no bandages in it, ever**, only what the game
+  itself handles, and only publishable facts observed from a running copy (`agent_docs/licensing.md`).

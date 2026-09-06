@@ -182,7 +182,7 @@ Report-GrepGate $LASTEXITCODE $durations `
 # ---------------------------------------------------------------------------
 Section "Reading budgets"
 
-# RULE 0's 300-line cap on CLAUDE.md holds BECAUSE this script checks it. Prose alone does not
+# RULE 0's 200-line cap (300 until 2026-09-06) on CLAUDE.md holds BECAUSE this script checks it. Prose alone does not
 # hold a budget -- status.md went from 50 to 628 lines with a cap nominally in force.
 #
 # SCOPE, narrowed 2026-09-02 on the user's call. A cap is a budget on an agent's INSTRUCTION load,
@@ -253,7 +253,7 @@ if ($strayCaps.Count -gt 0) {
 # So the stack has its own number, and it FAILS: the pitfalls funnel (2026-09-02) trimmed every
 # rule file by turning stories into dates and pointers and by dropping lines whose lesson is now a
 # preflight check, so a stack over budget after that is a regression, not a backlog.
-$stackCap = 700
+$stackCap = 650   # 700 until 2026-09-06; lowered with the root cap (300 -> 200), see claude-md-cap.md, the seventh case
 $stacks = [ordered]@{
     'emulator'      = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/emulator/CLAUDE.md')
     'tevi'          = @('CLAUDE.md', 'adapters/CLAUDE.md', 'adapters/tevi/CLAUDE.md')

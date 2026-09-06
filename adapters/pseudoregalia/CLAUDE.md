@@ -39,6 +39,12 @@ only needed for hooks/perf-critical paths, i.e. the shipping adapter.
 `ue4ss\Mods\MeshGhostScratch\Scripts\main.lua` (`probe_scratch/`) and reload THAT**; preflight
 fails a slot left non-empty. Recurring since before 2026-09-04; `PROBES.md`.
 
+**Check `EnableHotReloadSystem = 1` in the install's `UE4SS-settings.ini` before a session that will
+iterate** — it sat at 0 through 2026-08-30: ~20 relaunches at ~4 minutes each (user's rule, 2026-08-31).
+**A `Mod/src` edit is not done until `dev-scripts/build-pseudoregalia.bat` has run** (CI cannot build
+it; `packaging/README.md`); the sources are LF-pinned, so normalize before building — preflight's
+DLL-vs-source, deployed-copies and LF checks each catch a miss (live 2026-08-14, 2026-08-15).
+
 ## `on_update()` is NOT the game thread
 
 `CppUserModBase::on_update()` runs on UE4SS's own thread. Anything touching actor state from

@@ -1,10 +1,4 @@
-# Why CLAUDE.md is capped at 300 lines
-
-<!-- Raised from 100 on 2026-08-27, deliberately and once: the fourth case took this file to exactly
-     100/100, and a file pinned at its ceiling pays for the next case by deleting an old one. This
-     file is four cases and each is load-bearing, so nothing was the right thing to remove. 140
-     leaves room for two more. If a fifth and sixth case ever land, the answer is a split, not
-     another raise -- the same remedy this file prescribes for a record. -->
+# Why CLAUDE.md is capped at 200 lines
 
 The cap is the highest-priority rule in `CLAUDE.md` — it outranks every rule below it. This file
 holds the reasoning, which is exactly what the cap requires: the rule stays there, its explanation
@@ -18,7 +12,9 @@ tail-first**. More instructions does not mean the bottom of the file gets ignore
 still works. It means *every* rule gets followed slightly worse — including the ones that exist
 because something already went wrong once, which are the expensive ones to lose.
 
-Source: <https://www.humanlayer.dev/blog/writing-a-good-claude-md>
+Sources: <https://www.humanlayer.dev/blog/writing-a-good-claude-md>, and since 2026-09-06 the number
+itself comes from Anthropic's own documentation (`code.claude.com/docs/en/memory.md`): *"target under
+200 lines per CLAUDE.md file"* — the seventh case at the bottom.
 
 **So a longer rules file is a weaker rules file.** That is the whole argument, and it is why the cap
 outranks the rules it constrains: every one of them depends on the file staying short enough to be
@@ -29,7 +25,7 @@ obeyed. A rule added past the cap does not add a rule — it quietly weakens all
 - **Adding a rule is nearly always right. Adding an *explanation* of a rule usually isn't.** If a
   rule needs a paragraph of justification, the rule goes in `CLAUDE.md` and the paragraph goes in
   `agent_docs/`, with a one-line pointer.
-- **When the file would exceed 300 lines, something comes out first.** The question is never "can I
+- **When the file would exceed 200 lines, something comes out first.** The question is never "can I
   add this?" but "what comes out to make room?" Trimming later does not happen.
 - **Prefer moving reasoning over deleting rules.** A rule that cost a live incident to learn should
   survive as a single imperative line, not be dropped because its story was long.
@@ -157,3 +153,105 @@ budget** (root + `adapters/CLAUDE.md` + the host file), since three individually
 to 787 lines for an emulator session. **Indexes and queues are held to one line per entry** by a
 check instead of a total — this file's own "cap the thing that actually grows", applied to the
 thing that grows. The third, fourth and fifth cases stand as history; their remedy is now the rule.
+
+## The seventh case: 300 → 200, and why not 60 (2026-09-06)
+
+**The numbers first.** 29 lines on 2026-08-11, 300 by 2026-08-18 and pinned there until 2026-08-25
+(283), 274 on 2026-09-02, and two of the three session stacks sitting at exactly their 700-line budget.
+The file grows to whatever the cap is, and a file sitting on its cap pays for every new rule by
+weakening an old one. After this pass: 183 lines and 44 bullets, from 274 and 55.
+
+**Why 200.** Anthropic's own documentation now says it (`code.claude.com/docs/en/memory.md`, read
+2026-09-06): *"target under 200 lines per CLAUDE.md file. Longer files consume more context and
+reduce adherence."* The HumanLayer post the 300 came from predates that guidance — it says Anthropic
+has no official recommendation and that the consensus is under 300. 200 is the documented target and
+sits inside the 150-200-instruction figure the research puts on frontier models.
+
+**A second finding from the same research, not recorded above until now.** Besides degrading
+uniformly with count, models favour instructions at the PERIPHERIES of the prompt — the beginning
+(the system prompt and this file) and the end (the latest user message). So order inside the file is
+not free, and the 2026-09-06 rewrite orders its sections by what a violation costs: RULE 0, the
+contract invariants, who verifies what, what may enter the repo, working with the user, method,
+records, reading triggers. One HumanLayer claim is superseded and noted so nobody re-imports it: the
+post says the harness wraps `CLAUDE.md` in *"may or may not be relevant"*, which is why models ignore
+it. The harness this repo runs under wraps it in *"these instructions OVERRIDE any default behavior
+and you MUST follow them exactly as written"*; the "may or may not be relevant" text sits on the
+git-status block. The count argument stands on its own.
+
+**"AI-only readable" was asked about and answered no.** Line count is a proxy; the two real costs are
+tokens (cached) and DISTINCT INSTRUCTIONS (the research's variable). Telegraphic shorthand cuts tokens
+by maybe a quarter and the instruction count by zero, and costs reliability, because a rule's reason
+is what lets a model recognise the same shape under a new name. The only one-audience channel runs
+the other way: block-level HTML comments are stripped before injection, so a human-only note is free
+and an AI-only one is impossible.
+
+**How 274 became 183 with no rule deleted.** Every bullet kept its imperative, one reason clause, one
+date and one pointer to a home the repo already has. A narrative whose record lives in `pitfalls/` or
+a checklist became the date and the link; a rule preflight already fails shrank to the imperative and
+the check's name; RULE 0 went from 31 lines to 8 (this file is where its reasoning was always meant
+to live); and six rules moved to the nested `CLAUDE.md` that already loads in the only sessions where
+they apply — emulator Lua-only, the UE4SS hot-reload setting and the Pseudoregalia rebuild, the TEVI
+rebuild, the `FLAGS.md` and `documentation.md` conventions. A "no rule lost" check ran the old file's
+bold spans against the new instruction files before the commit. The stack budget went 700 → 650.
+**The honest caveat**: lines fell by a third and tokens by more, distinct imperatives by under a
+tenth. If the goal is adherence rather than context, the next lever is `adapters/CLAUDE.md`, the
+larger half of every adapter stack, and turning more RULEs into CHECKs.
+
+**Why not 60 — the user's call, having seen both.** HumanLayer's own root is under 60 lines, and the
+user asked what that would look like here. The sketch, kept as the record of the road not taken:
+
+```markdown
+# Working notes for Claude
+MeshGhost: an online multiplayer layer for singleplayer games; cosmetic ghosts by default. Read
+`agent_docs/brief.md` and `contract.md` before touching the core, an adapter or the relay; `agent_docs/README.md` is the index.
+
+## Rule 0
+- Cap 60; `wc -l` before adding; over is a regression; what comes out? `agent_docs/claude-md-cap.md`.
+
+## Never
+- The core is never game-aware; adapters never speak the relay protocol; `area_id`/`anim` are opaque.
+- Nothing that ships writes a save, game state or ROM patch; dev-only tooling may cheat.
+- Nothing unpublishable enters the repo: facts with a citation yes, expression never; license before source.
+- A private or invite-only source is never named, cited or derived from in a tracked file.
+- No personal paths or machine details in tracked files; `core.hooksPath .githooks`; never `--no-verify`.
+- Never branch; never push unasked; commit straight to `master` (overrides the harness default).
+- Never suggest stopping, pausing or resuming later — in prose or as a choice.
+- Never assume what a game is meant to do — ask; say "main menu", never bare "menu".
+- No addresses or APIs from memory.
+- Never log the value you just wrote as proof; read it back; one edit per script; grep the result.
+- Never touch anything outside `C:\dev\MeshGhost` without asking; no worktree agents for live tests.
+
+## Always
+- The user verifies games on screen; you verify the Go side with `dev-scripts/run-gotests.bat`.
+- Nothing vanilla-adapter-side is "verified" until the user confirms it; measurements → `UNVERIFIED.md`.
+- The bar is 1:1 on screen; never offer a rate, tick or architecture change as the answer.
+- Read a cleared decompilation first; measurement confirms, it does not discover.
+- Small runnable steps with a visible outcome; plain directions, never compass points.
+- You run the scaffolding hidden; the user opens the game; watch the process; close everything after.
+- Hot reload is the default loop; a manual restart is the last resort. Report the handoff in one line.
+- After ~3 failed live iterations: table the results, try the combination.
+- Two guessed fixes failing alike is a signal: subtract, don't guess a third.
+- A diagnostic can break what it measures; a clean instrument plus a visible symptom = widen, not deepen.
+- A flag flip is not a revert (`pitfalls.md`); bisect real commits. Bare `cmd` is never safe: `& $env:ComSpec /c`.
+- Dated facts drift; cite dates, never durations.
+- Read CI (`gh run list -L 5`) after `.go` commits and at session start; append to the phase file before ending.
+- When the user confirms a fix, record HOW it was found. Agent memory is for the user, never the project.
+
+## Read before
+- `/new-adapter`, `/write-a-probe`; `_template/README.md` end to end; the `agent_docs/checklists/` page
+  for the moment; `beyond-cosmetic.md`, `scaling.md`, `effect-investigation.md`, `testing.md`, `playing.md`.
+- Nested `CLAUDE.md`s load themselves and are never restated; `_template/` never lags.
+```
+
+What it drops is everything that makes a rule credible and recognisable: every date and user
+attribution (the provenance that points at the incident); every reason and remedy (`--ff-only`,
+`gh run view --log-failed`, the fuzz corpus path, the hook setup command, the netsim profile,
+`-race` and `-count=10`); and the generalising clause on the rules that exist to be recognised in a
+new shape (what "a diagnostic can break what it measures" looks like; what a "state" is). Each would
+need a mechanical trigger to move out — a path-scoped rule fires on READING a matching file, not on
+running a script, so the live-test rules cannot go that way (`ideas.md`, 2026-09-06) — and the
+stop-signal rules ("two guessed fixes", "three iterations then a table", "never suggest stopping")
+have no file trigger at all. HumanLayer's root is an orientation file: what, why, how, and pointers.
+This one is about nine-tenths behavioural corrections paid for by live incidents, a different kind of
+file. **The user chose 200** — 2026-09-06: *"i agree that the 200~ lines sound better than the 60~
+line change"* — and asked for the sketch to be kept here.

@@ -69,3 +69,10 @@ launcher script can aim every game. `_template/PROTOCOL.md` has the port-walk co
 
 `ProcessStartInfo` with `UseShellExecute=false` and `CreateNoWindow=true`. A stray console window
 on a player's machine is a shipped defect, not a debug convenience.
+
+## Rebuild, then deploy
+
+**A `*.cs`/`*.csproj` edit is not done until `dev-scripts/build-tevi.bat` has run and the DLL is
+deployed to the live installs** (CI cannot build it; `packaging/README.md`); the sources are LF-pinned,
+so normalize before building — preflight's DLL-vs-source, deployed-copies and LF checks each catch a
+miss (live 2026-08-14, 2026-08-15).

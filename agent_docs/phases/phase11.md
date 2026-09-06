@@ -621,3 +621,11 @@ own delay (ADR 0049) and gameplay time (ADR 0053). `docs/config.md` documents th
 `replay.indicator*` keys, read by the game's mod rather than by `meshghost.exe`. `architecture.md`
 lists the three bridge types this phase added. The follow-ons in this file's own list are unchanged
 and still unwatched.
+
+## 2026-09-06 (later) — the root `CLAUDE.md` trimmed to 183 lines, cap lowered to 200
+
+No code changed. The user chose the ~200-line root over a 60-line one after seeing both; the record
+of that choice, the sketch and the reasoning is `agent_docs/claude-md-cap.md` (the seventh case), and
+the pass itself is logged in `agent_docs/doc-history.md` ("The root trim (2026-09-06)"). Six rules moved
+to the nested `CLAUDE.md`s, the stack budget went 700 → 650, preflight is green. Nothing in this phase's
+own list changed.

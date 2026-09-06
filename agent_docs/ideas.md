@@ -2826,3 +2826,15 @@ LoadMap today.
 **How to measure before building.** The churn rig already exists; the number to beat is the
 frame-time spike per spawn on the user's machine (`stat unit`, the 08-30 perf timers), and the
 comparison is spawn-vs-revive with the same ghost count. Not scheduled.
+
+## `.claude/rules/` path-scoped instruction files, if the 200-line root grows back to its cap (filed 2026-09-06)
+
+The harness loads `.claude/rules/*.md` carrying `paths:` frontmatter only when a matching file is
+READ (Anthropic's memory docs, read 2026-09-06). Moving the Go-side test rule (fires on any `.go`
+read) and the docs conventions out of the root would take it to ~120 lines. Not done in the
+2026-09-06 trim, for three reasons: it adds a third instruction surface that preflight's budgeted list,
+`claude-md-cap.md` and `agent_docs/README.md` would all have to learn; a file `cat`-ed through a shell
+does not trigger it, so an action-shaped rule can silently fail to load; and the trimmed root has
+headroom. Reach for it if the root is pinned at 200 again. Hooks are the other step in the same
+direction (a `Bash` matcher on `perl`/`python` edits carrying the scripted-edit rules) — the
+CHECK-over-RULE funnel taken one step further, and a separate decision. Not scheduled.
