@@ -2945,3 +2945,18 @@ no-use parts off (step 2 stays on by default, measured at no gain, the user unde
 `ls_rest` sub-slots at 50 ghosts. Next, in the user's order of value: the loop seam as a teleport
 (core, an ADR), the slide-handler skip in `loop_pose_xf`, and the nametag's "sometimes too low" case
 once it has a state name.
+
+## 2026-09-06 (late) — the peer ladder re-run, the README's ladder table, and the docs gates before v1.2.0
+
+**Ladder (a971ceaf, 65abe501).** The fake-peer ladder re-run on the day's final build: 16 peers hold
+the 144 cap, 32 at 96 fps, 100 at 30, 150 at 17. The README's table now carries mean and median and
+the adapter's own tick per row, the shape the user asked for. Rig down after; nothing left running.
+
+**Docs gates (eb35ecbb).** The push of the day's records turned the Docs workflow red on four tree
+gates: the eight 2026-09-06 pitfalls and the four VERIFIED entries were unindexed, the FindAllOf
+ratchet recorded 51 against 46 call sites (the registries removed five), and one line said "run for
+hours". Indexed, ratcheted to 46, reworded; `preflight -TreeOnly` clean. That commit touched
+`VERIFIED.md` and put this log three adapter commits behind -- hence this entry. CI on 65abe501 was
+green end to end (race, fuzz), and the user asked for **v1.2.0** on a green board; the release is
+dispatched from `release.yml` once the Docs run on this push is green. Records: `README.md` steps
+65-67 and the ladder table, `VERIFIED.md` (the 2026-09-06 entries), `pitfalls/INDEX.md`.
