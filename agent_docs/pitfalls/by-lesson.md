@@ -6258,3 +6258,17 @@ the one its Lua `NotifyOnNewObject` rides), filtered by an FName compare up the 
 staged under a mutex when the construction happens off the game thread, plus a slow re-seed belt
 (`ObjectRegistry`, `Plugin.cpp`). And a freeze is a game-thread signal: read `PERF` lines or spawn
 lines, never the bridge heartbeat.
+
+## `GetFullName()` on an archetype the pawn's default object points at crashed the game from a Lua probe -- an object `IsValid()` refuses is address-only, whatever you want to know about it (Pseudoregalia, 2026-09-06)
+
+**Symptom.** A read-only scratch probe asked the pawn CDO's `PlayerLight` (a component template)
+for its full name and class; UE4SS's `IsValid()` on that object was false, the first probe had
+printed it as a bare address, and the second called `GetFullName()` on it anyway. Access violation
+inside UE4SS.dll (`read-minidump.py`: fault in UE4SS.dll, not main.dll), the game gone mid-session.
+
+**Rule, already in the host file and broken anyway:** a template, archetype or default object is
+exactly the kind of object `probe_dump/` records as address plus declared class and never touches.
+`FindAllOf` hides them on purpose (`IsValidObjectForFindXOf`); a pointer read off a CDO can still
+reach one. Named property reads through the wrapper are the only safe question; a name, class or
+UFunction on it is a crash. And the chain of "one more quick probe" in a session the user is
+playing in is the loop `before-a-probe.md` warns about: two probes in, the game was gone.

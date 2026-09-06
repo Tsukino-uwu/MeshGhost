@@ -5211,3 +5211,28 @@ modded outfit looks like WITHOUT the mod on the watcher's side was not tested to
 visibility, thrown flag, position, rotation, bounce count, glow and the peer's loose-weapon class, and
 the ghost's own hand `WeaponMesh` asset is whatever the pawn class gives it -- no `weapon_mesh` field
 exists the way `outfit_mesh` does, so a modded sword model is not mirrored. Filed as an idea, not a bug.
+
+## 2026-09-06 — the per-spawn `FixAllLights` repair is not needed: fake peers spawning beside the player inside a dark area leave the ghosts and the player dark (user-confirmed on screen)
+
+**What was measured first.** Every ghost spawn logged its cost in two halves (SPAWNCOST): the
+engine's `SpawnActor` ~2.5 ms, the adapter's after-spawn work 18-19 ms, and a checkpoint split put
+17.5-18.2 ms of that in one block -- `BP_LightManager_C::FixAllLights`, the game's own light repair
+the adapter called after every spawn since 2026-08-30, because a ghost's vertex light registered
+with the light manager inside `SpawnActor` and left rooms brighter. A lobby of eleven peers at
+"play" was eleven of those in one frame.
+
+**The test.** The repair skipped by a toggle (`ghost_fixlights_off.txt`, this build), the three
+fake peers despawned and respawned beside the player in the castle, then two more spawned around
+the player inside a dark area of ZONE_Dungeon. The user, standing in that dark area with two
+ghosts a few metres away: *"they stay dark even inside a dark area. so think its working as
+intended"* -- and asked for a straight yes or no: *"its fixed"*. The spawn-tick kill of the
+ghost's light (`g_ghost_vertexlight_killed`, shipped 2026-08-30) already keeps the latch from
+happening; the repair had nothing left to repair.
+
+**What ships.** The repair is off by default (`ghost_fixlights_on.txt` re-enables it, deferred and
+coalesced to one call per burst); spawns are spaced one per two ticks; a spawn now costs the
+adapter ~0.6 ms of its own work on top of the engine's clone. The user felt the change at "play":
+*"was a small drop still, but didn't feel like a big spike anymore"* -- before the repair was off.
+The three-leg steady-state numbers of the same evening (0 / 8 / 11 ghosts at the 144 cap) are in
+`UNVERIFIED.md`'s night entry; the user's own steady-state read, standing idle with eight replay
+ghosts and three fake peers, is what this entry is not: that reading is theirs to give.

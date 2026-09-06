@@ -2056,8 +2056,24 @@ namespace MeshGhostPseudo
     // same one a BP_LightTransition_C runs, replacing "walk out and back in". The scene-latch
     // fix: the ghost's vertex light registers with the manager inside SpawnActor and nothing
     // unregisters it. SHIPPED DEFAULT as of 2026-08-30, watched fixing the latch on screen. See
-    // call_fix_lights; no toggle reads this any more.
+    // call_fix_lights.
+    // **OFF BY DEFAULT since 2026-09-06 (evening).** The repair measured 17.5-18.2 ms per call and
+    // ran once per spawn -- 18 of the 19 ms a spawn cost on the adapter's side, and the "play"
+    // spike with eleven peers. With the ghost's light killed on the spawn tick it had nothing
+    // left to repair: the user watched fake peers spawn beside them inside a dark area with it
+    // skipped -- *"they stay dark even inside a dark area. so think its working as intended"*.
+    // This flag still arms the DEFERRED request (see the spawn site); whether the request is
+    // served is `ghost_fixlights_on.txt` (present = run it, coalesced), the A/B if the latch
+    // ever comes back.
     bool g_ghost_fix_lights = true;
+    // The deferral (2026-09-06): set by a spawn, serviced at the tick's end at most every
+    // FIX_LIGHTS_SPACING_TICKS -- see the spawn site's comment.
+    bool g_fix_lights_due = false;
+    int g_fix_lights_spawns_pending = 0;
+    uint64_t g_fix_lights_last_tick = 0;
+    constexpr uint64_t FIX_LIGHTS_SPACING_TICKS = 30;
+    // Spawns are spaced this many ticks apart (the user's ask, 2026-09-06) -- see ensure_ghost_spawned.
+    constexpr uint64_t GHOST_SPAWN_SPACING_TICKS = 2;
     // Hide only the ghost's WeaponMesh -- the blade-shimmer split, see the mesh loop.
     bool g_ghost_weapon_hidden = false;
     // Hide only the ghost's LightMesh -- the ascendant-light blade aura, see the mesh loop.
@@ -14130,6 +14146,15 @@ namespace MeshGhostPseudo
             return;
         }
 
+        // **One spawn per GHOST_SPAWN_SPACING_TICKS (2026-09-06, the user's ask).** A lobby of
+        // eleven peers used to spawn in one tick -- eleven pawn clones plus eleven light repairs
+        // in a single frame, the spike at "play". The peer's next state line arrives next tick and
+        // calls here again, so nothing is lost, only spread: eleven ghosts over ~22 ticks.
+        if (last_ghost_spawn_tick != 0 && tick_count < last_ghost_spawn_tick + GHOST_SPAWN_SPACING_TICKS)
+        {
+            return;
+        }
+
         // **Nothing is spawned while a reset is in flight** -- see suppress_ghost_spawn_until_tick.
         // The window is cleared early by the LoadMap/InitGameState hooks when they fire, so a reset
         // that completes normally costs at most a few frames of ghostlessness.
@@ -14376,17 +14401,40 @@ namespace MeshGhostPseudo
             const std::string& id;
             LARGE_INTEGER before;
             LARGE_INTEGER after_engine;
+            LARGE_INTEGER last_mark;
+            std::vector<std::pair<const wchar_t*, long long>> marks; // (block, us since the previous mark)
+            static auto us_between(const LARGE_INTEGER& a, const LARGE_INTEGER& b) -> long long
+            {
+                LARGE_INTEGER freq{};
+                QueryPerformanceFrequency(&freq);
+                return freq.QuadPart > 0 ? ((b.QuadPart - a.QuadPart) * 1000000LL) / freq.QuadPart : 0;
+            }
+            // Called at the END of each after-spawn block: the measured 18-20 ms of adapter work
+            // per spawn (2026-09-06) needed an owner, and this names it per block.
+            auto mark(const wchar_t* label) -> void
+            {
+                LARGE_INTEGER now{};
+                QueryPerformanceCounter(&now);
+                marks.emplace_back(label, us_between(last_mark, now));
+                last_mark = now;
+            }
             ~SpawnTimerReport()
             {
-                LARGE_INTEGER end{}, freq{};
+                LARGE_INTEGER end{};
                 QueryPerformanceCounter(&end);
-                QueryPerformanceFrequency(&freq);
-                const long long engine_us = freq.QuadPart > 0 ? ((after_engine.QuadPart - before.QuadPart) * 1000000LL) / freq.QuadPart : 0;
-                const long long ours_us = freq.QuadPart > 0 ? ((end.QuadPart - after_engine.QuadPart) * 1000000LL) / freq.QuadPart : 0;
-                Output::send(STR("[MeshGhostPseudo] SPAWNCOST {}: SpawnActor {} us, adapter after-spawn work {} us\n"),
-                             to_wide_ascii(id), engine_us, ours_us);
+                marks.emplace_back(STR("rest"), us_between(last_mark, end));
+                StringType split;
+                for (const auto& [label, us] : marks)
+                {
+                    split += label;
+                    split += STR("=");
+                    split += std::to_wstring(us);
+                    split += STR(" ");
+                }
+                Output::send(STR("[MeshGhostPseudo] SPAWNCOST {}: SpawnActor {} us, adapter after-spawn work {} us [{}]\n"),
+                             to_wide_ascii(id), us_between(before, after_engine), us_between(after_engine, end), split);
             }
-        } spawn_timer_report{player_id, spawn_qpc_before, spawn_qpc_after_engine};
+        } spawn_timer_report{player_id, spawn_qpc_before, spawn_qpc_after_engine, spawn_qpc_after_engine};
 
         // **`bare_ghost.txt` stops here: the actor exists and NOTHING is done to it.**
         // Proven 2026-08-31: the crash follows the ghost SPAWN after a reset, not the reset. This
@@ -14511,10 +14559,21 @@ namespace MeshGhostPseudo
         // The ghost's light lived long enough during SpawnActor to Register with the light
         // manager, and dying does not unregister it -- so run the manager's own repair, the same
         // call a light-transition volume makes. See call_fix_lights.
+        spawn_timer_report.mark(STR("templates+vertexlight"));
+        // **The light repair is DEFERRED and COALESCED (2026-09-06).** `FixAllLights` measured
+        // 17.5-18.2 ms per call, and it ran once per spawn: 18 of the 19 ms a spawn cost on the
+        // adapter's side, and eleven of them in one frame at "play". It now runs at most once per
+        // FIX_LIGHTS_SPACING_TICKS from the tick's end (see game_thread_tick), for however many
+        // ghosts spawned since -- the same repair, the same tick when spawns are single, one
+        // repair for a burst. `ghost_fixlights_off.txt` beside the DLL skips it entirely: the A/B
+        // for whether the latch still happens at all now that the ghost's light is killed on the
+        // spawn tick (only the user's eyes settle that; the room brightening was the symptom).
         if (g_ghost_fix_lights)
         {
-            call_fix_lights(STR("FixAllLights")); // FixDynamicLights alone: measured no-op on a latched scene; FixAllLights: watched clearing it live, 2026-08-30
+            g_fix_lights_due = true;
+            ++g_fix_lights_spawns_pending;
         }
+        spawn_timer_report.mark(STR("fixlights-deferred"));
 
         // Facing-direction investigation, 2026-08-13: bisecting whether the ghost's
         // CapsuleComponent RelativeRotation is already garbage right at spawn (before Possess,
@@ -14613,6 +14672,7 @@ namespace MeshGhostPseudo
 
         // Arm the camera guard: the game re-picks a camera within a few ticks of this spawn.
         ghost_spawn_camera_guard_tick = tick_count;
+        spawn_timer_report.mark(STR("diag+possess"));
 
         if (POSSESS_TRACE)
         {
@@ -14649,6 +14709,7 @@ namespace MeshGhostPseudo
         // The parts a ghost has no use for, off at spawn -- see strip_ghost_no_use_parts. After
         // the possess hand-back so the ghost's own AIController is the one found on `Controller`.
         strip_ghost_no_use_parts(ghost, player_id);
+        spawn_timer_report.mark(STR("collision+parts"));
 
         // **Cutting the ghost off from the player's SHARED and health state, 2026-08-27.** The
         // user's ask, in their words: *"can we just remove/disable anything health related on the
@@ -15004,6 +15065,7 @@ namespace MeshGhostPseudo
         }
 
 
+        spawn_timer_report.mark(STR("decouple+hurtbox"));
         RemoteGhost& remote = remotes[player_id];
         remote.ghost = ghost;
         remote.owning_world = world;
@@ -15034,8 +15096,10 @@ namespace MeshGhostPseudo
         // The ghost's TARGET is always the real spot, even when g_ghost_spawn_far moved where it
         // was born -- otherwise a peer who sends no further state would be left hanging in the air.
         remote.target_z = g_ghost_spawn_far ? spawn_loc.Z() - GHOST_FAR_SPAWN_Z_OFFSET : spawn_loc.Z();
+        spawn_timer_report.mark(STR("ambient+tickopt"));
         census_singleton_arrays(STR("after-spawn"));
         census_object_counts(STR("post-spawn"));
+        spawn_timer_report.mark(STR("census-toggles"));
         Output::send(STR("[MeshGhostPseudo] spawned ghost for remote {} in world_ptr={} ({})\n"),
                      to_wide_ascii(player_id),
                      static_cast<void*>(world),
@@ -15097,6 +15161,7 @@ namespace MeshGhostPseudo
         // subtraction that leaves the spawn-time write in place would not be a subtraction: this
         // is the write that put the ghost's flag at false in the first place, and the per-tick
         // hold below has never once found it on.
+        spawn_timer_report.mark(STR("statediff"));
         if (!g_ghost_keeps_custom_depth)
         {
             PerfScope perf_custom_depth(PERF_CUSTOM_DEPTH);
@@ -16075,6 +16140,30 @@ namespace MeshGhostPseudo
         PerfScope perf_whole_tick(PERF_TICK_TOTAL);
         g_registry_tick = tick_count; // the object registries' clock (belt re-seeds)
         registry_drain_pending();     // constructions the loading thread saw since last tick
+        // The deferred light repair -- see the spawn site. Once for everything that spawned
+        // since the last one, never more often than FIX_LIGHTS_SPACING_TICKS, and skipped
+        // entirely while ghost_fixlights_off.txt is present (the A/B).
+        if (g_fix_lights_due && tick_count - g_fix_lights_last_tick >= FIX_LIGHTS_SPACING_TICKS)
+        {
+            g_fix_lights_due = false;
+            const int spawns = g_fix_lights_spawns_pending;
+            g_fix_lights_spawns_pending = 0;
+            g_fix_lights_last_tick = tick_count;
+            if (!dev_toggle_present(STR("ghost_fixlights_on.txt")))
+            {
+                Output::send(STR("[MeshGhostPseudo] DEV: FixAllLights not run for {} spawn(s) -- the shipped default since 2026-09-06 (ghost_fixlights_on.txt re-enables it).\n"), spawns);
+            }
+            else
+            {
+                LARGE_INTEGER fl_before{}, fl_after{}, fl_freq{};
+                QueryPerformanceCounter(&fl_before);
+                call_fix_lights(STR("FixAllLights")); // FixDynamicLights alone: measured no-op on a latched scene; FixAllLights: watched clearing it live, 2026-08-30
+                QueryPerformanceCounter(&fl_after);
+                QueryPerformanceFrequency(&fl_freq);
+                Output::send(STR("[MeshGhostPseudo] FIXLIGHTS: one repair for {} spawn(s), {} us.\n"),
+                             spawns, fl_freq.QuadPart > 0 ? ((fl_after.QuadPart - fl_before.QuadPart) * 1000000LL) / fl_freq.QuadPart : 0);
+            }
+        }
         perf_report_if_due();
 
         // **Silent while the game is PAUSED, too.** The pause menu stops the game ticking its

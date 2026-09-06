@@ -6,6 +6,7 @@ A probe is a question asked of a running game, and most fail as questions. `/wri
 
 - **A probe can break the thing it measures**, and then every reading agrees with itself — audit its cost, keep it off by default, re-run with it off before believing anything.
 - **A filter applied before you look is a guess about the answer.** Dump everything at a rare EVENT; filter while reading, never before; state what the instrument CANNOT see.
+- **An object `IsValid()` refuses is address-only** — `GetFullName()` on a pawn CDO's component template crashed the game from a "read-only" probe (2026-09-06); named property reads only, never a name, class or call ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md)).
 - **A Lua `RegisterHook`, even on a native function, is a suspect in a freeze** — a melee attack froze the game thread with two logging-only hooks loaded and was clean without them (2026-09-06, one negative); hooks for an event-driven mechanism are built in the C++ adapter ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md)).
 - **Unload anything that drives input or writes memory before judging a report** — a loaded probe is a suspect in every later symptom, and a writing probe that half-matches corrupts the rest.
 
