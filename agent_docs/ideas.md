@@ -909,7 +909,10 @@ protocol above is actually run and watched.
    game's own config (the numbers are that game's units, opaque to the core), e.g. `ghost_range`
    defaulting to 20,000 with the throttle from a quarter of it and 0 meaning unlimited. **Order of
    value:** the adapter's own per-ghost slots first (0.25 ms per ghost at every distance, no design
-   decision), then this. The tester's distances are the starting values, to be re-judged on screen.
+   decision), then this. **The user's own reading is tighter than the tester's (same day):** *"barely
+   possible to see someone even at 5k, at 10k+ they are actually too far away to see anything
+   properly"* -- so the starting defaults are the throttle from ~3,000 and dormant from ~10,000, with
+   the key there for anyone who wants ghosts further out; both to be re-judged on screen.
 
 ## The bandage register (audited 2026-08-16) — moved
 
