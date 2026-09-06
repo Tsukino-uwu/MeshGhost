@@ -346,7 +346,7 @@ ships); (c) the five `ls_rest` sub-slots at 50 ghosts (they were read at 11: `ls
 `ls_vfxmirror` were the growth, and both now read registries); (d) the loop seam as a despawn +
 respawn by design (core `replayPlayer.seam`) -- an interpolation reset without a respawn is the
 untested idea, core-side, and the last visible spike with looping replays; (e) `loop_pose_xf`,
-~25 us per ghost of engine calls (the actor move plus the Blueprint slide handler every tick).
+~40 us per ghost of engine calls (the actor move plus the Blueprint slide handler every tick).
 
 ## [OPEN] BUILT 2026-09-06 (evening), deployed to both installs, UNWATCHED -- the distance tiers, the ambient emitter off, the enemies' animation tick option, and a tester zip
 

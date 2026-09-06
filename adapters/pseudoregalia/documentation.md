@@ -16,7 +16,7 @@ forever?* — applied to prose. No, or merely unclear, means out. Full guidance 
 worth knowing: [adapters/_template/README.md](../_template/README.md).
 
 > Everything here is **measured from a running game** during Phases 2, 5 and 7 and the work that
-> followed them (2026-08-11 through 2026-09-05; the range is re-dated whenever a section is added —
+> followed them (2026-08-11 through 2026-09-06; the range is re-dated whenever a section is added —
 > it read "through 2026-08-27" until 2026-09-06 while holding measurements from 2026-08-29, -30 and
 > 2026-09-05), using engine reflection against a running instance
 > to learn real type and member *names*. This game has **no public source**, and no decompiled or
@@ -41,7 +41,7 @@ listings; the code is one click away and stays the source of truth.
 | **`documentation.md`** (this) | How does the game do X? |
 | `PLAYER_FIELDS.md` | Which fields exist, which we sync, how to promote one |
 | `BANDAGES.md` | Where we compensate instead of reproducing the mechanism |
-| `VERIFIED.md` | Dated evidence behind every claim here |
+| `VERIFIED.md` | Dated, user-confirmed evidence behind most claims here; agent-measured ones are in `UNVERIFIED.md` and `agent_docs/pitfalls/` |
 | `UNVERIFIED.md` | What is believed to work but nobody has watched yet |
 | `FLAGS.md` | Which compile-time switch turns each of these on |
 
@@ -85,6 +85,13 @@ mesh. And the mesh offset follows an exact law in all 692 samples, in every stat
 `RelativeLocation.Z` is always **`−(CapsuleHalfHeight + 1)`**. Standing: capsule half 65, mesh −66.
 Shrunk: capsule half 22, mesh −23. The mesh root sits permanently one unit under the capsule's
 bottom. *Confidence: high — zero variance anywhere in the sample set.*
+
+**How tall she is.** The outfit's skeletal-mesh *asset* carries `ExtendedBounds`, and that number is
+static — it does not bob with the animation the way the component's live bounds do. The stock
+outfit's top is **142 units above the mesh origin**; with the mesh hanging 66 below the actor, that
+is 76 above the actor's origin. A modded outfit with horns reads 201. One modded asset declares a top
+of **13,558**, so an asset's declared bounds are a claim, not a measurement — read them with a sanity
+window. *Where we read it:* the live pawns, 2026-09-06 (`VERIFIED.md`, the nametag entry).
 
 **Reading these fields correctly.** `bIsCrouched`, `bPressedJump`, `bClientUpdating`,
 `bClientWasFalling`, `bClientResimulateRootMotion(Sources)`, `bSimGravityDisabled` and
@@ -133,11 +140,12 @@ The capsule halves; its centre falls by exactly what it lost, so the bottom stay
 hang-distance shrinks by the same 43, so the mesh stays put too. **She never moves down — she gets
 shorter around a fixed point on the floor.**
 
-**Duration is fixed at 87 ticks**, consistent across four timed runs, and separately **~600ms**,
-consistent across 26 timed repeats (mean 624ms — see the held-slide section below). Those are the
-same fact measured two ways and they agree: this build's frame rate is not fixed, ranging roughly
-**150-180Hz**, at which 87 ticks spans 483-580ms. **Count the slide in ticks, not milliseconds** —
-the tick count is what holds still.
+**Duration is fixed at 87 ticks**, consistent across four timed runs. A separate held-slide
+measurement puts the capsule at the sliding value for a mean of **624ms** over 26 repeats (the
+held-slide section below). At this build's measured ~180Hz (`VERIFIED.md`, the tick-rate
+correction; the ~150Hz some earlier entries quote was retracted) 87 ticks is ~483ms, so the two do
+**not** reconcile — one of them measures something slightly wider than the other, and which has not
+been settled. **Count the slide in ticks, not milliseconds** — the tick count is what holds still.
 
 A Blueprint `Timeline` float track runs `1.0 → ~0.17` through a slide and is completely untouched
 by a crouch, so it is slide-specific — most likely the speed curve. Unidentified beyond that.
@@ -500,12 +508,15 @@ is `mainWeapon`; two weapon mods read as `mainWeapon_BusterSword` and `mainWeapo
 **Swapping weapons changed the asset and nothing else** -- socket, offset and scale were identical across
 all three, printed on change and never printed again. A weapon model is therefore the same kind of thing
 as an outfit: one asset name on one component, in a socket the game owns. `SkeletalMeshAsset` does not
-resolve as a property on this build; `SkeletalMesh` does, as the outfit path already found. The pawn
+resolve as a property on this build; `SkeletalMesh` does, as the outfit path already found. Nor
+does `bRegistered` on the component (2026-09-06): a flag that is not a reflected property reads
+as whatever fallback the caller gave it, silently. The pawn
 class exposes four weapon verbs and none of them is a model swap; the weapon mods change the asset the
 component starts with.
 
-*Confidence: high for the three assets seen; a fourth mod that also moves the socket or scale would show
-up as a change on the attach line, which never fired.*
+*Confidence: high for the three assets seen, and two more (a leek, a needle) were worn on live
+instances and in replays on 2026-09-06 without an attach change; a mod that also moves the socket
+or scale would show up as a change on the attach line, which has never fired.*
 
 ## Animation montages
 
@@ -572,7 +583,8 @@ running copy:**
 - **The manager's repair verbs are `FixAllLights`, `FixDynamicLights` and `FixStaticLights`** —
   what a `BP_LightTransition_C` runs when crossed, and callable directly. `FixAllLights` clears a
   stale dynamic registration; `FixDynamicLights` alone does not (both watched live on a scene
-  carrying exactly that fault).
+  carrying exactly that fault). **`FixAllLights` costs ~18 ms per call on this build** (17.5-18.2,
+  timed on every ghost spawn 2026-09-06): the game pays it at a transition, never per frame.
 - **Each transition volume is a `toDark`/`toLight` overlap pair** with two timelines, an
   `ambienceRef`, and per-volume targets (`2Target`, `2targetWithLight`, `actualDarkTarget`,
   `standardIntensity` 0.6) plus `isDarkZone?`/`isLightOut` state. The ambience actor it drives
@@ -600,7 +612,8 @@ The golden shimmer along the sword when the ascendant light is active is **its o
 drawn over the weapon. It is not a material swap on the weapon (`mainWeapon`'s material is
 `MI_PlayerWepon` with or without the aura), not an overlay material (that field is empty on every
 mesh), not a Niagara or particle effect (the only particle system on a character is
-`NE_Particles_System`, and hiding it changes nothing about the aura), and not custom depth — which
+`NE_Particles_System` — the drifting white balls, which the pawn attaches to its own capsule at
+`BeginPlay` via `SpawnSystemAttached` — and hiding it changes nothing about the aura), and not custom depth — which
 is the through-walls outline and a visibly different look.
 
 **This matters because it is the third component in the same family**, and all three answer to the
@@ -639,6 +652,13 @@ caught in the log with its arguments on every spawn, 2026-09-04, and the two sil
 were confirmed gone on screen once the listener was put back (`VERIFIED.md`, 2026-09-04). Second
 instance of the rule the loose sword established on 2026-09-01: **anything a player pawn registers
 globally on `BeginPlay`, a second player pawn re-registers**.
+
+The rule is wider than re-registration: **what a player pawn creates at `BeginPlay` is not undone
+when the pawn is destroyed.** Two more instances, both censused 2026-09-06: the pawn auto-possesses
+an `AIController` at `BeginPlay`, and destroying the pawn leaves the controller alive (42 controllers
+for 9 pawns after a session of respawns); and its `BP_PlayerCam_C` camera rig outlives it too,
+reachable only through the rig's own `OwningActor` while the pawn still exists, and otherwise
+cleared only by a level reload.
 
 ## Known unknowns
 

@@ -25,7 +25,7 @@ adapter's own `VERIFIED.md`/`UNVERIFIED.md` are where everything since is record
 | [PLAYER_FIELDS.md](PLAYER_FIELDS.md) | Which fields exist, which we sync, how to promote one |
 | [FLAGS.md](FLAGS.md) | What every compile-time switch does, and which are recorded negatives |
 | [BANDAGES.md](BANDAGES.md) | Where we compensate instead of reproducing the mechanism |
-| [PROBES.md](PROBES.md) | The dev-only Lua probes (nineteen folders as of 2026-09-06), what each was for |
+| [PROBES.md](PROBES.md) | The dev-only Lua probes (twenty-one folders as of 2026-09-06), what each was for |
 | [VERIFIED.md](VERIFIED.md) | Dated, user-confirmed evidence — append-only |
 | [UNVERIFIED.md](UNVERIFIED.md) | Believed working, nobody has watched it yet |
 
@@ -154,8 +154,9 @@ Roughly in order:
    legitimate camera change for the rest of the session, and the real cause turned out to be
    the ghost bringing its own camera rig. See step 10 and `BANDAGES.md`.
 5. Tried making a statue already present in the stage follow the player, as an alternative
-   to spawning a new actor — this is also what proved runtime-`SpawnActor`'d actors weren't
-   rendering at all on this build, while hijacking an existing level object did. (7.4)
+   to spawning a new actor — this is also what seemed to prove runtime-`SpawnActor`'d actors
+   weren't rendering at all on this build, while hijacking an existing level object did — a
+   verdict later overturned; see step 11. (7.4)
 6. Hit a wall where Lua wasn't reliably sending everything required over the socket — a
    binary-compatibility bug between the vendored LuaSocket build and UE4SS's own embedded Lua
    that only showed up under real sustained traffic, not light testing. (7.5)
@@ -221,7 +222,8 @@ Roughly in order:
     live, because the enums overlap between different moves and the shrink doesn't. (7.6)
 24. Stopped the ghost sinking into the floor mid-slide: the same shrink drops the capsule's
     origin by 43 units, so a full-height ghost placed there sat 43 under the floor. Compensated
-    the render height instead of mirroring the capsule. Superseded by step 44. (7.6)
+    the render height instead of mirroring the capsule. The same compensation is told in full as
+    step 43; superseded by step 44. (7.6)
 25. Added the cling-gem (wall-ride) VFX by calling the pawn's own wall-run function on the ghost,
     with the paired sound suppressed — ghosts are a visual-only layer. (7.6)
 26. Synced the trail colour, modded colours included. The ultra hop's blue trail turned out to be
@@ -263,7 +265,8 @@ Roughly in order:
 35. Gave the ghost the glow you get when empty-handed near a save crystal. Instead of working out
     the rule — nobody had guessed the crystal part — the mod just checks whether the real effect is
     showing and copies that, so any condition we never noticed comes along for free. Found by
-    playing all 58 of the game's effects onto the ghost until one was recognised. (7.6)
+    cycling the game's Niagara catalog onto the ghost — 58 systems, narrowed to 10 by a name
+    filter — until one was recognised. (7.6)
 36. Worked out where the ultra hop's blue trail comes from, after it had been written off as
     unsolvable. It was never a particle effect at all — an afterimage is a posed copy of the
     character, and each one carries its own colour. Switched back off at the time; see steps 37–40
@@ -304,10 +307,11 @@ Roughly in order:
     when it finds nothing on the bridge, which also means a client that's already running gets used
     rather than duplicated. It passes no relay settings — only the bridge port and its own
     process id, with the core reading its own config out of the working directory — so the
-    adapter still knows nothing about the relay. (7.7)
+    adapter still knows nothing about the relay.
 
 43. Stopped a sliding ghost sinking into the floor — the quick way, and the wrong object. A slide
-    halves the character's capsule and drops its centre by the same amount, so a ghost teleported to
+    shrinks the character's capsule half-height from 65 to 22 and drops its centre by the same 43
+    units, so a ghost teleported to
     that lowered position buried itself 43 units. Raising the ghost's render Z by exactly that
     amount looked perfect immediately, and it was still a compensation: it moved the whole actor to
     fix a mesh problem, so the ghost's position became a lie that anything reading it inherited. It
@@ -398,8 +402,10 @@ Roughly in order:
 56. Put out the light a ghost brought with it. Every spawned pawn carries the Blueprint's default
     5000-intensity ascendant light plus a camera rig nobody looks through, additively brightening
     the room per peer; both are now held dark/neutral, and after every spawn the level's own
-    light repair (`FixAllLights`) runs — the same call a light transition makes. Watched by the
-    user, 2026-08-30.
+    light repair (`FixAllLights`) ran — the same call a light transition makes. Watched by the
+    user, 2026-08-30. **The repair no longer runs by default**: on 2026-09-06 it measured 18 ms
+    per ghost and the spawn-tick light kill had already made it unnecessary, so it is off behind
+    `ghost_fixlights_on.txt` (`FLAGS.md`); step 65.
 
 57. Root-caused the reset crash to stale nametag pointers and fixed it — a world made by "reset
     to last save" freed objects our components still referenced, so the next spawn died in the
@@ -448,9 +454,26 @@ Roughly in order:
     probes (flags, a pre/post hook on the engine setter with owner attribution, a restore call);
     fixed by making both strips prove ownership first. The outline on the player behind a ghost
     stays, by the user's call: the pass ignores stencil, and a ghost writing custom depth shows
-    through walls. Confirmed on screen. [VERIFIED.md](VERIFIED.md), `probe_outline/`.
-    (Steps 60-64 were numbered 54-57 and sat above 54-59 until 2026-09-06; `phase7.md`'s
-    2026-09-05 entry cites the outline fix as "step 57" — it is this one.)
+    through walls. Confirmed on screen. [VERIFIED.md](VERIFIED.md), `probes/probe_outline/`.
+    (Steps 61-64 were numbered 54-57 and sat above 54-59 until 2026-09-06, and step 60 is new;
+    `phase7.md`'s 2026-09-05 entry cites the outline fix as "step 57" — it is this one.)
+
+65. **A ghost's cost, cut where it actually was (2026-09-06).** A day of measuring with 8-50 ghosts:
+    the adapter's own per-ghost tick was half the bill and is a third cheaper (cached lookups, one
+    shared enumeration per tick); the fixed cost with no ghosts at all was five whole-world scans on
+    short cadences and is now ~0.2 ms (object registries fed by UE4SS's construction callback); a
+    leak of one-shot effects that never auto-destroyed is closed; and the spike at every spawn was
+    an 18 ms light repair per ghost that the spawn-tick light kill had already made unnecessary --
+    off, spawns spaced one per two ticks. Eight idle ghosts hold the 144 fps cap at the same p95 as
+    none. `UNVERIFIED.md` and `VERIFIED.md`, the 2026-09-06 entries.
+66. **Distance tiers at the user's own marks (2026-09-06).** Full fidelity to 6,500 units, reduced
+    animation rate to 8,500, frozen pose to 10,500, dormant beyond -- model hidden, ticks off, only
+    the nametag left so someone knows a player is there. The numbers come from an anchor ghost and a
+    walk down a castle hall, not from a guess; three config keys, re-read live.
+67. **The nametag knows the outfit, and modded swords reach ghosts (2026-09-06).** The tag sits a
+    fixed gap above the outfit asset's own declared top (clamped to a sane window for an asset that
+    lies), so it moves with every outfit swap; and the weapon-mesh sync no longer waits on a flag
+    this build does not reflect, which had silently kept every modded sword off every ghost.
 
 > **Steps 38–41 and 43–44 are deliberately longer than the rest of this list — please leave them
 > that way.**
@@ -486,15 +509,17 @@ The shape of what remains, so this section says something (re-checked 2026-09-06
 family at a new engine fault site, reported by testers on v1.1.7 with the weapon-model apply on one
 of the stacks — a hardened DLL is deployed and unproven, and if it recurs that feature ships off;
 one visual defect nobody has explained (a black flash the moment a ghost appears, with two
-mechanisms ruled out by measurement); a frame-rate residue after a ghost despawns that persists
-until a zone change (user report, 2026-09-06); an audit of the remaining plain-byte bool reads for
+mechanisms ruled out by measurement); the frame-rate residue after a despawn, root-caused
+2026-09-06 to the ghost's own orphaned `BP_PlayerCam_C` camera rig and fixed in the DLL —
+instrument-watched on all three despawn paths, still waiting on a session of the user's own
+(`UNVERIFIED.md`); an audit of the remaining plain-byte bool reads for
 the bitfield trap, first item for the next session; several things confirmed only in loopback that
 a real second player would judge differently; and a handful of built-but-unwatched changes.
 Nothing outstanding is a ghost failing to do something the player can do.
 
 ## Dev tools
 
-Thirty-two dev-only Lua probe scripts across nineteen mod folders under [probes/](probes/)
+Thirty-five dev-only Lua probe scripts across twenty-one mod folders under [probes/](probes/)
 (2026-09-06 count — each probe is its own UE4SS mod directory), **indexed in
 [PROBES.md](PROBES.md)** — that file is
 their one home; this section says only why they exist and what to be careful of. None of them ships:
@@ -508,9 +533,9 @@ Two things worth knowing before running any of them:
 
 - **UE4SS loads `Scripts/main.lua` and only that**, so a probe with stages swaps files rather than
   taking a flag — copy the stage over `main.lua` to run it, and put the original back afterwards.
-  It is also why each probe has to be its own mod directory, and therefore why the index lives at
-  `PROBES.md` rather than in a `probes/` folder.
-- **`probe_ghost/Scripts/main.lua` is a complete working Lua adapter, not a diagnostic.** Running it
+  It is also why each probe has to be its own mod directory. The index stays at the adapter root
+  as `PROBES.md` because it is one of the adapter's files, not a probe.
+- **`probes/probe_ghost/Scripts/main.lua` is a complete working Lua adapter, not a diagnostic.** Running it
   alongside the real C++ mod puts two things on the bridge at once. It is Phase 7.5's real adapter,
   kept because it is the last version where the whole thing is readable in one file, and because the
   C++ `BridgeClient` and spawn path were ported *from* it — `MIN_PLAUSIBLE_DISTANCE` still cites it
@@ -518,20 +543,3 @@ Two things worth knowing before running any of them:
 
 That file's camera fight-back is the one thing in the probes not to copy, and
 [PROBES.md](PROBES.md) says why.
-
-65. **A ghost's cost, cut where it actually was (2026-09-06).** A day of measuring with 8-50 ghosts:
-    the adapter's own per-ghost tick was half the bill and is a third cheaper (cached lookups, one
-    shared enumeration per tick); the fixed cost with no ghosts at all was five whole-world scans on
-    short cadences and is now ~0.2 ms (object registries fed by UE4SS's construction callback); a
-    leak of one-shot effects that never auto-destroyed is closed; and the spike at every spawn was
-    an 18 ms light repair per ghost that the spawn-tick light kill had already made unnecessary --
-    off, spawns spaced one per two ticks. Eight idle ghosts hold the 144 fps cap at the same p95 as
-    none. `UNVERIFIED.md` and `VERIFIED.md`, the 2026-09-06 entries.
-66. **Distance tiers at the user's own marks (2026-09-06).** Full fidelity to 6,500 units, reduced
-    animation rate to 8,500, frozen pose to 10,500, dormant beyond -- model hidden, ticks off, only
-    the nametag left so someone knows a player is there. The numbers come from an anchor ghost and a
-    walk down a castle hall, not from a guess; three config keys, re-read live.
-67. **The nametag knows the outfit, and modded swords reach ghosts (2026-09-06).** The tag sits a
-    fixed gap above the outfit asset's own declared top (clamped to a sane window for an asset that
-    lies), so it moves with every outfit swap; and the weapon-mesh sync no longer waits on a flag
-    this build does not reflect, which had silently kept every modded sword off every ghost.

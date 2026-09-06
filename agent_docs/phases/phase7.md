@@ -4,15 +4,18 @@
 > `internal/X` as `X/`. Why, and what became of `internal/README.md`: [../README.md](../README.md).
 > **Adapter paths predate the 2026-08-25 folder rename** — read any `adapters/bizhawk/` as
 > `adapters/emulator/`. Left as written for the same reason: a phase file records what was true
-> while the phase ran.
+> while the phase ran. **Probe paths predate the 2026-09-06 move** — read any
+> `adapters/pseudoregalia/probe_x/` as `adapters/pseudoregalia/probes/probe_x/` (`PROBES.md`).
 
 **Status: LIVE — Pseudoregalia's whole running log, appended every session, and the largest record
 in this folder.** The numbered task list (7.0-7.8) was done by 2026-08-17 — 7.7, the real two-player
 test, confirmed 2026-08-16 with the Linux tester — and the user called the adapter **feature
 complete on 2026-08-27** (scope in `adapters/pseudoregalia/VERIFIED.md`): a playable-state milestone,
 not the end of the work, and the dated entries after it are the proof. Work after 2026-08-17 carries
-no task number; it is logged by date below. Started 2026-08-12. What is open now is in
-`adapters/pseudoregalia/UNVERIFIED.md` and `agent_docs/status.md`, never here. (This header quoted a
+no task number; it is logged by date below. Started 2026-08-12. The register of what is open is
+`adapters/pseudoregalia/UNVERIFIED.md` and `agent_docs/status.md`; an entry's closing **Handoff**
+block here is a snapshot for the next session, superseded by the next entry, never the register.
+(This header quoted a
 "fold back when done" rule until 2026-09-06; it was reversed on 2026-09-02 — `README.md` in this
 folder.)
 
@@ -2489,8 +2492,10 @@ adapter here has ever handled.
 ## 2026-09-05 — the recording indicator, and what a dozen looks at a red square actually taught
 
 **Shipped in one session, from the user's design (ADR 0052).** A red square and an elapsed clock,
-top right, while the core is recording. Confirmed on screen: the clock counts, the pair is fixed to
-the view, it disappears on stop, and the colours are the ones asked for. Four numbers are still
+top right, while the core is recording. Seen working in the session: the clock counts, the pair is
+fixed to the view, it disappears on stop, and the colours are the ones asked for (what reached
+`VERIFIED.md` is the shapes, pixel-aligned, and the baked defaults; these four are not separately
+recorded there). Four numbers are still
 being judged and the last build is **built, not deployed** — see `UNVERIFIED.md`.
 
 **THE DEFECT WORTH REMEMBERING IS NOT ABOUT THE INDICATOR.** This build has neither `SetText` nor
@@ -2895,8 +2900,8 @@ install; both installs carry the evening DLL and a client rebuilt from the day's
 next step, their own: record a replay ghost and watch it from far away — the log announces each
 ghost's tier changes (`distance tier full -> throttled` ...).
 
-**Handoff.** Unwatched: the tier transitions on screen, the emitter-less and parts-off ghosts, any
-perf reading of the evening build (the five new `ls_rest` sub-slots name the 1.5 ms growth). Open
+**Handoff (superseded by the night handoff below, same session).** Unwatched: the tier transitions
+on screen, the emitter-less and parts-off ghosts, any perf reading of the evening build (the five new `ls_rest` sub-slots name the 1.5 ms growth). Open
 decisions: whether step 2 ships (recommendation: not without a measured gain). Open cost:
 `loop_pose_xf` (~40 us per ghost of engine calls: `K2_SetActorLocationAndRotation` on a 28-component
 actor plus the Blueprint slide handler every tick — a skip when the slide track is unchanged is the
@@ -2935,7 +2940,7 @@ has both, `checklists/before-a-probe.md` two lines, the host `CLAUDE.md` two rul
 **Rig at the end:** the user closed the games; the relay and fake peers were mine and are stopped
 below; the scratch slot holds the pristine stub; no dev toggle in either install; both installs and
 the desktop zip carry the final DLL. `replay/active/` still holds the user's zip and my four looping
-copies plus two outfit clips -- theirs to keep or clear. Records: `VERIFIED.md` (five entries),
+copies plus two outfit clips -- theirs to keep or clear. Records: `VERIFIED.md` (four entries),
 `UNVERIFIED.md` (the night entry, with the unwatched list), `FLAGS.md` (toggles and constants),
 `docs/config.md`, `README.md` steps 65-67, `running-the-rig.md`, `_template/probes.md`, `ideas.md`
 7-10, `status.md`.
@@ -2960,3 +2965,13 @@ hours". Indexed, ratcheted to 46, reworded; `preflight -TreeOnly` clean. That co
 green end to end (race, fuzz), and the user asked for **v1.2.0** on a green board; the release is
 dispatched from `release.yml` once the Docs run on this push is green. Records: `README.md` steps
 65-67 and the ladder table, `VERIFIED.md` (the 2026-09-06 entries), `pitfalls/INDEX.md`.
+
+**2026-09-06 (evening), correction to the entry above:** v1.2.0 SHIPPED from `ad28d8a4` -- the Docs
+run on that push went green, `release.yml` was dispatched with the day's highlights, and the three
+assets are up (`status.md`). The same evening's stale check of `README.md`, `documentation.md` and
+this file: the README's probe counts (21 folders, 35 scripts), step 56 now says the `FixAllLights`
+repair is off, the post-despawn residue reads as root-caused, steps 65-67 moved out of "Dev tools"
+into the numbered list; `documentation.md` gained the outfit bounds (142 / 201 / 13,558), the
+`FixAllLights` price, `bRegistered` not reflecting, the `AIController` and camera-rig instances of
+the BeginPlay rule, and stopped claiming the 87-tick and 624 ms slide figures agree; this file's
+header gained the probe-path note and the handoff rule.

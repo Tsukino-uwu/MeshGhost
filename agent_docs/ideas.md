@@ -930,7 +930,7 @@ protocol above is actually run and watched.
    interpolate across this sample" (an ADR). Real peers only seam on area changes, where a
    despawn is needed anyway.
 
-9. **`loop_pose_xf`, the last per-ghost engine cost (filed 2026-09-06).** ~25 us per ghost per
+9. **`loop_pose_xf`, the last per-ghost engine cost (filed 2026-09-06).** ~40 us per ghost per
    tick: `K2_SetActorLocationAndRotation` on a 28-component actor plus the Blueprint slide-timeline
    handler call every tick. Caching the lookups moved nothing (measured); the calls themselves are
    the price. Skipping the slide handler when the peer's track value is unchanged is the untested
