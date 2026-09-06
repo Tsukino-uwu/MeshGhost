@@ -2017,7 +2017,7 @@ Three rules that made the rows work, all paid for that day:
   pawn and a world. Gate on the map name, not the pawn.
 
 The loop that made ~7 rounds fit in one game session: probes are LUA mods, and a resident
-reloader mod (`adapters/pseudoregalia/probe_reloader/`) restarts a named mod whenever a trigger
+reloader mod (`adapters/pseudoregalia/probes/probe_reloader/`) restarts a named mod whenever a trigger
 file changes — no rebuild, no relaunch, no window focus. The UE4SS Ctrl+R keybind needs the game
 focused and silently missed three times while the user was typing elsewhere; confirm every
 reload in the log, never from the send.
@@ -2256,4 +2256,4 @@ placeholder object, not `nil`** — filter on `type(v) == "boolean"`, or every o
 flag; and **a Lua pre-hook runs after an earlier-registered C++ pre-hook**, so the parameter it sees may
 already be rewritten — print pre and post both, and know who registered first.
 
-The shape to copy: `adapters/pseudoregalia/probe_outline/Scripts/hooks.lua`.
+The shape to copy: `adapters/pseudoregalia/probes/probe_outline/Scripts/hooks.lua`.

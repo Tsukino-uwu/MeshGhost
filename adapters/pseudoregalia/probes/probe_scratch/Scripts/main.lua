@@ -19,7 +19,7 @@
 -- **Restore this stub when you are done.** A probe left in the slot is loaded at the next launch,
 -- and `CLAUDE.md`'s standing rule is that a loaded probe is a suspect in every later report --
 -- doubly so here, because the slot's NAME will not tell anyone what is in it. The pristine copy
--- lives at `adapters/pseudoregalia/probe_scratch/Scripts/main.lua`.
+-- lives at `adapters/pseudoregalia/probes/probe_scratch/Scripts/main.lua`.
 --
 -- **What this stub deliberately does NOT do:** no LoopAsync, no FindAllOf, no reads. An empty slot
 -- must cost nothing measurable, or every session pays for a convenience it is not using.

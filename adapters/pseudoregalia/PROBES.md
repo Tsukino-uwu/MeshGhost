@@ -6,10 +6,13 @@ they are the record of *how each fact was established*: the pawn/position/rotati
 auto-possess diagnosis, and the whole socket-capability answer in `agent_docs/phases/phase7.md`
 were each settled by something in this list.
 
-**Why this file is `PROBES.md` at the adapter root, and not a `probes/` folder.** UE4SS loads a
-Lua mod from a fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory*
-— there is no single `probes/` folder to index from the inside. Nineteen directories, thirty-two
-scripts, one index (2026-09-06 count, measured not incremented — `ls -d probe probe_*` and a `find`
+**Where they live: `probes/`, one UE4SS mod directory per probe.** UE4SS loads a Lua mod from a
+fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directory* and is deployed
+as one; since 2026-09-06 those directories sit together under `probes/` (the user's call, to keep
+the adapter root readable — they were loose at the root before, so a record dated earlier that says
+`adapters/pseudoregalia/probe_x/` means `adapters/pseudoregalia/probes/probe_x/`). This index stays
+at the adapter root because it is one of the adapter's files, not a probe. Nineteen directories,
+thirty-two scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
 for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -37,7 +40,7 @@ The one thing to be careful of is the opposite of a write: **`probe_ghost/Script
 full working adapter**, not a diagnostic. Running it alongside the real C++ mod would put two
 things on the bridge at once.
 
-## `probe/` — where the player actually lives (Phase 7.1)
+## `probes/probe/` — where the player actually lives (Phase 7.1; the first probe, named before there was a second)
 
 - **`Scripts/main.lua`** (92) — the first read-only discovery probe, before any C++ existed.
   Confirmed on screen where Pseudoregalia's local player pawn, position, rotation and level name

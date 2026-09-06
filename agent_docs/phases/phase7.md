@@ -2785,3 +2785,17 @@ doc against `Plugin.cpp`, the probe folders and the release tree; this is what i
 - `documentation.md`: the provenance range re-dated to 2026-09-05; two game facts shipped code depends on now have sections — `WorldSettings.PauserPlayerState` (ADR 0053) and the player pawn's `BeginPlay` taking the audio listener.
 - Back-ported to `_template/`: the numbers-audit rule, the switch-channel order, no compile-time gate over a player setting, "document what a pawn REGISTERS globally".
 - This file's header: "task list ends at 7.8" and the folded-back rule replaced with the live-log framing.
+
+## 2026-09-06 (later) — the probe folders move under `probes/`
+
+The user moved every `probe_*` directory (and the original `probe/`) from the adapter root into
+one folder to keep the root readable, then chose `probes/` over `probe/` for its name so it
+matches Emerald's and Crystal's and stops the first probe sitting at `probe/probe/`. Git records it
+as 42 pure renames; nothing loads a probe from the repo path (each is copied into the install's
+`ue4ss\Mods\` by hand), so the game side is untouched. What DID point at the old paths and was
+corrected: `preflight.ps1`'s scratch-slot check (it would have FAILED "stub missing"), this
+adapter's `CLAUDE.md`, `PROBES.md` (which had said there is no `probes/` folder here), `README.md`,
+`_template/probes.md`, `_template/README.md`, `agent_docs/risks.md`, `dev-scripts/README.md`, and
+the scratch stub's own comment. `pseudo-hotreload.ps1 -Watch` already watched the adapter folder
+recursively. Records (`VERIFIED.md`, `pitfalls/`, the entries above) keep the old paths as written;
+`PROBES.md` says how to read them.

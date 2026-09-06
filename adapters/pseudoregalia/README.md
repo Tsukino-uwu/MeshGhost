@@ -483,8 +483,9 @@ Nothing outstanding is a ghost failing to do something the player can do.
 
 ## Dev tools
 
-Thirty-two dev-only Lua probe scripts across nineteen mod folders (2026-09-06 count — each probe is
-its own UE4SS mod directory), **indexed in [PROBES.md](PROBES.md)** — that file is
+Thirty-two dev-only Lua probe scripts across nineteen mod folders under [probes/](probes/)
+(2026-09-06 count — each probe is its own UE4SS mod directory), **indexed in
+[PROBES.md](PROBES.md)** — that file is
 their one home; this section says only why they exist and what to be careful of. None of them ships:
 the release contains the compiled `MeshGhostPseudo` DLL plus a bundled UE4SS runtime to load it, and
 nothing from these folders. They are kept because they are the record of how each capability was

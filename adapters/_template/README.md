@@ -321,14 +321,14 @@ reference; that file is the shape.
 |---|---|---|
 | BizHawk (Lua) | yes | this repo's dev loader: attach, swap, drop scripts |
 | Unity + BepInEx | yes | ScriptEngine (BepInEx.Debug) from `BepInEx/scripts`, file-watcher armed |
-| UE4SS (Lua mods) | yes, for a mod enabled AT LAUNCH | a resident reloader mod calling `RestartMod` off a trigger file (`pseudoregalia/probe_reloader/`) — the Ctrl+R keybind needs game FOCUS and silently misses (2026-08-29). A NEW folder is not reloadable at all: use the scratch slot below (2026-09-04) |
+| UE4SS (Lua mods) | yes, for a mod enabled AT LAUNCH | a resident reloader mod calling `RestartMod` off a trigger file (`pseudoregalia/probes/probe_reloader/`) — the Ctrl+R keybind needs game FOCUS and silently misses (2026-08-29). A NEW folder is not reloadable at all: use the scratch slot below (2026-09-04) |
 | UE4SS (C++ mod) | **no** | native; rebuild and relaunch. Put logic in a Lua probe while iterating |
 
 **KEEP AN ALWAYS-REGISTERED SCRATCH PROBE SLOT ON ANY HOST THAT ONLY REGISTERS PLUGINS AT
 LAUNCH.** UE4SS is one: it knows the mods that were enabled when the game STARTED, so a probe
 folder created since is invisible to `RestartMod` (*"Could not find mod to reinstall"*) and a
 brand-new question costs a relaunch — the exact cost the reloader exists to remove. **The fix is a
-slot, not a folder per probe:** ship an empty, always-enabled probe (`pseudoregalia/probe_scratch/`
+slot, not a folder per probe:** ship an empty, always-enabled probe (`pseudoregalia/probes/probe_scratch/`
 is the worked example), write the day's probe over its `main.lua`, reload THAT, and restore the
 stub when done. **Ask this of a new host at the same time as "can it reload at all"** — the two
 answers are different, and only the second one is usually checked. The user, after it recurred

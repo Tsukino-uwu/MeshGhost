@@ -391,7 +391,7 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   change. **SUPERSEDED 2026-08-29 for anything scripted** — Windows refuses the cross-process
   focus steal while the user is typing elsewhere, and three sent reloads in a row landed nowhere
   while reporting success. The route that needs no focus is the resident watcher mod
-  `adapters/pseudoregalia/probe_reloader`: write `<ModName> <nonce>` into its
+  `adapters/pseudoregalia/probes/probe_reloader`: write `<ModName> <nonce>` into its
   `reload_request.txt` and it calls `RestartMod`. Keep this script for a hand-driven reload
   when the game already has focus. Either way, confirm the reload in `UE4SS.log`, never from the
   script's own line — a reload that hit a Lua error reports there and leaves the OLD script

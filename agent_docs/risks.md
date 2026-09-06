@@ -367,7 +367,7 @@
   MeshGhost's already-vetted `lua54.dll`/`socket-windows-5-4.dll` pair here could crash the
   game rather than fail cleanly if the two compiled Lua runtimes' `lua_State` layouts don't
   match, unlike BizHawk where there was only ever one real Lua runtime involved.
-  **Downgraded 2026-08-12**: Stage 2 (`adapters/pseudoregalia/probe_socket/Scripts/stage2_loadlib.lua`)
+  **Downgraded 2026-08-12**: Stage 2 (`adapters/pseudoregalia/probes/probe_socket/Scripts/stage2_loadlib.lua`)
   ran live — preload, `loadlib`, `luaopen_socket_core()`, and `socket.tcp()` create/close all
   succeeded with no crash, `AP_Randomizer` unaffected, extended play session stable (see
   `agent_docs/verified.md`). The `lua_State`-mismatch risk hasn't corrupted anything through
@@ -375,7 +375,7 @@
   is where an ABI mismatch would most plausibly surface (e.g. buffer/struct handling under
   actual I/O, not just table construction) — treat as unresolved until that's tried.
   **Resolved 2026-08-12**: Stage 3
-  (`adapters/pseudoregalia/probe_socket/Scripts/stage3_roundtrip.lua`) did a real
+  (`adapters/pseudoregalia/probes/probe_socket/Scripts/stage3_roundtrip.lua`) did a real
   connect/send/receive round trip against the actual bridge protocol — a real
   `meshghost.exe` core, a real relay loopback echo, and a real `render_remote` frame read back
   successfully inside UE4SS's embedded Lua. Extended play session stable, no crash/lag/
@@ -411,7 +411,7 @@
   no alternate LuaSocket build was ever needed.
 - **Spawning the player's own gameplay Blueprint as a placeholder ghost physically dragged the
   player, found 2026-08-12, root cause confirmed the same day**:
-  `adapters/pseudoregalia/probe_ghost/Scripts/main.lua` spawned a second instance of
+  `adapters/pseudoregalia/probes/probe_ghost/Scripts/main.lua` spawned a second instance of
   `BP_PlayerGoatMain_C` 150 units from the player. The user was physically dragged/pulled
   toward another location at high speed on three separate runs, until dying each time. Two
   wrong theories tried and ruled out in turn — disabling `SetActorEnableCollision`/

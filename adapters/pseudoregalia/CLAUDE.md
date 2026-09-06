@@ -18,7 +18,7 @@ touching an actor, read `agent_docs/checklists/before-spawning-in-unreal.md`** â
 
 ## Probe in LUA, iterate by hot reload â€” the C++ mod is for SHIPPING only
 
-**The default way to ask this game a question is a Lua mod under `adapters/pseudoregalia/`
+**The default way to ask this game a question is a Lua mod under `adapters/pseudoregalia/probes/`
 (`probe_nametag/` is the worked example), deployed as its own folder in the install's
 `ue4ss\Mods\`, and reloaded INTO THE RUNNING GAME.** A C++ change costs a rebuild and a full
 game relaunch per attempt; a Lua reload costs seconds. The 2026-08-28 nametag session iterated
