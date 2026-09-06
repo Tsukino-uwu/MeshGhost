@@ -6145,3 +6145,20 @@ things"* into a running probe and trust the next result.
 **Fix.** `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` (`Plugin.cpp`): `release_ghost` destroys the rigs whose
 `OwningActor` is the ghost before the ghost goes; the sweep destroys any rig orphaned for three
 consecutive sweeps. Unwatched as of this entry; `adapters/pseudoregalia/UNVERIFIED.md`.
+
+## Never `Activate()` a camera component on a ghost — an active camera is a view-target candidate, and the game aborted on 50 of them (Pseudoregalia, 2026-09-06)
+
+**Symptom.** "Abort signal received", no callstack, at 14:12:32 — the instant the strip probe
+re-activated `DialogueCam` on 50 ghosts (`on=dialoguecam`, after `off=all` had deactivated it). Six
+other parts had been switched on and off the same way in the minutes before without incident, and
+deactivating the camera had been fine.
+
+**Cause, as far as it is established.** A `CameraComponent` that becomes active registers as a
+candidate view target; this game's own camera Blueprint (`BP_PlayerCam_C`, `OwningActor`) and this
+adapter's `SetViewTargetWithBlend` guard both act on camera activity, and fifty at once from a Lua
+probe is not a state the game was ever meant to enter. The precise abort was not chased: the rule
+is cheaper than the answer.
+
+**Rule.** A probe may stop a ghost camera's tick; it never activates one. Same family as "spawning a
+player Blueprint takes the player's camera" (2026-08-16): cameras on a clone are the game's, and the
+only safe direction is off. `probe_strip/` has the camera part tick-only with this note at the site.

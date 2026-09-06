@@ -255,6 +255,82 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
+## [MEASURED] 2026-09-06 -- what a ghost costs, part by part, and half of it is the ADAPTER's own per-ghost tick
+
+**The user's ask:** *"what parts of the player are the most performance heavy? ... spawn ghosts
+with only that thing and nothing else ... so we can separate and make a proper list of what
+everything does performance wise"*. A pawn cannot be spawned with one component, so
+`probes/probe_strip/` switches a live ghost to ALL OFF and one part back ON at a time; 50 fake
+peers, cap lifted (`t.MaxFPS 0`), player standing still on ZONE_Dungeon, two 10s samples per
+configuration. The one-ghost pass first: 0 ghosts 1.87-2.00 ms, one stock ghost 2.10-2.36, the same
+ghost with the six no-use parts off 2.28-2.29 -- a single ghost costs ~0.3 ms and stripping it is
+below the noise. The user's look at that stripped ghost: *"think 'one' looks fine/normal
+visually?"* -- a first reaction with a hedge, kept as such.
+
+### The 50-ghost matrix (mean ms per frame, two samples; noise between repeats is ~2-4 ms)
+
+| configuration | mean | median |
+|---|---|---|
+| 0 ghosts | 1.84 | 1.20 |
+| 50 stock, fresh after spawn | 34.0 / 35.2 | 32.7 / 33.3 |
+| 50 stock, after the matrix (`on=all`) | 25.5 / 26.6 | 24.9 / 25.9 |
+| 50 stock + engine anim throttle (`uro`) | 23.7 / 24.0 | 22.8 / 23.2 |
+| 50 with EVERYTHING off | 15.2 / 17.7 | 13.8 / 16.2 |
+| only dialogue camera tick on | 15.6 / 19.5 | 14.5 / 17.5 |
+| only `NE_Particles_System` on | 17.3 / 20.2 | 15.6 / 17.9 |
+| only AIController tick on | 14.3 / 15.2 | 13.5 / 14.0 |
+| only blob shadow on | 15.0 / 16.4 | 14.3 / 15.3 |
+| only nametag on | 15.9 / 16.4 | 14.5 / 14.6 |
+| only capsule tick on | 15.6 / 19.4 | 13.9 / 16.5 |
+| only the pawn's own tick on | 17.0 / 17.7 | 15.6 / 16.0 |
+| only the animation driver (CharacterMesh0 anim BP + IK) on | 17.3 / 20.7 | 15.5 / 19.7 |
+| only the visible model on | 15.6 / 16.8 | 14.9 / 15.1 |
+| only the weapon mesh on | 15.1 / 16.9 | 14.4 / 15.4 |
+| only character movement on | 15.9 / 16.6 | 15.2 / 15.3 |
+| only the two spring arms on | 15.2 / 15.4 | 14.0 / 14.6 |
+| after all peers gone | 1.61 / 1.66 | 1.18 / 1.19 |
+
+**What the matrix says.** No single part stands out: each one alone sits inside the all-off band.
+The pawn's parts together cost ~10 ms across 50 ghosts (25.5 -> 15.2), i.e. ~0.2 ms per ghost, and
+they cost it in COMBINATION (animation driving a visible model driving a shadow...), not one at a
+time. The engine's update-rate throttle on the three skeletal meshes saves ~2 ms of that at 50.
+The fresh-after-spawn stock reading is ~9 ms above the settled one: spawn-time work (materials,
+animation warm-up) that a 40s wait does not cover, and the first, crashed pass (below) measured
+inside that window -- its "character movement and spring arms cost as much as the model" was that
+warm-up, not the parts. **A ghost with everything off still costs ~0.27 ms**, which is where the
+adapter's own timer comes in.
+
+### The adapter's own tick (`perf_report.txt`, us per frame)
+
+| slot | 0 ghosts | 50 stock | 50 all off |
+|---|---|---|---|
+| `tick_total` | 368 | 12,643 | 12,890 |
+| `local_state` (of which `ls_rest`) | 355 (296) | 2,843 (2,448) | 2,507 (2,163) |
+| `remotes_loop` | 0 | 8,093 | 9,064 |
+| .. `loop_tail` / `tail_sweeps` (outline hold) | 0 | 4,786 / 4,004 | 5,008 / 4,249 |
+| .. `loop_pose_xf` | 0 | 2,147 | 2,469 |
+| .. `loop_mirrors` | 0 | 625 | 922 |
+| .. `tail_light` | 0 | 755 | 725 |
+| `nametag` | 0 | 321 | 413 |
+
+**Half of a ghost's cost is ours.** 12.6-12.9 ms of the 50-ghost frame is the adapter's own tick,
+~0.25 ms per ghost, and it does not move when the ghost's parts are switched off -- it is per-ghost
+work the DLL does regardless. The biggest single slot is `tail_sweeps`, the per-tick
+`GHOST_HOLD_OUTLINE_OFF` re-assert that walks the ghost's components every frame (~80 us per ghost
+per frame, 4 ms at 50); then `loop_pose_xf` (~45 us per ghost), `ls_rest` (which GROWS with ghost
+count although it is the local player's half: 0.3 -> 2.4 ms, so something in it scans the world),
+`loop_mirrors`, `tail_light`, `nametag`. And at ZERO ghosts the adapter costs 0.37 ms a frame --
+a fifth of a 1.8 ms frame -- almost all of it `ls_rest`.
+
+**So the cost split at 50 ghosts, settled:** ~2 ms base game, ~13 ms adapter tick, ~4 ms bare
+pawns (actor + hidden components), ~10 ms the pawns' parts, of which the engine throttle recovers
+~2. The order to work in: the adapter's own slots first (deterministic C++, verifiable with this
+timer alone), then the at-spawn switch-off of the parts a ghost has no use for (visual confirmation
+needed per part), then the animation throttle (visual confirmation needed).
+
+**The first pass crashed the game** (14:12:32, "Abort signal received") at `on=dialoguecam`:
+`Activate()` on a ghost's camera component. The part is tick-only now; `pitfalls/by-lesson.md`.
+
 ## [READY] MEASURED and FIXED 2026-09-06 -- a ghost's camera rig outlives the ghost, and that is the FPS that never comes back
 
 **The user's report (2026-09-06):** frame rate drops every time a ghost despawns -- a peer, a replay

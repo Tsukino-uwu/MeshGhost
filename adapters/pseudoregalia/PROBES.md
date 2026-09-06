@@ -11,8 +11,8 @@ fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directo
 as one; since 2026-09-06 those directories sit together under `probes/` (the user's call, to keep
 the adapter root readable — they were loose at the root before, so a record dated earlier that says
 `adapters/pseudoregalia/probe_x/` means `adapters/pseudoregalia/probes/probe_x/`). This index stays
-at the adapter root because it is one of the adapter's files, not a probe. Twenty directories,
-thirty-four scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
+at the adapter root because it is one of the adapter's files, not a probe. Twenty-one directories,
+thirty-five scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
 for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -25,7 +25,7 @@ Lua-plus-hot-reload the default way to ask this game a question; `probe_menuwatc
 None writes game memory and none writes a save. The two that touch anything outside the process
 are the socket stages, and they only open a local TCP connection to our own bridge.
 
-**The exceptions are named here so the claim above stays true.** `probe_audiofix/` (2026-09-04)
+**The exceptions are named here so the claim above stays true.** `probe_strip/` (2026-09-06) switches a ghost's components on and off through the engine's setters and writes three reflected bools, on ghost pawns only. `probe_audiofix/` (2026-09-04)
 calls one native UFunction on the live `PlayerController` to put the audio
 attenuation listener back on the player's capsule — a fix being tested before it is built into the
 C++ mod, at the user's request (*"try with lua first, so we actually test the fix before making
@@ -426,6 +426,33 @@ are printed so they can disagree out loud. It reads three NAMED meshes, so an au
 fourth component nobody has named would leave three clean readings and the glow still on screen.
 
 **Cost:** one object-space walk over one class at 2Hz. Read-only. Unload it before judging anything.
+
+## `probe_strip/` — switch a live GHOST's parts on and off, one at a time, to price each (2026-09-06)
+
+**A WRITING probe** — the exceptions paragraph at the top of this file names it. It calls the
+engine's own setters (`SetComponentTickEnabled`, `Activate`/`Deactivate`, `SetVisibility`,
+`SetHiddenInGame`, `SetActorTickEnabled`) and writes three reflected bools (`bPauseAnims`,
+`bNoSkeletonUpdate`, `bEnableUpdateRateOptimizations`) on GHOST pawns only — a pawn whose
+Controller is an AIController and not being destroyed — never on the player's. Components are found
+by name containment under the pawn's full name.
+
+**The user's ask, in two steps.** First *"can we do a test with these disabled? ... no ghost vs 1
+ghost ... and afterwards no ghost vs 50?"* for the six parts a ghost has no use for; then *"can you
+do individual checks for all parts a model has? like spawn ghosts with only that thing and nothing
+else"*. A pawn cannot be spawned with one component, so the probe does the equivalent: `off=all`,
+then `on=<one part>`, sample, `off=<part>`, next. Thirteen parts: `springarms`, `dialoguecam`,
+`charmove`, `niagara`, `aicontroller`, `animdriver` (CharacterMesh0's animation blueprint + IK),
+`visualmesh`, `weaponmesh`, `shadow`, `nametag`, `capsule`, `pawntick`, and `uro` (the engine's
+update-rate throttle on the three skeletal meshes — a lever, not a part). Frame-time sampler and
+console-command request as in `census.lua`; the driver is `matrix50.ps1`-shaped: 50 fake peers,
+two 10s samples per configuration, cap lifted. Results: `UNVERIFIED.md` 2026-09-06.
+
+**It crashed the game once, and the fix is in the file.** `Activate()` on a ghost's `DialogueCam`
+camera component — re-activating what `off=all` had deactivated, on 50 ghosts at once — aborted the
+process ("Abort signal received", 14:12:32); every other part's ON had already passed. A camera
+that becomes active is a view-target candidate, and both the game's camera code and our
+SetViewTarget guard act on that. The camera part is tick-only now; a camera is never activated from
+a probe (`pitfalls/by-lesson.md`, 2026-09-06).
 
 ## `probe_dump/` — any live object's reflected properties as JSON, without crashing the game (2026-09-06)
 

@@ -2824,3 +2824,16 @@ the game root as working directory; the load rig does not survive 150 fake peers
 non-draining clients); a PowerShell one-line `-replace` truncated the install's `config.json` and
 the backup taken a line earlier restored it. The scratch slot holds `probe_dump` until the session
 ends; the pristine stub goes back then.
+
+**Same day, later -- the part-by-part price list.** `probes/probe_strip/` (a writing probe: a ghost's
+parts switched off and on through the engine's setters, ghosts only) drove a 50-ghost matrix with the
+cap lifted: no single pawn part stands out, the parts together are ~0.2 ms per ghost and cost it in
+combination, the engine's anim throttle recovers ~2 ms at 50, and a ghost with everything off still
+costs ~0.27 ms. The adapter's own `perf_report.txt` timer explained that last number: 12.6-12.9 ms of
+a 50-ghost frame is the DLL's per-ghost tick, unmoved by what the ghost has switched on --
+`tail_sweeps` (the per-tick outline hold) 4 ms, `loop_pose_xf` 2.1, `ls_rest` 2.4 and growing with
+ghost count, and 0.37 ms a frame at zero ghosts. Full tables: `UNVERIFIED.md` 2026-09-06 (the
+[MEASURED] entry). The first matrix pass aborted the game on `Activate()` of a ghost's camera
+component (tick-only now; `pitfalls/by-lesson.md`); the user relaunched and the adapter autostarted
+its own core from the game folder for the first time since the quarantine. User's names rule from
+the same session: their handle and testers' handles never enter a tracked file.
