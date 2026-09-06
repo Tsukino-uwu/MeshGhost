@@ -50,3 +50,19 @@ go.sum text eol=lf
 # `$'\r': command not found` and the leak check it performs silently stops running -- which is worse
 # than the hook not existing, because preflight would report core.hooksPath as correctly set.
 .githooks/* text eol=lf
+
+# The player-facing text that ships INSIDE the release zip, pinned to CRLF.
+#
+# These are opened by double-clicking on Windows, where a file with bare LF
+# renders as one endless line in Notepad. They used to survive on the raw bytes
+# in the blob rather than on a rule, which held only until something rewrote one
+# -- a doc edit on 2026-09-06 did exactly that and flipped README.txt to LF.
+# Pinned here instead, so the ending is decided by the repo and not by whichever
+# runner happens to check the tree out.
+#
+# Scoped to the READMEs WE write, deliberately: a wider glob also swept the vendored
+# UE4SS runtime's own LICENSE and THIRD-PARTY-NOTICES.txt, and a vendored file stays
+# byte-identical to what its project shipped.
+packaging/release/README.txt text eol=crlf
+packaging/release/games/*/README.txt text eol=crlf
+
