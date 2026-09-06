@@ -764,25 +764,102 @@ Check-Deployed "Pseudoregalia" "packaging\release\games\pseudoregalia\pseudorega
 Section "Markdown link integrity"
 
 
-# Every relative .md link must resolve. Four broken ones sat in the tree unnoticed until
-# 2026-08-25: the staged-context pass copied rule text between files without adjusting the link
-# depth, and a fifth pointed at adapters/oribf/, a folder deleted on 2026-08-25.
-# A broken relative link fails silently in every markdown viewer, so nothing surfaces it.
+# Every relative link must resolve -- to a file OR a folder, of any extension -- and every
+# `#anchor` on a .md target must name a heading that file actually has. Four broken .md links sat
+# in the tree unnoticed until 2026-08-25 (rule text copied between files without adjusting the
+# link depth; one pointed at a deleted folder). Widened 2026-09-06 after a sweep found what the
+# .md-only version could not: a folder link left behind by the probes/ move, and five anchors
+# still naming a section that had moved from pitfalls.md to pitfalls/method.md. A broken link
+# fails silently in every markdown viewer, so nothing else surfaces it.
+#
+# Two deliberate exemptions. A target that climbs ABOVE the repo root (`../../releases` from a
+# root file) is a GitHub route: the site resolves README links as if at blob/master/, so that form
+# reaches github.com/<owner>/<repo>/releases and works, while no file could ever satisfy it. And
+# `#L123`-style anchors are line references, not headings. Fenced code blocks are skipped: a link
+# inside one is an example, not a link.
+#
+# GitHub's heading slug: lowercase, inline markup stripped, everything but word characters, spaces
+# and hyphens removed, spaces to hyphens, and a `-1`, `-2` suffix for a repeated heading.
+$rootFull = (Resolve-Path -LiteralPath $root).Path
+$slugCache = @{}
+function Get-HeadingSlugs($mdPath) {
+    if ($slugCache.ContainsKey($mdPath)) { return $slugCache[$mdPath] }
+    $body = (Get-Content -Raw -LiteralPath $mdPath) -replace '(?s)```.*?```', ''
+    $seen = @{}
+    foreach ($h in [regex]::Matches($body, '(?m)^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$')) {
+        $t = $h.Groups[1].Value
+        $t = $t -replace '`', ''
+        $t = [regex]::Replace($t, '\[([^\]]*)\]\([^)]*\)', '$1')
+        $t = $t -replace '\*\*|__|\*', ''
+        $slug = $t.Trim().ToLowerInvariant()
+        $slug = [regex]::Replace($slug, '[^\w\- ]', '')
+        $slug = $slug -replace ' ', '-'
+        if ($seen.ContainsKey($slug)) {
+            $n = $seen[$slug]; $seen[$slug] = $n + 1
+            $seen["$slug-$n"] = 1
+        } else {
+            $seen[$slug] = 1
+        }
+    }
+    $slugCache[$mdPath] = $seen
+    return $seen
+}
 $badLinks = @()
+$badAnchors = @()
+$linkCount = 0
 foreach ($md in $trackedMd) {
     $dir = Split-Path -Parent $md
     if (-not $dir) { $dir = "." }
-    foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $md), '\]\(([^)#\s]+\.md)(#[^)]*)?\)')) {
+    $body = (Get-Content -Raw -LiteralPath $md) -replace '(?s)```.*?```', ''
+    foreach ($m in [regex]::Matches($body, '(?<!\!)\]\(([^)#\s]*)(#[^)\s]*)?\)')) {
         $target = $m.Groups[1].Value
-        if ($target -match '^[a-z]+://') { continue }
-        if (-not (Test-Path (Join-Path $dir $target))) { $badLinks += "$md -> $target" }
+        $anchor = $m.Groups[2].Value
+        if (-not $target -and -not $anchor) { continue }
+        if ($target -match '^[a-z]+:' -or $target.StartsWith('<')) { continue }
+        $targetPath = if ($target) { Join-Path $dir ([uri]::UnescapeDataString($target)) } else { $md }
+        if ($target) {
+            $linkCount++
+            $full = [System.IO.Path]::GetFullPath((Join-Path $rootFull $targetPath))
+            if (-not $full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) { continue }  # GitHub route, see above
+            if (-not (Test-Path -LiteralPath $targetPath)) { $badLinks += "$md -> $target"; continue }
+        }
+        if ($anchor -and $targetPath -like '*.md') {
+            $a = [uri]::UnescapeDataString($anchor.Substring(1)).ToLowerInvariant()
+            if ($a -match '^l\d+(-l\d+)?$') { continue }
+            $slugs = Get-HeadingSlugs $targetPath
+            if (-not $slugs.ContainsKey($a)) { $badAnchors += "$md -> $target#$a" }
+        }
     }
+}
+if ($linkCount -lt 400) {
+    Report-Fail "only $linkCount relative link(s) seen across $($trackedMd.Count) files -- the scan is broken, so a clean result here means nothing"
 }
 if ($badLinks.Count -gt 0) {
     Report-Fail "$($badLinks.Count) broken relative markdown link(s):"
     $badLinks | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
 } else {
-    Report-Pass "every relative markdown link resolves"
+    Report-Pass "every relative markdown link resolves ($linkCount checked)"
+}
+if ($badAnchors.Count -gt 0) {
+    Report-Fail "$($badAnchors.Count) markdown anchor(s) name a heading the target does not have:"
+    $badAnchors | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "every markdown #anchor names a heading in its target"
+}
+
+# .github/SECURITY.md is rendered on the repository's Security tab (/security/policy), where GitHub
+# resolves a relative link WITHOUT the branch segment -- `../docs/security.md` became
+# /blob/docs/security.md and 404'd, live on 2026-09-06, while the same file read fine in the normal
+# file view. Absolute URLs are the only form that works in both places.
+if (Test-Path -LiteralPath '.github/SECURITY.md') {
+    $secBody = (Get-Content -Raw -LiteralPath '.github/SECURITY.md') -replace '(?s)```.*?```', ''
+    $secRel = @([regex]::Matches($secBody, '(?<!\!)\]\(([^)\s]+)\)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notmatch '^[a-z]+:' -and -not $_.StartsWith('#') })
+    if ($secRel.Count -gt 0) {
+        Report-Fail ".github/SECURITY.md has $($secRel.Count) relative link(s); the Security tab cannot resolve them -- use absolute URLs:"
+        $secRel | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass ".github/SECURITY.md links are absolute (the Security tab drops the branch from relative ones)"
+    }
 }
 
 # ---------------------------------------------------------------------------
