@@ -255,7 +255,7 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
-## [OPEN] FIXED 2026-09-06 (night), applied per the log, the user's eyes still owed -- modded SWORD models never reached a ghost: the sync waited on a flag this build does not reflect
+## [DONE] FIXED and CONFIRMED 2026-09-06 (night) -- modded SWORD models never reached a ghost: the sync waited on a flag this build does not reflect (see `VERIFIED.md`; kept for the method)
 
 **The report.** Two instances, each wearing a modded sword (a leek, the Buster Sword): each saw the
 STOCK sword on the other's ghost while the outfits synced; two replay ghosts wearing modded outfits
@@ -269,8 +269,7 @@ no log line on that path. A probe of the live ghosts showed the hand mesh visibl
 
 **After the fix, both installs' logs:** `weapon mesh applied` for the needle on the horned replay,
 the Buster Sword on the small one and on the older replays, and on the copy install for the main
-player's ghost (`p30`), each read back as the intended asset. **Not yet confirmed by the user on
-screen** -- the ask: with both instances up, does the other ghost now carry your modded sword?
+player's ghost (`p30`), each read back as the intended asset. **Confirmed by the user on screen the same night:** *"recordings & other ghosts have the correct modded swords visually shown now"* -- `VERIFIED.md` 2026-09-06.
 
 ## [OPEN] BUILT 2026-09-06 (night) -- the leak behind "fps slowly dropping", and the world walks replaced by event-fed registries
 

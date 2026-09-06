@@ -5279,3 +5279,14 @@ of 40-400 units guards against an asset that lies: one modded outfit ("Krystal")
 outfits:** *"all other outfits worked great, the name moved/up down properly even after swapping.
 just this specific modded outfit not working"* -- the Krystal case, fixed in the build that
 followed and unwatched as of this entry.
+
+## 2026-09-06 — modded sword models now reach ghosts, replays and real peers alike (user-confirmed on screen)
+
+Two instances on one machine, each wearing a modded sword (a leek on one, the Buster Sword on the
+other), plus two looping replays recorded in modded outfits with the needle and the Buster Sword:
+every ghost showed the STOCK sword while the outfits synced. Cause: the weapon-mesh sync waited for
+`bRegistered` to read true on the hand mesh, and that flag is not a reflected property on this
+build, so a fallback of false deferred every modded sword forever, silently. The gate now applies
+only when the build reflects the flag, and a deferral logs once per ghost. Both installs' logs
+read back the intended assets, and the user: *"recordings & other ghosts have the correct modded
+swords visually shown now"*.
