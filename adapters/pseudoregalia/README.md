@@ -92,15 +92,15 @@ on 2026-08-30, **a single ghost cost the game half its frame rate** (144fps → 
 whole-world scans running per tick; those were found with a per-subsystem frame timer and scoped
 to what a ghost actually owns. After all of it:
 
-| Peers | 2026-09-01 | 2026-09-06 |
-|---|---|---|
-| 0 | ~143 | 144 (the cap) |
-| 4 | ~133 | 144 |
-| 8 | ~124 | 143 |
-| 16 | ~82 | 143 |
-| 32 | ~53 | 96 (median 106) |
-| 100 | ~12 | 30 (median 33) |
-| 150 | ~4.5 | 17 (median 14) |
+| Peers | 2026-09-01 | 2026-09-06 (mean / median fps) | Adapter's own tick |
+|---|---|---|---|
+| 0 | ~143 | 144 / 144 | 0.16 ms |
+| 4 | ~133 | 144 / 144 | 0.57 ms |
+| 8 | ~124 | 143 / 144 | 0.77 ms |
+| 16 | ~82 | 143 / 144 | 1.25 ms |
+| 32 | ~53 | 96 / 106 | 2.47 ms |
+| 100 | ~12 | 30 / 33 | 7.6 ms |
+| 150 | ~4.5 | 17 / 14 | 15.8 ms |
 
 The 2026-09-06 column is the same ladder after a day of measuring what a ghost costs (`VERIFIED.md`
 and `UNVERIFIED.md`, that date): the adapter's own per-ghost work cut, its fixed cost with no ghosts
