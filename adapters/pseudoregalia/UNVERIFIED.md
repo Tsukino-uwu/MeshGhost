@@ -45,6 +45,7 @@ entry without one.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
 - READY — **TCP_NODELAY on the bridge socket, built 2026-09-06 and NOT yet deployed (the game was running).** A Linux/Proton tester's replay ghosts looked stuttery; their two clips show 27-30% of updates more than 25 ms apart with a hard floor at exactly 40 ms (Linux's delayed-ACK minimum) and identical movement per sample either side of the gap, so the frames were produced steadily and only DELIVERY bunched. **What settles it needs no eyes: have them record again on the new DLL and run `dev-scripts/replay-cadence.py` on it.** If the 41-60 ms band collapses, it was Nagle. Also expected to help LIVE play on Linux, where their own state reaches their core in 46 ms steps today.
+- OPEN, NO PRIORITY (the user's call) — **one single afterimage appears whenever a looping recording restarts, and probably whenever any ghost spawns** (the user, on screen, 2026-09-06). Not severe and not queued for a fix; logged so it is on the record. A loop seam IS a despawn plus a respawn by design (`replayPlayer.seam`), which is why the two cases are likely one.
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
 - OPEN, HIGH — **v1.1.7 CRASHES: a NEW fault site, exe+0x36CCF98, inside the engine's skeletal-mesh reset chain; three dumps on the user's machine 20:56/21:01/21:02 (an Archipelago connect, a zone change) plus a tester's, none at that site in ~90 dumps since 2026-08-12.** The tester's dump has our frames: `game_thread_tick` (weapon-model apply) -> `call_set_skeletal_mesh_asset` -> ProcessEvent -> the fault, with a chaser's `weapon_mesh` after a swap. The user's two have NO frame of ours: engine tick -> Blueprint -> a hooked native -> the same chain, i.e. state v1.1.7 left behind. v1.1.7 ran a FULL SetSkeletalMeshAsset of the stock sword onto every ghost's hand at spawn plus two raw property writes. Hardened build `A81C7D23` deployed 21:03 (same-asset = no call; setter only; resolver refuses destroyed assets; Skeleton must be alive) -- UNPROVEN; the crash watcher is armed. Entry below.
 - READY — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. What to look at: with the same weapon mod on both machines, the peer's ghost holds THEIR sword, and a thrown one flies as that model; without the mod, the stock sword and one throttled warning in the log. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
@@ -74,6 +75,29 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [OPEN] a single afterimage on a loop restart, and probably on any ghost spawn (the user, 2026-09-06)
+
+**What was seen.** The user, watching their own looping recordings: *"1 single after image is shown
+whenever a recording is looped, and probly whenever a ghost is spawned"*. Their call on severity:
+*"i don't really consider it a severe bug or anything that needs fixing. but just so its noted
+somewhere"* -- so this is a record, not a queued task.
+
+**Why the two cases are probably one.** A replay's loop seam is not a rewind: the core DESPAWNS the
+ghost and respawns it, on purpose, so the jump back to the start reads as a cut rather than a glide
+(`replayPlayer.seam`; ADR 0047, and the chaser does the same on a live gap). So "on every loop" and
+"on every spawn" are the same moment, and a fix for one is a fix for both.
+
+**Not investigated.** Nobody has looked at whether the afterimage is spawned BY the adapter's
+afterimage mirror on the ghost's first tick, or by the game's own trail logic reacting to a pawn
+appearing with a position that jumped. Those are distinguishable: the mirror is ours and logs, the
+game's own is not. `probe_outline/` and the afterimage entries in `VERIFIED.md` are where the trail
+mechanism is written down.
+
+**If it is ever picked up:** ask the user first which state it is visible in (`agent_docs/pitfalls/`
+records that naming a game state from code reasoning has produced a false regression here before),
+and remember that the ghost-spawn path already does several things at once -- the light kill, the
+outfit apply, the emitter switch-off -- any of which lands on the same tick.
 
 ## [OPEN] the recording indicator: drawn behind the world, and it moves when speed or FOV changes (the user, 2026-09-06)
 
