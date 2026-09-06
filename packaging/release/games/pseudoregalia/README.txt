@@ -137,6 +137,14 @@ How far behind is a ghost drawn? ("interp" in config.json)
    is drawn on its own schedule and is not affected by this setting ("local_interp" in the
    main config.json, which you should not need to touch).
 
+   The one time you WOULD touch "local_interp": a replay or chaser that looks steppy rather
+   than smooth. It is how long a ghost waits for its next sample before holding the last one,
+   so it has to be wider than the gap between samples; the 25ms default covers anything
+   recorded at 40fps or better. A steppy CHASER is your frame rate now. A steppy REPLAY is
+   the frame rate of whoever recorded it, baked into the file -- raising this smooths it over,
+   but no setting puts back frames the recording never took. Two sample intervals is the rule
+   of thumb: about "100ms" for a clip recorded at 20fps.
+
    Values in between behave in between. The rule of thumb from measuring: the worse your
    ping WOBBLES (not how big it is -- how much it varies, plus any packet loss), the more
    interp you need. A steady 200 ping needs less than an unstable 100. If ghosts stutter,

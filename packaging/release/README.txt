@@ -8,7 +8,8 @@ What's in this folder:
                             see "Two ways to run the client" below.
 - meshghost-server.exe  -- the server. Only ONE person in your group needs
                             this -- whoever is hosting the session.
-- config.json            -- THE ONLY FILE YOU SHOULD NEED TO EDIT. Has a
+- config.json            -- THE ONLY FILE YOU SHOULD NEED TO EDIT. Has a
+
                             Every key, its shipped value and what it does: docs/config.md in the
                             repository (the walkthrough below covers the ones you will touch).
                             "client" section (everyone edits this) and a
@@ -293,6 +294,20 @@ Setup, once:
                about those crossed a network, so there is no jitter to
                smooth over and they are drawn only a frame or two behind
                their own schedule instead of "interp" behind it.
+
+               Leave it alone unless a ghost looks STEPPY rather than
+               smooth. This is how long the ghost waits for its next
+               sample before giving up and holding the last one, so it
+               has to be wider than the gap between samples -- 25ms
+               covers anything recorded at 40fps or better. If a chaser
+               looks steppy, that is your frame rate NOW. If a replay
+               does, it is the frame rate of whoever recorded it, and it
+               is baked into the file: raising this on your end smooths
+               it out, but nothing puts back frames the recording never
+               had. Two sample intervals is the rule of thumb, so about
+               "50ms" for a 40fps recording and "100ms" for a 20fps one.
+               The cost of raising it is that a chaser set to 3s sits
+               that little bit further back than 3s.
 
                "25ms" (the default) is about right for every game here and
                there is no reason to touch it. Raising it makes a chaser

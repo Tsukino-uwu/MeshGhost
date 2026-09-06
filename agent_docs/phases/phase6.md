@@ -442,3 +442,19 @@ running log.
 - `CLAUDE.md`: the configuration rule now says config.json first, BepInEx second, never a new env var.
 - `BANDAGES.md` entry 7 gains the disconnect edge; `PROBES.md`'s garbled first paragraph fixed. The shipped `packaging/release/games/tevi/README.txt` bridge-port paragraph, which contradicted `Plugin.cs`, was fixed in the player-facing commit.
 - This file's header: "fully done" and the dead `status.md` pointer replaced with the live-log framing (the user, 2026-09-06: every adapter stays open).
+
+## 2026-09-06 — TCP_NODELAY, from a Pseudoregalia diagnosis that applies to every bridge
+
+TEVI's `BridgeClient` dialled with a bare `new TcpClient()`, and .NET leaves `NoDelay` false. That
+is the same defect measured on Pseudoregalia the same day: the bridge writes one small JSON line per
+frame, Nagle holds each write until the previous is acknowledged, and on Linux the receiver's
+delayed-ACK floor is 40 ms. A Linux/Proton tester's Pseudoregalia clips showed 27-30% of updates
+more than 25 ms apart with a hard floor at exactly 40 ms and identical movement per sample on either
+side, which is delivery bunching rather than frame rate.
+
+Nothing TEVI-specific was measured -- this is the fix applied across all four adapters at once,
+because none of the three runtimes enables the option by default and each adapter was written
+separately. `c.NoDelay = true` before `Connect`. Unbuilt and unwatched on TEVI; the Pseudoregalia
+DLL is the one that was built and deployed. Detail and the measurements:
+`agent_docs/pitfalls/by-lesson.md`, 2026-09-06; `dev-scripts/replay-cadence.py` is the check.
+
