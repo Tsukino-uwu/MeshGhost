@@ -58,7 +58,8 @@ netcode at all.
 
 ## 1. Axis A — the shape: what represents you
 
-Genres are examples of a shape, not categories of their own. There are four.
+Genres are examples of a shape, not categories of their own. There are three primitives and one way
+of combining them.
 
 | Shape | What that is | Examples |
 | --- | --- | --- |
@@ -190,7 +191,7 @@ Where Axis A decides design, this axis decides **feasibility**.
 | --- | --- | --- |
 | **None** | nothing exists; you build the whole representation | the most work, and **the fewest obstacles** |
 | **Local co-op** | a real second player, driven by an **input device** | the best seam there is |
-| **Limited / restricted online** | machinery exists, but gated | the trap — see §2.3 |
+| **Limited / restricted online** | machinery exists, but gated | the trap — **or the best door of all, if the gate can be satisfied rather than bypassed.** §2.3 |
 | **Full online already** | it works | ask whether yours is a *different product* — §2.5 |
 
 ### 2.1 No multiplayer at all
@@ -215,10 +216,38 @@ it is. The test that decides:
 
 > **Is the second player driven by an INPUT SOURCE, or by a NETWORK SESSION?**
 
-**An input source is fabricable. A network session is not.** That single distinction is the whole
+**An input source is fabricable. A network session is not.** That single distinction is most of the
 answer to *"is it bad to make use of the online/co-op functions already present in games?"* — and the
 answer is **no, it is usually the best available seam**; the Union Room result is not a
 counterexample to that, it is an example of failing this specific test.
+
+**But the test above is a false binary, and the third option is the interesting one: PROVIDE the
+network session for real.** A gated feature is unreachable *without* a session; it is not unreachable
+*with* one. Standing in for the link partner — tunnelling the emulated link or peripheral over the
+network — satisfies the gate by construction rather than bypassing it, and the game then does
+absolutely everything itself: matching, validation, animation, RNG, and its own writes. **That is the
+principle this repo has already ratified twice rather than a new argument**, and
+[ideas.md](ideas.md) states it plainly about the Unreal adapter: it *"calls the engine's own
+`SpawnActor`/`ProcessEvent` and lets the game do its own writing, which is why it gets animation and
+lifetime for free and why the no-writes rule was never in tension there."* The 2026-08-18 Emerald
+spawn ADR cleared the write gate *"by exactly that route"*.
+
+Four things to say about it honestly, because it sounds cheaper than it is:
+
+- **It is a capability question first, and an unsettled one.** [ideas.md](ideas.md) already records
+  the analogous unknown — *"whether BizHawk's Lua API can invoke a GBA ROM function safely at all…
+  BizHawk may simply not have one"* — and standing in for a link peripheral is likely **emulator-layer
+  work rather than adapter-layer**, needing timing agreement between two instances. Nothing here
+  asserts what any emulator can do; that is measured, not remembered.
+- **It is a different product.** Both players must genuinely be in the multiplayer location in their
+  own games at the same moment. A shared session, not presence across independent runs — the same
+  distinction [access-models.md](access-models.md) draws about emulator netplay.
+- **It puts the no-writes rule under real tension.** A link trade writes a save, entirely through the
+  game's own sanctioned path. That is either the cleanest conceivable answer to the rule or a breach
+  of it depending on how the rule is read, and **it is an ADR question rather than something this
+  file decides.** [plans.md](plans.md) already names trading and battling as the concrete Tier 3 case.
+- **It changes nothing about the cosmetic layer**, which needs no session at all. This is a door, not
+  a direction.
 
 The finding, recorded in [ideas.md](ideas.md)'s Union Room investigation (Q5), is that every entry
 point into that system takes a structure populated only by the game's real wireless-link receive
@@ -747,10 +776,25 @@ adapter's only obligation is a non-blocking drain on the game's own tick. The br
 other reasons ([architecture.md](architecture.md)), and it happens to make the threading question
 almost disappear on the side that usually causes trouble.
 
-**Single-threaded hosts** — emulator Lua, older engines — are the honest case: everything you do is
-frame time taken from the player, so cost is visible and blocking is fatal. Nothing is hidden.
+**Both ends of the spectrum are hard, for opposite reasons**, and it is a mistake to read
+"single-threaded" as "safe".
 
-**Multi-threaded engines are where the trap is, and the trap is that a callback is not automatically
+**Single-threaded hosts** — emulator Lua, older engines, and simulation games that never grew a job
+system — are honest but cramped: everything you do is frame time taken from the player, cost is
+visible, blocking is fatal, and **there is nothing in-process to offload to.** The bind is sharpest
+in a heavy simulation game, where the tick *is* the whole game and is usually already the slowest
+thing in it: work done inside the tick slows the simulation, and work done outside it races the
+simulation. **That is reported to be the shape of the difficulty for existing online mods in at least
+one colony sim** (the user, 2026-09-07, on RimWorld and its historically limited multithreading) —
+recorded as an outside observation rather than a measured fact, and consistent with the structure
+regardless.
+
+**This is where MeshGhost's out-of-process core stops being merely tidy and becomes the answer.**
+Against a single-threaded game the network work is not on another thread, it is in another
+*process*, so the game pays for a non-blocking drain and nothing else. There is no version of that
+available to a mod that must do its own socket work inside the one thread the game owns.
+
+**Multi-threaded engines are the opposite trap, and the trap is that a callback is not automatically
 on the thread that owns the world.** The Pseudoregalia adapter paid for this twice, and both lessons
 generalise to any modern engine:
 
