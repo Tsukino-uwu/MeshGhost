@@ -6407,3 +6407,40 @@ and luasocket, none of which enable it by default) because each was written sepa
 a reason to think about it. And the method: **when something "looks" wrong in a replay, measure the
 FILE before touching the game** -- gap distribution, and movement per sample on either side of the
 wide gaps. `dev-scripts/replay-cadence.py` is that check, and it prints the verdict.
+
+## A missing `@` published a scratchpad path as the entire release description of a public release (release, 2026-09-07)
+
+**Symptom.** `v1.2.1` published green, with three correct assets and a correct tag, and its whole
+release body was one line: an absolute path to a temp file, complete with the operator's Windows
+username. The user found it by reading the release page.
+
+**Cause.** The notes were drafted to a file and passed as
+`gh workflow run release.yml -F highlights=<path>`. **`gh` only reads a file when the value starts
+with `@`** (`-F 'highlights=@notes.md'`); without it the flag is just a string field and the path
+itself was sent. `release.yml` puts that input straight into `body:`, so it was published verbatim.
+Nothing was malformed, so every gate passed and the run was green.
+
+**Why nothing caught it.** `.githooks/pre-commit` and `preflight.ps1` scan **tracked files**, and a
+`workflow_dispatch` input is neither tracked nor a file — it never passes through either. The same
+hole covers commit SUBJECTS, which `generate_release_notes: true` publishes into the same body: the
+hook checks staged file content, and a commit message is not staged content.
+
+**Fix.** A `validate-release-notes` job now runs first in `release.yml` and everything else `needs:`
+it, so a bad body costs seconds instead of a Windows build, a tag and a deletion. It scans the
+`highlights` input for the same path patterns the hook uses (plus `AppData` and `%USERPROFILE%`),
+scans the commit subjects since the previous tag, and separately refuses a body that is **a single
+line shaped like a file path** — the exact v1.2.1 defect, which a relative or username-free path
+would otherwise slip past. The input reaches the script through `env:`, never interpolated into the
+`run:` body, so a backtick in someone's notes is data rather than shell source.
+
+**Rules.** **A published release is the one artifact here that cannot be quietly fixed** — tag,
+notes and assets are all public the instant the job ends, and the fix is a delete-and-re-run, not an
+edit. **A leak in a release body is worse than one in a tracked file**, because it is what people
+read first and it is nowhere the repo's own scanners look. And the general shape: **a scanner that
+guards "the repo" guards FILES; anything published from an INPUT needs its own copy of that scan at
+the point of publication.**
+
+**Method worth keeping.** The gate was negative-tested against the real defect before shipping —
+the actual v1.2.1 string, a backslash variant, a relative `notes/hl.md`, a home path inside real
+prose, and three bodies that must pass (the real v1.2.1 notes, empty, and prose containing a URL
+with slashes).

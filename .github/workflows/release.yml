@@ -26,6 +26,88 @@ permissions:
   contents: write
 
 jobs:
+  # Refuse to build anything if the release BODY would carry a machine-specific path.
+  #
+  # 2026-09-07, v1.2.1, live: the highlights text was written to a file and passed as
+  # `gh workflow run -F highlights=<path>` without the `@` that makes gh read the file. gh sent
+  # the path as a literal string, this workflow put that string in `body:` verbatim, and the run
+  # went green -- publishing a scratchpad path containing the operator's Windows username as the
+  # entire release description of a public release. Nothing existing could have caught it:
+  # .githooks/pre-commit and preflight scan TRACKED FILES, and a workflow_dispatch input is
+  # neither tracked nor a file. So the same scan has to happen here, on the text that is actually
+  # about to be published.
+  #
+  # It runs FIRST and everything else needs it, so a bad body costs a few seconds rather than a
+  # full Windows build, a tag, and a deletion afterwards. A published release is the one artifact
+  # in this project that cannot be quietly fixed: the tag, the notes and the assets are all public
+  # the moment the job finishes, and a leak there is worse than one in a tracked file because it
+  # is what people read first.
+  validate-release-notes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Tags and history, so the commit-subject scan below has something to scan.
+          fetch-depth: 0
+
+      # The input arrives through `env:`, never interpolated into the script body. A
+      # ${{ inputs.highlights }} inside a run: block is pasted in as shell source before bash sees
+      # it, so a backtick or $( ) in someone's release notes would EXECUTE here. As an env var it
+      # is only ever data. Same reason the version is passed this way.
+      - name: Refuse a machine-specific path in the release body
+        env:
+          HIGHLIGHTS: ${{ inputs.highlights }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -u
+          fail=0
+
+          # Both slash directions and the Windows-only forms, kept in step with the list in
+          # .githooks/pre-commit -- a pattern that covers one direction passes cleanly on text
+          # that leaks in the other. AppData and %USERPROFILE% are here and not in the hook
+          # because this is where a scratchpad path actually came from.
+          PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/ -e AppData -e %USERPROFILE%'
+
+          if printf '%s' "$HIGHLIGHTS" | grep -qIF $PATTERNS; then
+            echo "::error::The release notes contain a machine-specific path. This is a PUBLIC release page."
+            printf '%s' "$HIGHLIGHTS" | grep -nIF $PATTERNS | sed 's/^/    /'
+            fail=1
+          fi
+
+          # The v1.2.1 shape specifically: the whole body is one line that is a path, because the
+          # `@` was missing and gh passed the filename instead of the file. Caught separately from
+          # the pattern scan so the error can say what to actually do -- a relative path or a
+          # username-free temp dir would slip past the scan above and still publish a filename as
+          # the release description.
+          lines=$(printf '%s' "$HIGHLIGHTS" | grep -c '' || true)
+          if [ "$lines" = "1" ] && printf '%s' "$HIGHLIGHTS" | grep -qE '^([A-Za-z]:[\\/]|[.]{0,2}/)[^ ]*$|^[^ ]+\.(md|txt)$'; then
+            echo "::error::The release notes are a single line that looks like a FILE PATH, not release notes."
+            echo "::error::gh only reads a file when the value starts with @ -- use: gh workflow run release.yml -F 'highlights=@notes.md'"
+            fail=1
+          fi
+
+          # generate_release_notes: true appends the commit subjects since the last tag, so they
+          # are part of the published body too and get the same scan. The pre-commit hook cannot
+          # see these: it checks staged FILE CONTENT, and a commit MESSAGE is neither staged nor a
+          # file, which leaves exactly the same hole this job exists to close.
+          prev=$(git tag --sort=-v:refname | grep -v "^${VERSION}$" | head -n 1 || true)
+          if [ -n "$prev" ]; then
+            subjects=$(git log --format=%s "$prev"..HEAD)
+            if printf '%s' "$subjects" | grep -qIF $PATTERNS; then
+              echo "::error::A commit subject since $prev contains a machine-specific path, and the generated changelog publishes it."
+              printf '%s' "$subjects" | grep -nIF $PATTERNS | sed 's/^/    /'
+              fail=1
+            fi
+          else
+            echo "No previous tag found; skipping the commit-subject scan."
+          fi
+
+          if [ "$fail" = "1" ]; then
+            echo "::error::Nothing was built and no tag was created. Fix the notes and re-run."
+            exit 1
+          fi
+          echo "Release body is clean."
+
   # The Linux and macOS client and server, as their OWN downloads rather than bulked into the
   # Windows zip. A Linux or macOS player of TEVI or Pseudoregalia is already running a Windows
   # game through Proton/Wine, and the Windows client runs there too -- so the main zip stays
@@ -39,6 +121,8 @@ jobs:
   # replacing a "now go run chmod" instruction, which is a bad first experience and the kind
   # of step that reads as "this is broken" rather than "this is Unix".
   unix-binaries:
+    # Gate first: no build, no tag, no assets until the body is known clean.
+    needs: validate-release-notes
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
