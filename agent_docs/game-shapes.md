@@ -341,6 +341,10 @@ Presence is hard and co-op is easy, which is the reverse of a platformer.
   [beyond-cosmetic.md](beyond-cosmetic.md) §5 **REFUSED** — and refused for a product reason (*it
   stops being a thing a user runs from a `.bat` file*), not a difficulty one. **A whole family of
   online play is closed to MeshGhost today for a reason that has nothing to do with netcode.**
+  **Closed by default rather than forever**: the user's position, 2026-09-07, is that the disk-free
+  relay is worth keeping and the refusal is revisited only for *a specific game that needs it*.
+  That section also now separates the two kinds of persistence, because this family needs the much
+  narrower one — read it there rather than re-deriving it here.
 - **Behaviour-cloned opponents** — an opponent driven by a recording of how a real player actually
   played. Adjacent to replay ghosts, with the ghost given agency instead of a fixed path.
 

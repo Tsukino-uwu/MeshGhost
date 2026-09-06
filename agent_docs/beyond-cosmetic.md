@@ -314,6 +314,34 @@ leases, exchanges and identities all live in memory and die with the process. A 
 their relay mid-trade aborts it, and every client rejoins with a fresh `player_id`. Making that
 survivable is the one remaining thing that would change what MeshGhost *is* to run.
 
+#### Reopenable on a concrete game need — the user's position, 2026-09-07
+
+**The refusal stands as the default and is not closed forever.** The user's framing, on being shown
+what it rules out: *"its kinda nice that the server don't really need to save/use anything or make
+any files except for the log file. but i guess it can be considered if a game would ever need
+something persistent"*. So the bar for revisiting is **a specific game that needs it**, not a general
+argument that it would be nice — and the disk-free relay is treated as a feature worth keeping rather
+than an accident to be corrected. `game-shapes.md` §3 records what the refusal currently costs: every
+asynchronous way of playing together (leaving a note, a mark or a structure for someone to find
+later) needs storage and *nothing else* — no simultaneity, no authority, no prediction.
+
+**Whoever revisits it should first notice that "persistence" is two different things, and only one of
+them is what this section refused.**
+
+- **Durable relay state** — rooms, leases, identities and exchanges surviving a restart. This is the
+  expensive one and the refusal above is about it: a schema the relay understands, therefore
+  migrations, corruption handling and backups, therefore an operated service.
+- **A bounded dead-drop** — an opaque blob left for a recipient, size-capped and expiring. Much
+  narrower, and **the relay already stores exactly this shape in memory**: escrow deposits, world
+  custody and `Join.State` late-join seeds are all opaque blobs it cannot read. The delta is that one
+  survives a restart and carries a TTL. There is no schema to migrate, because there is no schema.
+
+**That narrowing is an observation for a future session, not a recommendation and not permission** —
+§11 applies here as everywhere. It still crosses the line this section drew (anything on disk is
+something that can be corrupted, filled or leaked, and it is still a file the host now owns), so it
+is a smaller step rather than a free one. But the asynchronous family needs only the second kind, and
+pricing it against the first would overstate it substantially.
+
 ---
 
 ## 6. The near-free implementation path (a cost note, not a proposal)
