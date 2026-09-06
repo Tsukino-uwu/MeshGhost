@@ -373,6 +373,10 @@ type Core struct {
 	// one ghost, both logging a normal "connected". Found 2026-08-16 while
 	// designing the port walk that makes two instances a normal thing to do.
 	attachedAdapter transport.Transport
+	// bridgeWriteTimeout is the write deadline on every bridge connection;
+	// zero means transport.DefaultWriteTimeout. A test sets it short to
+	// drive the dead-adapter path in milliseconds instead of ten seconds.
+	bridgeWriteTimeout time.Duration
 
 	// RelayAddr, Room, DisplayName, and DialTimeout are used by
 	// ConnectRelayOnAdapterHello to dial the relay lazily, the first time an

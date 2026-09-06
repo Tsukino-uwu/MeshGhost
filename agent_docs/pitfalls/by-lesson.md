@@ -6298,3 +6298,26 @@ worked for every outfit tried -- and one ("Krystal") declared a top of 13,558, s
 units up: *"don't get a nametag visible anywhere at all"*. A 40-400 window falls back to the fixed
 height. **Rule:** a number read off a mod-supplied asset is untrusted input; give it a plausible
 window and a fallback, and log the value that fell outside it.
+
+## A failed write frees nothing until the READ loop notices -- and the read loop is usually the goroutine that just failed the write (core, 2026-09-06)
+
+**Symptom.** A tester ran 512 chasers; at 353 ghosts their core "died" and was restarted over and
+over, each time starting the pack again. Nothing had crashed. A render write to the game hit its
+10-second deadline, `transport.Send` closed the socket, the game re-dialled the same port 6 ms
+later and the core answered `busy: this core already has a game attached` -- so the mod walked on
+and started a SECOND core.
+
+**Cause.** The admission slot was released by the transport's `OnDisconnect`, which fires from the
+read loop. The read loop was inside the frame handler whose writes were failing. The peer, meanwhile,
+learns of the close instantly: closing a socket with unread data in it sends a RESET, so the game
+knew the connection was gone before `Send` had returned to its own caller.
+
+**Rule.** **A close is a fact about the connection the moment it happens, and any admission,
+ownership or slot keyed to that connection must be released at the close, not at the next read.**
+Concretely: funnel every send to a peer through one place that runs the disconnect cleanup on
+failure (any goroutine may be the one that fails first -- here a nametag push from a chaser
+goroutine, not the frame path); stop a fan-out at its first failed write rather than logging the
+other 1,200; and let the thing that checks "is someone already attached?" ask whether that
+connection is CLOSED (`NDJSONConn.IsClosed`) rather than trusting bookkeeping a slower path owns.
+Test it by racing the reconnect against the close, not by sleeping first: a 50 ms wait passes with
+and without the fix.

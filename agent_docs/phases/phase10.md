@@ -529,3 +529,32 @@ Tests pin the new behaviour -- `TestChaser...` 99 asked = 99 started and 1<<20 =
 local-ghost invariant is now files + chaser count. `run-gotests.bat` green, root binaries rebuilt
 with `-o`, `meshghost.exe` deployed to all four game roots and the release staging copy. The flag
 text and `docs/config.md` say "no cap". Context: `phase11.md` 2026-09-06 (the camera-rig session).
+
+## 2026-09-06 (evening) — the caps came off, and a tester found what was behind them
+
+The same day's cap removal (above) let a tester run **512 chasers**, and their two logs are the
+first real load this core has seen from a game that cannot keep up. Their report: *"game lived, the
+client died spawning to many ghosts (and would get restarted to start another 340 ghosts before
+crashing eventually)"*.
+
+**Nothing crashed.** At 353 admitted chasers a `render_remote` write hit the 10-second
+`transport.DefaultWriteTimeout` on a socket the game had stopped draining (its own heartbeat shows
+`lines_received` frozen for exactly ten seconds while `send_ok` kept climbing). `transport.Send`
+closes on a failed write; the mod saw the close, re-dialled the same port, and was told **"busy:
+this core already has a game attached"** 6 ms later — by the core whose adapter socket had just
+died. So the mod walked to the next port and started a second core, over and over.
+
+**The window:** the admission slot is freed by `OnDisconnect`, which fires from the READ loop, and
+the read loop was the goroutine still inside the frame handler failing those writes. The peer knows
+first: closing a socket with unread data sends a RESET.
+
+**Fixed in three parts** — `Core.sendToAdapter` (one funnel, cleanup on any goroutine's failed
+write), `onAdapterFrame` stopping at the first failure instead of logging 1,200 more, and the hello
+handler treating an incumbent whose socket `IsClosed` as not busy. `transport.NDJSONConn.IsClosed`
+is new and set inside the close itself. Regression:
+`TestADeadAdapterSocketFreesTheCoreForTheReconnect` — **5/5 fail before, 10/10 pass after**;
+`run-gotests.bat` green. Records: `verified.md`, `pitfalls/by-lesson.md`, `status.md`.
+
+**Left open, measured not guessed:** the adapter sends frames from UE4SS's thread at ~171/s while
+its game thread rendered 17 fps, and the core answers every frame per ghost — ~59,000 lines a
+second. `ideas.md`, 2026-09-06.

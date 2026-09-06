@@ -116,7 +116,7 @@ func (c *Core) storeRemoteNameOpts(playerID string, raw *protocol.Nametag, quiet
 	// that has been told once must not be told again every time somebody
 	// reconnects into the same id.
 	if changed && ready && nd != nil {
-		sendBridgeEnvelope(nd, bridge.TypeRemoteName, bridge.RemoteName{
+		_ = c.sendToAdapter(nd, bridge.TypeRemoteName, bridge.RemoteName{
 			PlayerID:    playerID,
 			DisplayName: tag.Name,
 			Color:       tag.Color,
@@ -168,7 +168,7 @@ func (c *Core) pushRemoteNames(nd transport.Transport) {
 	// different facts and looked identical for an entire evening of live testing.
 	log.Printf("core: adapter attached -- handing it %d already-known nametag(s)", len(known))
 	for id, tag := range known {
-		sendBridgeEnvelope(nd, bridge.TypeRemoteName, bridge.RemoteName{
+		_ = c.sendToAdapter(nd, bridge.TypeRemoteName, bridge.RemoteName{
 			PlayerID:    id,
 			DisplayName: tag.Name,
 			Color:       tag.Color,

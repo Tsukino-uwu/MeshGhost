@@ -505,7 +505,7 @@ func (c *Core) pushToAdapter(t bridge.MessageType, payload any) {
 	if nd == nil {
 		return
 	}
-	sendBridgeEnvelope(nd, t, payload)
+	_ = c.sendToAdapter(nd, t, payload)
 }
 
 // reportBridgeSendErr logs an adapter's failed request against the relay.

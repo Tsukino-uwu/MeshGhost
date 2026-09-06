@@ -2975,3 +2975,18 @@ into the numbered list; `documentation.md` gained the outfit bounds (142 / 201 /
 `FixAllLights` price, `bRegistered` not reflecting, the `AIController` and camera-rig instances of
 the BeginPlay rule, and stopped claiming the 87-tick and 624 ms slide figures agree; this file's
 header gained the probe-path note and the handoff rule.
+
+## 2026-09-06 (night) — a tester at 512 chasers, and two recording-indicator defects
+
+**The tester's stress test** (their own choice of `count: 512, delay: 1s, spacing: 1s`) is logged in
+full on the core side: `phases/phase10.md` and `agent_docs/verified.md`, both 2026-09-06. Adapter
+side, what their `UE4SS.log` shows is the mod behaving correctly throughout — it parked 343 ghosts
+on the disconnect, walked the port range, and started a fresh core, because a core answered "busy".
+Nothing here needs an adapter change; the fix is in the core. Their screenshot shows 344 named
+ghosts at 17 fps, which is the load, not the fault.
+
+**Two recording-indicator defects the user reported the same night, logged for later** (`UNVERIFIED.md`,
+the OPEN entry): the indicator draws BEHIND world geometry instead of over everything (low priority,
+their call), and it LEAVES its pinned position during a move or ability that changes the player's
+speed or field of view. Neither is diagnosed; which move to reproduce it on is a question for the
+user before anything is probed.

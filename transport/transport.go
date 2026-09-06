@@ -20,6 +20,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -178,6 +179,15 @@ type NDJSONConn struct {
 	pending [][]byte
 
 	closeOnce sync.Once
+	// closed is set the moment this connection is closed for ANY reason --
+	// Close, CloseGracefully, a failed write, or the read loop ending. It
+	// exists because a closed socket is a fact a caller may need BEFORE the
+	// error from its own next call reaches it: the Core's bridge admission
+	// slot is freed by a disconnect callback that cannot run until the read
+	// loop notices, and a game that reconnects inside that window would
+	// otherwise be refused by a Core whose adapter socket is already dead
+	// (2026-09-06, a tester's 512-chaser session).
+	closed atomic.Bool
 }
 
 var _ Transport = (*NDJSONConn)(nil)
@@ -410,6 +420,12 @@ func (c *NDJSONConn) Send(payload []byte) error {
 		// leaving the conn open turned one timed-out write into a permanently mis-framed
 		// stream that LOOKED alive. Closing here makes the failure honest: the read loop ends,
 		// onDisconnect fires, and the caller's reconnect path takes over.
+		//
+		// IsClosed is set FIRST, and that order is load-bearing: the peer sees the close
+		// (a RESET) before this call even returns, so anything that asks "is this
+		// connection still alive?" between the close and the caller handling the error
+		// must be told the truth. See the closed field.
+		c.closed.Store(true)
 		_ = c.conn.Close()
 	}
 	return err
@@ -510,10 +526,16 @@ func (c *NDJSONConn) OnError(cb func(err error)) {
 func (c *NDJSONConn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
+		c.closed.Store(true)
 		err = c.conn.Close()
 	})
 	return err
 }
+
+// IsClosed reports whether this connection has been closed, by either end and
+// for any reason. It is a fact about the socket, never about liveness: a peer
+// that has stopped reading but not hung up is still "not closed".
+func (c *NDJSONConn) IsClosed() bool { return c.closed.Load() }
 
 // CloseGracefully closes the connection so that whatever Send wrote last still
 // reaches the peer. Close() alone does not promise that over TCP: if the peer

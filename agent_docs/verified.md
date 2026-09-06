@@ -125,6 +125,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-03 — Replays, recording and the chaser pack work on screen: Phase 11 watched for the first time
 - 2026-09-03 — A local ghost renders on its own delay: the defect, the fix, and why the whole suite was blind to it
 - 2026-09-03 — Recordings ship gzipped and trimmed: 310 MB/hour becomes about 9
+- 2026-09-06 — A tester's "the client died" at ~343 ghosts: the core refused its own game's reconnect
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1569,3 +1570,55 @@ confirmed to work, tested both in pseudoregalia"*.
   Per-LINE dedup — the intuitive form — is worth ~2%: only 274 of 15,761 lines carry an unchanged
   `extras` block, because `h_speed`, `v_speed` and `slide_t` jitter every frame while every other
   one of the 40 keys changes on 117 lines or fewer.
+
+## 2026-09-06 — A tester's "the client died" at ~343 ghosts: the core refused its own game's reconnect
+
+**Go-side track**, from a tester's two logs (their `meshghost.log` and `UE4SS.log`, both read here;
+the screenshot they sent shows 344 named ghosts at 17 fps). Their words: *"game lived, the client
+died spawning to many ghosts (and would get restarted to start another 340 ghosts before crashing
+eventually)"*. Their config: `chaser` on, **count 512, delay 1s, spacing 1s**, contact off -- a
+deliberate stress test of the chaser cap removed the same day (`phase10.md`). Build `ad28d8a4`.
+
+**What the two logs say, in order.**
+
+- The mod's own heartbeat froze at `lines_received=4550544` for **ten seconds** (18:28:23.93 ->
+  18:28:33.46) while `send_ok` kept climbing: the game was still sending frames and receiving
+  nothing.
+- The core then logged `send render_remote to adapter failed: ... i/o timeout` -- a
+  `transport.DefaultWriteTimeout` (10s) deadline expiring on a socket the game had stopped
+  draining, at **353** admitted chasers.
+- `transport.Send` closes the socket on a failed write (the 2026-09-01 half-written-line rule). The
+  mod saw the close, re-dialled **the same port 7778**, and was answered
+  `busy: this core already has a game attached` **6 ms later**.
+- So the mod walked on and started a **second core** (pid 900). Three `run start` lines in one log,
+  each pack starting from chaser 1 again -- exactly "restarted to start another 340 ghosts".
+- The rest of that one tick logged **1,201** more render failures plus ten name and ten despawn
+  failures.
+
+**Cause.** The bridge admission slot is freed by the transport's `OnDisconnect`, which cannot run
+until the READ loop notices the close -- and the read loop is the very goroutine still inside the
+frame handler whose writes are failing. The game's reconnect lands inside that window. Nothing had
+crashed: the core was alive and holding a slot for a socket that was already dead.
+
+**Fix, three parts, each needed for its own reason.**
+
+1. `Core.sendToAdapter` is now the only way anything reaches the adapter, and it runs the disconnect
+   cleanup the moment a write fails, **whatever goroutine noticed** -- a nametag push from a
+   *chaser* goroutine can be the first write to fail, which is why the frame path alone is not
+   enough (seen in this session's own test runs).
+2. `onAdapterFrame` stops the tick at the first failed write instead of failing 500 more.
+3. The hello handler treats an incumbent whose socket is already CLOSED as not busy:
+   `transport.NDJSONConn.IsClosed` is set *inside* the close, so the truth is available before the
+   error has propagated anywhere. This is what closes the race rather than narrowing it -- the peer
+   sees the close (a RESET) before `Send` has even returned to its caller.
+
+**Test.** `core.TestADeadAdapterSocketFreesTheCoreForTheReconnect`: 512 chasers, a 300 ms bridge
+write deadline, an adapter that stops reading, and a reconnect the instant the socket dies. On the
+code before the fix it **fails 5 of 5** with the tester's exact reject line; after, **10 of 10**
+pass. `run-gotests.bat` and the race job green.
+
+**Not fixed, and the reason the stall existed at all.** The adapter sends `local_state` from UE4SS's
+own thread at ~171 frames/s (its heartbeat counts them) while the game thread was rendering ~17 fps
+at 344 ghosts, and the core answers *every* frame with one render line per ghost: ~59,000 lines a
+second into a socket drained seventeen times a second. The core no longer breaks, and nothing yet
+bounds that volume -- `ideas.md`, the entry filed the same day.

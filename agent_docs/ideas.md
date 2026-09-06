@@ -65,6 +65,8 @@ is USED, that project is checked and recorded there first.
 - Ghost RECORDING and racing a replay — the wire format is already a replay format (filed 2026-08-30)
 - Recording file size: gzip now, per-KEY delta encoding later (measured 2026-09-03)
 - Replay hotkeys: the chord requirement, and an in-game RECORDING INDICATOR (top right, config-toggled) designed with the tester 2026-09-04; the log-clarity third of it FIXED the same day
+- The adapter's send rate, not its render rate, sets what the core sends back -- ~59,000 render lines a second into a socket drained 17 times a second (measured in a tester's logs, 2026-09-06)
+- Per-clip and per-chaser interpolation delay: an `interp` key in a replay file's header, and a `chaser.interp` beside `chaser.delay` (the user's ask, 2026-09-06)
 
 ---
 
@@ -2887,3 +2889,60 @@ does not trigger it, so an action-shaped rule can silently fail to load; and the
 headroom. Reach for it if the root is pinned at 200 again. Hooks are the other step in the same
 direction (a `Bash` matcher on `perl`/`python` edits carrying the scripted-edit rules) — the
 CHECK-over-RULE funnel taken one step further, and a separate decision. Not scheduled.
+
+## The adapter's send rate, not its render rate, sets what the core sends back (filed 2026-09-06)
+
+**Measured in a tester's logs, not proposed from the code.** A Pseudoregalia adapter sends
+`local_state` from UE4SS's `on_update` thread -- ~171 frames a second in that session's own
+heartbeat counters -- while the GAME thread, carrying 344 ghosts, was rendering about 17 fps. The
+core answers every frame with one `render_remote` line per ghost, so it was writing on the order of
+59,000 lines a second into a socket the game drained seventeen times a second. Ten seconds later
+the write deadline expired; the fallout is `verified.md`, 2026-09-06.
+
+**Why this is not just "too many ghosts".** The two rates are independent by construction: nothing
+tells the core how fast the adapter can CONSUME, and nothing tells the adapter to stop asking. At
+small counts the mismatch is invisible because a tick's answer is small.
+
+**Ideas, none built, in the order they look worth measuring.**
+
+1. **Let the adapter say how often it wants answers** (a field on the bridge hello, or a
+   `render_hz`): the core keeps interpolating at its own clock and answers at the rate asked for.
+   Cheapest, and it makes the adapter's own frame budget the thing that decides.
+2. **Coalesce per tick rather than per frame**: one answer per interpolation tick, whatever the
+   frame rate that drove it.
+3. **Back-pressure**: skip the answer when the previous one has not drained. Needs a
+   "writable now?" the transport does not currently expose.
+
+**What to measure first, since the load is now reproducible:** with the netsim rig or a fake
+adapter that reads slowly, how many ghosts it takes at each answer rate before a write blocks.
+
+## Per-clip and per-chaser interpolation delay (the user's ask, 2026-09-06)
+
+**The ask, in their words:** *"add customizable interp for recording files in the header, maybe also
+for chasing ghosts"*. Logged, not built.
+
+**Where it would go.** A replay file's first line is `replayHeader` (`core/recorder.go`), and the
+first group of its fields is exactly the set a person may hand-edit: `name`, `color`, `speed`,
+`loop`, `anchor`, `start_delay`, `trim_start`, `trim_end`, `skip_gaps`. An `interp` key belongs in
+that group, parsed by `parseReplayDuration` like the three durations already there, sanitized in
+`sanitizeReplayHeader`, and defaulted to empty meaning "the core's own local-ghost delay". The
+chaser half has no file to carry it, so it would be a `chaser.interp` config key beside
+`chaser.delay` and `chaser.spacing`, and a field on `Core`.
+
+**What it renders against today.** Both a replay ghost and a chaser are LOCAL peers, and a local
+peer interpolates on `Core.LocalInterpolationDelay` (`DefaultLocalGhostDelay`, 25 ms) rather than
+the 450 ms a relay peer needs -- there is no network under a ghost this core invented, so the delay
+exists only to smooth the adapter's own frame jitter (ADR, and `verified.md` 2026-09-03, where a
+local ghost rendering on the RELAY delay was the defect). So this change is per-ghost override of a
+value that is currently one number for every invented ghost in the process.
+
+**Why it is worth having, beyond preference.** The dev-scripts pairing rule already says an offset
+ghost wants zero interp (judge 1:1) while a ghost on top of the player wants a deliberate delay
+(judge that it follows) -- today that is a global flag, so the two cannot be watched in the same
+session. Per-clip interp makes the two-ghost comparison a single run.
+
+**Unknowns to settle before building:** whether a clip recorded at one send rate should carry a
+SUGGESTED interp from its own sample spacing (the recorder knows it) rather than a hand-typed one;
+and whether a per-chaser value or one value for the whole pack is what is wanted -- a pack whose
+members interpolate differently would look inconsistent, which argues for one key per pack.
+

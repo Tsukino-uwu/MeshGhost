@@ -42,6 +42,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
+- OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
 - OPEN, HIGH — **v1.1.7 CRASHES: a NEW fault site, exe+0x36CCF98, inside the engine's skeletal-mesh reset chain; three dumps on the user's machine 20:56/21:01/21:02 (an Archipelago connect, a zone change) plus a tester's, none at that site in ~90 dumps since 2026-08-12.** The tester's dump has our frames: `game_thread_tick` (weapon-model apply) -> `call_set_skeletal_mesh_asset` -> ProcessEvent -> the fault, with a chaser's `weapon_mesh` after a swap. The user's two have NO frame of ours: engine tick -> Blueprint -> a hooked native -> the same chain, i.e. state v1.1.7 left behind. v1.1.7 ran a FULL SetSkeletalMeshAsset of the stock sword onto every ghost's hand at spawn plus two raw property writes. Hardened build `A81C7D23` deployed 21:03 (same-asset = no call; setter only; resolver refuses destroyed assets; Skeleton must be alive) -- UNPROVEN; the crash watcher is armed. Entry below.
 - READY — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. What to look at: with the same weapon mod on both machines, the peer's ghost holds THEIR sword, and a thrown one flies as that model; without the mod, the stock sword and one throttled warning in the log. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
@@ -71,6 +73,29 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [OPEN] the recording indicator: drawn behind the world, and it moves when speed or FOV changes (the user, 2026-09-06)
+
+**Two separate reports, both from the user's own play, logged here so neither is lost.** The indicator
+itself is CONFIRMED working (`VERIFIED.md`, 2026-09-05: the shapes pixel-aligned, and the same again
+from the baked defaults with no tuning file). These are defects in where and over what it draws.
+
+1. **Behind world geometry and objects (LOW priority, the user's call).** The indicator vanishes where
+   something in the level is between it and the camera, rather than drawing over everything the way a
+   HUD element does. Whatever it is drawn WITH is taking part in depth testing.
+2. **It leaves its intended position during a move or ability that changes the player's SPEED or FOV.**
+   It drifts off the corner it is pinned to while such a move is happening and returns afterwards.
+
+**What is NOT established.** Which specific moves do it (the ultra hop, the slide, the charged attack
+and the wall ride all change speed and/or FOV, and none has been named); whether the trigger is the
+speed change, the FOV change, or a camera transform the indicator's placement reads; and whether the
+two reports share one cause -- a placement computed in a space that is not the viewport's would
+explain both. **Ask the user which move to reproduce it on before probing anything**: naming a move
+from the code is the mistake `../../agent_docs/pitfalls/` records twice.
+
+**Where the code is.** The indicator's placement and its live-tunable numbers are in `Plugin.cpp`
+beside the nametag's (both rewrite their transform every tick, which is the only reason either
+appears at all -- see `documentation.md`); the tuning file is `rec_indicator.txt` (`FLAGS.md`).
 
 ## [OPEN] (no priority) a remote ghost came back GLITCHED after its peer's reset-to-save -- seen once, 2026-09-05, not reproduced
 
