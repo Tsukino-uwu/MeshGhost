@@ -2856,3 +2856,48 @@ rule, same day); the install's `config.json` is the shipped one again; the test 
 `replay/`. Lessons filed today: `pitfalls/by-lesson.md` (two entries), `checklists/before-a-probe.md`
 and `before-trusting-a-reading.md` (two lines each), `running-the-rig.md` (four rig facts),
 `_template/probes.md` (two methods), `ideas.md` (distance tiers), `status.md` (two lines).
+
+## 2026-09-06 (evening) — the ghost-cost cuts: the adapter's own tick, the no-use parts, the distance tiers
+
+**The user's ask, in order** (the new chat opened on the previous entry's handoff): cut the adapter's
+own per-ghost tick, switch off the pawn parts a ghost has no use for, build the distance tiers —
+without changing a pixel. **What happened:** the same-session baseline reproduced the price list
+(12.6 ms of the 50-ghost frame was the DLL's own tick; 0.76-0.96 ms at zero ghosts, `ls_rest` higher
+than the day before because UE4SS's `FindAllOf` walks the whole object array and the array had
+grown). Step 1 — a per-class object-property list for the outline hold, a UFunction cache, the
+location write's parameter layouts resolved once, one shared light enumeration per sweep tick, one
+shared Niagara enumeration per tick with a recall-glow identity cache — took the tick from 11.7 to
+7.8 ms at 50 ghosts (`tail_sweeps` 3.7 → 0.8, `tail_light` 0.9 → 0.4); `loop_pose_xf` did not move
+and is the engine's own actor move plus the slide-timeline call; `ls_rest` still grows by 1.5 ms
+with 50 ghosts and only 0.3 of that is in the first three sub-slots. Step 2 — `SpringArm1`,
+`DialogueCam` tick, capsule tick, the AIController with its two components — measured at NO gain
+(parts kept vs off inside the noise, 47 vs 48 fps), and `SpringArm` had to stay: the pawn dump's
+attach tree shows it carries the blob shadow. The user's white-ball question was answered by
+subtraction — at zero ghosts *"basically no balls, just the players own"* — and decided: the ambient
+`NE_Particles_System` comes off ghosts. The game itself throttles nothing by distance (enemies and
+NPCs: no max draw distance, no update-rate throttle, tick option 1 = bones only while rendered),
+so the tiers went in on the user's numbers — 3000 throttled, 5000 pose frozen, 10500 dormant —
+as three live-reread config keys, with the enemies' tick option given to ghost meshes. A tester
+zip of the evening build sits on the user's desktop. **Records:** `UNVERIFIED.md` (two entries),
+`FLAGS.md` (two toggles), `docs/config.md` (the keys), `pitfalls/by-lesson.md` (three entries),
+`checklists/before-a-probe.md` (one line), `ideas.md` 7, `status.md`.
+
+**The freeze.** A melee attack among 50 ghosts froze the game thread while a scratch probe held two
+Lua `RegisterHook`s on the native Niagara spawn functions; UE4SS's thread kept the heartbeat going
+so the log looked alive. One negative without the probe, same DLL, same attack. Filed as a suspect,
+with the rule that event-driven hooks are built in C++. A stall detector that keyed on `STATESEND`
+misfired (that line is gated, not a heartbeat) and its `rundll32` dump call had a mangled path —
+withdrawn; a game-thread liveness check keys on `PERF` lines or spawn lines.
+
+**Rig at the end:** the user closed the game, the relay and the fake peers themselves; verified
+gone, ports 7777-7790 free; the scratch slot holds the pristine stub; no dev toggle in either
+install; both installs carry the evening DLL and a client rebuilt from the day's source. The user's
+next step, their own: record a replay ghost and watch it from far away — the log announces each
+ghost's tier changes (`distance tier full -> throttled` ...).
+
+**Handoff.** Unwatched: the tier transitions on screen, the emitter-less and parts-off ghosts, any
+perf reading of the evening build (the five new `ls_rest` sub-slots name the 1.5 ms growth). Open
+decisions: whether step 2 ships (recommendation: not without a measured gain). Open cost:
+`loop_pose_xf` (~40 us per ghost of engine calls: `K2_SetActorLocationAndRotation` on a 28-component
+actor plus the Blueprint slide handler every tick — a skip when the slide track is unchanged is the
+untested idea, to be watched on a sliding peer).

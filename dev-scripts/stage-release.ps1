@@ -171,13 +171,17 @@ foreach ($f in $modFolders) {
         $applied = @()
         foreach ($prop in $ov.PSObject.Properties) {
             if ($prop.Name -like '_comment*') { continue }
-            $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)"[^"]*"'
+            # A string value is emitted quoted, a number bare (2026-09-06: Pseudoregalia's three
+            # distance-tier ranges are the first numeric per-game keys; before this every override
+            # became a quoted string, which is wrong for a number a player is meant to edit).
+            $literal = if ($prop.Value -is [string]) { '"' + $prop.Value + '"' } else { [string]$prop.Value }
+            $pattern = '("' + [regex]::Escape($prop.Name) + '"\s*:\s*)("[^"]*"|[-0-9.]+|true|false)'
             # A real match test, not "did the text change": an override whose value equals the
             # source's (Pseudoregalia's local_game_bridge, once the root config carried it) used
             # to read as "not found" and be INSERTED a second time -- a duplicate key that JSON
             # parsers resolve silently. Found by the dry run on 2026-09-02.
             if ([regex]::IsMatch($text, $pattern)) {
-                $text = [regex]::Replace($text, $pattern, ('${1}"' + $prop.Value + '"'))
+                $text = [regex]::Replace($text, $pattern, ('${1}' + $literal))
                 $applied += "$($prop.Name) (replaced)"
                 continue
             }
@@ -190,17 +194,18 @@ foreach ($f in $modFolders) {
             # nothing. That protection is kept in a different form: an addition is REPORTED as
             # "(added)" in this script's output, so a misspelled key shows up as a new setting
             # appearing rather than an existing one changing. Watch that line.
-            # Anchored on the LAST key of the client block, so an added key lands in the advanced
+            # Appended as the LAST key of the client block, so an added key lands in the advanced
             # tier at the bottom (the tiers are the user's, 2026-08-30) rather than at the top of
-            # the basics, which is where the old "connect_to" anchor put it.
-            $anchor = '"features"'
-            $at = $text.IndexOf($anchor)
-            if ($at -lt 0) {
-                throw "$ovPath adds '$($prop.Name)' but config.json's client block has no `"features`" line to anchor the insertion to."
+            # the basics, which is where the old "connect_to" anchor put it. Anchored on the block's
+            # closing brace rather than on a named key: the previous anchor was `"features"`, which
+            # the hidden-key pass above had already deleted, so every addition threw (found
+            # 2026-09-06 by the first numeric addition). The comma pass above has already stripped
+            # the last key's comma, so the added line brings its own.
+            $close = $text.LastIndexOf("`n  }")
+            if ($close -lt 0) {
+                throw "$ovPath adds '$($prop.Name)' but config.json's client block has no closing brace to anchor the insertion to."
             }
-            $lineStart = $text.LastIndexOf("`n", $at) + 1
-            $indent = ($text.Substring($lineStart) -replace '(?s)^(\s*).*', '$1')
-            $text = $text.Insert($lineStart, "$indent`"$($prop.Name)`": `"$($prop.Value)`",`n")
+            $text = $text.Insert($close, ",`n    `"$($prop.Name)`": $literal")
             $applied += "$($prop.Name) (added)"
         }
         Write-Host "  $game config: overrode $($applied -join ', ')"

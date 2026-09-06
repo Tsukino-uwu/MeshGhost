@@ -76,6 +76,15 @@ namespace MeshGhostPseudo
         // reporting a ghost that still glowed while every readback said 0.
         uint64_t light_relit_count{0};
 
+        // **Distance tiers (2026-09-06)** -- see apply_ghost_distance_tier in Plugin.cpp. 0 full,
+        // 1 throttled, 2 far, 3 dormant. Only a CHANGE of tier costs engine calls.
+        int distance_tier{0};
+        // The tick this ghost was spawned on, for the short retry window in which its ambient
+        // particle emitter is looked for (the game attaches it at BeginPlay; measured present at
+        // spawn, retried a few ticks in case a build attaches it later).
+        uint64_t spawned_at_tick{0};
+        bool ambient_fx_stripped{false};
+
         RC::Unreal::AActor* ghost{nullptr};
         RC::Unreal::UWorld* owning_world{nullptr}; // which UWorld `ghost` belongs to (spawned into, or hijacked from)
 

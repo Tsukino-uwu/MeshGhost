@@ -913,6 +913,9 @@ protocol above is actually run and watched.
    possible to see someone even at 5k, at 10k+ they are actually too far away to see anything
    properly"* -- so the starting defaults are the throttle from ~3,000 and dormant from ~10,000, with
    the key there for anyone who wants ghosts further out; both to be re-judged on screen.
+   **BUILT 2026-09-06 (evening)** as three keys -- `ghost_range_throttle` 3000, `ghost_range_far`
+   5000 (pose frozen), `ghost_range` 10500 (dormant) -- on the user's *"3k+ / 5k+ / 10-11k+"*
+   reading; unwatched as of that entry: `adapters/pseudoregalia/UNVERIFIED.md`.
 
 ## The bandage register (audited 2026-08-16) — moved
 

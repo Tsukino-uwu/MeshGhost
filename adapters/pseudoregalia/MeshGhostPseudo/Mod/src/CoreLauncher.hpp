@@ -66,6 +66,10 @@ namespace MeshGhostPseudo
     // config.json readers for the player-facing indicator settings -- see the definitions.
     auto config_string_value(const char* key, std::string& out) -> bool;
     auto config_bool_value(const char* key, bool missing) -> bool;
+    // A NUMBER by key (2026-09-06; the ghost distance tiers' three ranges). Same hand parse and
+    // same "first config.json found decides" rule; false when the key is absent or not a number,
+    // so a caller keeps its own default.
+    auto config_number_value(const char* key, double& out) -> bool;
 
     // True when the config.json the mod's client reads carries "autostart": false (2026-09-03).
     auto config_disables_autostart() -> bool;

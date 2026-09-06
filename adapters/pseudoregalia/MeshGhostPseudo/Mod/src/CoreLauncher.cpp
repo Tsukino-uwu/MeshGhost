@@ -1,5 +1,6 @@
 #include <CoreLauncher.hpp>
 
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -232,6 +233,52 @@ namespace MeshGhostPseudo
             return text.compare(i, 4, "true") == 0;
         }
         return missing;
+    }
+
+    auto config_number_value(const char* key, double& out) -> bool
+    {
+        for (const std::wstring& dir : config_search_dirs())
+        {
+            if (dir.empty())
+            {
+                continue;
+            }
+            std::ifstream f(dir + L"/config.json");
+            if (!f)
+            {
+                continue;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            const std::string quoted = std::string("\"") + key + "\"";
+            const size_t k = text.find(quoted);
+            if (k == std::string::npos)
+            {
+                return false;
+            }
+            size_t i = text.find(':', k + quoted.size());
+            if (i == std::string::npos)
+            {
+                return false;
+            }
+            ++i;
+            while (i < text.size() && (text[i] == ' ' || text[i] == '\t'))
+            {
+                ++i;
+            }
+            if (i >= text.size() || !(std::isdigit(static_cast<unsigned char>(text[i])) || text[i] == '-' || text[i] == '.'))
+            {
+                return false;
+            }
+            char* end = nullptr;
+            const double value = std::strtod(text.c_str() + i, &end);
+            if (!end || end == text.c_str() + i)
+            {
+                return false;
+            }
+            out = value;
+            return true;
+        }
+        return false;
     }
 
     auto resolve_bridge_base_port(uint16_t fallback) -> uint16_t

@@ -3019,6 +3019,31 @@ namespace MeshGhostPseudo
             return property->ContainerPtrToValuePtr<T>(object);
         }
 
+        // A BOOL WRITE that respects bitfields (2026-09-06), the setter twin of mg_read_bool below:
+        // `bPauseAnims`, `bNoSkeletonUpdate` and `bEnableUpdateRateOptimizations` on a skeletal
+        // mesh are bitfield-packed, and writing a whole byte through mg_property_value<bool> would
+        // clobber their neighbours. FBoolProperty knows its own mask; it does the write. Returns
+        // whether a property of that name existed on the object.
+        auto mg_write_bool(UObject* object, const CharType* name, bool value) -> bool
+        {
+            FProperty* property = mg_cached_property(object, name);
+            if (!property)
+            {
+                return false;
+            }
+            if (property->GetClass().GetName() == STR("BoolProperty"))
+            {
+                static_cast<FBoolProperty*>(property)->SetPropertyValueInContainer(object, value);
+                return true;
+            }
+            if (bool* raw = property->ContainerPtrToValuePtr<bool>(object))
+            {
+                *raw = value;
+                return true;
+            }
+            return false;
+        }
+
         // A BOOL read that respects bitfields, cached like everything above. mg_property_value
         // <bool> hands back the whole byte, and a bitfield bool then reads true whenever ANY
         // neighbouring bit is set -- this file's case-filed trap, walked into AGAIN by the
@@ -6968,6 +6993,189 @@ namespace MeshGhostPseudo
                          to_wide_ascii(player_id), to_wide_ascii(report));
         }
 
+        // ---- THE AMBIENT PARTICLE EMITTER, off the ghost (user's call, 2026-09-06) --------------
+        //
+        // Every character in this game carries `NE_Particles_System`, a Niagara effect the pawn
+        // attaches to its own capsule at BeginPlay (`SpawnSystemAttached`, watched once per ghost
+        // by a hook probe the same day): the drifting white balls around a character. Fifty ghosts
+        // made a snowstorm of them; the user watched the balls vanish with the ghosts and decided
+        // *"i don't think this is something the ghosts need to mirror/have"*. So a ghost's copy is
+        // switched off at spawn -- hidden and deactivated through the engine's own setters, not
+        // destroyed, so nothing that still references it meets a freed object. Found by walking
+        // THIS ghost's attach tree (no world scan) and matched by asset name, so the adapter's own
+        // mirrored effects on the ghost are never touched. Returns whether one was found: the
+        // caller retries for a few ticks after spawn, in case a build attaches it a tick later.
+        auto strip_ghost_ambient_particles(UObject* ghost, const std::string& player_id) -> bool
+        {
+            if (!ghost)
+            {
+                return false;
+            }
+            std::vector<UObject*> owned;
+            if (UObject** root = mg_property_value<UObject*>(ghost, STR("RootComponent")); root && *root)
+            {
+                owned.push_back(*root);
+                for (size_t i = 0; i < owned.size() && owned.size() < OUTLINE_SWEEP_MAX_COMPONENTS; ++i)
+                {
+                    auto* children = owned[i] ? mg_property_value<TArray<UObject*>>(owned[i], STR("AttachChildren")) : nullptr;
+                    if (!children)
+                    {
+                        continue;
+                    }
+                    const int child_count = static_cast<int>(children->Num());
+                    for (int c = 0; c < child_count && owned.size() < OUTLINE_SWEEP_MAX_COMPONENTS; ++c)
+                    {
+                        if (UObject* child = (*children)[c])
+                        {
+                            owned.push_back(child);
+                        }
+                    }
+                }
+            }
+            int found = 0;
+            for (UObject* node : owned)
+            {
+                UClass* node_class = node ? node->GetClassPrivate() : nullptr;
+                if (!node_class || node_class->GetName() != STR("NiagaraComponent"))
+                {
+                    continue;
+                }
+                UObject** asset = mg_property_value<UObject*>(node, STR("Asset"));
+                if (!asset || !*asset)
+                {
+                    continue;
+                }
+                if (to_utf8((*asset)->GetFullName()).find("NE_Particles_System") == std::string::npos)
+                {
+                    continue;
+                }
+                call_set_visibility(node, false);
+                const bool deactivated = call_named_no_arg(node, STR("Deactivate"));
+                ++found;
+                Output::send(STR("[MeshGhostPseudo] ghost {}: ambient particle emitter hidden and {} (the user's call, 2026-09-06).\n"),
+                             to_wide_ascii(player_id), deactivated ? STR("deactivated") : STR("NOT deactivated -- Deactivate not reflected"));
+            }
+            return found > 0;
+        }
+
+        // ---- DISTANCE TIERS (2026-09-06; `agent_docs/ideas.md`, Pseudoregalia 7) ----------------
+        //
+        // A ghost far from the player costs the same as one beside them, and the game itself
+        // throttles NOTHING by distance (measured 2026-09-06: enemies and NPCs carry no max draw
+        // distance and no update-rate optimization). The user's own visibility reading sets the
+        // tiers -- *"3k+ throttle, 5k+ throttle bit more/almost fully, 10-11k+ despawn"* -- and
+        // the three ranges are keys in the game's `config.json` (this game's units, opaque to the
+        // core; 0 disables a tier), re-read on the dev poll so they tune without a relaunch:
+        //
+        //   full      < ghost_range_throttle (3000)   everything as today
+        //   throttled >= 3000                         the engine's update-rate optimization on the
+        //                                             three skeletal meshes (what `uro` measured:
+        //                                             ~2 ms at 50 ghosts)
+        //   far       >= ghost_range_far (5000)       plus the animation paused and the skeleton
+        //                                             frozen: the model still moves as a whole
+        //   dormant   >= ghost_range (10500)          hidden, actor tick off, movement tick off,
+        //                                             animation paused, and the adapter skips its
+        //                                             own per-ghost work for it -- visually a
+        //                                             despawn, but it wakes in ONE frame, because a
+        //                                             spawn is the expensive, leak-prone operation
+        //                                             this adapter keeps paying for
+        //
+        // Hysteresis of 5% on the way back in, so a ghost hovering on a boundary does not flap.
+        // Every transition is announced once; steady state costs one distance compare per ghost.
+        double g_ghost_range_throttle = 3000.0;
+        double g_ghost_range_far = 5000.0;
+        double g_ghost_range = 10500.0;
+
+        auto poll_ghost_range_config() -> void
+        {
+            struct Key
+            {
+                const char* name;
+                double* value;
+            };
+            const Key keys[] = {{"ghost_range_throttle", &g_ghost_range_throttle},
+                                {"ghost_range_far", &g_ghost_range_far},
+                                {"ghost_range", &g_ghost_range}};
+            for (const Key& key : keys)
+            {
+                double value = 0.0;
+                if (config_number_value(key.name, value) && value >= 0.0 && value != *key.value)
+                {
+                    Output::send(STR("[MeshGhostPseudo] GHOSTRANGE: config {} {} -> {}\n"),
+                                 to_wide_ascii(key.name), *key.value, value);
+                    *key.value = value;
+                }
+            }
+        }
+
+        auto ghost_tier_for_distance(double distance, int current) -> int
+        {
+            // Entering a tier at its threshold, leaving it at 95% of it.
+            auto beyond = [&](double range, int tier) {
+                if (range <= 0.0)
+                {
+                    return false; // a range of 0 disables the tier
+                }
+                return distance >= (current >= tier ? range * 0.95 : range);
+            };
+            if (beyond(g_ghost_range, 3))
+            {
+                return 3;
+            }
+            if (beyond(g_ghost_range_far, 2))
+            {
+                return 2;
+            }
+            if (beyond(g_ghost_range_throttle, 1))
+            {
+                return 1;
+            }
+            return 0;
+        }
+
+        // Puts the ghost's parts into the state a tier wants. Called on a CHANGE of tier only,
+        // and it writes every knob the tier owns each time rather than only the delta, so a
+        // ghost that skipped a tier (10k straight to 0, a teleport) still lands in the right
+        // state. Bitfield bools through mg_write_bool; the actor calls through the reflected
+        // setters whose parameter names were read off this build (`bNewHidden`, `bEnabled`).
+        auto apply_ghost_distance_tier(RemoteGhost& remote, const std::string& player_id, int tier) -> void
+        {
+            UObject* ghost = static_cast<UObject*>(remote.ghost);
+            if (!ghost)
+            {
+                return;
+            }
+            const bool throttle = tier >= 1;
+            const bool freeze = tier >= 2;
+            const bool dormant = tier >= 3;
+            for (const wchar_t* mesh_name : {STR("Mesh"), STR("VisualMesh"), STR("WeaponMesh")})
+            {
+                UObject** mesh = mg_property_value<UObject*>(ghost, mesh_name);
+                if (!mesh || !*mesh)
+                {
+                    continue;
+                }
+                mg_write_bool(*mesh, STR("bEnableUpdateRateOptimizations"), throttle);
+                mg_write_bool(*mesh, STR("bPauseAnims"), freeze);
+                mg_write_bool(*mesh, STR("bNoSkeletonUpdate"), freeze);
+            }
+            call_bool_ufunction(ghost, STR("SetActorHiddenInGame"), STR("bNewHidden"), dormant);
+            call_bool_ufunction(ghost, STR("SetActorTickEnabled"), STR("bEnabled"), !dormant);
+            if (UObject** movement = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); movement && *movement)
+            {
+                // Only the dormant tier touches the movement component: whether a MOVING peer
+                // looks right with it off is still the user's call (ghost_charmove_off.txt).
+                if (dormant || remote.distance_tier >= 3)
+                {
+                    call_bool_ufunction(*movement, STR("SetComponentTickEnabled"), STR("bEnabled"), !dormant);
+                }
+            }
+            static const wchar_t* const TIER_NAMES[] = {STR("full"), STR("throttled"), STR("far"), STR("dormant")};
+            Output::send(STR("[MeshGhostPseudo] ghost {}: distance tier {} -> {}\n"),
+                         to_wide_ascii(player_id), TIER_NAMES[remote.distance_tier], TIER_NAMES[tier]);
+            remote.distance_tier = tier;
+        }
+
         // One-shot: what slide/crouch-shaped functions does this pawn actually expose? Printed once
         // per session so that if the call above is aimed at the wrong name, the same run still says
         // what the right names would have been -- rather than costing another build to find out.
@@ -8980,6 +9188,7 @@ namespace MeshGhostPseudo
         auto poll_recording_indicator_tuning() -> void
         {
             poll_recording_indicator_config();
+            poll_ghost_range_config(); // the three distance-tier ranges, same live re-read (2026-09-06)
             // Same directory rule as every other dev toggle, via the launcher's own helper rather
             // than a second copy of the module-path dance.
             const std::wstring dir = module_directory();
@@ -9612,6 +9821,15 @@ namespace MeshGhostPseudo
             PERF_LS_RECALL,
             PERF_LS_VFXMIRROR,
             PERF_LS_JSON,
+            // The second ls_rest split (2026-09-06, later the same day): the first three named
+            // ~0.3 ms of ls_rest's 2.3 ms at 50 ghosts, so the rest of the region is cut into
+            // its remaining sections -- thrown weapon, the (mostly compiled-out) traces, the
+            // slide-pose drive, the afterimage colour, the trail -- so the growth has a name.
+            PERF_LS_WEAPON,
+            PERF_LS_TRACES,
+            PERF_LS_SLIDE,
+            PERF_LS_AFTERIMG,
+            PERF_LS_TRAIL,
             PERF_SLOT_COUNT
         };
 
@@ -9622,7 +9840,8 @@ namespace MeshGhostPseudo
             STR("loop_mirrors "), STR("loop_pose_xf "), STR("loop_head    "), STR("loop_tail    "),
             STR("tail_posetrc "), STR("tail_sweeps  "), STR("tail_light   "), STR("tail_events  "),
             STR("ls_camrig    "), STR("ls_outfit    "), STR("ls_projectile"), STR("ls_rest      "),
-            STR("ls_recall    "), STR("ls_vfxmirror "), STR("ls_json      ")};
+            STR("ls_recall    "), STR("ls_vfxmirror "), STR("ls_json      "),
+            STR("ls_weapon    "), STR("ls_traces    "), STR("ls_slide     "), STR("ls_afterimg  "), STR("ls_trail     ")};
 
         bool g_perf_armed = false;
         long long g_perf_qpc[PERF_SLOT_COUNT] = {};
@@ -14493,6 +14712,24 @@ namespace MeshGhostPseudo
         RemoteGhost& remote = remotes[player_id];
         remote.ghost = ghost;
         remote.owning_world = world;
+        // A fresh pawn is in the "full" tier by construction; the first loop tick moves it.
+        remote.distance_tier = 0;
+        remote.spawned_at_tick = tick_count;
+        remote.ambient_fx_stripped = strip_ghost_ambient_particles(ghost, player_id);
+        // What the game does for its OWN enemies and NPCs (measured 2026-09-06, tick option 1 on
+        // every non-player character): animate always, refresh the bones only while rendered. The
+        // player's meshes sit at 0 (refresh even off-screen) and a ghost is born with the player's
+        // value; the enemies' value is what a non-player character gets here.
+        for (const wchar_t* mesh_name : {STR("Mesh"), STR("VisualMesh"), STR("WeaponMesh")})
+        {
+            if (UObject** mesh = mg_property_value<UObject*>(ghost, mesh_name); mesh && *mesh)
+            {
+                if (uint8_t* tick_option = mg_property_value<uint8_t>(*mesh, STR("VisibilityBasedAnimTickOption")))
+                {
+                    *tick_option = 1;
+                }
+            }
+        }
         remote.target_x = spawn_loc.X();
         remote.target_y = spawn_loc.Y();
         // The ghost's TARGET is always the real spot, even when g_ghost_spawn_far moved where it
@@ -16392,6 +16629,7 @@ namespace MeshGhostPseudo
                 return niagara_this_tick;
             };
 
+            perf_start(PERF_LS_WEAPON);
             // Thrown Dream Breaker, local half -- see RemoteGhost::target_weapon_thrown for the
             // measured lifecycle this reads out of, and WEAPON_ACTOR_TRACE for the capture that
             // established it. Read every tick, not at a trace cadence: this is production sync.
@@ -16621,6 +16859,7 @@ namespace MeshGhostPseudo
             // DECISION rather than its rule: it asks "is the real effect showing right now?"
             // instead of trying to recompute "empty-handed and near a save crystal". Scanned at a
             // bounded cadence and held between scans, since it enumerates components.
+            perf_stop(PERF_LS_WEAPON);
             perf_start(PERF_LS_RECALL);
             if (tick_count % RECALL_GLOW_SCAN_INTERVAL_TICKS == 0)
             {
@@ -16693,6 +16932,7 @@ namespace MeshGhostPseudo
                 local_recall_glow = glow_now;
             }
             perf_stop(PERF_LS_RECALL);
+            perf_start(PERF_LS_TRACES);
 
             // **Projectile watch -- see GHOST_PROJECTILE_WATCH's own comment for why this is the
             // measurement that is left.** Two halves, and the first exists because the class name
@@ -17335,6 +17575,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_LS_TRACES);
+            perf_start(PERF_LS_SLIDE);
             // **Find what DRIVES the slide pose.** Everything known so far says what the pose IS
             // (capsule 22, mesh -23, feet planted) and nothing says what writes it. Three levers
             // have been tried on a ghost and all three did nothing, because all three were guesses
@@ -18147,6 +18389,8 @@ namespace MeshGhostPseudo
             // so a one-time read would miss exactly the case worth syncing. Falls back to the
             // game's own normal trail colour if the read fails, so a peer never receives garbage.
             LinearColorRGBA local_afterimage_color{};
+            perf_stop(PERF_LS_SLIDE);
+            perf_start(PERF_LS_AFTERIMG);
             // **Read into a LOCAL, not straight into the member.** This line runs every tick while
             // the afterimage scan below runs every few, so assigning the member here republished
             // the pawn's baseline colour on every tick in between -- meaning two ticks out of three
@@ -18372,6 +18616,8 @@ namespace MeshGhostPseudo
                 }
             }
 
+            perf_stop(PERF_LS_AFTERIMG);
+            perf_start(PERF_LS_TRAIL);
             // **The ultra hop's blue, solved 2026-08-16 -- read the colour off the AFTERIMAGE, not
             // off the pawn.** `status.md` parked this after `afterimageColor` was proven never to
             // change during a real ultra, and that finding was correct; it was simply the wrong
@@ -18894,6 +19140,7 @@ namespace MeshGhostPseudo
             // false again. That is precisely the recall-glow bug, already paid for once here --
             // see component_is_active's own comment.
             static std::string mirrored_vfx_keys;
+            perf_stop(PERF_LS_TRAIL);
             perf_start(PERF_LS_VFXMIRROR);
             if constexpr (MIRROR_PLAYER_VFX)
             {
@@ -19654,6 +19901,14 @@ namespace MeshGhostPseudo
 
         // Redraw every currently-known remote unconditionally, every tick -- per PROTOCOL.md,
         // not only on ticks where new network data arrived.
+        // The local player's position once per tick, for the distance tiers below.
+        FVector local_loc{};
+        const bool have_local_loc = pawn_obj != nullptr;
+        if (have_local_loc)
+        {
+            local_loc = static_cast<AActor*>(pawn_obj)->K2_GetActorLocation();
+        }
+
         for (auto& [id, remote] : remotes)
         {
             PerfScope perf_remote(PERF_REMOTES_LOOP);
@@ -19766,6 +20021,35 @@ namespace MeshGhostPseudo
                 remote.owning_world = nullptr;
                 continue;
             }
+            // The ambient emitter, if spawn did not find it yet -- a short window, then give up
+            // (a build that never attaches one is not an error).
+            if (!remote.ambient_fx_stripped && tick_count < remote.spawned_at_tick + 120)
+            {
+                remote.ambient_fx_stripped = strip_ghost_ambient_particles(remote.ghost, id);
+            }
+
+            // **Distance tiers** -- see apply_ghost_distance_tier. Decided on the peer's target
+            // position (already known, no engine call) against the local pawn's; only a change of
+            // tier costs anything. A dormant ghost is skipped from here on: hidden and ticking
+            // nothing, it has no pose, mirror, hold or nametag to keep, and the next tick after it
+            // wakes puts it where the peer is.
+            if (have_local_loc)
+            {
+                const double dx = remote.target_x - local_loc.X();
+                const double dy = remote.target_y - local_loc.Y();
+                const double dz = remote.target_z - local_loc.Z();
+                const int tier = ghost_tier_for_distance(std::sqrt(dx * dx + dy * dy + dz * dz), remote.distance_tier);
+                if (tier != remote.distance_tier)
+                {
+                    apply_ghost_distance_tier(remote, id, tier);
+                }
+                if (remote.distance_tier >= 3)
+                {
+                    perf_stop(PERF_LOOP_HEAD);
+                    continue;
+                }
+            }
+
             // See GHOST_PREHIT_PLAYER. Checked every tick rather than written once at spawn: the
             // list is the game's to manage, and if its own logic ever clears it, the next tick puts
             // the player back before the following swing.

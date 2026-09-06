@@ -255,6 +255,38 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
+## [OPEN] BUILT 2026-09-06 (evening), deployed to both installs, UNWATCHED -- the distance tiers, the ambient emitter off, the enemies' animation tick option, and a tester zip
+
+**Built and deployed (DLL hash `71713748f788`, both installs; the tester zip on the user's desktop
+carries the same DLL and a client rebuilt from the same day's source):**
+
+1. **Distance tiers** (`apply_ghost_distance_tier`; `docs/config.md` has the three keys) on the
+   user's own numbers: *"3k+ throttle, 5k+ throttle bit more/almost fully, 10-11k+ despawn"*. Full
+   under `ghost_range_throttle` (3000); the engine's update-rate optimization on the three skeletal
+   meshes from there; from `ghost_range_far` (5000) the animation paused and the skeleton frozen
+   (the model still moves as a whole); from `ghost_range` (10500) DORMANT -- `SetActorHiddenInGame`,
+   actor tick off, movement tick off, animation paused, and the adapter `continue`s past that ghost
+   in its loop. Dormant instead of despawned for the reason `ideas.md` 7 gives (a spawn is the
+   expensive, leak-prone operation; a dormant ghost wakes in one frame). Hysteresis 5%. Distance is
+   the peer's target position against the local pawn, one compare per ghost per tick; only a CHANGE
+   of tier makes engine calls, each announced in the log. Keys re-read on the dev poll.
+2. **The ambient particle emitter off** on every ghost at spawn (`strip_ghost_ambient_particles`):
+   `NE_Particles_System`, found in the ghost's own attach tree by asset name, hidden and deactivated
+   through the engine's setters. The user's decision after the subtraction (*"basically no balls,
+   just the players own"* at zero ghosts; *"i don't think this is something the ghosts need"*).
+3. **`VisibilityBasedAnimTickOption = 1`** on the ghost's three meshes at spawn -- animate always,
+   refresh the bones only while rendered -- which is what this game gives every enemy and NPC
+   (measured 2026-09-06: `BP_Enemy__WalkinEgg_C`, `BP_NPC_C`, `BP_NPC_Child_C` all at 1; the player
+   at 0; none of them carries a max draw distance or the update-rate throttle, so the game throttles
+   nothing by distance itself). Bones refresh the frame the mesh is rendered, so nothing on screen
+   should differ; it has not been watched.
+4. Five more `perf_report.txt` sub-slots inside `ls_rest` (`ls_weapon`, `ls_traces`, `ls_slide`,
+   `ls_afterimg`, `ls_trail`), for the 1.5 ms that grows with ghost count and has no name yet.
+
+**Not yet seen by anyone:** the tier transitions on screen (walk away from the ring: thinner at
+~3k, frozen at ~5k, gone past ~10.5k, back on the way in), the parts-off ghosts, the emitter-less
+ghosts, and any perf reading of this build. The rig was down before the game relaunched.
+
 ## [OPEN] BUILT and MEASURED 2026-09-06 (later) -- the adapter's own per-ghost tick cut from 11.7 to 7.8 ms at 50 ghosts; the no-use parts switched off at spawn buy NOTHING measurable
 
 **What was built** (one DLL, deployed to both installs; `FLAGS.md` has the two new toggles):
