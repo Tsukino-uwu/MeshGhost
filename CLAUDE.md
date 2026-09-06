@@ -7,7 +7,7 @@ planes opt-in and unused. Read `agent_docs/brief.md` (the vision) and `agent_doc
 implemented contract) before proposing a plan that touches the core, an adapter, or the relay.
 `agent_docs/README.md` indexes every internal doc — start there; this file holds only rules.
 
-## RULE 0 — THE 200-LINE CAP. Outranks every other rule in this file, without exception.
+## RULE 0 — THE 200-LINE CAP. Outranks every other rule in this file, without exception
 
 **Before adding a line here, run `wc -l CLAUDE.md`. Over 200 is a regression and is reverted like
 one.** The question is never "can I add this?" but "what comes out?", answered in the same edit; if
