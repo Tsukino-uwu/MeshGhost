@@ -367,6 +367,11 @@ namespace MeshGhostTevi
             try
             {
                 c = new TcpClient();
+                // Nagle off, for the reason measured on Pseudoregalia 2026-09-06: this bridge
+                // writes one small line per frame, and Nagle holds each one until the previous
+                // is acknowledged -- on Linux that is a 40 ms floor, and a Linux tester's frames
+                // arrived in 46 ms bunches. .NET leaves NoDelay false by default.
+                c.NoDelay = true;
                 c.Connect(host, dialPort);
                 if (generation != connectionGeneration)
                 {

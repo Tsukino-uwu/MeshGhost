@@ -261,6 +261,33 @@ namespace MeshGhostPseudo
         u_long non_blocking = 1;
         ioctlsocket(new_sock, FIONBIO, &non_blocking);
 
+        // **TCP_NODELAY, and it is not a micro-optimisation: without it this bridge delivers
+        // in ~46 ms bunches on Linux.** This socket writes one small JSON line per frame, which
+        // is exactly the traffic Nagle's algorithm exists to coalesce -- it holds a small write
+        // until the previous segment is acknowledged, and the receiver's delayed-ACK timer sets
+        // how long that is. Linux's delayed-ACK MINIMUM is 40 ms.
+        //
+        // Measured 2026-09-06 in two replay files recorded by a Linux/Proton tester, half an
+        // hour apart: their frames reach the core in bursts of a few milliseconds separated by
+        // stalls with a hard floor at exactly 40 ms and a peak at 46, covering 27-30% of all
+        // updates. It is not their frame rate -- the character moves the same distance per
+        // sample whether the gap is 5 ms or 50, so the frames were produced steadily and only
+        // their DELIVERY was bunched. A Windows session recorded the same day sits at 0.6%.
+        //
+        // The cost of that is not only stuttery replays: a player's own state reaches their
+        // core in 46 ms steps, so everyone watching them live sees the same stepping whatever
+        // the relay's rate is. Setting the option is the standard fix for a latency-sensitive
+        // stream of small writes and costs one syscall per connection.
+        BOOL nodelay = TRUE;
+        if (setsockopt(new_sock, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay), sizeof(nodelay)) != 0)
+        {
+            // Not fatal: the bridge still works, it just batches. Say so rather than leaving a
+            // silent performance cliff, because the symptom (a stuttery ghost) looks nothing
+            // like the cause.
+            Output::send(STR("[MeshGhostPseudo] could not disable Nagle on the bridge socket (WSA {}) -- ghosts may look stepped.\n"),
+                         WSAGetLastError());
+        }
+
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
         addr.sin_port = htons(candidate);

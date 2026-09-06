@@ -255,6 +255,7 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   `HotReloadKey` in that install's `UE4SS-settings.ini`, and it must not collide with a game or
   UE4SS binding -- F10 is a UE4SS CONSOLE key here, and sending it opened the console and froze the
   game's tick for twelve minutes on 2026-08-31.
+- `replay-cadence.py` — **turns "that replay ghost looks stuttery" into a number, from the clip alone.** Prints the gap distribution between a recording's samples, the share wider than the 25 ms local render delay (each one is a freeze-and-jump, because a local ghost never extrapolates), and the movement per sample on either side of the wide gaps. That last line is the diagnosis: the same move either way means the frames were produced steadily and only their DELIVERY bunched, which is a transport problem; much further across the wide gaps means the game really was slower there. Written 2026-09-06 for two Linux/Proton clips whose stalls had a hard floor at exactly 40 ms -- `agent_docs/pitfalls/by-lesson.md`.
 - `read-minidump.py` — **reads a UE crash dump with no debugger installed.** Prints the exception
   code, the faulting address, the access kind and bad pointer, and **which loaded module the
   faulting instruction is in**. That last fact decides whether a crash is the adapter's or the

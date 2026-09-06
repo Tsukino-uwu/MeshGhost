@@ -2990,3 +2990,25 @@ the OPEN entry): the indicator draws BEHIND world geometry instead of over every
 their call), and it LEAVES its pinned position during a move or ability that changes the player's
 speed or field of view. Neither is diagnosed; which move to reproduce it on is a question for the
 user before anything is probed.
+
+## 2026-09-06 (night, later) — the stuttery ghost was Nagle, and the clip file proved it
+
+The user relayed a Linux/Proton tester's report that replay ghosts looked *"a bit weird/stuttery"*,
+and asked whether it was their frame rate or their relay. Neither: a replay never crosses the wire,
+and their two clips (half an hour apart) answer the frame-rate half themselves. **27% and 30% of
+updates more than 25 ms apart** against 0.6% for a Windows clip the same day, a bimodal distribution
+with **nothing in the 16-25 ms band**, ~18 stalls a second, and a **hard floor at exactly 40 ms** in
+both -- Linux's delayed-ACK minimum. Movement per sample was 7.51 units across a 50 ms gap and 7.48
+across a 5 ms one, so the frames were produced steadily and only their DELIVERY bunched.
+
+Cause: **no adapter set `TCP_NODELAY`** -- not the C++ one, not TEVI's `TcpClient`, not either Lua
+one, none of which enable it by default. The bridge writes one small line per frame, which is
+exactly what Nagle coalesces. Set in all four; the Pseudoregalia DLL builds clean. **Not deployed:
+the user's game was running.** The check that settles it needs nobody's eyes -- a re-recording
+through the new `dev-scripts/replay-cadence.py`, which prints the gap bands and the movement-per-sample
+verdict. Records: `pitfalls/by-lesson.md`, `UNVERIFIED.md`, `status.md`.
+
+Also this session, at the user's request: their two recordings set to `loop`, both made active, and a
+copy of the second trimmed to its last three seconds (`trim_start` 10.327s) -- all three confirmed
+through the core's own loader, not just by re-reading the bytes.
+

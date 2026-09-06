@@ -9324,6 +9324,13 @@ local function tryPort(port)
 		return false
 	end
 	s:settimeout(0)
+	-- Nagle off: this bridge writes one small line per frame, and Nagle holds each write until
+	-- the previous is acknowledged -- a 40 ms floor on Linux, measured as 46 ms delivery bunches
+	-- in a tester's replay files 2026-09-06. pcall'd because setoption is a luasocket extension
+	-- and a vendored build that lacks it must not take the adapter down over a tuning flag.
+	pcall(function()
+		s:setoption("tcp-nodelay", true)
+	end)
 	sock, connected, ready, rxBuffer = s, true, false, ""
 	currentPort, helloSentAtFrame = port, bridgeFrames
 	-- Log the port, always. With a walk, "connected" no longer implies a known port, and the port

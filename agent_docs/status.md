@@ -10,6 +10,8 @@ files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap
 
 ## Open now
 
+- 2026-09-06 — **A Linux tester's stuttery replay ghosts are diagnosed from their clip files: no adapter set `TCP_NODELAY`, so the bridge's one-line-per-frame writes were held by Nagle to Linux's 40 ms delayed-ACK floor (27-30% of updates over 25 ms; identical movement per sample either side of the gap rules out frame rate).** Set in all four adapters, Pseudoregalia DLL built, NOT deployed (their game was running); the A/B is a re-recording through `dev-scripts/replay-cadence.py` — `pitfalls/by-lesson.md`, `pseudoregalia/UNVERIFIED.md`.
+
 - 2026-09-06 — **FIXED and confirmed by me (Go side): a refused hello lost its `Reject` to a TCP reset, so a core retried a PERMANENT refusal forever.** CI's Linux race job found it; the 2026-09-05 graceful-close fix had gone into the rate-limit path only. All three handshake sites now close gracefully — `verified.md` 2026-09-06, `pitfalls/by-lesson.md`.
 
 - 2026-09-06 — **FIXED on the Go side, mine to confirm and confirmed: a tester's "the client died" at ~343 ghosts was the core REFUSING ITS OWN GAME'S RECONNECT** (512 chasers; a write to a game that had stopped draining hit the 10s deadline, the socket closed, the game re-dialled 6 ms later and got "busy", so its mod started a second core). Three-part fix plus a regression test that fails 5/5 without it. **Its first version deadlocked** (a failed write inside `StartRecording` re-entered `StopRecording`); the everything-fuzzer found that 11.5 s into the first campaign after its peer space was widened past the roster cap at the user's ask, and the cleanup is now split by which locks it needs — `verified.md` 2026-09-06 (two entries), `pitfalls/by-lesson.md`.

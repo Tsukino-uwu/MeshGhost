@@ -6375,3 +6375,35 @@ in it.
 same evening: high peer counts, past the cap, invalid ids), not by widening the target that covered
 the changed code. The deadlock needed a busy roster to make a write fail while a recording was
 starting -- a shape eight peers never produced.
+
+## "It looks stuttery" was the bridge socket batching, and the clip file said so without anyone watching a screen (adapters, 2026-09-06)
+
+**Symptom.** A Linux/Proton tester's replay ghosts looked *"a bit weird/stuttery"*; the same build
+looked smooth on the Windows machine beside it. The obvious readings -- their frame rate, their
+relay's rate, Proton overhead -- were all wrong, and a replay never touches a relay at all.
+
+**What the clip alone settled, with no game running.** A replay renders
+`LocalInterpolationDelay` behind (25 ms) and a local ghost never extrapolates (`ahead = 0` in
+`tickRenders`), so every gap wider than 25 ms is one freeze-then-jump. Their two clips, recorded
+half an hour apart: **27% and 30% of updates over 25 ms**, versus 0.6% for a Windows clip the same
+day. The distribution was bimodal with **nothing at all in the 16-25 ms band** and a quarter of
+everything in 41-60 ms, about 18 stalls a second, steady from the first second to the last.
+
+**The measurement that named the cause.** Movement per sample across a 50 ms gap was **7.51 units,
+against 7.48 across a 5 ms gap** -- identical. A slow frame rate moves the character FURTHER across
+a longer gap; the same move either way means the frames were produced steadily and only their
+DELIVERY bunched. Positions also differed within each burst, so those were distinct frames written
+separately and arriving together. And the stalls had a **hard floor at exactly 40 ms in both
+clips** -- Linux's delayed-ACK minimum. A timer, not load.
+
+**Cause.** No adapter set `TCP_NODELAY`. The bridge writes one small JSON line per frame, which is
+precisely what Nagle's algorithm coalesces: it holds a small write until the previous segment is
+acknowledged, and the receiver's delayed-ACK timer decides when that is. Under Proton the Windows
+socket calls run on Linux sockets, so it is Linux's 40 ms floor that applies.
+
+**Rules.** **A stream of small, latency-sensitive writes sets `TCP_NODELAY` at every socket, in
+every language** -- it was missing in all four adapters at once (raw Winsock, .NET's `TcpClient`,
+and luasocket, none of which enable it by default) because each was written separately and none had
+a reason to think about it. And the method: **when something "looks" wrong in a replay, measure the
+FILE before touching the game** -- gap distribution, and movement per sample on either side of the
+wide gaps. `dev-scripts/replay-cadence.py` is that check, and it prints the verdict.
