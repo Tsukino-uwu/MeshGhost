@@ -893,6 +893,24 @@ protocol above is actually run and watched.
 
 ---
 
+7. **Distance tiers for ghosts: full / throttled / dormant, never despawned (filed 2026-09-06).**
+   Raised by the user after the part-by-part price list (`adapters/pseudoregalia/UNVERIFIED.md`,
+   2026-09-06): *"should we throttle animations or despawn the ghosts or maybe a mix depending on
+   distance?"* A tester measured the game's own visibility on a replay ghost, in Unreal units:
+   ~4-5k is the farthest an animation can still be made out (5k is half the big + room in the
+   castle); at 10k something is still seen moving against a dark background; ~15k is too far for
+   any detail; 20k is imperceptible without turning fog off; at 30k even the nametag is a speck.
+   **Recommendation:** three tiers -- full fidelity to ~5k; the engine's update-rate throttle on the
+   three skeletal meshes from there to ~20k; beyond that DORMANT (model hidden, animation paused,
+   every tick off, and the adapter skipping its own per-ghost work for that ghost -- which is half
+   a ghost's cost and distance-blind today). Dormant rather than despawned because a spawn is the
+   expensive, leak-prone operation (a fresh 50 reads ~9 ms above a settled 50; every leak this
+   adapter has had lived at spawn/despawn) and a sleeping ghost wakes in one frame. One key in the
+   game's own config (the numbers are that game's units, opaque to the core), e.g. `ghost_range`
+   defaulting to 20,000 with the throttle from a quarter of it and 0 meaning unlimited. **Order of
+   value:** the adapter's own per-ghost slots first (0.25 ms per ghost at every distance, no design
+   decision), then this. The tester's distances are the starting values, to be re-judged on screen.
+
 ## The bandage register (audited 2026-08-16) — moved
 
 Split into one file per adapter, so each game's compensations sit next to its own `README.md`:
