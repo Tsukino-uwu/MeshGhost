@@ -6272,3 +6272,29 @@ exactly the kind of object `probe_dump/` records as address plus declared class 
 reach one. Named property reads through the wrapper are the only safe question; a name, class or
 UFunction on it is a crash. And the chain of "one more quick probe" in a session the user is
 playing in is the loop `before-a-probe.md` warns about: two probes in, the game was gone.
+
+## A fallback that reads as "feature off" is a silent kill: `bRegistered` was not a reflected property, `mg_read_bool(..., false)` said false forever, and no modded sword ever reached a ghost (Pseudoregalia, 2026-09-06)
+
+**Symptom.** Outfits synced between two instances and onto replay ghosts; every modded SWORD did
+not -- each side saw the stock sword on the other's ghost, and a replay recorded with the needle
+showed the stock blade. No warning, no log line: the sync's "wait until the hand mesh is visible
+and registered" branch was the only exit and it said nothing.
+
+**Cause.** `bRegistered` is not a reflected property on this build; the bitfield-aware read
+returns its FALLBACK for a missing property, the fallback was `false`, and false meant "defer".
+A probe of the live ghosts (named reads only) showed the hand mesh visible and holding
+`mainWeapon`, which pointed at the gate rather than at the asset lookup.
+
+**Rule.** A gate on a property's value first asks whether the property EXISTS
+(`mg_cached_property`) and decides what a missing one means -- here "not a gate". A branch that
+turns a feature off logs, once, with the values it saw: the fix took one log line and one relaunch
+once the branch could speak. And "it worked yesterday I think" is a hypothesis: the code path had
+never once applied a modded sword, the outfit path beside it had.
+
+## An asset's declared bounds can lie: one modded outfit says it is 13,558 units tall -- clamp anything read off a mod asset to a window (Pseudoregalia, 2026-09-06)
+
+The nametag placed from the outfit asset's `ExtendedBounds` (stock top 142, a horned outfit 201)
+worked for every outfit tried -- and one ("Krystal") declared a top of 13,558, so its tag sat 13.6k
+units up: *"don't get a nametag visible anywhere at all"*. A 40-400 window falls back to the fixed
+height. **Rule:** a number read off a mod-supplied asset is untrusted input; give it a plausible
+window and a fallback, and log the value that fell outside it.

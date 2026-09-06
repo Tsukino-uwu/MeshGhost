@@ -358,3 +358,28 @@ by name, which does not truncate. Cost one silent monitor and a launch nobody wa
   and the game sees ~1,400 spawns and ~1,660 despawns per round instead of 150 -- a harder leak test
   than intended and NOT a measurement of 150 live ghosts. 50 in one process was clean. The relay
   needs `-max-clients` above the default 8 for any of this (64 and 200 were used).
+
+## Rig facts from the 2026-09-06 ghost-cost day
+
+- **A fake-peer ring around the player:** read the last `STATESEND` line from `UE4SS.log` for the
+  exact `area_id` and position, then `meshghost-fakeadapter.exe -relay 127.0.0.1:7777 -room default
+  -game-id pseudoregalia -clients N -area-id "<area>" -center "<x,y,z>" -dims 3 -radius 250 -period 8
+  -anim idle -yaw-follows-path -extras @dev-scripts/loadtest-extras-pseudoregalia.json`, hidden. One
+  peer at `-radius 1` on a recorded position is an anchor ghost for distance marks.
+- **Kill fake peers with `Get-Process meshghost-fakeadapter | Stop-Process -Force` and print the
+  count left.** A `taskkill` from Git Bash silently did nothing once and three processes (150
+  peers) piled up: `pitfalls/by-lesson.md`.
+- **The live ghost count is `perf_report.txt`'s `nametag` slot, calls divided by frames.** Gate a
+  measurement leg on it, never on a sleep; ghosts take up to a minute to despawn after the peers go.
+- **Game-thread liveness is a game-thread line** (`PERF`, `SPAWNCOST`, a spawn line). The bridge
+  heartbeat comes from UE4SS's own thread and kept printing through two frozen games; `STATESEND`
+  is gated and paused for a minute while the thread was fine.
+- **A client-side change without a relaunch:** kill `meshghost.exe`; the adapter starts a new core
+  that re-reads `replay/active/` and `config.json`. The DLL itself needs the game closed; a watcher
+  that waits for the process to exit, copies the DLL to BOTH installs and prints both hashes was the
+  loop all day (`until ! tasklist | grep -q pseudoregalia-Win64; do sleep 2; done; cp ...`).
+- **Looping replay copies as test subjects:** copy a recording into `replay/active/` with its
+  header's `loop` true, a `name`, a `color` and a `start_delay` per copy -- four copies of one 76 s
+  clip at 0/19/38/57 s put the whole route on screen at once; a clip recorded in a modded outfit
+  gives a ghost wearing it. Every loop end is a despawn + respawn (a core seam).
+- **Two instances write separate logs:** the copy install's `UE4SS.log` is its own; read both.

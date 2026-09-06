@@ -5290,3 +5290,7 @@ build, so a fallback of false deferred every modded sword forever, silently. The
 only when the build reflects the flag, and a deferral logs once per ghost. Both installs' logs
 read back the intended assets, and the user: *"recordings & other ghosts have the correct modded
 swords visually shown now"*.
+
+**Addendum, same night:** the Krystal case is closed too -- with the 40-400 window build deployed
+the user relaunched and: *"Yes it works"*. Every outfit tried tonight (stock, Hornet, the small
+plush, Faith, dreamLady, Krystal) places its tag readably, and swaps move it the same tick.

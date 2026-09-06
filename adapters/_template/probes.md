@@ -2271,3 +2271,26 @@ flag; and **a Lua pre-hook runs after an earlier-registered C++ pre-hook**, so t
 already be rewritten — print pre and post both, and know who registered first.
 
 The shape to copy: `adapters/pseudoregalia/probes/probe_outline/Scripts/hooks.lua`.
+
+## Two censuses a minute apart (2026-09-06)
+
+"fps drifts down slowly" is a population question before it is a per-frame one: count the classes
+that could accumulate (`probe_leakcount/Scripts/census.lua`'s `census_request.txt`), twice, a
+minute apart, with the same scene. A count that climbs and never returns is the leak; the per-frame
+slot that grows with it is only where the bill is paid. Found 3,257 Niagara components (+2/s) in
+one pair of counts; the spawn call's `bAutoDestroy` was the cause.
+
+## Distance marks with an anchor ghost (2026-09-06)
+
+Record the player's position (the adapter's `STATESEND` line), spawn one idle fake peer on it, and
+turn each later `STATESEND` into a distance from that point while the user walks away and calls out
+what they can still make out. Two calls (animation readable / nothing worth drawing) became the
+shipped tier ranges. Switch the tiers off (ranges 0) for the walk, or the anchor ghost is what
+changes instead of the distance.
+
+## Name what a spawn costs, per block (2026-09-06)
+
+A spike "when ghosts spawn" is two halves -- the engine's `SpawnActor` and everything the adapter
+does to the clone afterwards -- and only a timer around each names the owner. QueryPerformanceCounter
+before and after the spawn call, a `mark(label)` after each after-spawn block, one log line per spawn
+with the list. The adapter's half was 19 ms; one block was 18 of it.

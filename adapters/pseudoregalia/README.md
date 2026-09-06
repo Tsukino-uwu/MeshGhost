@@ -6,6 +6,9 @@ recorded the same day in [VERIFIED.md](VERIFIED.md) along with what it explicitl
 so a later session cannot quietly widen it. [UNVERIFIED.md](UNVERIFIED.md) is the live queue of what
 is built but unwatched.
 
+- Mod Support: Archipelago, AttireUiOverhaul(outfits,weapons,after image color)
+assumed to work together with other mods but haven't been tested
+
 Still marked **experimental/pre-release** in the shipped package, which is a different claim: the
 features are there, the breadth of testing is not. Phase 7 (7.0–7.8) is done and 7.7, a real
 two-player test on two machines, was confirmed 2026-08-16; first release package cut 2026-08-13.
@@ -507,3 +510,20 @@ Two things worth knowing before running any of them:
 
 That file's camera fight-back is the one thing in the probes not to copy, and
 [PROBES.md](PROBES.md) says why.
+
+65. **A ghost's cost, cut where it actually was (2026-09-06).** A day of measuring with 8-50 ghosts:
+    the adapter's own per-ghost tick was half the bill and is a third cheaper (cached lookups, one
+    shared enumeration per tick); the fixed cost with no ghosts at all was five whole-world scans on
+    short cadences and is now ~0.2 ms (object registries fed by UE4SS's construction callback); a
+    leak of one-shot effects that never auto-destroyed is closed; and the spike at every spawn was
+    an 18 ms light repair per ghost that the spawn-tick light kill had already made unnecessary --
+    off, spawns spaced one per two ticks. Eight idle ghosts hold the 144 fps cap at the same p95 as
+    none. `UNVERIFIED.md` and `VERIFIED.md`, the 2026-09-06 entries.
+66. **Distance tiers at the user's own marks (2026-09-06).** Full fidelity to 6,500 units, reduced
+    animation rate to 8,500, frozen pose to 10,500, dormant beyond -- model hidden, ticks off, only
+    the nametag left so someone knows a player is there. The numbers come from an anchor ghost and a
+    walk down a castle hall, not from a guess; three config keys, re-read live.
+67. **The nametag knows the outfit, and modded swords reach ghosts (2026-09-06).** The tag sits a
+    fixed gap above the outfit asset's own declared top (clamped to a sane window for an asset that
+    lies), so it moves with every outfit swap; and the weapon-mesh sync no longer waits on a flag
+    this build does not reflect, which had silently kept every modded sword off every ghost.

@@ -271,7 +271,7 @@ no log line on that path. A probe of the live ghosts showed the hand mesh visibl
 the Buster Sword on the small one and on the older replays, and on the copy install for the main
 player's ghost (`p30`), each read back as the intended asset. **Confirmed by the user on screen the same night:** *"recordings & other ghosts have the correct modded swords visually shown now"* -- `VERIFIED.md` 2026-09-06.
 
-## [OPEN] BUILT 2026-09-06 (night) -- the leak behind "fps slowly dropping", and the world walks replaced by event-fed registries
+## [OPEN] BUILT and MEASURED 2026-09-06 (night) -- the leak behind "fps slowly dropping" (fixed), the world walks replaced by event-fed registries (measured), the spawn spike (fixed, confirmed); what is still unwatched is listed at the end
 
 **The user's target, stated that evening:** *"8 ghosts can be assumed to be a pretty small/decent
 expected lobby, i don't think this amount of ghosts should be affecting fps in any bad way at
@@ -309,9 +309,23 @@ cadence. **Expected:** the local half near zero with no ghosts; per ghost ~60 us
 of the loop): both are now hidden and shown explicitly with the tier, and the tier decision moved
 ahead of the per-tick nametag update so a dormant ghost's tag is not redrawn every tick.
 
-**Still open on the way to the target:** the spawn spike itself (a 28-component pawn clone plus
-warm-up), and the loop seam being a despawn + respawn by design (core: `replayPlayer.seam`); an
-interpolation reset without a respawn is the untested idea, core-side.
+**Measured after the registries (same night, the user idle, 144 cap):** the local half 1.29 -> 0.16
+ms; zero ghosts 6.94 ms mean / 6.94 p95; 8 replay ghosts 6.99 / 6.94; 11 ghosts 7.19 / 7.20 --
+8 idle ghosts hold the cap at the same p95 as none. The spawn spike was then named by SPAWNCOST:
+the engine's clone 2.5 ms, the adapter's `FixAllLights` repair 18 ms per spawn -- off by default
+now, confirmed unnecessary on screen (`VERIFIED.md`), spawns spaced one per two ticks; a spawn
+costs the adapter ~0.6 ms of its own work. Tiers A/B at 11 ghosts: tiers off vs on 7.10 vs 7.10
+mean, p95 7.39 vs 6.94.
+
+**Still UNWATCHED as of the end of 2026-09-06:** (a) a dormant ghost's nametag FOLLOWING the peer
+(the last builds keep the tag and move the hidden actor; the user saw tags at the far end before
+that change, not after a peer moved while dormant); (b) a MOVING real peer with the no-use parts
+off (step 2, still on by default, measured at no gain -- the user has not decided whether it
+ships); (c) the five `ls_rest` sub-slots at 50 ghosts (they were read at 11: `ls_afterimg` and
+`ls_vfxmirror` were the growth, and both now read registries); (d) the loop seam as a despawn +
+respawn by design (core `replayPlayer.seam`) -- an interpolation reset without a respawn is the
+untested idea, core-side, and the last visible spike with looping replays; (e) `loop_pose_xf`,
+~25 us per ghost of engine calls (the actor move plus the Blueprint slide handler every tick).
 
 ## [OPEN] BUILT 2026-09-06 (evening), deployed to both installs, UNWATCHED -- the distance tiers, the ambient emitter off, the enemies' animation tick option, and a tester zip
 

@@ -2901,3 +2901,47 @@ decisions: whether step 2 ships (recommendation: not without a measured gain). O
 `loop_pose_xf` (~40 us per ghost of engine calls: `K2_SetActorLocationAndRotation` on a 28-component
 actor plus the Blueprint slide handler every tick — a skip when the slide track is unchanged is the
 untested idea, to be watched on a sliding peer).
+
+## 2026-09-06 (night) — the same session, continued: the leak, the registries, the spawn spike, the tiers' real numbers, the outfit-aware nametag, the swords
+
+**What the user asked, in order:** whether looping replays were leaving something behind (fps
+125-130 -> 112-115 over twenty minutes); then *"8 ghosts ... should not be affecting fps in any bad
+way at all ... no random performance spikes"*; then the distance tiers tuned to where they actually
+stop seeing things; then a nametag that sits right on modded outfits; then why modded swords never
+appeared on other players' ghosts.
+
+**What happened, with the measurement each time.** The census probe twice a minute apart named the
+leak (`NiagaraComponent` 3,257 -> 3,390, never down): the adapter's one-shot effects were spawned
+with auto-destroy off and only the last 32 per ghost were destroyed at despawn; plus the ghost's
+AIController outlived every loop seam. Fixed both. `perf_report.txt` then showed the adapter's LOCAL
+half at 1.3 ms with any ghost count -- five whole-world `FindAllOf` walks on short cadences -- and
+they became object registries fed by UE4SS's StaticConstructObject callback; the first attempt fed
+them by hooking the two Niagara spawn functions and the game thread hung at the first Blueprint
+call, the same freeze the morning's Lua probe had caused, now a host rule. Local half 0.16 ms; 8
+idle ghosts at the cap with zero-ghost p95. A per-spawn timer with checkpoints named the spawn spike:
+`FixAllLights`, 18 of 19 ms, once per ghost; the spawn-tick light kill had already made it
+unnecessary -- confirmed on screen in a dark area, off by default, spawns spaced. An anchor ghost and
+a walk down a castle hall gave the tiers their numbers (6,403 for animation, 10,463 for anything),
+shipped as 6500 / 8500 / 10500 with the nametag kept when dormant (the user's call). The nametag
+now places itself from the outfit asset's declared top (stock 142, a horned outfit 201, a
+mod asset 13,558 -> a 40-400 window), confirmed on six outfits and across swaps. Modded swords
+never reached a ghost because the sync gated on `bRegistered`, not a property on this build, with a
+fallback of false -- confirmed fixed on two instances and two replays.
+
+**Two crashes of my making, filed:** a second "read-only" probe called `GetFullName` on an archetype
+the pawn CDO points at (UE4SS.dll fault); and the Niagara function hooks. `pitfalls/by-lesson.md`
+has both, `checklists/before-a-probe.md` two lines, the host `CLAUDE.md` two rules.
+
+**Rig at the end:** the user closed the games; the relay and fake peers were mine and are stopped
+below; the scratch slot holds the pristine stub; no dev toggle in either install; both installs and
+the desktop zip carry the final DLL. `replay/active/` still holds the user's zip and my four looping
+copies plus two outfit clips -- theirs to keep or clear. Records: `VERIFIED.md` (five entries),
+`UNVERIFIED.md` (the night entry, with the unwatched list), `FLAGS.md` (toggles and constants),
+`docs/config.md`, `README.md` steps 65-67, `running-the-rig.md`, `_template/probes.md`, `ideas.md`
+7-10, `status.md`.
+
+**Handoff.** Unwatched: a dormant ghost's tag FOLLOWING a moving peer; a moving real peer with the
+no-use parts off (step 2 stays on by default, measured at no gain, the user undecided); the
+`ls_rest` sub-slots at 50 ghosts. Next, in the user's order of value: the loop seam as a teleport
+(core, an ADR), the slide-handler skip in `loop_pose_xf`, and the nametag's "sometimes too low" case
+once it has a state name.

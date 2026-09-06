@@ -915,7 +915,32 @@ protocol above is actually run and watched.
    the key there for anyone who wants ghosts further out; both to be re-judged on screen.
    **BUILT 2026-09-06 (evening)** as three keys -- `ghost_range_throttle` 3000, `ghost_range_far`
    5000 (pose frozen), `ghost_range` 10500 (dormant) -- on the user's *"3k+ / 5k+ / 10-11k+"*
-   reading; unwatched as of that entry: `adapters/pseudoregalia/UNVERIFIED.md`.
+   reading; **re-set the same night to the user's MEASURED marks 6500 / 8500 / 10500** (an anchor
+   ghost and a walk down a castle hall: animation readable to ~6,400, nothing worth drawing past
+   ~10,500; `adapters/pseudoregalia/VERIFIED.md`), dormant keeps the nametag by the user's call.
+   At 11 ghosts the tiers were a visibility choice, not a performance one (tiers off vs on: 7.10 vs
+   7.10 ms mean).
+
+8. **The replay loop seam as a teleport, not a despawn + respawn (filed 2026-09-06).** The core's
+   `replayPlayer.seam` drops and re-admits the local peer so the interpolator never blends across
+   the jump -- and on the adapter that is a full release plus a fresh pawn clone (~2.5 ms of engine
+   work, formerly 19 ms of ours) every loop, the last visible spike with looping replays after the
+   day's cuts. The untested idea: a seam that resets the peer's interpolation buffer and lets the
+   next sample teleport the same ghost, core-side; it needs a contract-level way to say "do not
+   interpolate across this sample" (an ADR). Real peers only seam on area changes, where a
+   despawn is needed anyway.
+
+9. **`loop_pose_xf`, the last per-ghost engine cost (filed 2026-09-06).** ~25 us per ghost per
+   tick: `K2_SetActorLocationAndRotation` on a 28-component actor plus the Blueprint slide-timeline
+   handler call every tick. Caching the lookups moved nothing (measured); the calls themselves are
+   the price. Skipping the slide handler when the peer's track value is unchanged is the untested
+   idea, to be watched on a SLIDING peer.
+
+10. **Nametag base from the head bone instead of the asset's bounds (filed 2026-09-06).** The
+    bounds approach places every outfit tried, with a 40-400 window for an asset that lies; a
+    head-socket location would follow crouch and slide (the user's *"sometimes the nametag can be
+    too low"*, not yet pinned to a state) but would not know about tall horns. If the low case gets
+    a name, combine: max of the two.
 
 ## The bandage register (audited 2026-08-16) — moved
 

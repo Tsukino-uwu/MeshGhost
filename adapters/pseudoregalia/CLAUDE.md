@@ -61,6 +61,8 @@ functions, **crashes** on Blueprint ones. Two took the game down on 2026-08-15.
 Blueprint.** If it is Blueprint, poll instead. That change also traded a *confirmed-working*
 mechanism for an unproven one — don't, until the tidier one has been watched.
 
+**`UObjectGlobals::FindAllOf` walks the ENTIRE object array with a superclass compare per object (~1 ms in a lived-in world): never per ghost, never on a short cadence -- a list of "every X" is an `ObjectRegistry` (seeded once, fed by the construction callback, re-seeded on a slow belt), 2026-09-06.**
+
 **Native is not always enough: `NiagaraFunctionLibrary:SpawnSystemAtLocation`/`SpawnSystemAttached`
 hang the game thread when hooked from Lua or C++ (2026-09-06, twice).** "Every new object of class
 X" comes from `Hook::RegisterStaticConstructObjectPostCallback` (`ObjectRegistry`), never a hook on
