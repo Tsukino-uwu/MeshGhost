@@ -2380,6 +2380,16 @@ namespace MeshGhostPseudo
     // Both are eyeball values to be judged on screen, not measurements -- the capsule is ~88 units
     // half-height, so 110 clears the head with a little air.
     constexpr double NAMETAG_HEIGHT_ABOVE_GHOST = 110.0;
+    // The air the STOCK outfit has between its top and the tag at the height above (2026-09-06):
+    // the stock mesh tops out 142 units above its origin and sits 66 below the actor's, so 76
+    // above the actor, 34 under a tag at 110. A taller outfit gets the same air above ITS top
+    // (outfit_mesh_top_above_actor); a shorter one keeps the fixed height.
+    constexpr double NAMETAG_GAP_ABOVE_OUTFIT = 34.0;
+    // The window an outfit's declared top must fall in to be believed, in units above the actor's
+    // origin: the stock outfit is 75, the tallest sane one seen 135, and a mod asset with bogus
+    // bounds said 13,558 (2026-09-06). Outside it the fixed height stands.
+    constexpr double NAMETAG_OUTFIT_TOP_MIN = 40.0;
+    constexpr double NAMETAG_OUTFIT_TOP_MAX = 400.0;
     constexpr float NAMETAG_WORLD_SIZE = 18.0f;
 
     // The colour PLATE: a second text component behind the name, rendering the same string
@@ -7270,11 +7280,11 @@ namespace MeshGhostPseudo
         // the three ranges are keys in the game's `config.json` (this game's units, opaque to the
         // core; 0 disables a tier), re-read on the dev poll so they tune without a relaunch:
         //
-        //   full      < ghost_range_throttle (3000)   everything as today
-        //   throttled >= 3000                         the engine's update-rate optimization on the
+        //   full      < ghost_range_throttle (6500)   everything as today
+        //   throttled >= 6500                         the engine's update-rate optimization on the
         //                                             three skeletal meshes (what `uro` measured:
         //                                             ~2 ms at 50 ghosts)
-        //   far       >= ghost_range_far (5000)       plus the animation paused and the skeleton
+        //   far       >= ghost_range_far (8500)       plus the animation paused and the skeleton
         //                                             frozen: the model still moves as a whole
         //   dormant   >= ghost_range (10500)          hidden, actor tick off, movement tick off,
         //                                             animation paused, and the adapter skips its
@@ -7285,8 +7295,8 @@ namespace MeshGhostPseudo
         //
         // Hysteresis of 5% on the way back in, so a ghost hovering on a boundary does not flap.
         // Every transition is announced once; steady state costs one distance compare per ghost.
-        double g_ghost_range_throttle = 3000.0;
-        double g_ghost_range_far = 5000.0;
+        double g_ghost_range_throttle = 6500.0;
+        double g_ghost_range_far = 8500.0;
         double g_ghost_range = 10500.0;
 
         auto poll_ghost_range_config() -> void
@@ -7364,16 +7374,13 @@ namespace MeshGhostPseudo
             }
             call_bool_ufunction(ghost, STR("SetActorHiddenInGame"), STR("bNewHidden"), dormant);
             call_bool_ufunction(ghost, STR("SetActorTickEnabled"), STR("bEnabled"), !dormant);
-            // The nametag and its plate are components we created on the ghost; whether the
-            // actor's hidden flag reaches them is not something to assume (the user saw tags at
-            // the far end of a loop, 2026-09-06), so they are hidden and shown explicitly.
-            for (UObject* tag_part : {remote.nametag_component, remote.nametag_plate})
-            {
-                if (tag_part)
-                {
-                    call_set_visibility(tag_part, !dormant);
-                }
-            }
+            // The nametag and its plate STAY visible in every tier, dormant included -- the
+            // user's call (2026-09-06), watching a tag across the full length of a hall with the
+            // model gone: *"seeing the vfx/nametag so someone actually know a player is over
+            // there is fine gameplay wise"*. The actor's hidden flag did not reach these two
+            // components (they were created by us), which is what made that visible in the first
+            // place; it is now the design, and the loop keeps a dormant ghost's tag following
+            // the peer (see the dormant branch in game_thread_tick).
             if (UObject** movement = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); movement && *movement)
             {
                 // Only the dormant tier touches the movement component: whether a MOVING peer
@@ -7740,6 +7747,63 @@ namespace MeshGhostPseudo
                 *std::bit_cast<double*>(base + layout.b) = b;
                 *std::bit_cast<double*>(base + layout.c) = c;
             }
+            return true;
+        }
+
+        // **How high the ghost's OUTFIT reaches above the actor's origin (2026-09-06).** The nametag
+        // sat at a fixed height and a modded outfit with tall horns had it inside the head (the
+        // user, with three players the day before: *"textbox inside the head"*). The outfit's
+        // skeletal-mesh ASSET carries its own `ExtendedBounds` (measured on the live pawns: the
+        // stock outfit's top is 142 units above the mesh origin, the horned one's 201), and that
+        // number is static -- it does not bob with the animation the way the component's live
+        // bounds would -- so it is the right thing to place a tag from. Top above the actor =
+        // the mesh's RelativeLocation.Z (it sits at the capsule's foot) + the asset's Origin.Z +
+        // BoxExtent.Z. Offsets are resolved once through reflection, never a struct layout from
+        // memory; three cached property reads per call after that.
+        auto outfit_mesh_top_above_actor(UObject* ghost, double& out_top) -> bool
+        {
+            UObject** mesh = ghost ? mg_property_value<UObject*>(ghost, STR("VisualMesh")) : nullptr;
+            if (!mesh || !*mesh)
+            {
+                return false;
+            }
+            FVector* rel = mg_property_value<FVector>(*mesh, STR("RelativeLocation"));
+            UObject** asset = mg_property_value<UObject*>(*mesh, STR("SkeletalMesh"));
+            if (!rel || !asset || !*asset)
+            {
+                return false;
+            }
+            FProperty* bounds = mg_cached_property(*asset, STR("ExtendedBounds"));
+            if (!bounds)
+            {
+                return false;
+            }
+            static const bool use_float = Version::IsBelow(5, 0);
+            static FProperty* bounds_seen = nullptr;
+            static int32_t origin_z = -1, extent_z = -1;
+            if (bounds_seen != bounds)
+            {
+                bounds_seen = bounds;
+                origin_z = extent_z = -1;
+                UScriptStruct* bs = static_cast<FStructProperty*>(bounds)->GetStruct();
+                FProperty* origin = bs ? bs->FindProperty(FName(STR("Origin"), FNAME_Find)) : nullptr;
+                FProperty* extent = bs ? bs->FindProperty(FName(STR("BoxExtent"), FNAME_Find)) : nullptr;
+                UScriptStruct* vs = origin ? static_cast<FStructProperty*>(origin)->GetStruct() : nullptr;
+                FProperty* z = vs ? vs->FindProperty(FName(STR("Z"), FNAME_Find)) : nullptr;
+                if (origin && extent && z)
+                {
+                    origin_z = origin->GetOffset_Internal() + z->GetOffset_Internal();
+                    extent_z = extent->GetOffset_Internal() + z->GetOffset_Internal();
+                }
+            }
+            if (origin_z < 0 || extent_z < 0)
+            {
+                return false;
+            }
+            const uint8_t* base = reinterpret_cast<const uint8_t*>(*asset) + bounds->GetOffset_Internal();
+            const double oz = use_float ? *reinterpret_cast<const float*>(base + origin_z) : *reinterpret_cast<const double*>(base + origin_z);
+            const double ez = use_float ? *reinterpret_cast<const float*>(base + extent_z) : *reinterpret_cast<const double*>(base + extent_z);
+            out_top = rel->Z() + oz + ez;
             return true;
         }
 
@@ -15462,7 +15526,29 @@ namespace MeshGhostPseudo
         const double gz = ghost_loc.Z();
         // Default the viewer a little to the side so the yaw below is defined even with no pawn
         // in hand; a tag facing an arbitrary direction is better than one facing NaN.
-        const double tag_z = gz + g_nametag_up;
+        // The tag sits a fixed gap above the OUTFIT's top, whatever the outfit -- lifted for a
+        // horned one, lowered for a small one (the user, 2026-09-06, with both looping beside
+        // them at the old fixed height: *"its to low on hornet, and looks a bit high on the
+        // small outfit"*). The gap is the air the stock outfit has today, so the stock outfit
+        // lands exactly where it did; the fixed height is only the fallback for an outfit whose
+        // asset bounds cannot be read. See outfit_mesh_top_above_actor, NAMETAG_GAP_ABOVE_OUTFIT.
+        double tag_z = gz + g_nametag_up;
+        if (double outfit_top = 0.0; outfit_mesh_top_above_actor(static_cast<UObject*>(entry.ghost), outfit_top) &&
+                                     outfit_top >= NAMETAG_OUTFIT_TOP_MIN && outfit_top <= NAMETAG_OUTFIT_TOP_MAX)
+        {
+            // Outside the window the asset's bounds are not to be believed and the fixed height
+            // stands: a modded "Krystal" outfit declared a top 13,558 units up and its tag went
+            // with it (user, 2026-09-06: *"don't get a nametag visible anywhere at all"*).
+            const double placed = outfit_top + NAMETAG_GAP_ABOVE_OUTFIT;
+            tag_z = gz + placed;
+            static std::map<std::string, double> announced_place;
+            if (auto it = announced_place.find(player_id); it == announced_place.end() || std::fabs(it->second - placed) > 1.0)
+            {
+                announced_place[player_id] = placed;
+                Output::send(STR("[MeshGhostPseudo] nametag {}: outfit top {:.0f} above the actor -> tag at {:.0f} (fixed default {:.0f}).\n"),
+                             to_wide_ascii(player_id), outfit_top, placed, g_nametag_up);
+            }
+        }
         double px = gx, py = gy + 1.0, pz = tag_z;
         if (viewer_override)
         {
@@ -20388,6 +20474,20 @@ namespace MeshGhostPseudo
                 }
                 if (remote.distance_tier >= 3)
                 {
+                    // **A dormant ghost keeps its nametag, and the tag keeps following the
+                    // peer (the user's call, 2026-09-06: *"seeing the vfx/nametag so someone
+                    // actually know a player is over there is fine gameplay wise"*).** The tag
+                    // hangs off the hidden actor, so the actor still gets its location write --
+                    // one engine call, ~25 us -- and the tag its update; everything else a ghost
+                    // costs (pose, mirrors, holds, sweeps) is skipped until it wakes.
+                    call_set_actor_location_and_rotation(remote.ghost,
+                                                         FVector(remote.target_x, remote.target_y, remote.target_z),
+                                                         FRotator(remote.target_pitch, remote.target_yaw, remote.target_roll));
+                    if (!g_ghost_nametag_hidden)
+                    {
+                        PerfScope perf_nametag(PERF_NAMETAG);
+                        update_ghost_nametag(remote, pawn_obj, id, have_camera ? &camera_location : nullptr);
+                    }
                     perf_stop(PERF_LOOP_HEAD);
                     continue;
                 }
@@ -22878,8 +22978,24 @@ namespace MeshGhostPseudo
                         // and the edge gate retries next tick, so the model lands the moment the
                         // sword appears -- which is also the first moment anyone could see it.
                         // Read through mg_read_bool: bVisible is a bitfield (the 2026-09-05 audit).
-                        if (!mg_read_bool(mesh, STR("bVisible"), false) || !mg_read_bool(mesh, STR("bRegistered"), false))
+                        // `bRegistered` gates only when the build reflects it (2026-09-06): a
+                        // flag that is not a property reads as its fallback, and a fallback of
+                        // false deferred every modded sword forever -- two instances each saw the
+                        // stock sword on the other's ghost while the outfits synced fine.
+                        const bool registered = mg_cached_property(mesh, STR("bRegistered")) ? mg_read_bool(mesh, STR("bRegistered"), true) : true;
+                        if (!mg_read_bool(mesh, STR("bVisible"), false) || !registered)
                         {
+                            // Said once per ghost (2026-09-06): two replay ghosts wearing modded
+                            // outfits kept the stock sword while their clips carried the needle
+                            // and the Buster Sword, and this branch was the only silent exit.
+                            static std::set<std::string> announced_deferred;
+                            if (announced_deferred.insert(id).second)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] weapon mesh '{}' DEFERRED for ghost {}: hand mesh visible={} registered={} (property present: {}/{}).\n"),
+                                             to_wide_ascii(remote.target_weapon_mesh), to_wide_ascii(id),
+                                             mg_read_bool(mesh, STR("bVisible"), false), mg_read_bool(mesh, STR("bRegistered"), false),
+                                             mg_cached_property(mesh, STR("bVisible")) != nullptr, mg_cached_property(mesh, STR("bRegistered")) != nullptr);
+                            }
                             deferred = true;
                             continue;
                         }

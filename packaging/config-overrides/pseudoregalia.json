@@ -1,7 +1,7 @@
 {
   "_comment": "Staging input for dev-scripts/stage-release.ps1, never shipped: client keys that pseudoregalia's config.json should carry instead of (or in addition to) the root config.json's value. A string replaces or adds a quoted value, a number an unquoted one. Keys starting with _comment are ignored.",
   "_comment_ranges": "The distance tiers (2026-09-06), in this game's own units, read by the mod and re-read while the game runs: reduced animation rate beyond the first, pose frozen beyond the second, dormant (hidden, no cost) beyond the third; 0 disables a step. docs/config.md.",
-  "ghost_range_throttle": 3000,
-  "ghost_range_far": 5000,
+  "ghost_range_throttle": 6500,
+  "ghost_range_far": 8500,
   "ghost_range": 10500
 }

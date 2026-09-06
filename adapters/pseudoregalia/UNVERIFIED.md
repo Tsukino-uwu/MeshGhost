@@ -255,6 +255,23 @@ a clip recorded while the sword was thrown still shows an empty hand, and one re
 pickup still shows the sword. A live peer is the fourth case: pick the sword up, throw it, catch it,
 and the ghost's hand should follow all three edges as it did before.
 
+## [OPEN] FIXED 2026-09-06 (night), applied per the log, the user's eyes still owed -- modded SWORD models never reached a ghost: the sync waited on a flag this build does not reflect
+
+**The report.** Two instances, each wearing a modded sword (a leek, the Buster Sword): each saw the
+STOCK sword on the other's ghost while the outfits synced; two replay ghosts wearing modded outfits
+kept the stock sword although their clips carried `weapon_mesh` (the needle, the Buster Sword).
+
+**The cause.** The weapon-mesh sync refuses to touch the hand mesh until `bVisible` AND
+`bRegistered` read true, through `mg_read_bool` with a fallback of false -- and `bRegistered` is
+not a reflected property on this build, so the fallback deferred every modded sword forever, with
+no log line on that path. A probe of the live ghosts showed the hand mesh visible and holding
+`mainWeapon`. Fix: the flag gates only when the build reflects it; the deferral logs once per ghost.
+
+**After the fix, both installs' logs:** `weapon mesh applied` for the needle on the horned replay,
+the Buster Sword on the small one and on the older replays, and on the copy install for the main
+player's ghost (`p30`), each read back as the intended asset. **Not yet confirmed by the user on
+screen** -- the ask: with both instances up, does the other ghost now carry your modded sword?
+
 ## [OPEN] BUILT 2026-09-06 (night) -- the leak behind "fps slowly dropping", and the world walks replaced by event-fed registries
 
 **The user's target, stated that evening:** *"8 ghosts can be assumed to be a pretty small/decent

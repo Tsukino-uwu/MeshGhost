@@ -5236,3 +5236,46 @@ adapter ~0.6 ms of its own work on top of the engine's clone. The user felt the 
 The three-leg steady-state numbers of the same evening (0 / 8 / 11 ghosts at the 144 cap) are in
 `UNVERIFIED.md`'s night entry; the user's own steady-state read, standing idle with eight replay
 ghosts and three fake peers, is what this entry is not: that reading is theirs to give.
+
+## 2026-09-06 — the distance tiers' numbers are the user's own two marks, measured in a long hall of the lower castle (user-confirmed on screen)
+
+**Method.** The user's position was recorded (`STATESEND`, ZONE_LowerCastle, 4950.8 / 7176.9 /
+-432.8), one idle fake peer named `anchor` was spawned exactly there, and a logger turned each of
+the user's position updates into a distance from it while they walked away down the hall, with
+every tier switched off (all three ranges 0, re-read live) so the anchor ghost stayed at full
+fidelity the whole way.
+
+**The two marks.** *"my current position is about as far as i could reasonably see animations
+properly"* at **6,403 units**; *"about here, its the full room across"* (nothing worth drawing) at
+**~10,463 units**. Yesterday's tester reading (4-5k for animation, ~15k for any detail) and the
+user's earlier estimate (*"barely possible to see someone even at 5k"*) were both off this hall's
+numbers; the measured ones are what ship.
+
+**The settings, and the user's look at them.** `ghost_range_throttle` 6500, `ghost_range_far` 8500,
+`ghost_range` 10500, set live and walked back to the anchor: *"I still see the nametags in the far
+distance, but i think thats probly fine ? i can't see the model or animations etc and think thats
+the main thing we wanted to hide for performance reasons ?, seeing the vfx/nametag so someone
+actually know a player is over there is fine gameplay wise"*. So a dormant ghost keeps its nametag
+by design (the build of the same evening also keeps that tag FOLLOWING the peer, which the build
+they looked at did not -- that part is unwatched). The tier A/B the same evening with 11 ghosts
+idle beside the player: tiers off vs on, 7.10 vs 7.10 ms mean, p95 7.39 vs 6.94 -- at this count
+the tiers are a visibility choice, not a performance one.
+
+## 2026-09-06 — the nametag follows the outfit's height, up and down, across swaps (user-confirmed on screen)
+
+**The defect.** The tag sat a fixed 110 units above the ghost's origin; a modded outfit with tall
+horns had it inside the head (*"textbox inside the head"*, seen the day before with three players),
+a small one had it floating.
+
+**The fix, and how the number was found.** The outfit's skeletal-mesh ASSET carries its own
+`ExtendedBounds`, read off the live pawns by a scratch probe (named property reads only): the
+stock outfit tops out 142 units above the mesh origin, the horned one 201. That value is static,
+so the tag is placed at the outfit's top plus the air the stock outfit has today (34), computed
+every tick from whatever asset the visual mesh holds -- so a swap moves it the same tick. A window
+of 40-400 units guards against an asset that lies: one modded outfit ("Krystal") declares a top
+13,558 units up and had no visible tag at all; it now gets the fixed height.
+
+**The user, with two replay ghosts in modded outfits and their own second instance swapping
+outfits:** *"all other outfits worked great, the name moved/up down properly even after swapping.
+just this specific modded outfit not working"* -- the Krystal case, fixed in the build that
+followed and unwatched as of this entry.
