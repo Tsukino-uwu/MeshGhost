@@ -81,11 +81,17 @@ type fuzzEverythingCfg struct {
 	chaserDelay, chaserSpacing     time.Duration
 	saveLast                       time.Duration
 	recordOnLaunch                 bool
+	// drainBytes is how many bytes the fake adapter reads per drainEvery --
+	// 0 for "as fast as Go can", which is what every fake adapter here did
+	// before 2026-09-07 and is why no seed could ever reach the core's
+	// write-timeout path. See throttledconn_test.go.
+	drainBytes int
+	drainEvery time.Duration
 }
 
 func (c fuzzEverythingCfg) String() string {
-	return fmt.Sprintf("interp=%v localInterp=%v keepalive=%v stale=%v replayStart=%v seek=%v chaser=%v count=%d delay=%v spacing=%v spawn=%v contact=%v split=%v saveLast=%v recordOnLaunch=%v",
-		c.interp, c.localInterp, c.keepalive, c.stale, c.replayStart, c.replaySeek, c.chaserOn, c.chaserCount, c.chaserDelay, c.chaserSpacing, c.spawn, c.contact, c.splitTimes, c.saveLast, c.recordOnLaunch)
+	return fmt.Sprintf("interp=%v localInterp=%v keepalive=%v stale=%v replayStart=%v seek=%v chaser=%v count=%d delay=%v spacing=%v spawn=%v contact=%v split=%v saveLast=%v recordOnLaunch=%v drain=%dB/%v",
+		c.interp, c.localInterp, c.keepalive, c.stale, c.replayStart, c.replaySeek, c.chaserOn, c.chaserCount, c.chaserDelay, c.chaserSpacing, c.spawn, c.contact, c.splitTimes, c.saveLast, c.recordOnLaunch, c.drainBytes, c.drainEvery)
 }
 
 // Small alphabets so a schedule lands inside the compressed clock, plus one
@@ -93,7 +99,18 @@ func (c fuzzEverythingCfg) String() string {
 var (
 	fuzzEverythingDurations = [8]time.Duration{0, 5 * time.Millisecond, 20 * time.Millisecond, 50 * time.Millisecond, 120 * time.Millisecond, 300 * time.Millisecond, -7 * time.Second, 48 * time.Hour}
 	fuzzEverythingCounts    = [8]int{0, 1, 2, 3, 8, 9, -1, 1 << 20}
+	// How fast the adapter DRAINS, in bytes per fuzzEverythingDrainEvery.
+	// 0 is unlimited -- the behaviour every fake adapter here had, kept as
+	// the majority of the alphabet so the ordinary schedules this target was
+	// written for still dominate. The bounded entries span "keeps up with a
+	// small pack" down to "one render line per frame", which is roughly what
+	// a real adapter managed at the count where a tester's session broke.
+	fuzzEverythingDrains = [8]int{0, 0, 0, 0, 64 << 10, 8 << 10, 1 << 10, 256}
 )
+
+// fuzzEverythingDrainEvery is the adapter's frame: one read allowance per
+// tick of this, matching how a game drains its bridge socket.
+const fuzzEverythingDrainEvery = 2 * time.Millisecond
 
 func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 	d := func(i int) time.Duration { return fuzzEverythingDurations[b[i%len(b)]&0x07] }
@@ -115,6 +132,11 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		chaserSpacing:  fuzzEverythingDurations[b[7]&0x07],
 		saveLast:       fuzzEverythingDurations[(b[7]>>3)&0x07],
 		recordOnLaunch: b[7]&0x40 != 0,
+		// Bits 5-7 of b[1], which were free. Growing
+		// fuzzEverythingConfigBytes would invalidate the seed corpus, and
+		// every byte here still had room.
+		drainBytes: fuzzEverythingDrains[(b[1]>>5)&0x07],
+		drainEvery: fuzzEverythingDrainEvery,
 	}
 }
 
@@ -303,12 +325,24 @@ func FuzzEverything(f *testing.F) {
 		go c.ServeBridge(ln)
 		t.Cleanup(func() { c.StopReplays(); c.StopChasers(); c.StopRecording() })
 
+		// SHORT, because the drain rate above can now genuinely stall a write
+		// and the 10s default would spend an entire iteration inside one.
+		// Also the honest deadline for a pipe: there is no kernel buffer here,
+		// so a write blocks the instant the reader stops taking bytes.
+		c.bridgeWriteTimeout = 100 * time.Millisecond
+
 		var fa *fakeAdapter
 		attach := func() {
 			if fa != nil {
 				return
 			}
-			fa = reattachFakeAdapterWith(t, "emerald", func() *fakeAdapter { return dialFakeAdapterPipe(t, ln) })
+			fa = reattachFakeAdapterWith(t, "emerald", func() *fakeAdapter {
+				a, err := dialThrottledFakeAdapterPipeErr(t, ln, cfg.drainBytes, cfg.drainEvery)
+				if err != nil {
+					t.Skipf("bridge pipe closed during teardown: %v", err)
+				}
+				return a
+			})
 		}
 		detach := func() {
 			if fa == nil {

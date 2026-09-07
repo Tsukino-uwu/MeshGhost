@@ -2508,11 +2508,19 @@ func dialFakeAdapterPipe(t *testing.T, l *pipeListener) *fakeAdapter {
 // so a caller that swallows the error is not swallowing a resource problem.
 func dialFakeAdapterPipeErr(t *testing.T, l *pipeListener) (*fakeAdapter, error) {
 	t.Helper()
+	return dialThrottledFakeAdapterPipeErr(t, l, 0, 0)
+}
+
+// dialThrottledFakeAdapterPipeErr is the same dial with the adapter's end
+// capped at drainBytes per drainEvery (throttledconn_test.go). Zero means
+// unlimited, which is what every caller but FuzzEverything wants.
+func dialThrottledFakeAdapterPipeErr(t *testing.T, l *pipeListener, drainBytes int, drainEvery time.Duration) (*fakeAdapter, error) {
+	t.Helper()
 	conn, err := l.dial()
 	if err != nil {
 		return nil, err
 	}
-	return newFakeAdapter(t, transport.FromConn(conn)), nil
+	return newFakeAdapter(t, transport.FromConn(newThrottledConn(conn, drainBytes, drainEvery))), nil
 }
 
 // TestSecondGameOnOneCoreIsAPermanentRefusal pins the classification of a
