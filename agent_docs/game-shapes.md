@@ -908,6 +908,98 @@ Axis C is what makes this section worth writing rather than a shrug, because it 
 
 ---
 
+## 10. Shared-slot co-op — many operators, one player
+
+Every arrangement in §3 and §5 gives each person something of their own: a slot, a body, an AI they
+displace, a role beside yours. **This one does not.** N people operate a *single* player-slot — one
+civilisation, one town, one empire — and divide the work by concern rather than by territory. One
+runs the economy while another handles the military and a third talks to the neighbours, all inside
+the same player.
+
+**It is the arrangement a strategy game's own multiplayer structurally cannot express.** Their online
+seats each player on their own civ; allied or hostile, the unit of play is always one person per
+slot. So §2.5's test — *"does the existing thing deliver what we would deliver"* — comes back clean
+on exception 1: this is a **different product**, not a second copy of something that already works.
+Whether any game in the genre has shipped a shared-control mode is worth **checking rather than
+assuming**; if one has, §2.5's closing reframe applies and it is prior art, not competition.
+
+### 10.1 The two games that feel like one request are not
+
+| | Shape | Seam | Timing | Cost |
+| --- | --- | --- | --- | --- |
+| **A turn-based 4X** | 3 — many units | none needed | **alternating** | §3's cheap column |
+| **A real-time strategy game** | 3 — many units | none needed | **simultaneous** | §3's expensive one |
+
+Same shape, same seam, **opposite timing** — and §3 says timing is the axis that decides cost. So
+"shared-slot co-op in strategy games" is not one question: in a turn-based game it is nearly free,
+and in an RTS it is prediction, rollback and clock sync all over again.
+
+### 10.2 Authority dissolves — and that is the unusual part
+
+Everywhere else in this file, two people acting on one world means arbitration: who owns what, who
+decides, who wins a race. **Sharing a slot deletes the question rather than answering it.** Everyone
+on the slot already has total authority over everything in it, so there is nothing to protect anyone
+from — a co-operator who wanted to ruin your game could simply sell your cities, and no mechanism
+would or should stop them. No ownership, no leases for correctness, no cheating question at all.
+
+**Two operators spending the same 100 gold is not a conflict, it is a sequence.** Both commands enter
+the ordered stream; the first succeeds and the second fails "insufficient funds" — which is a normal
+in-game outcome, the same one a single player gets by clicking twice quickly. §6's *"control is a
+command, and commands serialise"* covers it exactly, and the shared treasury is not an
+exactly-once problem because the game's own spending path already is one.
+
+**And §6's other half is what makes two operators viable at all: selection is local and private.**
+Two people can each have their own camera, their own selection and their own hotkeys over one shared
+command stream, because none of that is shared state. The mechanism was already written; nothing had
+connected it to this use case.
+
+### 10.3 §4 inverts here, which happens nowhere else in this file
+
+Every other seam borrows a slot and eventually runs out, and §4's answer is to degrade the
+representation — a real slot, then a cosmetic ghost, then culled. **Shared-slot co-op fixes the slot
+count at one and lets the number of players be unbounded.** It is the only shape in this document
+where adding a person costs no slot budget whatsoever, which is precisely why it survives in games
+whose player caps are small and whose worlds are large.
+
+### 10.4 What is actually contested: the camera and the clock
+
+§1's shape-3 finding predicted this — *"the genuinely contested resource is the clock, not the
+units"* — and it arrives here intact, joined by a second.
+
+- **The camera.** Two designs, and they differ entirely on this point. **One authoritative instance
+  with remote operators** is correct by construction and cheap on the wire, but it renders one
+  framebuffer, so it is §5.2's *"streaming is one camera by construction"* and every operator after
+  the first is watching someone else's screen. **N instances agreeing on one command stream** gives
+  every operator their own viewport for free, and buys that with lockstep determinism — available in
+  an emulated game, and per [beyond-cosmetic.md](beyond-cosmetic.md) §7 not available in Unity or
+  Unreal.
+- **The clock.** In a turn-based game, *who may end the turn* is a ready-check — §6's day-end consent
+  problem arriving for a fourth time, from a fourth direction. In a real-time one it is pause and
+  game speed, which is §1's colony-sim question verbatim.
+
+### 10.5 A role structure §3 does not have
+
+§3's asymmetric roles are all **hierarchies**: a commander above a body, a helper beside one, an
+antagonist against them. Shared-slot co-op adds a different structure — **peers on the same layer,
+partitioned by concern**. Nobody is above anyone; the split is economy / military / diplomacy rather
+than director / actor. It needs no mechanism at all, because the partition is a social agreement over
+a command stream that already accepts everything from everyone.
+
+### 10.6 What this means for MeshGhost — the halves do not overlap
+
+**The cheap half is real:** a cursor, a camera rectangle and a selection highlight for each
+operator is shape 1, which §1 says the existing contract covers unmodified — `position` is the
+cursor, `area_id` is the screen. No contract change, no writes, no authority.
+
+**And it is close to worthless on its own**, because seeing where a friend is pointing is only
+meaningful if you are both pointing at the same world — and sharing the world is the entire cost.
+This is the file's presence-versus-co-op anticorrelation (§6) in its sharpest form: elsewhere one of
+the two is cheap and *useful*; here the cheap one is cheap and *inert* until the expensive one exists.
+
+**Nothing here is scheduled, no adapter is proposed, and none of it is permission.**
+
+---
+
 ## Links
 
 [beyond-cosmetic.md](beyond-cosmetic.md) (authority, the five models, the readiness gaps) ·
