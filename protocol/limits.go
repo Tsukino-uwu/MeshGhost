@@ -504,6 +504,24 @@ const maxFloatJSONLen = 24
 // recursion would be untested depth for no measured gain, and untested depth on
 // peer-controlled input is how a stack overflow gets written.
 func extrasLengthBound(extras map[string]any) (int, bool) {
+	if extras == nil {
+		// A NIL map is not an empty one, and this bound treated them alike
+		// until CI's fuzz campaign said otherwise (2026-09-07,
+		// testdata/fuzz/FuzzExtrasSizingMatchesMarshal/7f71a2d116d5afde,
+		// whose whole content is the four bytes `null`). encoding/json writes
+		// a nil map as "null", four bytes, where an empty one is "{}", two --
+		// so the len(extras)==0 case below UNDER-estimated by two for every
+		// nil map, and an under-estimate is the one direction a bound must
+		// never go: extrasWithinLimit accepts early on it.
+		//
+		// Harmless where it stands, exactly like the "{}" case beneath it:
+		// four bytes cannot approach MaxExtrasBytes, and extrasWithinLimit
+		// short-circuits len==0 before ever calling this. Fixed for the reason
+		// that case already gives -- a bound that is wrong only where nobody
+		// currently looks is still a bound that is wrong, and this one was
+		// wrong in the unsafe direction.
+		return len("null"), true
+	}
 	if len(extras) == 0 {
 		// Just "{}". Its own case because the comma arithmetic below goes
 		// negative here, which made this the first thing

@@ -310,3 +310,4 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A test double that cannot be SLOW will never find a load defect (core, 2026-09-07) [CHECK: core.TestASlowAdapterIsNeverDetached, and the drain rate fuzzed as an axis in FuzzEverything]
 - N private queues for N followers of ONE stream is quadratic, and the allocation lands on the frame path (core, 2026-09-07) [CHECK: core.TestChaserHistoryIsFlatInTheCount]
 - "The four shipped adapters" is a fact with an expiry date, and only a narrow gate is worth writing (docs, 2026-09-07) [CHECK: `dev-scripts/preflight.ps1` section "Adapter/game counts in living docs", negative-tested on five cases]
+- A nil map and an empty map encode differently, and a size BOUND must never round the difference down (protocol, 2026-09-07) [CHECK: `protocol/testdata/fuzz/FuzzExtrasSizingMatchesMarshal/7f71a2d116d5afde`]

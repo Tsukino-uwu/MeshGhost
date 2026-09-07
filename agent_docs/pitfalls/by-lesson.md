@@ -6544,3 +6544,32 @@ some of it, and a restrictive clause separated a subset from a total.
 (fails), the same number inside a dated line (passes), the same number as a restrictive subset
 (passes), a correct whole-set claim (passes, and the checked-claim COUNT rises, which is what proves
 the gate is not passing vacuously), and the restored tree (passes).
+
+## A nil map and an empty map encode differently, and a size BOUND must never round the difference down (protocol, 2026-09-07)
+
+**Symptom.** CI's fuzz campaign, on an otherwise unrelated push:
+`extrasLengthBound under-estimated: bound=2 actual=4 for "null"`. The minimized input's entire
+content is the four bytes `null`.
+
+**Cause.** `extrasLengthBound` opened with `if len(extras) == 0 { return 2, true }` — "just `{}`".
+That is true of an EMPTY map and false of a NIL one: `encoding/json` writes a nil map as `null`,
+four bytes, and `len()` cannot tell the two apart. So every nil map was bounded two bytes short.
+
+**Why it mattered even though nothing was broken.** `extrasWithinLimit` short-circuits `len == 0`
+before this is ever called, and four bytes cannot approach `MaxExtrasBytes`, so no payload was
+mis-accepted. It was fixed anyway, and the file's own older comment had already made the argument
+for it: *a bound that is wrong only where nobody currently looks is still a bound that is wrong.*
+This one was additionally wrong in the **unsafe direction** — the bound exists so it can accept
+early, never reject early, which makes an under-estimate the one error it must not make.
+
+**The transferable shape.** **`len(x) == 0` is not "x is empty" for a map or a slice you are about
+to encode — it is "empty OR nil", and those serialize differently.** Anywhere a size or a shape is
+derived from a collection, the nil case deserves its own branch before the length test. And when a
+value is a BOUND rather than a measurement, work out which direction an error is safe in and say so
+where the bound is computed; here "may over-estimate, must never under-estimate" is the whole
+contract, and it was only written down after a fuzzer found the one place it was violated.
+
+**Method worth keeping.** The fuzzer found this on a push that touched neither `protocol` nor
+extras. That is the argument for a time-boxed campaign on every push rather than a targeted one:
+the input it needed (`null`) is trivial and had simply never been generated in the years the target
+had existed.
