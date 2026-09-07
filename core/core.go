@@ -410,6 +410,13 @@ type Core struct {
 	// one ghost, both logging a normal "connected". Found 2026-08-16 while
 	// designing the port walk that makes two instances a normal thing to do.
 	attachedAdapter transport.Transport
+	// The outbound queue per bridge connection (core/adapterwriter.go): the
+	// frame path enqueues and a writer goroutine drains, so a slow adapter
+	// costs superseded ghost positions rather than the session. Its own
+	// mutex, never c.mu: enqueue runs on the frame path and from chaser
+	// goroutines, and must not contend with everything else c.mu guards.
+	writerMu sync.Mutex
+	writers  map[transport.Transport]*adapterWriter
 	// bridgeWriteTimeout is the write deadline on every bridge connection;
 	// zero means transport.DefaultWriteTimeout. A test sets it short to
 	// drive the dead-adapter path in milliseconds instead of ten seconds.

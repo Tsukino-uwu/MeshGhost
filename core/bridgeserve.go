@@ -282,6 +282,9 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 // has attached, does nothing.
 func (c *Core) bridgeConnGone(nd transport.Transport) {
 	wasAdapter, owns, relay := c.releaseAdapterSlot(nd)
+	// The outbound queue goes with the connection: anything still in it has
+	// nowhere to land, and its goroutine must not outlive the socket.
+	c.dropWriter(nd)
 	c.finishBridgeTeardown(wasAdapter, owns, relay)
 }
 
@@ -633,22 +636,80 @@ func transportIsClosed(t transport.Transport) bool {
 // the write that fails first, which is why this cannot live on the frame path
 // alone. bridgeConnGone is idempotent, so the read loop's later call is a
 // no-op.
+// IT NO LONGER WRITES. Since 2026-09-07 it enqueues onto the connection's
+// adapterWriter, which never blocks the caller and never fails for slowness --
+// see core/adapterwriter.go for why a slow adapter must not become a dead one.
+// The error it still returns means the connection is FINISHED (closed, or
+// stuck past the queue cap), which is the only case a caller ever needed to
+// distinguish.
 func (c *Core) sendToAdapter(nd transport.Transport, t bridge.MessageType, payload any) error {
-	err := sendBridgeEnvelope(nd, t, payload)
-	if err != nil {
-		// The slot goes NOW, inline: that is the whole point, and it costs one
-		// c.mu section. The teardown that stops replays, chasers and the
-		// recording goes on its own goroutine, because this call site is
-		// wherever a send happened to be -- including inside code holding the
-		// recorder's lock, where running it inline deadlocks (FuzzEverything,
-		// 2026-09-06). Both halves are idempotent; the read loop's own
-		// disconnect call afterwards is a no-op.
+	env, ok := marshalBridge(t, payload)
+	if !ok {
+		return errBridgeMarshal
+	}
+	w := c.writerFor(nd)
+	m := queuedMsg{env: env}
+	switch t {
+	case bridge.TypeRenderRemote:
+		// The one message that may be superseded: it says where a peer IS,
+		// so an unsent one is worthless once a newer one exists.
+		if rr, isRender := payload.(bridge.RenderRemote); isRender {
+			m.renderOf = rr.PlayerID
+		}
+	case bridge.TypeDespawnRemote:
+		// Stop coalescing onto this peer's queued render before the despawn
+		// goes in, so a LATER render (a respawn) lands after the despawn
+		// instead of replacing a message that now sits in front of it.
+		if dr, isDespawn := payload.(bridge.DespawnRemote); isDespawn {
+			w.forgetPending(dr.PlayerID)
+		}
+	}
+	if !w.enqueue(m) {
+		return errBridgeGone
+	}
+	return nil
+}
+
+// writerFor returns this connection's outbound queue, starting it on first
+// use. Keyed by the connection rather than held on the Core because a hello
+// that gets refused is answered on a connection that never became the
+// adapter, and the two must not share a queue.
+func (c *Core) writerFor(nd transport.Transport) *adapterWriter {
+	c.writerMu.Lock()
+	defer c.writerMu.Unlock()
+	if w, ok := c.writers[nd]; ok {
+		return w
+	}
+	if c.writers == nil {
+		c.writers = make(map[transport.Transport]*adapterWriter)
+	}
+	// The dead-adapter handling that used to sit inline on every failed send.
+	// The slot goes NOW; the teardown that stops replays, chasers and the
+	// recording goes on its own goroutine, because this can run while the
+	// recorder's lock is held, where running it inline deadlocks
+	// (FuzzEverything, 2026-09-06). Both halves are idempotent, so the read
+	// loop's own disconnect call afterwards is a no-op.
+	w := newAdapterWriter(nd, func() {
 		wasAdapter, owns, relay := c.releaseAdapterSlot(nd)
 		if wasAdapter || owns {
 			go c.finishBridgeTeardown(wasAdapter, owns, relay)
 		}
+	})
+	c.writers[nd] = w
+	return w
+}
+
+// dropWriter stops and forgets a connection's queue. Called from the same
+// place the admission slot is freed, so a connection's goroutine cannot
+// outlive the connection.
+func (c *Core) dropWriter(nd transport.Transport) {
+	c.writerMu.Lock()
+	w := c.writers[nd]
+	delete(c.writers, nd)
+	c.writerMu.Unlock()
+	if w != nil {
+		w.close()
 	}
-	return err
 }
 
 func sendBridgeEnvelope(nd transport.Transport, t bridge.MessageType, payload any) error {
