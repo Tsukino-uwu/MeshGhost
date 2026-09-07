@@ -16,7 +16,7 @@ REM offset" in README.md before judging anything -- zero interpolation is right 
 REM ghost is offset to the side and you are judging the renderer against the player 1:1,
 REM and wrong when the ghost sits on the player and the delay is the subject.
 REM
-REM For the opposite rig -- shipped 250ms interpolation, shipped send rate, judging what a
+REM For the opposite rig -- shipped interpolation (450ms), shipped send rate, judging what a
 REM real player actually receives -- use run-core-crystal-shipped.bat with
 REM run-relay-loopback-shipped.bat. Those are NOT collapsed into this script deliberately:
 REM the filename is what records which rig produced a reading, and phase9.md has two
