@@ -735,6 +735,58 @@ if ($crlf.Count -gt 0) {
 }
 
 # ---------------------------------------------------------------------------
+# The mirror of the check above, and it exists because the property it guards was held by nothing.
+#
+# dev-scripts/run-core.bat's own header says cmd.exe mis-parses labels and `goto` in an LF-only
+# .bat, and that the first draft "ran straight past its own argument validation and launched a core
+# with an empty -game". Nothing enforced it: .gitattributes had no *.bat rule, so the endings lived
+# in whichever bytes were in each blob. On 2026-09-07 a one-word sed edit to a COMMENT in that file
+# rewrote all of them and stored it as LF -- one line of content diff, tree green, nothing to see.
+#
+# This checks the ATTRIBUTE rather than only the bytes, deliberately. Bytes on this machine say
+# nothing about what a Linux runner or a core.autocrlf=false clone will check out; the attribute is
+# what makes the answer the same everywhere. The byte check is kept as the second half, for the
+# working copy actually in front of you.
+Section "CRLF-pinned batch files"
+$batFiles = @(& git ls-files '*.bat')
+if ($batFiles.Count -lt 5) {
+    Report-Fail "expected to find tracked .bat files and found $($batFiles.Count) -- this check did not run, so it is NOT a clean result"
+} else {
+    $unpinned = @()
+    foreach ($f in $batFiles) {
+        $attr = (& git check-attr eol -- $f) -replace '^.*: eol: ', ''
+        if ($attr -ne 'crlf') { $unpinned += "$f (eol: $attr)" }
+    }
+    if ($unpinned.Count -gt 0) {
+        Report-Fail "$($unpinned.Count) tracked .bat file(s) are not pinned eol=crlf -- add them to .gitattributes, or a clone that does not convert gets LF and cmd.exe mis-parses their labels:"
+        $unpinned | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "all $($batFiles.Count) tracked .bat file(s) are pinned eol=crlf"
+    }
+
+    if ($TreeOnly) {
+        Report-Skip "the on-disk byte check needs a working copy, not just the tree"
+    } else {
+        $lfOnDisk = @()
+        foreach ($f in $batFiles) {
+            if (-not (Test-Path $f)) { continue }
+            $bytes = [IO.File]::ReadAllBytes($f)
+            $sawCRLF = $false
+            for ($i = 1; $i -lt $bytes.Length; $i++) {
+                if ($bytes[$i] -eq 0x0A -and $bytes[$i - 1] -eq 0x0D) { $sawCRLF = $true; break }
+            }
+            if (-not $sawCRLF -and $bytes.Length -gt 0) { $lfOnDisk += $f }
+        }
+        if ($lfOnDisk.Count -gt 0) {
+            Report-Fail "$($lfOnDisk.Count) .bat file(s) are LF in this working copy despite the pin -- refresh them with: git rm --cached -r . ; git reset --hard  (or delete the file and git checkout -- <file>):"
+            $lfOnDisk | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+        } else {
+            Report-Pass "every .bat in this working copy is CRLF on disk"
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Deployed copies in the live game installs"
 if ($TreeOnly) { Report-Skip "needs a working copy, not just the tree" } else {
 

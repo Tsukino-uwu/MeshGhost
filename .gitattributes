@@ -66,3 +66,17 @@ go.sum text eol=lf
 packaging/release/README.txt text eol=crlf
 packaging/release/games/*/README.txt text eol=crlf
 
+# Batch files, for the same reason one line up and with the same history.
+#
+# `dev-scripts/run-core.bat` states the requirement in its own header: "This file MUST keep CRLF
+# line endings. cmd.exe mis-parses labels and `goto` in an LF-only .bat, and the first draft ran
+# straight past its own argument validation and launched a core with an empty -game" (2026-08-25).
+# That was recorded and then protected by nothing: no rule covered *.bat, so the property lived in
+# whichever bytes happened to be in each blob. On 2026-09-07 a one-word sed edit to a COMMENT in
+# that same file rewrote every line ending in it and stored it as LF -- a one-line content diff, a
+# green tree, and no gate anywhere that could see it.
+#
+# Pinned for every .bat rather than the three that use labels today, because "does this script use
+# goto yet" is not a property anyone will re-check before adding one.
+*.bat text eol=crlf
+
