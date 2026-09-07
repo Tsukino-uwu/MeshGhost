@@ -1037,3 +1037,32 @@ No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-0
 - `UNVERIFIED.md`: the "This run" block holds ten READY entries; two "SHIPPED 250ms" headings and the `[DONE]` ladder verdict marked then-shipped / SUPERSEDED by the `[DONE] 450ms` entry; twelve `[READY] Pending —` headings normalised.
 - `dev-scripts/run-core-crystal-shipped.bat` and `dev-scripts/README.md` still said the shipped interp was 250ms; corrected, and the five Crystal `.local.bat` launchers described.
 - This file gained the dated-record note the other logs carry, with a line on why its title still says "spawn-based".
+
+## 2026-09-07 — the stale-fact sweep: one line here, and the gate that found it
+
+No adapter behaviour changed. Part of the repo-wide correctness pass (`phase10.md` has the full
+record); Crystal's share of it was a single comment.
+
+`meshghost_crystal.lua:538` documented what `cd` returned when BizHawk loads a Lua file — the
+measurement that made `pwd` the primary answer in `scriptDir()` rather than the fallback — and
+recorded it as an **absolute path into one developer's clone**. The finding it carries is real and
+stays; only the machine-specific prefix went.
+
+**How it was found is the part worth keeping.** It was not spotted by reading. Every privacy
+scanner in the repo — `.githooks/pre-commit`, `ci.yml`, `release.yml` and `preflight.ps1` — matches
+**home-directory forms only** (the release workflow adds two more of the same shape; read the
+patterns in `preflight.ps1`, which excludes itself for exactly this reason). An absolute path to
+the *repo* is none of those, so it had been sitting in a tracked file in a public repo, invisible
+to four gates, since it was written.
+
+`dev-scripts/zoom.ps1` had the same class of problem and worse — a hardcoded clone path as a
+default *parameter*, so the script only ever ran on one machine. Both are fixed, and preflight
+gained a second grep beside its first, **scoped to scripts** (`*.ps1 *.bat *.sh *.lua *.go *.cs
+*.cpp *.hpp`). The scoping is the design rather than a shortcut: the rule TEXT legitimately quotes
+this path — `CLAUDE.md`, `brief.md`, `claude-md-cap.md` and `ideas.md` all say "ask before touching
+anything outside `<clone>`" — so scanning prose would fail on a clean tree, which is the exact
+failure `preflight.ps1`'s own header warns about. A script that hardcodes the path breaks on
+another machine; prose naming the boundary is the rule working.
+
+Proven to fail before being trusted: a planted line in `zoom.ps1` reported it, and the check went
+green again once removed.
