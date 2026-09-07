@@ -42,6 +42,57 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 		if err := json.Unmarshal(payload, &env); err != nil {
 			return
 		}
+		// ADMISSION APPLIES TO EVERY MESSAGE, NOT JUST HELLO. Only the hello
+		// case checked attachedAdapter, so every other bridge message was
+		// accepted from ANY connection that reached the socket -- including one
+		// whose hello had just been refused with "busy", and including one that
+		// never said hello at all (nothing closes such a connection; the idle
+		// timeout is refreshed by every line).
+		//
+		// What that allowed, all verified in the code: a second local process
+		// could send local_state and have it forwarded to the relay under the
+		// real player's player_id and seq (speaking as them to the whole room);
+		// receive render_remote for every peer, continuously, on a connection
+		// that never handshook; drive replay_control to start and stop their
+		// recordings; and -- when the relay had been connected eagerly, so
+		// relayOwner was nil -- claim relayOwner in onAdapterFrame, so closing
+		// that connection sent the real player's Goodbye and closed their relay
+		// session with auto-retry already disarmed.
+		//
+		// It also made c.lastChaserOfferMs a real data race: recorder.go
+		// justifies its unsynchronised access with "runs on the one goroutine
+		// that delivers adapter frames", which a second delivering connection
+		// falsifies.
+		//
+		// contract.md states the invariant and names the failure it prevents:
+		// two adapters on one core fighting over one player_id, one seq, one
+		// send-rate budget and one area_id. Found by the 2026-09-07 review, by
+		// two agents independently.
+		// WHAT THIS DOES AND DOES NOT CLOSE. It refuses a non-hello message from
+		// a connection while a DIFFERENT one holds the adapter slot. It does not
+		// require a hello: the bridge has always accepted frames from a
+		// connection that never handshook (every fakeAdapter in the test suite
+		// relies on it), and making a hello mandatory is a contract change, not
+		// a bug fix -- filed rather than done here.
+		//
+		// So a process that connects BEFORE the game still gets in. That is the
+		// unauthenticated-loopback-bridge design, which is deliberate and
+		// documented (cmd/meshghost's bridgeIsLoopback), and it needs a decision
+		// rather than a patch. What is closed is every case where a second
+		// connection speaks while the real adapter is attached, which is the one
+		// that needs no race to win.
+		if env.Type != bridge.TypeHello {
+			c.mu.Lock()
+			impostor := c.attachedAdapter != nil && c.attachedAdapter != nd
+			c.mu.Unlock()
+			if impostor {
+				// Silent: this is usually a second copy of the game, whose own
+				// hello already got "busy" and said why. A line per message
+				// would let it flood the log at frame rate.
+				return
+			}
+		}
+
 		switch env.Type {
 		case bridge.TypeHello:
 			var h bridge.Hello
