@@ -224,7 +224,7 @@ signal joins/leaves — `despawn_remote(id)` had nothing to trigger it without a
 | `hello` | client → relay | protocol version, `game_id`, room name, display name and `name_color` (the nametag's colour, `#RRGGBB` or empty; sanitized like the name and never a reason to refuse), `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's `ghost_collision` policy (ADR 0035; advisory, forwarded to the adapter as `session_policy`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
-| `reject` | relay → client | a reason string — sent immediately before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap |
+| `reject` | relay → client | a reason string — the last line written before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap. **The close is graceful, not immediate** — see "Closing a connection" below, which exists because a plain close would have discarded this message |
 | `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a recipient that negotiated `snapshot.v1` — **the RECIPIENT's own capability, not the room's** (`relay/states.go:182-187`), so a room may freely mix members that want a seed and members that do not. Such a client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
 | `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); applied silently, nothing is sent back (the relay's `TypePrefs` case in `relay.go` updates the client's flag under its lock and returns) — a client that wants confirmation observes the next `state` it does or does not receive. Added 2026-08-28; "answered with `prefs_ack`" stood here until 2026-09-06 and no such type ever existed |
 | `leave` | **both directions** | relay → client: a peer's `player_id` — one of the two things that drive `despawn_remote`. **It is no longer the only one: since 2026-08-28 the core also ages a remote out after `DefaultRemoteStaleAfter` of silence** (3s, `core/core.go:172`; `core/remotes.go:172-193`) whether or not a `leave` ever arrives — and since a live peer restates itself every keepalive, that is the path which actually fires when a client vanishes without saying goodbye. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
@@ -755,6 +755,33 @@ ends and the next begins.
   hasn't completed a `hello` and joined a room within `HelloTimeout` (10s by default) — the idle
   deadline alone doesn't cover this, since it resets on any successfully read line, not only a
   completed `hello`.
+
+### Closing a connection — the relay half-closes and drains
+
+**Where the relay writes a line and then hangs up, it does not simply close.** It stops writing,
+keeps *reading* for a bounded drain, and lets the socket close when the peer's own FIN arrives or
+the drain expires (`transport.NDJSONConn.CloseGracefully`; ADR 0055).
+
+**This exists because `Close()` behind unread bytes is a RESET, not a FIN** — and a reset discards
+what is still sitting unread in the *peer's* receive buffer, including the line just written. Every
+place the relay hangs up is a place it has probably not drained the client, so the relay's most
+important messages were the ones most at risk:
+
+| Close site | Why the peer has unread bytes | Drain |
+| --- | --- | --- |
+| Rate-limit disconnect | the client's flood is unread by definition | `rateLimitDrain`, 2s |
+| Refused `hello` | anything written after the hello — a keepalive, a queued state, a second hello | `handshakeCloseDrain`, 2s |
+| `transports` reply to a `query_only` hello | same | `handshakeCloseDrain`, 2s |
+
+**For a client, the consequence is that a `reject` reason can be relied on.** Before this, a lost
+`reject` did not read as a missing message — it read as EOF with no reason, which a core classifies
+as *transient*, so a **permanent** refusal (a game-version mismatch, a wrong room code) was retried
+forever instead of being reported and the bridge closed.
+
+**A transport that cannot half-close falls back to a plain `Close()`.** `CloseGracefully` requires
+`CloseWrite`, so udp and quic are unaffected and nothing is special-cased per transport. The drain
+is a ceiling on a misbehaving client, not a delay paid per refusal: it ends the moment the client
+closes, which a client that read its `reject` does at once.
 
 ## The tick model
 

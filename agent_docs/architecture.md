@@ -205,6 +205,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-04 — The core tells the adapter when it is recording](adr/0052-2026-09-04-the-core-tells-the-adapter-when-it-is-recording.md)
 - [2026-09-05 — The chaser runs on gameplay time, which stops while the player is frozen](adr/0053-2026-09-05-the-chaser-runs-on-gameplay-time.md)
 - [2026-09-01 — The default room send rate drops from 20Hz to 15Hz](adr/0054-2026-09-01-the-default-room-send-rate-drops-from-20hz-to-15hz.md)
+- [2026-09-05 — The relay half-closes and drains instead of resetting, so a last line survives](adr/0055-2026-09-05-the-relay-half-closes-and-drains-instead-of-resetting.md)
 
 ## Prior art
 
