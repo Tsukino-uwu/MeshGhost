@@ -139,8 +139,17 @@ address means all of them still land somewhere useful in one hop. It is also the
 there is nothing to drift. A filename carries its own date, so a citation by date resolves without
 opening anything.
 
-**Every ADR carries a `# YYYY-MM-DD — decision` heading, then the fields:** Date / Decision /
-Status / Context / Options considered / Resolution / Consequences.
+**Every ADR carries a `# YYYY-MM-DD — decision` heading and, at minimum, a `- **Decision:**` and a
+`- **Status:**` line.** Everything after that is free prose under `##` sections.
+
+**The seven-field shape — Date / Decision / Status / Context / Options considered / Resolution /
+Consequences — is the ORIGINAL house style, not the current one, and this paragraph claimed
+otherwise until 2026-09-07.** Counted then: **21 of 55 ADRs carry all seven.** The early ones do;
+everything from 0039 (2026-08-28) onward carries Decision and Status and then writes what the
+decision actually needs. That was not erosion, it was a change of practice — the later ADRs are
+longer and more evidence-heavy, and forcing "Options considered" onto a record whose options were
+never in doubt padded it. Write the two mandatory lines, then say what a reader needs; reach for
+the other five when the decision genuinely turned on alternatives.
 
 **The first 20 had no heading at all until 2026-08-25** — they were bullet blocks separated by
 `---`, so they could not be linked to, indexed, or found by heading search, while the 18 written
@@ -156,24 +165,24 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-08 — Treat `area_id` and `anim` as opaque values in the core](adr/0003-2026-08-08-treat-area-id-and-anim-as-opaque-values-in-the.md)
 - [2026-08-11 — Core and relay are written in Go, shipped as a single static binary per OS](adr/0004-2026-08-11-core-and-relay-are-written-in-go-shipped-as-a.md)
 - [2026-08-11 — Second target game is TEVI, not Ori: Will of the Wisps](adr/0005-2026-08-11-second-target-game-is-tevi-not-ori-will-of-the.md)
-- [2026-08-11 — Relay runs unauthenticated through Phases 3-4; room code is the recorded end goal](adr/0006-2026-08-11-relay-runs-unauthenticated-through-phases-3-4.md)
-- [2026-08-11 — Reserve an opaque event plane and a `features` list, and implement neither now](adr/0007-2026-08-11-reserve-an-opaque-event-plane-and-a-features.md)
+- [2026-08-11 — Relay runs unauthenticated through Phases 3-4; room code is the recorded end goal](adr/0006-2026-08-11-relay-runs-unauthenticated-through-phases-3-4.md) — **SUPERSEDED by 0013**
+- [2026-08-11 — Reserve an opaque event plane and a `features` list, and implement neither now](adr/0007-2026-08-11-reserve-an-opaque-event-plane-and-a-features.md) — **the "neither now" half superseded: both built by 0028**
 - [2026-08-11 — Emerald uses a vendored LuaSocket, not BizHawk's own `comm.*`](adr/0008-2026-08-11-emerald-uses-a-vendored-luasocket-not-bizhawk-s.md)
-- [2026-08-12 — Cap `core.Core`'s actual send rate to the relay](adr/0009-2026-08-12-cap-core-core-s-actual-send-rate-to-the-relay.md)
+- [2026-08-12 — Cap `core.Core`'s actual send rate to the relay](adr/0009-2026-08-12-cap-core-core-s-actual-send-rate-to-the-relay.md) — **default superseded by 0017, then 0054**
 - [2026-08-12 — The adapter declares `game_id` over the bridge, not the user in `config.json`](adr/0010-2026-08-12-the-adapter-declares-game-id-over-the-bridge-not.md)
 - [2026-08-13 — A bridge disconnect closes the relay connection, and a relay drop clears identity](adr/0011-2026-08-13-a-bridge-disconnect-closes-the-relay-connection.md)
 - [2026-08-13 — `Core.remoteStatesAt` filters remotes by `area_id`, unless our own area is unknown](adr/0012-2026-08-13-core-remotestatesat-filters-remotes-by-area-id.md)
 - [2026-08-14 — Add room-code auth and a peer game-version check to `hello`](adr/0013-2026-08-14-add-room-code-auth-and-a-peer-game-version-check.md)
-- [2026-08-14 — Relay lifecycle logging, and permanent vs transient rejects](adr/0014-2026-08-14-relay-lifecycle-logging-and-permanent-vs.md)
+- [2026-08-14 — Relay lifecycle logging, and permanent vs transient rejects](adr/0014-2026-08-14-relay-lifecycle-logging-and-permanent-vs.md) — **its retryable/permanent set superseded by 0017**
 - [2026-08-14 — Two review passes across the Go layer and all three adapters](adr/0015-2026-08-14-two-review-passes-across-the-go-layer-and-all.md)
 - [2026-08-14 — `Core` auto-retries a dropped relay connection](adr/0016-2026-08-14-core-auto-retries-a-dropped-relay-connection.md)
-- [2026-08-15 — Make the room's state send rate operator-configurable at the relay](adr/0017-2026-08-15-make-the-room-s-state-send-rate-operator.md)
+- [2026-08-15 — Make the room's state send rate operator-configurable at the relay](adr/0017-2026-08-15-make-the-room-s-state-send-rate-operator.md) — **default superseded by 0054**
 - [2026-08-15 — A relay may be restricted to a single game (`server.only_game`), off by default](adr/0018-2026-08-15-a-relay-may-be-restricted-to-a-single-game.md)
 - [2026-08-16 — Build `UE4SS.dll` from our pinned submodule, not upstream's release zip](adr/0019-2026-08-16-build-ue4ss-dll-from-our-pinned-submodule-not.md)
 - [2026-08-16 — `transport.NDJSONConn` loses no message before `OnReceive` is registered](adr/0020-2026-08-16-transport-ndjsonconn-loses-no-message-before.md)
-- [2026-08-16 — Selectable transport: `tcp` | `udp` | `quic`](adr/0021-2026-08-16-selectable-transport-tcp-udp-quic.md)
-- [2026-08-16 — Transport discovery: `transport: "auto"`](adr/0022-2026-08-16-transport-discovery-transport-auto.md)
-- [2026-08-16 — Revision: the handshake is always tcp; `transport` is the upgrade target](adr/0023-2026-08-16-revision-the-handshake-is-always-tcp-transport.md)
+- [2026-08-16 — Selectable transport: `tcp` | `udp` | `quic`](adr/0021-2026-08-16-selectable-transport-tcp-udp-quic.md) — **defaults superseded by 0027 §3**
+- [2026-08-16 — Transport discovery: `transport: "auto"`](adr/0022-2026-08-16-transport-discovery-transport-auto.md) — **relay default superseded by 0027 §3**
+- [2026-08-16 — Revision: the handshake is always tcp; `transport` is the upgrade target](adr/0023-2026-08-16-revision-the-handshake-is-always-tcp-transport.md) — **`udp` default superseded by 0027 §3**
 - [2026-08-16 — UDP per-connection token (the second half of the CelesteNet measure)](adr/0024-2026-08-16-udp-per-connection-token-the-second-half-of-the.md)
 - [2026-08-16 — An adapter may start its own local core process (autostart)](adr/0025-2026-08-16-an-adapter-may-start-its-own-local-core-process.md)
 - [2026-08-16 — Amendment to the autostart ADR: the Wine console valve is removed](adr/0026-2026-08-16-amendment-to-the-autostart-adr-the-wine-console.md)
@@ -182,22 +191,22 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-08-17 — Capability scope: room-scoped vs client-scoped, and session takeover](adr/0029-2026-08-17-capability-scope-room-scoped-vs-client-scoped.md)
 - [2026-08-17 — Rooms are keyed by game_id AND name, so a server hosts many games out of the box](adr/0030-2026-08-17-rooms-are-keyed-by-game-id-and-name-so-a-server.md)
 - [2026-08-17 — World custody: the relay holds the world, and four ways of doing it that fail silently](adr/0031-2026-08-17-world-custody-the-relay-holds-the-world-and-four.md)
-- [2026-08-17 — The Go packages leave `internal/` and the module takes its real path](adr/0032-2026-08-17-the-go-packages-leave-internal-and-the-module.md)
+- [2026-08-17 — The Go packages leave `internal/` and the module takes its real path](adr/0032-2026-08-17-the-go-packages-leave-internal-and-the-module.md) — **the pre-1.0 clause superseded: module semver from v1.0.0, 2026-08-30**
 - [2026-08-17 — Crystal spawns a real object event, and MeshGhost writes game memory for the first time](adr/0033-2026-08-17-crystal-spawns-a-real-object-event-and-meshghost.md)
 - [2026-08-18 — Emerald spawns too: the Crystal spawn ADR extends to Emerald, and call-vs-imitate is answered](adr/0034-2026-08-18-emerald-spawns-too-the-crystal-spawn-adr-extends.md)
-- [2026-08-19 — Ghost collision becomes a room policy the host sets, with a client override one way only](adr/0035-2026-08-19-ghost-collision-becomes-a-room-policy-the-host.md)
+- [2026-08-19 — Ghost collision becomes a room policy the host sets, with a client override one way only](adr/0035-2026-08-19-ghost-collision-becomes-a-room-policy-the-host.md) — **AMENDED 2026-08-28 and 2026-09-02; the default is now `disabled`**
 - [2026-08-20 — An adapter may take area visibility away from the core: `render_all_areas`](adr/0036-2026-08-20-an-adapter-may-take-area-visibility-away-from.md)
 - [2026-08-21 — Emulator adapters are Lua-only: no ROM patch, ever](adr/0037-2026-08-21-emulator-adapters-are-lua-only-no-rom-patch-ever.md)
 - [2026-08-21 — Extra hardware sprites come from OAM injection above `gOamLimit`, not HBlank multiplexing](adr/0038-2026-08-21-extra-hardware-sprites-come-from-oam-injection.md)
-- [2026-08-28 — A client stops restating an unchanged state, and brackets its resume so nothing creeps](adr/0039-2026-08-28-a-client-stops-restating-an-unchanged-state.md)
-- [2026-08-28 — The render model becomes three knobs, chosen per game rather than one size fits all](adr/0040-2026-08-28-the-render-model-becomes-three-knobs-chosen-per-game.md)
+- [2026-08-28 — A client stops restating an unchanged state, and brackets its resume so nothing creeps](adr/0039-2026-08-28-a-client-stops-restating-an-unchanged-state.md) — **its 250ms = interp identity broken by 0046**
+- [2026-08-28 — The render model becomes three knobs, chosen per game rather than one size fits all](adr/0040-2026-08-28-the-render-model-becomes-three-knobs-chosen-per-game.md) — **`interp` default superseded by 0046**
 - [2026-08-28 — The relay filters cross-area state, for clients that ask for it](adr/0041-2026-08-28-the-relay-filters-cross-area-state-for-clients-that-ask.md)
 - [2026-08-28 — Every client gets its own outbound queue and writer](adr/0042-2026-08-28-every-client-gets-its-own-outbound-queue-and-writer.md)
 - [2026-08-30 — The core hands the adapter its orientation bracket, and rotation gets interpolated for the first time](adr/0043-2026-08-30-the-core-hands-the-adapter-its-orientation-bracket.md)
 - [2026-09-02 — The first adversarial review, and what it changed](adr/0044-2026-09-02-the-first-adversarial-review-and-what-it-changed.md)
 - [2026-09-02 — Every state carries the sample before it (loss cover for the state plane)](adr/0045-2026-09-02-every-state-carries-the-sample-before-it.md)
 - [2026-09-02 — 450ms interp ships for every game, judged on the worst-case link](adr/0046-2026-09-02-450ms-ships-everywhere-judged-on-the-worst-case-link.md)
-- [2026-09-03 — A replay is a local fake peer: recording, playback, the chaser and split times](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md)
+- [2026-09-03 — A replay is a local fake peer: recording, playback, the chaser and split times](adr/0047-2026-09-03-a-replay-is-a-local-fake-peer.md) — **the 16-peer cap removed 2026-09-06; the bound is `MaxRosterSize`**
 - [2026-09-03 — System-wide hotkeys live in the core process, not in the adapters](adr/0048-2026-09-03-system-wide-hotkeys-live-in-the-core-process.md)
 - [2026-09-03 — A local ghost renders on its own delay, not the network's](adr/0049-2026-09-03-a-local-ghost-renders-on-its-own-delay.md)
 - [2026-09-03 — A relay that is merely down no longer refuses the game](adr/0050-2026-09-03-a-downed-relay-no-longer-refuses-the-game.md)
