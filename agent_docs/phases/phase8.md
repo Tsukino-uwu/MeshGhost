@@ -541,3 +541,32 @@ No adapter code changed. The repo-wide pass (`agent_docs/doc-history.md`, 2026-0
 - `BANDAGES.md`: the drawn-tier entry's "off by default" passages updated for 2026-09-02.
 - `UNVERIFIED.md`: the "This run" block holds ten READY entries as promised (it held 16 mixed bullets); the `[DONE]` "shipped 250ms stands" heading marked SUPERSEDED by 450ms the same day; fourteen `[READY] Pending —` headings normalised.
 - This file's header: "in progress, but the peer-state work is closed / REOPENED" replaced with the live-log framing (the user, 2026-09-06).
+
+## 2026-09-07 — the stale-fact sweep reaches Emerald's docs
+
+No adapter code changed. Part of a repo-wide correctness pass over what the docs assert
+(`phase10.md` carries its full record); this entry covers only what it touched here.
+
+**The one worth remembering is a fabricated measurement.** `BANDAGES.md`'s OAM-pool entry gave the
+engine's back-to-front order as *"reflection 152, ripple 151, blob 150, shadow 148, the character,
+dust 135"*. The source comment it paraphrases (`meshghost_emerald.lua:8384-8386`) is explicitly
+labelled **measured 2026-08-21**, and it lists only reflection 152, surf blob 150, shadow 148 and
+landing dust 135 — no ripple, and no 151. The pool itself is real (12 entries, in the table right
+below), but its subpriority was never taken; `151` was interpolated because it *fits* between 152
+and 150.
+
+**That is worse than a gap, and it is worth naming why.** A number in a list labelled "measured"
+carries the authority of a measurement. Anyone later reading it would have had no reason to re-take
+it, and no way to tell it apart from the four beside it that were genuinely read off the engine.
+The repo's rule against addresses-from-memory exists for exactly this shape, and a doc paraphrasing
+its own source is a place it can slip in without anyone writing a line of code. The entry now says
+where ripple sits (by where it has to draw) and states plainly that its subpriority is unmeasured.
+
+**The rest were ordinary drift.** `README.md:70` named `phase5_5_sprite.lua` without saying it
+lives in `probes/`, in the one bullet whose whole job is telling a reader which file is the shipped
+one — misleading by omission rather than by wording. And `FLAGS.md` gained rows for the two
+`config.json` keys the adapter genuinely reads, `"autostart": false` (`:1090`) and
+`"local_game_bridge"` (`:618`): preflight asserts every `MESHGHOST_*` in source is named in a
+register, but it cannot check the reverse and cannot see a switch that is not an environment
+variable at all, so both keys had been live and unregistered. Its preamble said everything but
+`MESHGHOST_NO_AUTOSTART` was development-only; there are three supported player settings now.

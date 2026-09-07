@@ -3056,3 +3056,44 @@ Preflight caught two things in that new prose and both were real: an elapsed-tim
 date belongs, and a literal count of the shipped adapters, which goes stale the day a fifth game
 lands. Both rewritten; note that the checker fires on the phrasing itself, so even quoting the
 offending words back in a record trips it.
+
+## 2026-09-07 (later) — the stale-fact sweep reaches Pseudoregalia's docs
+
+A repo-wide correctness pass over what the docs assert (its own record is `phase10.md`); this entry
+covers only what it changed under `adapters/pseudoregalia/`. **No code, no DLL, no rebuild — nothing
+here needs the user's eyes on a running game, which is a deliberate property of the scope rather
+than luck.**
+
+**Three findings, all of which would have cost a confirmation session.**
+
+`UNVERIFIED.md`'s distance-tier entry published `(3000)` and `(5000)` against the shipped 6500 /
+8500 / 10500 (`Plugin.cpp:7298-7300`). It read as internally consistent because the third number,
+10500, happens to match — the classic shape of a stale record, where the part that agrees hides the
+part that does not. `FLAGS.md:355` had the right values the whole time, so the queue was the only
+wrong copy and nothing measured was ever in doubt. The user's own quoted marks (*"3k+ throttle, 5k+
+throttle bit more/almost fully, 10-11k+ despawn"*) are left exactly as spoken; only the
+parenthesised constants moved.
+
+The head list still carried **WEAPON MODEL SYNC as READY to watch** while `:308` in the same file
+was `[DONE] FIXED and CONFIRMED 2026-09-06` and `VERIFIED.md:205` carried it. That is the queue
+failing at its one job: the head block is what a confirmation session works down, so a stale READY
+spends a game launch re-watching something already confirmed.
+
+`FLAGS.md` said 96 `constexpr bool` switches, 32 of them `true`. Counted: **97 and 33**. The extra
+is `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` from 2026-09-06 — its Behaviour row landed at `:74` and all
+four arithmetic totals were left behind. Worth noticing that the file already tells you this will
+happen ("treat the figure as a date-stamped measurement, not a total to trust"), which is why the
+dates moved with the numbers rather than the numbers alone.
+
+**Two more, from the same pass.** `README.md:415`'s "150 ghosts, roughly 30 above 50fps" is a dated
+build-story step and keeps its measurement, but sat two screens below its own re-run table showing
+32 peers at 96/106 fps — it gains the one clause saying it was superseded. And the probe header in
+`probes/probe_ghost/Scripts/main.lua` still told the reader to start `run-core-pseudoregalia.bat`,
+deleted 2026-08-25. A probe's "how to run this" header is a **live instruction, not a dated
+record**, so unlike a phase file or a `VERIFIED.md` entry it gets corrected — that distinction is
+the rule the whole sweep runs on.
+
+**Still open here, and NOT fixed in this pass:** `FLAGS.md` names no environment variable at all,
+though the adapter reads `MESHGHOST_BRIDGE_PORT` and `MESHGHOST_NO_AUTOSTART`, and no bridge
+constants (`BridgeClient.hpp:63-86`). Both Lua registers got their missing rows the same day; this
+one needs a new `##` section rather than rows, so it waits on the user.
