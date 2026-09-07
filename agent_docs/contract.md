@@ -756,6 +756,35 @@ ends and the next begins.
   deadline alone doesn't cover this, since it resets on any successfully read line, not only a
   completed `hello`.
 
+### `reject` reasons, and which of them are worth retrying
+
+The reason is **plain text and not a closed set** — a future relay may send one this build has
+never heard of, which is why it is a string rather than an enum (the forward-compatibility rule).
+The nine the relay sends today, `protocol/protocol.go`:
+
+`protocol version mismatch` · `hello field too long` · `invalid room code` ·
+`game mismatch for this room` · `game version mismatch for this room` ·
+`feature set mismatch for this room` · `game not allowed on this relay` · `server full` ·
+`rate limited`
+
+**A client must classify them, and the safe default is the conservative one.** Exactly two are
+retryable — `server full` (someone may leave) and `rate limited` (a reconnecting client re-reads
+the room's advertised `send_hz` and may fit under the cap this time). **Everything else, including
+any reason this build does not recognise, is permanent**: it needs a config change, so retrying
+only spams the relay and leaves the player in a room of one with no explanation
+(`core.isPermanentRejectReason`).
+
+### The `welcome` roster is bounded; the remainder arrives as `join`
+
+**A `welcome` lists at most 32 members** (`relay.maxWelcomeRoster`). In a larger room the rest are
+sent as ordinary `join` messages immediately after it, so **a client that only reads the roster out
+of `welcome` will silently miss peers in a big room** — the `join` handler is not optional.
+
+The bound is a line-length property rather than a policy: a roster id is ~7 bytes and a nametag
+entry ~60 with a maximal name, so 32 keeps the `welcome`'s variable part near 2.2KB, inside
+`MaxLineBytes` (4096) alongside every fixed field — and it stays correct however large rooms are
+later allowed to get, which a bound derived from `MaxClients` would not.
+
 ### Closing a connection — the relay half-closes and drains
 
 **Where the relay writes a line and then hangs up, it does not simply close.** It stops writing,
