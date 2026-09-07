@@ -1000,6 +1000,155 @@ the two is cheap and *useful*; here the cheap one is cheap and *inert* until the
 
 ---
 
+## 11. Unit pools — who holds what, and which cap you hold fixed
+
+**A correction to §1's grammar before anything else.** Shape 4 is defined there as *"a different shape
+per MODE"* — a composition in **sequence**. But shapes also compose **simultaneously**: a game where
+you are one avatar walking around a world who is *at the same time* commanding a bounded squad is
+shape 2 and shape 3 **at once, in one mode**, and neither reading of §1 covers it. That matters here
+because the avatar and the squad turn out to have different limits for different reasons.
+
+### 11.1 The one number that is secretly two
+
+Take a game where a player controls one body and up to some number of units — call it 100 — following
+it. In singleplayer that 100 is a single rule. **With two players it splits into two rules that no
+longer have to agree:**
+
+- **The FIELD cap** — how many units may exist in the world at once. This is an **engine budget**:
+  AI, pathfinding, collision, draw calls. §4 already warns that the scarcest budget is rarely "party
+  size" and is *often dynamic*.
+- **The SQUAD cap** — how many units one avatar may hold. This is **design and UI**: what one person
+  can meaningfully steer, and what the encounters were tuned against.
+
+**Which of the two you hold fixed is the entire design space**, and every arrangement anyone proposes
+is one cell of this table:
+
+| | Field cap | Per-player cap | Ownership | The cap is a… | Encounter balance |
+| --- | --- | --- | --- | --- | --- |
+| **A — one pool, first-come** | 100 | up to 100 | none | **distributed invariant** | preserved |
+| **B — one pool, split** | 100 | **100/N, fixed** | none | **local invariant** | **preserved** |
+| **C — a pool each, sealed** | 100×N | 100 | **invented** | local invariant | broken |
+| **D — one field, a cap each** | 100×N | 100 | none | local invariant | broken |
+| **E — one pool, split by type** | 100 | set by composition | **derived** | local invariant | preserved |
+
+### 11.2 A is dominated by B, and the reason is the general lesson
+
+They look like the same idea — one shared pool of 100 — and they are not. **A lets either player draw
+up to 100, so the pool is contested**: if I hold 60 you may hold 40, and every whistle is a claim
+against a scarce shared resource. That is §6's *"consumes a thing → exactly-once"* row, and it drags
+in §6's make-or-break rule with it: *"Adapters must ask BEFORE acting, never announce after."* **A
+network round trip before every squad change, on a real-time action performed dozens of times a
+minute.** It is the worst pairing available in this file: a contested consumable on simultaneous
+timing.
+
+**B fixes each player's allowance at 100/N and the contention evaporates** — not because it is
+arbitrated better, but because the two allowances sum to 100 *by construction*, so a collision is
+impossible and nobody ever asks permission.
+
+> **Same budget, same total, same fairness — but A makes the cap a DISTRIBUTED invariant and B makes
+> it a LOCAL one.** A distributed invariant needs consensus; a local one needs nothing. Splitting a
+> shared limit statically is almost always cheaper than sharing it dynamically, and this generalises
+> well past unit pools.
+
+### 11.3 The real decision is B versus D, and it is taste, not technique
+
+Both are correct and cheap. They produce different games.
+
+- **B keeps the game as designed.** The field stays at the number the encounters were tuned against,
+  so nothing rebalances — and co-op becomes **coordination under scarcity**: you each have less than
+  a solo player, so you have to actually cooperate. It also **needs no measurement at all**, because
+  it cannot exceed the engine budget: the field total never changes.
+- **D makes co-op additive.** Each player is a whole player, which feels generous and is what most
+  people picture — and it hands every encounter double the force it was built for. Its viability is
+  an **open measurement**, not a choice: doubling a cap §4 calls an engine budget may simply not fit.
+
+That is §5.2's framing again — **a different product, not a worse one.** B's co-op is tighter and
+harder; D's is looser and easier. Neither is the correct answer to a question about netcode, because
+it is not a question about netcode.
+
+**B's one weakness has a cheap repair.** A rigid 50/50 blocks the case where one player needs 60 for
+a single big task while the other needs 10. The fix is to let players **transfer allowance
+explicitly** — a lease over a rare, deliberate act rather than over every squad change, which is
+exactly the *bounded, consensual episode* §6 and [plans.md](plans.md)'s Tier 3 can handle. Local by
+default; one round trip only when somebody deliberately lends.
+
+**B scales and D does not.** 100/N is defined for any number of players; 100×N runs into the engine
+sooner and the balance harder with each one. B's own ceiling is a different shape: at four players
+25 each may fall below the minimum a single carry task needs, at which point the partition stops
+being playable for reasons that have nothing to do with the network.
+
+### 11.4 Why C is the one to avoid
+
+**C invents a concept the game does not have.** §1's shape-3 finding is explicit — *"the world is
+shared and the units are NOT owned"* — and that is not an accident of design, it is how these games
+work: a unit is **held**, not owned. It follows you because you called it, and the moment you drop it
+it is nobody's. There is no persistent per-player tag anywhere, no field for one and no UI for one.
+C has to add all of that.
+
+**And it buys parallel play with it.** Two sealed pools cannot pool labour, so a task needing twenty
+carriers can never be a joint effort — you get two people doing the same thing in the same map, which
+is §5's third design, *"barely co-op, and the cheapest by a wide margin"*.
+
+### 11.5 E — splitting by type instead of by player
+
+The variant that dissolves the cap question rather than answering it: **share one pool, and give each
+player a different unit TYPE.** No number is assigned to anyone; your effective cap is however many
+of your type the group chose to bring, so a numeric limit is replaced by a **compositional** one.
+
+**It is not ownership-free, and the distinction is the interesting part.** If you command one type,
+that type is effectively yours — but a unit's type is **an attribute the game already models**:
+real, visible, in the data, in the UI. So E gets ownership's clarity *without inventing a field*,
+which is a materially different proposition from C. Ownership derived from an existing attribute is
+cheap; ownership as a new per-player tag is not.
+
+**Whether it works at all turns on one property of the type system:**
+
+> **Split by type works where the types are meant to be COMBINED, and fails where they are meant to
+> be CHOSEN.**
+
+- **Combined-arms types** — the kind an RTS builds a battle out of, where the answer to a fight is
+  *all of them at once* — partition beautifully. Every engagement wants every type, so every player
+  has something to do at every moment, and the interdependence is the game's own design rather than
+  an imposed rule.
+- **Lock-and-key types** — the kind where a hazard admits one type and refuses the rest — partition
+  badly. Those types are selected *sequentially*, so a section built around one of them leaves
+  everybody else spectating. **It hands the level designer control of who is relevant this minute**,
+  and they never knew two people would be playing.
+
+**One more limit, and it is what connects E back to §10.** In a game where units are only part of
+what you do, a type-split partitions **one activity, not the game**: economy is not a unit type, so
+nothing in the split says who builds, who gathers or who researches. There, E is not an alternative
+to §10's concern-split — it is a **sub-partition inside the military concern**, and the two compose.
+Where the units *are* the whole game, E partitions everything — which is precisely why the idle-player
+failure bites hardest in exactly the games where E would otherwise be the most natural fit.
+
+### 11.6 The question that survives every option: who eats the loss?
+
+Ownership-free options leave one thing genuinely unanswered. If I take your units into a fight and
+thirty of them die, **whose loss is that?** Under A, B, D and E there is no answer, because there is
+no owner — and that is *correct*, not a gap: the pool is the group's, and so is the mistake.
+
+It is worth naming anyway, because it is [kill-credit.md](kill-credit.md)'s subject approached from
+the side that file has not looked at. That one asks **who gets the reward** for a shared enemy; this
+asks **who bears the cost** for a shared loss. Same machinery, opposite sign, and a game that answers
+the first without the second will feel unfair in a way nobody can point at.
+
+### 11.7 What this means for MeshGhost — the expensive shape
+
+**A ghost of a player in this shape is not one ghost. It is up to 101.**
+
+Every shipped adapter draws one remote body per peer. Here a peer is an avatar *plus* their entire
+squad, and all of it is visible, moving and animated. That lands on two constraints at once: §4's
+slot budget, which is already dynamic and already shared with the game's own spawns, and
+[culling.md](culling.md), which stops being an optimisation and becomes a precondition. **The
+presence-only version of this shape — the cheap tier everywhere else in this file — is dramatically
+more expensive than anything the project has shipped**, and it is the rare case where the *cosmetic*
+layer, not the co-op layer, is what a measurement would have to clear first.
+
+**Nothing here is scheduled, no adapter is proposed, and none of it is permission.**
+
+---
+
 ## Links
 
 [beyond-cosmetic.md](beyond-cosmetic.md) (authority, the five models, the readiness gaps) ·
