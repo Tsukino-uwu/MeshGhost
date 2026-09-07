@@ -533,6 +533,29 @@ the game needs a lobby before play or can be joined in progress:
   somebody's file, and when they leave it goes with them.
 - **A designed level** — nothing to decide. Everyone already has it on disk.
 
+#### Two halves of one game can take different answers
+
+**The three answers above are scoped per MODE, not per game, and a composite can use two
+of them at once.** A game with a player-built base plus seeded, disposable instances is the
+clean case: the instance half is **a seed** — agreed at entry, per-visit, nothing to settle up
+front — while the base half is **a host's save**, because a base someone designed exists only in
+their file. §1's Mystery Dungeon example reads as wholly friendly precisely because *both* its
+halves are instance-shaped; add a persistent authored-by-the-player space and the friendly
+answer covers only one of them.
+
+**The consequence is that the hard half is the one that looks calmer.** The procedural side
+looks like the problem and is the solved one; the base looks like the stable ground and is the
+"join my world" case, with everything that implies about whose file it is and what happens when
+they leave.
+
+**And for a colony-sim base specifically, §10.6's finding applies rather than §1's.** The cheap
+presence tier — a cursor, a camera rectangle, a selection highlight per peer — is shape 1 and
+needs no contract change, and it is inert without a shared world, which is the whole cost. The
+usual "presence is cheap and useful, co-op is expensive" split does not hold in this shape.
+
+> **Rank a composite by its LEAST tractable mode, and check §6 separately for each one.** A game
+> is not a seed game or a host's-save game; each of its modes is one or the other.
+
 **"What happens when two players go for the same thing?"** This splits into two questions that look
 alike and are not, and conflating them is why the answer feels hard.
 

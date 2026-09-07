@@ -108,10 +108,46 @@ The shipped binary is .NET/Mono, Java or Python bytecode, which decompiles back 
   and member names. **You can compile against it, so a wrong name is a build error** — the single
   biggest practical advantage on this list. Excellent free tooling (ILSpy, dnSpy, JADX).
 - **Cons** — Only applies to managed runtimes. Obfuscation can strip names to nonsense. IL2CPP/AOT
-  compilation removes the whole advantage. Decompiled output is still the game's copyrighted code,
+  compilation removes the logic — the method bodies — but not necessarily the names or the
+  compile-time check, so it is a different tier rather than a disqualification; see
+  [IL2CPP](#il2cpp--the-same-engine-a-different-tier-and-not-the-one-the-cons-line-implies)
+  below. Decompiled output is still the game's copyrighted code,
   so it is read for facts and never committed. A game update changes the assembly and needs re-checking.
 - **Here** — **TEVI**, `Assembly-CSharp.dll` via ILSpy. The easiest model the project has used, and
   the direct reason that adapter took about an hour to a following ghost.
+
+#### IL2CPP — the same engine, a different tier, and not the one the cons line implies
+
+**The one-line dismissal above is too strong.** AOT compilation does remove the readable
+method bodies, but where the metadata is unstripped the names survive, and the interop
+assemblies a loader generates from them **restore the compile-time check** — which is this
+row's single biggest advantage. So it lands nearer tier 3 than tier 5, and specifically
+**not** in the pain table's "silence, or a plausible value" row that a reflection-only game sits in.
+
+What is genuinely lost, and it is the half of tier 3 that is not about names:
+
+- **The logic.** Decompiled C++ output is not what §2 means by *reading why the game does
+  something*. Names and signatures, no reasoning.
+- **Stability across patches.** The interop assemblies are regenerated per build and every
+  RVA moves, so a frequently-updated game turns a one-off setup into a standing obligation.
+  That is [game-shapes.md](game-shapes.md) §8.2's rebuilt-binary row arriving through the
+  toolchain rather than through mods.
+- **Whether any of it holds if the metadata IS stripped**, at which point it drops to tier 7
+  and the pain table's bottom two rows.
+
+**The publishability answer is already written and needs no new rule.** Generated interop
+assemblies are derived from the user's own game, so they are approach 3's problem exactly:
+gitignored, user-supplied, CI cannot build the adapter, commit the build output plus the
+staleness gate. No carve-out, and nothing new to decide.
+
+> **Managed-versus-native is the wrong first question. Ask whether a wrong name produces a
+> BUILD ERROR** — that is the axis the pain table ranks, and an AOT game with intact metadata
+> can still answer yes.
+
+**Unmeasured.** No adapter here has been built against IL2CPP; the above is background
+knowledge in the sense the provenance note at the top of the range table means, and the
+loader's actual capabilities are a thing to check on a specific game rather than inherit here.
+
 - **Approved pattern.** Decompiling the user's own local copy to read names, and referencing that
   local DLL via a gitignored `HintPath`, is fine and is how TEVI was built. Neither the DLL nor the
   decompiled output is committed; only our own code is. The one consequence to accept going in is
@@ -325,7 +361,10 @@ game offers. Half an hour of checking beats guessing, and every answer is a cita
 1. **Does it have official mod support?** The game's own docs, its store page, whether it ships a
    mod folder or workshop integration. Best possible answer and the cheapest to check.
 2. **What kind of binary is it?** Look in the install folder. `Assembly-CSharp.dll` means managed
-   Mono (decompilable — TEVI). `GameAssembly.dll` means Unity IL2CPP (native; needs unhollowing).
+   Mono (decompilable — TEVI). `GameAssembly.dll` means Unity IL2CPP (native; needs unhollowing) —
+   and **check whether `global-metadata.dat` is intact**, because that is what decides the tier:
+   with metadata, names and a compile-time check survive; stripped, it drops to pattern scanning
+   ([IL2CPP](#il2cpp--the-same-engine-a-different-tier-and-not-the-one-the-cons-line-implies)).
    `*-Win64-Shipping.exe` plus `.pak` files means Unreal. A `.jar` means Java. This single detail
    largely determines everything else.
 3. **Are there symbol files?** A `.pdb` beside the executable, or a public symbol server.
