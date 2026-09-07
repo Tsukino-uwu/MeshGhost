@@ -43,6 +43,8 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A user confirming the SYMPTOM is gone is not confirmation of the MECHANISM (Pseudoregalia, 2026-09-04) [RULE: checklists/before-declaring-a-fix.md]
 - A property write changes what a component HOLDS, never what it DRAWS — and the neighbour that "worked" was hiding it (Pseudoregalia, 2026-09-05) [RULE: checklists/before-declaring-a-fix.md]
 - A corrective SECOND call must run in the POST hook, and rewriting the argument beats both (Pseudoregalia, 2026-09-04) [RULE: checklists/before-spawning-in-unreal.md]
+- An ordinary edit can rewrite a file's LINE ENDINGS, and every gate reads clean (2026-09-07) [CHECK: preflight.ps1 "CRLF-pinned batch files"]
+- "A file is not there" is a filesystem answer to a HISTORY question (2026-09-07) [RULE: checklists/before-declaring-a-fix.md]
 
 ## By host and subsystem — [by-host.md](by-host.md)
 

@@ -1361,3 +1361,67 @@ ghost's arrival before the theft happened.
 with a second call. If a second call is unavoidable, it goes in the POST hook — and note that an
 intermittent result from a correct-looking fix is a timing signature, not a flaky game.
 [RULE: checklists/before-spawning-in-unreal.md]
+
+## An ordinary edit can rewrite a file's LINE ENDINGS, and every gate reads clean (2026-09-07)
+
+**Symptom.** A one-word `sed -i` change to a *comment* in `dev-scripts/run-core.bat` produced a
+one-line content diff, a green tree and a green preflight — and stored the file as LF where it had
+been CRLF. It kept running here, because `core.autocrlf=true` re-smudges the working copy to CRLF
+on checkout, so the only place the change existed was the blob everyone else clones.
+
+**Why it mattered on that file specifically.** `run-core.bat:34-35` is where the requirement is
+recorded: *"This file MUST keep CRLF line endings. cmd.exe mis-parses labels and `goto` in an
+LF-only .bat, and the first draft ran straight past its own argument validation and launched a core
+with an empty `-game`."* Two more tracked `.bat` files use `goto` — `run-gotests.bat` and
+`run-gotests-race.bat`, both `go test ... || goto :failed` — and both were **already** LF. A label
+that failed to resolve there would let a failing suite fall through to "All Go checks passed".
+
+**What was and was not demonstrated, because the difference decides how much to trust the story.**
+The silent flip is proven. The cmd.exe breakage is *not* — a minimal LF `.bat` with a bare `goto`,
+and a second with a multi-line parenthesised `if`, both behaved identically to their CRLF twins on
+this machine. The 2026-08-25 observation stands as what was seen then; it did not reproduce here.
+**Guard the flip anyway**: it is the half that goes unnoticed either way, and a property that
+depends on which machine checks the tree out is not a property.
+
+**Cause.** Nothing enforced it. `.gitattributes` had rules for `*.go`, `*.sh`, `*.cs`, `go.mod`,
+`.githooks/*` and two `README.txt` globs, and none for `*.bat` — so the endings lived in whichever
+bytes happened to be in each blob. 17 of 22 tracked `.bat` files were already LF.
+
+**Fix.** `*.bat text eol=crlf`, which makes the answer the same on every machine (5 blobs
+renormalised, all 22 now check out CRLF). Plus a preflight section, `CRLF-pinned batch files`,
+which checks the **attribute** first and the bytes second — bytes here say nothing about what a
+Linux runner or a `core.autocrlf=false` clone gets. The attribute half runs under `-TreeOnly`, so
+`docs.yml` enforces it. Both halves were deliberately broken once to prove they can fail.
+
+**The transferable rule.** *A line-ending requirement recorded only in a comment is not enforced.*
+This repo had already learned it once — `.gitattributes:57-59` says the release READMEs' endings
+"used to survive on the raw bytes in the blob rather than on a rule, which held only until
+something rewrote one" — and `.bat` was simply left out of the fix. When a file's format matters,
+pin it where the tooling reads, not where a human does.
+
+## "A file is not there" is a filesystem answer to a HISTORY question (2026-09-07)
+
+**Symptom.** A survey pass reported two documentation references as pointing at files that never
+existed. Both were wrong in the same way: the files *had* existed at exactly the cited paths.
+`packaging/release/games/client-config-template.json` lived there until `0c4bf08f`, and each game's
+`client-config-overrides.json` was **renamed** into `packaging/config-overrides/<game>.json` by
+`6dd8c2ef` (git renders it as a pure rename, zero changed lines).
+
+**Why it matters more than a wrong bug report.** The two possible repairs are opposite. If a path
+was never real, the sentence is wrong and gets rewritten. If it was real on the day it was written,
+a **dated record is correct as written** and only a *living* doc needs the new path — which is
+exactly how it played out: ADR 0040's citation was accurate for its date and was left alone, while
+`scaling.md`'s copy of the same claim was the actual error. Treating absence-now as never-existed
+would have rewritten a decision record to say something that did not happen.
+
+**The check, before calling any reference dead:**
+
+```
+git log --diff-filter=A --all -- '<path>'      # when did it appear?
+git log --diff-filter=D --all -- '<path>'      # when did it go, if it did?
+git show --stat <that commit>                  # deleted, or RENAMED?
+```
+
+**The transferable rule.** *`ls` cannot answer "was this ever true?"* Anything about a path's
+history is a `git log` question, and a rename looks exactly like a deletion to every tool that only
+sees the working tree.
