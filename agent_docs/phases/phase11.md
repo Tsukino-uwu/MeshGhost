@@ -751,3 +751,27 @@ plan made against a ceiling that has since moved is not a plan worth executing.
 
 Left open and NOT a defect yet: some ghosts looked stuck in that run, with a confound I introduced
 (100ms chaser spacing is shorter than a frame at 5-7 fps) -- `pseudoregalia/UNVERIFIED.md`.
+
+**2026-09-07 (night) -- CI caught what the local race job could not, again.** The push went green on
+four of five jobs; "Build, vet, test (race)" failed all three counts of
+`TestGhostCollisionNotPushedBeforeTheRoomHasSpoken`. Not a data race -- a logic failure this session
+introduced and could not see locally, where `run-gotests-race.bat` (`-race -count=3`, CI's exact
+command) had just been clean.
+
+The cause is the one real behavioural change in the coalescing writer: **`sendToAdapter` enqueues
+now, so it returning no longer means the adapter has the message.** Ordering is still exact -- one
+queue, one writer -- but delivery is asynchronous, and that test pushed a session policy and read
+the adapter's inbox on the very next line. On this machine the writer goroutine won; on CI's slower
+Linux runner under the race detector it lost, three times out of three.
+
+Fixed at the root rather than in the one test: `sessionPolicies` now waits for the queue to drain
+before reading, via a `waitAdapterDrained` helper, so a future test asserting on adapter delivery
+cannot reintroduce the race by writing the obvious thing. The hazard is stated on `sendToAdapter`
+itself, where someone will actually meet it.
+
+Only one test in the package was exposed (it is the only one that assigns `attachedAdapter` to a
+recording transport directly), which is the reason the blast radius was one line rather than a
+sweep. The standing lesson holds and gained a sharper edge: **a green local race run is not a green
+CI** -- previously that was said of `run-gotests.bat`, which cannot run `-race` at all; this time
+the local race job itself was green and still wrong, because the defect was a timing window that
+only a slower machine opens.

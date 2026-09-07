@@ -9,6 +9,7 @@ import (
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/protocol"
 	"github.com/Tsukino-uwu/MeshGhost/relay"
+	"github.com/Tsukino-uwu/MeshGhost/transport"
 )
 
 // waitPolicy returns the next session_policy the core pushed, or fails.
@@ -214,8 +215,18 @@ func TestGhostCollisionPolicyArrivesAfterBridgeReady(t *testing.T) {
 
 // sessionPolicies extracts every session_policy the core pushed to this
 // transport, in order.
-func sessionPolicies(t *testing.T, rt *recordingTransport) []string {
+// sessionPolicies reads the session_policy messages an adapter was sent.
+//
+// IT WAITS FOR THE QUEUE FIRST, and that is not defensiveness. Since
+// 2026-09-07 sendToAdapter ENQUEUES rather than writes (core/adapterwriter.go):
+// a writer goroutine drains, so "the call returned" no longer means "the
+// adapter has it". Reading the inbox straight after a push is a race that wins
+// on a fast machine and loses under -race on CI, which is exactly how it was
+// found -- this suite passed locally at -count=3 and failed all three counts on
+// the Linux race job.
+func sessionPolicies(t *testing.T, c *Core, rt *recordingTransport) []string {
 	t.Helper()
+	waitAdapterDrained(t, c, rt)
 	var out []string
 	for _, raw := range rt.all() {
 		var env bridge.Envelope
@@ -255,7 +266,7 @@ func TestGhostCollisionNotPushedBeforeTheRoomHasSpoken(t *testing.T) {
 	c.relayGhostCollision = ""
 	c.relayPolicyKnown = false
 	c.pushSessionPolicy()
-	if got := sessionPolicies(t, rt); len(got) != 0 {
+	if got := sessionPolicies(t, c, rt); len(got) != 0 {
 		t.Fatalf("pushed %v before any Welcome -- an unknown room policy must not be "+
 			"resolved into a physical effect", got)
 	}
@@ -264,7 +275,24 @@ func TestGhostCollisionNotPushedBeforeTheRoomHasSpoken(t *testing.T) {
 	c.relayGhostCollision = protocol.GhostCollisionDisabled
 	c.relayPolicyKnown = true
 	c.pushSessionPolicy()
-	if got := sessionPolicies(t, rt); len(got) != 1 || got[0] != protocol.GhostCollisionDisabled {
+	if got := sessionPolicies(t, c, rt); len(got) != 1 || got[0] != protocol.GhostCollisionDisabled {
 		t.Fatalf("after Welcome the adapter got %v, want one %q", got, protocol.GhostCollisionDisabled)
+	}
+}
+
+// waitAdapterDrained blocks until everything enqueued for nd has been written,
+// so a test can assert on what the adapter received. See sessionPolicies for
+// why this exists at all.
+func waitAdapterDrained(t *testing.T, c *Core, nd transport.Transport) {
+	t.Helper()
+	deadline := time.Now().Add(testTimeout)
+	for {
+		if c.writerFor(nd).queueLen() == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the adapter's outbound queue never drained in %v", testTimeout)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }

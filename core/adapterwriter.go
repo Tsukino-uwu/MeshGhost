@@ -303,6 +303,14 @@ func (w *adapterWriter) close() {
 	}
 }
 
+// queueLen is how many messages are still waiting to be written. Zero means
+// everything enqueued so far has reached the transport.
+func (w *adapterWriter) queueLen() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.q)
+}
+
 // stats reports how far behind the adapter has been running: renders
 // superseded before they could be written, and how many drain passes found
 // work already waiting.

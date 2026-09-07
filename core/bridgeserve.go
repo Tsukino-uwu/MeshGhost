@@ -642,6 +642,14 @@ func transportIsClosed(t transport.Transport) bool {
 // The error it still returns means the connection is FINISHED (closed, or
 // stuck past the queue cap), which is the only case a caller ever needed to
 // distinguish.
+//
+// SO THIS CALL RETURNING NO LONGER MEANS THE ADAPTER HAS THE MESSAGE. Ordering
+// is still exact -- one queue, one writer -- but delivery is not synchronous.
+// Anything that asserts on what the adapter received must wait for the queue to
+// drain (core_test's waitAdapterDrained). That is not theoretical: making this
+// asynchronous turned TestGhostCollisionNotPushedBeforeTheRoomHasSpoken into a
+// race that PASSED locally under -race -count=3 and failed all three counts on
+// CI's Linux race job, which is where it was caught.
 func (c *Core) sendToAdapter(nd transport.Transport, t bridge.MessageType, payload any) error {
 	env, ok := marshalBridge(t, payload)
 	if !ok {
