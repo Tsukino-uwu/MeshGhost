@@ -129,6 +129,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — CI's Linux race job: a refused hello lost its Reject to a reset, so the core retried a permanent refusal
 - 2026-09-06 — The fuzzer's peer space widened past the roster cap, and it deadlocked that same evening's fix at 11.5 s
 - 2026-09-07 — The ~350-ghost bridge ceiling: what it actually was, and the two ceilings found on the way
+- 2026-09-07 (evening) — The coalescing bridge, confirmed on a live 512-chaser run
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1763,3 +1764,35 @@ a bounded drain rate, per adapter frame — and `FuzzEverything` now fuzzes that
 100 s campaign on the previously saturated corpus found 8 new interesting inputs; adding five more
 unfuzzed axes (`player_frozen`, orientation blobs, `render_all_areas`, `interpolate_orientation`,
 `MinSendInterval`, `Extrapolate`) took a 120 s campaign to 19.
+
+## 2026-09-07 (evening) — the coalescing bridge, confirmed on a live 512-chaser run
+
+**Track: Go-side, agent-confirmed** — every claim below is read out of `meshghost.log`, which is
+this client's own output. The user's on-screen impressions from the same run are NOT recorded here;
+they are hedged and sit in `adapters/pseudoregalia/UNVERIFIED.md`.
+
+The user ran Pseudoregalia solo (no relay; chasers are local) on the deployed build, 512 chasers at
+1s delay and 100ms spacing, for about four minutes. From the log:
+
+- **All 512 chasers were admitted** — `chaser:1` through `chaser:512`, 512 distinct ids, each
+  receiving a nametag.
+- **Not one chaser was re-admitted.** `dropLocalPeer` deletes a local peer's nametag, so a
+  despawn/respawn cycle pushes that id's `remote_name` a second time. Zero ids appear twice, which
+  is the log's own evidence that **nothing despawned** for the whole run. The user's independent
+  read agreed.
+- **No `i/o timeout`, no failed send, no dead socket, no relay disconnect.** The same configuration
+  killed a tester's session at ~343 ghosts on 2026-09-06 and ~350 on 2026-09-07.
+- **31 behind/recovered episodes, 4,250 renders superseded, largest single burst 2,012.**
+- The shutdown was correct: the game closed, the write failed with `wsasend: An existing connection
+  was forcibly closed`, the writer goroutine called it gone rather than behind, the slot was freed,
+  and the process exited rather than holding 127.0.0.1:7778.
+
+**And the run found a defect in the reporting, which is why running it mattered.** 23 of the 31
+episodes reported a SINGLE superseded position: the log flapped where it was designed to print once
+each way. Fixed by requiring 256 supersedes within one drain pass before the line prints — a
+threshold read off this run's own numbers (the real episodes were 2012, 284, 275, 211, 180, 75;
+the noise was all 1) rather than guessed.
+
+**The remaining ceiling is now the game, and this run is the first direct evidence of it.** At 512
+ghosts Pseudoregalia rendered at 5-7 fps by the user's report. The bridge is no longer what binds;
+the engine drawing that many characters is, and that is adapter/game territory rather than Go.
