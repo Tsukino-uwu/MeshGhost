@@ -141,6 +141,22 @@ $leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -
 Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
     "no username or home-directory path in tracked files"
 
+# An absolute path to the CLONE, which every scanner in this repo was blind to. All four --
+# .githooks/pre-commit, ci.yml, release.yml and the grep above -- match home-directory forms only,
+# so dev-scripts/zoom.ps1 shipped a hardcoded `<drive>:\dev\MeshGhost\dev-scripts\shots\...`
+# default parameter and passed all of them (found 2026-09-07). It names where one developer keeps
+# the repo and it only ran on that machine, which is machine-identifying in exactly the sense the
+# rule means -- there is simply no username in it for anything to catch.
+#
+# SCRIPTS ONLY, deliberately. The rule text itself legitimately quotes this path -- CLAUDE.md,
+# brief.md, claude-md-cap.md and ideas.md all say "ask before touching anything outside
+# <clone>" -- so scanning prose would fail on a clean tree, which is the failure mode
+# documented at the top of this file. What breaks on another machine is a SCRIPT that hardcodes
+# it; prose naming the boundary is the rule working.
+$clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*.ps1' '*.bat' '*.sh' '*.lua' '*.go' '*.cs' '*.cpp' '*.hpp' ':!dev-scripts/preflight.ps1'
+Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
+    "no script hardcodes an absolute path to the clone"
+
 # ---------------------------------------------------------------------------
 Section "Invented durations"
 

@@ -6,8 +6,12 @@ param([int]$X = 96, [int]$Y = 48, [int]$W = 96, [int]$H = 64, [int]$Scale = 4,
       [string]$In = "",
       [string]$Out = "")
 # Screenshots live in dev-scripts/shots/<game>/ so a session on one adapter cannot bury another's.
-if (-not $In)  { $In  = "C:\dev\MeshGhost\dev-scripts\shots\$Game\shot.png" }
-if (-not $Out) { $Out = "C:\dev\MeshGhost\dev-scripts\shots\$Game\zoom.png" }
+# Resolved from this script's own directory, never a hardcoded clone path: this is a public repo,
+# and an absolute path here worked only on the machine it was written on. It also evaded every
+# privacy scanner in the repo -- .githooks/pre-commit, ci.yml, release.yml and preflight.ps1 all
+# matched only home-directory forms, and an absolute path to the clone is none of those.
+if (-not $In)  { $In  = Join-Path $PSScriptRoot "shots\$Game\shot.png" }
+if (-not $Out) { $Out = Join-Path $PSScriptRoot "shots\$Game\zoom.png" }
 Add-Type -AssemblyName System.Drawing
 $src = [System.Drawing.Image]::FromFile($In)
 $crop = New-Object System.Drawing.Bitmap -ArgumentList $W, $H

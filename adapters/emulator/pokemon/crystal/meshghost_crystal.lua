@@ -535,8 +535,8 @@ local STANDING = 255
 -- one here produced four failed paths on the first run (2026-08-18).
 --
 -- The working directory IS the script's directory when BizHawk loads a Lua file, confirmed live:
--- `cd` returned C:\dev\MeshGhost\adapters\emulator\pokemon\crystal. So pwd is the primary answer here, not
--- the fallback.
+-- `cd` returned the clone's own adapters\emulator\pokemon\crystal. So pwd is the primary answer
+-- here, not the fallback.
 local function scriptDir()
 	local info = debug.getinfo(1, "S")
 	if info and info.source and info.source:sub(1, 1) == "@" then
