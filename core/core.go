@@ -46,6 +46,25 @@ func (e *RejectError) Error() string {
 	return fmt.Sprintf("core: relay refused connection: %s", e.Reason)
 }
 
+// AlreadyServingError is a refusal this Core makes on its own account, not
+// one the relay made: a bridge hello arrived for a different game_id than the
+// one this process is already connected as, and a Core holds exactly one
+// relay session with one game identity (the 2026-08-16 one-adapter ADR).
+//
+// It is a separate type from RejectError on purpose. RejectError's message
+// says "relay refused connection", which would be a lie here — the relay was
+// never asked — and that string is what reaches the adapter and the player.
+// What the two share is the only property the callers actually test: no
+// amount of retrying fixes it, so IsPermanentRejectErr reports true for both.
+type AlreadyServingError struct {
+	Connected string // the game_id this Core is already serving
+	Requested string // the game_id the new hello asked for
+}
+
+func (e *AlreadyServingError) Error() string {
+	return fmt.Sprintf("core: already connected to the relay as game %q, cannot also serve %q on the same process", e.Connected, e.Requested)
+}
+
 // asRejectReason extracts Reason from err if it is (or wraps) a
 // *RejectError.
 func asRejectReason(err error) (reason string, ok bool) {
@@ -75,12 +94,21 @@ func isPermanentRejectReason(reason string) bool {
 	return true
 }
 
-// IsPermanentRejectErr reports whether err represents a relay Reject whose
-// reason won't resolve on its own with a retry. Exported so a caller with
-// its own retry loop (cmd/meshghost's eager -game path) can decide whether
-// to keep trying or give up, using the same classification
-// ConnectRelayOnAdapterHello already applies to itself.
+// IsPermanentRejectErr reports whether err is a refusal that won't resolve on
+// its own with a retry — either a relay Reject with such a reason, or this
+// Core's own AlreadyServingError. Exported so a caller with its own retry loop
+// (cmd/meshghost's eager -game path) can decide whether to keep trying or give
+// up, using the same classification ConnectRelayOnAdapterHello already applies
+// to itself.
+//
+// Every caller asks the same question — "is this final, so should I stop
+// retrying and tell someone?" — which is why a local refusal belongs here
+// rather than in a second predicate each of them would have to remember.
 func IsPermanentRejectErr(err error) bool {
+	var serving *AlreadyServingError
+	if errors.As(err, &serving) {
+		return true
+	}
 	reason, ok := asRejectReason(err)
 	return ok && isPermanentRejectReason(reason)
 }

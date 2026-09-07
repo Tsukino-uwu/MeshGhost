@@ -501,7 +501,13 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			}
 			return nil
 		}
-		return fmt.Errorf("core: already connected to the relay as game %q, cannot also serve %q on the same process", connectedGame, gameID)
+		// A *AlreadyServingError rather than a plain fmt.Errorf, because the
+		// difference decides what happens to the adapter. bridgeserve.go only
+		// refuses a hello when IsPermanentRejectErr says the failure is final;
+		// a plain error read as "not final", so this adapter was accepted, got
+		// bridge_ready, and retryRelayForSoloAdapter then span forever on an
+		// error that can never clear. Found 2026-09-07.
+		return &AlreadyServingError{Connected: connectedGame, Requested: gameID}
 	}
 
 	c.mu.Lock()

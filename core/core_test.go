@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
 	"math"
 	"net"
@@ -2512,4 +2513,64 @@ func dialFakeAdapterPipeErr(t *testing.T, l *pipeListener) (*fakeAdapter, error)
 		return nil, err
 	}
 	return newFakeAdapter(t, transport.FromConn(conn)), nil
+}
+
+// TestSecondGameOnOneCoreIsAPermanentRefusal pins the classification of a
+// bridge hello for a game_id this Core is not the one it is already serving.
+//
+// A Core holds exactly one relay session with one game identity (the
+// 2026-08-16 one-adapter ADR), so this can never succeed and no amount of
+// retrying changes that. The classification is what the whole behaviour hangs
+// on: bridgeserve.go refuses a hello only when IsPermanentRejectErr says the
+// failure is final, so while this returned a plain fmt.Errorf the mismatched
+// adapter was ACCEPTED -- it took the adapter slot, was sent bridge_ready, and
+// retryRelayForSoloAdapter then span forever on an error that could never
+// clear. bridgeserve.go's own comment already assumed this case reached
+// rejectBridge; it did not. Found and fixed 2026-09-07.
+//
+// Fails without the fix: IsPermanentRejectErr is false for a plain error.
+func TestSecondGameOnOneCoreIsAPermanentRefusal(t *testing.T) {
+	s := relay.NewServer()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go s.Serve(ln)
+
+	c := New()
+	c.RelayAddr = ln.Addr().String()
+	c.Room = "room1"
+	c.DisplayName = "alice"
+	c.DialTimeout = testTimeout
+
+	if err := c.ConnectRelayOnAdapterHello("emerald", "", nil); err != nil {
+		t.Fatalf("first connect as emerald: %v", err)
+	}
+
+	err = c.ConnectRelayOnAdapterHello("crystal", "", nil)
+	if err == nil {
+		t.Fatal("a second game_id on one core must be refused, got nil")
+	}
+
+	var serving *AlreadyServingError
+	if !errors.As(err, &serving) {
+		t.Fatalf("want *AlreadyServingError, got %T: %v", err, err)
+	}
+	if serving.Connected != "emerald" || serving.Requested != "crystal" {
+		t.Errorf("error names the wrong games: connected=%q requested=%q, want emerald/crystal",
+			serving.Connected, serving.Requested)
+	}
+
+	// The property the defect actually turned on: without this, bridgeserve.go
+	// accepts the adapter and retryRelayForSoloAdapter never terminates.
+	if !IsPermanentRejectErr(err) {
+		t.Fatalf("a second game_id must classify as permanent, or the bridge accepts it and retries forever: %v", err)
+	}
+
+	// And it must NOT claim the relay refused anything -- the relay was never
+	// asked. This string reaches the adapter through rejectBridge.
+	if strings.Contains(err.Error(), "relay refused") {
+		t.Errorf("message blames the relay for a local refusal: %q", err.Error())
+	}
 }
