@@ -25,7 +25,7 @@ name: Hygiene
 # three copies (hook, ci.yml, preflight.ps1) and a comment in each saying "change one,
 # change all three" -- which is a rule that had already been broken once, when
 # agent_docs/pitfalls/ was split out on 2026-08-25 and CI failed on its own documentation
-# for a day. Two copies is better than four.
+# until it was noticed on 2026-08-26. Two copies is better than four.
 on:
   push:
   pull_request:
@@ -65,7 +65,7 @@ jobs:
       - name: Scan binaries for user paths and clone paths
         run: |
           # -I is DEFINED as "treat a binary file as containing no match", so the grep above
-          # -- and the hook, and preflight, for months -- could not see the one file type a
+          # -- and the hook, and preflight, from 2026-08-23 to 2026-09-07 -- could not see the one file type a
           # path reaches without anyone typing it: a toolchain embeds the build directory in
           # a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings.
           # A tracked, SHIPPED UE4SS.dll carried the maintainer's Windows username 86 times

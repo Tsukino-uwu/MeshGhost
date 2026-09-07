@@ -918,9 +918,18 @@ Section "Markdown link integrity"
 # and hyphens removed, spaces to hyphens, and a `-1`, `-2` suffix for a repeated heading.
 $rootFull = (Resolve-Path -LiteralPath $root).Path
 $slugCache = @{}
+# -Encoding UTF8 ON EVERY RAW READ, added 2026-09-08. Windows PowerShell 5.1 -- the edition this
+# script runs under -- defaults Get-Content to the system ANSI codepage, so a UTF-8 em dash in a
+# heading came back as three mojibake characters, two of which .NET counts as word characters. The
+# slug for "IL2CPP -- the same engine..." became "il2cpp-a-the-same-engine..." and the check
+# reported a CORRECT anchor as broken (agent_docs/access-models.md, found by this file failing on
+# somebody else's commit). It fails in the noisy direction here, but the same mangling would just
+# as happily hide a real break in a heading that contains any non-ASCII character -- and this
+# repo's prose is full of them. Every raw read in this file was patched, not only the one that
+# happened to be caught.
 function Get-HeadingSlugs($mdPath) {
     if ($slugCache.ContainsKey($mdPath)) { return $slugCache[$mdPath] }
-    $body = (Get-Content -Raw -LiteralPath $mdPath) -replace '(?s)```.*?```', ''
+    $body = (Get-Content -Raw -Encoding UTF8 -LiteralPath $mdPath) -replace '(?s)```.*?```', ''
     $seen = @{}
     foreach ($h in [regex]::Matches($body, '(?m)^#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$')) {
         $t = $h.Groups[1].Value
@@ -946,7 +955,7 @@ $linkCount = 0
 foreach ($md in $trackedMd) {
     $dir = Split-Path -Parent $md
     if (-not $dir) { $dir = "." }
-    $body = (Get-Content -Raw -LiteralPath $md) -replace '(?s)```.*?```', ''
+    $body = (Get-Content -Raw -Encoding UTF8 -LiteralPath $md) -replace '(?s)```.*?```', ''
     foreach ($m in [regex]::Matches($body, '(?<!\!)\]\(([^)#\s]*)(#[^)\s]*)?\)')) {
         $target = $m.Groups[1].Value
         $anchor = $m.Groups[2].Value
@@ -988,7 +997,7 @@ if ($badAnchors.Count -gt 0) {
 # /blob/docs/security.md and 404'd, live on 2026-09-06, while the same file read fine in the normal
 # file view. Absolute URLs are the only form that works in both places.
 if (Test-Path -LiteralPath '.github/SECURITY.md') {
-    $secBody = (Get-Content -Raw -LiteralPath '.github/SECURITY.md') -replace '(?s)```.*?```', ''
+    $secBody = (Get-Content -Raw -Encoding UTF8 -LiteralPath '.github/SECURITY.md') -replace '(?s)```.*?```', ''
     $secRel = @([regex]::Matches($secBody, '(?<!\!)\]\(([^)\s]+)\)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -notmatch '^[a-z]+:' -and -not $_.StartsWith('#') })
     if ($secRel.Count -gt 0) {
         Report-Fail ".github/SECURITY.md has $($secRel.Count) relative link(s); the Security tab cannot resolve them -- use absolute URLs:"
@@ -1040,7 +1049,7 @@ $canon = @(
 )
 foreach ($rule in $canon) {
     $homePat = if ($rule.HomePattern) { $rule.HomePattern } else { $rule.Pattern }
-    $homeText = if (Test-Path $rule.Home) { Get-Content -Raw -LiteralPath $rule.Home } else { "" }
+    $homeText = if (Test-Path $rule.Home) { Get-Content -Raw -Encoding UTF8 -LiteralPath $rule.Home } else { "" }
     if ($homeText -notmatch $homePat) {
         Report-Fail "'$($rule.Name)' is registered as living in $($rule.Home), but that file does not state it"
         continue
@@ -1521,7 +1530,7 @@ Section "Licensing gate"
 # citations need no check. So the gate covers LIVING docs and exempts the three brainstorm files and
 # the records: every github.com/<owner>/<repo> cited in scope must appear (owner/repo,
 # case-insensitive) in licensing.md.
-$licText = Get-Content -Raw -LiteralPath 'agent_docs/licensing.md'
+$licText = Get-Content -Raw -Encoding UTF8 -LiteralPath 'agent_docs/licensing.md'
 $licExempt = @('agent_docs/ideas.md', 'agent_docs/candidate-games.md', 'agent_docs/security-design.md', 'agent_docs/doc-history.md')
 $licScope = @($trackedMd | Where-Object {
     ($_ -like 'agent_docs/*' -and $_ -notlike 'agent_docs/phases/*' -and $_ -notlike 'agent_docs/pitfalls/*') -or
@@ -1530,7 +1539,7 @@ $licScope = @($trackedMd | Where-Object {
 } | Where-Object { $licExempt -notcontains $_ -and $_ -notlike '*VERIFIED.md' })
 $unlicensed = @(); $cited = 0
 foreach ($md in $licScope) {
-    $t = Get-Content -Raw -LiteralPath $md
+    $t = Get-Content -Raw -Encoding UTF8 -LiteralPath $md
     foreach ($m in [regex]::Matches($t, 'github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)')) {
         $repo = $m.Groups[1].Value -replace '\.git$', ''
         if ($repo -match '/MeshGhost$') { continue }   # this project's own URL is not a third party
@@ -1574,7 +1583,7 @@ $flagSets = @(
 $flagMissing = @(); $flagsSeen = 0
 foreach ($fs in $flagSets) {
     if (-not (Test-Path -LiteralPath $fs.Register)) { Report-Fail "$($fs.Register) is missing"; continue }
-    $reg = Get-Content -Raw -LiteralPath $fs.Register
+    $reg = Get-Content -Raw -Encoding UTF8 -LiteralPath $fs.Register
     $srcFiles = @(& git ls-files -- $fs.Files)
     foreach ($f in $srcFiles) {
         foreach ($line in (Get-Content -LiteralPath $f)) {
@@ -1689,7 +1698,7 @@ foreach ($name in $bridgeSources.Keys) {
         $bridgeProblems += "$name -- source not found at $($missingSrc -join ', ')"
         continue
     }
-    $text = ($bridgeSources[$name] | ForEach-Object { Get-Content -Raw -LiteralPath $_ }) -join "`n"
+    $text = ($bridgeSources[$name] | ForEach-Object { Get-Content -Raw -Encoding UTF8 -LiteralPath $_ }) -join "`n"
 
     # C# spells these BridgePortCount / DefaultBridgePort; the others use the SCREAMING form.
     if ($text -match 'BRIDGE_BASE_PORT\s*(?:=|\s)\s*(\d+)') { $basePorts[$name] = [int]$Matches[1] }
@@ -1995,7 +2004,7 @@ $wfDir = Join-Path $root ".github\workflows"
 if (Test-Path $wfDir) {
     $uses = @{}
     foreach ($wf in Get-ChildItem -LiteralPath $wfDir -Filter *.yml) {
-        foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $wf.FullName),
+        foreach ($m in [regex]::Matches((Get-Content -Raw -Encoding UTF8 -LiteralPath $wf.FullName),
                 'uses:\s*([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)@(v[0-9]+)')) {
             $name, $ver = $m.Groups[1].Value, $m.Groups[2].Value
             if (-not $uses.ContainsKey($name)) { $uses[$name] = @{} }
@@ -2049,7 +2058,7 @@ if (-not (Test-Path $wfDir2) -or $adapterDirs2.Count -eq 0) {
 } else {
     $gates = @{}
     foreach ($wf in Get-ChildItem -LiteralPath $wfDir2 -Filter *.yml) {
-        $raw = Get-Content -Raw -LiteralPath $wf.FullName
+        $raw = Get-Content -Raw -Encoding UTF8 -LiteralPath $wf.FullName
         $paths = @([regex]::Matches($raw, "(?m)^\s+-\s+'([^']+)'\s*$") | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)
         if (@($paths | Where-Object { $_ -like 'adapters/*' }).Count -gt 0) { $gates[$wf.Name] = $paths }
     }
