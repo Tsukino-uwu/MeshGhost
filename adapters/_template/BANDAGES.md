@@ -227,6 +227,18 @@ field actually confirmed broken").
 sits 43 units too low" is a symptom. "The mesh hangs off the capsule at a fixed offset the crouch
 logic adjusts, and a ghost never runs it" is a mechanism.
 
+**In the write-up — never let a number into a list you have labelled MEASURED unless you measured
+it.** An entry that paraphrases a source comment is the easy place to slip, because the sentence is
+already carrying real values and one more *fits*. Found live 2026-09-07: Emerald's OAM-pool entry
+gave the engine's draw order as "reflection 152, ripple 151, blob 150, shadow 148, dust 135", where
+the source comment it paraphrased had measured only 152, 150, 148 and 135 — the ripple pool is
+real, but `151` was interpolated because it sat neatly between two figures that were not. **A
+fabricated value in a measured list is worse than a gap**: it inherits the authority of the four
+beside it, so nobody downstream has a reason to re-take it or a way to tell it apart. If a value in
+such a list was inferred rather than read, say so in the same breath — the repo's rule against
+addresses from memory is the same rule, and a doc paraphrasing its own source is where it slips in
+without anyone writing a line of code.
+
 ### Tells that only show up later — the ones this file exists for
 
 You will not always know at the time. **These are how a fix reveals itself as a bandage

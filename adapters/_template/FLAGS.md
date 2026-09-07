@@ -197,6 +197,17 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
    `grep -ohE 'MESHGHOST_[A-Z0-9_]+' <adapter source> | sort -u`. Found live 2026-08-27, in both
    directions at once: Crystal shipped `MESHGHOST_CRYSTAL_FLY_TRACE` with no row, and Emerald
    carried a full row for `MESHGHOST_EMERALD_NO_BOBBER` after the flag had been deleted.
+
+   **That grep finds environment variables and nothing else, so it is the half of the audit a tool
+   can do — the other half is by hand.** `dev-scripts/preflight.ps1` has the same blind spot: it
+   asserts every `MESHGHOST_*` in source is named in a register, cannot assert the reverse, and
+   cannot see a switch that was never an environment variable in the first place. So **list the
+   `config.json` keys and the bridge constants by hand too**; they are switches by rule 8 below and
+   nothing will tell you they are missing. Found live 2026-09-07 on three adapters at once: both
+   Lua registers were missing `"autostart"` and `"local_game_bridge"` — keys the adapters had been
+   reading for over a week — and Pseudoregalia's register named no environment variable and no
+   bridge constant at all, which is the "a switch nobody can find is a switch nobody turns off"
+   failure this rule opens with, reached from the direction the tooling cannot watch.
 7. **A probe flag-file must set every flag it owns explicitly, `false` included.** A dev loader
    typically shares ONE interpreter environment across reloads, so "not mentioned" is not "off" —
    an unset flag keeps its value from the previous load.
