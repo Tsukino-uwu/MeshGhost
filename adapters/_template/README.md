@@ -1850,14 +1850,28 @@ rig is actually running and read it.**
 ## When a renderer looks wrong, measure THE WIRE before touching the renderer
 
 Both faults above presented as "the drawn ghost looks bad", and both were fixed without the drawing
-code changing at all. The order that works:
+code changing at all — as was a third, added below, that never reached the renderer either. The
+order that works:
 
+0. **WHEN does it arrive?** Before what the messages say, ask how far apart they are. A third fault
+   (2026-09-06) presented the same way -- a Linux/Proton tester's ghosts looked stuttery on a build
+   that was smooth on Windows -- and the contents of every message were correct. The gaps were not:
+   27-30% of them exceeded the interpolation delay, with a hard floor at exactly 40 ms.
 1. **What arrives?** Count how the peer's position changes between consecutive messages, at the point
    they arrive, unconditionally. Smooth motion that is not on the wire cannot be drawn.
 2. **What is derived from it?** Each term the renderer builds, per frame.
 3. **What reaches the screen?** Only then the painted result.
 
-Measuring (3) first is the natural instinct and it cannot distinguish any of the three.
+Measuring (3) first is the natural instinct and it cannot distinguish any of the four.
+
+**Step 0 separates a DELIVERY fault from a PRODUCTION one with one number, and nobody has to watch a
+screen: movement per sample either side of the wide gaps.** A slow frame rate moves the character
+FURTHER across a longer gap; the same move either way means the frames were produced steadily and
+only their delivery bunched, which is a transport problem and not the game's. Above, they were
+identical (7.51 units across a 50 ms gap against 7.48 across a 5 ms one) and the cause was a missing
+`TCP_NODELAY` on the bridge socket -- see [PROTOCOL.md](PROTOCOL.md), which tells you to set it in
+whatever language you are writing in, because none of them do it for you. If your adapter can
+record, `dev-scripts/replay-cadence.py` prints all of this from a clip file with no game running.
 
 ## Hard rules: ghost speed, and the tier handover — moved
 

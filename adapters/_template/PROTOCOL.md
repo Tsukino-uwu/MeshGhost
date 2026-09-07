@@ -161,6 +161,31 @@ The bridge is loopback TCP NDJSON in every configuration, and nothing you send a
 influence which transport the core picks. If a new game seems to want one, that is shipped
 configuration on the core side, never a bridge field.
 
+#### Set `TCP_NODELAY` on that socket — in whatever language you are writing in
+
+**Do this at the same moment you create the socket, before the first send, every time.** It is not
+a micro-optimisation: the bridge writes one small JSON line per game frame, which is precisely what
+Nagle's algorithm coalesces — it holds a small write until the previous segment is acknowledged,
+and the receiver's delayed-ACK timer decides when that is. On Linux that floor is 40 ms, so under
+Proton (where a Windows adapter's socket calls run on Linux sockets) a 120 Hz stream is delivered
+in ~40 ms bunches and the peer's ghost freezes and jumps about 18 times a second.
+
+**No language enables it by default**, which is how every shipped adapter came to be written
+without it, unnoticed from this repo's first bridge until 2026-09-06 — each was written separately
+and none had a reason to think about it. Each host needed a different call:
+
+| host | call |
+|---|---|
+| raw Winsock (C++) | `setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &(BOOL){TRUE}, sizeof(BOOL))` |
+| .NET | `client.NoDelay = true` before `Connect` |
+| luasocket | `sock:setoption("tcp-nodelay", true)` |
+
+If your host is none of these, find its equivalent before you send anything; "the socket works" will
+not tell you it is missing. **The symptom never looks like a network problem** — it looks like the
+peer's ghost stuttering, and every obvious reading (their frame rate, the relay's send rate, the
+interpolation delay) points somewhere else. `agent_docs/pitfalls/by-lesson.md` has the diagnosis and
+the measurement that named it; `dev-scripts/replay-cadence.py` is the check.
+
 ## The three functions
 
 ```text

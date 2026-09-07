@@ -17,6 +17,7 @@ The Go side is confirmed with tools, never by watching. These are the shapes the
 - An interpolation delay below the link's jitter converts smoothing into chop (2026-08-28) — [method.md](../pitfalls/method.md)
 - An error names its LIMIT, not its cause — and two layers can hold different limits (2026-09-01) — [method.md](../pitfalls/method.md)
 - An embedded-interface wrapper hid WriteUnreliable, and the relay forwarded every state on the stream from 01:28 to 21:45 (2026-09-02) — [method.md](../pitfalls/method.md)
+- A stream of small per-frame writes needs `TCP_NODELAY` at every socket, in every language — without it Nagle plus Linux's 40 ms delayed-ACK made a tester's ghosts stutter, and it was missing in all four adapters at once (2026-09-06, confirmed fixed 2026-09-07) — [by-lesson.md](../pitfalls/by-lesson.md)
 - Running two instances of the same emulator/game silently collide on a shared default port — [by-host.md](../pitfalls/by-host.md)
 - A bridge port pinned in the environment cannot pin an ALREADY-RUNNING instance (2026-08-19) — [by-lesson.md](../pitfalls/by-lesson.md)
 - `extras` is opaque, so nothing that must be SMOOTH can ride in it (2026-08-21) — [by-lesson.md](../pitfalls/by-lesson.md)
