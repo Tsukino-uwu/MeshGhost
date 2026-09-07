@@ -3008,3 +3008,34 @@ experiments, three overlapping savestate ones, and seven one-offs. `bizhawk-capa
 entry it demands proves the entry exists, not that the script is wanted. That is not an argument for
 deleting them — a probe kept for a rainy day is a legitimate thing to keep — only for not reading
 "57 of 57 documented" as "57 of 57 in use". The user's call, and nothing depends on it.
+
+## Batching a render tick into one bridge line — measured, and DECLINED for now (2026-09-07)
+
+**The idea.** The core answers each adapter frame with one `render_remote` line per remote. One
+`render_frame` line carrying the whole tick instead would collapse N socket writes into 1, N
+envelope wrappers into 1, and — the part that probably matters most — N JSON parses on the
+adapter's side into 1.
+
+**Measured before deciding, over a `net.Pipe` at 512 ghosts** (benchmark written and thrown away;
+`verified.md` 2026-09-07 carries the run):
+
+| | per-message (ships today) | batched |
+|---|---|---|
+| one tick | 1.81 ms | **0.84 ms** |
+| bytes | 186,770 | 168,887 |
+
+2.2x on the core's write side, ~10% on the wire, and 512 adapter-side parses becoming 1 (not
+measured — that lives in three languages).
+
+**Why it was declined, by the user's call the same day** (*"think its probly fine as it is now
+without B2 ? worst case we can always fix it later"*): **the bridge stopped being the constraint
+before this was built.** The coalescing writer landed first, and the live 512-chaser run that
+followed showed the bridge sailing through while **Pseudoregalia itself rendered at 5-7 fps**. This
+would make the fast half faster. Against that: a bridge protocol revision needs its own ADR, a
+`MaxLineBytes` decision (the batched line is **169 KB against a 64 KB default cap**), all four
+adapters in three languages, and a separate on-screen confirmation per game.
+
+**What would revive it.** A game whose adapter is the bottleneck *while its own framerate is
+healthy* — i.e. a log showing sustained "the adapter is not keeping up" and a climbing
+`Stats.RendersSuperseded` on a game that is not visibly struggling. That is the signal this is
+worth its cost; the numbers above are already gathered for when it comes.

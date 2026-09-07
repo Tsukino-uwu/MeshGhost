@@ -734,3 +734,20 @@ proposal to carry it across only mattered while a slow adapter could be disconne
 restart is a new session); the slow-bridge condition is reported both as one log line each way and
 as a running count in `Stats`; and the batching half is left open with its benchmark rather than
 taken on speculatively.
+
+**2026-09-07 (evening) -- the live run, and the decision it settled.** The user ran 512 chasers on
+the deployed build: all 512 admitted, zero re-admissions, no timeout, no failed send, clean
+shutdown. The bridge half is done. The run also produced the log-flapping fix -- 23 of 31 episodes
+reported a single superseded position -- and the threshold that replaced it was read off this run's
+own numbers rather than guessed, which is the argument for having run it at all.
+
+**Batching (`render_frame`) was measured and then DECLINED**, the user's call: *"think its probly
+fine as it is now without B2 ? worst case we can always fix it later if it still endsup being an
+issue"*. The benchmark is kept in `ideas.md` with the condition that would revive it. The reasoning
+is worth keeping because it inverted mid-session: batching was proposed as the real fix while the
+bridge was believed to be the wall, and by the time it could have been built the coalescing writer
+had moved the wall to the game's own render cost -- 5-7 fps at 512 ghosts, measured on screen. A
+plan made against a ceiling that has since moved is not a plan worth executing.
+
+Left open and NOT a defect yet: some ghosts looked stuck in that run, with a confound I introduced
+(100ms chaser spacing is shorter than a frame at 5-7 fps) -- `pseudoregalia/UNVERIFIED.md`.

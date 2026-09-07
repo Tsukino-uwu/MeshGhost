@@ -6,8 +6,8 @@ recorded the same day in [VERIFIED.md](VERIFIED.md) along with what it explicitl
 so a later session cannot quietly widen it. [UNVERIFIED.md](UNVERIFIED.md) is the live queue of what
 is built but unwatched.
 
-- Mod Support: Archipelago, AttireUiOverhaul(outfits,weapons,after image color)
-assumed to work together with other mods but haven't been tested
+- Mod Compatability: Archipelago, AttireUiOverhaul(outfits,weapons,after image color)
+  - Should also hopefully work together with any other mods
 
 Still marked **experimental/pre-release** in the shipped package, which is a different claim: the
 features are there, the breadth of testing is not. Phase 7 (7.0–7.8) is done and 7.7, a real
