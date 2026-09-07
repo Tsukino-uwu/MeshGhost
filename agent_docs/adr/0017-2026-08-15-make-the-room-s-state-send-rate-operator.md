@@ -4,7 +4,7 @@
 
 - **Date:** 2026-08-15
 - **Decision:** Make the room's state send rate operator-configurable at the relay
-  (`server.send_hz`, 20 default, 10–100), advertised to every client via `Welcome.SendHz` and
+  (`server.send_hz`, 20 default **— superseded 2026-09-01 by ADR 0054, which lowers it to 15**, 10–100), advertised to every client via `Welcome.SendHz` and
   adopted as that client's own send rate — unless the client has deliberately configured a
   slower rate of its own, which always wins. Separately, let each client declare its own
   per-peer receive cap (`client.max_receive_hz_per_player`, `Hello.MaxReceiveHz`), enforced at

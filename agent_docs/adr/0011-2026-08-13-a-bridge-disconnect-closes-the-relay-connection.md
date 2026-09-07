@@ -26,8 +26,11 @@
   disconnect to the relay, the same as a network blip already does.
 - **Resolution:** Option 3. `handleBridgeConn` (`core/core.go`) now closes `c.relay`
   when the bridge connection ends. `ConnectRelay`'s existing relay-`OnDisconnect` handler
-  (previously only `dropAllRemotes()`, added for the unrelated "own relay died" case — see the
-  ADR below) now also clears `c.relay`/`c.playerID`/`c.relayGame`, guarded by comparing against
+  (previously only `dropAllRemotes()`, added for the unrelated "own relay died" case — **no ADR
+  covers that addition; traced 2026-09-07 to `8940bbab`, 2026-08-11, where it rode along inside
+  the Phase 5.5 Emerald commit whose only decision-log entry was ADR 0008 on vendored LuaSocket.
+  This line pointed at "the ADR below" and there was never one to point at**) now also clears
+  `c.relay`/`c.playerID`/`c.relayGame`, guarded by comparing against
   the specific connection that disconnected so a stale callback can't clobber a newer
   connection. This reuses the relay/core despawn path that was already built and tested
   (`TestDisconnectDespawnsRemote`, `TestOwnRelayDisconnectDespawnsRemotes`) rather than adding

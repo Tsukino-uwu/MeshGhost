@@ -31,8 +31,34 @@ remains for a host who wants it off room-wide.
 and silently ignore it -- today the core logs "told the adapter" for TEVI, which is not true. That
 is a bridge-contract question (a capability declaration, like `render_all_areas`) and is unbuilt.
 
+## Amendment, 2026-09-02 — the shipped default is `"disabled"` (written up 2026-09-07)
 
-- **Decision:** Add `server.ghost_collision`, values `"enabled"` (the default) and `"disabled"`.
+**`"disabled"` is the default now, for every game unless that game overrides it.** The user's call,
+shipped in `4c3edaf6` as part of the config restructure and never written down until this pass
+found the ADR still saying `"enabled"`.
+
+It is worth an amendment rather than a one-word edit because **this ADR's own two values are not
+symmetric** (see the Decision below): `"enabled"` means "each adapter's own default stands", while
+**`"disabled"` is BINDING** — no ghost blocks anything, in any game, at any time. Flipping the
+default therefore did not swap one permissive setting for another; it moved the shipped
+configuration from *deferring to each adapter* to *overriding all of them*. That is the stronger of
+the two positions and the one a reader needs to know is in force.
+
+Where it actually lives: `packaging/release/config.json:12` (client) and `:57` (server), both
+`"disabled"`, staged into all four per-game configs; `cmd/meshghost-relay/main.go:292` defaults the
+flag to `protocol.GhostCollisionDisabled`. Pinned since 2026-09-07 by
+`cmd/meshghost/TestShippedGhostCollisionStaysDisabled`, which fails naming the value if it moves —
+this was the one shipped default with no automated guard.
+
+**Two corrections to the 2026-08-28 note above while amending.** The per-game file it names moved
+and was renamed on 2026-09-05: `packaging/release/games/<game>/client-config-overrides.json` →
+`packaging/config-overrides/<game>.json` (`dev-scripts/stage-release.ps1:115-124`). And the smaller,
+realer point: **neither surviving override file sets `ghost_collision` at all**, so the value every
+game receives today comes from the root `config.json`, not from the per-game mechanism that note
+describes.
+
+- **Decision:** Add `server.ghost_collision`, values `"enabled"` (the default **at the time; the
+  shipped default became `"disabled"` on 2026-09-02 — see the amendment above**) and `"disabled"`.
   The relay advertises it in `Welcome` beside `SendHz`; the core forwards it to the adapter over a
   new `session_policy` bridge message; the adapter honours it. `"enabled"` does **not** mean
   "force collision on" — it means "each adapter's own default stands, including the places an

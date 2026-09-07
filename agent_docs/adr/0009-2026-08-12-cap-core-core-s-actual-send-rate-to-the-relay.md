@@ -6,7 +6,7 @@
 - **Decision:** Cap `core.Core`'s actual send rate to the relay
   (`Core.MinSendInterval`, default 50ms / 20Hz) independent of how often an adapter calls in,
   rather than relying on the relay's `MaxMessagesPerSecond` limit alone.
-- **Status:** accepted; the *default* is superseded by the 2026-08-15 rate-control ADR 0017 —
+- **Status:** accepted; the *default* is superseded by the 2026-08-15 rate-control ADR 0017, and its 50ms/20Hz figure by ADR 0054 (15Hz, 2026-09-01) —
   `MinSendInterval` now defaults to the zero value, meaning "follow the relay's `send_hz`", and
   50ms/20Hz survives as `DefaultMinSendInterval`, the fallback. The cap itself is unchanged.
 - **Context:** Phase 6 (TEVI) hit this live: TEVI's `Update()` calls the bridge every real game
