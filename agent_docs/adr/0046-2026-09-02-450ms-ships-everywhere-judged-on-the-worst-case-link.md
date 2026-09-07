@@ -26,3 +26,7 @@
 - **Supersedes:** the 250ms of 2026-08-19 (a loopback measurement on Emerald), TEVI's 175→300ms of
   2026-09-01 (an extrapolation), Pseudoregalia's 375ms of 2026-09-01 (the ocean profile without the
   wifi dropout). ADR 0040's per-game knobs still stand; what changed is the default they start from.
+  **Also supersedes, noted 2026-09-07:** ADR 0039's *"250ms is `DefaultInterpolationDelay`'s figure
+  on purpose"* — `DefaultIdleKeepalive` stayed at 250ms, so the two constants are deliberately no
+  longer equal. 0039's conclusion is unaffected (it needs the keepalive to sit well UNDER the render
+  delay, and 250 < 450 does so with more margin than before); its stated reason is not.

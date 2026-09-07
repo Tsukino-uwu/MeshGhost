@@ -5,7 +5,8 @@
 - **Decision:** How a ghost moves stops being a single fixed behaviour and becomes three
   independent settings on the client, all of which already have a per-game home in that game's own
   `config.json`:
-  - **`interp`** (unchanged, default 250ms) — how far behind live a ghost is drawn.
+  - **`interp`** (unchanged, default 250ms **— superseded 2026-09-02 by ADR 0046, which raises the
+    default to 450ms; the per-game principle below is untouched**) — how far behind live a ghost is drawn.
   - **`curve`** (new, default `linear`) — how a position BETWEEN two samples is computed:
     `linear`, or `catmull-rom`, a spline fitted through four samples.
   - **`extrapolate`** (new, default `0` = off) — how far PAST the newest sample a ghost may be

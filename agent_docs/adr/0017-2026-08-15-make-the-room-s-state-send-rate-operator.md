@@ -4,7 +4,8 @@
 
 - **Date:** 2026-08-15
 - **Decision:** Make the room's state send rate operator-configurable at the relay
-  (`server.send_hz`, 20 default **— superseded 2026-09-01 by ADR 0054, which lowers it to 15**, 10–100), advertised to every client via `Welcome.SendHz` and
+  (`server.send_hz`, 20 default **— superseded 2026-09-01 by ADR 0054, which lowers it to 15**,
+  10–100), advertised to every client via `Welcome.SendHz` and
   adopted as that client's own send rate — unless the client has deliberately configured a
   slower rate of its own, which always wins. Separately, let each client declare its own
   per-peer receive cap (`client.max_receive_hz_per_player`, `Hello.MaxReceiveHz`), enforced at
@@ -44,7 +45,9 @@
   - **Flood-cap scaling: proportional both ways vs. up-only.** Scaling the per-client flood cap
     (`relay.MaxMessagesPerSecond`) down along with a slower `send_hz` was rejected: an older
     client (or any client with an explicit local override) never learns the room turned down and
-    keeps sending at its own built-in 20Hz default — scaling the cap down would then start
+    keeps sending at its own built-in 20Hz default **(15 since ADR 0054; the argument is unchanged
+    -- what matters is that the client's default and the room's can differ)** — scaling the cap
+    down would then start
     disconnecting well-behaved clients for a config change on the host's side they had no part
     in. Scaling only ever **up** from the historical 120 avoids this; `120` becomes a floor
     (`max(120, send_hz × RateLimitHeadroomMultiple)`, headroom `6`, chosen so a relay left at the
@@ -108,7 +111,8 @@
   - **This silently broke the project's own dev-testing setup, caught and fixed in the same
     change:** every `dev-scripts/run-core-*.bat` script passes `-min-send=10ms`, faster than the
     (now-fallback-only) 20Hz default — under "slower wins," an unconfigured 20Hz relay would have
-    quietly capped every one of them back down to 50ms, a 5× regression in exactly the timing-bug-
+    quietly capped every one of them back down to 50ms (67ms since ADR 0054), a 5× regression in
+    exactly the timing-bug-
     surfacing setup Phase 8 chose deliberately (`agent_docs/phases/phase8.md`). Both
     `dev-scripts/run-relay.bat` and `run-relay-loopback.bat` now pass `-send-hz=100` so they never
     become the bottleneck for local testing.
@@ -161,6 +165,7 @@
   - **Not done, deliberately, in this change:** advertising `max_receive_hz_per_player` back to
     the sender (a sender has no way to know a given recipient is receiving it throttled) and
     deriving `InterpolationDelay` automatically from the effective rate (a room or cap set below
-    ~10Hz needs `-interp` raised by hand or ghosts will visibly stutter, since even the 250ms default
-    interpolation buffer no longer spans the gap between samples) are both real, known gaps —
+    ~10Hz needs `-interp` raised by hand or ghosts will visibly stutter, since even the default
+    interpolation buffer (250ms then, 450ms since ADR 0046 -- so the margin is now wider than this
+    warning assumed) no longer spans the gap between samples) are both real, known gaps —
     left for `agent_docs/ideas.md` rather than scope-creeping this change.

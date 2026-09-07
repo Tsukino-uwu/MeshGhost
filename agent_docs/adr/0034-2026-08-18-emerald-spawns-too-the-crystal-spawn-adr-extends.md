@@ -100,7 +100,8 @@
     gets debugged here — netcat against the relay, a packet capture between two binaries,
     `cmd/meshghost-netsim`. Encrypting by default would take the project's cheapest diagnostic
     away from every developer in order to protect a dev-loopback room code that is not secret.
-    The built-in default is `off`; a release turns it on in `config.json`, which is the same
+    The built-in default is `off` **(retired 2026-08-19: both binaries now default to `auto`, and
+    a release ships it)**; a release turns it on in `config.json`, which is the same
     lever `transport` already uses.
   - **`required` as the release default**, which is what `ideas.md`'s plan proposed. Rejected in
     favour of `auto` on both sides, for a reason specific to how this project is distributed: a
@@ -154,7 +155,8 @@
     and it is also a real loss; `tls: off` is the way back, and `auto` keeps netcat working
     against the relay regardless.
   - **Roughly 25 bytes of TLS record overhead per message** — about 10-15% on 150-250 byte
-    packets, ~1.8 MB/hour per direction at 20Hz. Post-handshake CPU is immeasurable at this
+    packets, ~1.8 MB/hour per direction at 20Hz **(~1.35 MB/hour at the 15Hz shipped since ADR
+    0054)**. Post-handshake CPU is immeasurable at this
     traffic volume.
   - **A new way for a version mismatch to break a session.** A `required` client hard-fails
     against an old relay instead of limping along. Intended, and still a new support case.
@@ -167,3 +169,15 @@
     that already draw false positives. Mitigated by the default being `off` — nothing generates
     a certificate unless someone turns it on — and by the SignPath code-signing work that entry
     sequences ahead of it, still unstarted.
+
+    > **Amendment 2026-09-07 — this mitigation no longer exists, and that is a consequence which
+    > reversed silently.** The `off` default was retired on 2026-08-19 (noted in this ADR's own
+    > Decision block) and both binaries now default to `auto`, which a release ships. So a matched
+    > pair of current releases **does** generate a certificate and **does** encrypt outbound
+    > traffic, unprompted — precisely the two heuristic triggers this bullet named, with the thing
+    > that was supposed to prevent them removed. The risk is not re-assessed here; what changed is
+    > that it is now live rather than opt-in, and the SignPath work it was paired with became the
+    > only remaining mitigation. That work was submitted 2026-09-06 and is awaiting a reply
+    > (`status.md`). **This is the clearest example in the log of an argument outliving its
+    > premise: nothing about the paragraph looks stale, and every word of its reasoning still
+    > reads correctly — only the fact it rests on moved.**

@@ -56,6 +56,18 @@ Three things need the floor, and only the first is about bandwidth:
 behind, so a staleness bound of the same size cannot become the dominant error. At a 20Hz room an
 idle player goes from 20 packets a second to 4; on the 100Hz dev rig, from 100 to 4.
 
+> **Amendment 2026-09-07 — the identity above is broken, and the conclusion survives anyway.** ADR
+> 0046 moved `DefaultInterpolationDelay` to **450ms** on 2026-09-02 and left `DefaultIdleKeepalive`
+> at 250ms, so "the same figure on purpose" has not been true since. What the argument actually
+> needs is the INEQUALITY — the staleness bound must stay well under the delay a ghost is already
+> rendered behind — and 250 < 450 satisfies it with more margin than before, so nothing about the
+> decision changes. Recorded because a reader checking the two constants would find them unequal
+> and reasonably conclude one had drifted by accident. The same false equality sat in
+> `core/core.go`'s and `protocol/limits.go`'s comments and is corrected there too.
+>
+> The packet figures are as-measured and stay: the shipped room is **15Hz** since ADR 0054, so an
+> idle player now goes from 15 a second to 4 rather than 20 to 4.
+
 ## What this does NOT do, stated so nobody re-measures it hoping
 
 - **TEVI saves almost nothing.** It sends animation phase (`anim_time`) every frame, and an idle
