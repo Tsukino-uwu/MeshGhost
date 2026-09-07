@@ -682,3 +682,19 @@ queues. Tests pin the new behaviour (99 asked = 99 started; 19 files = 19 loaded
 any live object's properties as JSON without dereferencing a pointee -- first run on the local pawn
 with 28 components, 3,015 properties, 0 errors; the tool for the component vetting the user wants
 next. It sits in the deployed scratch slot for now; the pristine stub goes back at the session's end.
+
+**2026-09-07 -- CI caught a data race in `StartChasers`, the cap-removal commit's own blind spot.**
+The user brought run 34135127729: four jobs green, "Build, vet, test (race)" red. Two `WARNING: DATA
+RACE` reports, both on `Core.StartChasers` reading `ChaserEnabled` (chaser.go:189) and `ChaserDelay`
+(:200) with no lock, against the chaser test setting the same fields under `c.mu`. Not a test-only
+artefact: `StartChasers` is called from the bridge goroutine when the adapter attaches
+(`bridgeserve.go:182`), and `c.mu` is what guards those fields everywhere else -- `pushSessionPolicy`
+reads `ChaserEnabled`/`ChaserContact` under it. The cap-removal work of 2026-09-06 added the test
+that writes them at runtime, which is what gave the detector a second writer to see; the bare reads
+predate it. Fix: one snapshot of all seven `Chaser*` fields under `c.mu` at the top of
+`StartChasers`, with the clamping and sanitising moved onto the copies, off the lock -- no behaviour
+change, and nothing under the snapshot takes `c.mu`, so no nesting. `run-gotests-race.bat`
+(`-count=3`, CI's exact command) clean across all 18 packages; the re-push, run 34138905025, green on
+all five jobs. The lesson is the one this repo already had in a different shape: **a green
+`run-gotests.bat` is not a green CI** -- the local script cannot run `-race`, so a lock convention
+that lives only in the other readers of a field goes unenforced until CI says otherwise.
