@@ -285,19 +285,26 @@ func (b *remoteBuffer) atBracket(renderTime int64, extrapolateAhead int64, curve
 		if extrapolateAhead <= 0 {
 			return st, orientBracket{}, true
 		}
-		older := b.snapshots[n-2]
+		// THE PAIR EXTRAPOLATE USED, asked for the same way. This took the
+		// adjacent pair (snapshots[n-2]) and applied only the upper bound
+		// until 2026-09-08, which broke the promise three paragraphs up in two
+		// ways at once: it could continue an arc position never measured, and
+		// with no lower bound T = (span+dt)/span is unbounded as span falls to
+		// 1ms -- so a peer who turned as they started walking got a body
+		// standing still and a head whipping through the turn a hundred times
+		// over. velocityBaselineIndex answers both, and answering false is the
+		// honest "nothing recent to continue": the adapter holds
+		// State.Orientation, which is what it does with prediction off.
+		i, ok := b.velocityBaselineIndex()
+		if !ok {
+			return st, orientBracket{}, true
+		}
+		older := b.snapshots[i]
 		dt := renderTime - last.Timestamp
 		if dt > extrapolateAhead {
 			dt = extrapolateAhead
 		}
-		br := bracketBetween(older, last, last.Timestamp+dt)
-		// A pair too far apart says nothing about the rate NOW, the same
-		// judgement extrapolate makes about position for the same reason:
-		// an idle peer's keepalive-spaced samples must not become a spin.
-		if last.Timestamp-older.Timestamp > maxVelocitySpanMs {
-			return st, orientBracket{}, true
-		}
-		return st, br, true
+		return st, bracketBetween(older, last, last.Timestamp+dt), true
 	}
 	for i := 0; i < n-1; i++ {
 		older, newer := b.snapshots[i], b.snapshots[i+1]
@@ -394,6 +401,44 @@ const maxVelocitySpanMs = 200
 // still gets under PredictDamped. Not zero -- see the floor's own comment.
 const minPredictConfidence = 0.4
 
+// velocityBaselineIndex picks the pair a peer's rate is measured over: the
+// index of the OLDEST sample still close enough to the newest one to say
+// anything about what the peer is doing now.
+//
+// The LONGEST usable baseline in the window, not the shortest -- so walk
+// forward from the oldest sample and take the first one close enough to
+// measure against. Sample arrival times wobble by tens of milliseconds on a
+// real link, and a velocity measured across two adjacent samples inherits that
+// wobble in full, which shows up as a ghost that shimmers while its peer moves
+// steadily. A longer baseline averages the same wobble down. Bounded on both
+// sides for the reasons on the two constants.
+//
+// ONE CHOICE, TWO CALLERS, and that is the point of the helper. Until
+// 2026-09-08 atBracket made its own -- the adjacent pair, with only the upper
+// bound applied -- so a peer who turned as they started walking (samples 500ms
+// apart, then a 1ms bracket re-statement across the turn) had position
+// correctly refuse to predict while the orientation bracket handed the adapter
+// T above 100: the ghost stood still with its head spinning through the turn a
+// hundred times over. Same pair, same span discipline, one clock.
+func (b *remoteBuffer) velocityBaselineIndex() (int, bool) {
+	n := len(b.snapshots)
+	if n < 2 {
+		return 0, false
+	}
+	last := b.snapshots[n-1]
+	for i := 0; i <= n-2; i++ {
+		span := last.Timestamp - b.snapshots[i].Timestamp
+		if span > maxVelocitySpanMs {
+			continue
+		}
+		if span < minVelocitySpanMs {
+			break
+		}
+		return i, true
+	}
+	return 0, false
+}
+
 // extrapolate is the OPT-IN half of the render model, off unless a Core sets
 // Extrapolate (`-extrapolate`, default 0/off). Instead of holding the newest
 // sample when the render time has run past it, it continues the peer's last
@@ -430,141 +475,157 @@ func (b *remoteBuffer) extrapolate(last protocol.State, renderTime int64, ahead 
 		dt = ahead
 		capped = true
 	}
-	// The LONGEST usable baseline in the window, not the shortest -- so walk
-	// forward from the oldest sample and take the first one close enough to
-	// measure against. Sample arrival times wobble by tens of milliseconds on a
-	// real link, and a velocity measured across two adjacent samples inherits
-	// that wobble in full, which shows up as a ghost that shimmers while its
-	// peer moves steadily. A longer baseline averages the same wobble down.
-	// Bounded on both sides for the reasons on the two constants.
-	for i := 0; i <= len(b.snapshots)-2; i++ {
-		older := b.snapshots[i]
-		span := last.Timestamp - older.Timestamp
-		if span > maxVelocitySpanMs {
-			continue
-		}
-		if span < minVelocitySpanMs {
-			break
-		}
-		if older.AreaID != last.AreaID || len(older.Position) != len(last.Position) {
-			return last
-		}
-		pos := make([]float64, len(last.Position))
-		// ACCELERATION, not just velocity, whenever there is a third sample to
-		// measure it with. A jump is an accelerating body: predicting it along a
-		// straight line lags on the way up and carries the ghost through the
-		// floor on the way down, which is exactly what the user reported on
-		// 2026-08-28 ("feels a bit slow when jumping", "still sinks into the
-		// floor a bit"). Fitting the curvature costs one more subtraction per
-		// axis and no extra bytes on the wire -- the samples are already here.
-		//
-		// The middle sample is the one halfway between in TIME, not in index, so
-		// an uneven arrival pattern does not tilt the estimate.
-		mid, hasMid := b.midSample(i, len(b.snapshots)-1)
-		if predict == PredictLinear {
-			hasMid = false
-		}
-		for j := range pos {
-			v := (last.Position[j] - older.Position[j]) / float64(span)
-			p := last.Position[j] + v*float64(dt)
-			if hasMid && len(mid.Position) == len(last.Position) && mid.AreaID == last.AreaID {
-				t1 := float64(mid.Timestamp - older.Timestamp)
-				t2 := float64(last.Timestamp - mid.Timestamp)
-				if t1 > 0 && t2 > 0 {
-					v1 := (mid.Position[j] - older.Position[j]) / t1
-					v2 := (last.Position[j] - mid.Position[j]) / t2
-					if predict == PredictDamped {
-						// PREDICT ONLY WHAT LOOKS PREDICTABLE, per axis.
-						//
-						// Confidence is how much the two halves of the window
-						// AGREE about the velocity: steady running gives v1 ~ v2
-						// and full prediction; a jump's vertical axis changes
-						// every frame under gravity and gets little; at the apex
-						// the velocity reverses outright, v2 ~ -v1, and it gets
-						// none at all -- which is precisely the instant a
-						// straight-line guess would fling a ghost the wrong way.
-						//
-						// This is what the user saw as a "constant snap/drag"
-						// going up and down while left/right looked fine
-						// (2026-08-28): the horizontal axis was predictable and
-						// the vertical one never was, and a single prediction
-						// applied to both cannot tell them apart.
-						//
-						// Nothing here knows which axis is which, or that
-						// gravity exists -- it is a statement about the samples,
-						// not about the game (CLAUDE.md's game-blindness rule).
-						spread := math.Abs(v2 - v1)
-						scale := math.Abs(v1) + math.Abs(v2)
-						confidence := 1.0
-						if scale > 0 {
-							confidence = 1 - spread/scale
-						}
-						// FLOORED, not free to reach zero. Refusing outright is
-						// right in principle and wrong on screen: rapidly
-						// tapping left and right reverses the horizontal axis
-						// constantly, confidence collapses, and the ghost falls
-						// back to pure lateness -- which the user read as
-						// "spam left/right looks slow/delayed" (2026-08-28)
-						// while long runs looked fine.
-						//
-						// A floor keeps some prediction under a peer who is
-						// changing their mind, which is better than none: the
-						// error it can introduce is bounded by the same cap
-						// everything else is, and being a little wrong for
-						// 30ms beats being reliably a whole interp delay late.
-						if confidence < minPredictConfidence {
-							confidence = minPredictConfidence
-						}
-						// NOT smoothed across frames. That was tried
-						// (2026-08-28) to stop the amount of prediction
-						// wobbling, and an A/B with everything else held equal
-						// made every axis WORSE -- steady walking turned
-						// choppy, jumps read as low-framerate -- because a
-						// lagging confidence applies yesterday's damping to
-						// today's motion. The wobble it was meant to fix
-						// turned out to be an interp-below-jitter artifact,
-						// cured by keeping the delay above the link's jitter,
-						// not by filtering here.
-						// VELOCITY ONLY, and that is a measured conclusion,
-						// not a first draft. Acceleration was added here twice
-						// on 2026-08-28 -- raw (PredictAccelerated) and then
-						// gated by its own cross-window consistency -- and
-						// BOTH failed the same way on screen: chop on jumps,
-						// and the gated version added a snap at the end of a
-						// steady run, because the second derivative's
-						// contribution fluctuates frame to frame under jitter
-						// however it is gated, and a prediction whose SIZE
-						// wobbles is visible even when its direction is right.
-						// Two variants failing identically is the stop signal
-						// (CLAUDE.md); the jump's residual lag is paid for
-						// with steadiness everywhere else.
-						p = last.Position[j] + v2*float64(dt)*confidence
-						pos[j] = p
-						continue
-					}
-					a := (v2 - v1) / ((t1 + t2) / 2)
-					// A velocity measured ACROSS a span is the velocity at the
-					// MIDDLE of that span, not at its end -- so v2 has to be
-					// carried forward by half of t2 to give the rate in force at
-					// the newest sample. Without that half-step the prediction
-					// is systematically behind on anything accelerating: a body
-					// falling to y=20 was predicted at y=30, and the test that
-					// says so is the reason this line exists.
-					vNow := v2 + a*(t2/2)
-					p = last.Position[j] + vNow*float64(dt) + 0.5*a*float64(dt)*float64(dt)
-				}
-			}
-			pos[j] = p
-		}
-		out := last
-		out.Position = pos
-		out.Timestamp = renderTime
-		m.record(dt, capped)
-		return out
+	// The baseline pair is picked by velocityBaselineIndex -- the longest
+	// usable one in the window, bounded on both sides for the reasons on the
+	// two constants. The orientation bracket calls the same helper, because
+	// position and rotation have to continue the SAME measured arc or the body
+	// predicts while the head lags (atBracket, and scaling.md).
+	i, ok := b.velocityBaselineIndex()
+	if !ok {
+		// Nothing to measure against: one sample, or every pair too close
+		// together to carry a rate. Holding is the honest answer.
+		return last
 	}
-	// Nothing to measure against: one sample, or every pair too close
-	// together to carry a rate. Holding is the honest answer.
-	return last
+	older := b.snapshots[i]
+	span := last.Timestamp - older.Timestamp
+	if older.AreaID != last.AreaID || len(older.Position) != len(last.Position) {
+		return last
+	}
+	pos := make([]float64, len(last.Position))
+	// ACCELERATION, not just velocity, whenever there is a third sample to
+	// measure it with. A jump is an accelerating body: predicting it along a
+	// straight line lags on the way up and carries the ghost through the
+	// floor on the way down, which is exactly what the user reported on
+	// 2026-08-28 ("feels a bit slow when jumping", "still sinks into the
+	// floor a bit"). Fitting the curvature costs one more subtraction per
+	// axis and no extra bytes on the wire -- the samples are already here.
+	//
+	// The middle sample is the one halfway between in TIME, not in index, so
+	// an uneven arrival pattern does not tilt the estimate.
+	mid, hasMid := b.midSample(i, len(b.snapshots)-1)
+	// ANYTHING THAT IS NOT ONE OF THE TWO CURVED MODES IS LINEAR, which
+	// includes the EMPTY string. This read `predict == PredictLinear` until
+	// 2026-09-08 and so gave an unset Core.Predict the accelerated branch --
+	// the opposite of what that field documents (core.go), of what Curve does
+	// with its own zero value, and of the mode this file's own comments record
+	// as having failed on screen twice. cmd/meshghost defaults the flag, so
+	// only an in-process Core literal, an embedder or a fuzz target ever saw
+	// it: a ghost jittering on jumps that nobody could reproduce from the CLI.
+	if predict != PredictDamped && predict != PredictAccelerated {
+		hasMid = false
+	}
+	for j := range pos {
+		v := (last.Position[j] - older.Position[j]) / float64(span)
+		p := last.Position[j] + v*float64(dt)
+		if hasMid && len(mid.Position) == len(last.Position) && mid.AreaID == last.AreaID {
+			t1 := float64(mid.Timestamp - older.Timestamp)
+			t2 := float64(last.Timestamp - mid.Timestamp)
+			// BOTH LEGS GET minVelocitySpanMs, not merely "positive". The
+			// outer baseline is guarded above for a reason -- the bracket
+			// re-statement that hides change suppression sits 1ms before the
+			// state after it (forwardLocalState) -- and these two legs are
+			// velocities exactly like it, so a 1ms leg is exactly as
+			// unmeasurable. Change suppression guarantees sparse samples, so
+			// the sample nearest the midpoint IS that bracket whenever a peer
+			// stops standing still: a peer at x=100 for a second, then x=103,
+			// predicted 100ms ahead gave 223 damped and 706 accelerated
+			// against a true 106 -- on screen, someone who had been standing
+			// still takes a step and is fired two seconds of walking, or clean
+			// off the level, in one frame, then snaps back. Found by review
+			// 2026-09-08; only reachable with -extrapolate, which ships off.
+			// Failing this test drops to the straight-line v above, which is
+			// measured over the guarded span and is what PredictLinear renders.
+			if t1 >= minVelocitySpanMs && t2 >= minVelocitySpanMs {
+				v1 := (mid.Position[j] - older.Position[j]) / t1
+				v2 := (last.Position[j] - mid.Position[j]) / t2
+				if predict == PredictDamped {
+					// PREDICT ONLY WHAT LOOKS PREDICTABLE, per axis.
+					//
+					// Confidence is how much the two halves of the window
+					// AGREE about the velocity: steady running gives v1 ~ v2
+					// and full prediction; a jump's vertical axis changes
+					// every frame under gravity and gets little; at the apex
+					// the velocity reverses outright, v2 ~ -v1, and it gets
+					// none at all -- which is precisely the instant a
+					// straight-line guess would fling a ghost the wrong way.
+					//
+					// This is what the user saw as a "constant snap/drag"
+					// going up and down while left/right looked fine
+					// (2026-08-28): the horizontal axis was predictable and
+					// the vertical one never was, and a single prediction
+					// applied to both cannot tell them apart.
+					//
+					// Nothing here knows which axis is which, or that
+					// gravity exists -- it is a statement about the samples,
+					// not about the game (CLAUDE.md's game-blindness rule).
+					spread := math.Abs(v2 - v1)
+					scale := math.Abs(v1) + math.Abs(v2)
+					confidence := 1.0
+					if scale > 0 {
+						confidence = 1 - spread/scale
+					}
+					// FLOORED, not free to reach zero. Refusing outright is
+					// right in principle and wrong on screen: rapidly
+					// tapping left and right reverses the horizontal axis
+					// constantly, confidence collapses, and the ghost falls
+					// back to pure lateness -- which the user read as
+					// "spam left/right looks slow/delayed" (2026-08-28)
+					// while long runs looked fine.
+					//
+					// A floor keeps some prediction under a peer who is
+					// changing their mind, which is better than none: the
+					// error it can introduce is bounded by the same cap
+					// everything else is, and being a little wrong for
+					// 30ms beats being reliably a whole interp delay late.
+					if confidence < minPredictConfidence {
+						confidence = minPredictConfidence
+					}
+					// NOT smoothed across frames. That was tried
+					// (2026-08-28) to stop the amount of prediction
+					// wobbling, and an A/B with everything else held equal
+					// made every axis WORSE -- steady walking turned
+					// choppy, jumps read as low-framerate -- because a
+					// lagging confidence applies yesterday's damping to
+					// today's motion. The wobble it was meant to fix
+					// turned out to be an interp-below-jitter artifact,
+					// cured by keeping the delay above the link's jitter,
+					// not by filtering here.
+					// VELOCITY ONLY, and that is a measured conclusion,
+					// not a first draft. Acceleration was added here twice
+					// on 2026-08-28 -- raw (PredictAccelerated) and then
+					// gated by its own cross-window consistency -- and
+					// BOTH failed the same way on screen: chop on jumps,
+					// and the gated version added a snap at the end of a
+					// steady run, because the second derivative's
+					// contribution fluctuates frame to frame under jitter
+					// however it is gated, and a prediction whose SIZE
+					// wobbles is visible even when its direction is right.
+					// Two variants failing identically is the stop signal
+					// (CLAUDE.md); the jump's residual lag is paid for
+					// with steadiness everywhere else.
+					p = last.Position[j] + v2*float64(dt)*confidence
+					pos[j] = p
+					continue
+				}
+				a := (v2 - v1) / ((t1 + t2) / 2)
+				// A velocity measured ACROSS a span is the velocity at the
+				// MIDDLE of that span, not at its end -- so v2 has to be
+				// carried forward by half of t2 to give the rate in force at
+				// the newest sample. Without that half-step the prediction
+				// is systematically behind on anything accelerating: a body
+				// falling to y=20 was predicted at y=30, and the test that
+				// says so is the reason this line exists.
+				vNow := v2 + a*(t2/2)
+				p = last.Position[j] + vNow*float64(dt) + 0.5*a*float64(dt)*float64(dt)
+			}
+		}
+		pos[j] = p
+	}
+	out := last
+	out.Position = pos
+	out.Timestamp = renderTime
+	m.record(dt, capped)
+	return out
 }
 
 // extrapolationMeter answers "is the prediction doing anything, and how much"

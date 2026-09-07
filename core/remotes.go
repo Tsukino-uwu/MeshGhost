@@ -189,6 +189,23 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 			// Dropped from the map, not merely skipped: keeping it would hold
 			// its snapshots forever and let it spring back to life.
 			delete(c.remotes, id)
+			// THE SEAT GOES WITH THE BUFFER, exactly as a Leave drops both
+			// (relaysession.go) and as dropLocalPeer does. Only the buffer was
+			// dropped here until 2026-09-08, and the roster is CAPPED at
+			// protocol.MaxRosterSize: on a transport where peers vanish
+			// without a goodbye -- udp signals nothing on close, and a
+			// hard-killed client never gets to say it, which is why this
+			// age-out exists at all -- 512 distinct ids over a long-lived
+			// session fill the roster with peers nobody is hearing from, and
+			// admitToRosterLocked then refuses every later join in silence.
+			// What the player sees is a room that stops showing new arrivals,
+			// with their own chasers and replays refused too, while the stats
+			// read PeersKnown 512 and PeersRendered 0.
+			delete(c.roster, id)
+			// And the nametag with it, for the reason the Leave path gives:
+			// a relay reuses player ids within a session, so a name left
+			// behind here is eventually drawn over somebody else's ghost.
+			delete(c.remoteNames, id)
 			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
 			continue
 		}
