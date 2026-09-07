@@ -670,6 +670,36 @@ func runBeforeArmingAutoRetryHook() {
 func (c *Core) reconnectWithBackoff(gameID, adapterGameVersion string, bridgeConn transport.Transport) {
 	backoff, backoffMax := c.reconnectBackoffBounds()
 	for {
+		// STOP IF THE GAME IS GONE, checked every iteration -- the equivalent of
+		// the test retryRelayForSoloAdapter has always made, which this loop
+		// never had.
+		//
+		// releaseAdapterSlot disarms auto-retry when a bridge connection ends,
+		// but it cannot stop a goroutine already asleep in the backoff below,
+		// and that sleep reaches 15s. So: the relay drops, this loop starts,
+		// the player quits the game during the sleep, and the loop wakes,
+		// redials, and rejoins the room with the surviving resume_token -- with
+		// no game attached, sending no state, and nothing left that will ever
+		// tear it down, because its owner is already gone. sendHeartbeats then
+		// keeps the session non-idle indefinitely: a roster seat that never
+		// leaves, announced to every peer, which contract.md says an
+		// adapter-driven disconnect must never produce. Found by the 2026-09-07
+		// review (two agents, independently).
+		//
+		// THE TEST IS "IS THIS CONNECTION CLOSED", not "is it the attached
+		// adapter". The sibling loop can ask the stricter question because it
+		// belongs to an adapter that is attached by construction; this one is
+		// also started by the ownership-transfer path, where the connection it
+		// was started FOR is legitimately not yet the attached one --
+		// TestASessionDyingDuringOwnershipTransferStillReconnects drives exactly
+		// that, and the stricter test made it return on the first iteration and
+		// leave a bridge_ready adapter with no relay and nothing retrying: the
+		// dead session that path exists to prevent. A closed connection is the
+		// unambiguous signal that the game is gone, and it is the same one the
+		// hello path already uses to tell a dead incumbent from a busy one.
+		if transportIsClosed(bridgeConn) {
+			return
+		}
 		err := c.ConnectRelayOnAdapterHello(gameID, adapterGameVersion, bridgeConn)
 		if err == nil {
 			return

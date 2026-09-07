@@ -206,6 +206,22 @@ func (w *adapterWriter) enqueue(m queuedMsg) bool {
 		w.closed = true
 		w.mu.Unlock()
 		log.Printf("core: the adapter has taken nothing for %d queued messages -- treating it as stuck, not slow", adapterQueueCap)
+		// CLOSE THE SOCKET, then tear down -- the same order the write-failure
+		// path below gets for free, where transport.Send has already closed the
+		// connection before it returns an error.
+		//
+		// This branch had no close at all, and it is the only terminal verdict
+		// in this file reached WITHOUT a write ever failing. So the core sent
+		// the relay a Goodbye, cleared autoRetry, stopped the chasers, replays
+		// and recording, freed the adapter slot -- and left the TCP connection
+		// ESTABLISHED. The mod kept a healthy socket, kept sending local_state
+		// forever, and received nothing ever again; its reconnect logic keys off
+		// a socket close, so it never fired. The player is silently alone with
+		// no ghosts, no recording and no error in the game, until they restart
+		// it. Strictly worse than the 2026-09-06 lockout this whole refactor was
+		// written to fix, where the game at least saw a RESET and was back in
+		// 150 ms. Found by the 2026-09-07 review.
+		_ = w.nd.Close()
 		if w.onDead != nil {
 			w.onDead()
 		}
