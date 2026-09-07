@@ -68,6 +68,39 @@ const (
 	MaxAreaIDLen = 256
 	MaxAnimLen   = 256
 
+	// MaxTimestampMs bounds State.Timestamp, which was the one field on a
+	// state that NOTHING checked -- not here, not in the relay, not in the
+	// core. It is chosen for one property: no difference between two valid
+	// timestamps can overflow a time.Duration.
+	//
+	// time.Duration is int64 NANOSECONDS, so `time.Duration(d) * time.Millisecond`
+	// wraps for any d past 2^63/1e6 ~= 9.22e12 ms. 1<<42 is ~4.4e12 ms (about
+	// 139 years past the epoch, into 2109), so the widest legal span is 4.4e12
+	// -- 4.4e18 ns, comfortably inside int64 -- while every real timestamp fits
+	// with room to spare: Unix milliseconds today are ~1.78e12.
+	//
+	// THREE separately-reported defects were this one missing bound (the
+	// 2026-09-07 review found them independently, in three different files):
+	//
+	//   - core/replay.go's sleepUntil computed `time.Duration(due-now) *
+	//     time.Millisecond` and clamped the result to 50ms. A wrapped value is
+	//     NEGATIVE, so the clamp did not fire, time.After returned instantly,
+	//     and `now >= due` stayed false -- a playback goroutine spinning a full
+	//     core until StopReplays, from a clip a friend sent you. The same wrap
+	//     made duration() negative, so every restart logged "fast-forwarded
+	//     past the end" and terminated the replay.
+	//   - core/interp.go anchors its age cull on the NEWEST sample, so one
+	//     future-stamped state became permanently newest: the buffer collapsed
+	//     to its 2-sample floor and `newestTimestamp() < cutoff` could never be
+	//     true again, making that peer immune to the stale-peer age-out. A
+	//     frozen ghost with no despawn path for the rest of the session.
+	//   - the non-hostile version of the same thing is ordinary clock skew.
+	//
+	// Negative is refused outright: a timestamp before the epoch has no meaning
+	// on any of the three clocks this field can be in (wall, virtual, or a
+	// clock.v1 room's), and allowing it would double the worst-case span.
+	MaxTimestampMs = 1 << 42
+
 	// MaxPositionComponent bounds the absolute value of each State.Position
 	// component. Added after a refactor/review pass found that nothing
 	// anywhere checked finiteness or magnitude: a peer can put
@@ -228,6 +261,11 @@ func ValidateState(st State) bool {
 	if len(st.Position) > MaxPositionLen {
 		return false
 	}
+	// Cheap, and first for the same reason IsValidPosition is early: see
+	// MaxTimestampMs for the three defects an unbounded timestamp produced.
+	if st.Timestamp < 0 || st.Timestamp > MaxTimestampMs {
+		return false
+	}
 	// AreaID and Anim get the same UTF-8 requirement as the identifiers on
 	// the other planes (ValidOpaqueString), and for the identical reason: the
 	// core is permitted to compare them by equality and nothing else, and a
@@ -271,6 +309,13 @@ func ValidateState(st State) bool {
 // a ghost holding a sword its peer had thrown, a prop frozen mid-air --
 // pointed anywhere but here. A state dropped for size must say so.
 func StateRejectReason(st State) string {
+	if st.Timestamp < 0 {
+		return fmt.Sprintf("timestamp %d is before the epoch", st.Timestamp)
+	}
+	if st.Timestamp > MaxTimestampMs {
+		return fmt.Sprintf("timestamp %d is past the %d cap (a span that wide overflows a time.Duration)",
+			st.Timestamp, int64(MaxTimestampMs))
+	}
 	if !ValidOpaqueString(st.AreaID, MaxAreaIDLen) {
 		return fmt.Sprintf("area_id invalid or over %d bytes", MaxAreaIDLen)
 	}
