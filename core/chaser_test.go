@@ -269,13 +269,106 @@ func TestChaserPackClampsAnAbsurdSpacingFast(t *testing.T) {
 		t.Fatalf("StartChasers took %s with an absurd spacing", took)
 	}
 	c.chaserMu.Lock()
+	slots := len(c.chaserHist.buf)
 	for _, ch := range c.chasers {
-		if ch.delay > maxChaserBehind || cap(ch.in) > int((maxChaserBehind+chaserQueueSlack).Milliseconds()/10) {
-			t.Fatalf("%s: delay %v, queue %d -- not clamped", ch.id, ch.delay, cap(ch.in))
+		if ch.delay > maxChaserBehind {
+			t.Fatalf("%s: delay %v -- not clamped", ch.id, ch.delay)
 		}
 	}
 	c.chaserMu.Unlock()
+	if want := int((maxChaserBehind + chaserHistorySlack).Milliseconds() / 10); slots > want {
+		t.Fatalf("history holds %d slots, want at most %d -- not clamped", slots, want)
+	}
 	c.StopChasers()
+}
+
+// TestChaserHistoryIsFlatInTheCount is the 1.69 GB regression (2026-09-07).
+//
+// A tester's 512-chaser pack at 1s delay/1s spacing allocated a private queue
+// PER CHASER, each sized to that chaser's own delay: 13.2 million
+// protocol.State slots, ~1.69 GB, taken on the bridge goroutine the moment the
+// adapter attached and taken again on every reconnect. The pack shares one
+// history now, so the deepest delay alone sizes it and adding chasers costs
+// nothing. Asserted as "512 costs the same as 2 at the same depth", which is
+// the property, rather than as a byte count, which would be a machine detail.
+func TestChaserHistoryIsFlatInTheCount(t *testing.T) {
+	slotsFor := func(count int, spacing time.Duration) int {
+		c := New()
+		c.ChaserEnabled = true
+		c.ChaserCount = count
+		c.ChaserDelay = time.Second
+		c.ChaserSpacing = spacing
+		if n := c.StartChasers(); n != count {
+			t.Fatalf("StartChasers = %d, want %d", n, count)
+		}
+		defer c.StopChasers()
+		c.chaserMu.Lock()
+		defer c.chaserMu.Unlock()
+		return len(c.chaserHist.buf)
+	}
+	// Same depth (the deepest chaser is 512s behind either way), 256x the
+	// chasers. Under the old private queues the second number was ~256x the
+	// first; now they are equal.
+	deep := slotsFor(2, 511*time.Second)
+	full := slotsFor(512, time.Second)
+	if deep != full {
+		t.Fatalf("2 chasers at depth 512s hold %d slots, 512 chasers at the same depth hold %d -- "+
+			"the history must be sized by the deepest delay alone, not by the count", deep, full)
+	}
+	// And the absolute figure stays small: the whole 512-pack is one ring of
+	// 514s at 100Hz. The old arrangement needed 13.2 million slots for this.
+	if want := int((514 * time.Second).Milliseconds() / 10); full != want {
+		t.Fatalf("512-pack history is %d slots, want %d", full, want)
+	}
+}
+
+// TestChaserHistoryLapsIntoASeamRatherThanAHole: a reader that falls further
+// behind than the history's slack loses its OLDEST unread samples and is told
+// so, instead of the writer dropping the newest and punching an invisible hole
+// into the middle of the trail (the 2026-09-05 despawn/respawn cycle).
+func TestChaserHistoryLapsIntoASeamRatherThanAHole(t *testing.T) {
+	h := newChaserHistory(4)
+	for i := 0; i < 4; i++ {
+		h.add(protocol.State{Timestamp: int64(i)})
+	}
+	if s, got, lapped, ok, _ := h.read(0); !ok || lapped || got != 0 || s.Timestamp != 0 {
+		t.Fatalf("read(0) on an exactly-full history = (%v, %d, lapped %v, ok %v), want the oldest sample untouched",
+			s.Timestamp, got, lapped, ok)
+	}
+	// Two more writes lap a reader still sitting at 0.
+	h.add(protocol.State{Timestamp: 4})
+	h.add(protocol.State{Timestamp: 5})
+	s, got, lapped, ok, _ := h.read(0)
+	if !ok || !lapped {
+		t.Fatalf("read(0) after the ring wrapped = (lapped %v, ok %v), want a lapped read", lapped, ok)
+	}
+	if got != 2 || s.Timestamp != 2 {
+		t.Fatalf("lapped read resumed at index %d (ts %d), want the oldest surviving sample, index 2", got, s.Timestamp)
+	}
+	// The NEWEST sample is always present: that is the direction that matters.
+	if s, _, _, ok, _ := h.read(5); !ok || s.Timestamp != 5 {
+		t.Fatalf("newest sample missing after a wrap: ok %v ts %d", ok, s.Timestamp)
+	}
+}
+
+// TestChaserHistoryWakesAWaiterWithoutLosingIt covers the lost-wakeup the
+// one-lock read() exists to prevent: a reader that finds nothing must get a
+// channel that a write landing immediately afterwards still closes.
+func TestChaserHistoryWakesAWaiterWithoutLosingIt(t *testing.T) {
+	h := newChaserHistory(8)
+	_, _, _, ok, wait := h.read(0)
+	if ok {
+		t.Fatal("read(0) on an empty history returned a sample")
+	}
+	h.add(protocol.State{Timestamp: 7})
+	select {
+	case <-wait:
+	case <-time.After(time.Second):
+		t.Fatal("a write after an empty read never woke the waiter")
+	}
+	if s, _, _, ok, _ := h.read(0); !ok || s.Timestamp != 7 {
+		t.Fatalf("after the wake, read(0) = (ok %v, ts %d), want the written sample", ok, s.Timestamp)
+	}
 }
 
 // TestChaserHoldsWhileThePlayerIsFrozen (ADR 0053): while the adapter says the
@@ -393,11 +486,13 @@ func TestChaserTapThinsTheAdapterFrameRate(t *testing.T) {
 		c.recordLocal(&protocol.State{AreaID: "a", Position: []float64{x, 0}})
 	}
 	c.chaserMu.Lock()
-	ch := c.chasers[0]
+	hist := c.chaserHist
 	c.chaserMu.Unlock()
-	// 500 frames over 1s at 2ms: one sample per 10ms is 100, minus the handful
-	// the goroutine consumed inside the spawn window before it blocked.
-	if got := len(ch.in); got < 80 || got > 101 {
-		t.Fatalf("chaser queue holds %d samples after 500 frames 2ms apart; want ~100 (one per 10ms)", got)
+	// 500 frames over 1s at 2ms: one sample per 10ms is 100. Asserted on what
+	// the tap WROTE rather than on what is still unread -- the shared history
+	// never drains, so the written count is the thinning itself rather than a
+	// figure that also depends on how far the goroutine happened to get.
+	if got := hist.written(); got < 95 || got > 101 {
+		t.Fatalf("the tap wrote %d samples after 500 frames 2ms apart; want ~100 (one per 10ms)", got)
 	}
 }

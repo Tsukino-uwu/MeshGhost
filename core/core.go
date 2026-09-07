@@ -798,8 +798,12 @@ type Core struct {
 	// a gap), so it can never spawn on top of a standing player. Zero means
 	// the chaser's own delay.
 	ChaserSpawnDelay time.Duration
-	chaserMu         sync.Mutex
-	chasers          []*chaser
+	chaserMu sync.Mutex
+	chasers  []*chaser
+	// chaserHist is the pack's ONE shared copy of the player's recent past,
+	// read by every chaser at its own offset (core/chaser.go). Built by
+	// StartChasers, released by StopChasers, nil whenever no pack exists.
+	chaserHist *chaserHistory
 	// The chaser's GAMEPLAY clock (ADR 0053): wall time minus every span the
 	// adapter reported the player frozen. frozenSince is the wall instant the
 	// current freeze began (0 when not frozen); frozenTotalMs is every finished
