@@ -87,6 +87,18 @@ type fuzzEverythingCfg struct {
 	// write-timeout path. See throttledconn_test.go.
 	drainBytes int
 	drainEvery time.Duration
+	// minSend and extrapolate: the send-rate floor and remote prediction.
+	// Both shipped knobs, both interacting with the keepalive and stale
+	// windows already fuzzed here, and neither reachable from a seed until
+	// 2026-09-07 -- suppression could only ever be exercised at the default
+	// rate, and PredictLinear never ran in this target at all.
+	minSend     time.Duration
+	extrapolate time.Duration
+	// allAreas and orientBracket are the two declarations a hello can carry.
+	// Every attach here sent a bare hello, so the adapter-owns-visibility
+	// path and the orientation bracket -- peer-controlled bytes the core
+	// hands to the adapter -- were both dead ground.
+	allAreas, orientBracket bool
 }
 
 func (c fuzzEverythingCfg) String() string {
@@ -111,6 +123,21 @@ var (
 // fuzzEverythingDrainEvery is the adapter's frame: one read allowance per
 // tick of this, matching how a game drains its bridge socket.
 const fuzzEverythingDrainEvery = 2 * time.Millisecond
+
+// The orientation shapes a real adapter sends. Opaque to the core by
+// contract -- it may compare them and hand them on, never parse them -- so
+// what matters is that every one of these survives the buffer, the bracket
+// and the trip to the adapter unread and unchanged.
+var fuzzEverythingOrientations = [8]json.RawMessage{
+	nil,
+	json.RawMessage(`1.5`),           // a scalar facing (Emerald)
+	json.RawMessage(`"north"`),       // a string tag
+	json.RawMessage(`[0.1,0.2,0.3]`), // a vector
+	json.RawMessage(`{"x":0,"y":0,"z":0,"w":1}`),   // a quaternion (Pseudoregalia)
+	json.RawMessage(`null`),                        // present but empty
+	json.RawMessage(`{"a":{"b":{"c":[1,2,3,4]}}}`), // nested, to prove nothing walks it
+	json.RawMessage(`-359.99999999999994`),         // a float that must round-trip exactly
+}
 
 func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 	d := func(i int) time.Duration { return fuzzEverythingDurations[b[i%len(b)]&0x07] }
@@ -137,6 +164,11 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		// every byte here still had room.
 		drainBytes: fuzzEverythingDrains[(b[1]>>5)&0x07],
 		drainEvery: fuzzEverythingDrainEvery,
+		// More free bits of bytes that had them to spare.
+		minSend:       fuzzEverythingDurations[(b[2]>>3)&0x07],
+		extrapolate:   fuzzEverythingDurations[(b[3]>>3)&0x07],
+		allAreas:      b[4]&0x08 != 0,
+		orientBracket: b[4]&0x10 != 0,
 	}
 }
 
@@ -306,6 +338,8 @@ func FuzzEverything(f *testing.F) {
 		c.ChaserSpawnDelay = cfg.spawn
 		c.ChaserContact = cfg.contact
 		c.ChaserName = "F"
+		c.MinSendInterval = cfg.minSend
+		c.Extrapolate = cfg.extrapolate
 		rt := &recordingTransport{}
 		c.mu.Lock()
 		c.relay = rt
@@ -343,6 +377,15 @@ func FuzzEverything(f *testing.F) {
 				}
 				return a
 			})
+			// reattachFakeAdapterWith sends a bare hello, and every attach
+			// resets these from it -- so re-declare after EACH one, or a
+			// detach/attach step would quietly drop back to the bare shape.
+			// Both are read under c.mu by remoteStatesAt, so setting them
+			// here is the state a richer hello would have produced.
+			c.mu.Lock()
+			c.adapterRenderAllAreas = cfg.allAreas
+			c.adapterWantsOrientBracket = cfg.orientBracket
+			c.mu.Unlock()
 		}
 		detach := func() {
 			if fa == nil {
@@ -448,8 +491,32 @@ func FuzzEverything(f *testing.F) {
 			switch op {
 			case "frame.walk":
 				x += 1
-				frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}, Anim: "run"})
+				// ORIENTATION, from the three parameter bits. It is opaque
+				// json.RawMessage the core may never parse, and it is what
+				// the orientation bracket (ADR 0043) carries to the adapter --
+				// so with cfg.orientBracket on, these blobs are peer-shaped
+				// bytes crossing the whole render path. Every frame op here
+				// used to send none at all, which left the bracket unreachable
+				// from a seed: a scalar facing, a vector, a quaternion, a null
+				// and a deep object are what real adapters actually send.
+				frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}, Anim: "run",
+					Orientation: fuzzEverythingOrientations[(b>>5)&0x07]})
 			case "frame.stand":
+				// THE GAMEPLAY CLOCK (ADR 0053), off the top two parameter
+				// bits. player_frozen is the adapter saying the game is
+				// holding the player still outside gameplay -- a pause menu, a
+				// pickup popup -- and it stops the chaser pack's clock dead.
+				// Nothing fuzzed it: SetPlayerFrozen appeared in no target at
+				// all, so freeze/resume interleaved with seams, detaches and
+				// pack restarts had never been generated. A freeze left on
+				// across a chasersStop is exactly the shape that would strand
+				// the accumulator.
+				switch b >> 6 {
+				case 3:
+					c.SetPlayerFrozen(true)
+				case 2:
+					c.SetPlayerFrozen(false)
+				}
 				frame(&protocol.State{AreaID: "a", Position: []float64{x, 0}, Anim: "idle"})
 			case "frame.otherArea":
 				frame(&protocol.State{AreaID: "b", Position: []float64{x, 0}})
