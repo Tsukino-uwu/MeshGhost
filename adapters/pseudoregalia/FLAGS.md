@@ -1,6 +1,6 @@
 # Pseudoregalia — compile-time flag register
 
-`Plugin.cpp` carries 96 `constexpr bool` switches (re-counted 2026-08-30 with `grep -c "constexpr bool "`;
+`Plugin.cpp` carries 97 `constexpr bool` switches (re-counted 2026-09-07 with `grep -c "constexpr bool "`;
 the 91 written here on 2026-08-29 was itself a correction of a stale 87 and was stale again within a
 day, so treat the figure as a date-stamped measurement, not a total). They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
@@ -29,7 +29,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 32 that are `true` (re-counted 2026-09-01, after `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` came off)
+## Behaviour — the 33 that are `true` (re-counted 2026-09-07, after `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` was added)
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -110,16 +110,16 @@ was derived from — turn it back on only to re-measure against a new game build
 shipped `true` through the reset-crash hunt it served; the register audit caught it, the user
 called the flip).
 
-**The arithmetic, so a future audit can check it in one pass** — recounted 2026-09-01, after the
+**The arithmetic, so a future audit can check it in one pass** — recounted 2026-09-07, after the
 nametag/sword-throw/crowd sessions (the 2026-08-27 recount of 87 had itself gone stale within
-days, which is why the figure carries a date and the COMMAND, never a total to trust): **96**
-`constexpr bool` declarations in `Plugin.cpp`, being 95 written plus
+days, which is why the figure carries a date and the COMMAND, never a total to trust): **97**
+`constexpr bool` declarations in `Plugin.cpp`, being 96 written plus
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather than set
 (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped
-build without being written so. Of the 95:
+build without being written so. Of the 96:
 
-- **32 written `true`** — Behaviour, above (33 until `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` came off
-  later the same day).
+- **33 written `true`** — Behaviour, above (33 until `PLAYER_STATE_DIFF_ON_GHOST_SPAWN` came off on
+  2026-09-01, then 32 until `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` arrived on 2026-09-06).
 - **63 written `false`**, splitting by name into **48 probe-shaped** and **15 not**.
 - Of those 15, **two are behaviour flags that ship off** — `GHOST_COLLISION_ENABLED` and
   `GHOST_HURTBOX_DISABLED`, both listed under Behaviour with the flags they belong beside — and

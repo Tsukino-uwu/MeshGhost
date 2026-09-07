@@ -320,7 +320,9 @@ Recorded so a future audit does not churn them.
 ## The hardware tier's entry pools are a real ceiling (2026-08-21)
 
 The tier has 56 OAM entries and now spends them across five pools, in the engine's own back-to-front
-order (reflection 152, ripple 151, blob 150, shadow 148, the character, dust 135):
+order (reflection 152, surf blob 150, shadow 148, the character, landing dust 135 — the subpriorities
+measured 2026-08-21, `meshghost_emerald.lua:8384-8386`; the ripple pool sits between reflection and
+blob by where it has to draw, but its own subpriority was never measured):
 
 | Pool | Entries | What it costs |
 | --- | --- | --- |

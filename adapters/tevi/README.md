@@ -37,7 +37,8 @@ Phase 6 fully done 2026-08-13.**
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
-- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-09-05** (the build that
+- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-09-07** (`538bb9fd`, for
+  the TCP_NODELAY change, from the tree at `8fc8d127`; the build that
   looks for `meshghost.exe` and `config.json` in the game's root folder only; `built-from.txt`
   beside the staged DLL records the exact commit). The 2026-08-28 build before it carried the
   trail/warp/pooled-VFX/hitstop work below, and the 2026-08-18 build before that added

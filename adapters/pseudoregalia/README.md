@@ -415,8 +415,10 @@ Roughly in order:
 58. Made a crowd affordable: 150 ghosts live in one room, roughly 30 above 50fps, after removing
     per-ghost whole-world scans (per-ghost cost 6283 → 309 us) and unarming flag-gated sweeps
     that ran with no toggle present. The same ladder fed the project-wide 15Hz send-rate default,
-    acquitted by a blind 15-vs-20 A/B the user scored at chance. Measured 2026-09-01,
-    `VERIFIED.md` and `agent_docs/crowd-limits.md`.
+    acquitted by a blind 15-vs-20 A/B the user scored at chance. Measured 2026-09-01; the
+    2026-09-06 ghost-cost work superseded these figures, and the re-run table above is the current
+    picture (32 peers went from ~53 to 96/106 fps). `VERIFIED.md` and
+    `agent_docs/crowd-limits.md`.
 
 59. Rebuilt the thrown sword as our own flyer component after the game's own class kept claiming
     the watcher's player (`create_ghost_weapon_flyer` — pose, glow, bounce effects and blob

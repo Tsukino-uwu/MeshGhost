@@ -67,7 +67,7 @@ the project is [status.md](../../../../agent_docs/status.md); the running log is
 - The shipped/maintained adapter script is `meshghost_emerald.lua`, in this folder — that's
   what `dev-scripts/stage-release.ps1` (invoked by `.github/workflows/release.yml`) stages into
   the release, and what any future fix belongs in.
-  `phase5_5_sprite.lua` is a historical copy under its original development-phase name (split
+  `probes/phase5_5_sprite.lua` is a historical copy under its original development-phase name (split
   off 2026-08-14, byte-identical only at that moment — see that file's own header for how far
   it's since diverged) — the "How this adapter was built" section below is the accurate
   history of how it came to be, under whatever name it had at each point.
