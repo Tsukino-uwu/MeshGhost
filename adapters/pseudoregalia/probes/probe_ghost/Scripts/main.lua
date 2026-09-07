@@ -15,9 +15,9 @@
 --
 -- Requires, started BEFORE launching the game (same as Phase 7.2's Stage 3 probe):
 --   dev-scripts\run-relay-loopback.bat      (meshghost-relay.exe -loopback)
---   dev-scripts\run-core-pseudoregalia.bat  (meshghost.exe -game=pseudoregalia -bridge=127.0.0.1:7778)
+--   dev-scripts\run-core.bat pseudoregalia  (meshghost.exe -game=pseudoregalia -bridge=127.0.0.1:7778)
 -- In loopback mode the relay echoes this client's own state back as "<name>-ghost" (here,
--- "player1-ghost", per run-core-pseudoregalia.bat's -name=player1) -- so the visible outcome is
+-- "player1-ghost", per run-core.bat's -name=player1) -- so the visible outcome is
 -- a ghost trailing the local player over a REAL relay/core/bridge round trip, not a hardcoded
 -- local offset like Phase 7.4 used to prove spawn/positioning alone.
 --

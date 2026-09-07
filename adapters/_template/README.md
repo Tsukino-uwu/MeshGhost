@@ -665,7 +665,8 @@ The local rig already exists — read [dev-scripts/README.md](../../dev-scripts/
 inventing your own. Four things about it are worth knowing up front, because each was learned
 the expensive way:
 
-- **Give each game a `run-core-<game>.bat`, and test with `-interp=0ms -min-send=10ms`.** The
+- **Test through `dev-scripts/run-core.bat <game>`, which already passes `-interp=0ms
+  -min-send=10ms`.** The
   core's default interpolation buffer (`core.DefaultInterpolationDelay`, 450ms) smooths over real
   local timing bugs — treat "looks fine with the buffer on" as untested, not confirmed. (If you
   also start a relay locally, it needs `-send-hz=100` or it silently overrides every core's fast
@@ -675,8 +676,8 @@ the expensive way:
   but every connection handshakes over tcp first and only then upgrades, and a preference the
   relay does not serve degrades quietly to a working tcp session. Confirm from the client's own
   `core: relay offers ... — using <transport> at ...` line which one a run actually used; a run
-  that "works" proves nothing on its own. Pseudoregalia keeps a `run-core-<game>-tcp/-udp/-quic.bat`
-  per transport for this, paired with `run-netsim.bat` for real packet loss.
+  that "works" proves nothing on its own. `dev-scripts/run-core.bat <game> <transport>` takes the
+  transport as an argument for exactly this, paired with `run-netsim.bat` for real packet loss.
 - **Solo-test through `run-relay-loopback.bat`**, which echoes your own state back as
   `<id>-ghost`, and give loopback ghosts a **render-only** offset so you can tell the ghost from
   your own character — Emerald 2 tiles, TEVI 160 units, Pseudoregalia 150. Offset for judging
@@ -1841,9 +1842,10 @@ side-offset ghost can be judged 1:1 against the player — that is a real and ne
 it. A tier confirmed perfect at `-interp=0ms` was independently described as *"really really bad"* at
 the shipped 450ms, with no code change in between.
 
-**Give every game a dev core script per mode** (`dev-scripts/run-core-<game>.bat`), and say in the
-handover which one is running. Crystal had none, so every session silently got shipped defaults from
-an autostarted core while everyone assumed otherwise — and two rounds of renderer work were spent
+**Say in the handover which rig is running** — `dev-scripts/run-core.bat <game>` for the dev
+settings, or one of the named shipped-settings scripts beside it. Crystal had neither, so every
+session silently got shipped defaults from an autostarted core while everyone assumed otherwise —
+and two rounds of renderer work were spent
 chasing what turned out to be the interpolation delay. **Before judging a renderer, print what the
 rig is actually running and read it.**
 
