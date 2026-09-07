@@ -192,7 +192,16 @@ func validPrev(p *StatePrev) bool {
 	if p.Anim != nil && !ValidOpaqueString(*p.Anim, MaxAnimLen) {
 		return false
 	}
-	if JSONWireLen(p.Orientation) > MaxOrientationBytes {
+	// Both halves of the orientation bound, exactly as ValidateState applies
+	// them to state.orientation. The depth half was missing until 2026-09-08:
+	// a 240-byte "[[[[...]]]]" is ~120 levels deep, so it sat under the
+	// 256-byte cap, was refused as state.orientation and accepted as
+	// prev.orientation — and ApplyPrev copies orientation across verbatim, so
+	// the reconstruction handed to the adapter as render_remote.orientation is
+	// a state ValidateState itself would reject. Both Lua adapters cap at 64
+	// levels and would refuse it; the C# and C++ ones have no cap at all.
+	if JSONWireLen(p.Orientation) > MaxOrientationBytes ||
+		!rawJSONDepthWithinLimit(p.Orientation) {
 		return false
 	}
 	if len(p.Position) > MaxPositionLen || !IsValidPosition(p.Position) {

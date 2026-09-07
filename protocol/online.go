@@ -48,6 +48,54 @@ func ValidOpaqueString(s string, maxBytes int) bool {
 	return len(s) <= maxBytes && utf8.ValidString(s)
 }
 
+// ValidOpaqueStringOnWire is ValidOpaqueString with the length measured where
+// it is spent: on the bytes encoding/json writes, not the bytes in hand. Use it
+// for any opaque identifier whose bound was DERIVED from a transport budget,
+// where an under-count is not a slack limit but an undeliverable message.
+//
+// The expansion is the same one JSONWireLen documents for raw values, plus the
+// two a string literal adds: '<', '>' and '&' become six bytes each, U+2028 and
+// U+2029 become six from three, a quote or a backslash doubles, and a control
+// byte becomes a six-byte \u00xx. Invalid UTF-8 needs no budget here because it
+// is refused outright, for the equality reason ValidOpaqueString gives above.
+//
+// Added 2026-09-08. ValidateWorld measured Authority and Key with len() while
+// MaxWorldBlobBytes was derived by SUBTRACTING their bounds from the datagram
+// budget — an arithmetic that only holds if all three are measured the same
+// way. Measured that day: the maximal all-ASCII world_state is 1115 bytes of
+// payload plus 18 of envelope framing, inside udpconn's 1200; swapping the
+// authority to 128 '&' and the key to 64 '&' — both of which ValidateWorld
+// accepted — makes the same message 2075 bytes, which udpconn.checkWritable
+// refuses. Every world_state for that authority then vanished for every
+// udp/quic-datagram peer, reported only as "relay: send to pX failed:".
+func ValidOpaqueStringOnWire(s string, maxBytes int) bool {
+	return utf8.ValidString(s) && opaqueStringWireLen(s) <= maxBytes
+}
+
+// opaqueStringWireLen is how many bytes s occupies inside a JSON string,
+// excluding the surrounding quotes (those belong to the message's scaffolding,
+// which the derivations account for separately). Exact for valid UTF-8, which
+// is the only input ValidOpaqueStringOnWire ever passes it.
+func opaqueStringWireLen(s string) int {
+	n := len(s)
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '<' || c == '>' || c == '&':
+			n += 5
+		case c == '"' || c == '\\':
+			n++
+		case c < 0x20:
+			n += 5
+		case c == 0xe2:
+			// U+2028 (e2 80 a8) and U+2029 (e2 80 a9): three bytes out, six in.
+			if i+2 < len(s) && s[i+1] == 0x80 && (s[i+2] == 0xa8 || s[i+2] == 0xa9) {
+				n += 3
+			}
+		}
+	}
+	return n
+}
+
 // Capability strings a client advertises in Hello.Features. Each names one
 // thing the relay is asked to do that it would otherwise never do; a room
 // whose agreed feature set lacks one has that code path stay completely
@@ -180,7 +228,8 @@ const (
 	MaxLiveEscrowsPerMember = 8
 
 	// MaxHelloFieldLen bounds every string field of Hello (GameID, Room,
-	// DisplayName, RoomCode, GameVersion) — previously unbounded, found while
+	// DisplayName, RoomCode, GameVersion, and NameColor since 2026-09-08)
+	// — previously unbounded, found while
 	// auditing for malicious-peer hardening alongside room-code auth. One shared
 	// constant rather than five, since none of these fields has any real reason
 	// to differ from the others: a room name, a display name, and a version
@@ -367,7 +416,7 @@ func validateFeatures(features []string) bool {
 }
 
 // ValidateHelloFields reports whether every client-supplied field of a Hello is
-// within its bound: the five string fields against MaxHelloFieldLen, the resume
+// within its bound: the six string fields against MaxHelloFieldLen, the resume
 // token against MaxResumeTokenLen, and the feature list against validateFeatures.
 //
 // It lives here, beside the constants it enforces, rather than as five inline
@@ -382,12 +431,20 @@ func validateFeatures(features []string) bool {
 // where logging it writes unbounded attacker-controlled bytes into the relay's
 // own log on every attempt, which defeats the point of bounding it at all.
 func ValidateHelloFields(h Hello) bool {
-	if len(h.GameID) > MaxHelloFieldLen ||
-		len(h.Room) > MaxHelloFieldLen ||
-		len(h.DisplayName) > MaxHelloFieldLen ||
-		len(h.RoomCode) > MaxHelloFieldLen ||
-		len(h.GameVersion) > MaxHelloFieldLen {
-		return false
+	// One list rather than a chain of ors, so adding a Hello string field is a
+	// one-line edit in one place instead of another clause to forget — which
+	// is what happened to NameColor, unbounded from its introduction until
+	// 2026-09-08 while the paragraph above and contract.md both said every
+	// hello string field was bounded. It was harmless only by accident:
+	// SanitizeNameColor refuses anything that is not exactly 4 or 7 bytes, so
+	// the value was discarded downstream rather than bounded on arrival, and
+	// the relay logged and compared an attacker-sized string in between.
+	for _, s := range []string{
+		h.GameID, h.Room, h.DisplayName, h.RoomCode, h.GameVersion, h.NameColor,
+	} {
+		if len(s) > MaxHelloFieldLen {
+			return false
+		}
 	}
 	if len(h.ResumeToken) > MaxResumeTokenLen {
 		return false
@@ -636,6 +693,12 @@ const (
 	// datagram bytes, minus MaxLeaseKeyLen (128) for the authority, minus
 	// MaxWorldKeyLen (64), minus ~130 of JSON scaffolding, leaves ~860. 768
 	// takes that with ~90 bytes of slack rather than sitting on the edge.
+	//
+	// The subtraction only holds because all three terms are measured the
+	// same way — on the bytes encoding/json writes. The blob always was
+	// (JSONWireLen); the authority and the key were measured with len() until
+	// 2026-09-08, which let a maximal-but-valid world_state reach 2075 bytes
+	// against a budget of 1200 (ValidOpaqueStringOnWire has the measurement).
 	MaxWorldBlobBytes = 768
 
 	// MaxWorldKeysPerRoom bounds how many entities one room's world may hold.
@@ -793,7 +856,11 @@ const (
 // real op. Checked at the relay on receive and at the core before send, the
 // same two-enforcement-point discipline as ValidateState.
 //
-// ValidOpaqueString applies to BOTH Authority and Key, and its UTF-8 half is
+// ValidOpaqueStringOnWire applies to BOTH Authority and Key — on the wire,
+// since 2026-09-08, because MaxWorldBlobBytes is derived by subtracting their
+// bounds from the datagram budget and that subtraction is meaningless if the
+// two are measured before escaping (see ValidOpaqueStringOnWire for the byte
+// counts). Its UTF-8 half is
 // load-bearing for the first of those specifically: a non-UTF-8 string
 // round-trips through JSON as a *different* string, so an invalid authority
 // would compare unequal to the lease key it names at the relay while the
@@ -805,10 +872,10 @@ func ValidateWorld(w World) bool {
 	default:
 		return false
 	}
-	if w.Authority == "" || !ValidOpaqueString(w.Authority, MaxLeaseKeyLen) {
+	if w.Authority == "" || !ValidOpaqueStringOnWire(w.Authority, MaxLeaseKeyLen) {
 		return false
 	}
-	if w.Key == "" || !ValidOpaqueString(w.Key, MaxWorldKeyLen) {
+	if w.Key == "" || !ValidOpaqueStringOnWire(w.Key, MaxWorldKeyLen) {
 		return false
 	}
 	return JSONWireLen(w.Blob) <= MaxWorldBlobBytes
@@ -818,8 +885,14 @@ func ValidateWorld(w World) bool {
 // Checked by core on receive: a hostile or compromised relay is not
 // trusted to have enforced its own limits, the same posture ValidateState and
 // ValidateEvent already take on that side.
+//
+// Authority and every entry Key are wire-measured here too (2026-09-08), so
+// this stays the exact mirror of ValidateWorld. It rejects nothing a relay
+// running this code could produce — ValidateWorld refuses such a write on the
+// way in — and a relay that does not run this code is precisely what the
+// function exists to distrust.
 func ValidateWorldState(st WorldState) bool {
-	if !ValidOpaqueString(st.Authority, MaxLeaseKeyLen) {
+	if !ValidOpaqueStringOnWire(st.Authority, MaxLeaseKeyLen) {
 		return false
 	}
 	if !ValidOpaqueString(st.Holder, MaxHelloFieldLenForID) {
@@ -829,7 +902,7 @@ func ValidateWorldState(st WorldState) bool {
 		return false
 	}
 	for _, e := range st.Entries {
-		if e.Key == "" || !ValidOpaqueString(e.Key, MaxWorldKeyLen) {
+		if e.Key == "" || !ValidOpaqueStringOnWire(e.Key, MaxWorldKeyLen) {
 			return false
 		}
 		if JSONWireLen(e.Blob) > MaxWorldBlobBytes {
