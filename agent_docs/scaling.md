@@ -137,18 +137,23 @@ adapters are per-game anyway. **The mechanism for this ALREADY SHIPPED; what is 
 measurements.**
 
 **What exists today (do not rebuild it).** ADR 0040 made the render model three per-game knobs, and
-`packaging/config-overrides/<game>.json` (moved out of the release tree 2026-09-05) is applied onto the shared
-`client-config-template.json` when the release is staged. TEVI already ships `interp: 175ms` this
-way, with the sweep quotes recorded in the file itself. Pseudoregalia ships `ghost_collision:
-disabled`. **Emerald and Crystal have no overrides file at all** and silently keep the template's
-250ms, never netsim-tested.
+`packaging/config-overrides/<game>.json` (moved out of the release tree 2026-09-05) is applied onto
+the root `config.json`'s `"client"` block when the release is staged. **There is no separate config
+template and has not been since 2026-09-02** — every game's `config.json` is cut from that block
+(`dev-scripts/stage-release.ps1:26-28`). Only two of the four games have an overrides file at all:
+Pseudoregalia's carries its three distance tiers and nothing else, and TEVI's holds only its
+`_comment`. **So no game overrides a render knob today** — `interp` reaches all four as the root
+block's `450ms`, and `ghost_collision: disabled` is a ROOT key
+(`packaging/release/config.json:12`) every game receives rather than the per-game setting it is
+sometimes described as. None of it has been netsim-tested per game.
 
 **The two real gaps:**
-- **`min_send` is a config key (`cmd/meshghost/main.go`) that is NOT in the shipped template**, so
-  a per-game SEND rate is expressible and undiscoverable. Adding it with a comment is the small
-  concrete task that makes an Hz sweep shippable at all. `max_receive_hz_per_player` IS in the
-  template but defaults to 0 (off), and the room's forward rate is server-side (ADR 0017), so of
-  the three Hz knobs one is hidden, one is unused, one is not the client's to set.
+- **A per-game SEND rate is expressible and unmeasured, not undiscoverable.** `min_send` ships in
+  the release config (`packaging/release/config.json:21`, `"0s"`) and is documented at
+  [../docs/config.md](../docs/config.md), so the knob is already in front of the player; what no
+  game has is a value measured on it. `max_receive_hz_per_player` also ships but defaults to 0
+  (off), and the room's forward rate is server-side (ADR 0017), so of the three Hz knobs one is
+  unmeasured, one is unused, one is not the client's to set.
 - **A HARD ASYMMETRY that shapes the whole sweep (checked in `core/core.go`, not assumed):
   `min_send` is a FLOOR on the interval, never a ceiling — `effectiveSendInterval` takes the SLOWER
   of it and the relay's advertised rate, so a client may throttle itself below the room and the
@@ -288,10 +293,11 @@ masking it, not a new defect.** `pseudoregalia/VERIFIED.md` carries the run-by-r
 remaining gap and the re-check the later opt-in change owes. ADR 0043 carries the reasoning. The
 three-family rule below is now back-ported to `_template/README.md`.
 
-**The end state:** every game ships a measured overrides file, and the template's values stop being
-"what everyone gets" and become "what a game that has not been measured yet gets". That reframing
-is worth stating in the template's own comment, because it changes 250ms from a recommendation into
-a placeholder — which is what it has always actually been for three of the four games.
+**The end state:** every game ships a measured overrides file, and the root `config.json` client
+block's values stop being "what everyone gets" and become "what a game that has not been measured
+yet gets". That reframing is worth stating in that block's own comment, because it changes the
+shipped `450ms` from a recommendation into a placeholder — which is what it has always actually
+been for three of the four games.
 
 **Judged on screen by the user, never by the counters** — the netsim rig produces the bad link, the
 counters say what it cost, and only the user says whether it looks right. That split is ADR 0040's
