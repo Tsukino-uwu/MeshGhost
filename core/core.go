@@ -11,8 +11,10 @@
 // import anything under adapters/, and must never branch on game_id or any
 // other opaque field's contents.
 //
-// Pre-1.0: no API stability guarantee. This package may change shape in any
-// release, third-party use is untested and unsupported, and running
+// Since v1.0.0 (2026-08-30) the Go package APIs follow module semver -- a
+// breaking Go-API change means a /v2 module path. What 1.0 actually marks is
+// the WIRE protocol; third-party use of these packages is still untested and
+// unsupported, so pin a version if it must not move, and running
 // meshghost.exe beside your game and speaking the bridge is the route we
 // actually test. See the repo README and docs/integrating.md.
 //
@@ -139,14 +141,15 @@ func IsPermanentRejectErr(err error) bool {
 // hardest, because a step is a discrete commitment rather than a nudge an
 // action game can blend away.
 //
-// The cost is honest and bounded: a peer renders a quarter-second behind where
+// The cost is honest and bounded: a peer renders just under half a second behind where
 // they actually are, a little over one tile at walking pace. That is the trade
 // the user took (2026-08-19) on the grounds that this is the first time anyone
 // had actually measured how the setting looks.
 //
 // CHANGING THIS MEANS CHANGING TWO PLACES, not one: packaging/release/config.json carries an
 // explicit value that OVERRIDES this for every packaged player (its client section is what every
-// game's config.json is staged from), and a per-game client-config-overrides.json can differ. Raising it here and not there is a default nobody receives -- which is
+// game's config.json is staged from), and packaging/config-overrides/<game>.json can differ.
+// Raising it here and not there is a default nobody receives -- which is
 // exactly what happened on 2026-08-19 until the user asked what the release actually ships.
 // cmd/meshghost/shippedconfig_test.go now fails when they disagree.
 //
@@ -182,12 +185,18 @@ const DefaultInterpolationDelay = 450 * time.Millisecond
 const DefaultLocalGhostDelay = 25 * time.Millisecond
 
 // DefaultIdleKeepalive is how often an UNCHANGED state is sent anyway once
-// change suppression has started dropping repeats. 250ms is deliberately the
-// same figure as DefaultInterpolationDelay: it is the bound on how long a
-// receiver can be working from a state this client has stopped restating, and
-// choosing anything longer than the delay a ghost is already rendered behind
-// would make the suppression the dominant source of staleness rather than a
-// negligible one. At a 15Hz room it turns an idle player's 15 packets a second
+// change suppression has started dropping repeats. It is the bound on how long
+// a receiver can be working from a state this client has stopped restating, so
+// what matters is that it stays WELL UNDER the delay a ghost is already
+// rendered behind (DefaultInterpolationDelay) -- otherwise the suppression
+// becomes the dominant source of staleness rather than a negligible one.
+//
+// 250ms was chosen in ADR 0039 because it was then EQUAL to
+// DefaultInterpolationDelay, and that argument no longer holds: ADR 0046 moved
+// interp to 450ms on 2026-09-02 and left this at 250ms. The conclusion
+// survives -- 250 is still comfortably under 450, which is all the reasoning
+// ever needed -- but the stated reason was an equality that has not been true
+// since, so it is written here as the inequality it actually is. At a 15Hz room it turns an idle player's 15 packets a second
 // into 4; at the 100Hz dev rig, 100 into 4.
 const DefaultIdleKeepalive = 250 * time.Millisecond
 

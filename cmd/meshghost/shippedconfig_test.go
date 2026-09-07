@@ -40,6 +40,7 @@ type shippedConfig struct {
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		LocalInterp           string `json:"local_interp"`
+		GhostCollision        string `json:"ghost_collision"`
 		Offline               bool   `json:"offline"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
 		Replay                struct {
@@ -64,11 +65,12 @@ type shippedConfig struct {
 		Hotkeys map[string]string `json:"hotkeys"`
 	} `json:"client"`
 	Server struct {
-		ListenOn   string `json:"listen_on"`
-		Transport  string `json:"transport"`
-		TLS        string `json:"tls"`
-		MaxClients int    `json:"max_clients"`
-		SendHz     int    `json:"send_hz"`
+		ListenOn       string `json:"listen_on"`
+		Transport      string `json:"transport"`
+		TLS            string `json:"tls"`
+		MaxClients     int    `json:"max_clients"`
+		SendHz         int    `json:"send_hz"`
+		GhostCollision string `json:"ghost_collision"`
 	} `json:"server"`
 }
 
@@ -212,5 +214,34 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 		if cfg.Client.Hotkeys[k] != v {
 			t.Errorf("shipped hotkeys.%s = %q, want the flag default %q", k, cfg.Client.Hotkeys[k], v)
 		}
+	}
+}
+
+// TestShippedGhostCollisionStaysDisabled pins the one shipped default that had
+// no automated guard at all.
+//
+// DefaultSendHz is pinned by protocol/sendhzdefault_test.go and the shipped
+// interp is pinned against core.DefaultInterpolationDelay elsewhere in this
+// file, so re-introducing an old value for either fails the suite rather than
+// review. ghost_collision had neither: the existing tests cover the string
+// constants (bridge) and the policy plumbing (core/ghostcollision_test.go), and
+// nothing asserted what the release actually ships.
+//
+// It matters more than a default usually would, because ADR 0035's two values
+// are asymmetric rather than opposite: "enabled" means each adapter's own
+// default stands, while "disabled" is BINDING -- no ghost blocks anything, in
+// any game, at any time. Flipping it back would silently make ghosts solid for
+// every player, which is the exact accident this pass was asked to guard
+// against (the user, 2026-09-07). Both blocks carry the key, so both are pinned.
+func TestShippedGhostCollisionStaysDisabled(t *testing.T) {
+	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
+
+	if cfg.Client.GhostCollision != "disabled" {
+		t.Errorf("shipped client.ghost_collision is %q, want %q -- ADR 0035: \"disabled\" is the binding value, and it ships",
+			cfg.Client.GhostCollision, "disabled")
+	}
+	if cfg.Server.GhostCollision != "disabled" {
+		t.Errorf("shipped server.ghost_collision is %q, want %q -- this is the room policy the relay advertises",
+			cfg.Server.GhostCollision, "disabled")
 	}
 }

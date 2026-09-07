@@ -10,9 +10,11 @@
 // or bridge — the relay must stay ignorant of adapter-side
 // concerns, the same way it's ignorant of games.
 //
-// Pre-1.0: no API stability guarantee. This package may change shape in any
-// release, and third-party use is untested and unsupported. Running the
-// shipped meshghost-server binary unmodified is the route we actually test.
+// Since v1.0.0 (2026-08-30) the Go package APIs follow module semver -- a
+// breaking Go-API change means a /v2 module path. What 1.0 actually marks is
+// the WIRE protocol; third-party use of these packages is still untested and
+// unsupported, so pin a version if it must not move, and running the shipped
+// meshghost-server binary unmodified is the route we actually test.
 // See the repo README and docs/integrating.md.
 //
 // How this package fits the whole -- the life of a connection and of a state

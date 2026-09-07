@@ -76,8 +76,10 @@ type fileConfig struct {
 	// TLS turns on encryption for the tcp transport: "off", "auto" (the
 	// built-in default; serves TLS and plaintext on the same port) or
 	// "required" (refuse plaintext). quic is always encrypted regardless
-	// and plain udp can never be; this key concerns tcp only. A release
-	// config ships "required"; "off" stays available so that
+	// and plain udp can never be; this key concerns tcp only. Both binaries
+	// default to "auto" and a release config ships it (packaging/release/
+	// config.json:62), which cmd/meshghost/shippedconfig_test.go pins; "off"
+	// stays available so that
 	// netcat, a packet capture and cmd/meshghost-netsim keep working
 	// while a session is being debugged. See the TLS-over-tcp ADR in
 	// agent_docs/architecture.md.
@@ -203,9 +205,11 @@ func servesKind(kinds []netx.Kind, k netx.Kind) bool {
 // not. quic keeps that number even when plain udp is also served: udp is the one
 // that moves (see resolveUDPAddr and FallbackUDPAddr).
 //
-// The one case still REFUSED is an operator explicitly placing udp on the shared
-// port while quic is also served -- a collision they created by naming it, where
-// silently relocating quic would advertise a port they never forwarded.
+// NOTHING here refuses to start. An operator who names a port explicitly --
+// -listen-udp or -listen-quic -- is believed without further checking, on the
+// grounds that naming a port is the act of taking responsibility for forwarding
+// it. This paragraph described a refusal until 2026-09-07; both functions return
+// (string, error) and every return in either one has a nil error.
 //
 // Extracted from main() on 2026-08-25 so the rule can be tested. It was five
 // nested conditions and a log.Fatalf inside a 300-line main, which meant the only
@@ -392,10 +396,11 @@ func main() {
 	//
 	// Sharing -addr's port is the default because it keeps hosting to one
 	// forwarded port number; the only thing that can take that udp port away
-	// is the plain udp transport. Refused rather than silently relocated: a
-	// relay that quietly moved quic somewhere else would advertise a port the
-	// host never forwarded, and the failure would surface much later as
-	// "quic clients can't connect" with nothing pointing here.
+	// is the plain udp transport. When both are served QUIC KEEPS the shared
+	// port and plain udp is what relocates, to FallbackUDPAddr -- that way the
+	// port an operator forwarded is the one quic still advertises. Moving quic
+	// instead would surface much later as "quic clients can't connect" with
+	// nothing pointing here.
 	resolvedUDP, err := resolveUDPAddr(kinds, *addr, *udpAddr)
 	if err != nil {
 		log.Fatalf("meshghost-relay: %v", err)

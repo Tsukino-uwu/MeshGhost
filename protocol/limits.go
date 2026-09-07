@@ -137,8 +137,10 @@ const (
 	// the send/receive rate-control feature. The floor is the brief's
 	// original 10Hz hypothesis, kept as a smoothness floor: the lower the
 	// rate, the closer the gap between samples gets to core's interpolation
-	// delay (core.DefaultInterpolationDelay, 250ms — the two are equal at
-	// 4Hz), and once the gap reaches it core/interp.go's remoteBuffer.at()
+	// delay (core.DefaultInterpolationDelay, 450ms since ADR 0046 — the two
+	// are equal at about 2.2Hz, below this floor, which is the point of
+	// having the floor), and once the gap reaches it core/interp.go's
+	// remoteBuffer.at()
 	// falls back to an edge snapshot instead of smoothing — which degrades
 	// in a way that looks like a bug, not a setting someone chose. The ceiling is a bandwidth bound, not a technical one: a
 	// room's traffic grows with send_hz times the square of its size (see

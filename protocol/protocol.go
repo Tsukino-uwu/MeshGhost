@@ -158,8 +158,9 @@ type Hello struct {
 	// still-supported posture for a friend-hosted session where a bare
 	// address is enough. Whether it crosses the wire readable depends on the
 	// transport and the tls setting: quic is always encrypted, tcp is when
-	// tls is on (off by default -- see netx/tlsx and the TLS-over-tcp ADR),
-	// and udp never can be. Encrypted or not, the code itself is what is
+	// tls is on ("auto" by default on both binaries and in a release config --
+	// see netx/tlsx and the TLS-over-tcp ADR), and udp never can be.
+	// Encrypted or not, the code itself is what is
 	// sent -- so this raises the bar from "anyone with the address" to
 	// "anyone with the address and the code," not to "safe against a
 	// network-level attacker." See docs/security.md and the ADRs in
@@ -352,8 +353,9 @@ type Reject struct {
 // contract change, per the forward-compatibility rule), these constants
 // exist only for the Go call sites that need to tell a few of them apart —
 // e.g. core deciding whether a rejection is worth retrying
-// (ReasonServerFull can resolve on its own if someone leaves; every other
-// reason here requires a config change first). Added alongside room-code
+// (ReasonServerFull can resolve if someone leaves and ReasonRateLimited can on
+// a reconnect; every other reason here requires a config change first -- the
+// authoritative split is core.isPermanentRejectReason). Added alongside room-code
 // auth, see the ADR in agent_docs/architecture.md.
 const (
 	ReasonProtocolVersionMismatch = "protocol version mismatch"
@@ -452,8 +454,9 @@ type Leave struct {
 //
 // The two planes are kept structurally separate on purpose, and the reason
 // is delivery semantics rather than tidiness. `extras` on the state plane is
-// lossy, latest-wins, and re-sent ~20x/second — right for "what colour is
-// this ghost's trail" and catastrophic for "I offer you this item," which is
+// lossy, latest-wins, and re-sent ~15x/second at the shipped room rate — right
+// for "what colour is this ghost's trail" and catastrophic for "I offer you
+// this item," which is
 // not an offer if it may silently vanish. Deeper data rides here, never
 // there.
 type Event struct {
