@@ -9,11 +9,11 @@ What's in this folder:
 - meshghost-server.exe  -- the server. Only ONE person in your group needs
                             this -- whoever is hosting the session.
 - config.json            -- THE ONLY FILE YOU SHOULD NEED TO EDIT. Has a
+                            "client" section (everyone edits this) and a
+                            "server" section (only the host touches this).
 
                             Every key, its shipped value and what it does: docs/config.md in the
                             repository (the walkthrough below covers the ones you will touch).
-                            "client" section (everyone edits this) and a
-                            "server" section (only the host touches this).
 - games\                -- one folder per supported game. Only the folder
                             for the game you're playing matters to you.
 
