@@ -1263,6 +1263,32 @@ func (s *Server) handleConn(conn net.Conn) {
 		// closing" per queued line, and one failed Reject send behind it).
 		rateRejected bool
 
+		// handshakeRejected is rateRejected's twin for the SIX handshake
+		// refusals. Only the rate-limit path had a latch, and the difference
+		// mattered from the moment netx's wrappers stopped hiding CloseWrite
+		// (2026-09-07): before that, a plaintext client's CloseGracefully
+		// silently degraded to a hard Close and the drain never happened, so
+		// nothing arrived after a reject to be re-processed. With the graceful
+		// close actually working, CloseGracefully keeps READING and dispatching
+		// for handshakeCloseDrain -- so every line a refused client had already
+		// pipelined re-entered the whole hello block: ValidateHelloFields, the
+		// room-code compare, joinOrCreateRoom, tryReserveSlot, nextPlayerID,
+		// newOutbox, and the Join broadcast.
+		//
+		// Two consequences, both real. A refused peer could send a SECOND,
+		// valid hello during the drain and complete a genuine join over a
+		// half-closed socket -- reserving a max_clients slot and spawning a
+		// ghost on every real player's screen that despawns ~2s later when the
+		// drain ends. And an unauthenticated peer could spend the drain window
+		// generating two log lines per pipelined line, which is the same
+		// unauthenticated log-amplification the overflowHead cap closed on
+		// 2026-09-02.
+		//
+		// Found by the 2026-09-07 review, which also noted the two bugs were
+		// masking each other: fixing the wrapper without this would have
+		// exposed the drain path to every client instead of only TLS ones.
+		handshakeRejected bool
+
 		// loopbackGhostSent tracks whether this connection has already been
 		// sent a Join for its own synthetic "<id>-ghost" — needed once
 		// s.Loopback's roster-trust fix below is added. No mutex needed, same
@@ -1270,6 +1296,16 @@ func (s *Server) handleConn(conn net.Conn) {
 		// goroutine per connection).
 		loopbackGhostSent bool
 	)
+
+	// rejectHandshake is THE ONLY WAY to refuse a hello on this connection.
+	// Latching and rejecting have to be one action: a bare rejectAndClose leaves
+	// the connection draining and still willing to act on the next hello, which
+	// is the defect this closure exists to make unrepresentable. Adding a
+	// seventh refusal reason means calling this, not rejectAndClose.
+	rejectHandshake := func(hello protocol.Hello, reason string) {
+		handshakeRejected = true
+		rejectAndClose(nd, hello, reason)
+	}
 
 	// Resolved once, here, rather than per message: the enforced cap must
 	// match what this connection's own Welcome advertises, and re-reading
@@ -1345,10 +1381,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		// dropping the offending messages: a client flooding the relay
 		// isn't behaving as this project's own adapters do, and there's
 		// nothing to gain from staying connected to find out why.
-		if rateRejected {
+		if rateRejected || handshakeRejected {
 			// Already rejected: the connection is half-closed and draining this
 			// client's remaining flood (see CloseGracefully). Nothing more to do
-			// with any of it, and certainly not a second Reject per line.
+			// with any of it, and certainly not a second Reject per line -- nor,
+			// for a refused hello, a second one that would be ACTED ON.
 			return
 		}
 		now := time.Now()
@@ -1409,6 +1446,11 @@ func (s *Server) handleConn(conn net.Conn) {
 			if !protocol.ValidateHelloFields(hello) {
 				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen)
 				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
+				// Latched like every other refusal (see handshakeRejected), but
+				// NOT via rejectHandshake: this is the one path where the hello's
+				// fields are not yet known to be bounded, which is exactly what
+				// it is refusing, so rejectAndClose's field logging cannot run.
+				handshakeRejected = true
 				nd.CloseGracefully(handshakeCloseDrain) // the Reject must survive the close
 				return
 			}
@@ -1417,7 +1459,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// field is now known to be <= protocol.MaxHelloFieldLen (checked
 			// above), so rejectAndClose's logging below is bounded too.
 			if hello.ProtocolVersion != protocol.Version {
-				rejectAndClose(nd, hello, protocol.ReasonProtocolVersionMismatch)
+				rejectHandshake(hello, protocol.ReasonProtocolVersionMismatch)
 				return
 			}
 			// Room-code auth (agent_docs/architecture.md's ADR): checked
@@ -1430,7 +1472,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				given := []byte(hello.RoomCode)
 				want := []byte(s.RoomCode)
 				if len(given) != len(want) || subtle.ConstantTimeCompare(given, want) != 1 {
-					rejectAndClose(nd, hello, protocol.ReasonInvalidRoomCode)
+					rejectHandshake(hello, protocol.ReasonInvalidRoomCode)
 					return
 				}
 			}
@@ -1460,12 +1502,12 @@ func (s *Server) handleConn(conn net.Conn) {
 			// An empty s.OnlyGame means the relay hosts any game, the
 			// pre-existing posture.
 			if s.OnlyGame != "" && hello.GameID != s.OnlyGame {
-				rejectAndClose(nd, hello, protocol.ReasonGameNotAllowed)
+				rejectHandshake(hello, protocol.ReasonGameNotAllowed)
 				return
 			}
 			joined, reason := s.joinOrCreateRoom(hello.GameID, hello.GameVersion, hello.Room, hello.Features)
 			if reason != "" {
-				rejectAndClose(nd, hello, reason)
+				rejectHandshake(hello, reason)
 				return
 			}
 			// Releases the hold joinOrCreateRoom took (Room.joining), whichever
@@ -1500,7 +1542,7 @@ func (s *Server) handleConn(conn net.Conn) {
 				// game_id mismatch is refused, rather than letting total
 				// connections grow unbounded. dropIfEmpty cleans up if
 				// joinOrCreateRoom just created this room for this attempt.
-				rejectAndClose(nd, hello, protocol.ReasonServerFull)
+				rejectHandshake(hello, protocol.ReasonServerFull)
 				s.dropIfEmpty(joined)
 				return
 			}
