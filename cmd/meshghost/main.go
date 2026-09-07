@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -481,7 +482,7 @@ const parentPollInterval = 2 * time.Second
 // gone and poll are parameters rather than direct calls to parentGone and
 // parentPollInterval so a test can drive this without a real process to kill.
 func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone func()) {
-	if pid <= 0 {
+	if !watchingParentPID(pid) {
 		return
 	}
 	for {
@@ -491,6 +492,19 @@ func watchParentPID(pid int, gone func(int) bool, poll time.Duration, onGone fun
 		}
 		time.Sleep(poll)
 	}
+}
+
+// watchingParentPID reports whether pid is one this process will actually
+// watch, and is the ONE place that question is answered. Until 2026-09-08
+// (review G6) main tested `*exitWithPID != 0` while watchParentPID tested
+// `pid <= 0`, so a negative pid -- an adapter that got its own pid from a
+// failed call and passed the result through, which is the only way a negative
+// one arrives -- logged "watching pid -1 -- will exit when it does" and then
+// watched nothing at all. The log line is the whole of the evidence that the
+// orphan reaper is armed, so it saying yes while the watcher says no is worse
+// than either answer.
+func watchingParentPID(pid int) bool {
+	return pid > 0
 }
 
 // wineHasNoUsableConsole reports whether a requested console window cannot
@@ -833,7 +847,7 @@ func main() {
 	out := io.MultiWriter(writers...)
 	log.SetOutput(out)
 
-	logRunBanner(*exitWithPID != 0)
+	logRunBanner(watchingParentPID(*exitWithPID))
 	_, _ = io.Copy(out, &earlyLog)
 
 	if noConsolePossible {
@@ -924,8 +938,7 @@ func main() {
 	// "the shipped values" is the part a reader needs: a dev rig is only worth
 	// noticing when it has departed from what a player would actually run.
 	smoothingNote := " (NOT the shipped defaults -- this is a dev rig)"
-	if *interp == core.DefaultInterpolationDelay && *localInterp == core.DefaultLocalGhostDelay &&
-		*minSend == 0 && *extrapolate == 0 && c.Curve == core.CurveLinear {
+	if runningTheShippedSmoothing(*interp, *localInterp, *minSend, *extrapolate, c.Curve, c.Predict) {
 		smoothingNote = " (the shipped defaults)"
 	}
 	// The keepalive belongs on this line for the same reason the other two do:
@@ -946,7 +959,11 @@ func main() {
 	}
 	log.Printf("meshghost: smoothing: interpolation delay %s, minimum send interval %s%s%s",
 		*interp, *minSend, keepaliveNote, smoothingNote)
-	c.MaxReceiveHz = *maxReceiveHz
+	maxHz, maxHzWarning := resolveMaxReceiveHz(*maxReceiveHz)
+	if maxHzWarning != "" {
+		log.Printf("meshghost: %s", maxHzWarning)
+	}
+	c.MaxReceiveHz = maxHz
 	// Only ever restrictive: "enabled" here does not override a host who
 	// turned collision off. protocol.ResolveGhostCollision is where that is
 	// actually enforced -- this just carries the preference.
@@ -1009,7 +1026,7 @@ func main() {
 		log.Printf("meshghost: stats on -- summary every %s", *stats)
 	}
 
-	if *exitWithPID != 0 {
+	if watchingParentPID(*exitWithPID) {
 		log.Printf("meshghost: watching pid %d -- will exit when it does", *exitWithPID)
 		go watchParentPID(*exitWithPID, parentGone, parentPollInterval, func() {
 			// CLOSE THE RECORDING FIRST. os.Exit runs no deferred anything, and
@@ -1099,18 +1116,97 @@ type hotkeyBinding struct {
 // rest of the process (ADR 0048). Every outcome is logged, and none is fatal:
 // a chord that fails to parse or that another program already owns is skipped
 // alone, and the rest still work. Empty chords are simply unbound.
-func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
-	var actions []hotkey.Action
+// shippedPredict is the prediction model packaging/release/config.json sets,
+// as opposed to what the -predict flag defaults to. The two differ on purpose
+// ("damped" vs "linear"), and TestTheShippedPredictorIsWhatTheReleaseShips
+// reads the packaged file so this constant cannot quietly drift away from it.
+const shippedPredict = core.PredictDamped
+
+// runningTheShippedSmoothing reports whether this run's smoothing is what a
+// packaged player actually gets, which is what the smoothing log line labels.
+// The point of that label is that a dev rig is only worth noticing when it has
+// departed from the release.
+//
+// predict is in the test since 2026-09-08 (review G9). It was the one setting
+// on the line that was NOT checked, and it is also the one where the flag
+// default and the shipped value disagree -- so a run on bare flag defaults
+// announced itself as "the shipped defaults" while running a different
+// predictor from every packaged install. Inert while extrapolate is 0s, which
+// is what the release ships, but this line exists to remove exactly that class
+// of ambiguity: Crystal lost two rounds of renderer work to a setting that was
+// right by accident and unrecorded.
+func runningTheShippedSmoothing(interp, localInterp, minSend, extrapolate time.Duration, curve core.CurveMode, predict core.PredictMode) bool {
+	return interp == core.DefaultInterpolationDelay && localInterp == core.DefaultLocalGhostDelay &&
+		minSend == 0 && extrapolate == 0 && curve == core.CurveLinear && predict == shippedPredict
+}
+
+// resolveMaxReceiveHz applies protocol.ClampReceiveHz to what the player asked
+// for and returns the value along with a warning to log, empty when there is
+// nothing to say.
+//
+// The flag help says "Valid range 10-100" and, until 2026-09-08 (review G3),
+// nothing on this side checked it: the raw number went into the hello and the
+// RELAY clamped it, silently, at the far end of a socket the player cannot
+// see. So max_receive_hz_per_player: 5 read as accepted and behaved as 10, and
+// 500 read as accepted and behaved as 100. Every other numeric setting here
+// either clamps with a log line or is fatal; this was the only silent one.
+// ClampReceiveHz's own doc says a caller that wants to warn has to compare its
+// input against the return value itself, which is what this does.
+//
+// A warning rather than log.Fatalf: an out-of-range rate still produces a
+// working session, and a client that refused to start over one would take a
+// player's whole game with it for a setting they can play without.
+func resolveMaxReceiveHz(want int) (int, string) {
+	got := protocol.ClampReceiveHz(want)
+	if got == want {
+		return got, ""
+	}
+	return got, fmt.Sprintf("max_receive_hz_per_player is %d, which is outside the %d-%d this "+
+		"protocol allows -- it is being treated as %d. (0 means uncapped: every peer's state as "+
+		"often as it arrives.)", want, protocol.MinSendHz, protocol.MaxSendHz, got)
+}
+
+// parseHotkeys turns the configured chords into the actions hotkey.Run takes,
+// with a warning line for each one that could not be bound.
+//
+// Duplicate detection is why this is a function of its own (2026-09-08, review
+// G7). Two actions given the same chord used to be handed to the OS as two
+// registrations, the second of which Windows refuses -- and the refusal is
+// reported as "another program may already own this chord", which sends a
+// player looking through their own machine for a program that does not exist,
+// for a conflict that is in the config file they just edited. hotkey.Binding is
+// a comparable struct of the exact two fields RegisterHotKey is given, so the
+// clash is knowable here, before anything is registered, and can be reported as
+// what it is. The first action named keeps the chord: the later one is the one
+// the OS would have refused anyway, so the outcome is unchanged and only the
+// explanation is.
+func parseHotkeys(bindings []hotkeyBinding) (actions []hotkey.Action, warnings []string) {
+	owner := map[hotkey.Binding]string{}
 	for _, b := range bindings {
 		if strings.TrimSpace(b.chord) == "" {
 			continue
 		}
 		parsed, err := hotkey.Parse(b.chord)
 		if err != nil {
-			log.Printf("meshghost: hotkey for %s not bound: %v", b.action, err)
+			warnings = append(warnings, fmt.Sprintf("hotkey for %s not bound: %v", b.action, err))
 			continue
 		}
+		if first, taken := owner[parsed]; taken {
+			warnings = append(warnings, fmt.Sprintf("hotkey for %s not bound: %s is already "+
+				"bound to %s in this config -- one chord cannot do two things, so give %s a "+
+				"different one", b.action, parsed, first, b.action))
+			continue
+		}
+		owner[parsed] = string(b.action)
 		actions = append(actions, hotkey.Action{Name: string(b.action), Binding: parsed})
+	}
+	return actions, warnings
+}
+
+func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
+	actions, warnings := parseHotkeys(bindings)
+	for _, w := range warnings {
+		log.Printf("meshghost: %s", w)
 	}
 	if len(actions) == 0 {
 		return

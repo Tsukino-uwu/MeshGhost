@@ -3,8 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/Tsukino-uwu/MeshGhost/core"
+	"github.com/Tsukino-uwu/MeshGhost/protocol"
 )
 
 // writeConfig writes body to a temp config.json and returns its path, with
@@ -479,5 +484,143 @@ func TestChaserBlockIsReadFromConfig(t *testing.T) {
 	}
 	if spacing != 2*time.Second || color != "#7A2A2A" || contact {
 		t.Fatalf("absent chaser keys changed: spacing=%v color=%q contact=%v", spacing, color, contact)
+	}
+}
+
+// TestARateOutsideTheDocumentedRangeIsWarnedAbout is review G3 (2026-09-08).
+// The flag help promises "Valid range 10-100" and nothing on this side checked
+// it: the number went into the hello raw and the relay clamped it silently, at
+// the far end of a socket the player has no view of. Both ends of the range
+// matter -- a too-low value is the one a player picks deliberately to save
+// bandwidth on a weak connection, and it is the end where the clamp changes
+// what they get most.
+func TestARateOutsideTheDocumentedRangeIsWarnedAbout(t *testing.T) {
+	cases := []struct {
+		name        string
+		want        int
+		wantHz      int
+		wantWarning bool
+	}{
+		{"below the floor", 5, protocol.MinSendHz, true},
+		{"above the ceiling", 500, protocol.MaxSendHz, true},
+		{"uncapped, the shipped value", 0, 0, false},
+		{"in range", 30, 30, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hz, warning := resolveMaxReceiveHz(tc.want)
+			if hz != tc.wantHz {
+				t.Errorf("resolved to %d, want %d", hz, tc.wantHz)
+			}
+			if (warning != "") != tc.wantWarning {
+				t.Fatalf("warning = %q, want one: %v", warning, tc.wantWarning)
+			}
+			if !tc.wantWarning {
+				return
+			}
+			// Both numbers, because the useful message is not "that is
+			// invalid" but "you asked for X and you are getting Y".
+			for _, want := range []string{strconv.Itoa(tc.want), strconv.Itoa(tc.wantHz)} {
+				if !strings.Contains(warning, want) {
+					t.Errorf("warning %q does not name %s -- it has to say what was asked for AND what is being used", warning, want)
+				}
+			}
+		})
+	}
+}
+
+// TestANegativeExitWithPIDIsNotAnnouncedAsWatched is review G6 (2026-09-08):
+// main guarded the announcement with `!= 0` while watchParentPID guarded the
+// watching with `<= 0`, so a negative pid printed "watching pid -1 -- will
+// exit when it does" and then watched nothing. This asserts the two answers
+// come from one place and agree, for every sign.
+func TestANegativeExitWithPIDIsNotAnnouncedAsWatched(t *testing.T) {
+	for _, pid := range []int{-1, -4294967296, 0, 1, 4321} {
+		want := pid > 0
+		if got := watchingParentPID(pid); got != want {
+			t.Errorf("watchingParentPID(%d) = %v, want %v", pid, got, want)
+		}
+		// The watcher's own guard, driven with a gone() that reports the
+		// process dead on the first poll, so the call returns either way: it
+		// must poll and fire for exactly the pids the announcement claims,
+		// and do neither for the rest.
+		polled, fired := false, false
+		watchParentPID(pid, func(int) bool { polled = true; return true }, time.Millisecond, func() { fired = true })
+		if polled != want || fired != want {
+			t.Errorf("watchParentPID(%d) polled=%v fired=%v, but the log line says it is watched: %v",
+				pid, polled, fired, want)
+		}
+	}
+}
+
+// TestTwoActionsOnTheSameChordAreRefusedAsADuplicate is review G7
+// (2026-09-08). Two actions on one chord used to be registered twice; Windows
+// refuses the second, and the refusal reads "another program may already own
+// this chord" -- so a player goes hunting their machine for a conflict that is
+// in the file they just edited.
+func TestTwoActionsOnTheSameChordAreRefusedAsADuplicate(t *testing.T) {
+	actions, warnings := parseHotkeys([]hotkeyBinding{
+		{core.ReplayRecordToggle, "ctrl+shift+F9"},
+		{core.ReplaySaveLast, "CTRL+Shift+f9"}, // the same chord: parsing is case- and order-insensitive
+		{core.ReplayLast, "ctrl+shift+F11"},
+	})
+	if len(actions) != 2 {
+		t.Fatalf("%d actions registered, want 2 -- the duplicate must not reach the OS", len(actions))
+	}
+	if actions[0].Name != string(core.ReplayRecordToggle) || actions[1].Name != string(core.ReplayLast) {
+		t.Fatalf("registered %q and %q, want the FIRST claim on the chord to keep it", actions[0].Name, actions[1].Name)
+	}
+	if len(warnings) != 1 {
+		t.Fatalf("warnings = %v, want exactly one naming the clash", warnings)
+	}
+	for _, want := range []string{string(core.ReplaySaveLast), string(core.ReplayRecordToggle), "already"} {
+		if !strings.Contains(warnings[0], want) {
+			t.Errorf("warning %q does not contain %q -- it has to name both actions and say what the problem is", warnings[0], want)
+		}
+	}
+}
+
+// TestAnUnparsableChordIsStillReportedAlone: the duplicate check must not have
+// cost the older behaviour, where one bad chord is skipped and every other key
+// still binds.
+func TestAnUnparsableChordIsStillReportedAlone(t *testing.T) {
+	actions, warnings := parseHotkeys([]hotkeyBinding{
+		{core.ReplayRecordToggle, "F12"}, // reserved for the debugger, refused by hotkey.Parse
+		{core.ReplaySaveLast, ""},        // empty unbinds, silently
+		{core.ReplayLast, "ctrl+shift+F11"},
+	})
+	if len(actions) != 1 || actions[0].Name != string(core.ReplayLast) {
+		t.Fatalf("actions = %v, want only replay_last bound", actions)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], string(core.ReplayRecordToggle)) {
+		t.Fatalf("warnings = %v, want one naming record_toggle and nothing for the empty chord", warnings)
+	}
+}
+
+// TestBareFlagDefaultsAreNotCalledTheShippedDefaults is review G9
+// (2026-09-08). The smoothing line exists to say afterwards which rig produced
+// a recording, and it checked every setting on it except predict -- the one
+// where the flag default (linear) and the release (damped) disagree. So a dev
+// run on bare defaults claimed to be a shipped one.
+func TestBareFlagDefaultsAreNotCalledTheShippedDefaults(t *testing.T) {
+	shipped := func(predict core.PredictMode) bool {
+		return runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
+			0, 0, core.CurveLinear, predict)
+	}
+	if shipped(core.PredictLinear) {
+		t.Error("a run with the flag's default predictor is not the shipped configuration and must not say it is")
+	}
+	if !shipped(shippedPredict) {
+		t.Error("the shipped values themselves must still be labelled as the shipped defaults")
+	}
+	// The rest of the line's settings, so this test also fails if a later
+	// change loosens one of the checks that were already there.
+	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
+		0, 500*time.Millisecond, core.CurveLinear, shippedPredict) {
+		t.Error("extrapolation on is a dev rig, whatever else matches")
+	}
+	if runningTheShippedSmoothing(core.DefaultInterpolationDelay, core.DefaultLocalGhostDelay,
+		0, 0, core.CurveCatmullRom, shippedPredict) {
+		t.Error("a non-linear curve is a dev rig, whatever else matches")
 	}
 }

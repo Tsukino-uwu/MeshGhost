@@ -22,10 +22,12 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +83,7 @@ func OpenLogFile(name, prog string) io.Writer {
 	if fi, err := f.Stat(); err == nil {
 		size = fi.Size()
 	}
-	return &rotatingLog{name: name, prog: prog, f: f, size: size}
+	return &rotatingLog{name: name, prog: prog, f: f, size: size, rotateAt: MaxLogBytes}
 }
 
 // rotatingLog is the writer OpenLogFile hands back: the file, plus the same
@@ -92,9 +94,11 @@ func OpenLogFile(name, prog string) io.Writer {
 // write that would carry the file past MaxLogBytes first closes it, renames it
 // to .1 and reopens, so the bound holds for the life of the process rather than
 // for its first second. Best-effort like the opener: if the rename fails (a
-// locked .1, an odd filesystem) the log keeps appending to the same file, and
-// if the reopen fails the writer says so once and drops output rather than
-// crashing the program for its log. The mutex is defence in depth -- the log
+// locked file, a locked .1, an odd filesystem) the log keeps appending to the
+// same file and backs the next attempt off by a further MaxLogBytes rather
+// than re-trying on every line -- see rotateLocked -- and if the reopen fails
+// the writer says so once and drops output rather than crashing the program
+// for its log. The mutex is defence in depth -- the log
 // package already serialises its writes -- so a second writer added later is
 // not a silent race.
 type rotatingLog struct {
@@ -103,7 +107,18 @@ type rotatingLog struct {
 	prog string
 	f    *os.File
 	size int64
-	dead bool
+	// rotateAt is the size a write may not carry the file past. Normally
+	// MaxLogBytes; raised by another MaxLogBytes each time a rotation runs and
+	// the file is still over the cap afterwards, which is the only way to tell
+	// that the rename did not happen. See rotateLocked for what that buys.
+	rotateAt int64
+	// rotations counts rotateLocked calls. It exists for
+	// TestARotationThatCannotRenameStopsRetrying, which asserts the backoff by
+	// counting attempts rather than by reading a log line -- the retry storm
+	// this bounds is invisible in the log's contents, since every line it
+	// costs still gets written.
+	rotations int
+	dead      bool
 }
 
 func (r *rotatingLog) Write(p []byte) (int, error) {
@@ -112,7 +127,7 @@ func (r *rotatingLog) Write(p []byte) (int, error) {
 	if r.dead {
 		return len(p), nil
 	}
-	if r.size > 0 && r.size+int64(len(p)) > MaxLogBytes {
+	if r.size > 0 && r.size+int64(len(p)) > r.rotateAt {
 		r.rotateLocked()
 		if r.dead {
 			return len(p), nil
@@ -136,13 +151,42 @@ func (r *rotatingLog) Close() error {
 	return r.f.Close()
 }
 
+// rotateLocked closes the file, renames it to .1, and reopens -- and then
+// decides what to do when that did not actually shrink anything.
+//
+// A failed rename is ORDINARY, not exotic (2026-09-08 review, G1). Two copies
+// of one game run from the same folder share a meshghost.log, because the
+// adapter sets the child core's working directory to the game folder, and that
+// two-client setup is the standard way this repo is tested. Go opens without
+// FILE_SHARE_DELETE, so while one process holds the file the other's rename
+// fails. Until 2026-09-08 the reopen simply re-Stat'ed and restored size from
+// the file that was still there, which left size over MaxLogBytes -- so the cap
+// test in Write was true again on the NEXT line, and every line after that, for
+// the life of the process: a Close+Rename+OpenFile+Stat per log line, forever,
+// with no backoff and nothing said. The same code is the relay's disk bound
+// (ADR 0044), where the log rate is a connection flood's to set.
+//
+// What it does instead: keep appending (a log line is never dropped -- the
+// evidence of why a client died is the whole reason this file appends at all)
+// and push the next attempt out by another MaxLogBytes. So a log that cannot be
+// rotated grows, but it retries at most once per MiB written rather than once
+// per line, and a lock that goes away -- the other game closing -- is picked up
+// at the next attempt without anyone restarting anything. Refusing to rotate
+// ever again would be simpler and would make that unrecoverable.
+//
+// The notice goes into the file directly rather than through log.Printf,
+// which would DEADLOCK: this runs inside the writer log itself calls, and
+// log.Logger.output holds outMu across that Write (go1.26.5 log/log.go:242),
+// a plain sync.Mutex. The reopen-failure line below had the same latent
+// problem and is written the same way.
 func (r *rotatingLog) rotateLocked() {
+	r.rotations++
 	// Windows refuses to rename an open file, so close first.
 	_ = r.f.Close()
 	_ = os.Rename(r.name, r.name+".1")
 	f, err := os.OpenFile(r.name, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
-		log.Printf("%s: warning: could not reopen log file %s after rotating it: %v (log output will only appear in this window from now on)", r.prog, r.name, err)
+		fmt.Fprintf(os.Stderr, "%s: warning: could not reopen log file %s after rotating it: %v (log output will only appear in this window from now on)\n", r.prog, r.name, err)
 		r.dead = true
 		return
 	}
@@ -152,6 +196,17 @@ func (r *rotatingLog) rotateLocked() {
 		// A failed rename leaves the old contents in place; count them.
 		r.size = fi.Size()
 	}
+	if r.size < MaxLogBytes {
+		r.rotateAt = MaxLogBytes
+		return
+	}
+	r.rotateAt = r.size + MaxLogBytes
+	notice := fmt.Sprintf("%s: warning: could not rotate %s to %s.1 -- another process is probably "+
+		"holding one of them (two copies of a game run from the same folder share this file). It "+
+		"keeps appending, and rotating is re-tried once every %d bytes rather than on every line.\n",
+		r.prog, r.name, r.name, MaxLogBytes)
+	n, _ := r.f.Write([]byte(notice))
+	r.size += int64(n)
 }
 
 // ExplicitFlags reports which flags were actually typed on the command line, as
@@ -258,6 +313,16 @@ func StripBOM(data []byte, path, prog string) []byte {
 // stray brace means the rest genuinely cannot be trusted to be what the user
 // meant. That is the case the whole-file warning was written for, and it keeps
 // it.
+//
+// What it must NOT say is "that ONE setting is being ignored -- everything else
+// in the file still applies", which is what it said until 2026-09-08 (review
+// G10). encoding/json keeps only the FIRST UnmarshalTypeError while skipping
+// EVERY mistyped value, so a file with two wrong types loses both and hears
+// about one: the second is dropped silently, with the message actively telling
+// its author it still applied. Named settings are still the far more useful
+// half, so the message names the one it has and says plainly that another
+// wrong-typed value would be gone too and unnamed -- fix this one, re-run, see
+// the next.
 func ApplyDespiteBadValue(err error, path, prog string) bool {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) {
@@ -278,27 +343,61 @@ func ApplyDespiteBadValue(err error, path, prog string) bool {
 	// copies used to hardcode one -- the client always said `true`, the relay
 	// always said `8` -- so each was wrong whenever the mistyped key happened to
 	// be of the other kind, which is precisely when a confused user is reading it.
-	wanted, example := typeErr.Type.String(), "1"
-	switch typeErr.Type.String() {
-	case "bool":
+	//
+	// Switched on the KIND, not on Type.String(), since 2026-09-08. The old
+	// switch listed "bool", "int" and "string" and fell through to printing
+	// Type.String() itself -- so a mistyped group or list told a player their
+	// config needed "a main.replayFileConfig" or "a []string", which names a Go
+	// declaration they cannot see and gives them nothing to type. A pointer is
+	// unwrapped first because every fileConfig field is one (that is what makes
+	// an absent key distinguishable from an empty one, see Override).
+	badType := typeErr.Type
+	for badType.Kind() == reflect.Pointer {
+		badType = badType.Elem()
+	}
+	var wanted, example string
+	switch badType.Kind() {
+	case reflect.Bool:
 		wanted, example = "true or false, without quotes", "true"
-	case "int":
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
 		wanted, example = "a plain number, without quotes", "8"
-	case "string":
+	case reflect.String:
 		// A string field given a non-string: quotes are the fix, not the problem,
 		// so the parenthetical below would be actively misleading. Say less.
 		log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs text in "+
-			"quotes. That ONE setting is being ignored -- everything else in the file still "+
-			"applies.", prog, path, key, typeErr.Value)
+			"quotes. %s", prog, path, key, typeErr.Value, alsoIgnored)
+		return true
+	default:
+		// A group of settings or a list: there is no one-line example worth
+		// printing (the contents are what went wrong, and they differ per key),
+		// and the quotes parenthetical below is about scalars. Describe the
+		// SHAPE in the punctuation the player can see in their own file.
+		shape := "a group of settings in braces, like \"%s\": { ... }"
+		if k := badType.Kind(); k == reflect.Slice || k == reflect.Array {
+			shape = "a list in square brackets, like \"%s\": [ ... ]"
+		}
+		log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs "+shape+
+			". %s", prog, path, key, typeErr.Value, key, alsoIgnored)
 		return true
 	}
 
-	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. That ONE "+
-		"setting is being ignored -- everything else in the file still applies. (Quotes make a "+
-		"value text: \"%s\": %s, not \"%s\": \"%s\".)",
-		prog, path, key, typeErr.Value, wanted, key, example, key, example)
+	log.Printf("%s: warning: config file %s: \"%s\" was given a %s, but it needs %s. %s "+
+		"(Quotes make a value text: \"%s\": %s, not \"%s\": \"%s\".)",
+		prog, path, key, typeErr.Value, wanted, alsoIgnored, key, example, key, example)
 	return true
 }
+
+// alsoIgnored is the tail every bad-value message above shares. It replaced
+// "That ONE setting is being ignored -- everything else in the file still
+// applies" on 2026-09-08: that sentence was a promise the decoder does not
+// keep, since a second mistyped value is skipped too and never named (review
+// G10). The reassurance the 2026-08-16 message was written for -- your room
+// code did not just evaporate -- is the first half and stays.
+const alsoIgnored = "That setting is being ignored and everything correctly typed still applies, " +
+	"but if any OTHER value in the file also has the wrong type it is being ignored too and only " +
+	"the first one can be named here -- fix this one and run again to see whether there is another."
 
 // ReadConfigFile resolves path for display, reads it, strips a BOM, and says
 // whether there is any JSON worth unmarshaling.

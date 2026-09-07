@@ -119,7 +119,10 @@ func TestApplyDespiteBadValueSurvivesTypeError(t *testing.T) {
 	if !strings.Contains(out, "show_console") {
 		t.Fatalf("warning does not name the offending key: %q", out)
 	}
-	if !strings.Contains(out, "everything else in the file still applies") {
+	// The reassurance the 2026-08-16 message exists for -- your room code did
+	// not evaporate with it -- without the over-promise removed on 2026-09-08;
+	// see TestASecondMistypedValueIsNotPromisedToStillApply.
+	if !strings.Contains(out, "everything correctly typed still applies") {
 		t.Fatalf("warning does not reassure about the other settings: %q", out)
 	}
 }
@@ -369,5 +372,91 @@ func TestOpenLogFileAppendsBelowMaxLogBytes(t *testing.T) {
 	}
 	if _, err := os.Stat(name + ".1"); !os.IsNotExist(err) {
 		t.Error("rotated a log that was under MaxLogBytes")
+	}
+}
+
+// TestASecondMistypedValueIsNotPromisedToStillApply is review G10 (2026-09-08).
+// encoding/json keeps only the FIRST UnmarshalTypeError and skips every other
+// mistyped value, so a file with two wrong types loses both -- while the old
+// message told its author that "everything else in the file still applies",
+// which is exactly the sentence they would trust instead of re-reading their
+// own file. The fixture below is the shape a real config takes: one bad value
+// that gets named, one that does not, and one good value that really does
+// survive.
+func TestASecondMistypedValueIsNotPromisedToStillApply(t *testing.T) {
+	var v struct {
+		ShowConsole bool   `json:"show_console"`
+		SendHz      int    `json:"send_hz"`
+		RoomCode    string `json:"room_code"`
+	}
+	err := json.Unmarshal([]byte(`{"show_console": "true", "send_hz": "20", "room_code": "hunter2"}`), &v)
+	if err == nil {
+		t.Fatal("expected a type error from the quoted bool")
+	}
+	if v.SendHz != 0 {
+		t.Fatalf("fixture no longer demonstrates the problem: send_hz decoded as %d, want it silently skipped", v.SendHz)
+	}
+	if v.RoomCode != "hunter2" {
+		t.Fatalf("a correctly typed setting must still apply; room_code = %q", v.RoomCode)
+	}
+	var ok bool
+	out := captureLog(t, func() { ok = ApplyDespiteBadValue(err, "config.json", "meshghost") })
+	if !ok {
+		t.Fatal("a type error must be survivable")
+	}
+	if strings.Contains(out, "everything else in the file still applies") {
+		t.Fatalf("send_hz was dropped unnamed, so the message must not promise it applied: %q", out)
+	}
+	if !strings.Contains(out, "OTHER value in the file also has the wrong type") {
+		t.Fatalf("message does not warn that a second mistyped value is gone too: %q", out)
+	}
+}
+
+// TestAMistypedGroupDoesNotPrintAGoTypeName is the other half of review G10.
+// The type switch covered bool/int/string and printed reflect's own name for
+// anything else, so a player who quoted a whole section was told their config
+// needed "a main.replayFileConfig" -- a Go declaration they cannot open, with
+// nothing in it they could type. Both non-scalar shapes a config file has are
+// covered: a group in braces and a list in square brackets.
+func TestAMistypedGroupDoesNotPrintAGoTypeName(t *testing.T) {
+	type replaySection struct {
+		Gzip bool `json:"gzip"`
+	}
+	cases := []struct {
+		name, doc, key, wantShape string
+	}{
+		{"a group given a string", `{"replay": "yes"}`, "replay", `"replay": { ... }`},
+		{"a list given a string", `{"features": "world"}`, "features", `"features": [ ... ]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var v struct {
+				Replay   *replaySection `json:"replay"`
+				Features *[]string      `json:"features"`
+			}
+			err := json.Unmarshal([]byte(tc.doc), &v)
+			if err == nil {
+				t.Fatal("expected a type error")
+			}
+			var ok bool
+			out := captureLog(t, func() { ok = ApplyDespiteBadValue(err, "config.json", "meshghost") })
+			if !ok {
+				t.Fatal("a type error must be survivable")
+			}
+			if !strings.Contains(out, tc.key) {
+				t.Fatalf("warning does not name the offending key: %q", out)
+			}
+			if !strings.Contains(out, tc.wantShape) {
+				t.Errorf("message does not show the shape the key needs.\n got: %q\nwant it to contain: %q", out, tc.wantShape)
+			}
+			// The Go names the old code printed, spelled the way reflect
+			// spells them, so this fails on a regression rather than on a
+			// paraphrase.
+			for _, goName := range []string{"cfg.replaySection", "[]string", "struct {"} {
+				if strings.Contains(out, goName) {
+					t.Errorf("message prints a Go type name (%q) to a player: %q", goName, out)
+				}
+			}
+		})
 	}
 }

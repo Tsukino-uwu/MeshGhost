@@ -40,6 +40,7 @@ type shippedConfig struct {
 		LocalGameBridge       string `json:"local_game_bridge"`
 		Interp                string `json:"interp"`
 		LocalInterp           string `json:"local_interp"`
+		Predict               string `json:"predict"`
 		GhostCollision        string `json:"ghost_collision"`
 		Offline               bool   `json:"offline"`
 		MaxReceiveHzPerPlayer int    `json:"max_receive_hz_per_player"`
@@ -243,5 +244,20 @@ func TestShippedGhostCollisionStaysDisabled(t *testing.T) {
 	if cfg.Server.GhostCollision != "disabled" {
 		t.Errorf("shipped server.ghost_collision is %q, want %q -- this is the room policy the relay advertises",
 			cfg.Server.GhostCollision, "disabled")
+	}
+}
+
+// TestTheShippedPredictorIsWhatTheReleaseShips keeps shippedPredict honest.
+// That constant is what the smoothing log line compares against when it decides
+// whether to call a run "the shipped defaults" (review G9, 2026-09-08), so a
+// release that changed its predictor without it would put the line back to
+// saying the wrong thing -- the exact ambiguity it exists to remove. This is a
+// value that deliberately DIVERGES from the flag default, so it is pinned here
+// rather than tracked.
+func TestTheShippedPredictorIsWhatTheReleaseShips(t *testing.T) {
+	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
+	if cfg.Client.Predict != string(shippedPredict) {
+		t.Errorf("packaging/release/config.json ships predict %q, but shippedPredict is %q -- "+
+			"the smoothing log line labels runs against the second one", cfg.Client.Predict, shippedPredict)
 	}
 }
