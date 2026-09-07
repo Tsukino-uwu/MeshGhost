@@ -224,16 +224,38 @@ func (c *Core) recordLocal(state *protocol.State) {
 	st.Timestamp = ts
 
 	c.rec.mu.Lock()
+	writeFailed := false
 	if c.rec.on {
 		unchanged := c.rec.last != nil && sameSentState(c.rec.last, &st) && ts-c.rec.lastTs < c.rec.keepaliveMs
 		if !unchanged {
 			if err := c.rec.writeLocked(st); err != nil {
 				log.Printf("core: recording stopped: %v", err)
 				c.rec.closeLocked()
+				writeFailed = true
 			}
 		}
 	}
 	c.rec.mu.Unlock()
+
+	// A write that FAILED is a recording that stopped, and every other stop
+	// tells the adapter (StopRecording, and the attach path in bridgeserve.go).
+	// Until 2026-09-08 this one did not: a full disk or a pulled USB stick
+	// closed the file, logged one line into a console that ships hidden, and
+	// left the on-screen REC indicator lit for the rest of the session -- so
+	// the player kept playing a run that was no longer being written, and the
+	// stop hotkey then answered "no in-game samples, nothing written" because
+	// `on` was already false.
+	//
+	// AFTER the unlock, on a flag captured inside it, and never inside: c.rec.mu
+	// is held above, pushRecordingState asks Recording() for the flag and Go
+	// mutexes are not reentrant (the 2026-09-04 hang that split
+	// pushRecordingStateValues out), and that function takes c.mu, which the
+	// same comment pins as never held under c.rec.mu. rearmTap takes c.rec.mu
+	// too, for the same reason.
+	if writeFailed {
+		c.rearmTap()
+		c.pushRecordingState()
+	}
 
 	// The ring stamps its own seq: what it drains becomes a file of its own,
 	// numbered from 1 there, and the chaser never looks at seq at all.
@@ -514,21 +536,46 @@ func writeReplayLine(w *bufio.Writer, v any) error {
 	return w.WriteByte('\n')
 }
 
+// replayStat is the os.Stat replayFileName probes candidate names with, as a
+// variable so a test can make it fail the way a disconnected network share or a
+// permission-denied replay folder does -- neither of which any test can produce
+// on demand on Windows, and both of which used to hang the core (see below).
+var replayStat = os.Stat
+
+// replayNameAttempts bounds the suffix search. A same-second collision is the
+// only thing the suffix exists for, and one core writes one recording at a time,
+// so anything past a handful means the answers are not to be believed.
+const replayNameAttempts = 100
+
 // replayFileName is rec-YYYYMMDD-HHMMSS.ndjson, or last-... for a save-last
 // file; a same-second collision gets a -2, -3 suffix rather than O_EXCL failing.
-func replayFileName(dir, prefix string, at time.Time, gz bool) string {
+//
+// EVERY Stat error that is not "does not exist" ends the search (2026-09-08).
+// The loop used to exit only on os.ErrNotExist, so a permission denial, a
+// disconnected network share or a replay folder that is really a file answered
+// every candidate with the same non-nil error and n counted up forever -- while
+// holding c.rec.mu, which StartRecording takes for its whole body. recordLocal
+// wants that mutex on every frame the adapter sends, so the bridge reader
+// goroutine wedged behind a spinning loop and the game stopped being visible to
+// the room at all. A player sees "the record key froze my ghosts".
+func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 	ext := ".ndjson"
 	if gz {
 		ext += ".gz"
 	}
 	base := prefix + "-" + at.Format("20060102-150405")
 	path := filepath.Join(dir, base+ext)
-	for n := 2; ; n++ {
-		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			return path
+	for n := 2; n < replayNameAttempts+2; n++ {
+		_, err := replayStat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return path, nil
+		}
+		if err != nil {
+			return "", fmt.Errorf("check %s: %w", path, err)
 		}
 		path = filepath.Join(dir, fmt.Sprintf("%s-%d%s", base, n, ext))
 	}
+	return "", fmt.Errorf("no free name for a recording in %s after %d tries", dir, replayNameAttempts)
 }
 
 // StartRecording arms the file tap. The path is decided now and returned, but
@@ -559,8 +606,15 @@ func (c *Core) StartRecording() (string, error) {
 	c.rec.gzip = c.ReplayGzip
 	c.rec.delta = c.ReplayDelta
 	c.rec.prevExtras = nil
-	c.rec.path = replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
-	c.rec.header = c.replayHeaderFor(game, version, time.Now())             // wall-clock: an artefact timestamp
+	// A name this cannot answer is a recording that never starts, reported to
+	// the caller: the folder is unreachable, and arming the tap would only fail
+	// again at the first sample with the indicator already lit.
+	path, err := replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
+	if err != nil {
+		return "", err
+	}
+	c.rec.path = path
+	c.rec.header = c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
 	// After the header is built, not before: replayHeaderFor returns a fresh
 	// one and would otherwise wipe this.
 	c.rec.header.Delta = c.ReplayDelta
@@ -662,10 +716,26 @@ func (c *Core) SaveLast() (string, int, error) {
 	if err := os.MkdirAll(c.ReplayDir, 0o755); err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", c.ReplayDir, err)
 	}
-	path := replayFileName(c.ReplayDir, "last", time.Now(), c.ReplayGzip) // wall-clock: a filename, as above
+	path, err := replayFileName(c.ReplayDir, "last", time.Now(), c.ReplayGzip) // wall-clock: a filename, as above
+	if err != nil {
+		return "", 0, err
+	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", path, err)
+	}
+	// abandon closes the half-written file AND removes it (2026-09-08). Every
+	// error path below used to close and leave the corpse: the file was created
+	// O_EXCL, so a disk-full or a gzip failure left a truncated
+	// last-<stamp>.ndjson(.gz) in the replay folder -- and replayLast picks the
+	// NEWEST file in that folder by mod time (core/replaycontrol.go), so the
+	// player's very next replay_last selects it in preference to every real
+	// recording. A .gz cut before gz.Close() has no CRC footer and is refused
+	// WHOLE rather than as a prefix, which is exactly the ADR 0051 failure the
+	// recorder's own closeLocked comment exists to avoid.
+	abandon := func() {
+		f.Close()
+		os.Remove(path)
 	}
 	var sink io.Writer = f
 	var gz *gzip.Writer
@@ -683,7 +753,7 @@ func (c *Core) SaveLast() (string, int, error) {
 	// never compared against anything.
 	hdr.Recorded = time.Now().Add(-time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond).UTC().Format(time.RFC3339) // wall-clock: an artefact timestamp
 	if err := writeReplayLine(w, hdr); err != nil {
-		f.Close()
+		abandon()
 		return "", 0, err
 	}
 	var prevExtras map[string]any
@@ -696,17 +766,17 @@ func (c *Core) SaveLast() (string, int, error) {
 			prevExtras = full
 		}
 		if err := writeReplayLine(w, out); err != nil {
-			f.Close()
+			abandon()
 			return "", 0, err
 		}
 	}
 	if err := w.Flush(); err != nil {
-		f.Close()
+		abandon()
 		return "", 0, err
 	}
 	if gz != nil {
 		if err := gz.Close(); err != nil {
-			f.Close()
+			abandon()
 			return "", 0, err
 		}
 	}
