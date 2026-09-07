@@ -841,3 +841,109 @@ noticed a stale "the largest and hardest of the four" — narrow by design, sinc
 40+ hits of which one was stale. It found that one: `_template/README.md` said "the two shipped
 adapters" where it meant the two BizHawk ones. `pitfalls/by-lesson.md` has the reasoning and the
 five negative tests.
+
+## 2026-09-08 — a 23-agent adversarial review, and the 39 fixes it justified
+
+**The user asked for a broad adversarial review and got one: 23 read-only agents over the server,
+the client, the protocol, the four adapters and the cross-cutting concerns.** Nothing was changed by
+the review pass itself. The working checklist is the untracked `REVIEW-FINDINGS.md` at the root —
+one line per finding with a file:line, a failure scenario, and a mark for whether the parent session
+re-verified it rather than taking an agent's word. What follows is what the review taught, not a
+list of what it found; the checklist is the list.
+
+**Three findings were one missing bound, and only the collation showed it.** Three agents, working
+different files, reported a spinning replay goroutine, a frozen ghost immune to stale pruning, and
+ordinary clock skew deleting a peer every tick. All three were `protocol.ValidateState` never
+bounding `Timestamp` — the one field on a state that nothing checked anywhere. `MaxTimestampMs` is
+`1<<42`, chosen so no difference between two ACCEPTED timestamps can overflow a `time.Duration`,
+which is what both the replay player and the interpolator convert one to. One check closed all
+three. The lesson is about the shape of the review, not the bug: a per-file reviewer cannot see a
+root cause that only shows up as three unrelated symptoms.
+
+**Two bugs were masking each other, and fixing one alone would have made things worse.**
+`CloseGracefully` degraded to a hard close for every non-TLS connection, because `limitedConn` and
+`prefixConn` embed `net.Conn` as an interface and neither re-exposed `CloseWrite` — the third
+instance of that wrapper bug (`WriteUnreliable` 2026-09-02, then these two). Separately, a refused
+hello was not terminal: the drain kept re-entering the whole hello block, so a second hello on a
+rejected connection could complete a REAL join, taking a `max_clients` slot and spawning a ghost on
+every screen that despawned two seconds later. The first bug was hiding the second, because there
+was no drain to re-enter. They landed together, and the regression test demonstrates the join rather
+than describing it.
+
+**`tls_fingerprint` was bypassable two independent ways, found by two agents who never spoke.** The
+pin matched any certificate in the chain rather than the leaf — and with `InsecureSkipVerify` set on
+purpose (a bare IP has no CA), only `rawCerts[0]` is bound to the handshake, so an attacker
+presenting `[attacker_leaf, copied_relay_cert]` passed. And under the shipped `tls: auto`, a pin
+FAILURE was indistinguishable from "this relay is too old for TLS", so it fell back to plaintext:
+the pin turned MITM detection into an automatic downgrade. A pin now forces `required`, on the
+user's call.
+
+**Bounds computed on unescaped bytes, twice.** `maxWelcomeRoster = 32` (2026-09-01) was sized on "a
+nametag entry ~60 bytes with a maximal name". `SanitizeDisplayName` permits `&`, `<` and `>`, and
+`encoding/json` escapes each to six characters, so a maximal entry is ~173 bytes: measured, a
+welcome was 3787 B at 20 members and **6019 B at the cap of 32**, against `MaxLineBytes` 4096 — the
+incident that cap was added for, reopened at a fifth of the player count, under a green test whose
+fixture used unescaped ASCII. Same root in the world plane: authority and key were measured with
+`len()` while the blob they were subtracted from was measured on the wire, so a maximal
+`world_state` was 2075 bytes rather than 1115 and became undeliverable to every datagram peer. Both
+bounds are now measured on the bytes that actually go out.
+
+**The instruments flatter the code, and that is the finding most likely to matter later.** netsim's
+loss is memoryless Bernoulli with no burst state: at the no-arg profile that is a 200 ms triple-gap
+every ~9 minutes and a 267 ms quad about once every three hours, where real bad wifi loses 200-400 ms
+in correlated bursts many times a minute. **Nothing in the default profile exercises the
+150-500 ms correlated-gap regime an interpolation buffer is sized for**, which is what ADR 0046's
+450 ms ladder was judging — and the error direction is that 450 may be UNDER-sized. The partition is
+also global and simultaneous, so "one peer drops while the room keeps moving" has never been
+produced, and `-reorder-delay` 60 ms sits below 15 Hz's 66.7 ms spacing so the documented 3%
+reordering mostly does not reorder. Separately, the fake adapter's renders bypass `sendToAdapter`
+entirely — a direct Go method call, no marshal, no queue, no coalescing — which is structurally why
+it hid the ~350-ghost bridge ceiling, and its headline renders/s is `tick_rate x remotes`, a
+restatement of the flags. None of this is fixed; it is recorded so no rate or interp verdict rests
+on it unexamined.
+
+**Tests that cannot fail, including two of ours written this session.** The suite audit reproduced a
+live flake rather than arguing one: `waitAdapterDrained`, added hours earlier with the asynchronous
+writer, polled `queueLen() == 0` — but `run()` clears the queue when it TAKES a batch and writes it
+several syscalls later, so the helper raced the wire it exists to observe. 1 failure in 500 with the
+old helper, 0 in 1500 with `idle()`. `ci-fuzz.sh` exited 0 when a target name matched nothing,
+because `-fuzz` takes a regexp and a non-match is a warning — so renaming a fuzz target silently
+deleted its campaign with CI green. And TEVI's fuzz harness feeds `anim_time`/`temp_pause` while the
+decoder reads `extras["anim_t"]`/`["pause"]`, so its non-finite assertion inspects nothing and
+prints "0 non-finite (want 0)" unconditionally — in the file whose own header cites the 2026-09-03
+lesson about exactly that. Two of the parent session's own new tests had the same shape and were
+caught only by neutralising the fix and watching them still pass.
+
+**The leak scanners could not see the file that was leaking.** All three used `grep -I`, which is
+*defined* as "treat a binary file as containing no match" — so the one file type a path reaches
+without anyone typing it was the one type nothing could see. `preflight.ps1 -TreeOnly` printed
+"PASS no username or home-directory path in tracked files" while a tracked, shipped `UE4SS.dll`
+carried the maintainer's Windows username 86 times and a clone path 65 times, and three more mod
+DLLs carried one each. Compounding it, the tree-wide scan lived in `ci.yml`, which triggers on
+`**.go` — so a push touching only a `.ps1`, `.bat`, `.txt`, `.cs`, `.cpp`, `.lua` or a binary was
+scanned by nothing, while the hook told the reader "CI re-runs the same scan over the whole tree".
+`hygiene.yml` now carries no path filter, the scanners read binaries, and the four known offenders
+are LISTED with the rebuild each needs rather than excluded — an allowlist that silences a real
+violation being the failure the section exists to fix.
+
+**Six agents then fixed disjoint file sets in parallel**, each forbidden from running `git` (the
+parent hit an index-lock collision doing it by hand) and each required to confirm its regression test
+fails with only its own fix neutralised. That worked, at the cost of a tree that did not build
+end-to-end while they ran. Two of them independently found things their brief did not name: a lost
+`ready` token on the udp "connection already exists" path, and a self-deadlock writing a rotation
+notice through the very `log` the writer serves.
+
+**A verification rule that reported a correct link broken.** `preflight.ps1`'s anchor check read
+UTF-8 as ANSI (Windows PowerShell 5.1's `Get-Content` default), so an em dash in a heading became
+three mojibake characters and the slug never matched. It failed noisily here, but the same mangling
+would as happily hide a real break in any heading with a non-ASCII character, and this repo's prose
+is full of em dashes. All ten raw reads were patched.
+
+**What is NOT done.** 109 findings remain open in `REVIEW-FINDINGS.md`, mostly LOW-severity and the
+adapter-side C++/Lua/C# work, which needs a game and the user's eyes. Two contract proposals came out
+of comparing against Archipelago (whose `MultiServer.py` was read for facts only, MIT and already
+cleared): `protocol_version` should be a FLOOR rather than exact equality — AP's default is
+`minver > version` against a rarely-bumped minimum, and MeshGhost currently runs AP's opt-in strict
+mode as its only mode — and a reject reason should be a machine-readable code rather than prose,
+which is the root of all four adapters substring-matching it and getting the sense inverted. Both
+are ADR-shaped and were deliberately not slipped into this sweep.
