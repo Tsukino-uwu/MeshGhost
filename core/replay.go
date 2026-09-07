@@ -68,6 +68,30 @@ const (
 	replayBackstepMs = 500
 )
 
+// replayMaxSamplesPerArchive is a var, not a const, only so a test can shrink
+// it: tripping the real value needs two million samples on disk.
+// replayMaxSamplesPerArchive bounds ONE ZIP the same way replayMaxSamples
+// bounds one file: an archive may hold as many clips as it likes, and
+// together they may cost no more memory than a single clip is already
+// allowed to.
+//
+// The entry COUNT is deliberately still uncapped -- that was the user's
+// call on 2026-09-06 ("as many as the game can handle") and it is about
+// how many ghosts you may watch, not about memory. What was uncapped by
+// accident is the PRODUCT: nothing stopped one archive yielding hundreds of
+// clips at replayMaxSamples each, all resident at once, and a replay zip is
+// untrusted input by construction -- clips are shared between players and
+// StartReplays loads everything in replay/active/ the moment the adapter
+// attaches, i.e. the moment somebody launches their game after dropping a
+// friend's pack in.
+//
+// Measured 2026-09-07: a sample line of "{}" passes ValidateState, and
+// 2,000,000 of them gzip to 5,891 bytes while costing ~256 MB as
+// []protocol.State (128 bytes each on 64-bit). A ~240 KB zip of 40 such
+// entries asked for ~10 GB and OOM-killed meshghost.exe. With this budget
+// the same archive stops at the first clip's worth and says so.
+var replayMaxSamplesPerArchive = replayMaxSamples
+
 // replayClip is a loaded file: the sanitized header, the samples after trim,
 // and the seams skip_gaps introduced.
 type replayClip struct {
@@ -157,6 +181,10 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 	defer zr.Close()
 
 	var out []loadedClip
+	// ONE budget for the whole archive, spent as the entries are read. Each
+	// entry may still be a full-size clip; what it may not do is be the
+	// hundredth one. See replayMaxSamplesPerArchive.
+	budget := replayMaxSamplesPerArchive
 	// The archive's own order, not sorted: a zip made from a selection keeps
 	// the order the person made it in, and StartReplays sorts the FILES it
 	// found anyway. An entry that is not a clip -- a readme, a screenshot, the
@@ -171,13 +199,23 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 			continue
 		}
 		inner := name + "/" + filepath.Base(entry.Name)
-		clip, err := readZipEntry(entry, inner)
+		if budget <= 0 {
+			// Said once, not once per remaining entry: an archive built to
+			// exhaust this has plenty of entries left and the log is the thing
+			// it would flood.
+			log.Printf("core: replay: %s holds more than %d samples in total -- "+
+				"the rest of the archive is not loaded (one zip may cost as much "+
+				"memory as one clip, no more)", name, replayMaxSamplesPerArchive)
+			break
+		}
+		clip, err := readZipEntry(entry, inner, budget)
 		if err != nil {
 			// One bad entry does not condemn the archive: the others still play,
 			// and the log says which one was dropped.
 			log.Printf("core: replay skipped: %v", err)
 			continue
 		}
+		budget -= len(clip.samples)
 		out = append(out, loadedClip{name: inner, clip: clip})
 	}
 	if len(out) == 0 {
@@ -186,7 +224,7 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 	return out, nil
 }
 
-func readZipEntry(entry *zip.File, name string) (*replayClip, error) {
+func readZipEntry(entry *zip.File, name string, maxSamples int) (*replayClip, error) {
 	rc, err := entry.Open()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
@@ -201,7 +239,7 @@ func readZipEntry(entry *zip.File, name string) (*replayClip, error) {
 		defer gz.Close()
 		r = gz
 	}
-	return parseReplay(r, name)
+	return parseReplayLimited(r, name, maxSamples)
 }
 
 // loadReplayZip reads the FIRST clip in a zip, for the one caller that plays
@@ -216,6 +254,16 @@ func loadReplayZip(path, name string) (*replayClip, error) {
 
 // parseReplay is loadReplay on a stream, and the fuzz target's entry.
 func parseReplay(r io.Reader, name string) (*replayClip, error) {
+	return parseReplayLimited(r, name, replayMaxSamples)
+}
+
+// parseReplayLimited is parseReplay with the sample cap supplied, so a zip can
+// spend ONE budget across all its entries rather than giving each entry a fresh
+// one. See replayMaxSamplesPerArchive.
+func parseReplayLimited(r io.Reader, name string, maxSamples int) (*replayClip, error) {
+	if maxSamples > replayMaxSamples {
+		maxSamples = replayMaxSamples
+	}
 	sc := bufio.NewScanner(r)
 	// The wire's own line cap, applied BEFORE decoding: a longer line is
 	// refused, never allocated for.
@@ -297,8 +345,8 @@ func parseReplay(r io.Reader, name string) (*replayClip, error) {
 		if len(clip.samples) > 0 && st.Timestamp < clip.samples[len(clip.samples)-1].Timestamp {
 			return nil, fmt.Errorf("%s: line %d: timestamp %d goes backwards (previous %d)", name, line, st.Timestamp, clip.samples[len(clip.samples)-1].Timestamp)
 		}
-		if len(clip.samples) >= replayMaxSamples {
-			return nil, fmt.Errorf("%s: more than %d samples", name, replayMaxSamples)
+		if len(clip.samples) >= maxSamples {
+			return nil, fmt.Errorf("%s: more than %d samples", name, maxSamples)
 		}
 		clip.samples = append(clip.samples, st)
 	}
