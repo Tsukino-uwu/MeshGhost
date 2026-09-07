@@ -450,6 +450,63 @@ Order of work, cheapest question first:
    an adapter.
 4. Only then the per-game tier question: does this title have a decomp or documented addresses?
 
+## Real hardware — the console itself, and where the network boundary sits
+
+**Scoped 2026-09-07 in conversation. Nothing here is built or scheduled; no console adapter exists.
+Every tool, API and loader named below is background knowledge and needs confirming against its own
+project's documentation before anyone relies on it** — per `CLAUDE.md`, an API from memory is not a
+fact. Neither shape below has cleared the "is this fine sitting in a public repo forever?" test above;
+that is a separate question from whether it is technically reachable.
+
+**Neither of these is a 9th and 10th approach, and that is the point worth getting right.** The
+eight above are *information sources* — what can I read about this game. These two are **delivery**:
+how code gets into the render loop, and which side of the cable does the networking. They are
+orthogonal, so a console target still takes a tier from the list above as well: a SNES ROM patch
+needs a decomp (2) or a blind differential hunt (8) to know *what* to read, and a Switch mod is tier
+3 or 7 depending on whether the game is managed or native. Adding rows would imply a choice between
+them, when in fact you pick one from each axis. Same reason the emulator section above refuses the
+tier table — it splits into halves rather than sitting in a row. The console generation splits these
+two opposite ways.
+
+### SNES and other retro consoles — patch and cable
+
+A per-game **ROM patch** does everything on-console: it hooks the main loop or NMI, reads a ghost
+state struct out of a reserved chunk of RAM, interpolates between updates, and appends sprites to
+the OAM buffer *after* the game has finished building it. The PC does all the networking and writes
+that struct across USB, via a device bridge (SNI, for a flash cart or a modded console). **Console
+renders, PC networks, cable in between** — so the adapter is split across two machines, which no
+shipped adapter here is.
+
+- **A Lua script does not port to hardware.** It is an emulator debugger feature with no hardware
+  equivalent, so on this path Lua is a *reverse-engineering tool for finding addresses*, never a
+  deliverable. Emerald's and Crystal's whole delivery mechanism disappears.
+- **This is a different product from the emulator route, not a port of it.** The reading half is the
+  ordinary per-game tier question (a decomp or a differential hunt); the delivery half is new work
+  with no precedent in this repo.
+
+### Switch and other modern consoles — inject and socket
+
+The mod is **native code injected into the game process**, so it does its own networking through the
+console's own socket API. **No PC in the loop**, and no cable — the network boundary is inside the
+game, exactly where it is for TEVI and Pseudoregalia. In shape this is an ordinary PC-style mod; the
+only difference is that it is gated behind CFW (Atmosphère on Switch), which lifts code signing and
+allows overriding game files.
+
+Emulators land in the same place *because they reimplement that loader path*, so the identical build
+runs on either — which is the one genuinely useful property of this shape, and also why
+["Switch emulation fails this repo's own test"](#switch-emulation-fails-this-repos-own-test-and-not-on-difficulty)
+above does not settle the hardware question: that section is about depending on a litigated,
+unmaintained emulator, not about whether the mod shape works.
+
+### The clean rule this makes explicit
+
+**Access model = transport and injection. [Game shapes](game-shapes.md) = what you can draw and what
+state exists to sync.** Both paragraphs above answer *what do I have to change to make a ghost
+appear*, which is this file's question, and the answer is a property of the **platform**, not of the
+game — patch-and-cable versus inject-and-socket. Super Metroid's "128 OAM entries, 32 per scanline,
+need free VRAM tiles" is about the game and belongs in `game-shapes.md`; "SNES needs a ROM patch plus
+a device bridge" belongs here.
+
 ## See also
 
 - [`adapters/_template/README.md`](../adapters/_template/README.md) — what to build, and the
