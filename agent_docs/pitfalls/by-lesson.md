@@ -6453,3 +6453,57 @@ the point of publication.**
 the actual v1.2.1 string, a backslash variant, a relative `notes/hl.md`, a home path inside real
 prose, and three bodies that must pass (the real v1.2.1 notes, empty, and prose containing a URL
 with slashes).
+
+## A test double that cannot be SLOW will never find a load defect (core, 2026-09-07)
+
+**Symptom.** A tester's session died at ~343 ghosts, then again at ~350. No test in the repo could
+produce it at any ghost count, so both times it was found in a running game and diagnosed from a log.
+
+**Cause.** `core` had two fake adapters and they sat at the two extremes: the shared `fakeAdapter`
+reads in a callback off transport's read loop, so it drains as fast as Go can and never falls
+behind, and `bridge_deadadapter_test.go`'s stops reading outright. A real adapter is neither — it
+drains its socket once a frame and parses what it can — and the defect lived entirely in that
+middle. Raising the ghost count in a test changed nothing, because the reader always kept up.
+
+**Fix.** `throttledConn`: a `net.Conn` wrapper capping the adapter's end at N bytes per frame-length
+interval, per-frame rather than per-second so a stalled reader cannot catch up in one burst the way
+a real one cannot. The defect then reproduced on the first attempt, and its pre-fix signature turned
+out to be sharper than the live logs had shown — `unexpected end of JSON input`, the truncated line
+that `transport.Send` warns a timed-out write leaves behind.
+
+**The transferable shape.** *The fix for a DEAD peer and the fix for a SLOW one are opposites*: a
+dead one should be disconnected promptly so its slot frees, a slow one must never be. Code that only
+has doubles for "fast" and "dead" will encode the dead-peer answer for both, and the tests will
+agree with it. **Before trusting that a load path is covered, ask what RATE the double reads at** —
+if the answer is "as fast as it can", the covered case is the one that never happens.
+
+**Then fuzz the rate.** The drain rate went into `FuzzEverything` as an axis of its own (the user's
+ask: *"higher/lower rates than the intended one"*), which prompted an audit that found five more
+knobs the target could reach but no seed could set — `player_frozen` appeared in no fuzz target in
+the repo at all. A target that fuzzes configuration but holds every RATE fixed is fuzzing half of
+what it claims to.
+
+## N private queues for N followers of ONE stream is quadratic, and the allocation lands on the frame path (core, 2026-09-07)
+
+**Symptom.** None. Nothing failed, nobody complained, and it was found by reading the sizing
+arithmetic while chasing an unrelated defect.
+
+**Cause.** Each chaser in the pack held a private channel sized to its own delay, because each one
+replays the player's past at a different lag. That reads as obviously correct and is quadratic: N
+followers of ONE stream held N overlapping copies of it. A tester's ordinary config -- 512 chasers,
+1 s delay, 1 s spacing -- sized 13,235,200 `protocol.State` slots at 128 bytes, **1.69 GB**, and Go
+allocates a channel's ring buffer at `make` time rather than lazily. It was taken on the bridge
+goroutine the instant the adapter attached, and again on every reconnect.
+
+**Fix.** One shared ring read at N cursors: 7.20 MB for the same pack, flat in the count instead of
+quadratic, and the pack's whole memory now bounded by the maximum delay alone. The overwrite
+direction flips as a bonus -- a full channel dropped the NEWEST sample for that reader (an invisible
+hole mid-trail, which had already caused a live despawn/respawn bug), while a full ring overwrites
+the oldest and can TELL the reader it happened.
+
+**The transferable shape.** **When several consumers read the same stream at different offsets, the
+buffer belongs to the STREAM, not to each consumer.** The per-consumer version is the natural way to
+write it, costs nothing at small N, and the cost is invisible until someone picks a large one --
+there is no error, no log line and no failing test, only memory. **And ask where a `make` of a
+computed size actually runs**: this one was on the goroutine that answers the next adapter's hello,
+which is how the same code path had already produced a seconds-long stall for the fuzzer to find.

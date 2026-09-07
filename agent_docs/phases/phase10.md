@@ -791,3 +791,21 @@ would lose a live item, which is the failure mode this cleanup exists to avoid.
 
 The two report-only buckets from the same pass are in [ideas.md](../ideas.md): the four-way adapter
 duplication, and the 13 dev-scripts whose only mention is the README entry preflight requires.
+
+## 2026-09-07 — the bridge stopped being able to kill a busy game
+
+Go-side work, run and confirmed with the tools; the full account, its numbers and the two mistakes
+made along the way are in [phase11.md](phase11.md)'s 2026-09-07 entry, because the defect surfaced
+through the chaser pack and the pack is Phase 11's. Recorded here because it is `core`, and this
+file is the Go side's running log.
+
+Four commits: the chaser pack's shared history (1.69 GB of private queues down to 7.20 MB, and flat
+in the count); `throttledConn` plus a fuzzed adapter drain rate, which is the instrument that made a
+twice-live defect reproducible headlessly for the first time; the coalescing bridge writer, so a
+slow adapter is sent less rather than disconnected; and the reporting the user asked for. Five
+further `FuzzEverything` axes closed in the same pass after the user asked what else was not being
+fuzzed — `player_frozen` turned out to appear in no fuzz target in the repo at all.
+
+Left open with a benchmark rather than taken on: batching a tick into one `render_frame` line, which
+is a bridge protocol revision. `verified.md`'s 2026-09-07 entry carries the numbers that would
+justify it and the `MaxLineBytes` decision that comes with it.

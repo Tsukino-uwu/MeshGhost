@@ -128,6 +128,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — A tester's "the client died" at ~343 ghosts: the core refused its own game's reconnect
 - 2026-09-06 — CI's Linux race job: a refused hello lost its Reject to a reset, so the core retried a permanent refusal
 - 2026-09-06 — The fuzzer's peer space widened past the roster cap, and it deadlocked that same evening's fix at 11.5 s
+- 2026-09-07 — The ~350-ghost bridge ceiling: what it actually was, and the two ceilings found on the way
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -1708,3 +1709,57 @@ and the roster hold, in **0.04 s**. The peer flood stays in the fuzzer because i
 case -- a join with no state admits an id and renders nothing, so 600 of them are nearly free. Same
 trade as the 2026-09-04 entry in `testing.md`: scale that costs every iteration belongs in a test
 that runs once.
+
+## 2026-09-07 — The ~350-ghost bridge ceiling: what it actually was, and the two ceilings found on the way
+
+**Track: Go-side, agent-confirmed.** Every number here comes from a test or benchmark in this repo,
+run locally; nothing needs the user's eyes. The tester's session that prompted it is the evidence
+that the September 6 lockout fix worked, and is quoted as theirs, not claimed as mine.
+
+**What the tester saw, 2026-09-07.** A 512-chaser pack in Pseudoregalia, ~350 ghosts on screen, then
+`send render_remote to adapter failed: i/o timeout` and the pack gone. Their own reading: *"seems to
+not create a new Client and instead become able again to reuse it's old one (though it deletes all
+the prior chasers)"* — which is the 2026-09-06 fix behaving exactly as designed. No second core, no
+"busy" refusal, ~10 failed sends instead of ~1,200. That fix was never a fix for the timeout; it
+made the timeout survivable.
+
+**The measured cause.** One `render_remote` line per remote per adapter frame, unthrottled. Measured
+on the real structs: one line is **380 bytes**, so 512 ghosts at Pseudoregalia's ~180 Hz is **92,160
+messages and 35.0 MB/s** down one loopback NDJSON socket (`core.tickRenders`, one send per entry).
+The adapter parses a fraction of that, the socket buffer fills, and `SetWriteDeadline` expires with
+a line **half-written** — which also poisons the stream, so the adapter sees a truncated line before
+it sees the close. Reproduced headlessly for the first time in `TestASlowAdapterIsNeverDetached`,
+where the pre-fix failure is precisely `adapter received malformed envelope: unexpected end of JSON
+input`.
+
+**Second ceiling, found on the way and not previously known: 1.69 GB.** Every chaser held a private
+queue sized to its own delay, so N chasers held N overlapping copies of the same past. The tester's
+config (512 chasers, 1 s delay, 1 s spacing) sized **13,235,200 `protocol.State` slots at 128 bytes
+= 1.69 GB**, `make`'d on the bridge goroutine the instant the adapter attached and again on every
+reconnect. One shared ring read at 512 cursors is the same data: **7.20 MB measured**
+(`runtime.MemStats` around `StartChasers`), a 235x cut, and flat in the count —
+`TestChaserHistoryIsFlatInTheCount` pins that 512 chasers cost exactly what 2 at the same depth do.
+
+**What the fix does.** The frame path no longer writes; it enqueues, and a writer goroutine per
+connection drains at whatever rate the adapter manages, coalescing a superseded `render_remote` onto
+its unsent predecessor in place. Sound because a render is a statement of *current position*, not an
+event: an unsent one is worthless once a newer one exists. Events (despawn, nametag, policy,
+bridge_ready) never coalesce and keep their order; a despawn clears the coalescing entry so a
+respawn lands after it. Measured: a 128-chaser pack against an adapter draining ~2 MB/s **took
+28,415 lines and survived**, with **270,872 stale renders discarded** — where before it was detached
+inside three seconds.
+
+**What is still open, with its number.** The per-message overhead is untouched. Benchmarked over a
+`net.Pipe` at 512 ghosts, one tick as 512 lines costs **1.81 ms and 186,770 bytes**; the same tick as
+one batched line costs **0.84 ms and 168,887 bytes** — 2.2x on the core's write side, ~10% on the
+wire, and 512 JSON parses becoming 1 on the adapter side (not measured here; it is in three
+languages). That batching is a bridge protocol revision and needs its own ADR; note the batched line
+is **169 KB against `transport.DefaultMaxLineBytes` of 64 KB**, so the bridge's line cap is a
+decision that comes with it, not a detail after it.
+
+**Test-rig fact worth its own line.** Neither fake adapter in `core` could ever have found this: one
+drains as fast as Go can, the other stops reading outright. `throttledConn` is the missing middle —
+a bounded drain rate, per adapter frame — and `FuzzEverything` now fuzzes that rate as an axis. A
+100 s campaign on the previously saturated corpus found 8 new interesting inputs; adding five more
+unfuzzed axes (`player_frozen`, orientation blobs, `render_all_areas`, `interpolate_orientation`,
+`MinSendInterval`, `Extrapolate`) took a 120 s campaign to 19.

@@ -307,3 +307,5 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - A failed write frees nothing until the READ loop notices -- and the read loop is usually the goroutine that just failed the write (core, 2026-09-06) [CHECK: core.TestADeadAdapterSocketFreesTheCoreForTheReconnect]
 - An asset's declared bounds can lie: one modded outfit says it is 13,558 units tall -- clamp anything read off a mod asset to a window (Pseudoregalia, 2026-09-06) [RULE: the nametag's 40-400 bounds window with a fixed-height fallback; a mod asset's number is untrusted input]
 - A missing `@` published a scratchpad path as the entire release description of a public release (release, 2026-09-07) [CHECK: `.github/workflows/release.yml` job `validate-release-notes`, which every other job `needs:`]
+- A test double that cannot be SLOW will never find a load defect (core, 2026-09-07) [CHECK: core.TestASlowAdapterIsNeverDetached, and the drain rate fuzzed as an axis in FuzzEverything]
+- N private queues for N followers of ONE stream is quadratic, and the allocation lands on the frame path (core, 2026-09-07) [CHECK: core.TestChaserHistoryIsFlatInTheCount]

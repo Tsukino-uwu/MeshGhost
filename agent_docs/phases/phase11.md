@@ -698,3 +698,39 @@ change, and nothing under the snapshot takes `c.mu`, so no nesting. `run-gotests
 all five jobs. The lesson is the one this repo already had in a different shape: **a green
 `run-gotests.bat` is not a green CI** -- the local script cannot run `-race`, so a lock convention
 that lives only in the other readers of a field goes unenforced until CI says otherwise.
+
+**2026-09-07 -- the ~350-ghost ceiling: a slow adapter was being killed for being slow, and a
+1.69 GB allocation nobody had noticed.** The tester's second report at ~350 ghosts read as the
+2026-09-06 fix having failed, and it was the opposite: their own words, *"seems to not create a new
+Client and instead become able again to reuse it's old one (though it deletes all the prior
+chasers)"*, are that fix working -- no second core, ~10 failed sends instead of ~1,200. What it
+never addressed was WHY the write timed out, because it was a recovery fix, not a cause fix.
+
+Three ceilings existed, and only one had been under discussion. **Bridge throughput**: one
+`render_remote` per remote per frame is 92,160 messages and 35.0 MB/s at 512 ghosts and 180 Hz,
+against an adapter parsing a fraction of it. **Chaser memory**: 1.69 GB of channel buffer for the
+tester's exact config, allocated on the bridge goroutine at attach and again at every reconnect --
+found while reading the sizing arithmetic for something else, and never suspected. **Adapter render
+cost**: still only measurable in the game.
+
+Fixed in four commits, each verified Go-side before the next: the shared chaser history
+(1.69 GB -> 7.20 MB, and flat in the count rather than quadratic); `throttledConn` plus a fuzzed
+drain rate, which is what made the defect reproducible headlessly at all; the coalescing bridge
+writer; and the reporting the user asked for. **The reproduction is the part worth keeping**: both
+fake adapters in `core` were unable to express a slow reader -- one drains as fast as Go can, the
+other stops dead -- so a defect that had hit a tester twice could not be produced by any count,
+however large, in any test. The instrument was missing, not the effort.
+
+Two of my own mistakes in the session, both caught by measurement rather than review. The
+line-counting instrument in the new test used a size-1 buffered channel with a non-blocking send,
+which keeps the FIRST unconsumed value: it reported "2 lines" where 28,415 had arrived, and it
+looked exactly like a finding. And the caught-up condition in the writer compared the dropped count
+against its value when the behind-period BEGAN -- a number that only grows, so the "keeping up
+again" line could never have printed. Both are the same shape as the repo's standing rule that a
+diagnostic can break the thing it measures.
+
+The user's calls, made in the same exchange: the chaser pack still resets on a reattach (the
+proposal to carry it across only mattered while a slow adapter could be disconnected, and a game
+restart is a new session); the slow-bridge condition is reported both as one log line each way and
+as a running count in `Stats`; and the batching half is left open with its benchmark rather than
+taken on speculatively.
