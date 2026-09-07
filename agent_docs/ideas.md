@@ -1833,7 +1833,7 @@ tile-based game plausibly needs more interpolation delay than a free-movement on
 character in whole-tile steps at a fixed cadence; TEVI and Pseudoregalia move it continuously in
 world units. One delay that suits both is unlikely to be the best either could have.
 
-**Today there is exactly one number.** `core.DefaultInterpolationDelay` is 250ms, set with `-interp`
+**Today there is exactly one number.** `core.DefaultInterpolationDelay` is 450ms, set with `-interp`
 per launch. Nothing about it is game-aware, and **nothing about it may become game-aware in the
 core** -- `CLAUDE.md`'s hard rule and ADR 08-20 forbid the core or relay knowing which game it is
 carrying, so `if game == "emerald"` is not available and never will be. That constraint is the

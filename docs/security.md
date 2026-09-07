@@ -503,5 +503,5 @@ delivery until it is *retransmitted*, so the bound is retransmit timing, not sen
 retransmit needs three subsequent packets, which at 15Hz is already ~200ms, so the RTO timer —
 floored near 200ms on common stacks — is likely to dominate instead. **This is reasoning, not a
 measurement**: nobody has run MeshGhost over a genuinely lossy link and watched. It does not
-change the conclusion (250ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
+change the conclusion (450ms of interpolation absorbs a lot, and a ghost is cosmetic), but the
 number should be re-derived rather than cited if this comparison is ever re-opened.

@@ -41,7 +41,7 @@ added a time bound (`defaultSnapshotAgeMs`, feeding the derived `historyMs` wind
 | interp | last rate still interpolating | first rate that edge-holds |
 | --- | --- | --- |
 | 175ms (TEVI) | 300Hz | 480Hz |
-| **250ms (shipped)** | **200Hz** | **256Hz** |
+| **250ms** (shipped when measured; 450ms since ADR 0046) | **200Hz** | **256Hz** |
 | 400ms | 144Hz | 200Hz |
 
 **A LARGER interp delay broke at a LOWER rate** — the counter-intuitive half, and the one that would

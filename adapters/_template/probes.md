@@ -1800,7 +1800,7 @@ so the stamps cannot pair up wrongly.
 useful one: a lag that is the same every time is a constant offset with nothing to see it against,
 while one that wanders is the stutter — at the same mean. Print `spread lo-hi` before the mean, keep
 `lo`/`hi` as raw values outside the histogram, and never let a clamped bucket edge supply either
-(clamped at 20 frames, a run at the shipped 250ms files entirely in the top bucket and then reports a
+(clamped at 20 frames, a run at the shipped 450ms files entirely in the top bucket and then reports a
 spread of ZERO — the flattering answer, from a saturated instrument).
 
 **Count the samples that had no reference.** An arrival with nothing to subtract from is not a zero,

@@ -393,7 +393,7 @@ the game's:
 - **What do they put on the wire, and how often?** Compare against `contract.md`'s packet schema
   and the 20Hz/100Hz question the relay keeps raising.
 - **How do they handle a peer whose state has not arrived** — interpolation, extrapolation, or
-  neither? MeshGhost's answer is a 250ms interpolation delay plus per-adapter smoothing
+  neither? MeshGhost's answer is a 450ms interpolation delay plus per-adapter smoothing
   (`core/core.go`, Emerald's drawn tier); a second opinion on that trade would be genuinely useful.
 - **Where does their equivalent of the adapter/core split fall**, if it exists at all? The rule
   that adapters never speak the relay protocol is one of this project's load-bearing decisions

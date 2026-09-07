@@ -142,7 +142,7 @@ frames in 10s). A rate cannot see a hitch — ten frames lost inside one second 
 — and `dev-scripts/bizhawk-hitch-meter.lua` did not exist until 2026-08-21. These runs are the
 first pacing numbers for a Crystal crowd.
 
-**Rig:** shipped settings (relay default send rate, core default 250ms interpolation), loopback
+**Rig:** shipped settings (relay default send rate, core default interpolation, 250ms at the time), loopback
 OFF, `-max-clients=80`, player parked, 60s per run, `-area-id=1/13 -center=14,20 -radius=4`.
 
 | Run | Peers | Rendered | emu fps | Hitches >20ms | Worst gap |
