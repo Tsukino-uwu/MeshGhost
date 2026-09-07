@@ -64,7 +64,7 @@ transport  — generic NDJSON framing over any net.Conn. Defines its own Transpo
 bridge     — adapter<->core message shapes (LocalState/RenderRemote/DespawnRemote).
                        Imports protocol only.
 core       — snapshot buffer, interpolation, remote-player tracking. Imports
-                       protocol, transport, bridge, netx, internal/textfmt.
+                       protocol, transport, bridge, netx, netx/tlsx, relay, internal/textfmt.
 relay      — room membership, forwarding, limits. Imports protocol, transport,
                        internal/textfmt. Never imports core or bridge — the relay stays
                        ignorant of adapter-side concerns, same as it's ignorant of games.
@@ -101,10 +101,11 @@ internal/gameblind  — test-only, added 2026-08-20. Five tests over the source 
                        above a chosen set rather than the residue of deleting a directory.
 
 cmd/* are package main and were never importable:
-cmd/meshghost       — desktop app entry point. Imports core, netx, protocol, internal/cfg and
-                       internal/hotkey (the Phase 3 note here once predicted transport/bridge
-                       imports; they never arrived).
-cmd/meshghost-relay — standalone relay entry point. Imports relay, netx, protocol, internal/cfg.
+cmd/meshghost       — desktop app entry point. Imports core, netx, netx/tlsx, relay, protocol,
+                       internal/cfg and internal/hotkey (the Phase 3 note here once predicted
+                       transport/bridge imports; they never arrived).
+cmd/meshghost-relay — standalone relay entry point. Imports relay, netx, netx/tlsx, protocol,
+                       internal/cfg.
 cmd/meshghost-fakeadapter — the test rig's ghost-that-walks-in-a-circle. Imports core, netx
                        and protocol.
 cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NONE of our own

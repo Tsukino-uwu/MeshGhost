@@ -9,7 +9,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 
 - [contract.md](contract.md) — **the durable artifact**: packet schema, message types, adapter interface, transport, tick model, limits. A change is a contract revision: a new file in `adr/`, indexed in `architecture.md`.
 - [architecture.md](architecture.md) — system shape, package boundaries, and **the index to the decision log** in `adr/` (one file per ADR, dated in its filename; `preflight.ps1` fails an unindexed one).
-- [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` and the nested rule files are capped, why nothing else is, and why indexes and queues are held to one line per entry instead (the six cases, dated).
+- [claude-md-cap.md](claude-md-cap.md) — why `CLAUDE.md` and the nested rule files are capped, why nothing else is, and why indexes and queues are held to one line per entry instead (the seven cases, dated).
 - [licensing.md](licensing.md) — the third-party audit and the gate: a project not listed has not been checked; `preflight.ps1` fails a citation in a living doc that this file does not name.
 - [brief.md](brief.md) — the original design brief. **HISTORIC AND FROZEN**: never corrected, drift from it is history.
 
