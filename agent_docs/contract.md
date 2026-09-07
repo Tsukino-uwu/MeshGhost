@@ -620,7 +620,14 @@ different and slightly stale, and so *which* peer takes over changes what the wo
 Bounds are derived from the datagram limit rather than from `MaxLineBytes`, because
 `udpconn.checkWritable` refuses an oversized datagram *including a reliable one* and reports it only
 as a line in the relay's log: authority ≤ 128 (the lease-key bound, since it names one), key ≤ 64,
-blob ≤ 768, ≤ 64 entities per room, and a batching budget of 1100 bytes per message. The 64 is
+blob ≤ 768, ≤ 64 entities per room, and a batching budget of 1100 bytes per message. **All three
+of those byte bounds are measured ON THE WIRE**, like every other bound on this page — the blob
+always was, and the authority and key joined it 2026-09-08. Until then they were measured with
+`len()`, which made the subtraction above invalid the moment a key contained a character JSON
+escapes: an authority of 128 `&` and a key of 64 `&` are both legal, and took the same maximal
+`world_state` from 1115 bytes on the wire to 2075 — over the datagram limit this whole derivation
+exists to stay under, so every `world_state` for that authority became silently undeliverable to
+every udp and quic-datagram peer, visible only as a `relay: send to pX failed:` line. The 64 is
 derived, not chosen: it is `udpconn`'s reorder window, and a reliable burst wider than that window
 goes unacked and is retried until the connection closes. A snapshot too large for one message is
 **batched, never fragmented** — every message is independently complete and no entry is ever split.
@@ -788,14 +795,21 @@ only spams the relay and leaves the player in a room of one with no explanation
 
 ### The `welcome` roster is bounded; the remainder arrives as `join`
 
-**A `welcome` lists at most 32 members** (`relay.maxWelcomeRoster`). In a larger room the rest are
-sent as ordinary `join` messages immediately after it, so **a client that only reads the roster out
-of `welcome` will silently miss peers in a big room** — the `join` handler is not optional.
+**A `welcome` carries as many members as fit inside `MaxLineBytes` once serialized**
+(`relay.boundWelcomeRoster`). In a larger room the rest are sent as ordinary `join` messages
+immediately after it, so **a client that only reads the roster out of `welcome` will silently miss
+peers in a big room** — the `join` handler is not optional. The same bound applies on the resume
+path, which had none at all until 2026-09-08.
 
-The bound is a line-length property rather than a policy: a roster id is ~7 bytes and a nametag
-entry ~60 with a maximal name, so 32 keeps the `welcome`'s variable part near 2.2KB, inside
-`MaxLineBytes` (4096) alongside every fixed field — and it stays correct however large rooms are
-later allowed to get, which a bound derived from `MaxClients` would not.
+**Measured, not counted, since 2026-09-08.** This was a fixed cap of 32 members, sized on the
+assertion that "a roster id is ~7 bytes and a nametag entry ~60 with a maximal name". That counted
+bytes IN HAND, and `SanitizeDisplayName` permits `&`, `<` and `>` — all graphic ASCII, none
+stripped -- which `encoding/json` escapes to a six-character `\uXXXX` sequence each.
+~173 bytes, not ~60, and the cap was reopening the very incident it was added for on 2026-09-01:
+measured with the real code, a welcome was 3787 B at 20 members, 3973 B at 21, and **6019 B at the
+full cap of 32** — past 4096 the joining core's scanner dies with "token too long" *at join*. The
+bound is now the marshalled envelope itself, so it cannot be wrong again for a reason nobody
+predicted.
 
 ### Closing a connection — the relay half-closes and drains
 
@@ -994,11 +1008,14 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   added in the 2026-08-14 relay-safety hardening pass.
 - Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
   any real representation (a handful of floats).
-- A carried `prev` (ADR 0045) meets every bound above on its own fields **except one**
-  (`protocol.validPrev`, `protocol/prev.go:185-201`, called from `ValidateState` at both
-  enforcement points) and cannot nest; the line cap bounds the whole message. **The exception is
-  the nesting-depth cap below**, which `ValidateState` applies to `state.orientation` only — a
-  carried `prev.orientation` is checked for size, not for depth.
+- A carried `prev` (ADR 0045) meets **every** bound above on its own fields
+  (`protocol.validPrev`, `protocol/prev.go`, called from `ValidateState` at both enforcement
+  points) and cannot nest; the line cap bounds the whole message. **The nesting-depth exception
+  that stood here was closed 2026-09-08**: `validPrev` checked `prev.orientation` for size and not
+  for depth, so a 240-byte `[[[…]]]` — under the 256-byte cap, ~120 levels deep — was rejected as
+  `state.orientation` and accepted as `prev.orientation`, and `ApplyPrev` then copied it verbatim
+  into a reconstruction that `ValidateState` itself would refuse. Both Lua adapters would have
+  refused it at their own 64-level cap; the C# and C++ ones have none.
 - Max NESTING depth of `extras` and `orientation`: **32 levels** (`MaxJSONDepth`, added
   2026-09-03). The byte caps bound how much a peer sends and nothing about its shape: ~490 nested
   containers fit in the 1024 bytes `extras` allows, and every receiver — four hand-written decoders
@@ -1013,8 +1030,12 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
   refused: a long name is not a reason to lose a connection.
 - Max length of `area_id` / `anim`: **256 bytes** each (`MaxAreaIDLen` / `MaxAnimLen`).
 - Max length of every `hello` string field (`game_id`, `room`, `display_name`, `room_code`,
-  `game_version`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before any of them
-  are used to create or look up a room.
+  `game_version`, `name_color`): **128 bytes** (`MaxHelloFieldLen`), checked at the relay before
+  any of them are used to create or look up a room. `name_color` joined the list 2026-09-08: it
+  was added to `Hello` after the check was written and never bounded, and was safe only by
+  accident, because `SanitizeNameColor` later refuses anything that is not exactly 4 or 7 bytes.
+  The check now iterates one list rather than chaining clauses, so the next field added is harder
+  to forget.
 - Per-client rate limit: **`max(120, send_hz × 6)` messages/second** (`MaxMessagesPerSecondFor`,
   `relay/limits.go`) — the relay closes, rather than throttles, a connection that
   exceeds it, sending a `reject` (`ReasonRateLimited`) first since the send/receive rate-control
