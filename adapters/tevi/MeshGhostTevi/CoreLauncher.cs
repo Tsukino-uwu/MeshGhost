@@ -98,8 +98,8 @@ namespace MeshGhostTevi
                 // "meshghost.exe not found" with no location is the least useful form of this.
                 disabled = true;
                 log("MeshGhost: meshghost.exe was not found -- not starting a core. Put it in the TEVI " +
-                    "folder (the one with TEVI.exe) alongside config.json, or in the MeshGhost plugin " +
-                    "folder beside MeshGhostTevi.dll; if it was there, check whether antivirus removed it.");
+                    "folder (the one with TEVI.exe) alongside config.json; if it was there, check " +
+                    "whether antivirus removed it.");
                 return;
             }
 

@@ -458,3 +458,35 @@ separately. `c.NoDelay = true` before `Connect`. Unbuilt and unwatched on TEVI; 
 DLL is the one that was built and deployed. Detail and the measurements:
 `agent_docs/pitfalls/by-lesson.md`, 2026-09-06; `dev-scripts/replay-cadence.py` is the check.
 
+
+## 2026-09-07 — the "core not found" message stops naming a folder nothing searches
+
+Part of the repo-wide stale-fact sweep (`phase10.md`); TEVI's share was one string and one rebuild.
+
+**The defect.** `CoreLauncher.cs:100-102` told a player whose `meshghost.exe` was missing to put it
+"in the TEVI folder (the one with TEVI.exe) alongside config.json, **or in the MeshGhost plugin
+folder beside MeshGhostTevi.dll**". Nothing has searched that second location since `31242013`
+(2026-09-05) moved the client, `config.json`, the log and replays to the game root —
+`CoreSearchDirs()` yields `MESHGHOST_CORE_DIR` then `Paths.GameRootPath`, and its own comment says
+the override "is not the mod folder".
+
+**Why it was worth a rebuild for one clause.** Every other stale thing this sweep found misled a
+*developer* reading a doc. This one misled a **player**, in the error path, at the exact moment they
+are already stuck — they follow the advice, put the exe in the mod folder, and it still does not
+work. The docs were all correct; the string was the only leftover.
+
+**Built, deployed, and checked in the binary rather than the source.** `build-tevi.bat`, then the
+DLL copied into the Steam install's `BepInEx\plugins\MeshGhost\`; deployed and built copies hash
+identically, and reading the strings out of the deployed DLL shows the message ending
+`...alongside config.json; if it was there, check whether antivirus removed it.` with the mod-folder
+clause absent. Preflight's deployed-copy check confirms the same, with `MESHGHOST_TEVI_DLL` set.
+
+**What is left, and it is small.** The standalone dual-instance install was NOT updated — its path
+lives in `MESHGHOST_TEVI_DIR2`, which is unset in this shell, and it is deliberately not committed.
+Deploy there with `tevi-hotreload.ps1 -Both` (or a copy) before any dual-instance session, or that
+copy keeps the old message.
+
+**Unwatched, and barely worth watching:** the changed line is a string literal in a branch that only
+runs when `meshghost.exe` is absent. A normal launch never reaches it, so the confirmation that
+matters is simply that the mod still loads. Seeing the new text needs `meshghost.exe` renamed away
+first.
