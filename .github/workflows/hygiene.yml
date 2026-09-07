@@ -1,0 +1,104 @@
+name: Hygiene
+
+# THE ONE LEAK SCAN, AND THE ONLY WORKFLOW HERE WITH NO PATH FILTER.
+#
+# It used to live in ci.yml, which triggers on '**.go', 'go.mod', 'go.sum' and its own
+# file. docs.yml runs preflight -TreeOnly, and triggers on '**.md', 'preflight.ps1' and
+# its own file. Every other workflow is scoped to one adapter's tree and scans nothing.
+# So a push touching ONLY a .ps1, .bat, .txt, .json, .cs, .cpp, .hpp, .lua or a binary
+# got no leak scanning at all -- while .githooks/pre-commit tells the reader in as many
+# words that "CI re-runs the same scan over the whole tree". It did not.
+#
+# That is not hypothetical: dev-scripts/zoom.ps1 shipped a hardcoded clone path
+# (preflight.ps1 records it, 2026-09-07), and `dev-scripts/*.ps1` is matched by no
+# workflow's path filter except preflight.ps1's own name. The hook is the primary
+# defence, but hooks are not carried by `git clone`, need `git config core.hooksPath`
+# once per clone, and can be skipped with --no-verify -- which is exactly when a
+# backstop has to exist, and exactly when this one was absent.
+#
+# A user path in a PUBLIC repo cannot be taken back once pushed: it stays in every clone
+# and fork, and rewriting published history does not reach them. That asymmetry is why
+# this is a hard failure rather than a warning, and why it is cheap enough (one checkout,
+# two greps) to run on literally every push.
+#
+# Moved here from ci.yml rather than copied: the list of exclusions below already had
+# three copies (hook, ci.yml, preflight.ps1) and a comment in each saying "change one,
+# change all three" -- which is a rule that had already been broken once, when
+# agent_docs/pitfalls/ was split out on 2026-08-25 and CI failed on its own documentation
+# for a day. Two copies is better than four.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  paths:
+    name: No machine-specific paths
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Scan text files for user paths
+        run: |
+          # Both slash directions AND -F, all three load-bearing: a pattern covering one
+          # direction passes cleanly on a file that leaks in the other, and without -F the
+          # backslashes are read as escapes. /Users/ and /home/ cover macOS and Linux.
+          # The exclusions are files that are ABOUT paths, plus the tooling that finds them;
+          # .githooks/pre-commit and dev-scripts/preflight.ps1 carry the same list.
+          if git grep -nIF \
+               -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
+               -- . \
+               ':!CLAUDE.md' ':!agent_docs/environment.md' \
+               ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' \
+               ':!dev-scripts/preflight.ps1' \
+               ':!.githooks/' ':!.github/workflows/'; then
+            echo
+            echo "A machine-specific path is present in a tracked file (listed above)."
+            echo "Make it relative, or let the script resolve its own directory."
+            exit 1
+          fi
+          echo "No machine-specific paths in tracked text files."
+
+      - name: Scan binaries for user paths and clone paths
+        run: |
+          # -I is DEFINED as "treat a binary file as containing no match", so the grep above
+          # -- and the hook, and preflight, for months -- could not see the one file type a
+          # path reaches without anyone typing it: a toolchain embeds the build directory in
+          # a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings.
+          # A tracked, SHIPPED UE4SS.dll carried the maintainer's Windows username 86 times
+          # while every scanner in this repo reported clean (found 2026-09-07).
+          #
+          # KNOWN carries the binaries already in history that leak, so this gate can be
+          # armed before they are rebuilt. They are not silenced: preflight.ps1 names each
+          # one and the rebuild it needs on every run. Anything NOT listed fails here, so a
+          # NEW binary leak still cannot land. Delete an entry as its build is fixed.
+          KNOWN='packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll
+          packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll
+          packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll
+          packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll'
+
+          status=0
+          for f in $(git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'); do
+            if ! grep -qaF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' \
+                           -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' "$f"; then
+              continue
+            fi
+            if printf '%s\n' "$KNOWN" | sed 's/^ *//' | grep -qxF "$f"; then
+              echo "known (pending rebuild, see preflight.ps1): $f"
+              continue
+            fi
+            echo "LEAK: $f embeds a machine-identifying path"
+            status=1
+          done
+          if [ "$status" -ne 0 ]; then
+            echo
+            echo "Rebuild it with the build directory stripped:"
+            echo "  MSVC  -> /PDBALTPATH:%_PDB%"
+            echo "  C#    -> <PathMap> or <DebugType>none"
+            echo "  Rust  -> RUSTFLAGS=--remap-path-prefix"
+            exit 1
+          fi
+          echo "No NEW binary embeds a machine-identifying path."

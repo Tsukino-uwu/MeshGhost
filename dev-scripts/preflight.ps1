@@ -157,6 +157,74 @@ $clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
+Section "Machine-identifying strings inside tracked BINARIES"
+
+# THE GAP THAT MADE EVERY CHECK ABOVE REPORT CLEAN ON A LEAKING TREE (found 2026-09-07).
+#
+# All three scanners in this repo -- the two greps above, .githooks/pre-commit and ci.yml -- pass
+# -I to git grep / grep, which is DEFINED as "treat a binary file as containing no match". So the
+# one file type that a user path reaches without anybody typing it (a compiler embeds the build
+# directory in a PDB reference, and a Rust toolchain embeds the cargo registry in panic strings)
+# was the one file type nothing could see. `preflight.ps1 -TreeOnly` printed
+# "PASS no username or home-directory path in tracked files" while a tracked, SHIPPED UE4SS.dll
+# carried the maintainer's Windows username 86 times.
+#
+# This is the same shape as the zoom.ps1 case above and gets the same answer: scan the thing that
+# was excluded. Reading bytes as Latin-1 keeps every byte a character, so an ASCII path inside an
+# arbitrary binary matches without any encoding guesswork. GetEncoding(28591) rather than
+# [Encoding]::Latin1, which does not exist in Windows PowerShell 5.1 -- the edition this repo runs.
+$binaryPatterns = @('C:\Users', 'C:/Users', 'C:\dev\MeshGhost', 'C:/dev/MeshGhost')
+# Extensions only -- a tracked binary in this repo is always one of these, and enumerating by
+# extension avoids reading every .md in the tree as bytes.
+$binaryFiles = & git ls-files -- '*.dll' '*.exe' '*.so' '*.dylib' '*.pdb' '*.lib' '*.a' '*.bin' '*.node'
+
+# Known offenders, with what has to happen to each. They are listed rather than excluded so the
+# gate keeps naming them on every run: an allowlist that silences a real violation is the failure
+# this whole section exists to fix. Anything NOT on this list is a FAIL -- a new leak is blocked
+# even while these four are outstanding. Delete an entry as its build is fixed; when the list is
+# empty, delete the list.
+$knownBinaryLeaks = @{
+    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/UE4SS.dll' =
+        'third-party build from the submodule; needs RUSTFLAGS=--remap-path-prefix (cargo panic paths) -- decide at the next UE4SS bump'
+    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/ue4ss/Mods/MeshGhostPseudo/dlls/main.dll' =
+        'MSVC PDB path; add /PDBALTPATH:%_PDB% to the link flags and rebuild'
+    'packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/dwmapi.dll' =
+        'MSVC PDB path; same fix as main.dll, same rebuild'
+    'packaging/release/games/tevi/MeshGhost/MeshGhostTevi.dll' =
+        'C# PDB path; set <PathMap> or <DebugType>none in MeshGhostTevi.csproj and rebuild'
+}
+
+$newBinaryLeaks = @()
+$knownStillLeaking = @()
+foreach ($bf in $binaryFiles) {
+    if (-not (Test-Path -LiteralPath $bf)) { continue }
+    $bytes = [System.IO.File]::ReadAllBytes($bf)
+    $text = [System.Text.Encoding]::GetEncoding(28591).GetString($bytes)
+    $found = @()
+    foreach ($p in $binaryPatterns) {
+        if ($text.Contains($p)) { $found += $p }
+    }
+    if ($found.Count -eq 0) { continue }
+    $norm = ($bf -replace '\\', '/')
+    if ($knownBinaryLeaks.ContainsKey($norm)) {
+        $knownStillLeaking += "$norm [$($found -join ', ')] -- $($knownBinaryLeaks[$norm])"
+    } else {
+        $newBinaryLeaks += "$norm [$($found -join ', ')]"
+    }
+}
+
+if ($newBinaryLeaks.Count -gt 0) {
+    Report-Fail "a tracked binary embeds a machine-identifying path (rebuild it with the build directory stripped -- /PDBALTPATH for MSVC, <PathMap> for C#, --remap-path-prefix for Rust):"
+    foreach ($h in $newBinaryLeaks) { Write-Host "        $h" }
+} elseif ($knownStillLeaking.Count -eq 0) {
+    Report-Pass "no tracked binary embeds a username or a clone path"
+} else {
+    Report-Pass "no NEW tracked binary embeds a machine-identifying path"
+}
+foreach ($h in $knownStillLeaking) {
+    Report-Warn "known, not yet rebuilt: $h"
+}
+
 # ---------------------------------------------------------------------------
 Section "Invented durations"
 
