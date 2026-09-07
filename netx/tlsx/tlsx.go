@@ -313,6 +313,7 @@ func NewListener(ln net.Listener, cfg ListenConfig) (net.Listener, error) {
 		logf:     logf,
 		out:      make(chan accepted, 16),
 		done:     make(chan struct{}),
+		fatal:    make(chan struct{}),
 	}
 	go l.acceptLoop()
 	return l, nil
@@ -333,15 +334,61 @@ type sniffListener struct {
 	out       chan accepted
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// fatal is closed once the inner listener has failed for good, with
+	// fatalErr written before the close (so the close publishes it). It
+	// exists because Accept is a channel receive: once acceptLoop has
+	// stopped there is nothing left to send, and a caller that calls Accept
+	// again -- which relay.Serve does on every error -- would block on that
+	// channel for the life of the process. See acceptLoop.
+	fatal    chan struct{}
+	fatalErr error
 }
 
 func (l *sniffListener) acceptLoop() {
+	var backoff time.Duration
 	for {
 		c, err := l.Listener.Accept()
 		if err != nil {
-			l.deliver(accepted{err: err})
+			// A TEMPORARY error must not end this loop. relay.Serve
+			// deliberately backs off and RETRIES on ne.Temporary() (added
+			// 2026-09-02 so descriptor exhaustion could not take the relay
+			// down), and until 2026-09-08 this loop returned on the first
+			// error of any kind and delivered it exactly once: the retried
+			// Accept then selected on a channel nothing would ever send to
+			// again and parked forever. The relay logged one "retrying"
+			// line and silently stopped accepting tcp for the rest of the
+			// process while existing rooms kept working, so it looked
+			// alive. tls=auto is the shipped default, so this wrapper is
+			// always in that path.
+			//
+			// The error is still handed up rather than swallowed: the
+			// backoff-and-log policy belongs to the caller, and this
+			// wrapper exists to sniff bytes, not to make that decision. The
+			// small backoff here is only so a caller with no policy of its
+			// own cannot spin this loop on a repeating EMFILE.
+			if ne, ok := err.(net.Error); ok && ne.Temporary() { //nolint:staticcheck // the deprecation is about timeouts; EMFILE is exactly what this asks
+				l.deliver(accepted{err: err})
+				if backoff == 0 {
+					backoff = 5 * time.Millisecond
+				} else if backoff *= 2; backoff > time.Second {
+					backoff = time.Second
+				}
+				select {
+				case <-time.After(backoff):
+				case <-l.done:
+					return
+				}
+				continue
+			}
+			// Permanent: the listener is closed or the socket is gone.
+			// Recorded rather than delivered once, so every later Accept
+			// gets the same real error instead of hanging.
+			l.fatalErr = err
+			close(l.fatal)
 			return
 		}
+		backoff = 0
 		go l.classify(c)
 	}
 }
@@ -398,9 +445,19 @@ func (l *sniffListener) deliver(a accepted) {
 }
 
 func (l *sniffListener) Accept() (net.Conn, error) {
+	// Connections already sniffed are handed up before the failure is
+	// reported: a handshake that completed just as the inner listener died
+	// is a usable session, and losing it would drop a real player.
 	select {
 	case a := <-l.out:
 		return a.conn, a.err
+	default:
+	}
+	select {
+	case a := <-l.out:
+		return a.conn, a.err
+	case <-l.fatal:
+		return nil, l.fatalErr
 	case <-l.done:
 		return nil, net.ErrClosed
 	}

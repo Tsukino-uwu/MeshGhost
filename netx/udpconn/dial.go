@@ -46,13 +46,19 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 			_ = pc.Close()
 			return nil, fmt.Errorf("udpconn: send hello: %w", err)
 		}
-		_ = pc.SetReadDeadline(minTime(time.Now().Add(500*time.Millisecond), deadline))
-		n, _, err := pc.ReadFromUDP(buf)
-		if err != nil {
-			continue // timed out waiting; send another hello
-		}
-		if n >= 2+cookieLen && buf[0] == ctrlPrefix && buf[1] == ctrlCookie {
-			cookie = append([]byte(nil), buf[2:2+cookieLen]...)
+		until := minTime(time.Now().Add(500*time.Millisecond), deadline)
+		for cookie == nil {
+			_ = pc.SetReadDeadline(until)
+			n, src, err := pc.ReadFromUDP(buf)
+			if err != nil {
+				break // timed out waiting; send another hello
+			}
+			if !fromRelay(src, ua) {
+				continue // not the relay: keep waiting, do not burn a retry
+			}
+			if n >= 2+cookieLen && buf[0] == ctrlPrefix && buf[1] == ctrlCookie {
+				cookie = append([]byte(nil), buf[2:2+cookieLen]...)
+			}
 		}
 	}
 	if cookie == nil {
@@ -72,13 +78,19 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 			_ = pc.Close()
 			return nil, fmt.Errorf("udpconn: send confirm: %w", err)
 		}
-		_ = pc.SetReadDeadline(minTime(time.Now().Add(500*time.Millisecond), deadline))
-		n, _, err := pc.ReadFromUDP(buf)
-		if err != nil {
-			continue
-		}
-		if n >= 2+tokenLen && buf[0] == ctrlPrefix && buf[1] == ctrlReady {
-			token = append([]byte(nil), buf[2:2+tokenLen]...)
+		until := minTime(time.Now().Add(500*time.Millisecond), deadline)
+		for token == nil {
+			_ = pc.SetReadDeadline(until)
+			n, src, err := pc.ReadFromUDP(buf)
+			if err != nil {
+				break
+			}
+			if !fromRelay(src, ua) {
+				continue
+			}
+			if n >= 2+tokenLen && buf[0] == ctrlPrefix && buf[1] == ctrlReady {
+				token = append([]byte(nil), buf[2:2+tokenLen]...)
+			}
 		}
 	}
 	if token == nil {
@@ -102,16 +114,47 @@ func Dial(addr string, timeout time.Duration) (net.Conn, error) {
 	return c, nil
 }
 
+// fromRelay reports whether a datagram came from the address being dialled.
+//
+// The socket is UNCONNECTED (net.ListenUDP with a nil local address), so the
+// kernel applies no source filter at all and every read here returns whatever
+// reached the port. Until 2026-09-08 both handshake reads discarded the sender
+// entirely, so an off-path attacker who knew a player's IP could spray
+// `FF 06 <8 random bytes>` across the ephemeral port range during the connect
+// window: whichever landed first won the token loop, the client adopted an
+// attacker-chosen token, and from then on every datagram it sent failed the
+// relay's constant-time token compare and was dropped. What the player saw was
+// a session that connected and then never worked, with no error on either side.
+// Cheap to mount, blind, and needs no position on the path.
+//
+// Comparing the source is the whole defence, and it is deliberately done in
+// user space rather than by connecting the socket: a connected socket would
+// turn the same mismatch into a hard failure with no way to see what arrived,
+// and this package's read loops already have to be tolerant of stray
+// datagrams (see readBufferBytes). It does NOT defend against an attacker who
+// can forge the relay's source address or read the traffic -- that is the
+// standing limit of this transport, stated in the package doc, and is why quic
+// exists.
+func fromRelay(src, want *net.UDPAddr) bool {
+	return src != nil && want != nil && src.Port == want.Port && src.IP.Equal(want.IP)
+}
+
 // dialedReadLoop is the client-side equivalent of Listener.readLoop: a
 // dialed Conn owns its socket, so it does its own reading rather than being
 // fed by a demultiplexer.
 func (c *Conn) dialedReadLoop() {
 	buf := make([]byte, readBufferBytes)
 	for {
-		n, err := c.pc.Read(buf)
+		n, src, err := c.pc.ReadFromUDP(buf)
 		if err != nil {
 			c.once.Do(func() { close(c.closed) })
 			return
+		}
+		if !fromRelay(src, c.remote) {
+			// Not from the relay this Conn is talking to. Dropped for the
+			// reason fromRelay gives: after admission the token would catch
+			// it anyway, but the handshake had no token yet.
+			continue
 		}
 		if n == 0 || n > MaxDatagramBytes {
 			// Oversized: not ours, dropped. See readBufferBytes.

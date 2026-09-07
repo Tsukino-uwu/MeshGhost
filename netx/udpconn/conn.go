@@ -50,6 +50,10 @@ type Conn struct {
 	readDeadline  time.Time
 	writeDeadline time.Time
 
+	// dialWMu is the write-deadline lock for a Conn that owns its socket;
+	// an accepted one uses its listener's instead. See socketWriteMu.
+	dialWMu sync.Mutex
+
 	// lossyMu guards lossyBuf, the scratch buffer WriteUnreliable frames
 	// into. Its own mutex rather than mu, which rawWrite takes and releases
 	// while the buffer is still in use, and rather than the caller's lock,
@@ -225,10 +229,40 @@ func (c *Conn) checkWritable(p []byte, overhead int) error {
 	return nil
 }
 
+// socketWriteMu serializes a set-deadline/write/clear-deadline sequence
+// against every other write on the SAME socket.
+//
+// An accepted Conn's c.pc IS the listener's socket -- shared by every other
+// Conn on it and by the listener's own handshake replies -- so a write
+// deadline is not per-connection state at all, it is per-socket state. Until
+// 2026-09-08 rawWrite set and cleared it unguarded: two concurrent writes
+// stomped each other, B's deferred clear landing while A was still writing (so
+// A wrote with no bound at all), and a write with no deadline of its own
+// inheriting whatever A had just set. Benign only because the caller always
+// sets a deadline in the future -- not a property to lean on in the one file
+// whose entire premise is that each Conn behaves like its own net.Conn.
+//
+// A dialed Conn owns its socket outright, but two goroutines writing on one
+// Conn stomp the same way, so it gets its own.
+func (c *Conn) socketWriteMu() *sync.Mutex {
+	if c.owner != nil {
+		return &c.owner.wmu
+	}
+	return &c.dialWMu
+}
+
 func (c *Conn) rawWrite(b []byte) (int, error) {
 	c.mu.Lock()
 	dl := c.writeDeadline
 	c.mu.Unlock()
+
+	// Taken for EVERY write, not only a deadline-carrying one: an unbounded
+	// write that overlaps someone else's deadline window is exactly the
+	// cross-connection coupling this is here to remove. The cost is one
+	// uncontended mutex either side of a sendto syscall.
+	m := c.socketWriteMu()
+	m.Lock()
+	defer m.Unlock()
 	if !dl.IsZero() {
 		_ = c.pc.SetWriteDeadline(dl)
 		defer c.pc.SetWriteDeadline(time.Time{})
@@ -272,9 +306,22 @@ func (c *Conn) retryLoop() {
 				return
 			}
 			for _, w := range resend {
-				if _, err := c.rawWrite(w); err != nil {
-					return
-				}
+				// A failed resend is ONE failed datagram, not a dead
+				// connection, so it must not end this goroutine. Until
+				// 2026-09-08 it returned here without closing anything,
+				// which quietly disabled the only thing this transport has:
+				// maxRetries exhaustion above is how a vanished peer is
+				// ever noticed at all (UDP has no disconnect signal), and it
+				// cannot fire from a loop that has stopped counting. The
+				// connection then sat there until relay's 60s idle timeout
+				// with every pending lifecycle message unsent. A transient
+				// ENOBUFS or a write deadline that had already passed --
+				// both ordinary -- was enough to reach it.
+				//
+				// Errors are dropped rather than logged: this is a library
+				// with no logger, and the peer going away is reported to the
+				// caller by Close above, which is the report that matters.
+				_, _ = c.rawWrite(w)
 			}
 		}
 	}

@@ -29,6 +29,12 @@ type Listener struct {
 
 	mu    sync.Mutex
 	conns map[string]*Conn
+
+	// wmu serializes writes on pc, which every accepted Conn shares with
+	// this listener. It guards the socket's write deadline, which is
+	// per-socket state and was being set per-connection. See
+	// Conn.socketWriteMu.
+	wmu sync.Mutex
 }
 
 // Listen binds addr and starts demultiplexing. The returned Listener
@@ -138,8 +144,15 @@ func (l *Listener) lookup(key string) *Conn {
 // with it.
 func (l *Listener) admit(remote *net.UDPAddr, key string) {
 	l.mu.Lock()
-	if _, exists := l.conns[key]; exists {
+	if existing, exists := l.conns[key]; exists {
 		l.mu.Unlock()
+		// Re-send the token, which is what the comment above has always
+		// claimed a repeated confirm does: the retry exists because the
+		// client has not seen a ready, so answering it with silence turned
+		// one lost ready datagram into a failed Dial. Idempotent -- same
+		// connection, same token (2026-09-08).
+		ready := append([]byte{ctrlPrefix, ctrlReady}, existing.token[:]...)
+		_, _ = l.pc.WriteToUDP(ready, remote)
 		return
 	}
 	c := &Conn{
@@ -156,17 +169,38 @@ func (l *Listener) admit(remote *net.UDPAddr, key string) {
 	l.conns[key] = c
 	l.mu.Unlock()
 
+	// NEVER BLOCK HERE. admit runs on readLoop -- the one goroutine that
+	// reads the socket for EVERY connection on it -- so parking on a full
+	// accept queue reads no datagram for any live client until the relay
+	// gets round to Accept, and the kernel receive buffer fills behind it.
+	// deliver() in conn.go is non-blocking for exactly this reason and says
+	// so; until 2026-09-08 this send was not, which made the accept queue
+	// (16 deep) a stall on the whole transport.
+	//
+	// A queue-full admission is DROPPED rather than queued elsewhere: an
+	// unaccepted connection has proven nothing yet -- no room, no player,
+	// no state -- so losing it costs a handshake and nothing more, and the
+	// client's own confirm retries (dial.go) re-run this whole path within
+	// 500ms, by which time the relay has usually drained one. Registering
+	// it and then walking that back is what keeps the drop honest: if it is
+	// not going to be accepted, no token is issued, so the client is not
+	// left believing it has a session the listener will never serve.
+	select {
+	case l.accept <- c:
+	case <-l.closed:
+		l.forget(key)
+		return
+	default:
+		l.forget(key)
+		return
+	}
+
 	// Hand the token over. Retransmitted by the client's own confirm
 	// retries if this datagram is lost: an unanswered confirm makes the
 	// client send another, and admit above is idempotent for an address
 	// that already has a Conn, so this send is what repeats.
 	ready := append([]byte{ctrlPrefix, ctrlReady}, c.token[:]...)
 	_, _ = l.pc.WriteToUDP(ready, remote)
-
-	select {
-	case l.accept <- c:
-	case <-l.closed:
-	}
 }
 
 func (l *Listener) forget(key string) {
