@@ -53,6 +53,27 @@ entry without one.
 - Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 - Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 - PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+## [OPEN] The "core not found" message still sends the player to a folder nothing searches (2026-09-07)
+
+**A one-line source fix, deliberately NOT made yet, because it needs a DLL rebuild and this was a
+documentation pass.** `CoreLauncher.cs:100-102` tells a player whose `meshghost.exe` is missing to put
+it "in the TEVI folder (the one with TEVI.exe) alongside config.json, **or in the MeshGhost plugin
+folder beside MeshGhostTevi.dll**". That second location has not been searched since `31242013`
+(2026-09-05) moved the client, config.json, log and replays to the game root: `CoreSearchDirs()` now
+yields `MESHGHOST_CORE_DIR` then `Paths.GameRootPath`, and its own comment says the override "is not
+the mod folder".
+
+**This is the one place in the shipped adapter where a player is actively misdirected**, and it fires
+exactly when they are already stuck. The docs are all correct; only the string is stale.
+
+**The fix:** drop the "or in the MeshGhost plugin folder beside MeshGhostTevi.dll" clause. Do it at
+the start of the next TEVI session, when a rebuild and a deploy are happening anyway -- editing the
+source alone turns preflight red (it hashes `*.cs` against the committed DLL), so the edit, the
+rebuild, the deploy to both installs and the confirmation belong in one pass.
+
+**What to look at:** rename `meshghost.exe` away, launch TEVI, and read the line in the log -- it
+should name the game root and the environment override, and nothing else.
+
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 

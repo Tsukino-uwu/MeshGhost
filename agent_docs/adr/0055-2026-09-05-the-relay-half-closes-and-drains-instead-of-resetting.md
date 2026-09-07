@@ -46,7 +46,7 @@ reason this repo treats CI as the authority on race and fuzz, not a formality.
 
 **The 2026-09-05 fix was incomplete and looked complete.** It cured the rate-limit path, the one the
 failing test named, and left the handshake path — same class, same reset, different call site —
-untouched for a day until CI found it too. Fixing the site a test names is not the same as fixing
+untouched until CI found it on 2026-09-06. Fixing the site a test names is not the same as fixing
 the class it belongs to.
 
 ## Consequences

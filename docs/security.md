@@ -285,7 +285,7 @@ under `-race` for the second. Full reasoning:
 
 - **Worth stating plainly for anyone reading this page as a reviewer:** the 2026-09-05 fix *looked*
   complete. It repaired the path its failing test named and left the handshake path — same class,
-  same reset, different call site — untouched until CI found that one too a day later. Fixing the
+  same reset, different call site — untouched until CI found that one on 2026-09-06. Fixing the
   site a test names is not the same as fixing the class it belongs to.
 
 ## What's already true, and why (checked against the actual code, 2026-08-15)
