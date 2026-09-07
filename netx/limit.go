@@ -1,6 +1,7 @@
 package netx
 
 import (
+	"errors"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -72,7 +73,8 @@ func (l *limitListener) noteRefusal() {
 		return
 	}
 	if l.logf != nil {
-		l.logf("netx: refused a connection: %d already open (limit %d); %d refused so far", l.max, l.max, n)
+		l.logf("netx: refused a connection: %d already open (limit %d); %d refused so far",
+			l.open.Load(), l.max, n)
 	}
 }
 
@@ -86,6 +88,41 @@ func (c *limitedConn) Close() error {
 	err := c.Conn.Close()
 	c.once.Do(c.release)
 	return err
+}
+
+// CloseWrite and TransportName forward through the wrapper for the same reason
+// limitedLossyConn exists: limitedConn embeds net.Conn as an INTERFACE, so a
+// method the underlying connection has but net.Conn does not is invisible to
+// the type assertions that look for it. Two shipped consequences, both found
+// 2026-09-07:
+//
+//   - transport.CloseGracefully asserts for CloseWrite and falls back to a hard
+//     Close when it is missing. The relay wraps EVERY accepted connection in a
+//     limiter, so every reject the relay wrote -- wrong room code, version
+//     mismatch, rate limited -- was lost to a TCP reset behind the unread data
+//     instead of reaching the client, which then classified a PERMANENT refusal
+//     as a transport error and retried it forever.
+//   - relay's transportName asserts for TransportName and defaults to "tcp", so
+//     every udp and quic client was logged as "tcp" in the per-client line a
+//     remote tester is asked to send back.
+//
+// Both return the underlying behaviour when it exists and today's fallback when
+// it does not, so a connection that genuinely cannot half-close still ends in
+// Close, exactly as before.
+func (c *limitedConn) CloseWrite() error {
+	cw, ok := c.Conn.(interface{ CloseWrite() error })
+	if !ok {
+		return errors.New("netx: the underlying connection cannot half-close")
+	}
+	return cw.CloseWrite()
+}
+
+func (c *limitedConn) TransportName() string {
+	tn, ok := c.Conn.(interface{ TransportName() string })
+	if !ok {
+		return "tcp"
+	}
+	return tn.TransportName()
 }
 
 // unreliableWriter is the state plane's fire-and-forget escape hatch, as the

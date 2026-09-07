@@ -194,15 +194,21 @@ func clientConfig(alpn, pin string) *tls.Config {
 	}
 	pin = normalizeFingerprint(pin)
 	if pin != "" {
+		// ONLY rawCerts[0]. InsecureSkipVerify is set above, so Go does no chain
+		// building and no verification: rawCerts is whatever DER blobs the peer
+		// chose to send, and only the FIRST is bound to the handshake signature --
+		// the peer proves possession of that key and no other. Matching the pin
+		// against any later entry therefore accepted a certificate the peer does
+		// not hold the key for: an attacker copies the relay's (public) cert,
+		// presents [attacker_leaf, genuine_relay_cert], and the pin passes while
+		// the session is keyed by attacker_leaf. Found 2026-09-07.
 		cfg.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			for _, raw := range rawCerts {
-				if fingerprint(raw) == pin {
-					return nil
-				}
-			}
 			got := "none"
 			if len(rawCerts) > 0 {
 				got = fingerprint(rawCerts[0])
+				if got == pin {
+					return nil
+				}
 			}
 			return fmt.Errorf("tlsx: relay certificate fingerprint %s does not match the pinned %s "+
 				"— either you are talking to a different relay than you think, or the host restarted "+
@@ -424,4 +430,26 @@ func (c *prefixConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	return c.Conn.Read(p)
+}
+
+// CloseWrite and TransportName forward for the same reason limitedConn's do
+// (see netx/limit.go): this type embeds net.Conn as an interface, and under the
+// shipped tls=auto a PLAINTEXT client is wrapped in one of these over the
+// limiter -- so without these two, every graceful close on the most common
+// connection kind in the repo degraded to a reset, and every transport label
+// read "tcp". Found 2026-09-07.
+func (c *prefixConn) CloseWrite() error {
+	cw, ok := c.Conn.(interface{ CloseWrite() error })
+	if !ok {
+		return errors.New("tlsx: the underlying connection cannot half-close")
+	}
+	return cw.CloseWrite()
+}
+
+func (c *prefixConn) TransportName() string {
+	tn, ok := c.Conn.(interface{ TransportName() string })
+	if !ok {
+		return "tcp"
+	}
+	return tn.TransportName()
 }
