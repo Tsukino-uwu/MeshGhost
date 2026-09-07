@@ -8,7 +8,7 @@
   carrying kind+port pairs. Shipped `config.json` sets the client to `auto`; the relay still
   defaults to `tcp`.
 - **Status:** Implemented, same day as selectable transports. **The relay default is superseded
-  by the quic-default ADR later in this file** — the relay now ships `tcp,quic`, so `auto`
+  by the quic-default ADR 0027 §3** — the relay now ships `tcp,quic`, so `auto`
   lands on quic out of the box. The client's `auto` and the discovery mechanism itself stand.
 - **Context:** Selectable transports shipped with no way for a client to learn what a relay
   offers, so a host had to say "use quic, port 7780" out of band and a mismatch produced a bare
@@ -53,4 +53,4 @@
   join/leave. That is the price of an additive field over a version bump, it affects old relays
   only, and it is strictly better than the timeout it replaces. *(As written, relays still
   defaulted to `tcp`, so `auto` changed nothing until a host opted in — no longer true since the
-  quic-default ADR below moved the relay default to `tcp,quic`.)*
+  quic-default ADR 0027 §3 moved the relay default to `tcp,quic`.)*

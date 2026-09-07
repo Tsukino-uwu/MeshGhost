@@ -21,7 +21,7 @@
   2. **`core/interp.lerp` no longer blends across an `area_id` change.** Two bracketing
      snapshots with different `AreaID` previously had their raw world coordinates linearly
      blended and stamped with the older snapshot's `AreaID` — a phantom-midpoint result, the
-     exact failure shape the 2026-08-13 cross-area-filtering ADR (above) exists to prevent, just
+     exact failure shape the 2026-08-13 cross-area-filtering ADR 0012 exists to prevent, just
      one layer earlier than that ADR's own fix (which filters at render time, not interpolation
      time). `lerp` now returns the older snapshot outright when `AreaID` differs, mirroring the
      existing mismatched-length guard already in the same function.
@@ -42,9 +42,9 @@
      statue, while the level's own teardown on the next area transition still does the real
      reclaim, unchanged.
 - **Status:** accepted
-- **Context:** Set as the explicit next priority once the 2026-08-14 relay-safety ADRs above
+- **Context:** Set as the explicit next priority once the 2026-08-14 relay-safety ADRs 0013 and 0014
   landed — a full review/refactor sweep across the server/client and all three adapters, since
-  the hardening work above had been added incrementally across several sessions without a
+  the hardening work in ADRs 0013 and 0014 had been added incrementally across several sessions without a
   dedicated pass to catch what accumulated in the gaps.
 - **Options considered:** fix everything found now (all four items above, plus every
   non-behavior-changing bug/race/dead-code item logged individually in `verified.md`/commit

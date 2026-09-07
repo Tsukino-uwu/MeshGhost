@@ -63,7 +63,7 @@
   served too — which is the collision this bullet is really about.)* A host serving all three
   forwards three router rules
   across two port numbers.
-- **Resolution (defaults)** — *superseded the same day by the quic-default ADR later in this file:
+- **Resolution (defaults)** — *superseded the same day by the quic-default ADR 0027 §3:
   the client ships `auto` and the relay `tcp,quic`:* Both ends default to `tcp`, and the shipped
   `config.json` says so.
   Considered and rejected: client `udp` with server `tcp`, which cannot connect at all out of the

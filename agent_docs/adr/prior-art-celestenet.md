@@ -4,7 +4,7 @@
 
 
 Moved here from `docs/security.md` on 2026-08-19: it is research history behind several
-ADRs above (room-code auth, the game-version check, the udp per-connection token), not
+ADRs 0013 and 0024 (room-code auth, the game-version check, the udp per-connection token), not
 part of a user-facing security posture. Cited from this file's own ADRs and from
 `contract.md`. Findings below were read from real files in the MIT-licensed
 `0x0ade/CelesteNet` source, an approved read-only reference per `licensing.md` — facts
@@ -30,7 +30,7 @@ and citations only, never its code.
   exact match (`HandshakerRole.cs`'s `TeapotHandshake`). We already do the direct equivalent
   for our own wire protocol (`protocol.Version`, checked in `hello` at
   `relay.go`'s `handleConn`) — and, since 2026-08-14, the same reject-at-handshake
-  shape for each adapter's own `game_version` too — the room-code/version ADR above.
+  shape for each adapter's own `game_version` too — the room-code/version ADR 0013.
 - **Unpredictable per-connection tokens** (`CelesteNet.Shared/TokenGenerator.cs`, a Galois
   LFSR) specifically prevent a third party from hijacking someone else's *UDP* connection by
   guessing or spamming its token. This defends against a UDP-specific weakness (UDP is
@@ -47,5 +47,5 @@ and citations only, never its code.
 **Takeaway for our own design**: aim for the *shape* of their version-check pattern (a shared
 secret checked once at handshake, reject outright on mismatch, before any state is exchanged)
 for room codes — not their full public-server account/ban/fingerprinting stack, which solves a
-problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/version ADR above.
+problem MeshGhost doesn't have. **Implemented 2026-08-14** — the room-code/version ADR 0013.
 

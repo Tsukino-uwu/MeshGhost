@@ -2,14 +2,14 @@
 
 <!-- ADR 0023. Indexed in ../architecture.md, which is the decision log front door. -->
 
-- **Decision:** Supersedes the two ADRs above in one respect. A client **always** connects over
+- **Decision:** Supersedes ADRs 0021 and 0022 in one respect. A client **always** connects over
   tcp first, and that is not configurable. `transport` in `config.json` no longer means "how to
   connect" but "what to move to once connected": `tcp` stays put, `udp` (the shipped default at
   the time) and `quic` upgrade if the relay serves them, `auto` takes the best on offer. **tcp is
   now mandatory on the relay too** — `netx.ParseKinds` prepends it whether or not the operator
   names it.
 - **Status:** Implemented, same day. **The `udp` shipped default is superseded by the quic-default
-  ADR at the end of this file** (the client ships `auto`); everything else here — the mandatory tcp
+  ADR 0027 §3** (the client ships `auto`); everything else here — the mandatory tcp
   handshake, `transport` as the upgrade target, tcp mandatory on the relay — is current.
 - **Context:** The user's framing, and it is better than what shipped earlier: discovery
   should be an unconditional property of connecting rather than a special `auto` mode. The first
@@ -30,7 +30,7 @@
   quic, and falls back to tcp if it is absent — it must never silently land on `udp`, which would
   swap an encrypted session for one that cannot be encrypted. Only `auto` ranks.
 - **Resolution (default `udp`), and the tradeoff recorded plainly** — *superseded the same day by
-  the quic-default ADR later in this file; the client now ships `auto` and the relay `tcp,quic`,
+  the quic-default ADR 0027 §3; the client now ships `auto` and the relay `tcp,quic`,
   and udp is never chosen for anyone. Kept because the caveats below are still the reasoning:* the
   shipped client default is
   `udp`, chosen by the user so that a host who enables more than tcp automatically gets clients off

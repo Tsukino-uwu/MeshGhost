@@ -4,7 +4,7 @@
 
 - **Decision:** The Pokémon Emerald adapter renders a peer by **spawning a real object event**, the
   way Crystal does, replacing today's `gui.drawPixel` overlay fed by a hand-rolled decode of the
-  Brendan/May sprite out of ROM. This extends the 2026-08-17 Crystal spawn ADR above, whose scope
+  Brendan/May sprite out of ROM. This extends the 2026-08-17 Crystal spawn ADR 0033, whose scope
   line reads *"Scoped to vanilla Crystal V1.0 only"* — that scope is now vanilla Crystal V1.0 **and
   Emerald**, on the terms below. Everything that ADR holds absolute (never write a save, the core
   never touches the game, no gameplay authority) is unchanged and restated by reference, not

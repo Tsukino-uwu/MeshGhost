@@ -12,7 +12,7 @@
 - **Context:** an outside developer working on Crystal raised multiplexing — *"one slot and moving it
   in hblank"* — as cheaper than painting ghosts over the emulator's output, which it would be. The
   question was whether it is reachable from Lua, and the user's condition was the project rule now
-  recorded in the ADR above: no ROM patch, Lua only.
+  recorded in ADR 0037: no ROM patch, Lua only.
 - **Options considered:**
   1. **HBlank sprite multiplexing.** The classic technique: rewrite an OAM entry in the gap after a
      scanline so the same hardware sprite draws again lower down. **Rejected, on three independent

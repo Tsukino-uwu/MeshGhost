@@ -15,6 +15,6 @@
 - **Resolution:** Go. Single static binary, trivial cross-compilation, no runtime for the
   end user, sufficient stdlib for TCP/JSON.
 - **Consequences:** The core is out-of-process for every adapter, including a future
-  in-process-capable host like Unity/C#. See "Why the core is out-of-process" above. One
+  in-process-capable host like Unity/C#. See "Why the core is out-of-process" in `../architecture.md`. One
   uniform bridge/relay split for all games, at the cost of losing the option of linking the
   core directly into a C# host later without keeping the bridge as a compatibility path.

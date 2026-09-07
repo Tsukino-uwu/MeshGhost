@@ -2,7 +2,7 @@
 
 <!-- ADR 0014. Indexed in ../architecture.md, which is the decision log front door. -->
 
-- **Date:** 2026-08-14 (same-day follow-up to the ADR above)
+- **Date:** 2026-08-14 (same-day follow-up to ADR 0013)
 - **Decision:** Add lifecycle logging (join/leave/reject) at the relay; classify a relay
   `Reject` as permanent or transient (`core.RejectError`/`core.IsPermanentRejectErr`,
   `protocol.ReasonServerFull` the one transient reason); cache a permanent rejection on the
@@ -11,10 +11,10 @@
   instead of crashing the whole process on the first failed dial.
 - **Status:** accepted
 - **Context:** Three real gaps surfaced in conversation while reviewing the room-code/version
-  ADR above, each traced back to something this project's own review missed rather than a new
+  ADR 0013, each traced back to something this project's own review missed rather than a new
   request out of nowhere:
   1. The user asked how a host or player would actually find out a `hello` was refused. Answer,
-     checked against the code: **nowhere adequate.** `rejectAndClose` (added by the ADR above)
+     checked against the code: **nowhere adequate.** `rejectAndClose` (added by ADR 0013)
      sent the reason to the client, but never logged anything server-side — a host had zero
      visibility that anyone was ever refused. The reason did reach `core`'s own log,
      but no further: every shipped adapter, on a closed bridge connection, just logs a
@@ -64,7 +64,7 @@
   (`ReasonProtocolVersionMismatch`, `ReasonHelloFieldTooLong`, `ReasonInvalidRoomCode`,
   `ReasonGameMismatch`, `ReasonGameVersionMismatch`, `ReasonServerFull`) that can resolve on its
   own without a config change, if someone else leaves the room. **Superseded by the 2026-08-15
-  rate-control ADR below**: the code now works from an explicit *retryable* set of two —
+  rate-control ADR 0017**: the code now works from an explicit *retryable* set of two —
   `ReasonServerFull` and `ReasonRateLimited` — and two more reasons exist that this list predates
   (`ReasonGameNotAllowed`, `ReasonRateLimited`). `Core.permanentRejectGame`/
   `permanentRejectReason` cache a permanent rejection per `gameID`, checked before dialing;

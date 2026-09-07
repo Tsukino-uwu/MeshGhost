@@ -5,7 +5,7 @@
 - **Date:** 2026-08-11
 - **Decision:** Relay runs without authentication through Phases 3–4; room code + shared
   secret is the recorded end goal for later.
-- **Status:** superseded 2026-08-14 by the room-code/version-check ADR below, which built the
+- **Status:** superseded 2026-08-14 by the room-code/version-check ADR 0013, which built the
   recorded end goal. Kept as the record of why no-auth was right for Phases 3–4.
 - **Context:** Phase 4 puts a relay on the open internet with no connection or auth model
   defined anywhere in the original docs.

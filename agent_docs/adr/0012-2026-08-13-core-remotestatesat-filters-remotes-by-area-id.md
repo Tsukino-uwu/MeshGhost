@@ -8,7 +8,7 @@
   (never received a real local frame), in which case every remote passes through unfiltered.
 - **Status:** accepted
 - **Context:** Found live in the same real two-player TEVI test session as the bridge-
-  disconnect fix above, once the two players moved through genuinely different zones (not just
+  disconnect fix of ADR 0011, once the two players moved through genuinely different zones (not just
   different rooms within one always-loaded zone). `core` sends every known remote
   regardless of `area_id` — a documented, previously-untested gap (`plans.md`). The remote's
   ghost kept rendering the whole time, using the peer's raw world coordinates from their own

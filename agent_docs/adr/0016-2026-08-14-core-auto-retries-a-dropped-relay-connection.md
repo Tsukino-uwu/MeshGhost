@@ -2,7 +2,7 @@
 
 <!-- ADR 0016. Indexed in ../architecture.md, which is the decision log front door. -->
 
-- **Date:** 2026-08-14 (found during live testing of the sweep above)
+- **Date:** 2026-08-14 (found during live testing of ADR 0015's sweep)
 - **Decision:** `Core` now auto-retries a dropped relay connection in the background after any
   *previously successful* `ConnectRelayOnAdapterHello` connect, not just the first attempt.
 - **Status:** accepted
@@ -10,8 +10,8 @@
   restarted) showed both clients logging `relay disconnected` and then sitting idle forever —
   no reconnect attempt at all, requiring a full client restart. Root cause: the only existing
   retry loop, `cmd/meshghost`'s `connectRelayWithRetry`, drives just the *first* connect attempt
-  and returns once it succeeds (see the "client/relay start-order independence" ADR above); a
-  real adapter's own bridge-Hello resend — the other trigger for `ConnectRelayOnAdapterHello` —
+  and returns once it succeeds (see ADR 0014, which added it); a real adapter's own bridge-Hello
+  resend — the other trigger for `ConnectRelayOnAdapterHello` —
   only fires when the *bridge* connection itself drops, which a relay-only outage never touches.
   So a relay restart or network blip after an already-successful connect had no path back to
   "connected" short of restarting the whole client process. Separately, this same debugging

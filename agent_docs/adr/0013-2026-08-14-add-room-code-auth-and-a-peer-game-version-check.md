@@ -7,7 +7,7 @@
   (`protocol.Hello.RoomCode`/`GameVersion`), a `reject` message so a refusal carries a reason
   instead of a bare hangup, and a broader malicious-peer hardening pass across
   `transport`, `relay`, and `core`. Supersedes the 2026-08-11
-  no-auth ADR above (kept, not deleted, as the historical record of why no-auth was the right
+  no-auth ADR 0006 (kept, not deleted, as the historical record of why no-auth was the right
   call for Phases 3–4).
 - **Status:** accepted
 - **Context:** Set as the explicit next priority 2026-08-13 (see `risks.md`'s "No-auth relay
@@ -15,7 +15,7 @@
   no-auth and safe only for a friend you hand an address to, not for people you don't
   personally know, including someone actively trying to be malicious with the server/client.
   Two named gaps (no auth, no peer game-version check) plus a broader malicious-peer audit.
-  Researched CelesteNet's own prior art first (the prior-art section at the end of this file, MIT,
+  Researched CelesteNet's own prior art first (`prior-art-celestenet.md`, MIT,
   approved reference per `licensing.md`) rather than designing from scratch — its self-hosted
   default is no-auth too (mirroring our own starting posture), and its version-check pattern
   (reject outright at handshake, before any state exchange) is the shape this ADR reuses for
