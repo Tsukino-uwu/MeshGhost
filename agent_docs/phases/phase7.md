@@ -3036,3 +3036,23 @@ Records: `pseudoregalia/VERIFIED.md` (the user: *"yee verified/confirmed"*), the
 `pseudoregalia/UNVERIFIED.md`, the closing measurement appended to the `by-lesson.md` entry,
 `status.md` re-dated. TEVI and both Lua adapters carry the same one-line change and remain
 unwatched on Linux.
+
+**Then the user asked the question that mattered more than the confirmation: "is the TCP_NODELAY
+thing mentioned in `_template` or somewhere else a new adapter would find it?"** It was not --
+only `by-lesson.md`, `pitfalls/INDEX.md` and two phase files. The gold-standard rule had been
+missed in the original pass, and this is the worst kind of miss to make: the symptom looks like a
+rendering fault, so the lesson entry is only reachable by someone who already suspects the network.
+The next adapter would have opened its socket the same way.
+
+Back-ported in `0428c622`. `_template/PROTOCOL.md` gains a subsection under the loopback-TCP
+section -- where a new adapter is already reading when it creates its socket -- with the call for
+each host, because each shipped adapter needed a different one and none of the three languages
+defaults to it. `_template/README.md`'s "measure THE WIRE" order gains a **step 0**: WHEN messages
+arrive, before what they say, plus the movement-per-sample number that splits delivery from
+production. That section previously started at "what arrives", which this fault passes clean.
+One line in `checklists/before-a-network-change.md`, whose title already covers the bridge.
+
+Preflight caught two things in that new prose and both were real: an elapsed-time phrase where a
+date belongs, and a literal count of the shipped adapters, which goes stale the day a fifth game
+lands. Both rewritten; note that the checker fires on the phrasing itself, so even quoting the
+offending words back in a record trips it.
