@@ -186,10 +186,18 @@ func (ch *chaser) offer(s protocol.State) {
 // Called when the adapter attaches; safe to call again.
 func (c *Core) StartChasers() int {
 	c.StopChasers()
-	if !c.ChaserEnabled {
+	// One snapshot under c.mu, which is what guards these fields everywhere
+	// else (pushSessionPolicy reads them the same way): the caller is the
+	// bridge goroutine on attach, so reading them bare races anything that
+	// sets them. Sanitising and clamping happen on the copies, off the lock.
+	c.mu.Lock()
+	enabled, count, delay := c.ChaserEnabled, c.ChaserCount, c.ChaserDelay
+	spacing, spawn := c.ChaserSpacing, c.ChaserSpawnDelay
+	rawName, rawColor := c.ChaserName, c.ChaserColor
+	c.mu.Unlock()
+	if !enabled {
 		return 0
 	}
-	count := c.ChaserCount
 	if count < 1 {
 		count = 1
 	}
@@ -197,20 +205,17 @@ func (c *Core) StartChasers() int {
 		log.Printf("core: chaser count %d clamped to %d, the roster's whole size", count, protocol.MaxRosterSize)
 		count = protocol.MaxRosterSize
 	}
-	delay := c.ChaserDelay
 	if delay <= 0 {
 		delay = 3 * time.Second
 	}
-	spacing := c.ChaserSpacing
 	if spacing < 0 {
 		spacing = 0
 	}
-	spawn := c.ChaserSpawnDelay
 	if spawn <= 0 {
 		spawn = delay
 	}
-	name := protocol.SanitizeDisplayName(c.ChaserName)
-	color := protocol.SanitizeNameColor(c.ChaserColor)
+	name := protocol.SanitizeDisplayName(rawName)
+	color := protocol.SanitizeNameColor(rawColor)
 	// A fresh pack starts on a fresh gameplay clock: the accumulator only
 	// ever means "since these chasers began", and this runs on attach, where
 	// the adapter's first frozen report is still to come.
