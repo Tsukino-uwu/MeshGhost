@@ -115,6 +115,10 @@ type adapterWriter struct {
 	pending map[string]int
 	wake    chan struct{}
 	closed  bool
+	// writing is true from the moment run() takes a batch until its last Send
+	// returns. Only idle() reads it -- see that method for why the queue
+	// emptying is not the same event as the batch reaching the adapter.
+	writing bool
 	// dropped counts renders superseded before they were ever written --
 	// the visible measure of how far behind the adapter is running, and the
 	// number to read when someone asks whether the bridge is the limit.
@@ -250,6 +254,14 @@ func (w *adapterWriter) run() {
 		batch := w.q
 		w.q = nil
 		w.pending = make(map[string]int)
+		// writing stays true until the last Send of this batch returns. The
+		// queue emptying is NOT the same event as the batch reaching the
+		// adapter -- w.q is cleared here, several syscalls before the writes
+		// happen -- and a test that waits on the queue alone therefore races
+		// the wire. See idle(). (2026-09-07: the drain helper added with the
+		// asynchronous writer waited on exactly that and reproduced at ~1-2%
+		// over -count=500, on the very test written to pin the ordering.)
+		w.writing = true
 		w.stalls++
 		// CAUGHT UP means nothing was superseded while the previous batch was
 		// in flight: the adapter drank the whole last batch before the frame
@@ -269,6 +281,9 @@ func (w *adapterWriter) run() {
 
 		for _, m := range batch {
 			if err := w.nd.Send(m.env); err != nil {
+				w.mu.Lock()
+				w.writing = false
+				w.mu.Unlock()
 				// A write that fails here is the real thing: the deadline
 				// expired with nobody reading at all, or the socket is gone.
 				// transport.Send has already closed it.
@@ -283,7 +298,28 @@ func (w *adapterWriter) run() {
 				return
 			}
 		}
+		w.mu.Lock()
+		w.writing = false
+		w.mu.Unlock()
 	}
+}
+
+// idle reports that this writer has nothing queued AND nothing in flight, i.e.
+// everything handed to it has actually reached the connection.
+//
+// It exists because the two are different moments and the gap between them is
+// several syscalls wide: run() clears w.q the instant it takes a batch, then
+// writes. A caller that waits on the queue alone -- which the test helper added
+// alongside the asynchronous writer did -- returns while the batch is still
+// being written, and so races the very ordering it is there to observe.
+//
+// Only tests need this: production code never waits for the bridge to be
+// caught up, on purpose (the whole point of the writer is that the frame path
+// does not block on the adapter).
+func (w *adapterWriter) idle() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return len(w.q) == 0 && !w.writing
 }
 
 // close stops the writer. Idempotent; anything still queued is abandoned,

@@ -285,9 +285,21 @@ func TestGhostCollisionNotPushedBeforeTheRoomHasSpoken(t *testing.T) {
 // why this exists at all.
 func waitAdapterDrained(t *testing.T, c *Core, nd transport.Transport) {
 	t.Helper()
+	// idle(), not queueLen(). run() clears w.q the instant it TAKES a batch and
+	// writes it several syscalls later, so waiting on the queue returns while
+	// the batch is still in flight -- which is a race against the wire, on a
+	// helper whose entire job is to make the wire observable. Measured at ~1-2%
+	// over -count=500 on a fast box with no -race; CI runs -race -count=3 on a
+	// slower one. Worse than the flake: the NEGATIVE assertion in this file
+	// (nothing is pushed before the room has spoken) could pass over a live
+	// regression, because an empty read is exactly what it wants to see.
+	//
+	// c.writerFor is deliberately still used rather than a lookup: a connection
+	// with no writer yet is genuinely drained, and writerFor's fresh writer is
+	// idle by construction.
 	deadline := time.Now().Add(testTimeout)
 	for {
-		if c.writerFor(nd).queueLen() == 0 {
+		if c.writerFor(nd).idle() {
 			return
 		}
 		if time.Now().After(deadline) {
