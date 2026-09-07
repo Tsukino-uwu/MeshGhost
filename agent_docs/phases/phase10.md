@@ -771,3 +771,23 @@ wildcards.
 
 Twenty-six commits, none pushed. Preflight clean (full, not just `-TreeOnly`), `run-gotests.bat`
 green across 18 packages, `run-gotests-race.bat` clean.
+
+### Still awaiting the user's call, so it is written here rather than left in a chat
+
+**`status.md` carries ten items that describe themselves as resolved**, and its own header says a
+fixed-and-confirmed item is deleted the moment it is (`CLAUDE.md:156`). They were listed and **not
+removed**: that is ten deletions from the file the user reads daily, and the file is theirs.
+
+`:15` (refused hello, "FIXED and confirmed"), `:17` (reconnect at ~343 ghosts), `:31` (chaser
+despawn cycle), `:32` (recording indicator, "out of the queue"), `:38` (frozen-player), `:40`
+(reset-to-save crash), `:45` (CI red twice, both fixed), `:46` (Archipelago coexistence — a RECORD,
+which `:8` says never belongs here), `:30` (which self-flags: *"it is a RECORD not an open item —
+`phase7.md` holds it; droppable from here on the user's call"*), and `:47` ("Nothing is running", a
+state snapshot rather than an open item).
+
+**`:22` is a TRIM, not a deletion** — its first clause is confirmed and its last is not: *"Open
+cousin: a player afterimage born on a ghost can lose its own silhouette."* Deleting the whole line
+would lose a live item, which is the failure mode this cleanup exists to avoid.
+
+The two report-only buckets from the same pass are in [ideas.md](../ideas.md): the four-way adapter
+duplication, and the 13 dev-scripts whose only mention is the README entry preflight requires.

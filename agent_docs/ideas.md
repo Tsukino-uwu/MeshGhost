@@ -55,6 +55,7 @@ is USED, that project is checked and recorded there first.
 - TEVI: the orbitars are not synced at all, projectiles included (2026-08-28)
 - Interpolation delay should be PER ADAPTER, not one number for every game (2026-08-28)
 - Two Go file splits, scoped and deliberately not done (2026-08-27)
+- Four-way duplication across the adapters, and 13 dev-scripts nothing references (2026-09-07)
 - Four refactors still deferred from the 2026-08-18 audit-and-refactor pass
 - Doc restructuring: what was done — moved to `doc-history.md` (2026-08-25)
 - Fuzz the SCHEDULE, not just the bytes — randomized ordering and timing (2026-08-28)
@@ -2982,3 +2983,28 @@ expiring a write deadline, which is the mechanism that actually broke.
 deadline, and the target's value comes from iteration count. Probably a separate, opt-in target
 rather than three more ops in the everything-fuzzer's alphabet.
 
+
+## Four-way duplication across the adapters, and 13 dev-scripts nothing references (2026-09-07)
+
+Found by the 2026-09-07 stale-fact sweep (`phases/phase10.md`) and **deliberately not acted on** —
+both are design changes rather than stale facts, which is what that pass was scoped to.
+
+**The four-way duplication.** The bridge client, the core launcher, the config reader and the JSON
+codec each exist four times, once per adapter, across three languages (Lua, C#, C++). That is not
+straightforwardly wrong — an adapter is rewritten per game by design, and the three languages cannot
+share code — but it is where a fix gets applied three times and forgotten once. `preflight.ps1:1450`
+already lints the bridge copies into agreement on the constants that matter (port 7778, the 8-port
+walk, the 10s cooldown), which is the cheap 80% and may well be the right stopping point.
+
+**The 13 dev-scripts.** `preflight.ps1` requires every tracked script to be named in
+`dev-scripts/README.md`, and all 57 are — but for these 13, that required entry is their **only**
+mention anywhere in the tree: no caller, no doc reference, no ADR. Three overlapping input
+experiments, three overlapping savestate ones, and seven one-offs. `bizhawk-capabilities.lua`,
+`bizhawk-input-demo.lua`, `bizhawk-joypad-names.lua`, `fish-sequence.lua`, `force-ghost-gfx.lua`,
+`gfxinfo-probe.lua`, `hot-reload-lua.ps1`, `load_slot.lua`, `run-loadtest-peers.bat`,
+`tile-inspect.lua`, `walk-and-shoot.lua`, `walk-into-tile.lua`, `where_emerald.lua`.
+
+**Worth noticing about the check rather than the scripts:** a coverage gate satisfied purely by the
+entry it demands proves the entry exists, not that the script is wanted. That is not an argument for
+deleting them — a probe kept for a rainy day is a legitimate thing to keep — only for not reading
+"57 of 57 documented" as "57 of 57 in use". The user's call, and nothing depends on it.
