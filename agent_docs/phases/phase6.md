@@ -490,3 +490,33 @@ copy keeps the old message.
 runs when `meshghost.exe` is absent. A normal launch never reaches it, so the confirmation that
 matters is simply that the mod still loads. Seeing the new text needs `meshghost.exe` renamed away
 first.
+
+**Watched the same day.** Both installs launched together, ghosts spawning, moving, animating and
+facing correctly in both windows — so the rebuild broke nothing and the whole chain is intact on the
+freshly-deployed pair. The changed message itself was NOT seen and could not be: it prints only when
+`meshghost.exe` is absent and both installs have a current one.
+
+**Two log lines the session raised, both checked and neither a defect.**
+
+`ignoring unknown bridge message type 'session_policy'` / `'recording_state'` — pre-existing (a
+`default:` branch in `BridgeClient.cs`, last touched 2026-09-06 for TCP_NODELAY; this rebuild
+changed one string in `CoreLauncher.cs`). TEVI implements neither by design: it cannot do ghost
+collision at all (every `Collider2D`/`Rigidbody2D` is stripped at ghost creation, ADR 0035) and has
+no recording indicator. **The wording is the real defect** — they are not *unknown*, they are known
+and deliberately unimplemented, and `adapters/CLAUDE.md:170-172` asks for one line at STARTUP saying
+so rather than a per-message "unknown". Already tracked (`status.md`, ADR 0035's "What is still
+owed"); now also seen live.
+
+`MeshGhost local state: ...` repeating while standing still — **MEASURED rather than argued, after a
+first answer that reasoned from the code and was not good enough.** Counting the lines in
+`BepInEx/LogOutput.log` over 12 seconds of an idle player gave **3 lines, 0.25/sec** — exactly the
+5-second heartbeat (`MaxSilenceSeconds = 5f`), against ~60/sec if it were per-frame. So a pasted
+block of sixteen identical lines spans about seventy-five seconds of standing still, not sixteen
+frames. The throttle (`Plugin.cs:2509-2528`) is working: immediate on a discrete change (dir, anim,
+area), at most every 0.5s while moving, 5s heartbeat when idle. Note `clip` is deliberately NOT part
+of the change test, which is why `clip=brake` → `clip=stand` alone does not trigger a line.
+
+**The lesson, and it is this repo's own:** identical lines pasted together carry no time axis, and
+neither the code nor the paste could say which of "every frame" or "every five seconds" was
+happening. Counting them against a clock took one command and settled it; reading the source twice
+would not have.

@@ -72,9 +72,16 @@ and the strings read out of the deployed DLL end `...alongside config.json; if i
 whether antivirus removed it.` with the mod-folder clause absent. Preflight's deployed-copy check
 agrees with `MESHGHOST_TEVI_DLL` set.
 
-**NOT deployed to the standalone dual-instance install** -- its path lives in `MESHGHOST_TEVI_DIR2`,
-unset in that shell and deliberately not committed. Run `tevi-hotreload.ps1 -Both`, or copy by hand,
-before any dual-instance session, or that copy keeps the old message.
+**Deployed to BOTH installs** (2026-09-07, after the first pass reached only the Steam one). Both
+now carry an identical DLL and an identical `meshghost.exe`, both matching the repo build; each
+install's own `config.json` was left alone.
+
+**WATCHED THE SAME DAY, and it loads.** A two-instance session with both games running showed ghosts
+spawning, moving, animating and facing correctly in both windows — so the rebuild broke nothing and
+the whole chain (bridge → core → relay → render) is intact on both freshly-deployed installs. **The
+changed message itself was NOT seen**, and could not be: it only prints when `meshghost.exe` is
+absent, and both installs have a current one. That half stays unconfirmed until someone renames the
+exe away, which is not worth a launch of its own.
 
 **What to look at: barely anything.** The changed line is a string literal in a branch that only
 runs when `meshghost.exe` is absent, so a normal launch never reaches it — the confirmation that
