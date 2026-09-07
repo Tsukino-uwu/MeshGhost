@@ -3012,3 +3012,27 @@ Also this session, at the user's request: their two recordings set to `loop`, bo
 copy of the second trimmed to its last three seconds (`trim_start` 10.327s) -- all three confirmed
 through the core's own loader, not just by re-reading the bytes.
 
+
+## 2026-09-07 — the Nagle fix is confirmed: the tester's cadence now matches Windows
+
+The exit condition written into `UNVERIFIED.md` on 2026-09-06 ("have them record again on the new
+DLL and run `replay-cadence.py`; if the 41-60 ms band collapses, it was Nagle") was answered with
+one command. The user brought a Linux tester's recording made on v1.2.1 -- *"they said they didn't
+notice any stutter in it now"* -- plus their own Windows clip from the night before for comparison.
+
+`dev-scripts/replay-cadence.py` on both: the tester is at **1.3% of updates over 25 ms** against
+27-30% before, median 6 ms, p95 11 ms, 123.7 updates/s; the Windows clip 0.7%, 6 ms, 12 ms,
+115.5/s. **The band collapsed completely** -- zero gaps between 36 and 44 ms, where a hard floor at
+exactly 40 ms had held a quarter of everything. The ~250 ms gaps left in both clips are the idle
+keepalive (0.00-0.08 units of movement across them), identical on Windows.
+
+One difference survives and is explicitly not Nagle: six recurring `~31 ms stationary` then
+`~60 ms carrying ~6.9 units` pairs in the tester's clip, roughly one a second across the whole
+clip, none in the Windows one. No fixed floor, and the character MOVES across the gap, so it is
+production and not delivery -- their machine or Proton. The tester did not notice it; parked NO
+PRIORITY.
+
+Records: `pseudoregalia/VERIFIED.md` (the user: *"yee verified/confirmed"*), the residual in
+`pseudoregalia/UNVERIFIED.md`, the closing measurement appended to the `by-lesson.md` entry,
+`status.md` re-dated. TEVI and both Lua adapters carry the same one-line change and remain
+unwatched on Linux.

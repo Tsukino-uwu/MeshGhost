@@ -6408,6 +6408,15 @@ a reason to think about it. And the method: **when something "looks" wrong in a 
 FILE before touching the game** -- gap distribution, and movement per sample on either side of the
 wide gaps. `dev-scripts/replay-cadence.py` is that check, and it prints the verdict.
 
+**CONFIRMED 2026-09-07 by the same check, run backwards.** The tester re-recorded on the fixed
+build and reported no stutter: 1.3% of updates over 25 ms (was 27-30%), median 6 ms, p95 11 ms,
+and **not one gap in the 36-44 ms band** that had held a quarter of everything. Their cadence is
+now indistinguishable from the Windows machine's. The lesson that generalises past Nagle: **the
+clip file that diagnosed it also CLOSES it** -- a fix whose evidence is a distribution needs no
+eyes on either end, so the A/B was written into `UNVERIFIED.md` as the exit condition when the
+fix was made, and answering it on 2026-09-07 cost one command. State the closing measurement at
+the same time as the fix, not when someone asks whether it worked.
+
 ## A missing `@` published a scratchpad path as the entire release description of a public release (release, 2026-09-07)
 
 **Symptom.** `v1.2.1` published green, with three correct assets and a correct tag, and its whole

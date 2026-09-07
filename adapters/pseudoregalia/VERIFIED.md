@@ -203,6 +203,7 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — the distance tiers' numbers are the user's own two marks, measured in a long hall of the lower castle (user-confirmed on screen)
 - 2026-09-06 — the nametag follows the outfit's height, up and down, across swaps (user-confirmed on screen)
 - 2026-09-06 — modded sword models now reach ghosts, replays and real peers alike (user-confirmed on screen)
+- 2026-09-07 — TCP_NODELAY fixed the Linux tester's stuttery ghosts: their cadence now matches Windows
 - Pseudoregalia: 300ms interp at the 15Hz relay on the 60/25/2/2 proxy, on the fixed relay (2026-09-02)
 - Pseudoregalia: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
 ## Confirmed facts
@@ -5298,3 +5299,36 @@ swords visually shown now"*.
 **Addendum, same night:** the Krystal case is closed too -- with the 40-400 window build deployed
 the user relaunched and: *"Yes it works"*. Every outfit tried tonight (stock, Hornet, the small
 plush, Faith, dreamLady, Krystal) places its tag readably, and swaps move it the same tick.
+
+## 2026-09-07 — TCP_NODELAY fixed the Linux tester's stuttery ghosts: their cadence now matches Windows
+
+The A/B [`UNVERIFIED.md`](UNVERIFIED.md) asked for, settled from the files with nobody watching a
+screen. The tester recorded again on the v1.2.1 DLL and reported no stutter; both clips through
+`dev-scripts/replay-cadence.py`:
+
+| | tester, before (2026-09-06) | tester, after (v1.2.1) | the user's Windows clip, 2026-09-06 |
+|---|---|---|---|
+| updates over 25 ms | 27-30% | **1.3%** (16 of 1211) | 0.7% (11 of 1599) |
+| 36-44 ms band (the delayed-ACK floor) | a hard floor at exactly 40 ms | **0 samples** | 0 |
+| median / p95 | -- | 6 ms / 11 ms | 6 ms / 12 ms |
+| update rate | -- | 123.7/s | 115.5/s |
+
+**The Nagle signature is gone, not merely reduced**: not one gap lands in the 36-44 ms band, which
+before held a quarter of everything. The tester's median, p95 and rate are now indistinguishable
+from the Windows machine's -- marginally better, in fact. The wide gaps that remain in BOTH clips
+are the 250 ms idle keepalive (247-255 ms, 0.00-0.08 units of movement across them), which is not
+stutter and is present on Windows identically.
+
+**The user, on the tester's report and these numbers: "yee verified/confirmed".**
+
+Confirmed for the Pseudoregalia C++ adapter only. The same one-line change went into TEVI's
+`TcpClient` and both Lua adapters the same day (`phase7.md`, `phase6.md`); none of those three has
+been exercised on Linux, so this entry does not carry them.
+
+**One residual difference the fix did NOT remove**, recorded so it is not mistaken for Nagle later:
+the tester's clip has six recurring pairs the Windows clip has none of -- a ~31 ms sample with zero
+movement immediately followed by a ~60 ms sample carrying ~6.9 units, at t=1.46, 2.22, 2.97, 6.08,
+7.04 and 8.28 s, roughly one a second and spread across the clip rather than bunched. Each is a
+~60 ms freeze, about 2.4 render frames past the 25 ms interp delay -- too small for the tester to
+notice, and it has none of Nagle's shape: no fixed floor, and the character DOES move across the
+gap, so it is production and not delivery. Parked in `UNVERIFIED.md`.
