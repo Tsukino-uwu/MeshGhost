@@ -809,3 +809,35 @@ fuzzed — `player_frozen` turned out to appear in no fuzz target in the repo at
 Left open with a benchmark rather than taken on: batching a tick into one `render_frame` line, which
 is a bridge protocol revision. `verified.md`'s 2026-09-07 entry carries the numbers that would
 justify it and the `MaxLineBytes` decision that comes with it.
+
+## 2026-09-07 (night) — two CI findings on one evening's pushes
+
+Both caught by CI after a local run that was green, which is the only reason either is written here
+rather than nowhere.
+
+**The race job: `sendToAdapter` is asynchronous now.** The coalescing writer (phase11's entry has
+the work) changed a property nothing had stated: the call returning no longer means the adapter has
+the message. Ordering is still exact — one queue, one writer — but delivery is not synchronous, and
+`TestGhostCollisionNotPushedBeforeTheRoomHasSpoken` pushed a session policy and read the adapter's
+inbox on the next line. The writer goroutine won that race here and lost it on CI's slower runner,
+three counts out of three. Fixed at the root: the helper waits for the queue to drain, so a future
+test cannot reintroduce it by writing the obvious thing, and the hazard is stated on `sendToAdapter`
+itself. **`run-gotests-race.bat` — `-race -count=3`, CI's exact command — had been clean minutes
+before the push**, which sharpens the standing lesson: it used to be said of `run-gotests.bat`,
+which cannot run `-race` at all; here the local race job itself was green and still wrong, because
+the defect was a timing window only a slower machine opens.
+
+**The fuzz job: a nil extras map bounded two bytes short.** `extrasLengthBound` opened with
+`len(extras) == 0 -> return 2` ("just `{}`"), which is true of an empty map and false of a nil one —
+`encoding/json` writes nil as `null`, four bytes. Harmless in place (`extrasWithinLimit`
+short-circuits `len == 0`, and four bytes cannot approach the limit) and fixed anyway, because the
+bound may only ever over-estimate: an under-estimate is the one direction that could accept early.
+Found on a push touching neither `protocol` nor extras, from an input (`null`) trivial enough that
+it had simply never been generated in the life of that target — the case for a time-boxed campaign
+on every push rather than a targeted one. CI's input is committed as the regression.
+
+**And the count gate.** `preflight.ps1` gained "Adapter/game counts in living docs" after the user
+noticed a stale "the largest and hardest of the four" — narrow by design, since a naive scan finds
+40+ hits of which one was stale. It found that one: `_template/README.md` said "the two shipped
+adapters" where it meant the two BizHawk ones. `pitfalls/by-lesson.md` has the reasoning and the
+five negative tests.
