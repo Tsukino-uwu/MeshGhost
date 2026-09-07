@@ -1,15 +1,16 @@
 # Current status
 
-**Active phase: 9 — Crystal, with Emerald reopened for Fly and the boat.** This file is an index of what
-is open right now: **one line per item, each carrying the date it was last re-checked, and an item dated
+**Active phase: 10 — the Go side, with 7 (Pseudoregalia) and 11 (replays) both live.** This file is an index of what
+is open right now: **two lines per item, maximum** ([claude-md-cap.md](claude-md-cap.md)), **each carrying the date it was last re-checked, and an item dated
 more than 2 days before this file's last commit fails preflight** — at this project's pace, 2026-08-31 is
 already not current on 2026-09-02 (user's call). At the start of a session re-date what is still current and move the rest to `plans.md`,
 `ideas.md`, the adapter's `UNVERIFIED.md` or `risks.md`; a quiet repo does not go red, because age is
 measured against this file's own last commit. Records are never listed here — `verified.md`, the phase
-files and each `VERIFIED.md` hold them. Why one line and a date, not a total cap: `claude-md-cap.md`.
+files and each `VERIFIED.md` hold them. Why two lines and a date, not a total cap: [claude-md-cap.md](claude-md-cap.md).
 
 ## Open now
 
+- 2026-09-07 — **The full-project stale-fact sweep: ~40 wrong assertions corrected across `_template/`, `contract.md`, `scaling.md`, the ADRs and the adapter docs; two new preflight checks (both proven to fail); one LIVE defect fixed (a second `game_id` on one core was accepted and retried forever)** — `phases/phase10.md`, the 2026-09-07 entry.
 - 2026-09-07 — **The Linux tester's stuttery ghosts were Nagle; `TCP_NODELAY` is CONFIRMED to have fixed it on Pseudoregalia** (1.3% of updates over 25 ms, nothing left in the 36-44 ms band, against 27-30% with a hard 40 ms floor) — still open on TEVI and both Lua adapters, plus a residual that is NOT Nagle: `pseudoregalia/VERIFIED.md`, `pseudoregalia/UNVERIFIED.md`.
 
 - 2026-09-06 — **FIXED and confirmed by me (Go side): a refused hello lost its `Reject` to a TCP reset, so a core retried a PERMANENT refusal forever.** CI's Linux race job found it; the 2026-09-05 graceful-close fix had gone into the rate-limit path only. All three handshake sites now close gracefully — `verified.md` 2026-09-06, `pitfalls/by-lesson.md`.

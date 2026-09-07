@@ -44,7 +44,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 
 ## Working state and ideas
 
-- [status.md](status.md) — what is open right now: one dated line per item; an item dated more than 2 days before the file's last commit fails `preflight.ps1`.
+- [status.md](status.md) — what is open right now: two dated lines per item at most; an item dated more than 2 days before the file's last commit fails `preflight.ps1`.
 - [plans.md](plans.md) — the roadmap: committed, in progress, done; non-goals; the depth ladder.
 - [ideas.md](ideas.md) — where future plans and brainstorming are kept so they are not forgotten; nothing scheduled; title index at the top.
 - [security-design.md](security-design.md) — the unscheduled security design behind `docs/security.md`'s posture (moved out of `ideas.md` 2026-09-02).

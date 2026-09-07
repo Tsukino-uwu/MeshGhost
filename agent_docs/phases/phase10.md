@@ -678,3 +678,96 @@ holds by ABSENCE -- the moment storage exists it becomes something a test must p
 
 Four commits (`fedd5259`, `d1e583d3`, `049b4928`, `b342c15a`), preflight clean throughout, not
 pushed. Records: `agent_docs/game-shapes.md`, `beyond-cosmetic.md` §5, `agent_docs/README.md`.
+
+## 2026-09-07 (later) — the full-project stale-fact sweep
+
+**The ask**, the user's words: *"make sure things are up to date and not stale, fact check things
+across files, and to try to fix up things in places if possible"* — a correctness pass over what
+the repo ASSERTS, not a restructuring. Plus two new `game-shapes.md` sections, written first.
+
+**The governing rule**, the user's, and it shaped every decision below: *"docs/md's are most likely
+stale, while current files + code is the actual fact. I don't want to accidentally have collision
+re-enabled as a default for example due to you thinking that was the right fact."* So when a doc
+and the code disagreed, **the doc was wrong and the doc got changed** — with two deliberate
+exceptions, both recorded below. Checked mechanically rather than by reading the diff: across the
+whole session, `git diff` on `protocol/limits.go`, `core/core.go`, `relay/limits.go`,
+`packaging/release/config.json` and `packaging/config-overrides/` shows **no changed literal**, and
+every hunk in the first two is comment-only.
+
+**The method that made it worth doing.** A prior survey's findings were re-checked by six parallel
+read-only agents against current source, and **that pass corrected the survey in about twenty
+places** — wrong line numbers throughout, two findings that were simply false (the `.gitignore` DLL
+negations already exist; `golang.org/x/text` is not a dependency at all), several counts that were
+low (25 dangling ADR references, not 20; 23 stale-number lines, not 17; 97 `constexpr bool`, not
+96), and one issue filed as "latent" that turned out to be live. **A survey is a hypothesis.** Every
+number written this session was read from its source rather than from the doc that quoted it.
+
+### The two things that were not documentation
+
+**A live defect, upgraded from "latent" by tracing it properly.** `core/relaysession.go` returned a
+plain `fmt.Errorf` for a bridge hello whose `game_id` differs from the one this Core already
+serves. `bridgeserve.go:141` refuses a hello only when `IsPermanentRejectErr` is true, and that is
+false for a plain error — so the mismatched adapter was **accepted**: it took the one adapter slot,
+was sent `bridge_ready`, started recording/replays/chasers, and `retryRelayForSoloAdapter` then
+span forever on an error that can never clear. `bridgeserve.go:151-154`'s own comment already
+assumed this case reached `rejectBridge`; it never did. Reachable in ordinary use (`-game X` plus an
+adapter for game Y), and hidden whenever a live incumbent holds the slot — which is why the
+dead-incumbent release path is exactly where it bites.
+
+Fixed with a new `AlreadyServingError`, deliberately NOT by reusing `RejectError`, whose message
+says "relay refused connection" — a lie here, and that string is what `rejectBridge` sends to the
+player. `contract.md:871-872` had claimed this refusal all along, so **the code was brought up to
+the contract rather than the contract edited down to the code**. Regression test proven to fail
+without the fix; suite green, race clean at `-count=3`.
+
+**A regression I caused, caught, and then guarded.** A one-word `sed` edit to a COMMENT in
+`run-core.bat` rewrote every line ending in the file; the commit stored it as LF where it had been
+CRLF. One-line content diff, green tree, and it still ran here because `core.autocrlf=true`
+re-smudges on checkout. `.gitattributes` had no `*.bat` rule at all, so 17 of 22 were already LF —
+including both test runners, whose `go test ... || goto :failed` is what decides whether a failing
+suite reports failure. Now pinned, with a preflight section that checks the ATTRIBUTE first (bytes
+here say nothing about a Linux runner) and both halves deliberately broken once to prove they fail.
+Full write-up, including what was and was NOT demonstrated: `pitfalls/method.md`.
+
+### What the sweep actually found
+
+Roughly forty stale assertions across `_template/`, `contract.md`, `scaling.md`, the ADRs, the
+adapter docs and the Go comments. The ones worth naming:
+
+- **`contract.md`'s port rule was inverted AND described a refusal that does not exist.** Quic keeps
+  the shared port; plain udp is what silently relocates. The same false refusal sat in two Go
+  comments and in ADR 0027.
+- **`join.state` and `resume_token` were scoped to the ROOM**, where `relay/states.go:182-187` is
+  explicit that it is the recipient's own capability — and the contract already said so itself, two
+  sections down, in its own feature-scoping table.
+- **`DefaultIdleKeepalive`'s comment argued from an equality that has not existed since ADR 0046**
+  ("250ms is deliberately the same figure as `DefaultInterpolationDelay`"). The conclusion survives;
+  the stated reason did not, so it now states the inequality it actually relies on.
+- **A fabricated measurement** in Emerald's `BANDAGES.md`: a "ripple 151" subpriority inside a list
+  labelled *measured*, where the source comment had measured only 152/150/148/135.
+- **Twenty ADR cross-references** left dangling by the 2026-08-25 one-file-per-ADR split, which
+  `architecture.md:130` records as done "unreworded" — which is precisely why they survived.
+
+### Two checks added, and one deliberately NOT added
+
+Both new preflight sections were broken on purpose before being trusted, per this repo's twice-paid
+lesson about gates that report clean because they cannot run: **CRLF-pinned batch files**, and a
+**hardcoded-clone-path** scan scoped to scripts (`dev-scripts/zoom.ps1` shipped one as a default
+parameter and passed all four existing privacy scanners, which match home-directory forms only).
+
+**The backticked-path check the plan called for was NOT built, and the reason is a real finding.**
+The sweep ran: every backticked token that looks like a path, across all living docs. It returned no
+defects the pass had not already fixed — and, decisively, **both real stale pointers it was meant to
+catch were bare filenames with no slash** (`client-config-template.json`,
+`client-config-overrides.json`). A path-shaped checker would have missed both, and a
+bare-filename checker drowns in the repo's own deliberate shorthand (`BANDAGES.md`, `contract.md`,
+`FLAGS.md` are written that way everywhere on purpose). **A gate that cannot catch the two cases
+that motivated it is not worth its false positives.**
+
+Also left alone after checking: `.gitignore`'s `/vendor/` is not dead but *protective* — a future
+`go mod vendor` would otherwise sweep thousands of files into a `git add -A` — and its "redundant"
+narrow log entries sit directly under comments recording the near-miss that produced their
+wildcards.
+
+Twenty-six commits, none pushed. Preflight clean (full, not just `-TreeOnly`), `run-gotests.bat`
+green across 18 packages, `run-gotests-race.bat` clean.
