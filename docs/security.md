@@ -258,6 +258,36 @@ process is current. If you're hosting: update the relay binary (`meshghost-serve
 relying on a room code. See the ADR in
 [agent_docs/architecture.md](../agent_docs/architecture.md) for the full reasoning.
 
+## What changed (2026-09-05 and 2026-09-06: a refusal that could not be heard)
+
+Two fixes to the same defect, a day apart, both found by CI's Linux runner and **neither
+reproducible on the developer's Windows machine** — 40 consecutive local runs for the first, 30
+under `-race` for the second. Full reasoning:
+[agent_docs/adr/0055](../agent_docs/adr/0055-2026-09-05-the-relay-half-closes-and-drains-instead-of-resetting.md).
+
+- **A `reject` the relay had already written could be discarded before the client read it.**
+  Closing a TCP connection while the peer's data sits unread makes the kernel answer with a RESET
+  rather than a FIN, and a reset **throws away what is still queued unread in the peer's receive
+  buffer — including the line just sent**. Every place the relay hangs up is a place it has
+  probably not drained the client, so the messages most at risk were the ones that matter: the
+  `reject` telling a rate-limited client why it was cut off (2026-09-05), and the `reject` refusing
+  a `hello` at handshake (2026-09-06).
+
+  **Why this is a security-relevant bug and not just a lost message: it turned a PERMANENT refusal
+  into a retry loop.** With no reason on the wire, a client sees only EOF, classifies it as a
+  transient drop, and reconnects — so a wrong room code or a version mismatch produced an
+  indefinite reconnect cycle against the relay instead of a refusal the player could read. The
+  relay was correctly refusing admission and the client could not tell.
+
+  Fixed by half-closing and draining (`transport.NDJSONConn.CloseGracefully`, 2s) at all three
+  sites the relay writes-then-closes. A transport that cannot half-close falls back to the previous
+  behaviour, so udp and quic are unchanged.
+
+- **Worth stating plainly for anyone reading this page as a reviewer:** the 2026-09-05 fix *looked*
+  complete. It repaired the path its failing test named and left the handshake path — same class,
+  same reset, different call site — untouched until CI found that one too a day later. Fixing the
+  site a test names is not the same as fixing the class it belongs to.
+
 ## What's already true, and why (checked against the actual code, 2026-08-15)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
