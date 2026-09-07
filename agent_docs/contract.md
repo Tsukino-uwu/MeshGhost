@@ -380,9 +380,21 @@ both opaque to the core and relay (never parsed, compared only where noted below
   member has declared one yet) is never refused on this basis; only a real mismatch between two
   declared values counts. None of the four shipped adapters reads a game build number for this
   — there's no cited memory address for one, and `CLAUDE.md`'s "no addresses/APIs from memory"
-  rule means one isn't guessed at. Each adapter instead reports its own script/mod version,
-  which is the more useful signal anyway: it catches two peers running different revisions of
-  the same adapter, the likelier real source of a silent protocol mismatch.
+  rule means one isn't guessed at. Each adapter instead reports its own script/mod version.
+  **In practice that value is a per-adapter CONSTANT and is deliberately not bumped per release**
+  (`phase7.7`, `0.2.0`, `phase8-spawn`, `phase9`, unchanged since 2026-08-15/25 across v1.0.0 to
+  v1.2.1), so it does not in fact catch two peers on different revisions of the same adapter.
+  That is the intended state, not a gap (the user, 2026-09-07), for two separate reasons:
+
+  - **Adapter revisions.** An older adapter genuinely will not have everything a newer one does —
+    but the project's answer to that is *assume everyone runs the latest release*, not enforce it.
+    The field is sticky per room, so bumping it per release would turn a mixed-release room into a
+    refusal, which is a worse outcome than the older peer simply missing a feature.
+  - **Game builds.** Refusing on a game's own version is the thing this must never start doing:
+    Pseudoregalia on the map patch (what the mod was built against) and on a full-gold or a future
+    patch should still be able to play together. A new build is TESTED on the current one only and
+    may or may not work elsewhere — untested is not the same as forbidden, and this field must not
+    quietly convert one into the other.
 
   **AND SEPARATING PLAYERS BY GAME BUILD IS NOT WANTED -- this is a decision, not a shortfall
   (the user, 2026-09-04, when an agent flagged it as a gap):** *"we don't want to seperate
