@@ -468,14 +468,14 @@ it is unreachable — the per-field caps above sum to well under 2KB.
 Each deeper plane brings its own bounds, with the same silent-drop behaviour and one extra hazard —
 see "Beyond cosmetic" below.
 
-## Updates are sparse: ~20 Hz, not per-frame
+## Updates are sparse: ~15 Hz, not per-frame
 
-The core throttles sending (default 20 Hz, `protocol.DefaultSendHz`; the effective rate is the
+The core throttles sending (default 15 Hz, `protocol.DefaultSendHz`; the effective rate is the
 slower of the relay's advertised `send_hz` and your own client's `min_send` — see
 `Core.effectiveSendInterval`). Separately and in the other direction,
 `max_receive_hz_per_player` caps how fast the relay forwards *each other player's* state to
 you; it has no effect on your own send rate. Calling
-`get_local_state()` every frame is correct and safe — but only ~20 samples/sec reach peers, so
+`get_local_state()` every frame is correct and safe — but only ~15 samples/sec reach peers, so
 **peers never observe your intermediate states.** Two consequences that are protocol-level, not
 engine-level:
 

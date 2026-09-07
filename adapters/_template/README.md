@@ -666,7 +666,7 @@ inventing your own. Four things about it are worth knowing up front, because eac
 the expensive way:
 
 - **Give each game a `run-core-<game>.bat`, and test with `-interp=0ms -min-send=10ms`.** The
-  core's default interpolation buffer (`core.DefaultInterpolationDelay`, 250ms) smooths over real
+  core's default interpolation buffer (`core.DefaultInterpolationDelay`, 450ms) smooths over real
   local timing bugs — treat "looks fine with the buffer on" as untested, not confirmed. (If you
   also start a relay locally, it needs `-send-hz=100` or it silently overrides every core's fast
   `-min-send`.)
@@ -1839,7 +1839,7 @@ The corollary, and it cost a whole session. `-interp=0ms` and a fast send rate e
 side-offset ghost can be judged 1:1 against the player — that is a real and necessary mode. But it
 **removes the mechanism the shipped configuration relies on**, so a class of fault is invisible in
 it. A tier confirmed perfect at `-interp=0ms` was independently described as *"really really bad"* at
-the shipped 250ms, with no code change in between.
+the shipped 450ms, with no code change in between.
 
 **Give every game a dev core script per mode** (`dev-scripts/run-core-<game>.bat`), and say in the
 handover which one is running. Crystal had none, so every session silently got shipped defaults from
