@@ -57,5 +57,8 @@ Sibling queues: list the other adapters that have one.
 
 ---
 
-&lt;Entries go here. One `##` heading each, starting `Pending — `, with what to look at and what
-correct looks like.&gt;
+&lt;Entries go here. One `##` heading each, starting with its state — `## [READY]`, `## [OPEN]` or
+`## [DONE]`, then a space, then what to look at and what correct looks like. The tag is mandatory:
+`dev-scripts/preflight.ps1` fails a heading without one, so an entry that starts any other way
+fails the tree gate on its first commit. A word like `Pending` may follow the tag, as several
+shipped adapters do; it may not replace it.&gt;
