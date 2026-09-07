@@ -1256,6 +1256,72 @@ if ($adapterDirs.Count -eq 0) {
 }
 
 # ---------------------------------------------------------------------------
+Section "Adapter/game counts in living docs"
+
+# "the four shipped adapters" goes stale the day a fifth arrives, and nothing checked it. The user
+# found one by reading (2026-09-07, Pseudoregalia's README: "the largest and hardest of the four"):
+# "that will go stale really really fast once we add more adapters/games. think preflight catch most
+# of these already?" It did not.
+#
+# WHY THIS IS NARROW ON PURPOSE, and the narrowness is the whole design. A naive "a number next to
+# the word adapters" scan over living docs finds 40+ hits and ONE of them is actually stale -- the
+# rest are dated observations ("Found live 2026-09-07 on three adapters at once"), scenarios ("two
+# adapters on the same game_id"), or correct subsets ("three of the four adapter READMEs"). A gate
+# with that signal-to-noise gets ignored, which is the failure mode `pitfalls.md` records for
+# scanners that cry wolf. So this matches only the ONE shape that is a present-tense claim about the
+# project's WHOLE set, and exempts the two shapes that legitimately carry a different number:
+#
+#   matches   "the|all <number> [shipped|real|live|current|existing] adapters|games"
+#             -- the definite article is what makes it a claim about *the* set
+#   exempt    a line carrying a four-digit year or "at the time" -- a dated fact is true as of its
+#             date (CLAUDE.md), and rewriting one would falsify the record
+#   exempt    a restrictive clause right after the noun (that/which/furthest/...) -- "the two games
+#             THAT feel like one" and "the two adapters FURTHEST from a confirmation" are subsets
+#
+# It will miss stale counts written in other shapes. That is the trade for a gate that is worth
+# reading when it fires. Records are out of scope entirely (VERIFIED/UNVERIFIED, phases, pitfalls,
+# the ADRs, doc-history) for the same reason the dated-line exemption exists.
+$countWords = @{ 'one' = 1; 'two' = 2; 'three' = 3; 'four' = 4; 'five' = 5; 'six' = 6; 'seven' = 7; 'eight' = 8; 'nine' = 9; 'ten' = 10 }
+$trueCount = $adapterDirs.Count
+$countScope = @($trackedMd | Where-Object {
+    ($_ -like 'agent_docs/*' -and $_ -notlike 'agent_docs/phases/*' -and $_ -notlike 'agent_docs/pitfalls/*' -and
+     $_ -notlike 'agent_docs/adr/*' -and $_ -ne 'agent_docs/doc-history.md' -and
+     $_ -ne 'agent_docs/verified.md' -and $_ -ne 'agent_docs/unverified.md') -or
+    $_ -like 'docs/*' -or $_ -eq 'README.md' -or $_ -like '*CLAUDE.md' -or $_ -like 'adapters/_template/*' -or
+    $_ -like 'adapters/*/README.md' -or $_ -like 'adapters/*/documentation.md' -or
+    $_ -like 'adapters/emulator/pokemon/*/README.md' -or $_ -like 'adapters/emulator/pokemon/*/documentation.md'
+} | Where-Object { $_ -notlike '*VERIFIED.md' })
+$staleCounts = @()
+$countChecked = 0
+$countRe = '(?i)\b(?:all|the)\s+(one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:(?:shipped|real|live|current|existing)\s+)?(adapters|games)\b\s*(\w+)?'
+foreach ($md in $countScope) {
+    $lines = @(Get-Content -LiteralPath $md)
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i]
+        # A dated statement keeps its number: it was true when it was written.
+        if ($line -match '\b(?:19|20)[0-9]{2}\b' -or $line -match 'at the time') { continue }
+        foreach ($m in [regex]::Matches($line, $countRe)) {
+            $next = $m.Groups[3].Value
+            # A restrictive clause makes it a subset, not a claim about the whole set.
+            if ($next -match '^(?i)(that|which|who|whose|furthest|closest|nearest|sharing|using|running|built|written)$') { continue }
+            $countChecked++
+            $n = $countWords[$m.Groups[1].Value.ToLower()]
+            if ($n -ne $trueCount) {
+                $staleCounts += "${md}:$($i + 1): `"$($m.Value.Trim())`" -- there are $trueCount"
+            }
+        }
+    }
+}
+if ($countScope.Count -eq 0 -or $trueCount -eq 0) {
+    Report-Fail "the adapter/game count gate found nothing in scope -- it would pass vacuously"
+} elseif ($staleCounts.Count -gt 0) {
+    Report-Fail "$($staleCounts.Count) living doc(s) state an adapter/game count that is no longer true -- correct the number, or say which subset or date it means:"
+    $staleCounts | Sort-Object -Unique | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "$countChecked whole-set adapter/game count claim(s) across $($countScope.Count) living doc(s) all say $trueCount"
+}
+
+# ---------------------------------------------------------------------------
 Section "status.md is current"
 
 # status.md is an index of what is open, and it has failed as one twice: 50 -> 628 lines under a flat

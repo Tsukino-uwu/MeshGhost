@@ -6507,3 +6507,40 @@ write it, costs nothing at small N, and the cost is invisible until someone pick
 there is no error, no log line and no failing test, only memory. **And ask where a `make` of a
 computed size actually runs**: this one was on the goroutine that answers the next adapter's hello,
 which is how the same code path had already produced a seconds-long stall for the fuzzer to find.
+
+## "The four shipped adapters" is a fact with an expiry date, and only a narrow gate is worth writing (docs, 2026-09-07)
+
+**Symptom.** The user, reading Pseudoregalia's README: *"found another 'four/4/X amount' of adapters
+line here. that will go stale really really fast once we add more adapters/games. think preflight
+catch most of these already?"* It did not, and the repo held ~30 such lines.
+
+**Cause.** A count of the project's own parts reads as a fact and behaves like a cache. Nothing
+invalidates it: the day a fifth adapter lands, every "the four shipped adapters" in the tree becomes
+false at once, in files nobody is editing that day.
+
+**What made the check hard, and it is the transferable part.** The obvious gate -- a number next to
+the word "adapters" in living docs -- finds 40+ hits of which **exactly one** was actually stale.
+The rest legitimately carry a different number:
+
+- **dated observations** -- "Found live 2026-09-07 on three adapters at once". CLAUDE.md's own rule
+  is that a dated fact is true as of its date, so "correcting" it would falsify the record.
+- **scenarios** -- "two adapters on the same `game_id` were both accepted".
+- **subsets** -- "three of the four adapter READMEs", "the two games THAT feel like one".
+
+A gate with that signal-to-noise gets ignored, which is the failure this file already records for
+scanners that cry wolf. So the shipped gate matches ONE shape -- `the|all <number> [shipped|real|
+live|current|existing] adapters|games`, where the definite article is what makes it a claim about
+*the* set -- and exempts any line carrying a year or "at the time", plus any match followed by a
+restrictive clause. It found the single real defect and nothing else, in `_template/README.md`, the
+file CLAUDE.md says must never lag.
+
+**The transferable shape.** **Prefer a gate that catches one shape reliably over one that catches
+every shape noisily** -- the second is not a stricter version of the first, it is an ignored version
+of it. And when a scan's hits are mostly legitimate, the discriminator is usually GRAMMAR rather
+than vocabulary: here, a definite article separated a claim about the whole set from a claim about
+some of it, and a restrictive clause separated a subset from a total.
+
+**Method worth keeping.** Negative-tested against five cases before shipping: the real stale line
+(fails), the same number inside a dated line (passes), the same number as a restrictive subset
+(passes), a correct whole-set claim (passes, and the checked-claim COUNT rises, which is what proves
+the gate is not passing vacuously), and the restored tree (passes).

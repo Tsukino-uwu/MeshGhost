@@ -941,7 +941,7 @@ know anything is there. Ranked by how much the game does for you:
 
 **For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order** (settled 2026-08-21;
 ADR in `agent_docs/architecture.md`, numbers in `verified.md`). **That is the ORDER to start from,
-not a set of defaults to ship** — the two shipped adapters deliberately differ from each other and
+not a set of defaults to ship** — the two BizHawk adapters deliberately differ from each other and
 from "all on": Crystal ships drawn ON and OAM OFF, Emerald ships both OFF. The reason is per-game
 and is the useful lesson: Crystal's UI regions are locatable (a text box is the game's own frame
 tiles in the tilemap, a menu publishes its border fields) so a drawn ghost can be clipped out of
