@@ -44,6 +44,19 @@ out=$(go test "$pkg" -run=XXX -fuzz="$target" -fuzztime="$fuzztime" 2>&1)
 code=$?
 printf '%s\n' "$out"
 
+# A NAME THAT MATCHES NOTHING IS A FAILURE, NOT A PASS. -fuzz takes a REGEXP, and
+# `go test` treats "no fuzz tests to fuzz" as a warning and exits 0 -- so a renamed
+# or deleted target silently stopped being campaigned while its CI step stayed
+# green and kept reporting the time it did not spend. All 23 steps pass a bare
+# name, so any one of them could go quiet this way; this repo has already found
+# two targets that existed and were wired to nothing (2026-09-03, 2026-09-05), and
+# this is the same class one layer up. Checked before the exit-0 branch, because
+# that is the branch it would otherwise take. Found by the 2026-09-07 review.
+if printf '%s' "$out" | grep -q "no fuzz tests to fuzz"; then
+  echo "::error::$target matched no fuzz target in $pkg -- the name is a regexp and a non-match is a WARNING to go test, so this step was passing without running anything. Fix the name or delete the step."
+  exit 1
+fi
+
 if [ "$code" -eq 0 ]; then
   exit 0
 fi
