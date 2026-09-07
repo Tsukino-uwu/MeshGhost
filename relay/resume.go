@@ -279,6 +279,14 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 		ownAreaOnly:  hello.OwnAreaOnly,
 		transport:    transportName,
 		features:     protocol.NormalizeFeatures(hello.Features),
+		// Sanitized from THIS hello, exactly as a fresh join does it. Omitted
+		// until 2026-09-08, and the loss was permanent rather than momentary:
+		// the resumed Client replaces the old map entry, so from the blip
+		// onward every LATER joiner read this member's nametag out of a field
+		// that was nil and learned an id with no name -- for the rest of the
+		// session, since a name is never re-broadcast (protocol.Welcome.Nametags
+		// says why it is not in the state stream).
+		nametag: sanitizedNametag(hello),
 		// Same window as a fresh join: this Client is published into
 		// r.members below and only then sent its Welcome, so without the
 		// hold a broadcast in between reaches the socket first. See
@@ -293,6 +301,15 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	if !ok {
 		// The grace window expired between takeSession and here, so the
 		// identity is already gone. Joining fresh is correct.
+		//
+		// The outbox above is already RUNNING -- newOutbox spawns its writer --
+		// so it has to be closed on the way out or its goroutine parks on the
+		// signal channel forever, holding this transport with it (relay/leak_test.go
+		// is the standing check for exactly this shape). The window is real, not
+		// theoretical: finishLeave calls r.remove BEFORE forgetSessionsOf, so a
+		// resume landing between those two lines finds a valid session for a member
+		// that has already gone. Closed 2026-09-08.
+		resumed.out.close()
 		r.mu.Unlock()
 		return nil, "", false
 	}
@@ -308,23 +325,53 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	r.seedLastAreaLocked(resumed)
 	r.members[sess.playerID] = resumed
 	roster := make([]string, 0, len(r.members))
-	for id := range r.members {
-		if id != sess.playerID {
-			roster = append(roster, id)
+	var rosterNames map[string]protocol.Nametag
+	for id, m := range r.members {
+		if id == sess.playerID {
+			continue
+		}
+		roster = append(roster, id)
+		// Captured in the same critical section as the roster, for the same
+		// reason tryAddAndSnapshotRoster does: a roster and a name map built
+		// under two acquisitions could disagree about who is in the room.
+		// Missing here until 2026-09-08 -- so a resumed player's own roster
+		// came back with everybody's name stripped, and stayed that way.
+		if m.nametag != nil {
+			if rosterNames == nil {
+				rosterNames = make(map[string]protocol.Nametag, len(r.members))
+			}
+			rosterNames[id] = *m.nametag
 		}
 	}
 	r.mu.Unlock()
 
-	sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
+	// Bounded exactly as the fresh-join Welcome is, and by the same function:
+	// this path built an unbounded roster until 2026-09-08, which only stayed
+	// under protocol.MaxLineBytes because it also omitted the nametags above.
+	// Fixing one without the other would have moved the "token too long" kill
+	// from the join path onto the resume path.
+	welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
 		PlayerID:       sess.playerID,
-		Roster:         roster,
 		SendHz:         sendHz,
 		GhostCollision: s.resolveGhostCollision(),
 		Features:       effectiveFeatures(r, resumed),
 		ResumeToken:    newToken,
 		Resumed:        true,
 		ServerTimeMs:   time.Now().UnixMilli(),
-	})
+	}, roster, rosterNames)
+	sendEnvelope(nd, protocol.TypeWelcome, welcome)
+
+	// The members the bounded Welcome could not carry, handed over as ordinary
+	// Joins -- the same overflow shape the fresh-join path uses, written on the
+	// same conn before markWelcomedAndFlush releases the fan-out hold.
+	for _, id := range overflowRoster {
+		j := protocol.Join{PlayerID: id}
+		if tag, ok := rosterNames[id]; ok {
+			t := tag
+			j.Nametag = &t
+		}
+		sendEnvelope(nd, protocol.TypeJoin, j)
+	}
 
 	// Welcome is on the wire; release the hold and deliver anything the room
 	// produced while this resumption was being wired up.
@@ -358,21 +405,65 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	return resumed, newToken, true
 }
 
+// maxSnapshotLines bounds one join or resume snapshot, and it is derived from
+// maxOutboxLines rather than chosen: a snapshot is enqueued as one burst into a
+// queue of 256, and a RELIABLE line arriving at a full queue disconnects the
+// client (outbox.enqueue). Everything in a snapshot is reliable, so an
+// unbounded one is a self-inflicted disconnect. 192 leaves a quarter of the
+// queue for the room's ordinary traffic while the burst drains.
+//
+// **The bound exists because the snapshot was not bounded by anything the
+// recipient controls.** Before 2026-09-08 it emitted one line per lease (up to
+// protocol.MaxLeasesPerRoom, 256) plus one per escrow plus one per member, so a
+// single member holding many leases could make ANOTHER player's resume
+// disconnect — which the client retries with the token from that same Welcome,
+// producing a resume/burst/disconnect loop that nothing breaks out of.
+const maxSnapshotLines = 192
+
+// boundSnapshot keeps at most maxSnapshotLines of outs, dropping from the END.
+// The order the caller assembles them in is therefore a priority order, and
+// each caller states its own.
+//
+// Truncation is logged once per room: a room this large is a fact about the
+// deployment its operator should see, and a line per resume would spam exactly
+// the room already under pressure.
+func (r *Room) boundSnapshot(outs []outgoing, kind string) []outgoing {
+	if len(outs) <= maxSnapshotLines {
+		return outs
+	}
+	dropped := len(outs) - maxSnapshotLines
+	r.snapshotTruncatedOnce.Do(func() {
+		log.Printf("relay: room %q: a %s snapshot came to %d lines and was truncated to %d "+
+			"-- the last %d are omitted; the relay stays authoritative for all of them, and a "+
+			"dropped state seed self-corrects on that peer's next sample",
+			r.Name, kind, len(outs), maxSnapshotLines, dropped)
+	})
+	return outs[:maxSnapshotLines]
+}
+
 // resumeSnapshot is everything a reinstated client needs to rebuild the view
 // it lost when its connection dropped: every other member's last known state,
 // every held lease, and every exchange it is a party to.
+//
+// **Assembled in priority order**, because boundSnapshot drops the tail: an
+// escrow line carries a "both or neither" outcome that nothing else will ever
+// restate, a world line likewise (a lossy write is superseded, never retried),
+// a lease line is a fact the relay will re-answer on the next request anyway,
+// and a state seed is the most droppable of all -- the peer's next sample
+// overwrites it within ~50ms (see stateSnapshotLocked).
 func (r *Room) resumeSnapshot(to string) {
 	r.sendMu.Lock()
 	defer r.sendMu.Unlock()
 
 	r.mu.Lock()
-	outs := r.stateSnapshotLocked(to)
-	outs = append(outs, r.leaseSnapshotLocked(to)...)
-	outs = append(outs, r.escrowSnapshotLocked(to)...)
+	outs := r.escrowSnapshotLocked(to)
 	// A resuming client that is NOT the host has missed every lossy world write
 	// sent while it was away, and nothing else will ever resend them — a lossy
 	// write is superseded by the next one, not retried.
 	outs = append(outs, r.worldSnapshotAllLocked(to)...)
+	outs = append(outs, r.leaseSnapshotLocked(to)...)
+	outs = append(outs, r.stateSnapshotLocked(to)...)
+	outs = r.boundSnapshot(outs, "resume")
 	r.mu.Unlock()
 	r.deliver(outs)
 }
@@ -396,8 +487,12 @@ func (r *Room) joinSnapshot(to string) {
 	defer r.sendMu.Unlock()
 
 	r.mu.Lock()
-	outs := r.stateSnapshotLocked(to)
-	outs = append(outs, r.worldSnapshotAllLocked(to)...)
+	// World first, then state: the same priority order resumeSnapshot uses, and
+	// for the same reason -- a state seed is superseded by the joiner's next
+	// sample from that peer, a world entry by nothing.
+	outs := r.worldSnapshotAllLocked(to)
+	outs = append(outs, r.stateSnapshotLocked(to)...)
+	outs = r.boundSnapshot(outs, "join")
 	r.mu.Unlock()
 	r.deliver(outs)
 }

@@ -1998,7 +1998,7 @@ func TestFlushIsNotOvertakenByANewerMessage(t *testing.T) {
 // exactly that limit, so the oversized Welcome killed the connection with "bufio.Scanner:
 // token too long" -- room size had silently become a wire-format ceiling, which
 // agent_docs/scaling.md's standing principle prohibits. The fix bounds the Welcome
-// (maxWelcomeRoster) and hands the remaining members over as ordinary Joins, which a core
+// (boundWelcomeRoster) and hands the remaining members over as ordinary Joins, which a core
 // already treats identically to a roster entry.
 //
 // The reader below is deliberately a RAW scanner with the core's own line limit rather than a

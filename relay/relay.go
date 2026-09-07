@@ -115,8 +115,16 @@ type Room struct {
 	// leases maps an opaque key to its current holder. nil until first use.
 	leases map[string]*lease
 	// escrows maps an opaque exchange id to its record, including terminal
-	// ones inside their retention window. nil until first use.
+	// ones inside their retention window. nil until first use, and bounded as
+	// a whole by maxEscrowRecordsPerRoom (escrow.go) -- the retained terminal
+	// records were bounded by nothing but inbound rate until 2026-09-08.
 	escrows map[string]*escrow
+	// escrowsLive and escrowsLiveBy are the LIVE (non-terminal) exchange
+	// counts, in total and per opener, so escrowTableFullLocked is O(1)
+	// instead of a scan of the whole table under mu. Maintained in escrow.go
+	// at the two transitions that move them.
+	escrowsLive   int
+	escrowsLiveBy map[string]int
 	// lastState is each member's most recent valid state, for seeding a
 	// late joiner via Join.State. Recorded for EVERY room: the snapshot.v1
 	// gate that survives is on whether to SEND a seed, which is the receiving
@@ -176,8 +184,16 @@ type Room struct {
 	//
 	// worldLossyCreateOnce: an adapter tried to create a world key with a lossy
 	// write. See world.go.
+	//
+	// snapshotTruncatedOnce: a join or resume snapshot came to more lines than
+	// one outbox can hold in a burst. See resume.go's boundSnapshot.
+	//
+	// worldUnknownOpOnce: a world write named an op this relay does not know.
+	// See world.go.
 	worldWithoutLeaseOnce sync.Once
 	worldLossyCreateOnce  sync.Once
+	snapshotTruncatedOnce sync.Once
+	worldUnknownOpOnce    sync.Once
 }
 
 // Client is one connected relay peer.
@@ -528,12 +544,76 @@ func (r *Room) tryAdd(c *Client) {
 // write, not a working queue depth.
 const maxPendingBeforeWelcome = 64
 
-// maxWelcomeRoster bounds how many members the Welcome itself lists; the rest are sent as
-// ordinary Joins immediately after it (see the bounded-Welcome comment at the send site).
-// Sizing: a roster id is ~7 bytes and a nametag entry ~60 with a maximal name, so 32 members
-// keeps the Welcome's variable part under ~2.2KB -- comfortably inside protocol.MaxLineBytes
-// (4096) alongside every fixed field, with no dependence on how big rooms are allowed to get.
-const maxWelcomeRoster = 32
+// boundWelcomeRoster trims the roster (and the nametags that go with it) until the
+// Welcome's MARSHALLED envelope fits protocol.MaxLineBytes, and returns the members it
+// could not carry -- which the caller hands over as ordinary Joins (see the
+// bounded-Welcome comment at the send site).
+//
+// **Measured, not counted, since 2026-09-08.** This was maxWelcomeRoster = 32, sized on
+// 2026-09-01 by an arithmetic that counted the bytes IN HAND: "a roster id is ~7 bytes and
+// a nametag entry ~60 with a maximal name, so 32 keeps the variable part near 2.2KB." That
+// is not what goes on the wire. protocol.SanitizeDisplayName permits &, < and > -- all
+// graphic ASCII, none stripped -- and encoding/json escapes each to a six-byte unicode
+// escape (an ampersand becomes backslash-u-0-0-2-6) with HTML escaping on, which is the
+// setting every marshal in this package uses. So a maximal nametag entry is ~173 bytes,
+// not ~60, and the 2026-09-01 incident reopened at a fifth of the player count it was
+// fixed at: measured 2026-09-07 against the shipped Welcome, one with maximal escaped
+// names is 3927 B at 20 members, 4115 B at 21 and 6183 B at the old cap of 32, against
+// MaxLineBytes 4096. Past that the JOINING core's scanner dies with "token too long" --
+// the exact failure the cap was written to prevent, and relayfix_test.go reproduces it.
+//
+// Bounding on the serialized size cannot be wrong for a reason nobody predicted: it asks
+// the encoder what the line weighs rather than predicting it. The search is a binary one
+// over roster prefixes -- adding a member never shrinks the line, so the fit is monotone --
+// which costs ~10 marshals of a <=4KB value on a join, not one per member.
+func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]protocol.Nametag) (protocol.Welcome, []string) {
+	withPrefix := func(k int) protocol.Welcome {
+		out := w
+		out.Roster = roster[:k]
+		out.Nametags = nil
+		for _, id := range roster[:k] {
+			if tag, ok := names[id]; ok {
+				if out.Nametags == nil {
+					out.Nametags = make(map[string]protocol.Nametag, k)
+				}
+				out.Nametags[id] = tag
+			}
+		}
+		return out
+	}
+	if welcomeLineBytes(withPrefix(len(roster))) <= protocol.MaxLineBytes {
+		return withPrefix(len(roster)), nil
+	}
+	// Largest prefix that fits. lo always fits (or is 0, which is sent anyway --
+	// a Welcome with no roster at all is still the client's own player_id and
+	// resume token, and every member then arrives as a Join).
+	lo, hi := 0, len(roster)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if welcomeLineBytes(withPrefix(mid)) <= protocol.MaxLineBytes {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return withPrefix(lo), roster[lo:]
+}
+
+// welcomeLineBytes is what sendEnvelope would put on the wire for this Welcome.
+// A marshal failure is reported as over-budget so the caller shrinks rather than
+// grows; protocol.Welcome contains nothing json.Marshal can refuse, so this is a
+// guard against a future field, not a live path.
+func welcomeLineBytes(w protocol.Welcome) int {
+	env, err := envelope(protocol.TypeWelcome, w)
+	if err != nil {
+		return protocol.MaxLineBytes + 1
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		return protocol.MaxLineBytes + 1
+	}
+	return len(b)
+}
 
 // markWelcomedAndFlush ends the pre-Welcome hold for playerID: from here on
 // Room.forward writes to it directly, and anything that arrived while it was
@@ -802,10 +882,8 @@ func (r *Room) stateRecipients(sender, senderArea, senderPrevArea string, payloa
 		members = append(members, c)
 	}
 	r.statesIn++
-	r.stateRecipientsOut += uint64(len(members))
 	r.stateRecipientsCross += cross
 	r.stateRecipientsFiltered += filtered
-	r.stateBytesForwarded += uint64(len(members)) * uint64(payloadBytes)
 	r.stateBytesCrossArea += cross * uint64(payloadBytes)
 	r.stateBytesFiltered += filtered * uint64(payloadBytes)
 	r.mu.Unlock()
@@ -815,6 +893,24 @@ func (r *Room) stateRecipients(sender, senderArea, senderPrevArea string, payloa
 		if c.allowStateFrom(sender, now) {
 			ids = append(ids, c.PlayerID)
 		}
+	}
+
+	// **Recipients and bytes are counted AFTER the per-recipient receive gate,
+	// which is the only reason a second acquisition is worth taking here.**
+	// Until 2026-09-08 both were added above, from the PRE-gate member set --
+	// but the gate below is what decides who is actually written to, and its
+	// result is all that reaches forward. So a room where anybody set
+	// max_receive_hz_per_player reported up to ~30% more forwarded bytes than
+	// the relay had sent: exactly "the kind of confidently wrong number a
+	// debugging aid must never produce" that introspect.go's own header
+	// forbids. The cross-area and filtered counters stay above on purpose --
+	// they are decisions the area filter made, and a message dropped by the
+	// area filter never reaches the gate at all.
+	if len(ids) > 0 {
+		r.mu.Lock()
+		r.stateRecipientsOut += uint64(len(ids))
+		r.stateBytesForwarded += uint64(len(ids)) * uint64(payloadBytes)
+		r.mu.Unlock()
 	}
 	return ids
 }
@@ -1617,26 +1713,11 @@ func (s *Server) handleConn(conn net.Conn) {
 			// identically to a roster entry, so overflow members are handed over that way:
 			// written on the same conn, after the Welcome and before markWelcomedAndFlush
 			// releases the fan-out hold, so ordering is exactly as if they had joined a
-			// moment later. Old clients need nothing.
-			welcomeRoster := rosterBeforeJoin
-			var overflowRoster []string
-			if len(welcomeRoster) > maxWelcomeRoster {
-				overflowRoster = welcomeRoster[maxWelcomeRoster:]
-				welcomeRoster = welcomeRoster[:maxWelcomeRoster]
-			}
-			welcomeNames := rosterNames
-			if len(overflowRoster) > 0 {
-				welcomeNames = make(map[string]protocol.Nametag, len(welcomeRoster))
-				for _, id := range welcomeRoster {
-					if tag, ok := rosterNames[id]; ok {
-						welcomeNames[id] = tag
-					}
-				}
-			}
-			sendEnvelope(nd, protocol.TypeWelcome, protocol.Welcome{
+			// moment later. Old clients need nothing. **How many members fit is
+			// measured, not guessed** -- see boundWelcomeRoster for the 2026-09-08
+			// reopening of this same incident at 21 members.
+			welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
 				PlayerID:       newID,
-				Roster:         welcomeRoster,
-				Nametags:       welcomeNames,
 				SendHz:         sendHz,
 				GhostCollision: s.resolveGhostCollision(),
 				// The room's agreed set PLUS whatever client-scoped
@@ -1646,7 +1727,8 @@ func (s *Server) handleConn(conn net.Conn) {
 				Features:     effectiveFeatures(joined, newClient),
 				ResumeToken:  newToken,
 				ServerTimeMs: time.Now().UnixMilli(),
-			})
+			}, rosterBeforeJoin, rosterNames)
+			sendEnvelope(nd, protocol.TypeWelcome, welcome)
 
 			// The members the bounded Welcome could not carry -- see its comment above.
 			for _, id := range overflowRoster {

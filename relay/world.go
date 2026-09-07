@@ -111,6 +111,26 @@ func (r *Room) handleWorld(from string, req protocol.World) {
 		// entry that already exists never counts against the cap.
 		outs = r.packWorldLocked(req.Authority, from, protocol.WorldTooMany, nil, []string{from})
 
+	case req.Op != protocol.WorldSet && req.Op != protocol.WorldDrop:
+		// **An op this switch does not name is ignored, not treated as a set.**
+		// Until 2026-09-08 the arm below was a bare `default` that took anything
+		// which was not a drop and stored it, while the entity cap and the
+		// create-must-be-reliable rule above both tested `Op == WorldSet` -- so
+		// an unrecognised op walked past both bounds and wrote a key. Nothing
+		// can reach it today, because protocol.ValidateWorld refuses any op but
+		// these two upstream, and that is precisely the objection: two of this
+		// room's resource bounds rested on a check in another package. Named
+		// explicitly so they rest on this one.
+		//
+		// Silent rather than denied: WorldDenied means "you are not the
+		// authority", which would be a lie, and there is no reason string for
+		// "that op does not exist" -- the client cannot have sent this without a
+		// bug on its own side that a refusal reason would not help.
+		r.worldUnknownOpOnce.Do(func() {
+			log.Printf("relay: room %q: a world write named op %q, which is neither %q nor %q -- ignored",
+				r.Name, req.Op, protocol.WorldSet, protocol.WorldDrop)
+		})
+
 	default:
 		seq := r.nextSeq()
 		entry := protocol.WorldEntry{Key: req.Key}

@@ -45,11 +45,27 @@ type escrow struct {
 	// "both or neither" holds only while both sockets stay up — the case that
 	// never fails in testing and always fails in the field.
 	terminal bool
+	// terminalAt is when it became terminal, and orders the eviction that
+	// keeps the table bounded (evictTerminalEscrowLocked). Zero while live.
+	terminalAt time.Time
 }
 
 func (e *escrow) isParty(id string) bool {
 	return e.parties[0] == id || e.parties[1] == id
 }
+
+// maxEscrowRecordsPerRoom bounds the escrow TABLE, live and terminal together.
+//
+// Live exchanges are already bounded by protocol.MaxEscrowsPerRoom (64), but a
+// terminal record is retained for protocol.EscrowRetention (60s) and until
+// 2026-09-08 nothing bounded those at all: the map's size was inbound rate
+// times retention, ~3,600 entries at the escrow flood cap, and every open
+// scanned the whole of it under r.mu -- the lock every state fan-out also
+// needs. This ceiling is deliberately well clear of the live cap so that the
+// 2026-09-02 fix still holds exactly: a full table never refuses an open, it
+// evicts its oldest terminal record instead (evictTerminalEscrowLocked), so
+// retained records can no more block a trade than they could before.
+const maxEscrowRecordsPerRoom = 4 * protocol.MaxEscrowsPerRoom
 
 // escrowTableFullLocked is the open-time bound: LIVE exchanges only, per room
 // and per opener. Until 2026-09-02 this was len(r.escrows) against
@@ -59,18 +75,62 @@ func (e *escrow) isParty(id string) bool {
 // flood cap. Found and confirmed by two independent reviewers in the
 // 2026-09-02 adversarial review; regression: escrow_cap_test.go. Caller holds
 // r.mu.
+//
+// Counted rather than scanned since 2026-09-08. The scan it replaced was
+// O(len(r.escrows)) on every open, with r.mu held and the map itself unbounded
+// -- so the cost of the check grew with the abuse it was there to stop. The two
+// counters are maintained at the only two transitions that can move them: an
+// open (openedEscrowLocked) and the step that makes a record terminal
+// (finishEscrowLocked). Retirement after EscrowRetention moves neither, because
+// the record stopped being live when it went terminal.
 func (r *Room) escrowTableFullLocked(opener string) bool {
-	live, mine := 0, 0
-	for _, e := range r.escrows {
-		if e.terminal {
-			continue
-		}
-		live++
-		if e.parties[0] == opener {
-			mine++
+	return r.escrowsLive >= protocol.MaxEscrowsPerRoom ||
+		r.escrowsLiveBy[opener] >= protocol.MaxLiveEscrowsPerMember
+}
+
+// openedEscrowLocked records a new live exchange against the room and its
+// opener, evicting the oldest terminal record first if the table is at
+// maxEscrowRecordsPerRoom. Caller holds r.mu.
+func (r *Room) openedEscrowLocked(opener string) {
+	for len(r.escrows) >= maxEscrowRecordsPerRoom {
+		if !r.evictTerminalEscrowLocked() {
+			// Cannot happen: live exchanges are capped at MaxEscrowsPerRoom,
+			// which is a quarter of the table, so a full table always holds a
+			// terminal record. Breaking rather than spinning if it ever does.
+			break
 		}
 	}
-	return live >= protocol.MaxEscrowsPerRoom || mine >= protocol.MaxLiveEscrowsPerMember
+	r.escrowsLive++
+	if r.escrowsLiveBy == nil {
+		r.escrowsLiveBy = make(map[string]int)
+	}
+	r.escrowsLiveBy[opener]++
+}
+
+// evictTerminalEscrowLocked deletes the oldest terminal record and reports
+// whether it found one. Oldest first because a retained record's whole purpose
+// is to answer a party that dropped mid-trade, and the older it is the more
+// likely that party has already been answered or has given up. Caller holds
+// r.mu.
+func (r *Room) evictTerminalEscrowLocked() bool {
+	oldestID, oldestAt := "", time.Time{}
+	var oldest *escrow
+	for id, e := range r.escrows {
+		if !e.terminal {
+			continue
+		}
+		if oldest == nil || e.terminalAt.Before(oldestAt) {
+			oldestID, oldestAt, oldest = id, e.terminalAt, e
+		}
+	}
+	if oldest == nil {
+		return false
+	}
+	if oldest.timer != nil {
+		oldest.timer.Stop()
+	}
+	delete(r.escrows, oldestID)
+	return true
 }
 
 // escrowStateLocked renders the wire form. Blobs are attached ONLY once committed:
@@ -148,6 +208,7 @@ func (r *Room) handleEscrow(from string, req protocol.Escrow) {
 			}
 			id := req.ID
 			e.timer = time.AfterFunc(protocol.DefaultEscrowTimeout, func() { r.timeoutEscrow(id) })
+			r.openedEscrowLocked(from)
 			r.escrows[id] = e
 			outs = append(outs, r.announceEscrowLocked(id, e)...)
 		}
@@ -233,9 +294,22 @@ func (r *Room) finishEscrowLocked(id string, e *escrow, phase, reason string) []
 	if e.timer != nil {
 		e.timer.Stop()
 	}
+	if !e.terminal {
+		// The only transition out of live, so the only place the counters may
+		// fall. Guarded rather than assumed: every caller checks !e.terminal
+		// already, and a future one that forgets would otherwise decrement a
+		// room into refusing every open it can never satisfy.
+		r.escrowsLive--
+		if n := r.escrowsLiveBy[e.parties[0]] - 1; n > 0 {
+			r.escrowsLiveBy[e.parties[0]] = n
+		} else {
+			delete(r.escrowsLiveBy, e.parties[0])
+		}
+	}
 	e.phase = phase
 	e.reason = reason
 	e.terminal = true
+	e.terminalAt = time.Now()
 	if phase != protocol.EscrowPhaseCommitted {
 		// Aborted: the blobs are destroyed here and never sent to anyone,
 		// which is what makes an abort safe to trigger on a disconnect.

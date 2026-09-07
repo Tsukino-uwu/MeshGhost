@@ -114,7 +114,13 @@ type StateFanoutSnapshot struct {
 	// means nothing.
 	StatesIn uint64
 	// Recipients is the sum over those messages of how many members each was
-	// fanned out to. This is the O(n^2) term made visible.
+	// actually fanned out to. This is the O(n^2) term made visible.
+	//
+	// AFTER the per-recipient receive-rate gate, since 2026-09-08. It was
+	// recorded from the pre-gate member set until then, so a room where anybody
+	// set max_receive_hz_per_player reported up to ~30% more delivered traffic
+	// than the relay had sent -- the confidently wrong number this file's own
+	// header forbids.
 	Recipients uint64
 	// CrossAreaRecipients is how many of those recipients were in another
 	// area: both areas known, and different. It is the CEILING on what area
@@ -129,6 +135,7 @@ type StateFanoutSnapshot struct {
 	// The same three numbers weighted by message size, which is what actually
 	// matters on the wire. Payload only, excluding the envelope -- see
 	// stateRecipients for why, and why the shares are unaffected by that.
+	// PayloadBytes follows Recipients: post-gate, and so post-filter.
 	PayloadBytes          uint64
 	CrossAreaPayloadBytes uint64
 	FilteredPayloadBytes  uint64
@@ -141,6 +148,13 @@ type StateFanoutSnapshot struct {
 // wire with no area filtering at all. Both shares below divide by it, so
 // neither can end up comparing a post-filter numerator against a post-filter
 // denominator and reporting a share that shrinks as the filter gets better.
+//
+// It excludes what a recipient's own receive-rate gate dropped, because
+// PayloadBytes has since 2026-09-08 (a message the gate refused was never sent,
+// and counting it here would put traffic in the denominator that no filtering
+// decision could ever have removed). In a room where nobody set
+// max_receive_hz_per_player -- the default -- nothing is gated and this is the
+// same number it always was.
 func (f StateFanoutSnapshot) offeredBytes() uint64 {
 	return f.PayloadBytes + f.FilteredPayloadBytes
 }
