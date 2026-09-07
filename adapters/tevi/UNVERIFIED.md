@@ -57,8 +57,8 @@ entry without one.
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
 The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
-The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
-same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+The launcher reads `"autostart"` out of the same config.json the client will read (the GAME ROOT, and since 2026-09-05 nowhere
+else -- the mod folder stopped being searched with `31242013`), by a hand scan for `"autostart": false`; absent or
 anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `CoreLauncher.ConfigSaysNoAutostart`, checked right after the variable in `TickDisconnected`; the log line is `"autostart": false in config.json -- not starting a core`. **What to watch:**
 with `false` in the file, the game comes up with no client started and the log line naming the reason;
 with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten

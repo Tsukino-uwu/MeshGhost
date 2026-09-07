@@ -48,7 +48,7 @@ entry without one.
 - OPEN, NO PRIORITY (the user's call) — **one single afterimage appears whenever a looping recording restarts, and probably whenever any ghost spawns** (the user, on screen, 2026-09-06). Not severe and not queued for a fix; logged so it is on the record. A loop seam IS a despawn plus a respawn by design (`replayPlayer.seam`), which is why the two cases are likely one.
 - DONE — the stuck blue sword/body outline: CAUSE FOUND AND FIX CONFIRMED 2026-09-05 (`VERIFIED.md`): the afterimage sweep stripped the PLAYER's body through `BP_AfterImage_C.cachedMesh`; both strips now check ownership. The outline on the player BEHIND a ghost stays, by the user's call (option 3; stencil is ignored by the outline pass).
 - OPEN, HIGH — **v1.1.7 CRASHES: a NEW fault site, exe+0x36CCF98, inside the engine's skeletal-mesh reset chain; three dumps on the user's machine 20:56/21:01/21:02 (an Archipelago connect, a zone change) plus a tester's, none at that site in ~90 dumps since 2026-08-12.** The tester's dump has our frames: `game_thread_tick` (weapon-model apply) -> `call_set_skeletal_mesh_asset` -> ProcessEvent -> the fault, with a chaser's `weapon_mesh` after a swap. The user's two have NO frame of ours: engine tick -> Blueprint -> a hooked native -> the same chain, i.e. state v1.1.7 left behind. v1.1.7 ran a FULL SetSkeletalMeshAsset of the stock sword onto every ghost's hand at spawn plus two raw property writes. Hardened build `A81C7D23` deployed 21:03 (same-asset = no call; setter only; resolver refuses destroyed assets; Skeleton must be alive) -- UNPROVEN; the crash watcher is armed. Entry below.
-- READY — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. What to look at: with the same weapon mod on both machines, the peer's ghost holds THEIR sword, and a thrown one flies as that model; without the mod, the stock sword and one throttled warning in the log. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
+- DONE — WEAPON MODEL SYNC, built 2026-09-05 (v1.1.7): a peer's sword asset is sent as `weapon_mesh` and applied to their ghost's hand `WeaponMesh` (and a live flyer) through the outfit recipe. **CONFIRMED on screen 2026-09-06** (`VERIFIED.md`) once the entry below fixed what was actually blocking it -- the sync waited on a flag this build does not reflect. Both sides need v1.1.7. Before this, both players confirmed a modded sword showed as stock -- `documentation.md`, `ideas.md`.
 - DONE — a tester's EXCEPTION_ACCESS_VIOLATION (2026-09-05) was NOT ours: their `UE4SS.log` showed the old UE4SS 2.5 layout (`Win64\Mods\`), no C++ mod started from `enabled.txt`, not one `[MeshGhostPseudo]` line -- our folder sat unread beside an older Archipelago install's runtime. A clean game reinstall plus both drags fixed it. Lesson for the README: an old UE4SS must be let go of, or nothing of ours loads.
 - OPEN, NO PRIORITY — the NAMETAG sometimes sits too LOW / in the wrong place over a ghost (user, 2026-09-05, two-machine session); rare and inconsistent, no reproduction. If seen again: which ghost, what it was doing (crouch? slide? outfit swap? just spawned?), and whether it recovered on its own -- the tag rewrites its transform every tick (`by-lesson.md`, 2026-09-05), so a low tag is a wrong INPUT to that rewrite (the pawn's capsule half-height or the mesh offset), not a stale one.
 - OPEN, NO PRIORITY — seen ONCE 2026-09-05 in a two-machine session: a remote peer's ghost flashed red (took damage), vanished on their reset-to-save, and came back GLITCHED (body gone but for scattered fragments, sword and blob shadow intact); the watcher's own reset-to-save cleared it; the peer saw nothing; not reproduced. Entry below.
@@ -405,8 +405,8 @@ carries the same DLL and a client rebuilt from the same day's source):**
 
 1. **Distance tiers** (`apply_ghost_distance_tier`; `docs/config.md` has the three keys) on the
    user's own numbers: *"3k+ throttle, 5k+ throttle bit more/almost fully, 10-11k+ despawn"*. Full
-   under `ghost_range_throttle` (3000); the engine's update-rate optimization on the three skeletal
-   meshes from there; from `ghost_range_far` (5000) the animation paused and the skeleton frozen
+   under `ghost_range_throttle` (6500); the engine's update-rate optimization on the three skeletal
+   meshes from there; from `ghost_range_far` (8500) the animation paused and the skeleton frozen
    (the model still moves as a whole); from `ghost_range` (10500) DORMANT -- `SetActorHiddenInGame`,
    actor tick off, movement tick off, animation paused, and the adapter `continue`s past that ghost
    in its loop. Dormant instead of despawned for the reason `ideas.md` 7 gives (a spawn is the
@@ -1171,8 +1171,8 @@ the controller which pawn it drives now.
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 
 The user's call: *"even me that is somewhat tech savvy, has no clue what 'an environment variable' means."*
-The launcher reads `"autostart"` out of the same config.json the client will read (own folder first, the
-same search order as everything else it resolves), by a hand scan for `"autostart": false`; absent or
+The launcher reads `"autostart"` out of the same config.json the client will read (the GAME ROOT, and since 2026-09-05 nowhere
+else -- the mod folder stopped being searched with `31242013`), by a hand scan for `"autostart": false`; absent or
 anything else means start. `MESHGHOST_NO_AUTOSTART` still counts as a no. `config_disables_autostart()` beside `resolve_bridge_base_port`, checked in the constructor after the variable; the log line is `"autostart": false in config.json -- not starting a core`. **What to watch:**
 with `false` in the file, the game comes up with no client started and the log line naming the reason;
 with `true` (the shipped value) the client starts exactly as before. Root and per-game READMEs rewritten
