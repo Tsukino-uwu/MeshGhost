@@ -689,7 +689,7 @@ func (c *Core) writerFor(nd transport.Transport) *adapterWriter {
 	// recorder's lock is held, where running it inline deadlocks
 	// (FuzzEverything, 2026-09-06). Both halves are idempotent, so the read
 	// loop's own disconnect call afterwards is a no-op.
-	w := newAdapterWriter(nd, func() {
+	w := newAdapterWriter(nd, &c.stats.rendersSuperseded, func() {
 		wasAdapter, owns, relay := c.releaseAdapterSlot(nd)
 		if wasAdapter || owns {
 			go c.finishBridgeTeardown(wasAdapter, owns, relay)

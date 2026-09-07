@@ -68,6 +68,15 @@ type coreStats struct {
 	// leaving -- see remoteStatesAt. A non-zero value in a healthy session
 	// means Leaves are not arriving, which is worth knowing on its own.
 	remotesAgedOut uint64
+
+	// rendersSuperseded counts ghost positions replaced in the bridge's
+	// outbound queue before the adapter could read them (core/adapterwriter.go).
+	// It is THE number that answers "is the bridge the limit here": zero means
+	// the adapter kept up with everything the core produced, and a climbing
+	// value means it is being sent the freshest positions and spared the rest.
+	// Not a fault -- that is the design -- but it is what a tester at 350
+	// ghosts should be able to point at.
+	rendersSuperseded uint64
 }
 
 // Stats is one snapshot of what this core has done and what it currently
@@ -105,6 +114,11 @@ type Stats struct {
 	// RemotesAgedOut is how many peers were despawned for silence rather than
 	// for a Leave.
 	RemotesAgedOut uint64
+
+	// RendersSuperseded is how many ghost positions were replaced in the
+	// bridge queue before the adapter read them -- how far behind the game
+	// has been running, in the only unit that matters.
+	RendersSuperseded uint64
 
 	// What the prediction actually did, as opposed to what it was allowed to
 	// do. ExtrapolatedRenders counts render-set entries that were predicted
@@ -188,6 +202,7 @@ func (c *Core) Stats() Stats {
 		PrevCarried:          atomic.LoadUint64(&c.stats.prevCarried),
 		PrevRecovered:        atomic.LoadUint64(&c.stats.prevRecovered),
 		RemotesAgedOut:       atomic.LoadUint64(&c.stats.remotesAgedOut),
+		RendersSuperseded:    atomic.LoadUint64(&c.stats.rendersSuperseded),
 	}
 	s.PeersRendered = int(atomic.LoadInt64(&c.renderedNow))
 	c.mu.Lock()
@@ -241,6 +256,9 @@ func (s Stats) String() string {
 	if s.ExtrapolatedRenders > 0 {
 		out += fmt.Sprintf(" | predicted %d renders (avg %.0fms ahead, max %dms, %d hit the cap)",
 			s.ExtrapolatedRenders, s.ExtrapolatedAvgMs, s.ExtrapolatedMaxMs, s.ExtrapolationsCapped)
+	}
+	if s.RendersSuperseded > 0 {
+		out += fmt.Sprintf(" | %d stale ghost position(s) superseded before the game read them (it is behind, not broken)", s.RendersSuperseded)
 	}
 	if s.MovingRenders > 0 {
 		out += fmt.Sprintf(" | buffer dry on %d of %d moving renders (avg %.0fms, max %dms past the newest sample)",

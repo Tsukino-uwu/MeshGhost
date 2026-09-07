@@ -40,6 +40,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"sync/atomic"
 
 	"github.com/Tsukino-uwu/MeshGhost/bridge"
 	"github.com/Tsukino-uwu/MeshGhost/transport"
@@ -104,14 +105,34 @@ type adapterWriter struct {
 	// stalls counts how many times the queue was non-empty when the writer
 	// came back for more, i.e. the adapter did not keep up with a whole tick.
 	stalls uint64
+	// behind is whether the adapter is CURRENTLY not keeping up, so the log
+	// gets one line when that starts and one when it ends rather than a line
+	// per superseded render -- which at 512 ghosts would be tens of thousands
+	// a second and would itself become the bottleneck. droppedAtBehind is the
+	// count when it started, so the recovery line can say what it cost.
+	behind bool
+	// droppedAtBehind is the count just BEFORE the first supersede of the
+	// current behind-period, so the recovery line reports what that period
+	// actually cost. droppedAtLastPass is the count at the end of the previous
+	// drain pass, which is what "nothing was superseded while the last batch
+	// was in flight" is measured against.
+	droppedAtBehind   uint64
+	droppedAtLastPass uint64
+	// superseded is the Core's cumulative counter, added to as renders are
+	// coalesced. A pointer rather than a call back into the Core because
+	// this runs under w.mu on the frame path: an atomic add is the whole
+	// cost, and counters here are cumulative for the life of the process
+	// (core/stats.go) rather than per connection.
+	superseded *uint64
 }
 
-func newAdapterWriter(nd transport.Transport, onDead func()) *adapterWriter {
+func newAdapterWriter(nd transport.Transport, superseded *uint64, onDead func()) *adapterWriter {
 	w := &adapterWriter{
-		nd:      nd,
-		onDead:  onDead,
-		pending: make(map[string]int),
-		wake:    make(chan struct{}, 1),
+		nd:         nd,
+		onDead:     onDead,
+		superseded: superseded,
+		pending:    make(map[string]int),
+		wake:       make(chan struct{}, 1),
 	}
 	go w.run()
 	return w
@@ -138,7 +159,22 @@ func (w *adapterWriter) enqueue(m queuedMsg) bool {
 			// stable order rather than sorted by who moved last.
 			w.q[i] = m
 			w.dropped++
+			if w.superseded != nil {
+				atomic.AddUint64(w.superseded, 1)
+			}
+			// ONE LINE WHEN IT STARTS, not one per superseded render: at 512
+			// ghosts that would be tens of thousands a second and the logging
+			// would become the bottleneck it is reporting on.
+			first := !w.behind
+			if first {
+				w.behind = true
+				w.droppedAtBehind = w.dropped - 1
+			}
 			w.mu.Unlock()
+			if first {
+				log.Printf("core: the adapter is not keeping up -- superseding stale ghost positions " +
+					"rather than queueing them (the session is fine; this is the bridge shedding load)")
+			}
 			return true
 		}
 	}
@@ -195,7 +231,21 @@ func (w *adapterWriter) run() {
 		w.q = nil
 		w.pending = make(map[string]int)
 		w.stalls++
+		// CAUGHT UP means nothing was superseded while the previous batch was
+		// in flight: the adapter drank the whole last batch before the frame
+		// path could outrun it again. Compared against the count at the END of
+		// the previous pass, not against the count when `behind` began -- that
+		// only ever grows, so comparing to it could never become true.
+		recovered := uint64(0)
+		if w.behind && w.dropped == w.droppedAtLastPass {
+			w.behind = false
+			recovered = w.dropped - w.droppedAtBehind
+		}
+		w.droppedAtLastPass = w.dropped
 		w.mu.Unlock()
+		if recovered > 0 {
+			log.Printf("core: the adapter is keeping up again (%d stale ghost position(s) superseded while it was behind)", recovered)
+		}
 
 		for _, m := range batch {
 			if err := w.nd.Send(m.env); err != nil {

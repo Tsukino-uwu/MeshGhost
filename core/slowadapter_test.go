@@ -210,3 +210,63 @@ func TestBridgeWritersDoNotOutliveTheirConnections(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestTheSlowAdapterIsReportedOnceEachWay: the user asked for both a log line
+// when the bridge starts shedding load and one when it stops, and the running
+// count in stats (2026-09-07). One line each way is the whole point -- a line
+// per superseded render would be tens of thousands a second at 512 ghosts and
+// the logging would become the bottleneck it is reporting on.
+func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
+	// The struct directly, with NO writer goroutine: this exercises the
+	// enqueue side alone, which is where coalescing, the counter and the
+	// behind-transition live. Starting a real writer would drain the queue
+	// and there would be nothing left to assert about its depth.
+	var superseded uint64
+	w := &adapterWriter{
+		superseded: &superseded,
+		pending:    make(map[string]int),
+		wake:       make(chan struct{}, 1),
+	}
+
+	render := func(id string, x float64) queuedMsg {
+		env, _ := marshalBridge(bridge.TypeRenderRemote, bridge.RenderRemote{
+			PlayerID: id, State: protocol.State{Position: []float64{x, 0}},
+		})
+		return queuedMsg{env: env, renderOf: id}
+	}
+
+	// First render for each peer queues; every one after that supersedes.
+	for _, id := range []string{"chaser:1", "chaser:2"} {
+		if !w.enqueue(render(id, 0)) {
+			t.Fatalf("%s: first render refused", id)
+		}
+	}
+	if got := atomic.LoadUint64(&superseded); got != 0 {
+		t.Fatalf("%d superseded after one render each -- the first for a peer has nothing to replace", got)
+	}
+	for i := 1; i <= 50; i++ {
+		w.enqueue(render("chaser:1", float64(i)))
+	}
+	if got := atomic.LoadUint64(&superseded); got != 50 {
+		t.Fatalf("superseded = %d after 50 replacements, want 50", got)
+	}
+
+	// THE QUEUE DID NOT GROW: that is the property the whole design rests on.
+	w.mu.Lock()
+	depth := len(w.q)
+	behind := w.behind
+	w.mu.Unlock()
+	if depth != 2 {
+		t.Fatalf("queue holds %d entries after 52 renders for 2 peers, want 2 -- "+
+			"coalescing is what bounds this, and without it the queue grows without limit", depth)
+	}
+	if !behind {
+		t.Fatal("the writer does not consider the adapter behind after 50 superseded renders")
+	}
+
+	// And the newest position is the one that survived, not the oldest.
+	last := render("chaser:1", 50)
+	if string(w.q[0].env) != string(last.env) {
+		t.Fatal("the queued render for chaser:1 is not the newest one -- coalescing kept a stale position")
+	}
+}
