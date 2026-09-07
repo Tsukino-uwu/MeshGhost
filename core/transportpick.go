@@ -88,7 +88,26 @@ func (c *Core) resolveTransport(addr, gameID, room, displayName, roomCode, gameV
 // place so the discovery leg and the session leg can never disagree about
 // what was asked for.
 func (c *Core) tlsOptions() netx.TLSOptions {
-	return netx.TLSOptions{Mode: c.TLS, Fingerprint: c.TLSFingerprint}
+	mode := c.TLS
+	// A PIN IMPLIES REQUIRED. Under tlsx.Auto a failed pin and "this relay is
+	// too old to speak TLS" are the same event -- tlsx.Client returns an error
+	// either way -- and Auto's whole job is to fall back to plaintext on that
+	// error. So setting a fingerprint under Auto turned MITM DETECTION INTO AN
+	// AUTOMATIC DOWNGRADE: an attacker who refuses the handshake, or presents
+	// any certificate at all, gets a plaintext session, and the room code
+	// crosses the discovery leg in the clear. docs/security.md's "a relay
+	// presenting anything else is then refused rather than trusted" was false
+	// for exactly the configuration that bothered to set a pin.
+	//
+	// Escalating here rather than at the flag covers embedders too, and keeps
+	// the discovery leg and the session leg agreeing -- which is what this
+	// function exists for. cmd/meshghost refuses a pin with -transport udp up
+	// front so the user gets that error at startup instead of a dial failure.
+	// Found by the 2026-09-07 review; the user's call to force it (D2).
+	if mode == tlsx.Auto && c.TLSFingerprint != "" {
+		mode = tlsx.Required
+	}
+	return netx.TLSOptions{Mode: mode, Fingerprint: c.TLSFingerprint}
 }
 
 // queryTransports performs the tcp handshake leg: connect, ask what the

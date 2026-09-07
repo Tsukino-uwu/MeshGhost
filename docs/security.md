@@ -67,6 +67,13 @@ string by some other route puts it in `"tls_fingerprint"`. A relay presenting an
 refused rather than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no
 proof of who is on the other end.
 
+**Setting a pin forces `tls` to `required` for that session** (since 2026-09-07). It has to: under
+`auto`, "the pin did not match" and "this relay is too old to speak TLS" reach the client as the same
+error, and `auto`'s job is to fall back to plaintext on that error — so a pin under the shipped
+default turned detection of an interfering relay into an automatic downgrade *to* it. The escalation
+is logged when it happens. A pin therefore cannot be combined with `-transport udp`, which has no
+handshake to authenticate; that is refused at startup rather than at dial time.
+
 **The pin authenticates the tcp leg only.** `netx.DialWithTLS` returns a plain dial for anything
 that is not tcp, so the fingerprint is never consulted on the quic path; `netx/quicconn`'s client
 always sets `InsecureSkipVerify`, and `quicconn.Listen` builds its own certificate — so a relay

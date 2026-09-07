@@ -866,6 +866,20 @@ func main() {
 			"%q. Choose quic (encrypted, same loss behaviour) or tcp, or set -tls off if you "+
 			"really want plaintext udp.", tlsChoice)
 	}
+	// A pin means tls is required (see Core.tlsOptions), so it collides with udp
+	// the same way -- and it has to say so HERE, at startup, rather than as a
+	// dial error three seconds later that names neither the pin nor the reason.
+	if tlsChoice == tlsx.Auto && *tlsPin != "" && transportKind == netx.UDP {
+		log.Fatalf("meshghost: tls_fingerprint pins the relay's certificate, which requires a TLS " +
+			"handshake, but -transport udp cannot be encrypted (Go has no DTLS) so there is no " +
+			"certificate to pin. Choose quic (encrypted, same loss behaviour) or tcp, or clear " +
+			"tls_fingerprint if you meant an unauthenticated udp session.")
+	}
+	if tlsChoice == tlsx.Auto && *tlsPin != "" {
+		log.Printf("meshghost: tls_fingerprint is set, so tls is REQUIRED for this session " +
+			"rather than \"auto\" -- a pin that fell back to plaintext when it failed to match " +
+			"would announce an interfering relay by connecting to it anyway.")
+	}
 
 	c := core.New()
 	c.Transport = transportKind
