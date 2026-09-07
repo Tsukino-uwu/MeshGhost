@@ -903,7 +903,7 @@ restatement of the flags. None of this is fixed; it is recorded so no rate or in
 on it unexamined.
 
 **Tests that cannot fail, including two of ours written this session.** The suite audit reproduced a
-live flake rather than arguing one: `waitAdapterDrained`, added hours earlier with the asynchronous
+live flake rather than arguing one: `waitAdapterDrained`, added the same day (commit `1f44bc29`) with the
 writer, polled `queueLen() == 0` — but `run()` clears the queue when it TAKES a batch and writes it
 several syscalls later, so the helper raced the wire it exists to observe. 1 failure in 500 with the
 old helper, 0 in 1500 with `idle()`. `ci-fuzz.sh` exited 0 when a target name matched nothing,
