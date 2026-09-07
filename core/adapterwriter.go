@@ -68,6 +68,23 @@ var (
 // for a stuck game.
 const adapterQueueCap = 8192
 
+// adapterBehindThreshold is how many renders must be superseded WITHIN ONE
+// drain pass before the log says the adapter is not keeping up.
+//
+// IT EXISTS BECAUSE THE FIRST VERSION HAD NO THRESHOLD AT ALL, and the user's
+// first live run with 512 chasers showed what that costs: 31 "not keeping up"
+// / "keeping up again" pairs in four minutes, and 23 of them reported a single
+// superseded position. A one-frame overrun is normal and is exactly what the
+// queue is for -- saying so is noise, and a log that cries wolf 31 times is
+// worse than one that says nothing.
+//
+// 256 is read off that same run: the real episodes superseded 2012, 284, 275,
+// 211, 180 and 75, while the noise was 1. Deliberately coarse -- this is a
+// legibility threshold for a human reading a log, not a control input, and the
+// exact number matters to nobody. The COUNT is still exact in Stats
+// (RendersSuperseded) whether or not a line was printed.
+const adapterBehindThreshold = 256
+
 // queuedMsg is one already-marshalled line plus what it is about, so a
 // replacement can find it without re-parsing anything.
 type queuedMsg struct {
@@ -164,11 +181,14 @@ func (w *adapterWriter) enqueue(m queuedMsg) bool {
 			}
 			// ONE LINE WHEN IT STARTS, not one per superseded render: at 512
 			// ghosts that would be tens of thousands a second and the logging
-			// would become the bottleneck it is reporting on.
-			first := !w.behind
+			// would become the bottleneck it is reporting on. And not until
+			// the adapter is meaningfully behind rather than one frame behind
+			// -- see adapterBehindThreshold, and the 31 flapping pairs that
+			// put it there.
+			first := !w.behind && w.dropped-w.droppedAtLastPass >= adapterBehindThreshold
 			if first {
 				w.behind = true
-				w.droppedAtBehind = w.dropped - 1
+				w.droppedAtBehind = w.droppedAtLastPass
 			}
 			w.mu.Unlock()
 			if first {

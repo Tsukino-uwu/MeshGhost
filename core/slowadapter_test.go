@@ -244,11 +244,26 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 	if got := atomic.LoadUint64(&superseded); got != 0 {
 		t.Fatalf("%d superseded after one render each -- the first for a peer has nothing to replace", got)
 	}
+	// BELOW THE THRESHOLD FIRST: a handful of superseded positions is a normal
+	// one-frame overrun and must NOT be announced. The user's first live run
+	// logged 31 behind/recovered pairs in four minutes, 23 of them for a single
+	// superseded position, which is the noise this guards against.
 	for i := 1; i <= 50; i++ {
 		w.enqueue(render("chaser:1", float64(i)))
 	}
 	if got := atomic.LoadUint64(&superseded); got != 50 {
 		t.Fatalf("superseded = %d after 50 replacements, want 50", got)
+	}
+	w.mu.Lock()
+	quietlyBehind := w.behind
+	w.mu.Unlock()
+	if quietlyBehind {
+		t.Fatalf("the writer announced the adapter was behind after only 50 superseded renders "+
+			"(threshold %d) -- that is a one-frame overrun and logging it flaps", adapterBehindThreshold)
+	}
+	// Now past it.
+	for i := 0; i < adapterBehindThreshold; i++ {
+		w.enqueue(render("chaser:1", float64(i)))
 	}
 
 	// THE QUEUE DID NOT GROW: that is the property the whole design rests on.
@@ -265,7 +280,7 @@ func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 	}
 
 	// And the newest position is the one that survived, not the oldest.
-	last := render("chaser:1", 50)
+	last := render("chaser:1", float64(adapterBehindThreshold-1))
 	if string(w.q[0].env) != string(last.env) {
 		t.Fatal("the queued render for chaser:1 is not the newest one -- coalescing kept a stale position")
 	}
