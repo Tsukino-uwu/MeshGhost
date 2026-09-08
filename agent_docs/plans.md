@@ -876,3 +876,66 @@ every 100+ figure so far shared one box with the relay and all N synthetic cores
 
 **[agent_docs/README.md](README.md) is the doc index.** A dozen entries were restated here until
 2026-08-30; a second index drifts against the first.
+
+## Compatibility: a version floor both ways, and a reject code (decided 2026-09-08)
+
+**Decided, not started.** The reasoning, the Archipelago comparison and the alternatives are in
+[ideas.md](ideas.md), "a protocol_version FLOOR and a machine-readable reject reason"; this is the
+shape that was chosen and the order to build it in. A contract revision, so it needs an ADR in
+`adr/` indexed in `architecture.md` when it lands.
+
+**Both changes are ADDITIVE — no protocol bump.** JSON ignores unknown fields, so a new relay
+talking to an old core, or a new core to an old adapter, degrades to today's behaviour. That is
+load-bearing, not a convenience: a change whose whole purpose is to prevent flag days must not
+require one to deploy.
+
+### The three decisions (the user, 2026-09-08)
+
+1. **The floor runs BOTH ways.** The relay refuses a client below its minimum, AND the relay
+   advertises its own protocol version in `welcome` so a current client will not sit in a v0.1.0
+   relay's room. The user's framing: *"so a current client don't try to connect to a v0.1.0 server"*.
+   - **A relay that advertises NOTHING is REFUSED** — the user's call, 2026-09-08, overriding the
+     softer allow-and-log this entry first proposed: *"no version = older/unsupported version; if
+     its not at or above the current version, it should not work"*.
+   - **Know what that costs before building it.** This is the ONE part of the plan that is not
+     additive: the first client carrying the check refuses every relay built before the field exists,
+     so relay operators must update in lockstep with players. Accepted deliberately, and consistent
+     with the 2026-09-07 `game_version` decision ("assume everyone runs the latest release, do not
+     enforce it") — the difference being that relays here are friend-hosted and short-lived, not
+     infrastructure somebody else depends on. It also means this half cannot be shipped quietly: the
+     release notes have to say the relay must be updated too.
+2. **The wire carries a code AND an explicit `retryable` flag.** The client maps codes it knows and
+   falls back to the flag for codes it does not. This is what removes today's genuine footgun:
+   `core.isPermanentRejectReason` treats anything UNRECOGNISED as permanent, so a reason a client has
+   not heard of makes it give up forever.
+3. **Go side first; adapters per-game as each gets a play session.** The Go half is
+   self-verifiable; the adapter half changes what a player sees when a connection is refused and
+   needs a game. Adapters keep working untouched in the meantime, because the field is additive.
+
+### Build order
+
+1. **`protocol`** — `MinProtocolVersion`; `Reject` gains `Code` and `Retryable`; a code constant per
+   existing reason (the prose constants stay, for logs). `welcome` gains the relay's protocol
+   version. Round-trip and bounds tests; the reject-reason value test added 2026-09-08
+   (`core/rejectreason_wirefreeze_test.go`) extends to cover code and flag together, so a code and
+   its prose cannot drift apart.
+2. **`relay`** — `>=` against the minimum instead of `!=` against the version; every
+   `rejectHandshake` call site passes a code; `welcome` carries the version. The refusals are already
+   funnelled through one closure as of 2026-09-08, so there is one place to change.
+3. **`core`** — `isPermanentRejectReason` prefers the code, falls back to the flag, and only then to
+   today's prose table (for an old relay). Refuse a relay below the core's own floor; allow-and-log
+   when the relay advertises nothing.
+4. **`bridge`** — `Reject` gains the same two fields. Both are pinned by the wire-freeze tests added
+   2026-09-08, which will fail until the new fields are listed — that is the gate working.
+5. **The four adapters, one per play session.** Branch on the code; keep the prose for the log. The
+   port-walk behaviour does NOT change: `busy` still means walk to the next port, which is correct
+   and is the common case. What changes is that a PERMANENT refusal becomes legible instead of being
+   retried in silence — which is the live D4 defect, where every permanent reason contains the word
+   "relay" and only `busy` does not, so a wrong room code is treated as "the relay is briefly down"
+   and retried forever with the player never told.
+
+### What would say it worked
+
+A wrong `room_code` should put one line in front of the player naming the setting to fix, and stop
+retrying — instead of today's silent forever-retry. That is a screen test on a real game, so it is
+the user's to confirm, per the standing split.

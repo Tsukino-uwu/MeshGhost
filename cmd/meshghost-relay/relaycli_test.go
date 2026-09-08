@@ -167,8 +167,8 @@ func TestShutdownTellsEveryConnectedClient(t *testing.T) {
 }
 
 // TestATrackedConnectionIsForgottenWhenItCloses keeps the tracking from becoming
-// a leak: a relay runs for weeks and a map keyed by every connection it ever
-// accepted would grow for all of them.
+// a leak: a relay is a long-lived process, and a map keyed by every connection it
+// ever accepted would grow once per join for the life of that process.
 func TestATrackedConnectionIsForgottenWhenItCloses(t *testing.T) {
 	raw, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

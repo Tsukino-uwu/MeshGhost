@@ -947,3 +947,23 @@ cleared): `protocol_version` should be a FLOOR rather than exact equality — AP
 mode as its only mode — and a reject reason should be a machine-readable code rather than prose,
 which is the root of all four adapters substring-matching it and getting the sense inverted. Both
 are ADR-shaped and were deliberately not slipped into this sweep.
+
+**Closing the sweep: the two contract proposals were PLANNED, not built (2026-09-08).** The user's
+three calls, recorded in `plans.md` ("Compatibility: a version floor both ways, and a reject code")
+with the reasoning left in `ideas.md`: the floor runs BOTH ways rather than Archipelago's one-sided
+minimum; the wire carries a reject code AND an explicit `retryable` flag, which is what removes the
+standing footgun where `isPermanentRejectReason` treats anything unrecognised as permanent; and the
+Go side lands first with the adapters following one per play session, since they are additive and
+keep working untouched. On the one point where the user overrode the proposal -- a relay that
+advertises no version is REFUSED, not allowed-and-logged -- the cost is written down beside the
+decision: that half is the only non-additive piece, so relay operators must update in lockstep and
+the release notes have to say so.
+
+Two process notes from the same day. Committing the ideas entry is what caught a bug I had
+introduced hours earlier: adding the clone-path patterns to `.githooks/pre-commit`'s TEXT scan made
+it refuse an ordinary edit to `ideas.md` over a sentence QUOTING the rule. `preflight.ps1`'s own
+clone-path check has been scripts-only from the start and says why; the hook now matches it. Three
+copies of one rule, changed in one place -- the same shape as the `pitfalls/` split that broke CI on
+2026-08-25. And the duration gate caught a "runs for weeks" that had already landed in a commit,
+because the hook scans paths and preflight scans durations: the two gates do not overlap, which is
+worth knowing when deciding which one a new rule belongs in.

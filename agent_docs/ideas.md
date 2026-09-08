@@ -3043,8 +3043,10 @@ worth its cost; the numbers above are already gathered for when it comes.
 
 ## Go side: a protocol_version FLOOR and a machine-readable reject reason (2026-09-08)
 
-**Two contract changes that came out of the 2026-09-08 adversarial review, both ADR-shaped, neither
-started.** They are one idea in two halves: the first decides *who may talk to whom*, the second is
+**Two contract changes that came out of the 2026-09-08 adversarial review, both ADR-shaped.**
+**DECIDED 2026-09-08 and moved to `plans.md`** ("Compatibility: a version floor both ways, and a
+reject code") -- the shape chosen and the build order live there; the reasoning and the
+alternatives stay here. They are one idea in two halves: the first decides *who may talk to whom*, the second is
 what makes a refusal legible to the player, and doing the first without the second produces a relay
 that refuses correctly and a game that says nothing.
 
