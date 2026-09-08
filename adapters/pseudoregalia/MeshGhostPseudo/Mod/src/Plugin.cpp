@@ -10671,6 +10671,17 @@ namespace MeshGhostPseudo
             // the driven ghost instead of inside it, for the 1:1 side-by-side. 0,0 = on top.
             double mirror_dx = 0.0;
             double mirror_dy = 0.0;
+            // stand_fn=<function>: on the stick's RISING EDGE while the driven pawn is seated
+            // (moveState 8), call this no-arg function on the pawn -- the stand-up hunt. The
+            // game's own stand-up is the rising edge of movement input while seated
+            // (`sit_watch.lua`), and it runs in a handler that reads the BOUND stick, zero on a
+            // clone. `EndInteract` was the first candidate and did nothing (Lua prototype,
+            // 2026-09-09 01:08: called on every edge, moveState stayed 8). Empty = call nothing.
+            // Only a function whose reflected parameter size is 0 is ever called; a candidate
+            // with parameters is logged and refused (a zero-filled actor param is a null
+            // dereference inside the Blueprint VM). Edge-triggered only: a level trigger was
+            // exactly wrong for the table glitch.
+            std::string stand_fn;
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
@@ -10756,6 +10767,10 @@ namespace MeshGhostPseudo
                 else if (key == "power_release")
                 {
                     cfg.power_release = std::clamp(std::atoi(value.c_str()), -1, 99);
+                }
+                else if (key == "stand_fn")
+                {
+                    cfg.stand_fn = value;
                 }
                 else if (key == "mirror_offset")
                 {
@@ -11003,6 +11018,65 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] DRIVE: {} private game instance OFF (private_gi=0{}) -- the ref stays as the decouple left it.\n"),
                                  to_wide_ascii(id), local_pawn ? STR("") : STR(", and no local pawn"));
                 }
+                // THE PAWN'S OWN HEALTH COMPONENT BACK (2026-09-09, the hurt-variant sit's cause,
+                // user-confirmed on the Lua prototype: "its not hurt anymore"). Health on the
+                // instance (80, logged) and the save's upgrade fields both left the sit hurt; the
+                // pawn-diff could not see it because it is an OBJECT ref -- `BP_HpHitable`, the
+                // pawn's own component, nulled at spawn. Restored from the decouple's stash (own
+                // component only), read back through the ref, `CurrentHp` logged through it.
+                if (remote.drive_own_hitable)
+                {
+                    if (UObject** ref = mg_property_value<UObject*>(ghost, STR("BP_HpHitable")))
+                    {
+                        *ref = remote.drive_own_hitable;
+                        UObject** back = mg_property_value<UObject*>(ghost, STR("BP_HpHitable"));
+                        const double* hp = back && *back ? mg_property_value<double>(*back, STR("CurrentHp")) : nullptr;
+                        const double* mx = back && *back ? mg_property_value<double>(*back, STR("maxHP")) : nullptr;
+                        Output::send(STR("[MeshGhostPseudo] DRIVE: {} own BP_HpHitable restored -> {} (CurrentHp={} maxHP={} through the ghost's ref).\n"),
+                                     to_wide_ascii(id), back && *back ? (*back)->GetName() : STR("NULL -- write did not take"),
+                                     hp ? *hp : -1.0, mx ? *mx : -1.0);
+                    }
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] DRIVE: {} has no stashed own BP_HpHitable -- the hurt sit is expected on this pawn.\n"), to_wide_ascii(id));
+                }
+                // THE STAND-UP CANDIDATES' SIGNATURES, once per session, from C++ (2026-09-09: a
+                // Lua probe walking these same UFunctions' parameters crashed the game at the
+                // fifth one -- `GetPropertyClass()` on a non-object parameter is an access
+                // violation no pcall catches; this is the file's own safe walk, the one the
+                // pose-function dump uses). Names from the running class's own function list
+                // (`probes/probe_pawndiff/interactfns` census), size and parameter types only.
+                static bool signatures_logged = false;
+                if (!signatures_logged)
+                {
+                    signatures_logged = true;
+                    for (const wchar_t* fname : {STR("EndInteract"), STR("BPI_EndInteract"), STR("exitTransition"), STR("enterTransition"),
+                                                 STR("tryFinishHeal"), STR("trySitHeal"), STR("healPlayer"), STR("healDing"),
+                                                 STR("BPI_TryInteract"), STR("BPI_InteractConfirm")})
+                    {
+                        UFunction* fn = mg_cached_function(ghost, fname);
+                        if (!fn)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] DRIVE: stand-up candidate {}: NOT FOUND on the pawn.\n"), fname);
+                            continue;
+                        }
+                        std::wstring params;
+                        for (FProperty* param : TFieldRange<FProperty>(fn, EFieldIterationFlags::Default))
+                        {
+                            if (!param)
+                            {
+                                continue;
+                            }
+                            if (!params.empty())
+                            {
+                                params += STR(", ");
+                            }
+                            params += param->GetName() + STR(":") + param->GetClass().GetName();
+                        }
+                        Output::send(STR("[MeshGhostPseudo] DRIVE: stand-up candidate {}: parms={} [{}]\n"), fname, fn->GetPropertiesSize(), params);
+                    }
+                }
             }
             return remote.driven;
         }
@@ -11237,6 +11311,32 @@ namespace MeshGhostPseudo
                         *amount = (std::min)(len, 1.0);
                     }
                     mg_write_bool(ghost, STR("hasMovementInput?"), true);
+                    if (!remote.drive_move_live && !g_drive.stand_fn.empty())
+                    {
+                        // The stick's rising edge (this tick moves, the last did not). Seated?
+                        const uint8_t* ms = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                        if (ms && *ms == 8)
+                        {
+                            const std::wstring fname = to_wide_ascii(g_drive.stand_fn);
+                            UFunction* fn = mg_cached_function(ghost, fname.c_str());
+                            if (!fn)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stand_fn {}: NOT FOUND on the pawn.\n"), to_wide_ascii(id), fname);
+                            }
+                            else if (fn->GetPropertiesSize() != 0)
+                            {
+                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stand_fn {}: REFUSED -- it takes {} byte(s) of parameters; only a no-arg function is called here.\n"),
+                                             to_wide_ascii(id), fname, fn->GetPropertiesSize());
+                            }
+                            else
+                            {
+                                ghost->ProcessEvent(fn, nullptr);
+                                const uint8_t* after = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stick rising edge while seated -> {} called; moveState {} -> {} (same tick).\n"),
+                                             to_wide_ascii(id), fname, static_cast<int>(*ms), after ? static_cast<int>(*after) : -1);
+                            }
+                        }
+                    }
                     remote.drive_move_live = true;
                 }
                 else if (remote.drive_move_live)
@@ -16258,6 +16358,10 @@ namespace MeshGhostPseudo
         RemoteGhost& remote = remotes[player_id];
         remote.ghost = hijack_target;
         remote.owning_world = world;
+        remote.drive_prepared = false; // a new pawn is a new prepare (see the spawn site)
+        remote.drive_move_live = false;
+        remote.drive_private_gi = nullptr;
+        remote.drive_own_hitable = nullptr;
         FVector current_loc = hijack_target->K2_GetActorLocation();
         remote.target_x = current_loc.X();
         remote.target_y = current_loc.Y();
@@ -16882,6 +16986,12 @@ namespace MeshGhostPseudo
         // (manageRecallIdleFX's internals are IsValid-guarded throughout) and a ghost runs no
         // player input, but that is an argument, not evidence -- hence the flag, which gates the
         // writes themselves and is therefore a real revert.
+        // The pawn's OWN health component, if the reference the decouple is about to null points
+        // at one (2026-09-09): `BP_HpHitable` is a component of the pawn (`documentation.md`), so
+        // a clone brings its own copy, and the sit's hurt/healthy choice reads THROUGH THIS REF --
+        // a driven ghost gets it back at prepare. Stashed only when its outer IS this pawn; a ref
+        // to anything else (the player's own component, say) stays nulled as before.
+        UObject* own_hitable = nullptr;
         if constexpr (GHOST_DECOUPLE_SHARED_STATE)
         {
             // **The ghost's own HITBOX, 2026-08-27 -- BUILT, NEVER TESTED.** Wired at the end of
@@ -17099,6 +17209,17 @@ namespace MeshGhostPseudo
                 if (UObject** ref_ptr = mg_property_value<UObject*>(ghost, shared_ref))
                 {
                     const bool was_set = (*ref_ptr != nullptr);
+                    if (was_set && std::wstring_view(shared_ref) == STR("BP_HpHitable"))
+                    {
+                        const bool own = (*ref_ptr)->GetOuterPrivate() == ghost;
+                        if (own)
+                        {
+                            own_hitable = *ref_ptr;
+                        }
+                        Output::send(STR("[MeshGhostPseudo] ghost decouple: 'BP_HpHitable' pointed at {} ({}); {}.\n"),
+                                     (*ref_ptr)->GetName(), own ? STR("the ghost's OWN component") : STR("NOT the ghost's own -- outer is elsewhere"),
+                                     own ? STR("stashed for a driven ghost's prepare") : STR("not stashed"));
+                    }
                     *ref_ptr = nullptr;
                     Output::send(STR("[MeshGhostPseudo] ghost decoupled: '{}' cleared (was {}).\n"),
                                  shared_ref, was_set ? STR("set") : STR("already null"));
@@ -17210,6 +17331,15 @@ namespace MeshGhostPseudo
         RemoteGhost& remote = remotes[player_id];
         remote.ghost = ghost;
         remote.owning_world = world;
+        // A NEW PAWN IS A NEW PREPARE for the drive rig (2026-09-09, the user's "reset last save":
+        // the level reload destroyed and respawned the driven ghost but kept its RemoteGhost, so
+        // `drive_prepared` stayed true and the respawned pawn ran unprepared -- no collision, no
+        // facing, no private instance, 16 corrections per 10 s, the hurt sit -- until the next
+        // loop seam replaced the entry). A loop seam never hit this because it drops the entry.
+        remote.drive_prepared = false;
+        remote.drive_move_live = false;
+        remote.drive_private_gi = nullptr;
+        remote.drive_own_hitable = own_hitable;
         // A fresh pawn is in the "full" tier by construction; the first loop tick moves it.
         remote.distance_tier = 0;
         remote.spawned_at_tick = tick_count;

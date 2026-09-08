@@ -3398,3 +3398,29 @@ spawn) and one recurring at the same clip moment at exactly the 150 threshold --
 the sit, the correction yanks the pawn mid-sit; unjudged. Power `_1` fired twice per loop, unjudged.
 Everything came down at 00:57 with the game: core exited on its own, relay stopped, scratch stub
 restored, 7777/7778 free.
+
+## 2026-09-09 (01:0x-01:15) — the hurt sit's cause, the stand-up that is not EndInteract, and a crash of my own
+
+The user's read on the last build closed two candidates in one line -- *"the orange was the hurt
+one"* with health 80 on the private instance and the upgrade fields copied -- and the game's own
+documentation had the third: `BP_HpHitable` is the pawn's OWN health component, and the spawn
+decouple nulls the ghost's reference to it. A Lua probe (`probe_pawndiff/Scripts/hitable_restore.lua`)
+found the ghost's own component by outer and wrote the reference back; one loop later: *"it works,
+except it keeps sitting after getting of the chair. its not hurt anymore at least"*. Cause and fix
+filed (`pitfalls/by-lesson.md`). Then *"when i use reset last save, it snaps instead of moving smooth
+and it also looks hurt when sitting"*: the level reload destroyed and respawned the driven pawn but
+kept its `RemoteGhost`, so `drive_prepared` stayed true and the new pawn ran unprepared for 24 s
+(16 corrections per 10 s, no private instance, the hurt sit) until the next loop seam. Both are in
+the DLL now (`0f7a541e7d27`): the own component stashed at decouple and restored at prepare, and a
+spawn resetting the prepare. The user asked for ONE ghost -- the mirror copy is gone from `active/`.
+
+The stand-up: the trace shows moveState 8 from the clip's sit until the seam, never 0. A Lua probe
+(`standup_edge.lua`) called the pawn's `EndInteract` on every rising edge of `hasMovementInput?` while
+seated -- called, and moveState stayed 8. Ruled out. A parameter-listing probe for the other
+candidates CRASHED THE GAME at its fifth function (`GetPropertyClass()` on a non-object parameter;
+filed, the file kept as `fnparams_CRASHED.lua`); the signatures are logged from C++ instead at the
+next prepare, and `stand_fn=<function>` lets the next session try `BPI_EndInteract`, `exitTransition`,
+`tryFinishHeal`, `healPlayer` one per launch, no-arg only, edge-triggered only. Everything down at
+01:15; the rig DISARMED in the install (`ghost_drive.txt.disarmed`) at the user's "new chat" -- live,
+replay and chaser ghosts run the shipped path; the input history works for replay ghosts (their 1:1
+word still owed); the driven ghost is a dev rig, WIP.

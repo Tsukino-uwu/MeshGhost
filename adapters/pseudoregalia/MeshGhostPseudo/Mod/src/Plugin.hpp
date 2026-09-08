@@ -151,6 +151,10 @@ namespace MeshGhostPseudo
         // The driven ghost's PRIVATE game-instance object (2026-09-09, the hurt-variant sit):
         // constructed at prepare, outer = the pawn, held here only for the log. Dev-only.
         RC::Unreal::UObject* drive_private_gi{nullptr};
+        // The ghost pawn's OWN `BP_HpHitable` component (outer == the pawn), stashed by the spawn
+        // decouple before it nulls the pawn's reference to it; a driven ghost gets the reference
+        // back at prepare (2026-09-09: the hurt-variant chair sit was the null ref). Per pawn.
+        RC::Unreal::UObject* drive_own_hitable{nullptr};
 
         // Facing-direction bisection, 2026-08-13: rotation reads correct immediately after
         // SpawnActor and immediately after Possess() (same tick as spawn), but garbage by the

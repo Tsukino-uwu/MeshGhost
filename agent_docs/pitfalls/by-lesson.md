@@ -6691,3 +6691,23 @@ failing the same way is the signal; the third step was an instrument, not a thir
 **Fix.** Identity is `GetAddress()` (or the FName, unique per live object): `same_object(a, b)` in `probes/probe_inputnodes/Scripts/main.lua`. Plus a positive test on what a ghost IS (its `Controller`'s class contains `AIController`) and a per-tick refusal before any call.
 
 **Check.** Any probe that acts on "the other one" proves identity by address or name, never by `~=`; and a probe that can act on a pawn logs the chosen pawn's name beside the player's BEFORE its first action, so the log convicts it instantly.
+
+## A ghost's chair sit played the HURT variant with its health at 80: the sit reads health through the pawn's OWN component ref, which the decouple nulls (Pseudoregalia, 2026-09-09)
+
+**Symptom.** A driven replay ghost (its own Blueprint running, not mirrored) sat on a rest chair in the hurt/low-health pose, every loop, with `CurrentHp` 80 on the game instance it was pointed at and the player at full health.
+
+**Cause.** Health is not one place. `CurrentHp` on the game instance is the shared value the HUD reads; the pawn ALSO carries its own `BP_HpHitable` component (a child of the pawn, `CurrentHp`/`maxHP`), and the sit's hurt/healthy choice reads through the pawn's reference to it. The 2026-08-27 shared-state decouple nulls that reference on every ghost -- correct for a mirrored ghost, which never runs the logic -- so a ghost that DOES run it read a null and took the hurt branch. Two candidates looked right first and were not: a private game instance with the health copied (80 both sides, still hurt) and the save's upgrade fields the pawn diff found different (copied live, still hurt) -- the pawn diff could not see the cause because it compares plain values and the cause was an object reference.
+
+**Fix.** At decouple, if the reference points at a component whose outer IS the ghost pawn, stash it; a driven ghost gets it back at prepare and logs `CurrentHp` read back through the reference. The Lua prototype (`probes/probe_pawndiff/Scripts/hitable_restore.lua`) found the ghost's own component by outer and was user-confirmed in one loop: "its not hurt anymore".
+
+**Check.** When a clone's Blueprint takes the wrong branch on state that is CORRECT everywhere you can read it, list the OBJECT references the spawn path nulled and ask which of them the branch dereferences -- a null ref reads as zero, and a diff of plain values will never show it.
+
+## Walking a UFunction's parameters from Lua crashed the game: `GetPropertyClass()` on a non-object parameter is an access violation no pcall catches (Pseudoregalia, 2026-09-09)
+
+**Symptom.** UE4SS Fatal Error at 01:10:04.518, a crash dump, the game gone -- the instant a read-only "list these functions' parameters" probe reached its fifth function, having printed four.
+
+**Cause.** The probe did `fn:ForEachProperty` on each UFunction and, per parameter, `pcall(p:GetPropertyClass())` to name an object parameter's class. On a parameter that is not an object property the call reads through a pointer that is not there; that is a native access violation, and a Lua `pcall` catches Lua errors only. The checklist already said it -- "named property reads only, never a walk that dereferences" -- for object dumps; a UFunction's parameter list is the same walk.
+
+**Fix.** Signatures are read from C++ with the file's own safe walk (`TFieldRange<FProperty>(fn)` naming `GetClass().GetName()` only -- the pose-function dump's pattern), logged once per session at the driven ghost's prepare. The Lua file is kept as `probes/probe_pawndiff/Scripts/fnparams_CRASHED.lua` so nobody rewrites it.
+
+**Check.** In Lua, never call `GetPropertyClass()`, `GetStruct()`, `GetInner()` or any accessor that follows a property's pointer unless the property's class name says it has one; name the class (`p:GetClass():GetFName()`) and stop there. A parameter walk is a reflection walk: it needs the same guard as an object dump.
