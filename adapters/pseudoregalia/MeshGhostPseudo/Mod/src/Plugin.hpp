@@ -1315,8 +1315,9 @@ namespace MeshGhostPseudo
         uint32_t input_prev_mask{0};          // game thread only
         double input_prev_ax[6]{};            // game thread only
         int64_t input_last_axis_ms{0};        // game thread only
-        bool input_cam_resolved{false};       // game thread only: ControlRotation looked up once
-        bool input_cam_refused{false};        // game thread only: missing or an unexpected size -> cam axes stay 0
+        bool input_cam_resolved{false};       // game thread only: the camera manager answered at least once
+        bool input_cam_refused{false};        // game thread only: it never did in 600 samples -> cam axes stay 0
+        uint32_t input_cam_misses{0};         // game thread only: samples with no camera before the first answer
         bool input_have_prev{false};          // game thread only; false again whenever the core is not ready
         bool input_labels_sent{false};        // on_update thread only; false again at every hello
         uint64_t input_edges_sent{0};         // on_update thread only

@@ -3265,3 +3265,13 @@ the track header, the fifth value walking a full circle while the camera does.
 read for the first time, the panel code takes a panel struct), then the D0 event-node census in
 Lua and D1 "moves under its own power" before any drive code. The plan in full:
 `ideas.md`'s INPUT plane entry.
+
+**Later (21:39 and 21:50 runs).** The user tested at once. First build: the mechanism worked
+(six axes, the `+camrot` tag, 856 edges, every jump edge agreeing) and the SOURCE was wrong --
+`ControlRotation` sat at -90/0 through a full circle: this game drives its own `BP_PlayerCam_C`
+rig and never moves the controller's rotation. Second build reads the camera manager's rotation
+(`camera_world_rotation`, the recording indicator's own read; a transient miss holds the last
+value, 600 misses before the first answer refuse it): yaw -180..180 and pitch -80..50 across the
+user's circle-and-look, 1,462 edges, 16 jump edges agreeing. Build `5d49667f4370` on both
+installs. Lesson filed by name here, not yet in `pitfalls/`: **on a game with its own camera actor
+the controller's rotation is not the camera; the camera manager's is, whatever drives it.**

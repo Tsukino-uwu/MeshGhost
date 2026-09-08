@@ -190,10 +190,10 @@ namespace MeshGhostPseudo
     // Axis-only edges may not be closer than this; a button edge is never throttled.
     constexpr int64_t INPUT_TRACK_AXIS_MIN_MS = 33;
     // The axes on every edge, in this order: move_x, move_y, look_x, look_y, cam_yaw, cam_pitch.
-    // The last two (2026-09-08, ADR 0057's Stage 0) are the controller's ControlRotation in
-    // degrees, absolute -- the frame the pawn's own Move handler turns a stick into a world
-    // direction in, which the look DELTAS above cannot give a driven ghost. Read by the property's
-    // reflected size, never through the SDK's FRotator (this adapter's CLAUDE.md, the ABI rule).
+    // The last two (2026-09-08, ADR 0057's Stage 0) are the CAMERA's yaw and pitch in degrees,
+    // absolute, from the camera manager -- the frame the pawn's own Move handler turns a stick
+    // into a world direction in, which the look DELTAS above cannot give a driven ghost. NOT the
+    // controller's ControlRotation, which this game never moves (the first build's mistake).
     constexpr int INPUT_TRACK_AXIS_COUNT = 6;
     // The queue between the game thread and on_update. Drained every UE4SS tick, so it holds a
     // few edges in practice; the cap is what a stuck bridge costs, and a full queue drops the
@@ -25242,51 +25242,44 @@ namespace MeshGhostPseudo
                 ax[0] = std::round(v[0] * 64.0) / 64.0;
                 ax[1] = std::round(v[1] * 64.0) / 64.0;
             }
-            // The camera frame: the controller's ControlRotation, by its reflected SIZE (24 =
-            // three doubles on this UE 5.1 build, 12 = three floats on an older one; Pitch, Yaw,
-            // Roll in memory), never through the SDK's FRotator. Resolved once per session; a
-            // build where the property is missing or an unexpected size sends the other four
-            // axes and says so with a WARNING, so a track never carries a camera it did not read.
-            if (!input_cam_resolved)
+            // The camera frame: the camera MANAGER's rotation (`camera_world_rotation`, the read the
+            // recording indicator is placed by), never the controller's `ControlRotation` -- the
+            // first build read that, and it sat at -90/0 through a full circle of the camera
+            // (2026-09-08 21:39 run): this game drives its own `BP_PlayerCam_C` rig and the
+            // controller's rotation never moves. A transient miss (the manager absent for a frame
+            // across a transition) holds the last camera rather than writing a 0; a camera that
+            // never resolves in the first ~10 s of samples is refused with a WARNING, and the
+            // declaration then keeps the old `source`, so a track never claims a camera it did
+            // not read.
+            FRotator cam_rot{};
+            if (!input_cam_refused && camera_world_rotation(controller, cam_rot))
             {
-                input_cam_resolved = true;
-                FProperty* cam = mg_cached_property(controller, STR("ControlRotation"));
-                const int32_t size = cam ? cam->GetSize() : -1;
-                if (!cam || (size != 24 && size != 12))
+                if (!input_cam_resolved)
                 {
-                    input_cam_refused = true;
-                    Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK camera refused -- ControlRotation {} (size {}); cam_yaw/cam_pitch stay 0.\n"),
-                                 cam ? STR("found") : STR("MISSING"), size);
+                    input_cam_resolved = true;
+                    Output::send(STR("[MeshGhostPseudo] INPUTTRACK: camera rotation resolved (PlayerCameraManager.GetCameraRotation) -- cam_yaw/cam_pitch ride every edge.\n"));
                 }
-                else
+                const double yaw = static_cast<double>(cam_rot.GetYaw());
+                const double pitch = static_cast<double>(cam_rot.GetPitch());
+                if (std::isfinite(yaw) && std::isfinite(pitch))
                 {
-                    Output::send(STR("[MeshGhostPseudo] INPUTTRACK: ControlRotation resolved (size {}) -- cam_yaw/cam_pitch ride every edge.\n"), size);
+                    ax[4] = std::round(yaw * 64.0) / 64.0;
+                    ax[5] = std::round(pitch * 64.0) / 64.0;
                 }
             }
-            if (!input_cam_refused)
+            else if (!input_cam_refused)
             {
-                if (FProperty* cam = mg_cached_property(controller, STR("ControlRotation")))
+                if (input_cam_resolved)
                 {
-                    const uint8_t* base = cam->ContainerPtrToValuePtr<uint8_t>(controller);
-                    double pitch = 0.0;
-                    double yaw = 0.0;
-                    if (cam->GetSize() == 24)
-                    {
-                        const double* r = std::bit_cast<const double*>(base);
-                        pitch = r[0];
-                        yaw = r[1];
-                    }
-                    else
-                    {
-                        const float* r = std::bit_cast<const float*>(base);
-                        pitch = r[0];
-                        yaw = r[1];
-                    }
-                    if (std::isfinite(yaw) && std::isfinite(pitch))
-                    {
-                        ax[4] = std::round(yaw * 64.0) / 64.0;
-                        ax[5] = std::round(pitch * 64.0) / 64.0;
-                    }
+                    ax[4] = input_prev_ax[4];
+                    ax[5] = input_prev_ax[5];
+                }
+                else if (++input_cam_misses >= 600)
+                {
+                    input_cam_refused = true;
+                    input_cam_resolved = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK camera refused -- no camera rotation in {} samples; cam_yaw/cam_pitch stay 0 and the source tag says so.\n"),
+                                 input_cam_misses);
                 }
             }
             if (vec_fn && !vec_layout_refused && !key_layout_refused)
