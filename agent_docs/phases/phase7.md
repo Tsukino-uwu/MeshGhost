@@ -3373,3 +3373,28 @@ from; a private instance object is the candidate), corrections spike on the clip
 and the crouch release are unmapped, and the 1:1 side-by-side is the user's to judge. The
 tester's z-order report landed the same evening: `g_hud_z` 1000 -> 0, confirmed live on the
 indicator. Every mirror stays the shipped path; the rig is a file beside the DLL.
+
+## 2026-09-09 (00:0x-00:57) — the private game instance, the side-by-side, and the sit that is still hurt
+
+Three rig additions built before the game came up (`fccac67c`, `eb2edd4701c8`): `private_gi`
+(an object of the instance's class, plain fields copied, in the nulled ref's place -- the
+candidate for the hurt sit), `mirror_offset` (a second copy of the driven clip in `active/`,
+tagged `mirror`, drawn 250 units to the side: the 1:1 side-by-side), and `power_press` (IA_Power
+`_1`, a guess by the Attack analogy, logged per edge). The user launched at 00:25; the rig picked
+the COPY as the driven ghost, so the orange `mirror` tag was the driven one and the user's own tag
+the offset shipped mirror -- the user's read: *"Tsukino looks like a loopback ghost for the mirror?"*,
+which is exactly what it was. And: *"Mirror looks hurt"* -- with `CurrentHp` 80 on the ghost's own
+instance, logged both sides every loop. So the sit does not read the health value, or not only.
+
+Measured instead of guessed: `probes/probe_pawndiff/` (new), every plain-valued field of the pawn
+class on the player and on every other pawn, diffs to a file. The driven pawn differs in the save's
+upgrade set (`healUpgrades`, `bonusAirKicks`, `healAmountPerDing`, `canMoveHeal?` ...), which the
+ability copy (`obtained*`/`has*` only) never touched; `copy_config.lua` wrote those eight onto
+every driven pawn live from 00:30, read back correct on each loop's new pawn, until the user closed
+the game at 00:57 -- their word on the sits after that is owed (`UNVERIFIED.md`). Also found: two
+stale pawns flagged being-destroyed that outlive their loop, one still seated on the chair
+(`UNVERIFIED.md`, OPEN). Tracking: 1-2 corrections per loop, one at the seam (drift ~1000, the
+spawn) and one recurring at the same clip moment at exactly the 150 threshold -- if that moment is
+the sit, the correction yanks the pawn mid-sit; unjudged. Power `_1` fired twice per loop, unjudged.
+Everything came down at 00:57 with the game: core exited on its own, relay stopped, scratch stub
+restored, 7777/7778 free.

@@ -617,3 +617,28 @@ was silent with a zero value, which is what sent the census to C++), `grant_atta
 and `sit_watch.lua` (READ-ONLY on the player's pawn: the fields around a chair sit on change; it
 showed a real stand-up is the rising edge of movement input while `Interaction Target` is never
 cleared, and that the table glitch is the same sequence with the input already held).
+
+## `probe_pawndiff/` — what differs between the PLAYER's pawn and a ghost's, field by field (2026-09-09)
+
+The instrument for "the ghost does X differently and the value I fixed is already equal": with
+`CurrentHp` reading 80 on the driven ghost's own private game instance and the chair sit STILL the
+hurt variant, the question was what else a sit could read. `main.lua` (hot-loaded over the scratch
+slot, read-only) snapshots every 4 s for 120 s: every plain-valued property (bool, int, float,
+double, byte, enum, name, string) of the player's pawn class, read on the player and on every
+OTHER pawn of that class, plus the same on the object each holds as `As MV Game Instance Ref`; the
+ones that DIFFER go in full to `pawndiff-<HHMMSS>.log` beside the mod, and `UE4SS.log` gets one
+line per ghost per snapshot (controller class, `moveState`/`actionState`, the counts, whether the
+instance is shared or private). Nothing filtered before the file. Named reads only; the one
+dereference is the game-instance ref (the adapter's own object or the game's singleton, both live).
+
+First run (00:29, `pawndiff-002922.log`): 248 plain-valued of 389 pawn properties, 47 of 75 on
+the instance. The driven ghost differed from the player in the SAVE's upgrade set --
+`healUpgrades` 2/0, `damageUpgrades` 1/0, `powerBuildUpgrades` 2/0, `powerMeterUpgrades` 3/0,
+`bonusAirKicks` 4/0, `healAmountPerDing` 20/10, `canMoveHeal?`, `canDoAirRecovery?` -- the damage
+numbers the adapter zeroes on purpose, and camera/replication config; its private instance in
+four save-name STRINGS only. Also seen: FIVE pawns of the class with one player -- two flagged
+`bActorIsBeingDestroyed` that stayed through every snapshot, one of them still seated
+(`moveState` 8) on the chair; see `UNVERIFIED.md`. `copy_config.lua` is the follow-up WRITING
+probe: the eight upgrade fields written from the player onto every driven pawn (AIController +
+private instance + not being destroyed), read back per write, re-applied on each loop's new pawn.
+Restore the stub after either; the writer is a suspect in every later report while loaded.
