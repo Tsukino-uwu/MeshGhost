@@ -775,3 +775,95 @@ sweep. The standing lesson holds and gained a sharper edge: **a green local race
 CI** -- previously that was said of `run-gotests.bat`, which cannot run `-race` at all; this time
 the local race job itself was green and still wrong, because the defect was a timing window that
 only a slower machine opens.
+
+## 2026-09-08 — the input track: recording what the player pressed, as a second track
+
+The user's ask, and the reasoning is theirs: record inputs as their own thing, because an input
+record *"can't get outdated if we ever start to sync more things"* — and, the stronger half, because
+re-driven it *"would reproduce what the game actually does instead of missing things we are not
+syncing"*. A recording reproduces the fields we sync; everything the game does that we do not sync
+(VFX, sound, montages, ability logic) is absent from a replay, and every gap in it is a 1:1 miss
+found by hand. Frame-exactness was explicitly not wanted: drift is accepted, fidelity of MECHANISM
+is the win. A third driver: the Pseudoregalia speedrun Discord owner has an always-on input
+visualizer with "export the last X seconds" on a practice-mod wishlist.
+
+The idea was already filed (`ideas.md:2739`, 2026-09-04) with its three blockers written down, and
+the determinism fork already decided against inputs-as-reproduction on the engine games
+(`beyond-cosmetic.md` §7: Emerald *"conceivable"*, TEVI/Pseudoregalia *"Never"*). Nothing there was
+reopened. **Built: the CAPTURE half only, ADR 0056.** Shipped OFF behind `replay.inputs`.
+
+**What landed.** A new bridge message `input_sample` (adapter → core): edge-batches of an opaque
+32-bit mask plus opaque axes, with a label table the adapter declares once. A second NDJSON track in
+`replay/inputs/`, correlated to the state clip by a shared `recording_id` and by a `ts` in the same
+clock domain. The ring is the always-on half — armed at attach whenever the feature is on, so
+save-last exports input after the fact with nothing armed in advance; the file half follows the
+ordinary record controls. `parseInputTrack` ships too, though nothing reads a track yet.
+
+**Four decisions worth keeping.** A **mask, not a token list per sample**: 60–120 bytes an edge
+against ~10, and no stable ordering, so a future diff of two runs would be set arithmetic rather
+than `a.M ^ b.M`. **32 bits, not 64** — a JSON number is a float64 to every non-Go reader, so a
+64-bit mask loses bits above 2^53. **Edges, not samples** — a one-frame press is two lines with
+consecutive `f`, and the axis throttle may never delay a button edge. **Read the game's own merged
+action state, not raw OS keys**: device-agnostic and rebind-proof for free, and structurally unable
+to log what the player types in another window, which matters on a track meant to be left running.
+
+**`replay/inputs/` is a fact about two functions, not tidiness.** `replayLast` plays the newest FILE
+in `ReplayDir` and `StartReplays` reads `active/`, so a track in either would be parsed as a clip —
+and `replayLast` picks by mod time, so a fresh track would beat every real recording the player has.
+It is safe only because `replayLast` does `if e.IsDir() { continue }`. Pinned by
+`TestReplayScannersIgnoreTheInputTrack` rather than by a comment, with `meshghost_inputs` as the
+header key so a hand-copied file is refused with a sentence in either direction.
+
+**A bug a test caught during the build, worth the entry on its own.** The label table arrives WITH
+the first batch, but the header was snapshotted at arm time — so every track would have shipped with
+empty labels, and a track with no labels is one nobody can interpret later. The header's table is
+now filled in when the file is first opened. The lesson generalises: **a lazily-opened file cannot
+take its header from the moment it was armed** if any header field is learned in between.
+
+**A deviation from the plan, recorded so it is not "fixed" back.** The limits and validator went to
+a new `bridge/inputlimits.go`, not `protocol/limits.go` where every other limit lives: `protocol`
+cannot import `bridge` (bridge already imports protocol). `limits.go`'s own reason for centralizing
+— two enforcement points that must not drift — does not apply, since there is one plus the loader
+and both import `bridge`.
+
+**Prior lessons applied rather than re-learned:** bounded by span AND count (G8 — a time-bounded
+buffer at an uncapped rate is unbounded); the flood ceiling drops and never disconnects (the "client
+died at 343 ghosts" failure); never blocking on the bridge reader goroutine (E5); dispatched inside
+the existing switch so it inherits the impostor gate (A7 — which matters here, because a second
+process able to write the track could put input in a player's own record that they never performed);
+and the input mutex never taken under `c.rec.mu` or `c.mu`, so `StartRecording` mints the id,
+releases, and only then starts the input half.
+
+**Verified:** `run-gotests.bat` green, `run-gotests-race.bat` green, preflight clean, and a
+10-minute fuzz campaign on `FuzzParseInputTrackNeverPanics` — 66M executions, no crashes. The four
+root binaries were stale and rebuilt (the standing trap: `go build ./...` does not refresh them).
+
+**A pre-existing flake found on the way, NOT from this work.** The first race run went red on
+`TestARejectWinsARaceAgainstTheSocketClosing`. Attributed by stashing the whole change and
+re-running: **10 failures in 60 on a clean tree (~17%)**, against 2 in 20 on the working tree — the
+same rate. The failure is not the ordering the test asserts; it is `send hello: write tcp ... use of
+closed network connection`, the client's hello WRITE losing to the relay closing, a second race the
+test does not account for. So CI has been going red at random and a green local `-count=1` says
+little about it. Filed in `status.md`, unfixed. The method is the point: **a red run on a branch is
+not evidence the branch caused it — stash and re-run before believing either answer.**
+
+**Open, and deliberately not started.** No adapter sends one. Pseudoregalia is first and the blocker
+is honest: **there is no input read anywhere in `Plugin.cpp` today**, so which UE API is reachable is
+unmeasured — a one-session `INPUT_API_CENSUS_PROBE` decides between the pawn's own input-derived
+properties (`wallRideButtonHeld?` is a confirmed live-read BP bool) and
+`IsInputKeyDown`/`WasInputKeyJustPressed`, whose `FKey`-by-value call this adapter has never made
+through reflection. Sequenced after the v1.1.7 crash watcher gives a verdict, so a new DLL does not
+confound it. The format is source-agnostic, so that decision gates nothing on the Go side.
+
+**Three doors left open with their gates named, so a later session does not read capture as
+permission.** (1) Re-driving a recorded GHOST from inputs: blocked on determinism per game, and on a
+drive mechanism that never touches the player's controller — the candidate the user proposed is a
+separately spawned `AIController` possessing only the ghost, driven by movement and action calls
+rather than key events, which is the same "give the ghost its own instance" shape already used for
+ghost-only VFX and the faked sword throw; unverified, one session to measure. (2) LIVE
+input-driven ghosts: would have to be inputs PLUS state with continuous reconciliation, and the
+blocking item is a world-side-effect audit, since a pawn running real character movement touches
+triggers, platforms, breakables and pickups — today's ghost is safe BECAUSE it is posed. It also
+revisits the user's own standing rule, *"Cosmetics yes, movement authority no."* (3) Driving the
+LOCAL player: never in anything that ships, and already legitimate as a dev probe, which is where a
+TAS-like tool would land.
