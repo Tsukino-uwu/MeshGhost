@@ -967,3 +967,44 @@ copies of one rule, changed in one place -- the same shape as the `pitfalls/` sp
 2026-08-25. And the duration gate caught a vague-duration phrase that had already landed in a commit,
 because the hook scans paths and preflight scans durations: the two gates do not overlap, which is
 worth knowing when deciding which one a new rule belongs in.
+
+**Access models: eleven external projects read, and a category the file was missing (2026-09-08).**
+Separate thread from the compatibility work above, doc-only, no code touched. The user asked how an
+Archipelago client works with Dolphin without a patched image, then supplied a mixed list of ten more
+(recomps, PC ports, Dolphin, PCSX2, BizHawk). Every licence was read from the project's own `LICENSE`
+file before anything else and recorded in `licensing.md` — eleven new rows, two of them GPL-3 and
+handled as facts-with-a-citation only. Three of the Archipelago forks report `NOASSERTION` on the
+badge and MIT in the file, the gap that table has recorded since 2026-08-14; it held again.
+
+What `access-models.md` gained, in two commits (`c7dfa842`, `22f48cc7`):
+
+- **A fourth answer to the emulator drawing question**, which the file had left at three, all
+  host-side. An external process can write assembled machine code into emulated RAM at runtime and
+  let the GAME draw — no patched image, no forked emulator, so the GPL question never arises. It is
+  the patch-and-cable shape from the Real hardware section, minus the patch and minus the cable.
+- **Native ports and static recompilations are not emulator targets.** SoH's Archipelago "client" is
+  a launcher handing the port an `archipelago://` URL; the recomp mod does its own networking
+  in-process. Both are inject-and-socket — an ordinary adapter with the mod loader already built and
+  drawing already solved. Cheapest shape in the file, and it was not in the file at all.
+- **PINE came off `(verify)`** on the PCSX2 row: two independent projects drive it on unmodified
+  images, and it carries `TITLE`/`ID` and `SAVE_STATE` alongside sized reads and writes.
+
+**The finding worth remembering is the convergence, not the mechanism.** TTYD's game-side mod (GPL-3,
+read for facts, nothing derived) already renders peer ghosts on GameCube, and independently arrived
+at opaque map/anim name strings compared by equality, a magic plus a layout version where the client
+refuses to write into a block it does not understand, and a deliberately generous watchdog. Its own
+header records the trap: an in-game self-consistency check cannot do the version job, because it only
+ever compares the block against what the same build wrote. That is this repo's wire-freeze
+discipline, reached by someone else on a different platform — which is the strongest evidence yet
+that `area_id`/`anim`-as-opaque is a correct rule rather than a local convention. Its Dolphin config
+also retired an open risk from the same day's earlier section: the client raises MEM1 to 64 MB, well
+past the real console's 24 MB, so free guest RAM is a much softer constraint on an emulator than on
+hardware.
+
+**What was deliberately NOT decided.** The injection route collides with a call recorded 2026-09-04
+in `licensing.md`, which files console-style code injection as a closed door, citing `CLAUDE.md`'s
+"nothing that ships writes a save, game state, or a ROM patch — ever". The new section says so in its
+own words instead of quietly winning the argument, lists the three distinctions that might survive
+(it is not a ROM patch; Crystal's adapter already writes emulated RAM; but it does put our code in
+the game's execution), and leaves the call to the user and an ADR. **Nothing here is built,
+scheduled, or a commitment**, and none of the eleven projects is a dependency.
