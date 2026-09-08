@@ -419,7 +419,7 @@ obscure one is tier 8 and a differential hunt.
 | Emulator | Platform | Reading | Drawing | Licence note |
 |---|---|---|---|---|
 | **BizHawk** | GBA etc. | Lua memory API | **`gui.*` primitives** | Why Emerald exists at all |
-| **PCSX2** | PS2 | **PINE** IPC — sanctioned external read/write (verify) | no equivalent API | GPL — a distributed fork carries obligations |
+| **PCSX2** | PS2 | **PINE** — socket IPC, CONFIRMED in use 2026-09-08 (survey below) | no equivalent API | GPL — a distributed fork carries obligations |
 | **Dolphin** | GC / Wii | proven by **Dolphin Memory Engine** (separate open-source tool) | no host-side API — but see **inject code into the guest** below (2026-09-08) | GPL |
 | **Cemu** | **Wii U**, not Switch | route unknown (verify) | unknown | open-sourced 2022, MPL (verify) |
 
@@ -568,6 +568,106 @@ Order of work, cheapest question first:
    which turns this into "can I get code into the guest, and where is the free RAM?" rather than
    an emulator-rendering problem.
 4. Only then the per-game tier question: does this title have a decomp or documented addresses?
+
+## Prior art: ten shipped Archipelago integrations, surveyed 2026-09-08
+
+**What this is.** Ten projects the user collected, read on 2026-09-08 for *mechanism only* — every
+licence checked from the project's own `LICENSE` file first and recorded in
+[licensing.md](licensing.md), per `CLAUDE.md`. **Facts and citations only; nothing was copied, and
+two of these are GPL-3, where that posture is not optional.** They are worth a section because
+between them they answer three questions this file had left open with a `(verify)`, and because one
+of them has already built the thing MeshGhost builds.
+
+### They split into three delivery shapes, not ten
+
+| Shape | Who | Where the network boundary sits | What draws |
+|---|---|---|---|
+| **Native port / static recompilation** | Ship of Harkinian (OoT), MMRecompRando (Majora's Mask) | **Inside the game** — no emulator, no external client | The game itself; a mod loader is supplied by the port |
+| **Emulator + external client over a memory API** | TTYD, Luigi's Mansion, Wind Waker, Sly 1, Sly 2, Paper Mario 64, MKDD | On the PC, outside the emulator | Varies — this is the whole question, and they answer it four different ways |
+| **Emulator + Lua** | Paper Mario 64 (BizHawk generic client) | On the PC | `gui.*`, exactly as Emerald and Crystal do |
+
+**The first row is the finding that changes the map, and it is not an emulator finding at all.**
+Ship of Harkinian's Archipelago "client" is a *launcher*: it resolves the install path and starts the
+port with an `archipelago://` URL, and **the port speaks the Archipelago protocol itself.** MMRecompRando
+is the same picture from the other direction — a C/C++ mod, built with clang against N64Recomp's
+`RecompModTool`, drag-and-dropped onto Zelda64Recomp, doing **its own networking in-process**.
+
+So a native port or a static recompilation is **not an emulator target wearing a different hat. It is
+an ordinary MeshGhost adapter**: inject-and-socket, the same shape as TEVI and Pseudoregalia, with the
+mod loader already built and the hard half (drawing) already solved by the port's own renderer. That is
+approach 1 or 3 territory on this file's own list, not approach 5 or 8 — and it is the *cheapest* shape
+in this whole document, cheaper than the emulator route it is easy to mistake it for.
+
+### The emulator row answers the drawing question four ways
+
+Listed cheapest to most invasive. All four are in shipping software today:
+
+1. **Feed the game's own text system a string.** Luigi's Mansion writes item and hint messages into
+   the game's message subsystem using that game's own inline escape codes for colour
+   (`client/display_in_game.py`). No drawing code at all — the game renders it because it already
+   knows how. **The pattern generalises well past text** and is the first thing to look for in a new
+   game; it is the same instinct as [`let the game do the work`](game-shapes.md).
+2. **Lua overlay primitives.** Paper Mario 64 runs on BizHawk through the Generic BizHawk Client with
+   a patched `.z64`. This is Emerald's model exactly, and the only row here this repo has shipped.
+3. **A patched image carrying a game-side code mod.** Wind Waker patches the user's ISO with
+   `wwrando` before play, and TTYD ships a **separate C++ REL module** (`jamesbrq/TTYDAP`) built into
+   the patched disc image. The PC client then talks to code that is already running in the game.
+4. **Runtime code injection into emulated RAM**, no patched image at all — the MKDD route in
+   [the section above](#a-fourth-drawing-option-and-it-is-not-on-the-list-above-inject-code-into-the-game).
+
+### TTYD has already built MeshGhost's feature, on a GameCube game
+
+**The single most useful thing in this survey.** `jamesbrq/TTYDAP` — the game-side mod, **GPL-3.0**,
+so read for facts and never derived from — carries a `GhostPeers.h`. Read 2026-09-08, and its ghost
+state is close to field-for-field ours: a peer slot holding **a map name string, an animation name
+string**, a position vec3, a Y rotation, an RGBA tint, flag words, a motion timer, a nametag toggle, a
+team id and a camera angle, in a fixed array of **32 peers**. The PC client (`ArchipelagoTTYD`, MIT)
+writes that block into emulated RAM over `dolphin_memory_engine`; the mod reads it and renders.
+
+Three things it independently arrived at that this repo also has, which is the strongest evidence any
+of this is the right shape:
+
+- **The area and animation identifiers are opaque strings compared by equality** — `CLAUDE.md`'s
+  `area_id`/`anim` rule, reached by someone else on a different platform.
+- **A magic value plus a layout version, and the client refuses to write into a block whose version it
+  does not understand.** That is this repo's wire-freeze discipline, and its header comment even
+  records the trap we would have hit: a self-consistency check inside the game *cannot* do that job,
+  because it only ever compares the block against what the same build wrote.
+- **A watchdog with a deliberately generous timeout**, because the PC side can stall for a second or
+  more and a late recovery beats a wrong one mid-state.
+
+**The one trick worth stealing outright, because it retires an open risk.**
+[The section above](#a-fourth-drawing-option-and-it-is-not-on-the-list-above-inject-code-into-the-game)
+lists "whether enough free guest RAM exists in a GIVEN title" as an unverified risk. TTYD's setup
+answers it: the client **turns on Dolphin's MEM1 size override and sets it to 64 MB** — more than
+double the real console's 24 MB — automatically, every launch, and requires MMU on. An emulated
+console is not constrained by the real console's memory map, so "is there room for our code and state"
+is a much softer question on an emulator than on hardware. It also requires **Dual Core off**, which is
+worth reading as a timing/determinism constraint on external memory access, not as a graphics setting.
+
+### And it settles the PCSX2 question this file marked `(verify)`
+
+Sly 1 (`worlds/sly1/pcsx2_interface/pine.py`) and Sly 2 both drive PCSX2 over **PINE**, and Sly 2's
+setup guide tells the player to enable it and set the slot to **28011**. Read 2026-09-08: it is a
+socket IPC — TCP on `127.0.0.1` on Windows, a Unix domain socket at `$XDG_RUNTIME_DIR/pcsx2.sock` or
+`/tmp/pcsx2.sock` elsewhere — offering 8/16/32/64-bit reads and writes, float writes and arbitrary byte
+ranges, **plus non-memory commands: `VERSION`, `TITLE`, `ID`, `UUID`, `GAME_VERSION`, `STATUS`,
+`SAVE_STATE`, `LOAD_STATE`.** Both games run an **unmodified ISO** (Sly 2 names `SCUS-97316`).
+
+`TITLE`/`ID` matter more than they look: they are how an adapter identifies *which game is running*
+without reading a game-specific address first, which on BizHawk this repo does by hand. `SAVE_STATE`
+is a probe-driving primitive of the kind `feedback_savestates_for_testing` describes, exposed to an
+external process for free.
+
+### What none of them do, and it is the thing MeshGhost exists for
+
+**Every one of these is an item randomizer.** They move items, flags and text between worlds; the
+richest of them (TTYD) renders peers because its own multiplayer minigame needs it, not because
+presence is the product. So this survey is prior art for the **mechanism** — how to get state in and
+code running — and not for the goal. The pitch in
+[the netplay comparison below](#dolphin-has-a-wrinkle-none-of-the-others-do-netplay-already-exists)
+is unaffected: two people in separate single-player runs seeing each other is still something none of
+this does.
 
 ## Real hardware — the console itself, and where the network boundary sits
 
