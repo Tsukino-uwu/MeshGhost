@@ -17,6 +17,7 @@
 #include <string_view>
 #include <cwctype>
 #include <format>
+#include <functional> // the HUD indicator's reflected-call helper takes a filler
 #include <utility>
 
 #include <BridgeClient.hpp>
@@ -200,6 +201,20 @@ namespace MeshGhostPseudo
     constexpr int32_t INPUT_ACTION_VALUE_SIZE = 32;
     // An action asset that did not resolve is retried this often, in engine frames.
     constexpr uint64_t INPUT_TRACK_RESOLVE_INTERVAL_FRAMES = 300;
+
+    // **THE RECORDING INDICATOR AS A SCREEN-SPACE WIDGET (2026-09-08).** The user's two reports on
+    // the world-space one -- it hides behind level geometry, and it drifts off its corner during a
+    // move that changes the field of view -- are both properties of a TextRenderComponent placed
+    // in the camera's frame: a world-space thing depth-tests, and fixed camera offsets are only
+    // screen-fixed at one field of view. `true` draws the same square-and-clock as two UMG
+    // UserWidgets constructed at runtime from reflection (a Border each; the clock's holds a
+    // TextBlock) and added to the viewport: composited over the scene, laid out in screen space.
+    // Prototyped in Lua first (`probes/probe_hudindicator/`) and confirmed by the user on screen
+    // the same day: *"it stays visible, and it don't move with fov"*. `false` is the old path,
+    // kept whole as the revert. The widgets belong to the game instance and the viewport; every
+    // handle is a weak pointer, because the collector may take them the moment the viewport lets
+    // go (a level transition does), and they are simply rebuilt.
+    constexpr bool REC_INDICATOR_SCREEN_SPACE = true;
 
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
@@ -8966,6 +8981,28 @@ namespace MeshGhostPseudo
         // The square's own vertical nudge, added to `up`. See above for why it needs its own.
         double g_rec_dot_up = 0.4;
 
+        // The screen-space indicator's state (REC_INDICATOR_SCREEN_SPACE; the code is beside
+        // tick_recording_indicator). Declared here because the tuning reader above it sets them.
+        double g_hud_x = 26.0;    // the clock box's right edge, in from the viewport's right edge
+        double g_hud_y = 22.0;    // the pair's top edge, down from the viewport's top
+        double g_hud_size = 44.0; // the square's side
+        double g_hud_gap = 10.0;  // between the square and the box
+        double g_hud_text = 30.0; // the digits' font size
+        double g_hud_pad = 4.0;   // the box's padding around the digits
+        int32_t g_hud_z = 1000;   // viewport z-order: over the game's own HUD
+        FWeakObjectPtr g_hud_dot;   // stale-safe: FWeakObjectPtr, Get() per use -- a runtime widget is the collector's the moment the viewport lets go of it (a level transition does)
+        FWeakObjectPtr g_hud_clock; // stale-safe: same
+        FWeakObjectPtr g_hud_text_block; // stale-safe: same
+        bool g_hud_in_viewport = false;
+        double g_hud_vw = 0.0; // the viewport as last laid out for, pixels
+        double g_hud_vh = 0.0;
+        unsigned g_hud_tuning_gen = 1; // bumped by a hud_* tuning read
+        unsigned g_hud_built_gen = 0;  // the generation the live widgets were built with
+        int64_t g_hud_last_second = -1;
+        size_t g_hud_placed_glyphs = 0; // the digit count the clock box was last sized for
+        double g_hud_meas_w = 0.0; // the clock box's LAID-OUT size, once the engine has one; 0 before
+        double g_hud_meas_h = 0.0;
+
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition
         // inherits a guarantee nobody re-checked for it.
@@ -9523,12 +9560,14 @@ namespace MeshGhostPseudo
             {
                 g_rec_dot_color = value;
                 g_rec_tuning_dirty = true;
+                ++g_hud_tuning_gen;
                 Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator_color={}\n"), to_wide_ascii(value));
             }
             if (config_string_value("indicator_timer_color", value) && value != g_rec_timer_color)
             {
                 g_rec_timer_color = value;
                 g_rec_tuning_dirty = true;
+                ++g_hud_tuning_gen;
                 Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator_timer_color={}\n"), to_wide_ascii(value));
             }
         }
@@ -9649,6 +9688,15 @@ namespace MeshGhostPseudo
                 else if (key == "dot_h") { g_rec_dot_scale_h = std::clamp(bounded, 0.05, 10.0); }
                 else if (key == "dot_up") { g_rec_dot_up = bounded; }
                 else if (key == "plate_up") { g_rec_plate_up = bounded; }
+                // The screen-space indicator's own numbers (REC_INDICATOR_SCREEN_SPACE); any of
+                // these rebuilds the widgets on the next tick.
+                else if (key == "hud_x") { g_hud_x = bounded; ++g_hud_tuning_gen; }
+                else if (key == "hud_y") { g_hud_y = bounded; ++g_hud_tuning_gen; }
+                else if (key == "hud_size") { g_hud_size = std::clamp(bounded, 1.0, 500.0); ++g_hud_tuning_gen; }
+                else if (key == "hud_gap") { g_hud_gap = bounded; ++g_hud_tuning_gen; }
+                else if (key == "hud_text") { g_hud_text = std::clamp(bounded, 1.0, 200.0); ++g_hud_tuning_gen; }
+                else if (key == "hud_pad") { g_hud_pad = std::clamp(bounded, 0.0, 100.0); ++g_hud_tuning_gen; }
+                else if (key == "hud_z") { g_hud_z = static_cast<int32_t>(std::clamp(bounded, 0.0, 100000.0)); ++g_hud_tuning_gen; }
                 // The nametag's three: height above the ghost, glyph size (0 = class default),
                 // and how far the colour plate sits behind the text.
                 else if (key == "name_up") { g_nametag_up = std::clamp(bounded, -500.0, 500.0); }
@@ -9731,6 +9779,635 @@ namespace MeshGhostPseudo
             g_recording_indicator_visible = false;
         }
 
+        // ------------------------------------------------------------------------------------------
+        // THE SCREEN-SPACE INDICATOR (REC_INDICATOR_SCREEN_SPACE). Same square, same clock box, same
+        // corner and colours as the world-space one; drawn as UMG widgets in the viewport instead.
+        //
+        // Pixel numbers, at the 1920x1080 the engine lays UI out in and scales to the output (a
+        // tester's note, 2026-09-08). Defaults are the values the user judged against the old
+        // indicator side by side in the Lua prototype; live through `rec_indicator.txt`'s `hud_*`
+        // keys, which REBUILD the widgets (a font size cannot be changed on a live TextBlock
+        // without passing a struct the engine owns; a rebuild costs nothing a player sees).
+
+        // A "#RRGGBB" to the linear RGBA a LinearColor wants: sRGB bytes through the standard
+        // curve, the way a colour picker's hex reaches a widget brush. The plate materials take
+        // the same hex through set_plate_color, so one config value colours both paths.
+        auto hud_color(const std::string& hex, float out[4]) -> void
+        {
+            out[0] = out[1] = out[2] = 1.0f;
+            out[3] = 1.0f;
+            std::string h = hex;
+            if (!h.empty() && h[0] == '#')
+            {
+                h.erase(0, 1);
+            }
+            if (h.size() != 6)
+            {
+                return;
+            }
+            for (int i = 0; i < 3; ++i)
+            {
+                unsigned byte = 0;
+                if (std::sscanf(h.substr(static_cast<size_t>(i) * 2, 2).c_str(), "%2x", &byte) != 1)
+                {
+                    return;
+                }
+                const double x = byte / 255.0;
+                out[i] = static_cast<float>(x <= 0.04045 ? x / 12.92 : std::pow((x + 0.055) / 1.055, 2.4));
+            }
+        }
+
+        // Writes one numeric field of a reflected struct instance at `base`, by the field's name
+        // and the type reflection reports -- float, double, int, byte/enum or bool -- so no struct
+        // layout is assumed anywhere in this feature.
+        auto hud_write_field(UScriptStruct* layout, uint8_t* base, const wchar_t* name, double value) -> bool
+        {
+            if (!layout || !base)
+            {
+                return false;
+            }
+            for (FProperty* f : TFieldRange<FProperty>(layout, EFieldIterationFlags::Default))
+            {
+                if (!f || f->GetName() != name)
+                {
+                    continue;
+                }
+                const StringType type = f->GetClass().GetName();
+                uint8_t* at = base + f->GetOffset_Internal();
+                if (type == STR("FloatProperty"))
+                {
+                    *reinterpret_cast<float*>(at) = static_cast<float>(value);
+                }
+                else if (type == STR("DoubleProperty"))
+                {
+                    *reinterpret_cast<double*>(at) = value;
+                }
+                else if (type == STR("IntProperty"))
+                {
+                    *reinterpret_cast<int32_t*>(at) = static_cast<int32_t>(value);
+                }
+                else if (type == STR("ByteProperty") || type == STR("EnumProperty"))
+                {
+                    *at = static_cast<uint8_t>(value);
+                }
+                else if (type == STR("BoolProperty"))
+                {
+                    static_cast<FBoolProperty*>(f)->SetPropertyValueInContainer(base, value != 0.0);
+                }
+                else
+                {
+                    return false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        // A nested struct field (FSlateColor.SpecifiedColor is a LinearColor): the sub-layout.
+        auto hud_nested(UScriptStruct* layout, uint8_t* base, const wchar_t* name, UScriptStruct*& sub, uint8_t*& sub_base) -> bool
+        {
+            if (!layout || !base)
+            {
+                return false;
+            }
+            for (FProperty* f : TFieldRange<FProperty>(layout, EFieldIterationFlags::Default))
+            {
+                if (f && f->GetName() == name && f->GetClass().GetName() == STR("StructProperty"))
+                {
+                    sub = static_cast<FStructProperty*>(f)->GetStruct();
+                    sub_base = base + f->GetOffset_Internal();
+                    return sub != nullptr;
+                }
+            }
+            return false;
+        }
+
+        // The one reflected-call shape this feature uses: the function by name through the class
+        // chain (never a /Script path -- `checklists/before-spawning-in-unreal.md`), a zeroed
+        // parameter buffer the filler populates by parameter NAME, ProcessEvent, and the buffer
+        // handed back for a return value. A missing function is named once and is then a no-op.
+        auto hud_call(UObject* obj, const wchar_t* fname, const std::function<bool(UFunction*, uint8_t*)>& fill,
+                      std::vector<uint8_t>* out = nullptr) -> bool
+        {
+            if (!obj)
+            {
+                return false;
+            }
+            UFunction* fn = mg_cached_function(obj, fname);
+            if (!fn)
+            {
+                static std::set<std::wstring> warned;
+                if (warned.insert(fname).second)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: HUD indicator: '{}' does not resolve on {} -- that call is skipped.\n"), fname, obj->GetClassPrivate() ? obj->GetClassPrivate()->GetName() : STR("?"));
+                }
+                return false;
+            }
+            const int32_t size = fn->GetPropertiesSize();
+            std::vector<uint8_t> buffer(static_cast<size_t>(size > 0 ? size : 0), 0);
+            if (fill && !fill(fn, buffer.data()))
+            {
+                static std::set<std::wstring> warned_fill;
+                if (warned_fill.insert(fname).second)
+                {
+                    Output::send(STR("[MeshGhostPseudo] WARNING: HUD indicator: '{}' has not the parameters expected -- that call is skipped.\n"), fname);
+                }
+                return false;
+            }
+            obj->ProcessEvent(fn, buffer.empty() ? nullptr : buffer.data());
+            if (out)
+            {
+                *out = std::move(buffer);
+            }
+            return true;
+        }
+
+        // Parameter fillers, by name. A struct parameter is filled field by field through its own
+        // reflected layout (hud_write_field), never by a C++ mirror of the struct.
+        auto hud_param(UFunction* fn, const wchar_t* name) -> FProperty*
+        {
+            return fn ? fn->FindProperty(FName(name, FNAME_Find)) : nullptr;
+        }
+        auto hud_fill_struct(UFunction* fn, uint8_t* buf, const wchar_t* param,
+                             std::initializer_list<std::pair<const wchar_t*, double>> fields) -> bool
+        {
+            FProperty* p = hud_param(fn, param);
+            if (!p || p->GetClass().GetName() != STR("StructProperty"))
+            {
+                return false;
+            }
+            UScriptStruct* layout = static_cast<FStructProperty*>(p)->GetStruct();
+            for (const auto& [n, v] : fields)
+            {
+                if (!hud_write_field(layout, buf + p->GetOffset_Internal(), n, v))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+        auto hud_fill_color(UFunction* fn, uint8_t* buf, const wchar_t* param, const float rgba[4]) -> bool
+        {
+            return hud_fill_struct(fn, buf, param, {{STR("R"), rgba[0]}, {STR("G"), rgba[1]}, {STR("B"), rgba[2]}, {STR("A"), rgba[3]}});
+        }
+        auto hud_fill_bool(UFunction* fn, uint8_t* buf, const wchar_t* param, bool value) -> bool
+        {
+            FProperty* p = hud_param(fn, param);
+            if (!p)
+            {
+                return false;
+            }
+            if (p->GetClass().GetName() == STR("BoolProperty"))
+            {
+                static_cast<FBoolProperty*>(p)->SetPropertyValueInContainer(buf, value);
+            }
+            else
+            {
+                buf[p->GetOffset_Internal()] = value ? 1 : 0;
+            }
+            return true;
+        }
+        auto hud_fill_int(UFunction* fn, uint8_t* buf, const wchar_t* param, int32_t value) -> bool
+        {
+            FProperty* p = hud_param(fn, param);
+            if (!p)
+            {
+                return false;
+            }
+            *reinterpret_cast<int32_t*>(buf + p->GetOffset_Internal()) = value;
+            return true;
+        }
+        auto hud_fill_object(UFunction* fn, uint8_t* buf, const wchar_t* param, UObject* value) -> bool
+        {
+            FProperty* p = hud_param(fn, param);
+            if (!p)
+            {
+                return false;
+            }
+            *std::bit_cast<UObject**>(buf + p->GetOffset_Internal()) = value;
+            return true;
+        }
+
+        auto hud_construct(const wchar_t* class_path, UObject* outer, const wchar_t* name) -> UObject*
+        {
+            UClass* cls = UObjectGlobals::StaticFindObject<UClass*>(nullptr, nullptr, class_path);
+            if (!cls || !outer)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: HUD indicator: cannot construct {} (class {}, outer {}).\n"),
+                             name, cls ? STR("found") : STR("MISSING"), outer ? STR("ok") : STR("null"));
+                return nullptr;
+            }
+            FStaticConstructObjectParameters params(cls, outer);
+            params.Name = FName(name, FNAME_Add);
+            return UObjectGlobals::StaticConstructObject(params);
+        }
+
+        // The game instance: the outer the widgets live in, so they outlive a level. Off the
+        // world (UWorld::OwningGameInstance, a UPROPERTY), with a one-shot FindAllOf fallback.
+        auto hud_game_instance(UObject* controller) -> UObject*
+        {
+            if (controller)
+            {
+                if (UWorld* world = controller->GetWorld())
+                {
+                    if (UObject** gi = mg_property_value<UObject*>(world, STR("OwningGameInstance")); gi && *gi)
+                    {
+                        return *gi;
+                    }
+                }
+            }
+            // Cadence: ONE-SHOT -- only while the property above does not resolve, and the answer
+            // is kept; never on the steady per-tick path.
+            static UObject* found = nullptr;
+            if (!found)
+            {
+                std::vector<UObject*> all;
+                UObjectGlobals::FindAllOf(STR("GameInstance"), all);
+                for (UObject* o : all)
+                {
+                    if (o && !o->HasAnyFlags(RF_ClassDefaultObject))
+                    {
+                        found = o;
+                        break;
+                    }
+                }
+            }
+            return found;
+        }
+
+        // The viewport in pixels, from UWidgetLayoutLibrary's default object (the Lua prototype's
+        // route: anchored placement went off-screen on this build twice, positive offsets from
+        // the top-left painted, so the corner is computed).
+        // Reads a 2D-vector ReturnValue out of a call's buffer through the struct's own reflection.
+        auto hud_read_vec2(UObject* obj, const wchar_t* fname, const std::vector<uint8_t>& out, double& w, double& h) -> bool
+        {
+            UFunction* fn = mg_cached_function(obj, fname);
+            FProperty* ret = fn ? hud_param(fn, STR("ReturnValue")) : nullptr;
+            if (!ret || ret->GetClass().GetName() != STR("StructProperty"))
+            {
+                return false;
+            }
+            UScriptStruct* layout = static_cast<FStructProperty*>(ret)->GetStruct();
+            if (!layout || out.size() < static_cast<size_t>(ret->GetOffset_Internal() + ret->GetSize()))
+            {
+                return false;
+            }
+            const uint8_t* base = out.data() + ret->GetOffset_Internal();
+            double x = 0.0, y = 0.0;
+            bool ok = false;
+            for (FProperty* f : TFieldRange<FProperty>(layout, EFieldIterationFlags::Default))
+            {
+                if (!f)
+                {
+                    continue;
+                }
+                const StringType type = f->GetClass().GetName();
+                double v = 0.0;
+                if (type == STR("DoubleProperty"))
+                {
+                    v = *reinterpret_cast<const double*>(base + f->GetOffset_Internal());
+                }
+                else if (type == STR("FloatProperty"))
+                {
+                    v = *reinterpret_cast<const float*>(base + f->GetOffset_Internal());
+                }
+                else
+                {
+                    continue;
+                }
+                if (f->GetName() == STR("X")) { x = v; ok = true; }
+                else if (f->GetName() == STR("Y")) { y = v; }
+            }
+            if (!ok || !std::isfinite(x) || !std::isfinite(y) || x <= 0.0 || y <= 0.0)
+            {
+                return false;
+            }
+            w = x;
+            h = y;
+            return true;
+        }
+
+        auto hud_viewport_size(UObject* world_context, double& w, double& h) -> bool
+        {
+            static UObject* library = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, STR("/Script/UMG.Default__WidgetLayoutLibrary"));
+            if (!library || !world_context)
+            {
+                return false;
+            }
+            std::vector<uint8_t> out;
+            if (!hud_call(library, STR("GetViewportSize"), [&](UFunction* fn, uint8_t* buf) {
+                    return hud_fill_object(fn, buf, STR("WorldContextObject"), world_context);
+                }, &out))
+            {
+                return false;
+            }
+            return hud_read_vec2(library, STR("GetViewportSize"), out, w, h);
+        }
+
+        // The clock box's laid-out size (UWidget::GetDesiredSize), zero until its first layout.
+        auto hud_desired_size(UObject* widget, double& w, double& h) -> bool
+        {
+            std::vector<uint8_t> out;
+            if (!widget || !hud_call(widget, STR("GetDesiredSize"), nullptr, &out))
+            {
+                return false;
+            }
+            return hud_read_vec2(widget, STR("GetDesiredSize"), out, w, h);
+        }
+
+        auto hud_set_text(UObject* text, const wchar_t* value) -> void
+        {
+            hud_call(text, STR("SetText"), [&](UFunction* fn, uint8_t* buf) {
+                FProperty* p = hud_param(fn, STR("InText"));
+                if (!p)
+                {
+                    // the first struct parameter, whatever its name on this build
+                    for (FProperty* q : TFieldRange<FProperty>(fn, EFieldIterationFlags::None))
+                    {
+                        if (q && q->GetClass().GetName() == STR("StructProperty")) { p = q; break; }
+                    }
+                }
+                if (!p || p->GetSize() < static_cast<int32_t>(sizeof(FText)))
+                {
+                    return false;
+                }
+                FText as_text{value};
+                std::memcpy(buf + p->GetOffset_Internal(), &as_text, sizeof(FText));
+                return true;
+            });
+        }
+
+        auto hud_remove(FWeakObjectPtr& weak) -> void
+        {
+            if (UObject* w = weak.Get())
+            {
+                hud_call(w, STR("RemoveFromParent"), nullptr);
+                if (w->IsRootSet())
+                {
+                    w->ClearRootSet();
+                }
+            }
+            weak = FWeakObjectPtr{};
+        }
+
+        auto hud_tear_down() -> void
+        {
+            hud_remove(g_hud_dot);
+            hud_remove(g_hud_clock);
+            g_hud_text_block = FWeakObjectPtr{};
+            g_hud_in_viewport = false;
+            g_hud_last_second = -1;
+        }
+
+        // Builds the two widgets and applies every number and colour. Placement comes last and is
+        // repeated by hud_place whenever the viewport size changes.
+        auto hud_build(UObject* controller) -> bool
+        {
+            UObject* gi = hud_game_instance(controller);
+            if (!gi)
+            {
+                return false;
+            }
+            auto make = [&](const wchar_t* name, UObject*& border_out) -> UObject* {
+                UObject* widget = hud_construct(STR("/Script/UMG.UserWidget"), gi, name);
+                if (!widget)
+                {
+                    return nullptr;
+                }
+                const std::wstring tree_name = std::wstring(name) + STR("_Tree");
+                const std::wstring border_name = std::wstring(name) + STR("_Border");
+                UObject* tree = hud_construct(STR("/Script/UMG.WidgetTree"), widget, tree_name.c_str());
+                UObject* border = tree ? hud_construct(STR("/Script/UMG.Border"), tree, border_name.c_str()) : nullptr;
+                if (!tree || !border)
+                {
+                    return nullptr;
+                }
+                if (UObject** slot = mg_property_value<UObject*>(widget, STR("WidgetTree")))
+                {
+                    *slot = tree;
+                }
+                if (UObject** root = mg_property_value<UObject*>(tree, STR("RootWidget")))
+                {
+                    *root = border;
+                }
+                border_out = border;
+                return widget;
+            };
+            UObject* dot_border = nullptr;
+            UObject* clock_border = nullptr;
+            UObject* dot = make(STR("MeshGhostHudDot"), dot_border);
+            UObject* clock = make(STR("MeshGhostHudClock"), clock_border);
+            UObject* text = clock ? hud_construct(STR("/Script/UMG.TextBlock"), *mg_property_value<UObject*>(clock, STR("WidgetTree")), STR("MeshGhostHudClock_Text")) : nullptr;
+            if (!dot || !clock || !text)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: HUD indicator could not be built (dot={} clock={} text={}); falling back to nothing this tick.\n"),
+                             dot ? STR("ok") : STR("NULL"), clock ? STR("ok") : STR("NULL"), text ? STR("ok") : STR("NULL"));
+                return false;
+            }
+            // The digits' size, written into the TextBlock's own Font struct BEFORE the widget is
+            // added -- the one moment a size write is picked up without a struct-by-value call.
+            if (FProperty* font = mg_cached_property(text, STR("Font")); font && font->GetClass().GetName() == STR("StructProperty"))
+            {
+                hud_write_field(static_cast<FStructProperty*>(font)->GetStruct(), font->ContainerPtrToValuePtr<uint8_t>(text), STR("Size"), g_hud_text);
+            }
+            float dot_rgba[4], box_rgba[4];
+            hud_color(g_rec_dot_color, dot_rgba);
+            hud_color(g_rec_timer_color, box_rgba);
+            const float ink[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+            hud_call(dot_border, STR("SetBrushColor"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_color(fn, buf, STR("InBrushColor"), dot_rgba); });
+            hud_call(clock_border, STR("SetBrushColor"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_color(fn, buf, STR("InBrushColor"), box_rgba); });
+            hud_call(clock_border, STR("SetPadding"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("InPadding"), {{STR("Left"), g_hud_pad}, {STR("Top"), g_hud_pad}, {STR("Right"), g_hud_pad}, {STR("Bottom"), g_hud_pad}});
+            });
+            hud_call(clock_border, STR("SetContent"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_object(fn, buf, STR("Content"), text); });
+            hud_call(text, STR("SetColorAndOpacity"), [&](UFunction* fn, uint8_t* buf) {
+                FProperty* p = hud_param(fn, STR("InColorAndOpacity"));
+                if (!p || p->GetClass().GetName() != STR("StructProperty"))
+                {
+                    return false;
+                }
+                UScriptStruct* sub = nullptr;
+                uint8_t* sub_base = nullptr;
+                if (!hud_nested(static_cast<FStructProperty*>(p)->GetStruct(), buf + p->GetOffset_Internal(), STR("SpecifiedColor"), sub, sub_base))
+                {
+                    return false;
+                }
+                return hud_write_field(sub, sub_base, STR("R"), ink[0]) && hud_write_field(sub, sub_base, STR("G"), ink[1]) &&
+                       hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
+            });
+            hud_set_text(text, g_recording_time_text.empty() ? STR("0:00") : g_recording_time_text.c_str());
+            // PINNED while shown: nothing but the viewport references a runtime widget, so a
+            // collector pass takes it (the Lua prototype rebuilt every few seconds through one
+            // stretch of play). The root set is the engine's own answer; cleared again in
+            // hud_tear_down so a removed pair can be collected. The subobjects are reachable
+            // from the widget through its own reflected properties (WidgetTree, RootWidget,
+            // Content) and need no pin of their own.
+            dot->SetRootSet();
+            clock->SetRootSet();
+            g_hud_dot = FWeakObjectPtr{dot};
+            g_hud_clock = FWeakObjectPtr{clock};
+            g_hud_text_block = FWeakObjectPtr{text};
+            g_hud_built_gen = g_hud_tuning_gen;
+            g_hud_in_viewport = false;
+            g_hud_vw = 0.0;
+            g_hud_vh = 0.0;
+            g_hud_meas_w = 0.0;
+            g_hud_meas_h = 0.0;
+            Output::send(STR("[MeshGhostPseudo] RECINDICATOR: screen-space widgets built (size={} text={} pad={} gap={} at {},{} z={}).\n"),
+                         g_hud_size, g_hud_text, g_hud_pad, g_hud_gap, g_hud_x, g_hud_y, g_hud_z);
+            return true;
+        }
+
+        // Places both widgets from the top-left, for the viewport size given: the clock's right
+        // edge g_hud_x in from the right, the square to its left. The clock's width is estimated
+        // from the font (0.6 em a digit, four glyphs, padding) -- the same estimate the prototype
+        // used, judged against the old indicator by the user.
+        auto hud_place(double vw, double vh) -> void
+        {
+            UObject* dot = g_hud_dot.Get();
+            UObject* clock = g_hud_clock.Get();
+            if (!dot || !clock)
+            {
+                return;
+            }
+            (void)vh;
+            // Sized for the digits on screen NOW, never a fixed four: the prototype's box was, and
+            // at ten minutes the last digit walked out of it (the user, 2026-09-08). Re-placed
+            // whenever the glyph count changes (10:00, 100:00), which is when the width does.
+            const size_t glyphs = std::max<size_t>(4, g_recording_time_text.size());
+            double clock_w = g_hud_text * 0.6 * static_cast<double>(glyphs) + g_hud_pad * 2.0;
+            double clock_h = g_hud_text * 1.2 + g_hud_pad * 2.0;
+            // Once the box has laid out, its REAL size replaces both estimates, and the square
+            // takes the box's height so the two share their top and bottom edges -- the old
+            // indicator's confirmed look, and what the user asked of the prototype (14:27:
+            // "the red box is a bit mispositioned/small" against the estimate).
+            if (g_hud_meas_w > 0.0 && g_hud_meas_h > 0.0)
+            {
+                clock_w = g_hud_meas_w;
+                clock_h = g_hud_meas_h;
+            }
+            const double square = g_hud_meas_h > 0.0 ? g_hud_meas_h : g_hud_size;
+            const double clock_x = vw - g_hud_x - clock_w;
+            const double dot_x = clock_x - g_hud_gap - square;
+            const double dot_y = g_hud_y;
+            hud_call(clock, STR("SetPositionInViewport"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("Position"), {{STR("X"), clock_x}, {STR("Y"), g_hud_y}}) && hud_fill_bool(fn, buf, STR("bRemoveDPIScale"), true);
+            });
+            // The box gets NO forced size: a Border auto-sizes to its text plus padding, so the
+            // white follows the digits exactly (the user's ask, 14:23). clock_w above is only the
+            // estimate that decides where the box and the square go.
+            hud_call(dot, STR("SetPositionInViewport"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("Position"), {{STR("X"), dot_x}, {STR("Y"), dot_y}}) && hud_fill_bool(fn, buf, STR("bRemoveDPIScale"), true);
+            });
+            hud_call(dot, STR("SetDesiredSizeInViewport"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("Size"), {{STR("X"), square}, {STR("Y"), square}});
+            });
+            g_hud_vw = vw;
+            g_hud_vh = vh;
+            g_hud_placed_glyphs = glyphs;
+        }
+
+        // Once per tick from tick_recording_indicator when REC_INDICATOR_SCREEN_SPACE. Not
+        // recording: nothing, once the widgets are gone. Recording: build if missing (the
+        // collector or a transition took them), place if the viewport changed, add if not in the
+        // viewport, and one text write per SECOND.
+        auto tick_hud_indicator(UObject* controller) -> void
+        {
+            if (!g_recording_active || !g_rec_indicator_enabled)
+            {
+                if (g_hud_dot.Get() || g_hud_clock.Get())
+                {
+                    hud_tear_down();
+                    Output::send(STR("[MeshGhostPseudo] RECINDICATOR: screen-space widgets removed.\n"));
+                }
+                return;
+            }
+            if (!controller)
+            {
+                return;
+            }
+            if (g_hud_built_gen != g_hud_tuning_gen && (g_hud_dot.Get() || g_hud_clock.Get()))
+            {
+                hud_tear_down(); // a hud_* tuning change rebuilds
+            }
+            if (!g_hud_dot.Get() || !g_hud_clock.Get() || !g_hud_text_block.Get())
+            {
+                if (!hud_build(controller))
+                {
+                    return;
+                }
+            }
+            UObject* dot = g_hud_dot.Get();
+            UObject* clock = g_hud_clock.Get();
+            UObject* text = g_hud_text_block.Get();
+            if (!dot || !clock || !text)
+            {
+                return;
+            }
+            // Viewport size and in-viewport state, checked on a cadence: one static call each.
+            if (!g_hud_in_viewport || (g_registry_tick % 60) == 0)
+            {
+                double vw = 0.0, vh = 0.0;
+                bool replace = false;
+                if (hud_viewport_size(controller, vw, vh) && (vw != g_hud_vw || vh != g_hud_vh))
+                {
+                    replace = true;
+                }
+                double mw = 0.0, mh = 0.0;
+                if (g_hud_in_viewport && hud_desired_size(clock, mw, mh) && (mw != g_hud_meas_w || mh != g_hud_meas_h))
+                {
+                    g_hud_meas_w = mw;
+                    g_hud_meas_h = mh;
+                    replace = true;
+                }
+                if (replace && vw > 0.0)
+                {
+                    hud_place(vw, vh);
+                }
+                std::vector<uint8_t> out;
+                bool in_viewport = false;
+                if (hud_call(dot, STR("IsInViewport"), nullptr, &out))
+                {
+                    if (UFunction* fn = mg_cached_function(dot, STR("IsInViewport")))
+                    {
+                        if (FProperty* ret = hud_param(fn, STR("ReturnValue")))
+                        {
+                            in_viewport = out[ret->GetOffset_Internal()] != 0;
+                        }
+                    }
+                }
+                if (!in_viewport && g_hud_vw > 0.0)
+                {
+                    hud_call(dot, STR("AddToViewport"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_int(fn, buf, STR("ZOrder"), g_hud_z); });
+                    hud_call(clock, STR("AddToViewport"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_int(fn, buf, STR("ZOrder"), g_hud_z); });
+                    g_hud_in_viewport = true;
+                    g_hud_last_second = -1;
+                }
+            }
+            // The clock, once a second, from the same start stamp the old path used.
+            const int64_t now_ms = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                            std::chrono::system_clock::now().time_since_epoch())
+                                                            .count());
+            int64_t elapsed_s = 0;
+            if (g_recording_started_unix_ms > 0 && now_ms > g_recording_started_unix_ms)
+            {
+                elapsed_s = (now_ms - g_recording_started_unix_ms) / 1000;
+            }
+            if (elapsed_s != g_hud_last_second)
+            {
+                g_hud_last_second = elapsed_s;
+                wchar_t buffer[16]{};
+                std::swprintf(buffer, sizeof(buffer) / sizeof(buffer[0]), STR("%lld:%02lld"),
+                              static_cast<long long>(elapsed_s / 60), static_cast<long long>(elapsed_s % 60));
+                g_recording_time_text = buffer;
+                hud_set_text(text, g_recording_time_text.c_str());
+                if (std::max<size_t>(4, g_recording_time_text.size()) != g_hud_placed_glyphs && g_hud_vw > 0.0)
+                {
+                    hud_place(g_hud_vw, g_hud_vh);
+                }
+            }
+        }
+
         // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
         //
         // See the constants above for the design and why this is the nametag's mechanism twice.
@@ -9739,6 +10416,11 @@ namespace MeshGhostPseudo
         // work is: not recording -> one bool test; recording -> one string write per SECOND.
         auto tick_recording_indicator(UObject* controller, AActor* local_pawn) -> void
         {
+            if constexpr (REC_INDICATOR_SCREEN_SPACE)
+            {
+                tick_hud_indicator(controller);
+                return;
+            }
             if (!g_recording_active || !g_rec_indicator_enabled)
             {
                 if (g_recording_dot && g_recording_indicator_visible)
@@ -13028,6 +13710,11 @@ namespace MeshGhostPseudo
         // indicator rebuilds itself on the next tick that finds a recording running, so nothing
         // needs to survive the transition.
         clear_recording_indicator();
+        // The screen-space widgets: the viewport drops them at a transition and the collector
+        // may follow; the weak handles go stale on their own, this only forgets the add.
+        g_hud_in_viewport = false;
+        g_hud_vw = 0.0;
+        g_hud_vh = 0.0;
 
         for (auto& [id, remote] : remotes)
         {

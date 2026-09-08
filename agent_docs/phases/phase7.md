@@ -3181,3 +3181,18 @@ bound value for everything (buttons zero) -> keys from every loaded context (a f
 every attack) -> keys from the applied table (look zero) -> look from the vector key state. The
 user's `record_on_launch` is back to `false`; `inputs` stays `true`. The suite ran green after the
 core's one-line change. What remains is the user's word on the read-back and the release.
+
+**Afternoon: the recording indicator, re-drawn as a screen-space widget.** The user's call --
+*"the current look is fine unless we can make it better somehow? we should at least fix the fov
+issue"* -- and the tester's MIT mod had shown the route. Prototyped in Lua in the scratch slot with
+a live tuning file, judged beside the old indicator in one session (`PROBES.md`,
+`probe_hudindicator/`): four rounds from nothing-painted to *"pixel perfect as well checked with
+sharex"*, the two complaints confirmed gone (*"it stays visible, and it don't move with fov"*), and
+three lessons filed (`pitfalls/by-lesson.md`) -- anchored placement goes off-screen on this build,
+nothing but the viewport holds a runtime widget, a forced box size spills at 10:00. Ported to C++
+the same hour under `REC_INDICATOR_SCREEN_SPACE` (`7b0fc8535823`): the same reflected calls with the real
+recording state, the pair pinned in the root set while shown, the box auto-sized and the square
+sized to its laid-out height, re-placed on a resize or a digit-count change; deployed to both
+installs at the game's next exit, unwatched. The tester's three notes from the same hour are in
+`documentation.md` and `ideas.md`: UI is laid out at 1920x1080 and scaled, no community input
+tracker exists, most community mods ship as unlicensed paks.

@@ -5332,3 +5332,29 @@ movement immediately followed by a ~60 ms sample carrying ~6.9 units, at t=1.46,
 ~60 ms freeze, about 2.4 render frames past the 25 ms interp delay -- too small for the tester to
 notice, and it has none of Nagle's shape: no fixed floor, and the character DOES move across the
 gap, so it is production and not delivery. Parked in `UNVERIFIED.md`.
+
+## 2026-09-08 — the recording indicator as a screen-space widget: stays drawn behind geometry, does not move with the field of view, pixel-aligned (user-confirmed)
+
+**What was confirmed, on the Lua prototype (`probes/probe_hudindicator/`)**, the user at the game
+with the old indicator drawn beside it for comparison: *"it stays visible, and it don't move with
+fov"* after walls and the slide; reset-to-save, a zone change and the main menu all survived
+(*"no crashing. so seems like the new UI works perfectly"*); and with the square sized to the
+clock box's laid-out height and flush with its top, *"looks good now, pixel perfect as well
+checked with sharex"* -- the same method that confirmed the world-space one on 2026-09-05.
+
+**The mechanism.** Two `UserWidget`s constructed at runtime from reflection (no widget asset), each
+a `Border` root -- the square's brush red, the clock's white holding a black `TextBlock` -- added to
+the viewport at z 1000 and placed from the top-left with positive pixel offsets computed from
+`UWidgetLayoutLibrary::GetViewportSize`. The box is NOT given a size (a Border auto-sizes to its
+text, which is what made 10:xx fit after the first four-glyph estimate spilled), and the square
+takes the box's laid-out height (`GetDesiredSize`, 56 px at font 30 with 4 px padding). Numbers
+the user judged: `x=26 y=22 gap=10 text=30 pad=4` at 1920x1080.
+
+**Two things it settled the hard way.** Anchored placement (`SetAnchorsInViewport` to the
+top-right, read back correctly) put both widgets off-screen on this build twice while the same
+widgets placed from the top-left painted; and a runtime widget is held by nothing but the
+viewport, so a level transition drops it and the collector follows -- the prototype rebuilt on
+loss, the C++ pins the pair in the root set while shown. `pitfalls/by-lesson.md`, 2026-09-08.
+
+**Not yet confirmed:** the C++ port (`REC_INDICATOR_SCREEN_SPACE`), which is the same calls with the
+real recording state -- `UNVERIFIED.md`.

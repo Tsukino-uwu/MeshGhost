@@ -44,7 +44,8 @@ entry without one.
 
 - READY — **THE INPUT TRACK WORKS on Pseudoregalia, every button and both sticks (the 13:55 file, `replay/inputs/in-20260908-135457.ndjson`, 1,107 edges, zero disagreements, no drops). Nothing on screen changes; what is yours to say is whether the read-back matches what you pressed. Entry below.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
-- OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
+- READY — **the recording indicator is a SCREEN-SPACE widget now (build `7b0fc8535823`): start a recording and it should look exactly like the 14:30 prototype you ShareX-checked, keep the real time across a zone change, and vanish on stop.** Entry below.
+- DONE (mechanism confirmed on the prototype) — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
 - OPEN, NO PRIORITY — **the Linux tester's clip still carries six ~60 ms freezes the Windows clip has none of, and they are NOT Nagle** (measured 2026-09-07, after `TCP_NODELAY` closed the real fault — `VERIFIED.md`): a ~31 ms sample with zero movement then a ~60 ms sample carrying ~6.9 units, roughly one a second across the clip. No fixed floor and the character MOVES across the gap, so it is production, not delivery — a periodic hitch on their machine or in Proton, most likely. The tester did not notice it. If it is ever chased: a clip cannot localise it further, so it needs their frame times.
 - OPEN, NO PRIORITY (the user's call) — **one single afterimage appears whenever a looping recording restarts, and probably whenever any ghost spawns** (the user, on screen, 2026-09-06). Not severe and not queued for a fix; logged so it is on the record. A loop seam IS a despawn plus a respawn by design (`replayPlayer.seam`), which is why the two cases are likely one.
@@ -277,7 +278,26 @@ records that naming a game state from code reasoning has produced a false regres
 and remember that the ghost-spawn path already does several things at once -- the light kill, the
 outfit apply, the emitter switch-off -- any of which lands on the same tick.
 
-## [OPEN] the recording indicator: drawn behind the world, and it moves when speed or FOV changes (the user, 2026-09-06)
+## [READY] the recording indicator is a SCREEN-SPACE widget now: the C++ port of the confirmed prototype, UNWATCHED (2026-09-08)
+
+**Both 2026-09-06 complaints are answered by the mechanism, and the user confirmed it on the Lua
+prototype** (`VERIFIED.md`, 2026-09-08: stays drawn behind geometry, does not move with the field of
+view, survives reset/zone/menu, pixel-aligned by ShareX). **The C++ port shipped in build `7b0fc8535823`
+under `REC_INDICATOR_SCREEN_SPACE` (`true`; `false` is the whole old path, kept as the revert)**, both
+installs, deployed at the game's next exit. Same calls as the prototype with the real recording
+state: built when a recording starts, removed when it stops, pinned in the root set while shown,
+rebuilt after a level transition, the box auto-sized to the digits, the square sized to the box's
+laid-out height, re-placed when the viewport size or the digit count changes, colours from
+config.json's `indicator_color`/`indicator_timer_color` as before. Tuning: `rec_indicator.txt`'s
+`hud_x hud_y hud_size hud_gap hud_text hud_pad hud_z` (any change rebuilds the pair).
+
+**What to look at:** start a recording. The pair should look exactly like the prototype did at
+14:30 (the ShareX-checked one), read the real elapsed time from the core's start stamp (no reset to
+0:00 on a zone change), and disappear when recording stops. `UE4SS.log` says
+`RECINDICATOR: screen-space widgets built (...)` once per start and `removed` once per stop; a
+`WARNING: HUD indicator:` line names any call that did not resolve on this build.
+
+## [DONE] the recording indicator: drawn behind the world, and it moves when speed or FOV changes (the user, 2026-09-06) -- answered above
 
 **Two separate reports, both from the user's own play, logged here so neither is lost.** The indicator
 itself is CONFIRMED working (`VERIFIED.md`, 2026-09-05: the shapes pixel-aligned, and the same again

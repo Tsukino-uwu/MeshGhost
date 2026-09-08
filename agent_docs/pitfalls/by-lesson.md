@@ -6627,3 +6627,29 @@ deserves a control that the game itself computes**, the way the pawn's latch was
 material, a camera rig, an audio listener -- has the same trap: the object array holds the
 candidates, and only the engine's own pointer says which is live. This file already has the camera
 rig and the audio listener versions of it.
+
+## A runtime UMG widget: anchored placement goes off-screen here, and nothing but the viewport holds it (Pseudoregalia, 2026-09-08)
+
+Two things the screen-space indicator paid for, from a widget constructed at runtime with no
+widget asset (`probes/probe_hudindicator/`, then `REC_INDICATOR_SCREEN_SPACE` in `Plugin.cpp`):
+
+**Anchored placement painted nothing.** `SetAnchorsInViewport` to the top-right corner plus
+`SetAlignmentInViewport(1,0)` plus a negative x offset -- the textbook corner pin -- left both
+widgets `IsInViewport=true`, visible, laid out, and nowhere on the screen, twice, while the
+anchors read back exactly as set. The same widgets placed from the top-left with positive offsets
+painted at once. So the corner is COMPUTED: `UWidgetLayoutLibrary::GetViewportSize` (1920x1080
+here -- the engine lays UI out in that space and scales it to the output, a tester's note) and
+positive offsets, re-read on a cadence for a resize. A control built a proven way is what
+localised it: the tester's bare-TextBlock shape painted while ours did not, so the difference had
+to be in what ours added.
+
+**The widget is held by nothing but the viewport.** Reset-to-save, a zone change and the main
+menu each took the pair (the viewport drops its widgets at a transition; the collector follows a
+widget nothing references), and a prototype that rebuilt on loss showed it as a rebuild every few
+seconds through a stretch of the user's testing. The C++ pins the pair with `SetRootSet()` while
+shown and clears it on removal; the handles are weak pointers either way.
+
+**And a Border sized by an estimate spills.** A box given a fixed size for four digits lost the
+last digit at 10:00; a Border auto-sizes to its content once nothing forces it, and the square is
+then sized from the box's laid-out height (`GetDesiredSize`), which is how "same height, shared
+edges" is kept without a number.

@@ -11,8 +11,8 @@ fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directo
 as one; since 2026-09-06 those directories sit together under `probes/` (the user's call, to keep
 the adapter root readable — they were loose at the root before, so a record dated earlier that says
 `adapters/pseudoregalia/probe_x/` means `adapters/pseudoregalia/probes/probe_x/`). This index stays
-at the adapter root because it is one of the adapter's files, not a probe. Twenty-two directories,
-thirty-six scripts, one index (2026-09-08 count, measured not incremented — `ls probes` and a `find`
+at the adapter root because it is one of the adapter's files, not a probe. Twenty-three directories,
+thirty-seven scripts, one index (2026-09-08 count, measured not incremented — `ls probes` and a `find`
 for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -567,3 +567,28 @@ UE4SS stops a walk on ANY returned value -- the docs' "return true to stop" read
 safe. And a class count is not a leftover count: 34 pawns where 4 were live, the other 30 flagged
 `bActorIsBeingDestroyed` and waiting for the engine's purge. The census logs themselves are not in
 the repo (a class-schema dump is expression); the facts derived from them are.
+
+## `probe_hudindicator/` — the recording indicator as a screen-space widget, judged live before the C++ (2026-09-08)
+
+The user's two complaints about the world-space indicator (hidden behind geometry; drifting with
+the field of view) are both properties of a TextRenderComponent in the camera's frame, and a
+tester's MIT mod had shown a UMG widget built at runtime paints in this game. This probe built
+the same square-and-clock that way -- two UserWidgets with Border roots, a TextBlock in the
+clock's -- and let the user judge it beside the old one in one session, every number live
+through `hud_indicator.txt`.
+
+- **It dumps the widget classes' function lists first** (`hud_census-*.log`; UserWidget, Widget,
+  Border, TextBlock, WidgetTree and their parents), because the engine's API pages refused the
+  fetch tool that day and the running game is the reference this repo prefers anyway. Every call
+  it makes is by a name in that dump, and one that raises is reported once and skipped.
+- **Four rounds, all from the log and the user's screen.** (1) In viewport, every call succeeding,
+  nothing painted: a control widget built the tester's exact way DID paint, which isolated the
+  difference. (2) Anchored placement (top-right anchors, read back correctly) is what put it
+  off-screen; positive top-left offsets from `GetViewportSize` fixed it. (3) A box sized for four
+  glyphs spilled at 10:00; a Border auto-sizes to its text once you stop forcing it. (4) The
+  square sized to the box's laid-out height (`GetDesiredSize`), flush with its top: *"pixel
+  perfect as well checked with sharex"*. Reset-to-save, a zone change and the main menu each took
+  the widgets (the viewport drops them, the collector follows); the probe rebuilds on loss.
+- **What it did not judge:** the real recording state (its clock is seconds since load). The C++
+  port (`REC_INDICATOR_SCREEN_SPACE`) reads the core's start stamp and pins the pair in the root
+  set; `UNVERIFIED.md`.
