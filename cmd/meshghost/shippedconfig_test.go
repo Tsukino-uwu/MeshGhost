@@ -57,7 +57,6 @@ type shippedConfig struct {
 		InputDisplay struct {
 			Player bool `json:"player"`
 			Ghost  bool `json:"ghost"`
-			Always bool `json:"always"`
 		} `json:"input_display"`
 		Chaser struct {
 			Enabled    bool   `json:"enabled"`
@@ -195,9 +194,9 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 		t.Error("shipped replay.inputs must be false: recording what the player pressed is a new " +
 			"kind of artefact and ships off, like every other capability here")
 	}
-	if cfg.Client.InputDisplay.Player || cfg.Client.InputDisplay.Ghost || cfg.Client.InputDisplay.Always {
-		t.Errorf("shipped input_display must be off (player=%v ghost=%v always=%v): an overlay is opted into",
-			cfg.Client.InputDisplay.Player, cfg.Client.InputDisplay.Ghost, cfg.Client.InputDisplay.Always)
+	if cfg.Client.InputDisplay.Player || cfg.Client.InputDisplay.Ghost {
+		t.Errorf("shipped input_display must be off (player=%v ghost=%v): an overlay is opted into",
+			cfg.Client.InputDisplay.Player, cfg.Client.InputDisplay.Ghost)
 	}
 	if cfg.Client.Replay.SplitTimes {
 		t.Error("shipped replay.split_times must be false: a nametag that changes several times a second is opted into")

@@ -39,7 +39,7 @@
       "name": "", "color": "", "contact": false, "spawn_delay": "0s"
     },
     "input_display": {
-      "player": false, "ghost": false, "always": false, "background": true,
+      "player": false, "ghost": false, "background": true,
       "rows": 10, "size": 22, "unit": "cs", "count_side": "left", "fps_note": false,
       "player_side": "left", "ghost_side": "right"
     },

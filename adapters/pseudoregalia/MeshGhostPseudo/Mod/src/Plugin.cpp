@@ -225,9 +225,10 @@ namespace MeshGhostPseudo
     // **THE INPUT HISTORY DISPLAY (2026-09-08), the player half.** A fighting-game-style list on
     // screen: each row is what was held and for how many engine frames, newest on top, fed by the
     // same per-frame read the input track uses (no second read of the game). Config.json's
-    // `input_display` section is the runtime gate and ships off: `player` shows it, `always` shows
-    // it with no recording running, `background` draws the panel, `rows`/`size`/`player_side` are
-    // the look. The user's design, prototyped in Lua the same day (`probes/probe_inputdisplay/`,
+    // `input_display` section is the runtime gate and ships off: `player` shows it (whether or not
+    // a recording is running -- an `always` key used to gate that and confused a tester, who had
+    // to set both; removed 2026-09-09 at the user's call, an old config's key is ignored),
+    // `background` draws the panel, `rows`/`size`/`player_side` are the look. The user's design, prototyped in Lua the same day (`probes/probe_inputdisplay/`,
     // judged: "it works"). The GHOST half (a replay ghost's own track on the other side) needs the
     // core to stream a clip's input track and is not here yet. `false` compiles the display out.
     constexpr bool INPUT_HISTORY_DISPLAY = true;
@@ -9072,7 +9073,6 @@ namespace MeshGhostPseudo
         // The input history display's state (INPUT_HISTORY_DISPLAY). Config-driven, polled with the
         // indicator settings; the numbers are 1920x1080 pixels like the indicator's.
         bool g_disp_player = false;        // input_display.player
-        bool g_disp_always = false;        // input_display.always: show with no recording running
         bool g_disp_background = true;     // input_display.background
         int32_t g_disp_rows = 10;          // input_display.rows
         double g_disp_size = 22.0;         // input_display.size (font)
@@ -9668,12 +9668,11 @@ namespace MeshGhostPseudo
                              enabled ? STR("on") : STR("off"));
             }
             // The input history display (INPUT_HISTORY_DISPLAY): its section's keys are unique in
-            // the file, which this first-occurrence reader needs (`"player"`, `"always"`,
-            // `"background"`, `"rows"`, `"size"`, `"player_side"` -- checked against docs/config.md).
+            // the file, which this first-occurrence reader needs (`"player"`, `"background"`,
+            // `"rows"`, `"size"`, `"player_side"` -- checked against docs/config.md).
             if constexpr (INPUT_HISTORY_DISPLAY)
             {
                 const bool player = config_bool_value("player", false);
-                const bool always = config_bool_value("always", false);
                 const bool background = config_bool_value("background", true);
                 double rows = 0.0;
                 const bool have_rows = config_number_value("rows", rows);
@@ -9718,7 +9717,7 @@ namespace MeshGhostPseudo
                     unit_s = cleaned.empty() ? std::string("cs") : cleaned;
                 }
                 const bool count_left = have_count_side ? (count_side != "right") : g_disp_count_left;
-                if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
+                if (player != g_disp_player || background != g_disp_background ||
                     rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left ||
                     unit_s != g_disp_unit || count_left != g_disp_count_left || fps_note != g_disp_fps_note ||
                     ghost != g_disp_ghost || ghost_left != g_disp_ghost_left)
@@ -9727,7 +9726,6 @@ namespace MeshGhostPseudo
                     g_disp_ghost = ghost;
                     g_disp_ghost_left = ghost_left;
                     g_disp_player = player;
-                    g_disp_always = always;
                     g_disp_background = background;
                     g_disp_rows = rows_i;
                     g_disp_size = size_d;
@@ -9737,8 +9735,8 @@ namespace MeshGhostPseudo
                     g_disp_player_panel.last_text.clear(); // a unit or side change redraws the rows in place
                     g_disp_ghost_panel.last_text.clear();
                     ++g_disp_tuning_gen;
-                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={} unit={} count_side={} ghost={} ghost_side={}\n"),
-                                 player ? STR("on") : STR("off"), always ? STR("on") : STR("off"),
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} background={} rows={} size={} side={} unit={} count_side={} ghost={} ghost_side={}\n"),
+                                 player ? STR("on") : STR("off"),
                                  background ? STR("on") : STR("off"), rows_i, size_d, left ? STR("left") : STR("right"),
                                  to_wide_ascii(unit_s), count_left ? STR("left") : STR("right"),
                                  ghost ? STR("on") : STR("off"), ghost_left ? STR("left") : STR("right"));
@@ -11812,7 +11810,7 @@ namespace MeshGhostPseudo
         // has one), on `ghost_side` -- or the player's side when the player's panel is off.
         auto input_display_tick(UObject* controller, bool ghost_has_track) -> void
         {
-            const bool player_wanted = g_disp_player && (g_disp_always || g_recording_active) && g_rec_indicator_enabled;
+            const bool player_wanted = g_disp_player && g_rec_indicator_enabled; // shown whenever `player` is on (no `always` since 2026-09-09)
             input_display_tick_panel(g_disp_player_panel, player_wanted, g_disp_player_left, controller);
             const bool ghost_wanted = g_disp_ghost && ghost_has_track && g_rec_indicator_enabled;
             const bool ghost_left = player_wanted ? g_disp_ghost_left : g_disp_player_left;
@@ -25988,7 +25986,7 @@ namespace MeshGhostPseudo
         // Two consumers of one read: the track (sent to the core) and the on-screen history
         // (INPUT_HISTORY_DISPLAY, drawn here). The read runs when either wants it; the queue is
         // fed only when the track does AND the core is there to drain it.
-        const bool display_wants = INPUT_HISTORY_DISPLAY && g_disp_player && (g_disp_always || g_recording_active);
+        const bool display_wants = INPUT_HISTORY_DISPLAY && g_disp_player;
         const bool track_wants = g_input_track_enabled && bridge && bridge->is_ready();
         if ((!track_wants && !display_wants) || !pawn || !controller)
         {
