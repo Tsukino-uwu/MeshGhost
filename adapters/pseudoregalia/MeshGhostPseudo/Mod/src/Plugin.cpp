@@ -9065,6 +9065,12 @@ namespace MeshGhostPseudo
         int32_t g_disp_rows = 10;          // input_display.rows
         double g_disp_size = 22.0;         // input_display.size (font)
         bool g_disp_player_left = true;    // input_display.player_side == "left"
+        // input_display.unit: what the count on a row measures. "cs" (hundredths of a second, the
+        // default -- a tester's point, 2026-09-08: runners play at different framerates per
+        // category, so a frame count is not comparable between them and a time is), "ms", or
+        // "frames" (engine frames, the fighting-game convention at a fixed 60).
+        std::string g_disp_unit = "cs";
+        bool g_disp_count_left = true;     // input_display.count_side: the count before or after the inputs
         double g_disp_margin_x = 200.0;    // panel inset from its side, pixels (the prototype's)
         double g_disp_margin_y = 300.0;    // panel top, pixels
         double g_disp_pad = 6.0;
@@ -9080,6 +9086,8 @@ namespace MeshGhostPseudo
             uint32_t mask;
             int dir; // bit 0 up, 1 down, 2 left, 3 right
             uint64_t frames;
+            int64_t start_ms; // when the state began, steady clock
+            int64_t last_ms;  // the last frame it was still held
         };
         std::deque<InputHistoryRow> g_disp_rows_data; // newest at the front
         std::wstring g_disp_last_text;
@@ -9641,11 +9649,18 @@ namespace MeshGhostPseudo
                 const bool have_size = config_number_value("size", size);
                 std::string side;
                 const bool have_side = config_string_value("player_side", side);
+                std::string unit;
+                const bool have_unit = config_string_value("unit", unit);
+                std::string count_side;
+                const bool have_count_side = config_string_value("count_side", count_side);
                 const int32_t rows_i = have_rows ? static_cast<int32_t>(std::clamp(rows, 1.0, 40.0)) : g_disp_rows;
                 const double size_d = have_size ? std::clamp(size, 6.0, 96.0) : g_disp_size;
                 const bool left = have_side ? (side != "right") : g_disp_player_left;
+                const std::string unit_s = have_unit ? ((unit == "frames" || unit == "ms") ? unit : std::string("cs")) : g_disp_unit;
+                const bool count_left = have_count_side ? (count_side != "right") : g_disp_count_left;
                 if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
-                    rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left)
+                    rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left ||
+                    unit_s != g_disp_unit || count_left != g_disp_count_left)
                 {
                     g_disp_player = player;
                     g_disp_always = always;
@@ -9653,10 +9668,14 @@ namespace MeshGhostPseudo
                     g_disp_rows = rows_i;
                     g_disp_size = size_d;
                     g_disp_player_left = left;
+                    g_disp_unit = unit_s;
+                    g_disp_count_left = count_left;
+                    g_disp_last_text.clear(); // a unit or side change redraws the rows in place
                     ++g_disp_tuning_gen;
-                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={}\n"),
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={} unit={} count_side={}\n"),
                                  player ? STR("on") : STR("off"), always ? STR("on") : STR("off"),
-                                 background ? STR("on") : STR("off"), rows_i, size_d, left ? STR("left") : STR("right"));
+                                 background ? STR("on") : STR("off"), rows_i, size_d, left ? STR("left") : STR("right"),
+                                 to_wide_ascii(unit_s), count_left ? STR("left") : STR("right"));
                 }
             }
             // The input track's runtime gate. The key is `inputs`, nested under `replay` in the
@@ -10640,13 +10659,17 @@ namespace MeshGhostPseudo
             if (move_y < -0.35) dir |= 2;
             if (move_x < -0.35) dir |= 4;
             if (move_x > 0.35) dir |= 8;
+            const int64_t now_ms = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                            std::chrono::steady_clock::now().time_since_epoch())
+                                                            .count());
             if (!g_disp_rows_data.empty() && g_disp_rows_data.front().mask == mask && g_disp_rows_data.front().dir == dir)
             {
                 ++g_disp_rows_data.front().frames;
+                g_disp_rows_data.front().last_ms = now_ms;
             }
             else
             {
-                g_disp_rows_data.push_front(InputHistoryRow{mask, dir, 1});
+                g_disp_rows_data.push_front(InputHistoryRow{mask, dir, 1, now_ms, now_ms});
                 while (g_disp_rows_data.size() > static_cast<size_t>((std::max)(g_disp_rows, 1)))
                 {
                     g_disp_rows_data.pop_back();
@@ -10668,15 +10691,36 @@ namespace MeshGhostPseudo
             std::wstring out;
             for (const InputHistoryRow& r : g_disp_rows_data)
             {
-                // The count is DISPLAY only: the track stores the frame of every edge, never a
-                // count, so a cap here loses nothing; 999 keeps the column from widening on a
-                // long hold, the way a fighting game's list does.
+                // The count is DISPLAY only: the track stores the frame and the millisecond of
+                // every edge, never a count, so the unit and the cap here lose nothing; 999 keeps
+                // the column from widening on a long hold, the way a fighting game's list does.
+                // A row's time runs from its first frame to its last, so a one-frame press reads
+                // as one frame in "frames" and as 0 in a time unit -- the frame count is the only
+                // unit that can show a single frame, which is why it stays available.
+                unsigned long long count = r.frames;
+                if (g_disp_unit == "cs")
+                {
+                    count = static_cast<unsigned long long>((r.last_ms - r.start_ms) / 10);
+                }
+                else if (g_disp_unit == "ms")
+                {
+                    count = static_cast<unsigned long long>(r.last_ms - r.start_ms);
+                }
+                if (count > 999)
+                {
+                    count = 999;
+                }
                 wchar_t head[16]{};
-                std::swprintf(head, sizeof(head) / sizeof(head[0]), STR("%4llu  "), static_cast<unsigned long long>(r.frames > 999 ? 999 : r.frames));
-                out += head;
+                std::swprintf(head, sizeof(head) / sizeof(head[0]), g_disp_count_left ? STR("%4llu  ") : STR("  %llu"), count);
+                std::wstring inputs;
+                if (g_disp_count_left)
+                {
+                    out += head;
+                }
+                std::wstring& row_out = g_disp_count_left ? out : inputs;
                 if (r.dir == 0 && r.mask == 0)
                 {
-                    out += L'\xB7'; // a neutral row: a middle dot (U+00B7), so a held nothing reads as a row
+                    row_out += L'\xB7'; // a neutral row: a middle dot (U+00B7), so a held nothing reads as a row
                 }
                 // One glyph per direction, diagonals included (the user, against the Celeste
                 // display: "down/right as its own thing, not right + down"). Bits: 1 up, 2 down,
@@ -10688,16 +10732,21 @@ namespace MeshGhostPseudo
                     STR(""), STR(""), STR(""), STR("")};
                 if (r.dir >= 0 && r.dir < 16 && ARROWS[r.dir][0] != 0)
                 {
-                    out += ARROWS[r.dir];
-                    out += L' ';
+                    row_out += ARROWS[r.dir];
+                    row_out += L' ';
                 }
                 for (int b = 0; b < 11; ++b)
                 {
                     if (r.mask & (1u << b))
                     {
-                        out += INPUT_HISTORY_TOKENS[b];
-                        out += L' ';
+                        row_out += INPUT_HISTORY_TOKENS[b];
+                        row_out += L' ';
                     }
+                }
+                if (!g_disp_count_left)
+                {
+                    out += inputs;
+                    out += head; // the count after the inputs
                 }
                 out += L'\n';
             }

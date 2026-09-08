@@ -40,7 +40,8 @@
     },
     "input_display": {
       "player": false, "ghost": false, "always": false, "background": true,
-      "rows": 10, "size": 22, "player_side": "left", "ghost_side": "right"
+      "rows": 10, "size": 22, "unit": "cs", "count_side": "left",
+      "player_side": "left", "ghost_side": "right"
     },
     "hotkeys": {
       "record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10",
