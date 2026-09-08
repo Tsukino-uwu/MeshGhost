@@ -291,6 +291,54 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	// its cost lands on the frame budget that agent_docs/plans.md says may
 	// never be spent to buy bandwidth.
 	env := protocol.AppendEnvelope(nil, protocol.TypeState, payload)
+	// THE LINE CAP, CHECKED ON SEND. protocol.ValidateState bounds every FIELD
+	// and nothing bounds the LINE, so a state that is legal field by field can
+	// still not fit: measured 2026-09-07 at 4167 bytes for a maximal-but-legal
+	// state (area_id 256B, anim 256B, orientation 256B, extras 1024B, 8 position
+	// components) carrying a prev that differs in every field, against
+	// protocol.MaxLineBytes of 4096. ValidateState returns true for it, and its
+	// three call sites are all on RECEIVE, so until 2026-09-08 nothing on this
+	// side looked.
+	//
+	// What that cost: the relay's read loop turns an over-long line into
+	// bufio.ErrTooLong, which ends the loop and drops the connection WITHOUT a
+	// reject (relay.go says so -- an oversized line never reaches the callback).
+	// This core reads EOF, classifies it transient, reconnects, and is issued a
+	// NEW player_id, so every peer sees the player despawn and respawn. It loops
+	// for as long as the game stays in whatever state produced the big line, and
+	// no log line anywhere named a size. Redundancy is on at the shipped 15Hz,
+	// so prev is attached in the default configuration and the default
+	// configuration is the one that fails.
+	//
+	// DROP THE PREV FIRST, because prev is pure redundancy (ADR 0045): it covers
+	// one lost datagram and its absence costs nothing a receiver cannot get from
+	// the next sample. Re-measuring after dropping it is one marshal on a path
+	// that is already marshalling, and only on a frame that was going to be
+	// unsendable anyway -- so the common case pays nothing. Dropping the whole
+	// state is the last resort, and it is still better than sending it: an
+	// oversized line does not deliver this frame either, and takes the session
+	// down with it.
+	if len(env) > protocol.MaxLineBytes && st.Prev != nil {
+		full := len(env)
+		st.Prev = nil // st is this function's own copy; attachPrev's record is unaffected
+		if p, err := json.Marshal(st); err == nil {
+			env = protocol.AppendEnvelope(nil, protocol.TypeState, p)
+		}
+		if len(env) <= protocol.MaxLineBytes {
+			noteOversizedState(&oversizedPrevDropped, "core: state was %d bytes with its loss-cover "+
+				"prev attached, over the %d-byte line limit -- sent it without the prev (%d bytes). "+
+				"Redundancy is off for this frame only; nothing else changes.",
+				full, protocol.MaxLineBytes, len(env))
+		}
+	}
+	if len(env) > protocol.MaxLineBytes {
+		noteOversizedState(&oversizedDropped, "core: NOT sending a %d-byte state -- the line limit is "+
+			"%d bytes and the relay drops the whole connection on an over-long line rather than "+
+			"rejecting the message. Something in this frame's area_id/anim/orientation/extras is "+
+			"near its own maximum; shrink it in the adapter.",
+			len(env), protocol.MaxLineBytes)
+		return
+	}
 	// SendUnreliable, not Send: this is the state plane, which
 	// agent_docs/contract.md defines as lossy and latest-wins. On tcp
 	// there is no difference at all. On a datagram transport it means a
@@ -305,6 +353,39 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	}
 	atomic.AddUint64(&c.stats.statesSent, 1)
 	atomic.AddUint64(&c.stats.bytesSent, uint64(len(env)))
+}
+
+// oversizedPrevDropped and oversizedDropped count how many times each half of
+// the send-side line-cap check above has fired, and are what paces its logging.
+//
+// Counters rather than a clock, deliberately. Whatever makes a state too big --
+// an adapter packing a large extras map, a long area_id -- is a property of the
+// game state, not of one frame, so it repeats every frame for as long as the
+// player stays in it: at 15Hz that is 900 identical lines a minute, which buries
+// the log the host is meant to read this in. A time-based limiter would need a
+// clock, and core/clock.go's injectable one is per-Core while these are
+// per-process; noteOversizedState prints occurrence 1, 2, 4, 8, 16 ... instead,
+// which needs no clock at all, still says "this is still happening" as it goes
+// on, and is deterministic for a test.
+var (
+	oversizedPrevDropped atomic.Uint64
+	oversizedDropped     atomic.Uint64
+)
+
+// noteOversizedState logs format at power-of-two occurrences of n. Package
+// level, not per-Core, because it needs no Core state and the failure it
+// reports is about what an adapter is sending, which a second Core in the same
+// process would be reporting for the same reason.
+func noteOversizedState(n *atomic.Uint64, format string, args ...any) {
+	count := n.Add(1)
+	if count&(count-1) != 0 { // not a power of two: this occurrence stays quiet
+		return
+	}
+	if count == 1 {
+		log.Printf(format, args...)
+		return
+	}
+	log.Printf(format+" (occurrence %d)", append(args, count)...)
 }
 
 // sameSentState answers the one question change suppression turns on: would
