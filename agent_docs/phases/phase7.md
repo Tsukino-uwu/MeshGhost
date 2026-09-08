@@ -3173,3 +3173,11 @@ applied look keys (stick position plus mouse delta), move unchanged; the core's 
 logs the track's path (`4c8980ec09f0` in both game roots). README step 68 written -- the feature
 WORKS, by the file, which is the Go-side kind of fact; what remains the user's is whether the
 read-back matches what they pressed, and the look axes are unwatched.
+
+**13:54, the fourth run: complete.** The user pressed everything on the gamepad; all 11 labels
+and all four axes are in the file, 1,107 edges, no drops, 70 jump edges with zero disagreements,
+the look axes at full deflection. Four builds in one afternoon, each chosen by the previous file:
+bound value for everything (buttons zero) -> keys from every loaded context (a factory jump on
+every attack) -> keys from the applied table (look zero) -> look from the vector key state. The
+user's `record_on_launch` is back to `false`; `inputs` stays `true`. The suite ran green after the
+core's one-line change. What remains is the user's word on the read-back and the release.

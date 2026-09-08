@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **THE INPUT TRACK WORKS on Pseudoregalia: the 13:46 run's file reads back as your sequence with zero disagreements (`replay/inputs/in-20260908-134545.ndjson`); the fourth build `27a091d57453` adds the LOOK axes, which read zero until now. Nothing on screen changes; what is yours to say is whether the read-back matches what you pressed. Entry below.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
+- READY — **THE INPUT TRACK WORKS on Pseudoregalia, every button and both sticks (the 13:55 file, `replay/inputs/in-20260908-135457.ndjson`, 1,107 edges, zero disagreements, no drops). Nothing on screen changes; what is yours to say is whether the read-back matches what you pressed. Entry below.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -91,6 +91,15 @@ actions the Blueprint binds by VALUE, and this pawn's own function list (the cen
 (`InpActEvt_*`) and reads zero. Two other findings from the same run: the core in the game root was
 the 2026-09-07 build, older than the input track, so no file was written (both game roots now carry
 `57a22f8b8cd0`); and the `INPUTTRACK:` line printed at the bridge line's cadence, ~1.5 a second.
+
+**Fourth run, 13:54-13:56, build `27a091d57453`, the user pressing "everything a bit on gamepad":
+COMPLETE.** Every one of the 11 labels and all four axes appear in `in-20260908-135457.ndjson`:
+35 jumps, 33 attacks, 19 crouches, 16 clings (up to 402 frames), 14 throws, 19 guards, 25
+interact/power pairs, 30 lock-ons, 5 quick-maps, 10 perspective toggles; `look_x`/`look_y` both
+reach full deflection; 1,107 edges, 7,698 frames, no drops; `jump_check agree=70 disagree=0`; the
+core's launch line names the track. The read-back matching what was pressed is the user's call
+and is the only thing left; `record_on_launch` is back to `false` in the game-root config,
+`inputs` left `true`.
 
 **Third run, 13:45-13:47, build `29c2c91fae0f`: CORRECT.** The applied table gave 21 keys for 11
 actions from 35 applied mappings; `jump_check agree=30 disagree=0` across the run; 565 edges, no
