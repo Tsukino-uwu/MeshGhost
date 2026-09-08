@@ -1192,3 +1192,8 @@ inside one block. `freePort` now rotates three sources (udp :0, tcp :0, a random
 20000-48999) and probes every candidate on both protocols. Test-only; the e2e package passed
 locally after it. Same commit passed CI's own Windows job minutes earlier -- luck of the draw,
 exactly the 2026-08-16 shape.
+
+**v1.2.5 published** (release run 34256965402, on `17d8ad67`): three assets, the user's own
+highlights as the body, not a prerelease. Five CI reds stood between the user's ask and the tag,
+all Go-side and all accounted for above; two were real defects in shipped code (the hello-send
+reject race, the torn-tail delivery), three were test or harness faults.
