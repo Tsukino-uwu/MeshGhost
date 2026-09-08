@@ -748,6 +748,14 @@ there on the user's explicit instruction, 2026-08-17.
     `HotReloadKey = R` (Ctrl always required), in the config this repo has shipped since UE4SS
     was vendored. It reaches Lua mods only, never the C++ adapter.
 - Pseudoregalia install: `C:\Program Files (x86)\Steam\steamapps\common\Pseudoregalia`
+  - **Toggling the Archipelago mod (`AP_Randomizer`) is THREE renames, all or none** (2026-09-08; the
+    user: *"it either has to be enabled, or disabled fully"* -- half-off cannot load into the game):
+    `pseudoregalia\Binaries\Win64\ue4ss\Mods\AP_Randomizer\enabled.txt` (the C++ half, UE4SS),
+    `pseudoregalia\Content\Paks\AP_Randomizer_p.pak` and
+    `pseudoregalia\Content\Paks\LogicMods\AP_Randomizer.pak` (the Blueprint half, loaded by the
+    game's own BPModLoader whatever UE4SS does). **Disabled = each renamed with `.off`; enabled = each
+    renamed back.** State on 2026-09-08 evening: main install DISABLED (all three `.off`), the
+    `Pseudoregalia - Copy` install still ENABLED. `adapters/pseudoregalia/documentation.md` has the why.
   (confirmed 2026-08-12 via a Steam-library directory scan).
 - **Launching `dev-scripts\*.bat` headlessly (agent-run scaffolding).** The scripts are written
   for a human double-click, and two properties of that fight automation: they invoke
