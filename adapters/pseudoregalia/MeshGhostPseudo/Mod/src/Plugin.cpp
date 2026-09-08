@@ -9070,8 +9070,13 @@ namespace MeshGhostPseudo
         // comparable between them and a time is), "ms" (the most precise for short inputs at a
         // high framerate), or "frames" (engine frames, the fighting-game convention at a fixed
         // 60, and the only unit that can show a single-frame press). Default open to revision.
-        std::string g_disp_unit = "cs";
+        std::string g_disp_unit = "cs";   // one or more of cs, ms, frames, in display order ("cs,frames")
         bool g_disp_count_left = true;     // input_display.count_side: the count before or after the inputs
+        // The measured framerate, shown as a header line whenever "frames" is among the units so a
+        // frame count carries its own scale: engine frames counted per wall second.
+        uint64_t g_disp_fps_frames = 0;
+        int64_t g_disp_fps_since_ms = 0;
+        int g_disp_fps = 0;
         double g_disp_margin_x = 200.0;    // panel inset from its side, pixels (the prototype's)
         double g_disp_margin_y = 300.0;    // panel top, pixels
         double g_disp_pad = 6.0;
@@ -9657,7 +9662,28 @@ namespace MeshGhostPseudo
                 const int32_t rows_i = have_rows ? static_cast<int32_t>(std::clamp(rows, 1.0, 40.0)) : g_disp_rows;
                 const double size_d = have_size ? std::clamp(size, 6.0, 96.0) : g_disp_size;
                 const bool left = have_side ? (side != "right") : g_disp_player_left;
-                const std::string unit_s = have_unit ? ((unit == "frames" || unit == "ms") ? unit : std::string("cs")) : g_disp_unit;
+                // One or more of cs / ms / frames, comma- or space-separated, kept in the order
+                // given; anything unrecognised is dropped, and an empty result means "cs".
+                std::string unit_s = g_disp_unit;
+                if (have_unit)
+                {
+                    std::string cleaned;
+                    std::string token;
+                    auto flush = [&]() {
+                        if (token == "cs" || token == "ms" || token == "frames")
+                        {
+                            if (cleaned.find(token) == std::string::npos)
+                            {
+                                if (!cleaned.empty()) cleaned += ',';
+                                cleaned += token;
+                            }
+                        }
+                        token.clear();
+                    };
+                    for (char c : unit) { if (c == ',' || c == ' ' || c == '+' || c == '/') flush(); else token += static_cast<char>(std::tolower(static_cast<unsigned char>(c))); }
+                    flush();
+                    unit_s = cleaned.empty() ? std::string("cs") : cleaned;
+                }
                 const bool count_left = have_count_side ? (count_side != "right") : g_disp_count_left;
                 if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
                     rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left ||
@@ -10663,6 +10689,21 @@ namespace MeshGhostPseudo
             const int64_t now_ms = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                             std::chrono::steady_clock::now().time_since_epoch())
                                                             .count());
+            ++g_disp_fps_frames;
+            if (g_disp_fps_since_ms == 0)
+            {
+                g_disp_fps_since_ms = now_ms;
+            }
+            else if (now_ms - g_disp_fps_since_ms >= 1000)
+            {
+                g_disp_fps = static_cast<int>((g_disp_fps_frames * 1000) / static_cast<uint64_t>(now_ms - g_disp_fps_since_ms));
+                g_disp_fps_frames = 0;
+                g_disp_fps_since_ms = now_ms;
+                if (g_disp_unit.find("frames") != std::string::npos)
+                {
+                    g_disp_last_text.clear(); // the header's number changed; redraw on the next pass
+                }
+            }
             if (!g_disp_rows_data.empty() && g_disp_rows_data.front().mask == mask && g_disp_rows_data.front().dir == dir)
             {
                 ++g_disp_rows_data.front().frames;
@@ -10690,33 +10731,57 @@ namespace MeshGhostPseudo
                 return;
             }
             std::wstring out;
+            const bool show_frames = g_disp_unit.find("frames") != std::string::npos;
+            if (show_frames)
+            {
+                // The frame count's scale, so a screenshot carries it: measured, not the cap.
+                wchar_t fps_line[24]{};
+                std::swprintf(fps_line, sizeof(fps_line) / sizeof(fps_line[0]), STR("@ %d fps\n"), g_disp_fps);
+                out += fps_line;
+            }
             for (const InputHistoryRow& r : g_disp_rows_data)
             {
-                // The count is DISPLAY only: the track stores the frame and the millisecond of
-                // every edge, never a count, so the unit and the cap here lose nothing; 999 keeps
-                // the column from widening on a long hold, the way a fighting game's list does.
-                // A row's time runs from its first frame to its last, so a one-frame press reads
-                // as one frame in "frames" and as 0 in a time unit -- the frame count is the only
-                // unit that can show a single frame, which is why it stays available.
-                unsigned long long count = r.frames;
-                if (g_disp_unit == "cs")
+                // The counts are DISPLAY only: the track stores the frame and the millisecond of
+                // every edge, never a count, so the units and the caps here lose nothing. One
+                // count per unit in the config's order; three digits for frames and hundredths,
+                // four for milliseconds so "ms" is not cut off at one second. A row's time runs
+                // from its first frame to its last, so a one-frame press reads as one frame in
+                // "frames" and as 0 in a time unit -- the frame count is the only unit that can
+                // show a single frame, which is why it stays available.
+                std::wstring head;
+                size_t pos = 0;
+                while (pos <= g_disp_unit.size())
                 {
-                    count = static_cast<unsigned long long>((r.last_ms - r.start_ms) / 10);
+                    const size_t comma = g_disp_unit.find(',', pos);
+                    const std::string unit = g_disp_unit.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+                    pos = (comma == std::string::npos) ? g_disp_unit.size() + 1 : comma + 1;
+                    if (unit.empty())
+                    {
+                        continue;
+                    }
+                    unsigned long long count = r.frames;
+                    if (unit == "cs")
+                    {
+                        count = static_cast<unsigned long long>((r.last_ms - r.start_ms) / 10);
+                    }
+                    else if (unit == "ms")
+                    {
+                        count = static_cast<unsigned long long>(r.last_ms - r.start_ms);
+                    }
+                    const unsigned long long cap = (unit == "ms") ? 9999ull : 999ull;
+                    if (count > cap)
+                    {
+                        count = cap;
+                    }
+                    wchar_t one[16]{};
+                    std::swprintf(one, sizeof(one) / sizeof(one[0]), cap > 999 ? STR("%5llu") : STR("%4llu"), count);
+                    if (!head.empty())
+                    {
+                        head += L' ';
+                    }
+                    head += one;
                 }
-                else if (g_disp_unit == "ms")
-                {
-                    count = static_cast<unsigned long long>(r.last_ms - r.start_ms);
-                }
-                // The cap follows the unit: three digits for frames and hundredths, four for
-                // milliseconds, so "ms" is not cut off at one second.
-                const unsigned long long cap = (g_disp_unit == "ms") ? 9999ull : 999ull;
-                if (count > cap)
-                {
-                    count = cap;
-                }
-                wchar_t head[16]{};
-                std::swprintf(head, sizeof(head) / sizeof(head[0]),
-                              g_disp_count_left ? (cap > 999 ? STR("%5llu  ") : STR("%4llu  ")) : STR("  %llu"), count);
+                head = g_disp_count_left ? head + STR("  ") : STR("  ") + head;
                 std::wstring inputs;
                 if (g_disp_count_left)
                 {
@@ -10751,7 +10816,7 @@ namespace MeshGhostPseudo
                 if (!g_disp_count_left)
                 {
                     out += inputs;
-                    out += head; // the count after the inputs
+                    out += head; // the counts after the inputs
                 }
                 out += L'\n';
             }
