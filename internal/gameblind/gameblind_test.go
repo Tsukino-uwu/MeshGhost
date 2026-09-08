@@ -294,8 +294,8 @@ var frozenProtocolFields = map[string][]string{
 	// The colour is a bare "#RRGGBB" for the same reason area_id is an opaque string: the core
 	// can validate its SHAPE without knowing what any game does with it.
 	"Hello":   {"display_name", "features", "game_id", "game_version", "max_receive_hz_per_player", "name_color", "own_area_only", "protocol_version", "query_only", "resume_token", "room", "room_code"},
-	"Welcome": {"features", "ghost_collision", "nametags", "player_id", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
-	"Reject":  {"reason"},
+	"Welcome": {"features", "ghost_collision", "nametags", "player_id", "protocol_version", "resume_token", "resumed", "roster", "send_hz", "server_time_ms"},
+	"Reject":  {"code", "reason", "retryable"},
 	"Join":    {"nametag", "player_id", "state"},
 	"Nametag": {"color", "name"},
 	"Leave":   {"player_id"},
@@ -339,7 +339,7 @@ var frozenBridgeFields = map[string][]string{
 	// replay_control (2026-09-03, ADR 0047): an action name from a fixed list and a number of
 	// seconds. Nothing about any game -- it is the adapter pressing one of the core's own keys.
 	"ReplayControl": {"action", "seconds"},
-	"Reject":        {"reason"},
+	"Reject":        {"code", "reason", "retryable"},
 	"LocalState":    {"state"},
 	// bridge_ready (2026-08-16) carries nothing at all, and the empty list is the point: it
 	// answers one question -- may I use you -- and every other answer worth having is either

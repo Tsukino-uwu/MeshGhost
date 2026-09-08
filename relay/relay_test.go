@@ -736,6 +736,14 @@ func TestServerFullRejectsExtraClient(t *testing.T) {
 // the versioning rule (agent_docs/contract.md). Previously untested —
 // closed as a coverage gap while scoping relay-safety hardening
 // (agent_docs/architecture.md's room-code/version ADR).
+// A version BELOW the floor is refused; one above it is not.
+//
+// This asserted that protocol.Version+1 was refused until 2026-09-08, i.e. that
+// the check was exact equality -- which is what made the version unraisable
+// without a flag day and so, in practice, never raised. Under a floor a NEWER
+// peer is fine: unknown JSON fields are ignored, and refusing one would make
+// every relay upgrade a synchronised one in the other direction. See
+// protocol.MinProtocolVersion.
 func TestMismatchedProtocolVersionRejected(t *testing.T) {
 	addr := startServer(t)
 
@@ -749,7 +757,7 @@ func TestMismatchedProtocolVersionRejected(t *testing.T) {
 	conn.OnDisconnect(func(err error) { close(disconnected) })
 
 	hello, _ := json.Marshal(protocol.Hello{
-		ProtocolVersion: protocol.Version + 1,
+		ProtocolVersion: protocol.MinProtocolVersion - 1,
 		GameID:          "emerald",
 		Room:            "room1",
 		DisplayName:     "alice",
@@ -763,6 +771,51 @@ func TestMismatchedProtocolVersionRejected(t *testing.T) {
 	case <-disconnected:
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for version-mismatch connection to be refused")
+	}
+}
+
+// The other half of the floor, and the half that would silently stop being true
+// if anyone re-tightened the comparison: a client NEWER than the relay joins.
+// The concrete case from plans.md -- a v2.3 client must work with a v2.0 relay.
+func TestAClientNewerThanTheRelayIsAccepted(t *testing.T) {
+	addr := startServer(t)
+
+	tc := dialTestClientWithHello(t, addr, protocol.Hello{
+		ProtocolVersion: protocol.Version + 5,
+		GameID:          "emerald",
+		Room:            "room1",
+		DisplayName:     "alice",
+	})
+	defer tc.conn.Close()
+
+	env := tc.next(timeout)
+	if env.Type != protocol.TypeWelcome {
+		t.Fatalf("a client %d versions ahead of the relay got %q, want a welcome -- the check is a "+
+			"FLOOR, and refusing a newer peer makes every relay upgrade a synchronised one",
+			5, env.Type)
+	}
+}
+
+// The relay states its own version, which is what lets a client apply the floor
+// in the other direction (core refuses a relay below its minimum).
+func TestTheWelcomeCarriesTheRelaysProtocolVersion(t *testing.T) {
+	addr := startServer(t)
+
+	tc := dialTestClient(t, addr, "emerald", "room1", "alice")
+	defer tc.conn.Close()
+
+	env := tc.next(timeout)
+	if env.Type != protocol.TypeWelcome {
+		t.Fatalf("got %q, want welcome", env.Type)
+	}
+	var w protocol.Welcome
+	if err := json.Unmarshal(env.Payload, &w); err != nil {
+		t.Fatalf("unmarshal welcome: %v", err)
+	}
+	if w.ProtocolVersion != protocol.Version {
+		t.Fatalf("welcome advertised protocol version %d, want %d -- without it a client cannot "+
+			"tell an ancient relay from a current one and the floor only runs one way",
+			w.ProtocolVersion, protocol.Version)
 	}
 }
 

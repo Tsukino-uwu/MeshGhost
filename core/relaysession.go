@@ -250,6 +250,32 @@ func (c *Core) ConnectRelay(gameID string) error {
 
 	select {
 	case w := <-welcome:
+		// THE FLOOR, CLIENT SIDE. The relay checks the client's version in the
+		// hello; this is the other half, and it is why Welcome carries the
+		// relay's own version at all (2026-09-08, the user's call: a current
+		// client should not sit in an ancient relay's room).
+		//
+		// A relay that advertises 0 -- one built before the field existed -- is
+		// refused by the same comparison rather than a special case, which is
+		// what the Version 2 cutover bought: everything older is below the floor
+		// by construction.
+		//
+		// Reported as a permanent RejectError, not a transport error, because it
+		// is one: no amount of retrying changes either build's version, and
+		// classifying it as transient is what would make a client hammer a relay
+		// it can never talk to. The message names both numbers, since "update
+		// one of them" is the only fix and the player needs to know which.
+		if !protocol.AcceptsPeerVersion(w.ProtocolVersion) {
+			_ = conn.Close()
+			c.clearRelayIfCurrent(conn)
+			return &RejectError{
+				Reason: fmt.Sprintf("this relay speaks protocol version %d, but this build needs %d or newer "+
+					"-- update the relay (or run an older client against it)",
+					w.ProtocolVersion, protocol.MinProtocolVersion),
+				Code:      protocol.CodeProtocolVersionMismatch,
+				Retryable: false,
+			}
+		}
 		c.mu.Lock()
 		if c.relay != conn {
 			// The connection died while its own Welcome was sitting in this
@@ -283,7 +309,7 @@ func (c *Core) ConnectRelay(gameID string) error {
 	case r := <-reject:
 		_ = conn.Close()
 		c.clearRelayIfCurrent(conn)
-		return &RejectError{Reason: r.Reason}
+		return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
 	case <-gone:
 		// Deliberately the same shape as the timeout below -- an error, not a
 		// retry from in here. Whoever asked for this connection decides what
@@ -535,8 +561,13 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	c.mu.Unlock()
 	err := c.ConnectRelay(gameID)
 	if err != nil {
-		reason, isReject := asRejectReason(err)
-		permanent := isReject && isPermanentRejectReason(reason)
+		rej, isReject := asReject(err)
+		reason := ""
+		permanent := false
+		if isReject {
+			reason = rej.Reason
+			permanent = isPermanentReject(rej.Reason, rej.Code, rej.Retryable)
+		}
 
 		now := time.Now() // wall-clock: throttles a log line for a human
 

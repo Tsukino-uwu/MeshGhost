@@ -54,7 +54,7 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 	cases := []rejectCase{
 		{
 			name:          "a protocol version the relay does not speak",
-			hello:         protocol.Hello{ProtocolVersion: protocol.Version + 1, GameID: "emerald", Room: "r"},
+			hello:         protocol.Hello{ProtocolVersion: protocol.MinProtocolVersion - 1, GameID: "emerald", Room: "r"},
 			wantReason:    protocol.ReasonProtocolVersionMismatch,
 			wantPermanent: true,
 			why:           "retrying cannot change the version this build speaks; the player has to update",
@@ -104,7 +104,8 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 
 			refused := dialRelayHello(t, addr, tc.hello)
 			defer refused.conn.Close()
-			got := refused.expectReject(t)
+			reject := refused.expectReject(t)
+			got := reject.Reason
 
 			if got != tc.wantReason {
 				t.Fatalf("the relay refused with %q, but the core recognises %q.\n"+
@@ -121,6 +122,29 @@ func TestRelayRejectReasonsMatchTheConstantsTheCoreClassifies(t *testing.T) {
 			// relaysession.go wraps it.
 			if permanent := IsPermanentRejectErr(&RejectError{Reason: got}); permanent != tc.wantPermanent {
 				t.Fatalf("IsPermanentRejectErr(RejectError{%q}) = %v, want %v", got, permanent, tc.wantPermanent)
+			}
+
+			// THE CODE AND THE FLAG, added with them on 2026-09-08. A code is what
+			// adapters branch on, so a code that disagrees with its own prose is the
+			// one drift that would be invisible to everything else here: the prose
+			// assertion above would still pass while every adapter read the refusal
+			// backwards.
+			wantCode := protocol.CodeForReason(tc.wantReason)
+			if reject.Code != wantCode {
+				t.Fatalf("the relay refused with code %q, want %q for reason %q -- the code is what "+
+					"four adapters branch on, and it must name the same refusal the prose does",
+					reject.Code, wantCode, got)
+			}
+			if reject.Retryable == tc.wantPermanent {
+				t.Fatalf("the relay sent retryable=%v for %q, which agrees with permanent=%v -- the "+
+					"flag is what a client falls back to for a code it does not know, so it must be "+
+					"the opposite of permanence", reject.Retryable, got, tc.wantPermanent)
+			}
+			// The classifier must reach the same verdict through the code path as it
+			// does through the prose, or an adapter and the core disagree about the
+			// same refusal.
+			if permanent := isPermanentReject(got, reject.Code, reject.Retryable); permanent != tc.wantPermanent {
+				t.Fatalf("isPermanentReject(%q, %q, %v) = %v, want %v", got, reject.Code, reject.Retryable, permanent, tc.wantPermanent)
 			}
 		})
 	}
@@ -221,7 +245,7 @@ func (rc *rejectClient) expectWelcome(t *testing.T) {
 	}
 }
 
-func (rc *rejectClient) expectReject(t *testing.T) string {
+func (rc *rejectClient) expectReject(t *testing.T) protocol.Reject {
 	t.Helper()
 	env := rc.next(t)
 	if env.Type != protocol.TypeReject {
@@ -231,5 +255,7 @@ func (rc *rejectClient) expectReject(t *testing.T) string {
 	if err := json.Unmarshal(env.Payload, &rej); err != nil {
 		t.Fatalf("unmarshal reject: %v", err)
 	}
-	return rej.Reason
+	// The WHOLE refusal, not just its prose: since 2026-09-08 the code and the
+	// retryable flag are the half a client actually branches on.
+	return rej
 }

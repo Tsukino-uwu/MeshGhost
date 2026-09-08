@@ -282,6 +282,15 @@ jobs:
       # own maps -- was only ever exercised by hand-written, well-formed tests.
       - name: Fuzz relay - survives arbitrary post-join messages
         run: bash dev-scripts/ci-fuzz.sh ./relay FuzzRelaySurvivesArbitraryPostJoinMessages 45s
+      # The protocol version stopped being a constant comparison on 2026-09-08 and
+      # became a FLOOR -- a decision with two outcomes, made before the room is
+      # touched. Both relay targets above hard-code protocol.Version in their
+      # hello, so it was the one field nothing varied; this drives it across the
+      # floor, both int32 edges and negatives, and asserts the relay's verdict
+      # matches protocol.AcceptsPeerVersion exactly, which is what stops the two
+      # ends drifting into "some players cannot join".
+      - name: Fuzz relay - every protocol version a hello can carry
+        run: bash dev-scripts/ci-fuzz.sh ./relay FuzzHelloProtocolVersion 45s
       # udp parses stranger datagrams *before* address validation, room code or
       # protocol version -- the most exposed pre-auth surface in the project,
       # and since 2026-08-16 it is also on the fallback path rather than opt-in.

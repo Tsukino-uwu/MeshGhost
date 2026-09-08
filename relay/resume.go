@@ -351,13 +351,18 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	// Fixing one without the other would have moved the "token too long" kill
 	// from the join path onto the resume path.
 	welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
-		PlayerID:       sess.playerID,
-		SendHz:         sendHz,
-		GhostCollision: s.resolveGhostCollision(),
-		Features:       effectiveFeatures(r, resumed),
-		ResumeToken:    newToken,
-		Resumed:        true,
-		ServerTimeMs:   time.Now().UnixMilli(),
+		PlayerID: sess.playerID,
+		SendHz:   sendHz,
+		// This relay's own version, so the floor runs BOTH ways: it is what lets
+		// a client refuse a relay older than the client's own minimum. Absent
+		// means a relay from before 2026-09-08, which is below any floor this
+		// build could declare and so needs no special case.
+		ProtocolVersion: protocol.Version,
+		GhostCollision:  s.resolveGhostCollision(),
+		Features:        effectiveFeatures(r, resumed),
+		ResumeToken:     newToken,
+		Resumed:         true,
+		ServerTimeMs:    time.Now().UnixMilli(),
 	}, roster, rosterNames)
 	sendEnvelope(nd, protocol.TypeWelcome, welcome)
 

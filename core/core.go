@@ -42,6 +42,11 @@ import (
 // formatted message. See IsPermanentRejectErr.
 type RejectError struct {
 	Reason string
+	// Code and Retryable are the machine-readable half of the refusal, added
+	// 2026-09-08. Both are empty/false for a relay older than that, which is
+	// exactly what the fallback chain in isPermanentReject exists for.
+	Code      string
+	Retryable bool
 }
 
 func (e *RejectError) Error() string {
@@ -77,6 +82,18 @@ func asRejectReason(err error) (reason string, ok bool) {
 	return "", false
 }
 
+// asReject is asRejectReason keeping the whole refusal, so a caller can reach
+// the code and the retryable flag rather than only the prose. Both exist because
+// most callers genuinely want the sentence (to log it) and only the
+// classification wants the rest.
+func asReject(err error) (*RejectError, bool) {
+	var rejErr *RejectError
+	if errors.As(err, &rejErr) {
+		return rejErr, true
+	}
+	return nil, false
+}
+
 // isPermanentRejectReason reports whether reason won't resolve on its own
 // with a retry (wrong room code, version mismatch, protocol version — all
 // require a config change) as opposed to one that might. An explicit
@@ -96,6 +113,35 @@ func isPermanentRejectReason(reason string) bool {
 	return true
 }
 
+// isPermanentReject is isPermanentRejectReason with the machine-readable half
+// preferred, in three steps, most trustworthy first (2026-09-08):
+//
+//  1. THE CODE, if this build knows it. A code is a stable identifier that a
+//     contract revision renames, so recognising one means we know exactly what
+//     the relay meant.
+//  2. THE RELAY'S FLAG, for a code this build has never heard of. That is the
+//     step that fixes the real hazard: the prose fallback below treats anything
+//     unrecognised as PERMANENT, so before this a refusal a client had not been
+//     taught made it give up for the rest of the session -- the wrong way round
+//     for a field meant to grow. A newer relay can now add a refusal and say
+//     whether retrying helps, and an older client believes it.
+//  3. THE PROSE TABLE, for a relay older than the code field. Unchanged
+//     behaviour for an unchanged peer.
+//
+// A hostile relay could of course claim "retryable" forever, but it could
+// already do that by sending the ServerFull prose, and a relay that wants a
+// client to spin has cheaper ways -- so this trades no security for the
+// forward-compatibility.
+func isPermanentReject(reason, code string, retryable bool) bool {
+	if code != "" {
+		if known, ok := protocol.RetryableForCode(code); ok {
+			return !known
+		}
+		return !retryable
+	}
+	return isPermanentRejectReason(reason)
+}
+
 // IsPermanentRejectErr reports whether err is a refusal that won't resolve on
 // its own with a retry — either a relay Reject with such a reason, or this
 // Core's own AlreadyServingError. Exported so a caller with its own retry loop
@@ -111,8 +157,8 @@ func IsPermanentRejectErr(err error) bool {
 	if errors.As(err, &serving) {
 		return true
 	}
-	reason, ok := asRejectReason(err)
-	return ok && isPermanentRejectReason(reason)
+	rej, ok := asReject(err)
+	return ok && isPermanentReject(rej.Reason, rej.Code, rej.Retryable)
 }
 
 // DefaultInterpolationDelay is how far behind the most recent samples the

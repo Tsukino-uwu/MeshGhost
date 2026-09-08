@@ -1174,13 +1174,28 @@ func sendEnvelope(conn transport.Transport, t protocol.MessageType, payload any)
 // the relay's own log, so a host had no way to tell "nobody's trying to
 // connect" from "someone's trying and failing." One line per rejection —
 // this only fires at handshake, never per state message, so it can't spam.
+// rejectFor builds the wire Reject for a reason: the prose a human reads, the
+// stable code anything else branches on, and whether reconnecting could help.
+//
+// EVERY refusal goes through here so the three cannot disagree. Filling them at
+// each call site would mean nine places to remember a code in, and the failure
+// that produces is silent -- a missing code reads as "unknown" to the client,
+// which then falls back to the flag, which nobody set either. protocol owns the
+// retryable table so the sender's claim and the receiver's expectation come from
+// one place (protocol.RetryableForCode). Added 2026-09-08 with the reject code.
+func rejectFor(reason string) protocol.Reject {
+	code := protocol.CodeForReason(reason)
+	retryable, _ := protocol.RetryableForCode(code)
+	return protocol.Reject{Reason: reason, Code: code, Retryable: retryable}
+}
+
 func rejectAndClose(conn *transport.NDJSONConn, hello protocol.Hello, reason string) {
 	// Sanitized before logging, for the same reason the join line is: a refused
 	// hello is still attacker-controlled, and refusing it does not make its
 	// display_name safe to write into the host's log unaltered.
 	log.Printf("relay: refused hello (%s): game_id=%q room=%q display_name=%q",
 		reason, hello.GameID, hello.Room, protocol.SanitizeDisplayName(hello.DisplayName))
-	sendEnvelope(conn, protocol.TypeReject, protocol.Reject{Reason: reason})
+	sendEnvelope(conn, protocol.TypeReject, rejectFor(reason))
 	// Graceful, not Close: the Reject is the last line written and a reset
 	// would throw it away. See handshakeCloseDrain.
 	conn.CloseGracefully(handshakeCloseDrain)
@@ -1499,7 +1514,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// from the new Welcome and may well fit under the cap the second
 			// time. See the ADR in agent_docs/architecture.md.
 			log.Printf("relay: client exceeded %d messages/second, rejecting and closing connection", msgLimit)
-			sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonRateLimited})
+			sendEnvelope(nd, protocol.TypeReject, rejectFor(protocol.ReasonRateLimited))
 			// Graceful, not Close(): the flood that tripped this is still mostly
 			// unread on our side, and a plain close would answer it with a TCP
 			// reset that can throw the Reject away before the client reads it
@@ -1541,7 +1556,7 @@ func (s *Server) handleConn(conn net.Conn) {
 			// on every attempt. Found in a review pass.
 			if !protocol.ValidateHelloFields(hello) {
 				log.Printf("relay: refused hello (%s): a field exceeded %d bytes", protocol.ReasonHelloFieldTooLong, protocol.MaxHelloFieldLen)
-				sendEnvelope(nd, protocol.TypeReject, protocol.Reject{Reason: protocol.ReasonHelloFieldTooLong})
+				sendEnvelope(nd, protocol.TypeReject, rejectFor(protocol.ReasonHelloFieldTooLong))
 				// Latched like every other refusal (see handshakeRejected), but
 				// NOT via rejectHandshake: this is the one path where the hello's
 				// fields are not yet known to be bounded, which is exactly what
@@ -1554,7 +1569,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			// version is refused outright, not guessed at. Every hello
 			// field is now known to be <= protocol.MaxHelloFieldLen (checked
 			// above), so rejectAndClose's logging below is bounded too.
-			if hello.ProtocolVersion != protocol.Version {
+			// A FLOOR, not equality (protocol.MinProtocolVersion). This was
+			// `!= protocol.Version` until 2026-09-08, which meant any bump at
+			// all refused every older build -- so the version could never move
+			// without a flag day, and never did. A client at or above the
+			// minimum is accepted even if it is NEWER than this relay: unknown
+			// JSON fields are ignored, and refusing a newer peer would make
+			// every relay upgrade a synchronised one in the other direction.
+			if !protocol.AcceptsPeerVersion(hello.ProtocolVersion) {
 				rejectHandshake(hello, protocol.ReasonProtocolVersionMismatch)
 				return
 			}
@@ -1717,9 +1739,14 @@ func (s *Server) handleConn(conn net.Conn) {
 			// measured, not guessed** -- see boundWelcomeRoster for the 2026-09-08
 			// reopening of this same incident at 21 members.
 			welcome, overflowRoster := boundWelcomeRoster(protocol.Welcome{
-				PlayerID:       newID,
-				SendHz:         sendHz,
-				GhostCollision: s.resolveGhostCollision(),
+				PlayerID: newID,
+				SendHz:   sendHz,
+				// This relay's own version, so the floor runs BOTH ways: it is what lets
+				// a client refuse a relay older than the client's own minimum. Absent
+				// means a relay from before 2026-09-08, which is below any floor this
+				// build could declare and so needs no special case.
+				ProtocolVersion: protocol.Version,
+				GhostCollision:  s.resolveGhostCollision(),
 				// The room's agreed set PLUS whatever client-scoped
 				// capabilities this particular client asked for and got — so
 				// what a client reads back is what is actually in force for

@@ -411,7 +411,48 @@ type PlayerFrozen struct {
 // made "two games at once" fail invisibly.
 type Reject struct {
 	Reason string `json:"reason"`
+	// Code is the stable, machine-readable name for this refusal, and it is the
+	// field an adapter is meant to branch on. Reason stays a sentence for the
+	// adapter's log.
+	//
+	// Added 2026-09-08 for a defect, not for tidiness: every shipped adapter was
+	// matching the REASON for the substring "relay" to decide whether to wait or
+	// walk to the next port -- and the heuristic is inverted, because every
+	// PERMANENT refusal contains that word (the core renders relay refusals as
+	// "core: relay refused connection: %s") while the one refusal that means
+	// "try the next port", busy, does not. So a wrong room code was read as "the
+	// relay is briefly down" and retried forever, with the player never told.
+	//
+	// Empty means a core older than this field; an adapter that does not
+	// recognise a code falls back to Retryable, and only then to whatever it
+	// used to do.
+	Code string `json:"code,omitempty"`
+	// Retryable says whether reconnecting could plausibly succeed without the
+	// player changing something. False for a wrong room code; true for a room
+	// that happened to be full. See the same field on protocol.Reject for why a
+	// flag exists next to the code.
+	Retryable bool `json:"retryable,omitempty"`
 }
+
+// Reject codes an adapter may branch on. These name the CORE's own refusals;
+// a refusal that came from the relay carries the relay's code through unchanged
+// (protocol's Code* constants), so an adapter sees one namespace.
+//
+// Frozen once shipped, like the protocol codes: four adapters in three languages
+// compare against these literals.
+const (
+	// CodeBusy means this core already has a game attached. THE ONE REFUSAL
+	// THAT MEANS "TRY THE NEXT PORT" -- everything else means stop and tell the
+	// player. Retryable is false for it, deliberately: retrying THIS core is
+	// pointless, which is a different question from whether the adapter should
+	// keep looking elsewhere, and conflating the two is the bug this whole
+	// change exists to fix.
+	CodeBusy = "busy"
+	// CodeAlreadyServing means this core is connected as a different game_id.
+	// Like busy, walking on is right; unlike busy, a second core for the other
+	// game is the actual answer.
+	CodeAlreadyServing = "already_serving"
+)
 
 // LocalState is sent adapter -> core once per adapter frame tick, the wire
 // form of get_local_state(). State == nil means "don't send this frame"

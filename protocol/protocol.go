@@ -14,9 +14,39 @@ package protocol
 
 import "encoding/json"
 
-// Version is the current protocol major version, carried in Hello and
-// checked by the relay per the versioning rule in agent_docs/contract.md.
-const Version = 1
+// Version is the current protocol major version, carried in Hello and in
+// Welcome, and checked against a FLOOR at both ends (agent_docs/contract.md).
+//
+// 2 SINCE 2026-09-08, AND THAT BUMP IS THE ONE DELIBERATE BREAK. Version 1 was
+// checked with `!=`, i.e. exact equality, so any bump at all refused every older
+// build -- which meant the version could never be raised without a flag day, and
+// so in practice was never raised. The floor below replaces that, and it can
+// only work from a line drawn somewhere: everything built before this change is
+// refused once, and from here on a bump is a compatibility DECISION rather than
+// a forced simultaneous upgrade. The user's call, 2026-09-08: "just break
+// anything old/before this change, so we can properly start to have a min
+// version or above going forward".
+const Version = 2
+
+// MinProtocolVersion is the OLDEST peer this build will talk to, on either side
+// of the connection: a relay accepts a client at or above it, and a core accepts
+// a relay at or above it. Raise it only when the WIRE changes in a way older
+// builds cannot survive -- never merely because a release number moved.
+//
+// AT OR ABOVE THE MINIMUM, NOT AT OR ABOVE THE CURRENT VERSION. The two readings
+// are opposites in effect: comparing against the current version is an exact
+// match in disguise and rebuilds the flag day this floor exists to remove. The
+// concrete case to test against, and the one that must keep working: a v2.3
+// client and a v2.0 relay talk to each other.
+//
+// Modelled on Archipelago's min_client_version (MultiServer.py, MIT, read for
+// facts -- agent_docs/licensing.md), whose default is a rarely-bumped floor and
+// whose exact-match is an opt-in mode. MeshGhost had been running the strict
+// mode as its only mode.
+//
+// A peer that advertises NO version needs no special case: it predates this
+// field, so it is below the floor and the ordinary comparison refuses it.
+const MinProtocolVersion = 2
 
 // State is the packet schema's snapshot payload — the "state" message body,
 // and the payload type of the adapter bridge's LocalState/RenderRemote
@@ -274,6 +304,16 @@ type Transports struct {
 type Welcome struct {
 	PlayerID string   `json:"player_id"`
 	Roster   []string `json:"roster"`
+	// ProtocolVersion is the relay's own Version, so the floor runs BOTH ways:
+	// the relay refuses a client below its minimum in the hello, and this is
+	// what lets a client refuse a relay below ITS minimum. Without it the check
+	// is one-sided (Archipelago's shape) and a current client will happily sit
+	// in an ancient relay's room -- the user's reason for wanting both, 2026-09-08.
+	//
+	// Absent means a relay older than this field, which is by definition below
+	// any floor this build could declare, so it needs no special case: the
+	// ordinary comparison refuses 0.
+	ProtocolVersion int `json:"protocol_version,omitempty"`
 	// Nametags carries the labels of the players already in the room, keyed
 	// by the player_id they appear under in Roster. Sanitized by the relay.
 	//
@@ -344,7 +384,126 @@ type Welcome struct {
 // TypeReject. Sent once, immediately before the relay closes the connection.
 type Reject struct {
 	Reason string `json:"reason"`
+	// Code is the STABLE, machine-readable name for this refusal. Reason stays
+	// what it always was -- a sentence for a human reading a log -- and Code is
+	// what any code on either side is meant to branch on.
+	//
+	// Added 2026-09-08 because branching on the prose was not a hypothetical
+	// mistake, it was what all four shipped adapters actually did: each matched
+	// the reason for the substring "relay" to decide whether to wait or walk to
+	// the next port. Every PERMANENT refusal happens to contain that word (core
+	// renders them all as "core: relay refused connection: %s") and the only one
+	// that does not is "busy" -- so a wrong room code, a version mismatch or a
+	// feature mismatch was read as "the relay is briefly down", retried forever,
+	// and the player was never told to fix their config. contract.md already
+	// said the reason is "for the adapter's log, not for branching on", and
+	// Emerald's own source says "The reason is never BRANCHED on" two lines above
+	// the branch. Four authors ignoring the same instruction is a sign the
+	// protocol asked for the wrong thing.
+	//
+	// Empty means a relay older than this field. A reader that does not
+	// recognise a code falls back to Retryable below, and only then to its own
+	// prose table.
+	Code string `json:"code,omitempty"`
+	// Retryable says whether reconnecting could plausibly succeed without the
+	// player changing anything: true for "the room filled up", false for "your
+	// room code is wrong".
+	//
+	// It exists because the receiving side's default was dangerous. Anything
+	// core.isPermanentRejectReason did not recognise was classified PERMANENT,
+	// so a reason a client had not heard of made it give up for the rest of the
+	// session -- exactly the wrong way round for a field that is meant to grow.
+	// omitempty is deliberate and safe: the zero value is false, i.e. permanent,
+	// which is the conservative answer for a relay that never set it.
+	Retryable bool `json:"retryable,omitempty"`
 }
+
+// Reject codes: the stable identifiers behind the prose above. One per Reason
+// constant, same order.
+//
+// These are the strings a client may branch on, and they are frozen the moment
+// they ship -- a code is renamed only by a contract revision, because four
+// adapters in three languages compare against these literals. New refusals get a
+// NEW code rather than reusing a near-miss; a reader that does not recognise one
+// is required to fall back rather than guess, which is what makes adding one
+// safe.
+const (
+	CodeProtocolVersionMismatch = "protocol_version_mismatch"
+	CodeHelloFieldTooLong       = "hello_field_too_long"
+	CodeInvalidRoomCode         = "invalid_room_code"
+	CodeGameMismatch            = "game_mismatch"
+	CodeGameVersionMismatch     = "game_version_mismatch"
+	CodeFeatureMismatch         = "feature_mismatch"
+	CodeGameNotAllowed          = "game_not_allowed"
+	CodeServerFull              = "server_full"
+	CodeRateLimited             = "rate_limited"
+)
+
+// RetryableForCode answers whether reconnecting could plausibly succeed for a
+// known code, and reports whether it recognised it at all.
+//
+// ONE TABLE, BOTH SIDES. The relay fills Reject.Retryable from it and the core
+// reads it back, so the sender's claim and the receiver's expectation cannot
+// drift into disagreeing -- which is the failure mode the whole prose-matching
+// mess was made of. A caller that gets known == false must fall back to
+// Reject.Retryable rather than guessing, because guessing is what made an
+// unrecognised reason mean "give up forever".
+//
+// Only two are retryable, and both for the same reason: nothing the player owns
+// has to change. A full room empties when somebody leaves, and a rate limit
+// clears on a reconnect that re-reads the room's advertised rate. Everything
+// else needs a config edit first, so retrying it is pure noise.
+func RetryableForCode(code string) (retryable, known bool) {
+	switch code {
+	case CodeServerFull, CodeRateLimited:
+		return true, true
+	case CodeProtocolVersionMismatch, CodeHelloFieldTooLong, CodeInvalidRoomCode,
+		CodeGameMismatch, CodeGameVersionMismatch, CodeFeatureMismatch, CodeGameNotAllowed:
+		return false, true
+	}
+	return false, false
+}
+
+// CodeForReason maps one of the Reason constants above to its code, for the one
+// caller that cannot name the refusal at compile time: joinOrCreateRoom decides
+// between the game, game-version and feature mismatches at runtime and hands
+// back a reason string.
+//
+// Deliberately NOT a general prose parser. It matches the constants exactly and
+// returns "" for anything else, so a hand-written reason that never went through
+// these constants gets an empty code -- which a reader treats as "unknown, use
+// the flag" rather than being silently mis-classified as something it resembles.
+func CodeForReason(reason string) string {
+	switch reason {
+	case ReasonProtocolVersionMismatch:
+		return CodeProtocolVersionMismatch
+	case ReasonHelloFieldTooLong:
+		return CodeHelloFieldTooLong
+	case ReasonInvalidRoomCode:
+		return CodeInvalidRoomCode
+	case ReasonGameMismatch:
+		return CodeGameMismatch
+	case ReasonGameVersionMismatch:
+		return CodeGameVersionMismatch
+	case ReasonFeatureMismatch:
+		return CodeFeatureMismatch
+	case ReasonGameNotAllowed:
+		return CodeGameNotAllowed
+	case ReasonServerFull:
+		return CodeServerFull
+	case ReasonRateLimited:
+		return CodeRateLimited
+	}
+	return ""
+}
+
+// AcceptsPeerVersion reports whether a peer advertising v is new enough for this
+// build. Used at BOTH ends, deliberately, so "the floor" means one thing.
+//
+// v == 0 is a peer from before the field existed, which is below any floor this
+// build could declare, so the plain comparison already refuses it -- no special
+// case, which is the point of drawing the cutover line at Version 2.
+func AcceptsPeerVersion(v int) bool { return v >= MinProtocolVersion }
 
 // Reason values the relay actually sends in Reject.Reason — named so code
 // on either side of the wire can compare symbolically instead of matching

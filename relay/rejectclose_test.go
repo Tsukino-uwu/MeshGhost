@@ -43,7 +43,7 @@ func TestARefusedHelloDeliversItsRejectBehindUnreadData(t *testing.T) {
 	// room, a code or another client.
 	hello, err := json.Marshal(protocol.Envelope{
 		Type:    protocol.TypeHello,
-		Payload: mustJSON(t, protocol.Hello{ProtocolVersion: protocol.Version + 1, GameID: "emerald", Room: "r", DisplayName: "alice"}),
+		Payload: mustJSON(t, protocol.Hello{ProtocolVersion: protocol.MinProtocolVersion - 1, GameID: "emerald", Room: "r", DisplayName: "alice"}),
 	})
 	if err != nil {
 		t.Fatalf("marshal hello: %v", err)

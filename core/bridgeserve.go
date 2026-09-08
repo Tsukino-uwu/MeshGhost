@@ -132,7 +132,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			}
 			c.mu.Unlock()
 			if busy {
-				rejectBridge(nd, "busy: this core already has a game attached")
+				rejectBridge(nd, "busy: this core already has a game attached", bridge.CodeBusy, false)
 				return
 			}
 
@@ -196,7 +196,16 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 					// logged only in the core's own log (and, for the
 					// "already connected as another game" case, not even
 					// there — that path returns before the dedup logging).
-					rejectBridge(nd, err.Error())
+					// Carries the relay's own code straight through when the
+					// refusal came from there, so an adapter sees ONE namespace
+					// rather than having to know which side refused it. A local
+					// AlreadyServingError has no relay code, so it gets the
+					// bridge one.
+					code, retryable := bridge.CodeAlreadyServing, false
+					if rej, ok := asReject(err); ok && rej.Code != "" {
+						code, retryable = rej.Code, rej.Retryable
+					}
+					rejectBridge(nd, err.Error(), code, retryable)
 					return
 				}
 				if !c.Offline {
@@ -565,11 +574,13 @@ func (c *Core) sendDespawnRemote(nd transport.Transport, playerID string) error 
 // synchronous, so the line is written to the socket before Close, and a
 // reject that raced its own hangup would put us right back to a silent
 // disconnect -- the thing this exists to remove.
-func rejectBridge(nd transport.Transport, reason string) {
+func rejectBridge(nd transport.Transport, reason, code string, retryable bool) {
 	log.Printf("core: refused an adapter: %s", reason)
 	// Deliberately NOT sendToAdapter: this connection never became the
 	// adapter, so a failed write here has no session to tear down.
-	_ = sendBridgeEnvelope(nd, bridge.TypeReject, bridge.Reject{Reason: reason})
+	_ = sendBridgeEnvelope(nd, bridge.TypeReject, bridge.Reject{
+		Reason: reason, Code: code, Retryable: retryable,
+	})
 	_ = nd.Close()
 }
 
