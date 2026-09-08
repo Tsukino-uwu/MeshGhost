@@ -10655,6 +10655,22 @@ namespace MeshGhostPseudo
             int tail_until = 6;
             // Track mode's correction threshold, in the game's units (the capsule is 65 tall).
             double snap = 150.0;
+            // private_gi=1 (2026-09-09): the driven ghost gets a PRIVATE object of the game
+            // instance's class, scalar fields copied from the real one, in place of the
+            // reference the decouple nulled -- the sit read health off a null ref and played
+            // the HURT variant (the user, 00:2x: "sits as if its hurt/low health").
+            bool private_gi = true;
+            // power_press / power_release: which IA_Power node (0, 1, 2 -- the census's three)
+            // fires on the track's Power edge; -1 fires nothing. The DEFAULT IS A GUESS by
+            // analogy with Attack (_3 hold, _4 press, _5 nothing -> the middle index is the
+            // press); the user's recording with a Power press is the measurement.
+            int power_press = 1;
+            int power_release = -1;
+            // mirror_offset=x,y: while armed, a NON-driven replay ghost is drawn offset by this
+            // (world units) -- so a second copy of the driven clip in `active/` stands beside
+            // the driven ghost instead of inside it, for the 1:1 side-by-side. 0,0 = on top.
+            double mirror_dx = 0.0;
+            double mirror_dy = 0.0;
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
@@ -10729,10 +10745,28 @@ namespace MeshGhostPseudo
                 {
                     cfg.snap = std::clamp(std::atof(value.c_str()), 10.0, 1.0e7);
                 }
+                else if (key == "private_gi")
+                {
+                    cfg.private_gi = std::atoi(value.c_str()) != 0;
+                }
+                else if (key == "power_press")
+                {
+                    cfg.power_press = std::clamp(std::atoi(value.c_str()), -1, 99);
+                }
+                else if (key == "power_release")
+                {
+                    cfg.power_release = std::clamp(std::atoi(value.c_str()), -1, 99);
+                }
+                else if (key == "mirror_offset")
+                {
+                    const size_t comma = value.find(',');
+                    cfg.mirror_dx = std::clamp(std::atof(value.c_str()), -1.0e6, 1.0e6);
+                    cfg.mirror_dy = comma == std::string::npos ? 0.0 : std::clamp(std::atof(value.c_str() + comma + 1), -1.0e6, 1.0e6);
+                }
             }
             g_drive = cfg;
-            Output::send(STR("[MeshGhostPseudo] DRIVE: armed -- mode={} gap={}s block={} tail_until={} (the first replay ghost's mirrors are OFF while this file exists)\n"),
-                         to_wide_ascii(cfg.mode), cfg.gap_s, cfg.block, cfg.tail_until);
+            Output::send(STR("[MeshGhostPseudo] DRIVE: armed -- mode={} gap={}s block={} tail_until={} snap={} private_gi={} power_press={} power_release={} mirror_offset=({},{}) (the first replay ghost's mirrors are OFF while this file exists)\n"),
+                         to_wide_ascii(cfg.mode), cfg.gap_s, cfg.block, cfg.tail_until, cfg.snap, cfg.private_gi, cfg.power_press, cfg.power_release, cfg.mirror_dx, cfg.mirror_dy);
         }
 
         // Fires one Enhanced Input event node on a pawn with a REAL action value: `x` into the
@@ -10869,6 +10903,106 @@ namespace MeshGhostPseudo
                 }
                 Output::send(STR("[MeshGhostPseudo] DRIVE: {} prepared -- collision ON, capsule ignores Pawn and Camera, WorldDynamic, no overlap events, facing follows movement, {} ability flag(s) copied from the player.\n"),
                              to_wide_ascii(id), copied);
+                // A PRIVATE GAME INSTANCE (2026-09-09; the hurt-variant sit). Health is
+                // `CurrentHp` on the game instance, a singleton the spawn path deliberately
+                // cuts the ghost off from (GHOST_DECOUPLE_SHARED_STATE: a shared ref let a
+                // ghost's own Blueprint hurt, kill and heal the PLAYER). A driven ghost runs
+                // that Blueprint for real, and the chair sit chose its animation off the
+                // nulled ref -- the hurt variant, every time. The candidate, the adapter's own
+                // "give the ghost its own copy" pattern (the HUD, the camera rig): construct an
+                // object of the instance's CLASS (taken from the real one, never named), outer
+                // the pawn so it lives and dies with it, copy every plain-valued field of the
+                // Blueprint classes (bools bit-safely, numbers/names/enums by size; object,
+                // struct, string and container fields stay at their defaults -- an object ref
+                // copied would be the sharing this exists to avoid), and point the ghost's ref
+                // at it. Nothing the ghost's Blueprint writes there reaches the player.
+                // `private_gi=0` in the file skips it (the A/B). Every branch logs.
+                remote.drive_private_gi = nullptr;
+                if (g_drive.private_gi && local_pawn)
+                {
+                    UObject** real_gi = mg_property_value<UObject*>(local_pawn, STR("As MV Game Instance Ref"));
+                    UObject** ghost_gi = mg_property_value<UObject*>(ghost, STR("As MV Game Instance Ref"));
+                    if (!real_gi || !*real_gi || !ghost_gi)
+                    {
+                        Output::send(STR("[MeshGhostPseudo] DRIVE: {} private game instance SKIPPED -- player's ref {} / ghost's slot {}.\n"),
+                                     to_wide_ascii(id), (real_gi && *real_gi) ? STR("ok") : STR("unresolved or null"), ghost_gi ? STR("ok") : STR("unresolved"));
+                    }
+                    else
+                    {
+                        UClass* gi_class = (*real_gi)->GetClassPrivate();
+                        FStaticConstructObjectParameters gi_params(gi_class, ghost);
+                        UObject* priv = UObjectGlobals::StaticConstructObject(gi_params);
+                        if (!priv)
+                        {
+                            Output::send(STR("[MeshGhostPseudo] WARNING: DRIVE: {} private game instance: construct of {} FAILED -- the ref stays null (hurt sit expected).\n"),
+                                         to_wide_ascii(id), gi_class ? gi_class->GetName() : STR("<null class>"));
+                        }
+                        else
+                        {
+                            int vals = 0, bools = 0, skipped = 0;
+                            for (UStruct* node = gi_class; node; node = node->GetSuperStruct())
+                            {
+                                // Blueprint classes only (`_C`): the native UGameInstance's
+                                // fields are the engine's own bookkeeping, never copied.
+                                const StringType cname = node->GetName();
+                                if (cname.size() < 2 || cname.compare(cname.size() - 2, 2, STR("_C")) != 0)
+                                {
+                                    break;
+                                }
+                                for (FProperty* property : TFieldRange<FProperty>(node, EFieldIterationFlags::None))
+                                {
+                                    if (!property)
+                                    {
+                                        continue;
+                                    }
+                                    const StringType type = property->GetClass().GetName();
+                                    if (type == STR("BoolProperty"))
+                                    {
+                                        auto* bp = static_cast<FBoolProperty*>(property);
+                                        bp->SetPropertyValueInContainer(priv, bp->GetPropertyValueInContainer(*real_gi));
+                                        ++bools;
+                                    }
+                                    else if (type == STR("DoubleProperty") || type == STR("FloatProperty") || type == STR("IntProperty") ||
+                                             type == STR("Int64Property") || type == STR("UInt32Property") || type == STR("UInt64Property") ||
+                                             type == STR("Int16Property") || type == STR("Int8Property") || type == STR("UInt16Property") ||
+                                             type == STR("ByteProperty") || type == STR("EnumProperty") || type == STR("NameProperty"))
+                                    {
+                                        const int32_t size = property->GetSize();
+                                        const uint8_t* src = property->ContainerPtrToValuePtr<uint8_t>(*real_gi);
+                                        uint8_t* dst = property->ContainerPtrToValuePtr<uint8_t>(priv);
+                                        if (size > 0 && src && dst)
+                                        {
+                                            std::memcpy(dst, src, static_cast<size_t>(size));
+                                            ++vals;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        ++skipped;
+                                    }
+                                }
+                            }
+                            *ghost_gi = priv;
+                            remote.drive_private_gi = priv;
+                            double hp_real = -1.0, hp_priv = -1.0;
+                            if (double* hp = mg_property_value<double>(*real_gi, STR("CurrentHp")))
+                            {
+                                hp_real = *hp;
+                            }
+                            if (double* hp = mg_property_value<double>(priv, STR("CurrentHp")))
+                            {
+                                hp_priv = *hp;
+                            }
+                            Output::send(STR("[MeshGhostPseudo] DRIVE: {} private game instance {} of class {} -- {} value(s) + {} bool(s) copied, {} object/struct/string/container field(s) left at defaults; CurrentHp player={} ghost={} (read back through the ghost's own ref).\n"),
+                                         to_wide_ascii(id), priv->GetName(), gi_class->GetName(), vals, bools, skipped, hp_real, hp_priv);
+                        }
+                    }
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] DRIVE: {} private game instance OFF (private_gi=0{}) -- the ref stays as the decouple left it.\n"),
+                                 to_wide_ascii(id), local_pawn ? STR("") : STR(", and no local pawn"));
+                }
             }
             return remote.driven;
         }
@@ -10991,6 +11125,23 @@ namespace MeshGhostPseudo
                 {
                     call_input_action_event(ghost, fn, down ? 1.0 : 0.0, 0.0, 0);
                     ++remote.drive_edges_applied;
+                }
+            }
+            // Power (bit 8 of the track: the ninth action in the capture's `buttons[]`): its
+            // three nodes are `_0`, `_1`, `_2` (the census) and which is the press is NOT
+            // measured -- `power_press`/`power_release` in `ghost_drive.txt` choose, and the
+            // choice is logged with each edge so a recording with a Power press settles it.
+            if (changed & (1u << 8))
+            {
+                const bool down = (mask & (1u << 8)) != 0;
+                const int node = down ? g_drive.power_press : g_drive.power_release;
+                if (node >= 0)
+                {
+                    const std::wstring fn = std::format(STR("InpActEvt_IA_Power_K2Node_EnhancedInputActionEvent_{}"), node);
+                    const bool ok = call_input_action_event(ghost, fn.c_str(), down ? 1.0 : 0.0, 0.0, 0);
+                    ++remote.drive_edges_applied;
+                    Output::send(STR("[MeshGhostPseudo] DRIVE {} Power {} -> node _{} {}\n"),
+                                 to_wide_ascii(id), down ? STR("press") : STR("release"), node, ok ? STR("called") : STR("NO SUCH FUNCTION"));
                 }
             }
         }
@@ -23375,6 +23526,14 @@ namespace MeshGhostPseudo
             }
             FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
             FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
+            if (!drive_this && g_drive.armed && (g_drive.mirror_dx != 0.0 || g_drive.mirror_dy != 0.0) && id.rfind("replay:", 0) == 0)
+            {
+                // The side-by-side (2026-09-09): while the rig is armed, every OTHER replay
+                // ghost is drawn offset by `mirror_offset`, so a second copy of the driven
+                // clip stands beside the driven ghost rather than inside it. Cosmetic only --
+                // a mirrored ghost is teleported, its chair is where the clip says.
+                target_loc = FVector(remote.target_x + g_drive.mirror_dx, remote.target_y + g_drive.mirror_dy, remote.target_z);
+            }
             if (drive_this)
             {
                 // Driven: the pawn's own movement owns where it is (D1 measures how far that

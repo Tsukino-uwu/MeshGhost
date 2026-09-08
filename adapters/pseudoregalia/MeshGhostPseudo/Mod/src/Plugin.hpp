@@ -148,6 +148,9 @@ namespace MeshGhostPseudo
         double drive_next_s{0.0};
         int drive_node_i{0};
         int drive_fired{0};
+        // The driven ghost's PRIVATE game-instance object (2026-09-09, the hurt-variant sit):
+        // constructed at prepare, outer = the pawn, held here only for the log. Dev-only.
+        RC::Unreal::UObject* drive_private_gi{nullptr};
 
         // Facing-direction bisection, 2026-08-13: rotation reads correct immediately after
         // SpawnActor and immediately after Possess() (same tick as spawn), but garbage by the
