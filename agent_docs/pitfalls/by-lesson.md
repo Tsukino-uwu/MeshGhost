@@ -6598,3 +6598,32 @@ is alive.** `UNVERIFIED.md`, the 2026-09-08 leftover entry.
 with NO reflected fields (`FInputActionValue`) comes back to Lua as an empty table -- the call
 succeeds, the value is gone. Reading such a value is a C++ question, where the ProcessEvent return
 buffer is bytes with a size reflection reports.
+
+## A loaded asset is not an applied asset: read the table the engine ACTS on, never the union of what is in memory (Pseudoregalia, 2026-09-08)
+
+**Symptom.** The input track's second build read the game's key bindings from every loaded
+`InputMappingContext` and OR'd them per action. The first real track came back correct in every
+detail but one: every gamepad attack also raised the jump bit -- `jump_check agree=19 disagree=9`,
+nine disagreements for nine attacks.
+
+**Cause.** The game keeps TWO contexts loaded: `IMC_Default`, the player's current bindings, which
+rebinding rewrites, and `IMC_Reference`, the factory defaults, never applied to anyone. On this
+machine they differed by four keys, and the factory default for the left face button is Jump where
+the user's binding is Attack. `FindAllOf` cannot tell "loaded" from "applied"; nothing in memory
+says which one the engine consults.
+
+**Fix.** Read the engine's own applied merged table, `UEnhancedPlayerInput::EnhancedActionMappings`
+on the controller's `PlayerInput` (reflected on this build; the census had listed it). It is what
+the game acts on, it follows a rebind the moment the engine does, and the periodic `FindAllOf`
+disappears with it. `adapters/pseudoregalia/documentation.md`, "Two mapping contexts stay loaded".
+
+**Two things that made it cheap to find.** The live check built into the first C++ build -- every
+jump edge compared to the pawn's own `jumpButtonHeld?` and counted on the log line -- named the
+fault before anyone read a file; and the census had kept both contexts' tables side by side, so
+`diff` of the two named the four keys in one command. **A read of "the game's configuration"
+deserves a control that the game itself computes**, the way the pawn's latch was one here.
+
+**The same shape elsewhere.** Every "which one of these does the engine use" -- a mapping context, a
+material, a camera rig, an audio listener -- has the same trap: the object array holds the
+candidates, and only the engine's own pointer says which is live. This file already has the camera
+rig and the audio listener versions of it.
