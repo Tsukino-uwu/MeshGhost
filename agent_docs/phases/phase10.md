@@ -1008,3 +1008,75 @@ own words instead of quietly winning the argument, lists the three distinctions 
 (it is not a ROM patch; Crystal's adapter already writes emulated RAM; but it does put our code in
 the game's execution), and leaves the call to the user and an ADR. **Nothing here is built,
 scheduled, or a commitment**, and none of the eleven projects is a dependency.
+
+### The same day, second half: the compatibility change, and nine agents in parallel
+
+**The two contract proposals were planned WITH the user and then built** (`plans.md`,
+"Compatibility: a version floor both ways, and a reject code"). Their three calls: the floor runs
+both ways rather than Archipelago's one-sided minimum; the wire carries a reject code AND an
+explicit `retryable` flag; the Go side lands first with the adapters following one per play session.
+Then a fourth, which is the one that shaped the rest: **break everything older, once**, so the floor
+has a clean line to work from. `protocol.Version` 1 -> 2, `MinProtocolVersion` 2.
+
+Two wording corrections in that conversation are worth keeping, because both would have inverted the
+design if they had gone unremarked. The user first said "at or above the current version" and then
+corrected it to "min version or above" -- the two readings are opposites in effect, since comparing
+against the current version is an exact match in disguise and rebuilds the flag day the floor exists
+to remove. The plan now states the concrete case a future implementer can test against: **a v2.3
+client must work with a v2.0 relay.** And "no version = older/unsupported" needed no special case at
+all once the cutover was drawn at 2: a peer advertising nothing is below the floor by construction.
+
+**Is a version spoofable?** The user asked, and the answer was checked rather than assumed:
+Archipelago's `MultiServer.py` does NOTHING beyond the comparison -- no signature, no attestation,
+no checksum, and nothing validating that a client behaves like the version it claims; the only real
+auth is a slot name and an optional password. So ours is trivially spoofable and that is the same
+trade. **The floor protects against accidental mismatch, not against a liar**, and it should not be
+described in `docs/security.md` as if it did.
+
+**The user then asked for the version to be fuzzed, and that was the right instinct**: both existing
+relay targets hard-coded `protocol.Version` in their hello, so it was the one field nothing varied --
+on the day it stopped being a constant comparison and became a decision with two outcomes.
+`FuzzHelloProtocolVersion` drives negatives, zero, both int32 edges, and asserts the relay's verdict
+matches `protocol.AcceptsPeerVersion` exactly, which is what stops the two ends drifting into "some
+players cannot join". 67,881 executions clean, wired into CI as its own step.
+
+**Then nine agents on disjoint file sets**, at the user's explicit ask to use as many as possible.
+The pattern from the first wave held -- strict file ownership, `git` forbidden, every regression test
+confirmed failing with only its own fix neutralised -- and the cost is the same: the tree does not
+build end to end while they run, and three of them reported transient breakage in files they did not
+own.
+
+**THE BEST FINDING OF THE DAY CAME FROM AN AGENT REFUSING ITS BRIEF.** It was told "exactly
+`MaxLineBytes` must be ACCEPTED", tried it, watched it fail, and reported the PREMISE as wrong rather
+than adjusting the test to match. `bufio.Scanner` counts the delimiter against its own buffer, so a
+payload of exactly the limit never fits: 4095 delivered, 4096 refused. **Every sender bound in the
+repo was one byte optimistic, including both guards added earlier the same day** -- an envelope of
+exactly 4096 passed the check, went out, and killed the receiver's read loop with the very
+`ErrTooLong` the check existed to prevent. `MaxPayloadBytes = MaxLineBytes - 1` now holds it in one
+place, pinned against the real scanner so a future Go release fails the test rather than the
+production path.
+
+**Two agent outputs needed correcting rather than accepting.** The docs agent replaced a false README
+claim ("replay and chaser ghosts are ALWAYS just pictures") with a closer one -- that Emerald and
+Crystal make them solid. Also wrong: neither Lua adapter references chaser or replay ids at all, and
+Crystal ships the DRAWN tier with its spawn tier default-off since 2026-09-02, so the "a spawned
+ghost blocks its tile" comment is in code that does not run. It would also have put an unconfirmed
+on-screen claim about the vanilla games in front of users, which is what the user-verifies-the-games
+rule is for. And the relay-session agent's E9 fix required INVERTING an existing test that asserted
+the defect -- its concern (a stale ceiling freezing timestamps) was legitimate, so the replacement
+spells out both failure modes rather than flipping the comparison.
+
+**What the gates caught, this half.** The wire-freeze tests from the morning caught all three new
+protocol fields the moment they appeared. The version test had to be updated because it asserted the
+OLD semantics, so the change could not land silently. The duration gate caught three more vague
+durations, one of them written into the phase entry ABOUT the duration gate. And the pre-commit hook
+refused an ordinary edit to `ideas.md` -- correctly, from its own point of view, because the
+clone-path patterns had been added to its TEXT scan that morning and the rule text legitimately
+quotes that path; `preflight.ps1` had been scripts-only from the start and said why, so the hook now
+matches it. Committing `REVIEW-FINDINGS.md` was refused for the same class of reason: a findings file
+about a leaked path had quoted the literal path.
+
+**One failure was NOT explained.** During a parallel full-suite run `./core/` failed once; the
+captured tail held only teardown noise and not the test name, and seven subsequent core runs plus a
+full suite pass are clean. Filed as O3 with the only useful instruction available: capture the whole
+output next time, because without a test name there is nothing to bisect.
