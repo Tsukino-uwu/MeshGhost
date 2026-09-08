@@ -581,3 +581,44 @@ func TestReplayHelloFlagResetsOnDetach(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+// TestReplayRelaunchAfterFinishStreamsAgain: a restart pressed after a
+// non-looping clip has FINISHED relaunches a fresh player (seekReplays), and
+// that player streams the track again -- a reset first, edges due from the
+// new lap's start, and renders that actually reach every edge's `at`.
+// Written 2026-09-08 after a relaunched replay's ghost panel stayed empty in
+// the game while the first pass had worked.
+func TestReplayRelaunchAfterFinishStreamsAgain(t *testing.T) {
+	c, fa := inputReplayCore(t)
+	writeActive(t, c, "again.ndjson", clipBytes(map[string]any{"recording_id": "rec-a"}, walkStates(11, 100)))
+	writeInputs(t, c, "in-a.ndjson", trackBytes(map[string]any{"recording_id": "rec-a"}, edgesAt(sampleStamps(11, 100)...)))
+	c.StartReplays()
+	const id = "replay:again.ndjson"
+	awaitFinished(t, fa, id, 10)
+	awaitBridgeDrained(t, c)
+	drainInputs(fa, id)
+	if _, err := c.ReplayControl(ReplayRestart, 0); err != nil {
+		t.Fatal(err)
+	}
+	awaitFinished(t, fa, id, 10)
+	awaitBridgeDrained(t, c)
+	got := drainInputs(fa, id)
+	if len(got) == 0 {
+		t.Fatal("the relaunched player streamed nothing")
+	}
+	if !got[0].msg.Reset || len(got[0].msg.Labels) == 0 {
+		t.Fatalf("the relaunch's first line must be a reset with the tables, got %+v", got[0].msg)
+	}
+	edges := flatEdges(got)
+	if len(edges) != 11 {
+		t.Fatalf("%d edges on the relaunch, want 11", len(edges))
+	}
+	fa.mu.Lock()
+	lastRender := fa.lastRenderTs[id]
+	fa.mu.Unlock()
+	for _, e := range edges {
+		if e.At > lastRender {
+			t.Fatalf("edge f=%d at=%d was never reached by a render (newest render ts %d): it could never apply", e.F, e.At, lastRender)
+		}
+	}
+}

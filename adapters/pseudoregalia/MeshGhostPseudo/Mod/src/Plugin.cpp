@@ -9088,12 +9088,10 @@ namespace MeshGhostPseudo
         double g_disp_margin_y = 300.0;    // panel top, pixels
         double g_disp_pad = 6.0;
         unsigned g_disp_tuning_gen = 1;    // bumped by a config change that needs a rebuild
-        unsigned g_disp_built_gen = 0;
-        OwnedObjectHandle g_disp_panel;    // stale-safe: OwnedObjectHandle, validated on every Get() -- a runtime widget is the collector's whenever the viewport lets go
-        OwnedObjectHandle g_disp_text;     // stale-safe: same
-        bool g_disp_in_viewport = false;
-        double g_disp_vw = 0.0;
-        double g_disp_meas_w = 0.0;        // the panel's laid-out width, for the right-hand placement
+        bool g_disp_ghost = false;         // input_display.ghost: a replay ghost's streamed track (ADR 0057)
+        bool g_disp_ghost_left = false;    // input_display.ghost_side == "left"
+        std::string g_disp_ghost_id;       // the replay ghost the ghost panel follows: first with a track, sticky
+        int g_disp_ghost_grace = 0;        // frames the ghost panel survives its track's absence (a loop seam is a despawn + a reset)
         struct InputHistoryRow
         {
             uint32_t mask;
@@ -9102,8 +9100,23 @@ namespace MeshGhostPseudo
             int64_t start_ms; // when the state began, steady clock
             int64_t last_ms;  // the last frame it was still held
         };
-        std::deque<InputHistoryRow> g_disp_rows_data; // newest at the front
-        std::wstring g_disp_last_text;
+        // One panel per SOURCE (the player's own inputs; a replay ghost's streamed track, ADR
+        // 0057), the same widget and the same rows, placed on its own side.
+        struct InputPanel
+        {
+            const wchar_t* name;               // the widget names' prefix
+            unsigned built_gen = 0;
+            OwnedObjectHandle panel;           // stale-safe: OwnedObjectHandle, validated on every Get() -- a runtime widget is the collector's whenever the viewport lets go
+            OwnedObjectHandle text;            // stale-safe: same
+            bool in_viewport = false;
+            double vw = 0.0;
+            double meas_w = 0.0;               // the panel's laid-out width, for the right-hand placement
+            bool left = true;                  // which side it is placed on, decided per tick
+            std::deque<InputHistoryRow> rows;  // newest at the front
+            std::wstring last_text;
+        };
+        InputPanel g_disp_player_panel{STR("MeshGhostInputPanel")};
+        InputPanel g_disp_ghost_panel{STR("MeshGhostGhostInputPanel")};
 
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition
@@ -9667,6 +9680,12 @@ namespace MeshGhostPseudo
                 std::string count_side;
                 const bool have_count_side = config_string_value("count_side", count_side);
                 const bool fps_note = config_bool_value("fps_note", false);
+                // The ghost half (ADR 0057): `"ghost"` is unique in the file too (`ghost_collision`
+                // and `ghost_range*` do not match a quoted `"ghost"`), and so is `"ghost_side"`.
+                const bool ghost = config_bool_value("ghost", false);
+                std::string ghost_side;
+                const bool have_ghost_side = config_string_value("ghost_side", ghost_side);
+                const bool ghost_left = have_ghost_side ? (ghost_side != "right") : g_disp_ghost_left;
                 const int32_t rows_i = have_rows ? static_cast<int32_t>(std::clamp(rows, 1.0, 40.0)) : g_disp_rows;
                 const double size_d = have_size ? std::clamp(size, 6.0, 96.0) : g_disp_size;
                 const bool left = have_side ? (side != "right") : g_disp_player_left;
@@ -9695,9 +9714,12 @@ namespace MeshGhostPseudo
                 const bool count_left = have_count_side ? (count_side != "right") : g_disp_count_left;
                 if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
                     rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left ||
-                    unit_s != g_disp_unit || count_left != g_disp_count_left || fps_note != g_disp_fps_note)
+                    unit_s != g_disp_unit || count_left != g_disp_count_left || fps_note != g_disp_fps_note ||
+                    ghost != g_disp_ghost || ghost_left != g_disp_ghost_left)
                 {
                     g_disp_fps_note = fps_note;
+                    g_disp_ghost = ghost;
+                    g_disp_ghost_left = ghost_left;
                     g_disp_player = player;
                     g_disp_always = always;
                     g_disp_background = background;
@@ -9706,12 +9728,14 @@ namespace MeshGhostPseudo
                     g_disp_player_left = left;
                     g_disp_unit = unit_s;
                     g_disp_count_left = count_left;
-                    g_disp_last_text.clear(); // a unit or side change redraws the rows in place
+                    g_disp_player_panel.last_text.clear(); // a unit or side change redraws the rows in place
+                    g_disp_ghost_panel.last_text.clear();
                     ++g_disp_tuning_gen;
-                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={} unit={} count_side={}\n"),
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={} unit={} count_side={} ghost={} ghost_side={}\n"),
                                  player ? STR("on") : STR("off"), always ? STR("on") : STR("off"),
                                  background ? STR("on") : STR("off"), rows_i, size_d, left ? STR("left") : STR("right"),
-                                 to_wide_ascii(unit_s), count_left ? STR("left") : STR("right"));
+                                 to_wide_ascii(unit_s), count_left ? STR("left") : STR("right"),
+                                 ghost ? STR("on") : STR("off"), ghost_left ? STR("left") : STR("right"));
                 }
             }
             // The input track's runtime gate. The key is `inputs`, nested under `replay` in the
@@ -10592,26 +10616,27 @@ namespace MeshGhostPseudo
         // W cling, T throw, G guard, I interact, L lock-on, P power, M map, V view.
         constexpr const wchar_t* INPUT_HISTORY_TOKENS = STR("JACWTGILPMV");
 
-        auto input_display_tear_down() -> void
+        auto input_display_tear_down(InputPanel& p) -> void
         {
-            hud_remove(g_disp_panel);
-            g_disp_text.Clear();
-            g_disp_in_viewport = false;
-            g_disp_last_text.clear();
-            g_disp_meas_w = 0.0;
+            hud_remove(p.panel);
+            p.text.Clear();
+            p.in_viewport = false;
+            p.last_text.clear();
+            p.meas_w = 0.0;
         }
 
-        auto input_display_build(UObject* controller) -> bool
+        auto input_display_build(InputPanel& p, UObject* controller) -> bool
         {
             UObject* gi = hud_game_instance(controller);
             if (!gi)
             {
                 return false;
             }
-            UObject* panel = hud_construct(STR("/Script/UMG.UserWidget"), gi, STR("MeshGhostInputPanel"));
-            UObject* tree = panel ? hud_construct(STR("/Script/UMG.WidgetTree"), panel, STR("MeshGhostInputPanel_Tree")) : nullptr;
-            UObject* border = tree ? hud_construct(STR("/Script/UMG.Border"), tree, STR("MeshGhostInputPanel_Border")) : nullptr;
-            UObject* text = tree ? hud_construct(STR("/Script/UMG.TextBlock"), tree, STR("MeshGhostInputPanel_Text")) : nullptr;
+            const std::wstring base = p.name;
+            UObject* panel = hud_construct(STR("/Script/UMG.UserWidget"), gi, base.c_str());
+            UObject* tree = panel ? hud_construct(STR("/Script/UMG.WidgetTree"), panel, (base + STR("_Tree")).c_str()) : nullptr;
+            UObject* border = tree ? hud_construct(STR("/Script/UMG.Border"), tree, (base + STR("_Border")).c_str()) : nullptr;
+            UObject* text = tree ? hud_construct(STR("/Script/UMG.TextBlock"), tree, (base + STR("_Text")).c_str()) : nullptr;
             if (!panel || !tree || !border || !text)
             {
                 Output::send(STR("[MeshGhostPseudo] WARNING: input display could not be built (panel={} tree={} border={} text={}).\n"),
@@ -10654,21 +10679,21 @@ namespace MeshGhostPseudo
                        hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
             });
             hud_set_text(text, STR(""));
-            g_disp_panel.Set(panel); // no root-set pin, no FWeakObjectPtr: see OwnedObjectHandle
-            g_disp_text.Set(text);
-            g_disp_built_gen = g_disp_tuning_gen;
-            g_disp_in_viewport = false;
-            g_disp_vw = 0.0;
-            g_disp_meas_w = 0.0;
-            g_disp_last_text.clear();
-            Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: panel built (rows={} size={} side={} background={}).\n"),
-                         g_disp_rows, g_disp_size, g_disp_player_left ? STR("left") : STR("right"), g_disp_background ? STR("on") : STR("off"));
+            p.panel.Set(panel); // no root-set pin, no FWeakObjectPtr: see OwnedObjectHandle
+            p.text.Set(text);
+            p.built_gen = g_disp_tuning_gen;
+            p.in_viewport = false;
+            p.vw = 0.0;
+            p.meas_w = 0.0;
+            p.last_text.clear();
+            Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} built (rows={} size={} side={} background={}).\n"),
+                         p.name, g_disp_rows, g_disp_size, p.left ? STR("left") : STR("right"), g_disp_background ? STR("on") : STR("off"));
             return true;
         }
 
-        auto input_display_place(double vw) -> void
+        auto input_display_place(InputPanel& p, double vw) -> void
         {
-            UObject* panel = g_disp_panel.Get();
+            UObject* panel = p.panel.Get();
             if (!panel)
             {
                 return;
@@ -10676,19 +10701,21 @@ namespace MeshGhostPseudo
             // Left: the inset from the left edge. Right: the inset from the right edge, which
             // needs the panel's laid-out width (0 before the first layout: placed as if 260 wide,
             // then corrected on the next cadence).
-            const double width = g_disp_meas_w > 0.0 ? g_disp_meas_w : 260.0;
-            const double x = g_disp_player_left ? g_disp_margin_x : (vw - g_disp_margin_x - width);
+            const double width = p.meas_w > 0.0 ? p.meas_w : 260.0;
+            const double x = p.left ? g_disp_margin_x : (vw - g_disp_margin_x - width);
             hud_call(panel, STR("SetPositionInViewport"), [&](UFunction* fn, uint8_t* buf) {
                 return hud_fill_struct(fn, buf, STR("Position"), {{STR("X"), x}, {STR("Y"), g_disp_margin_y}}) && hud_fill_bool(fn, buf, STR("bRemoveDPIScale"), true);
             });
-            g_disp_vw = vw;
+            p.vw = vw;
         }
 
-        // Per engine frame, from input_track_sample: the mask and the move axes as read this frame.
-        // Extends the newest row while the state holds, starts one when it changes, and rewrites
-        // the text only when a row was added (the frame count of the top row is redrawn with it,
-        // at most once per frame it changes -- see the throttle below).
-        auto input_display_observe(uint32_t mask, double move_x, double move_y) -> void
+        // Per engine frame, from input_track_sample (the player) or the remotes loop (a replay
+        // ghost, ADR 0057): the mask and the move axes as of this frame. Extends the newest row
+        // while the state holds, starts one when it changes, and rewrites the text only when a
+        // row was added (the frame count of the top row is redrawn with it, at most once per
+        // frame it changes -- see the throttle below). The framerate header is measured from
+        // the PLAYER's panel only; both panels count the same engine frames.
+        auto input_display_observe(InputPanel& p, uint32_t mask, double move_x, double move_y) -> void
         {
             int dir = 0;
             if (move_y > 0.35) dir |= 1;
@@ -10698,35 +10725,39 @@ namespace MeshGhostPseudo
             const int64_t now_ms = static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                             std::chrono::steady_clock::now().time_since_epoch())
                                                             .count());
-            ++g_disp_fps_frames;
-            if (g_disp_fps_since_ms == 0)
+            if (&p == &g_disp_player_panel)
             {
-                g_disp_fps_since_ms = now_ms;
-            }
-            else if (now_ms - g_disp_fps_since_ms >= 1000)
-            {
-                g_disp_fps = static_cast<int>((g_disp_fps_frames * 1000) / static_cast<uint64_t>(now_ms - g_disp_fps_since_ms));
-                g_disp_fps_frames = 0;
-                g_disp_fps_since_ms = now_ms;
-                if (g_disp_unit.find("frames") != std::string::npos)
+                ++g_disp_fps_frames;
+                if (g_disp_fps_since_ms == 0)
                 {
-                    g_disp_last_text.clear(); // the header's number changed; redraw on the next pass
+                    g_disp_fps_since_ms = now_ms;
+                }
+                else if (now_ms - g_disp_fps_since_ms >= 1000)
+                {
+                    g_disp_fps = static_cast<int>((g_disp_fps_frames * 1000) / static_cast<uint64_t>(now_ms - g_disp_fps_since_ms));
+                    g_disp_fps_frames = 0;
+                    g_disp_fps_since_ms = now_ms;
+                    if (g_disp_unit.find("frames") != std::string::npos)
+                    {
+                        g_disp_player_panel.last_text.clear(); // the header's number changed; redraw on the next pass
+                        g_disp_ghost_panel.last_text.clear();
+                    }
                 }
             }
-            if (!g_disp_rows_data.empty() && g_disp_rows_data.front().mask == mask && g_disp_rows_data.front().dir == dir)
+            if (!p.rows.empty() && p.rows.front().mask == mask && p.rows.front().dir == dir)
             {
-                ++g_disp_rows_data.front().frames;
-                g_disp_rows_data.front().last_ms = now_ms;
+                ++p.rows.front().frames;
+                p.rows.front().last_ms = now_ms;
             }
             else
             {
-                g_disp_rows_data.push_front(InputHistoryRow{mask, dir, 1, now_ms, now_ms});
-                while (g_disp_rows_data.size() > static_cast<size_t>((std::max)(g_disp_rows, 1)))
+                p.rows.push_front(InputHistoryRow{mask, dir, 1, now_ms, now_ms});
+                while (p.rows.size() > static_cast<size_t>((std::max)(g_disp_rows, 1)))
                 {
-                    g_disp_rows_data.pop_back();
+                    p.rows.pop_back();
                 }
             }
-            UObject* text = g_disp_text.Get();
+            UObject* text = p.text.Get();
             if (!text)
             {
                 return;
@@ -10734,8 +10765,8 @@ namespace MeshGhostPseudo
             // The top row's count changes every frame while a state holds; redrawing text 144
             // times a second is the one cost this display could have, so the count is redrawn
             // every 4th frame and every row change immediately.
-            const bool top_only = g_disp_rows_data.front().frames > 1;
-            if (top_only && (g_disp_rows_data.front().frames % 4) != 0)
+            const bool top_only = p.rows.front().frames > 1;
+            if (top_only && (p.rows.front().frames % 4) != 0)
             {
                 return;
             }
@@ -10748,7 +10779,7 @@ namespace MeshGhostPseudo
                 std::swprintf(fps_line, sizeof(fps_line) / sizeof(fps_line[0]), STR("@ %d fps\n"), g_disp_fps);
                 out += fps_line;
             }
-            for (const InputHistoryRow& r : g_disp_rows_data)
+            for (const InputHistoryRow& r : p.rows)
             {
                 // The counts are DISPLAY only: the track stores the frame and the millisecond of
                 // every edge, never a count, so the units and the caps here lose nothing. One
@@ -10833,24 +10864,24 @@ namespace MeshGhostPseudo
             {
                 out.pop_back();
             }
-            if (out != g_disp_last_text)
+            if (out != p.last_text)
             {
-                g_disp_last_text = out;
-                hud_set_text(text, g_disp_last_text.c_str());
+                p.last_text = out;
+                hud_set_text(text, p.last_text.c_str());
             }
         }
 
-        // Once per gameplay frame, after input_track_sample: lifecycle only.
-        auto input_display_tick(UObject* controller) -> void
+        // One panel's lifecycle, once per gameplay frame: torn down when not wanted, rebuilt
+        // after a config change or a transition, placed on its side, added to the viewport.
+        auto input_display_tick_panel(InputPanel& p, bool wanted, bool left, UObject* controller) -> void
         {
-            const bool wanted = g_disp_player && (g_disp_always || g_recording_active) && g_rec_indicator_enabled;
             if (!wanted)
             {
-                if (g_disp_panel.Get())
+                if (p.panel.Get())
                 {
-                    input_display_tear_down();
-                    g_disp_rows_data.clear();
-                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: panel removed.\n"));
+                    input_display_tear_down(p);
+                    p.rows.clear();
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} removed.\n"), p.name);
                 }
                 return;
             }
@@ -10858,39 +10889,45 @@ namespace MeshGhostPseudo
             {
                 return;
             }
-            if (g_disp_built_gen != g_disp_tuning_gen && g_disp_panel.Get())
+            if (left != p.left)
             {
-                input_display_tear_down();
+                // The side is a placement fact, not a rebuild: re-place on the next cadence.
+                p.left = left;
+                p.vw = 0.0;
             }
-            if (!g_disp_panel.Get() || !g_disp_text.Get())
+            if (p.built_gen != g_disp_tuning_gen && p.panel.Get())
             {
-                if (!input_display_build(controller))
+                input_display_tear_down(p);
+            }
+            if (!p.panel.Get() || !p.text.Get())
+            {
+                if (!input_display_build(p, controller))
                 {
                     return;
                 }
             }
-            UObject* panel = g_disp_panel.Get();
+            UObject* panel = p.panel.Get();
             if (!panel)
             {
                 return;
             }
-            if (!g_disp_in_viewport || (g_registry_tick % 60) == 0)
+            if (!p.in_viewport || (g_registry_tick % 60) == 0)
             {
                 double vw = 0.0, vh = 0.0;
                 bool replace = false;
-                if (hud_viewport_size(controller, vw, vh) && vw != g_disp_vw)
+                if (hud_viewport_size(controller, vw, vh) && vw != p.vw)
                 {
                     replace = true;
                 }
                 double mw = 0.0, mh = 0.0;
-                if (g_disp_in_viewport && !g_disp_player_left && hud_desired_size(panel, mw, mh) && mw != g_disp_meas_w)
+                if (p.in_viewport && !p.left && hud_desired_size(panel, mw, mh) && mw != p.meas_w)
                 {
-                    g_disp_meas_w = mw;
+                    p.meas_w = mw;
                     replace = true;
                 }
                 if (replace && vw > 0.0)
                 {
-                    input_display_place(vw);
+                    input_display_place(p, vw);
                 }
                 std::vector<uint8_t> out;
                 bool in_viewport = false;
@@ -10904,12 +10941,24 @@ namespace MeshGhostPseudo
                         }
                     }
                 }
-                if (!in_viewport && g_disp_vw > 0.0)
+                if (!in_viewport && p.vw > 0.0)
                 {
                     hud_call(panel, STR("AddToViewport"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_int(fn, buf, STR("ZOrder"), g_hud_z); });
-                    g_disp_in_viewport = true;
+                    p.in_viewport = true;
                 }
             }
+        }
+
+        // Once per gameplay frame, after input_track_sample: lifecycle only, both panels. The
+        // ghost panel follows the first replay ghost with a streamed track (sticky while it
+        // has one), on `ghost_side` -- or the player's side when the player's panel is off.
+        auto input_display_tick(UObject* controller, bool ghost_has_track) -> void
+        {
+            const bool player_wanted = g_disp_player && (g_disp_always || g_recording_active) && g_rec_indicator_enabled;
+            input_display_tick_panel(g_disp_player_panel, player_wanted, g_disp_player_left, controller);
+            const bool ghost_wanted = g_disp_ghost && ghost_has_track && g_rec_indicator_enabled;
+            const bool ghost_left = player_wanted ? g_disp_ghost_left : g_disp_player_left;
+            input_display_tick_panel(g_disp_ghost_panel, ghost_wanted, ghost_left, controller);
         }
 
         // Draws (or hides) the recording indicator. Called once per tick from game_thread_tick.
@@ -14219,8 +14268,10 @@ namespace MeshGhostPseudo
         g_hud_in_viewport = false;
         g_hud_vw = 0.0;
         g_hud_vh = 0.0;
-        g_disp_in_viewport = false;
-        g_disp_vw = 0.0;
+        g_disp_player_panel.in_viewport = false;
+        g_disp_player_panel.vw = 0.0;
+        g_disp_ghost_panel.in_viewport = false;
+        g_disp_ghost_panel.vw = 0.0;
 
         for (auto& [id, remote] : remotes)
         {
@@ -14404,6 +14455,7 @@ namespace MeshGhostPseudo
             }
             release_ghost(id);
         }
+        ghost_inputs.clear(); // every pawn those edges were for is gone (ADR 0057)
     }
 
     auto Plugin::on_unreal_init() -> void
@@ -17154,6 +17206,16 @@ namespace MeshGhostPseudo
                 }
                 it->second.target_x = x + loopback_offset_x;
                 it->second.target_y = y;
+                // The render clock this state was drawn at (ADR 0057): a remote_input edge
+                // applies once this passes its `at`. Absent (an older core) reads as 0, which
+                // applies nothing -- the panel simply stays empty, as before the stream existed.
+                {
+                    double ts = 0.0;
+                    if (json_number_member(line, sb, se, "timestamp", ts) && std::isfinite(ts))
+                    {
+                        it->second.target_ts = ts;
+                    }
+                }
                 // Slide floor-sinking fix -- a pure render-target adjustment, exactly like
                 // loopback_offset_x above (target_x/y/z are only ever a local render target and
                 // never change what goes on the wire).
@@ -17449,6 +17511,94 @@ namespace MeshGhostPseudo
                              g_recording_started_unix_ms);
             }
         }
+        else if (type == "remote_input")
+        {
+            // A window of a replay ghost's recorded inputs, ahead of when they are due (ADR
+            // 0057; _template/PROTOCOL.md's "Replay input stream"). Buffered per player and
+            // applied in the remotes loop when the ghost's rendered `state.timestamp` reaches an
+            // edge's `at`. Scoped reads, like render_remote's: the tables are the track's own
+            // strings, opaque here too -- the display maps bit i to INPUT_HISTORY_TOKENS[i] by
+            // POSITION and never reads a label.
+            if constexpr (INPUT_HISTORY_DISPLAY)
+            {
+                size_t rb = 0, re = 0, pb = 0, pe = 0;
+                if (!json_root_body(line, rb, re) || !json_object_member(line, rb, re, "payload", pb, pe))
+                {
+                    return;
+                }
+                std::string player_id = json_string_member(line, pb, pe, "player_id");
+                if (player_id.empty())
+                {
+                    return;
+                }
+                GhostInputTrack& track = ghost_inputs[player_id];
+                if (json_bool_member(line, pb, pe, "reset"))
+                {
+                    // The pawn the held edges were for is gone (or the clip jumped): drop them,
+                    // and the state with them -- the first edge after a reset is a full state.
+                    track.edges.clear();
+                    track.have_state = false;
+                    track.mask = 0;
+                    track.dropped = 0;
+                    track.drop_logged = false;
+                    if (player_id == g_disp_ghost_id)
+                    {
+                        // The clip jumped: the rows on screen were the run up to the seam, and
+                        // a restart or a rewind should read from a clean panel.
+                        g_disp_ghost_panel.rows.clear();
+                        g_disp_ghost_panel.last_text.clear();
+                    }
+                }
+                size_t ab = 0, ae = 0;
+                if (json_array_member(line, pb, pe, "labels", ab, ae))
+                {
+                    track.labels = json_string_array(line, ab, ae, 32);
+                }
+                if (json_array_member(line, pb, pe, "axes", ab, ae))
+                {
+                    track.axes = json_string_array(line, ab, ae, 8);
+                }
+                if (std::string src = json_string_member(line, pb, pe, "source"); !src.empty())
+                {
+                    track.source = src;
+                }
+                if (json_array_member(line, pb, pe, "edges", ab, ae))
+                {
+                    size_t pos = ab;
+                    size_t ob = 0, oe = 0;
+                    while (json_next_object(line, pos, ae, ob, oe))
+                    {
+                        GhostInputEdge e{};
+                        double f = 0.0, t = 0.0, m = 0.0, at = 0.0;
+                        json_number_member(line, ob, oe, "f", f);
+                        json_number_member(line, ob, oe, "t", t);
+                        json_number_member(line, ob, oe, "m", m);
+                        if (!json_number_member(line, ob, oe, "at", at) || !std::isfinite(at))
+                        {
+                            continue; // an edge with no due time can never apply
+                        }
+                        e.f = static_cast<uint64_t>((std::max)(0.0, f)); // parenthesised: <windows.h>'s max macro
+                        e.t = static_cast<int64_t>(t);
+                        e.m = (std::isfinite(m) && m >= 0.0 && m <= 4294967295.0) ? static_cast<uint32_t>(m) : 0u;
+                        e.at = at;
+                        size_t xb = 0, xe = 0;
+                        e.ax_n = json_array_member(line, ob, oe, "ax", xb, xe) ? static_cast<int>(json_number_array(line, xb, xe, e.ax, 8)) : 0;
+                        if (track.edges.size() >= GHOST_INPUT_EDGE_CAP)
+                        {
+                            ++track.dropped;
+                            if (!track.drop_logged)
+                            {
+                                track.drop_logged = true;
+                                Output::send(STR("[MeshGhostPseudo] WARNING: remote_input for {} holds {} edges and is refusing more -- the core is far ahead of the renders.\n"),
+                                             to_wide_ascii(player_id), track.edges.size());
+                            }
+                            continue;
+                        }
+                        track.edges.push_back(e);
+                    }
+                }
+            }
+        }
         else if (type == "despawn_remote")
         {
             // Payload-level reads, scoped for the reason render_remote's are -- see the
@@ -17465,6 +17615,9 @@ namespace MeshGhostPseudo
             {
                 release_ghost(player_id);
                 remotes.erase(player_id);
+                // The edges held for this ghost were for the pawn that just went; a seam's
+                // reset line re-declares what follows (ADR 0057).
+                ghost_inputs.erase(player_id);
                 // The name is deliberately KEPT (2026-09-01). despawn_remote is render-set
                 // removal, not "forget the peer": the core sends it whenever a peer merely
                 // leaves this player's AREA, and remote_name is only ever pushed on join and on
@@ -21317,7 +21470,31 @@ namespace MeshGhostPseudo
                 }
                 if constexpr (INPUT_HISTORY_DISPLAY)
                 {
-                    input_display_tick(controller);
+                    // The ghost panel follows one replay ghost while it has a streamed track,
+                    // and for ~3 s past its absence: a loop seam is a despawn (the entry goes)
+                    // and, a tick later, a reset (it returns), and the panel must not blink.
+                    bool ghost_has_track = false;
+                    if constexpr (INPUT_HISTORY_DISPLAY)
+                    {
+                        if (!g_disp_ghost_id.empty())
+                        {
+                            if (ghost_inputs.count(g_disp_ghost_id) != 0)
+                            {
+                                g_disp_ghost_grace = 180;
+                                ghost_has_track = true;
+                            }
+                            else if (g_disp_ghost_grace > 0)
+                            {
+                                --g_disp_ghost_grace;
+                                ghost_has_track = true;
+                            }
+                            else
+                            {
+                                g_disp_ghost_id.clear(); // the next ghost with a track takes the panel
+                            }
+                        }
+                    }
+                    input_display_tick(controller, ghost_has_track);
                 }
             }
         }
@@ -22512,6 +22689,54 @@ namespace MeshGhostPseudo
                         {
                             ghost_base_offset->SetZ(desired_base_z);
                         }
+                    }
+                }
+            }
+            // A replay ghost's streamed inputs (ADR 0057): apply every edge whose `at` the
+            // newest rendered state has reached, then show the resulting state on the ghost
+            // panel if this is the ghost it follows. The mask is opaque: bit i is drawn as
+            // INPUT_HISTORY_TOKENS[i] by position, the way the player's own is.
+            if constexpr (INPUT_HISTORY_DISPLAY)
+            {
+                if (auto gi = ghost_inputs.find(id); gi != ghost_inputs.end())
+                {
+                    GhostInputTrack& track = gi->second;
+                    while (!track.edges.empty() && track.edges.front().at <= remote.target_ts)
+                    {
+                        const GhostInputEdge& e = track.edges.front();
+                        if (!track.have_state)
+                        {
+                            // The first edge to apply after a reset, with the two clocks it
+                            // was judged by (2026-09-08: a relaunched replay's panel stayed
+                            // empty while the first pass had worked; this is the measurement).
+                            Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} first edge applied f={} at={:.0f} target_ts={:.0f} ({} queued).\n"),
+                                         to_wide_ascii(id), e.f, e.at, remote.target_ts, track.edges.size());
+                        }
+                        track.mask = e.m;
+                        for (int i = 0; i < e.ax_n && i < 8; ++i)
+                        {
+                            track.ax[i] = e.ax[i];
+                        }
+                        track.have_state = true;
+                        track.edges.pop_front();
+                        track.applied_at_tick = tick_count;
+                    }
+                    if (!track.have_state && !track.edges.empty() && (tick_count % 120) == 0)
+                    {
+                        // Nothing has applied yet: say how far the head edge sits from the
+                        // render clock, every ~2 s, so a stuck panel names its own cause.
+                        Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} waiting -- head at={:.0f} target_ts={:.0f} (head - ts = {:.0f} ms, {} queued).\n"),
+                                     to_wide_ascii(id), track.edges.front().at, remote.target_ts, track.edges.front().at - remote.target_ts, track.edges.size());
+                    }
+                    if (g_disp_ghost_id.empty())
+                    {
+                        g_disp_ghost_id = id;
+                        Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: the ghost panel follows {} ({}, {} label(s)).\n"),
+                                     to_wide_ascii(id), to_wide_ascii(track.source), track.labels.size());
+                    }
+                    if (g_disp_ghost_id == id && track.have_state && g_disp_ghost)
+                    {
+                        input_display_observe(g_disp_ghost_panel, track.mask, track.ax[0], track.ax[1]);
                     }
                 }
             }
@@ -25311,7 +25536,7 @@ namespace MeshGhostPseudo
         {
             if (display_wants)
             {
-                input_display_observe(mask, ax[0], ax[1]);
+                input_display_observe(g_disp_player_panel, mask, ax[0], ax[1]);
             }
         }
         if (!track_wants)
@@ -25790,8 +26015,12 @@ namespace MeshGhostPseudo
             // the bridge traffic is identical to the pre-2026-08-30 build -- not just the
             // rendering. A revert that leaves the cost running is the trap FLAGS.md warns about.
             const char* want_orient_bracket = GHOST_ROTATION_SLERP ? ",\"interpolate_orientation\":true" : "";
+            // Same rule for the replay input stream (ADR 0057): tied to the display flag, so with
+            // it off the core never scans for a track and the bridge carries no remote_input.
+            // Confirm the opt-in took from the CORE log ("adapter asked for input tracks").
+            const char* want_input_tracks = INPUT_HISTORY_DISPLAY ? ",\"input_tracks\":true" : "";
             std::string hello = std::string("{\"type\":\"hello\",\"payload\":{\"game_id\":\"") + GAME_ID +
-                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"" + want_orient_bracket + "}}";
+                "\",\"game_version\":\"" + ADAPTER_VERSION + "\"" + want_orient_bracket + want_input_tracks + "}}";
             Output::send(STR("[MeshGhostPseudo] HELLO {}\n"), to_wide_ascii(hello));
             if (bridge->send_line(hello))
             {

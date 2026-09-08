@@ -549,8 +549,13 @@ Nothing outstanding is a ghost failing to do something the player can do.
     row per change of what is held, the direction as one arrow, a letter per action, and a count
     in hundredths of a second, milliseconds or frames -- several at once if wanted. Fed by the
     input track's own per-frame read, so it costs one text rewrite per row change, and gated by
-    the `input_display` section of config.json, shipped off. The ghost half -- a replay's own
-    track on the other side -- is designed and waits on the core streaming a clip's track.
+    the `input_display` section of config.json, shipped off. The ghost half followed the same
+    night: the mod asks the client for a replay's input track in its hello, the client streams
+    it half a second ahead with the moment each press is due on the ghost's own render clock,
+    and the mod holds the edges per ghost and applies each one on the frame the ghost's rendered
+    state reaches it -- the first time this adapter reads a render's timestamp -- then draws the
+    result on a second panel of the same code, on the other side. A restart or a loop clears it
+    with the ghost. Seen filling beside the ghost across seven restarts of a 22 s recording.
 
 ## Dev tools
 

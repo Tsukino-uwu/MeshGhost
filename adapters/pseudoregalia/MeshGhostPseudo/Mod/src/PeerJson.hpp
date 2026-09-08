@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace MeshGhostPseudo
 {
@@ -534,6 +535,199 @@ namespace MeshGhostPseudo
             return hi;
         }
         return static_cast<float>(value);
+    }
+
+    // ARRAYS (2026-09-08, for remote_input): the same scoped discipline as the object readers
+    // above -- an array member is a span, and a caller walks the values inside that span only.
+    // Body span of the array whose opening bracket sits at `pos`; [begin, end) excludes the brackets.
+    inline auto json_array_body_at(const std::string& s, size_t pos, size_t limit, size_t& begin, size_t& end) -> bool
+    {
+        if (limit > s.size())
+        {
+            limit = s.size();
+        }
+        if (pos >= limit || s[pos] != '[')
+        {
+            return false;
+        }
+        begin = pos + 1;
+        int depth = 1;
+        for (size_t i = begin; i < limit; ++i)
+        {
+            const char c = s[i];
+            if (c == kJsonQuote)
+            {
+                const size_t close = json_skip_string(s, i, limit);
+                if (close == std::string::npos)
+                {
+                    return false;
+                }
+                i = close;
+                continue;
+            }
+            if (c == '[' || c == '{')
+            {
+                ++depth;
+            }
+            else if ((c == ']' || c == '}') && --depth == 0)
+            {
+                end = i;
+                return c == ']';
+            }
+        }
+        return false;
+    }
+
+    // The body of a named array member.
+    inline auto json_array_member(const std::string& s, size_t begin, size_t end, const std::string& key,
+                                  size_t& out_begin, size_t& out_end) -> bool
+    {
+        const size_t v = json_member_value(s, begin, end, key);
+        return v != std::string::npos && json_array_body_at(s, v, end, out_begin, out_end);
+    }
+
+    // The next object inside an array span, starting the search at `pos`; on success `pos` is
+    // moved past it. Anything that is not an object between elements (a string, a number, a
+    // nested array) is skipped whole.
+    inline auto json_next_object(const std::string& s, size_t& pos, size_t end, size_t& out_begin, size_t& out_end) -> bool
+    {
+        if (end > s.size())
+        {
+            end = s.size();
+        }
+        while (pos < end)
+        {
+            const char c = s[pos];
+            if (c == '{')
+            {
+                if (!json_body_at(s, pos, end, out_begin, out_end))
+                {
+                    return false;
+                }
+                pos = out_end + 1;
+                return true;
+            }
+            if (c == kJsonQuote)
+            {
+                const size_t close = json_skip_string(s, pos, end);
+                if (close == std::string::npos)
+                {
+                    return false;
+                }
+                pos = close + 1;
+                continue;
+            }
+            if (c == '[')
+            {
+                size_t b = 0, e = 0;
+                if (!json_array_body_at(s, pos, end, b, e))
+                {
+                    return false;
+                }
+                pos = e + 1;
+                continue;
+            }
+            ++pos;
+        }
+        return false;
+    }
+
+    // Every top-level string in an array span, decoded, at most `max`.
+    inline auto json_string_array(const std::string& s, size_t begin, size_t end, size_t max) -> std::vector<std::string>
+    {
+        std::vector<std::string> out;
+        if (end > s.size())
+        {
+            end = s.size();
+        }
+        size_t i = begin;
+        while (i < end && out.size() < max)
+        {
+            const char c = s[i];
+            if (c == kJsonQuote)
+            {
+                out.push_back(json_decode_string_at(s, i + 1));
+                const size_t close = json_skip_string(s, i, end);
+                if (close == std::string::npos)
+                {
+                    break;
+                }
+                i = close + 1;
+                continue;
+            }
+            if (c == '{' || c == '[')
+            {
+                size_t b = 0, e = 0;
+                const bool ok = c == '{' ? json_body_at(s, i, end, b, e) : json_array_body_at(s, i, end, b, e);
+                if (!ok)
+                {
+                    break;
+                }
+                i = e + 1;
+                continue;
+            }
+            ++i;
+        }
+        return out;
+    }
+
+    // Every top-level number in an array span, with json_number_member's rules (a digit or a
+    // minus-then-digit starts one; nothing else does); at most `max`, returns how many.
+    inline auto json_number_array(const std::string& s, size_t begin, size_t end, double* out, size_t max) -> size_t
+    {
+        size_t n = 0;
+        if (end > s.size())
+        {
+            end = s.size();
+        }
+        size_t i = begin;
+        while (i < end && n < max)
+        {
+            const char c = s[i];
+            size_t d = i;
+            if (c == '-')
+            {
+                ++d;
+            }
+            if (d < end && s[d] >= '0' && s[d] <= '9')
+            {
+                double v = 0.0;
+                if (std::sscanf(s.c_str() + i, "%lf", &v) == 1)
+                {
+                    out[n++] = v;
+                }
+                // Skip the number's characters.
+                while (d < end && (s[d] == '.' || s[d] == 'e' || s[d] == 'E' || s[d] == '+' || s[d] == '-' || (s[d] >= '0' && s[d] <= '9')))
+                {
+                    ++d;
+                }
+                i = d;
+                continue;
+            }
+            if (c == kJsonQuote)
+            {
+                const size_t close = json_skip_string(s, i, end);
+                if (close == std::string::npos)
+                {
+                    break;
+                }
+                i = close + 1;
+                continue;
+            }
+            if (c == '{' || c == '[')
+            {
+                size_t b = 0, e = 0;
+                const bool ok = c == '{' ? json_body_at(s, i, end, b, e) : json_array_body_at(s, i, end, b, e);
+                if (!ok)
+                {
+                    break;
+                }
+                i = e + 1;
+                continue;
+            }
+            ++i;
+        }
+        return n;
     }
 
     // Narrow a peer double to int, safely. Out of range REFUSES to the fallback rather than

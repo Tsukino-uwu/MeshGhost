@@ -3275,3 +3275,38 @@ value, 600 misses before the first answer refuse it): yaw -180..180 and pitch -8
 user's circle-and-look, 1,462 edges, 16 jump edges agreeing. Build `5d49667f4370` on both
 installs. Lesson filed by name here, not yet in `pitfalls/`: **on a game with its own camera actor
 the controller's rotation is not the camera; the camera manager's is, whatever drives it.**
+
+## 2026-09-08 (night) — the input history's ghost half: a replay ghost's inputs on the right
+
+Stage B of the approved plan (`phase11.md`, 2026-09-08 evening), built and tested the same night
+with the user in the game. The mod's hello carries `input_tracks`; `handle_bridge_line` gained a
+`remote_input` branch (scoped reads, `PeerJson.hpp` gained array readers -- `json_array_member`,
+`json_next_object`, `json_string_array`, `json_number_array`), a per-ghost `GhostInputTrack`
+buffer beside `remotes`, cleared by a `reset` line, a despawn or a parking; `render_remote`'s
+`state.timestamp` is read for the first time in this adapter (`RemoteGhost::target_ts`); the
+remotes loop applies every edge whose `at` the rendered state has reached and feeds the result to
+the ghost panel. The display code became `InputPanel`, one struct per source, two instances;
+`input_display_tick` runs both, the ghost's on `ghost_side` or the player's side when the
+player's is off, following the first replay ghost with a track and surviving a loop seam for 180
+frames. `ghost` and `ghost_side` are read from the config.
+
+**What happened, in order.** 21:59 build `9ccf372ecf8e`: the user's 21:50 recording staged in
+`active/` beside three older clips; the core logged the flag, the track (1,462 edges) and the
+stream; the mod logged the panel following the replay id and built on the right; the user's
+screenshot showed it filling beside the ghost. Then they deleted every recording (the core kept
+all four clips in memory; the restart key relaunches finished players from memory, so the
+deleted ones came back with it -- there is no stop key), so a fresh 22 s recording was made with
+the record hotkey sent from here (`SendKeys` reaches a system-wide hotkey whatever has focus),
+staged alone, and the game relaunched. First pass: the panel filled. A restart (sent from here)
+at 22:07: *"a small empty box"* on the right -- built, no rows. The core's relaunch-after-finish
+path was then pinned by `TestReplayRelaunchAfterFinishStreamsAgain` (green), so the fault was
+the mod's; a trace was added (`first edge applied` with both clocks, `waiting` every ~2 s with the
+head edge's distance from the render clock) and build `274c9ad8117a` deployed. Restart at 22:12
+and five scripted restarts 22:14-22:17 (the first scripted loop waited for a finish that had
+already happened -- restart FIRST, then wait): every pass applied its first edge ~2.7 s in with
+`at` 26-30 ms behind `target_ts`, the user: *"yee it working every time now"*. **The 22:07 empty
+box did not recur and has no cause on record**; kept in `UNVERIFIED.md` with the trace to read.
+
+**Owed:** the user's word that a row changes on the SAME frame the ghost visibly acts, and that the
+rows read as what they pressed. **Next:** D0 (the Lua census of press/release nodes per action)
+and D1 ("moves under its own power") before any drive code -- `ideas.md`, the INPUT plane entry.

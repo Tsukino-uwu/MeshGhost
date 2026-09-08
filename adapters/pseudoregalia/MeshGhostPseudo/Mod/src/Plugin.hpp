@@ -126,6 +126,10 @@ namespace MeshGhostPseudo
         unsigned nametag_tuning_gen{0};
         double target_x{}, target_y{}, target_z{};
         double target_pitch{}, target_yaw{}, target_roll{};
+        // The render-clock time of the newest rendered state (`state.timestamp` on
+        // render_remote), read since ADR 0057: a remote_input edge applies on the first render
+        // whose stamp reaches the edge's `at`. Nothing else in the adapter ever needed it.
+        double target_ts{0.0};
 
         // Facing-direction bisection, 2026-08-13: rotation reads correct immediately after
         // SpawnActor and immediately after Possess() (same tick as spawn), but garbage by the
@@ -1192,6 +1196,37 @@ namespace MeshGhostPseudo
         // all without breaking contract.md's invariant.
         std::unique_ptr<CoreLauncher> core_launcher;
         std::unordered_map<std::string, RemoteGhost> remotes;
+
+        // A replay ghost's streamed input track (remote_input, ADR 0057), keyed by player id and
+        // kept OUTSIDE `remotes` for the reason names are: a window can arrive before the ghost's
+        // first render. GAME THREAD ONLY -- written from handle_bridge_line inside the drain and
+        // read in the remotes loop, never from on_update. Cleared by a `reset` line, by
+        // despawn_remote and by a parking of every ghost; the pawn the edges were for is gone in
+        // all three.
+        struct GhostInputEdge
+        {
+            uint64_t f;
+            int64_t t;
+            uint32_t m;
+            double ax[8];
+            int ax_n;
+            double at; // render-clock ms, the core's `at`
+        };
+        struct GhostInputTrack
+        {
+            std::vector<std::string> labels;
+            std::vector<std::string> axes;
+            std::string source;
+            std::deque<GhostInputEdge> edges; // in order; applied from the front
+            uint32_t mask{0};                 // the state after the last applied edge
+            double ax[8]{};
+            bool have_state{false};
+            uint32_t dropped{0};              // edges refused by the cap since the last reset
+            bool drop_logged{false};
+            uint64_t applied_at_tick{0};      // the tick the last edge applied on (trace)
+        };
+        static constexpr size_t GHOST_INPUT_EDGE_CAP = 4096; // per ghost; a 500 ms window is a few hundred
+        std::unordered_map<std::string, GhostInputTrack> ghost_inputs;
 
         // A peer's chosen nametag, keyed by player id, kept OUTSIDE `remotes` on purpose.
         //

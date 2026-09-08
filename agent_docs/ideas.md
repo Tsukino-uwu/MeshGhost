@@ -2772,9 +2772,10 @@ already has in hand before it sends them -- and never needs the core to know wha
 config `input_display`). **BUILT 2026-09-08 (evening), the CORE half of the ghost side: ADR 0057**
 -- `remote_input`, the clip's track found by `recording_id` (or inside the clip's zip), streamed
 ahead on the render clock with `at` per edge, reset behind every seam, only to an adapter whose
-hello set `input_tracks`. **NEXT, the adapter half**: draw it with the same panel code, on
-`ghost_side`, taking the player's side when the player's display is off; and, the same stream,
-**the driven ghost** -- the plan the user approved 2026-09-08: a replay ghost possessed by its own
+hello set `input_tracks`. **BUILT the same night, the adapter half**: Pseudoregalia draws it on a
+second panel of the same code, on `ghost_side` (the player's side when the player's display is
+off), seen by the user across seven restarts (`pseudoregalia/UNVERIFIED.md`); the capture gained
+`cam_yaw`/`cam_pitch` from the camera manager. **NEXT, the same stream, the driven ghost** -- the plan the user approved 2026-09-08: a replay ghost possessed by its own
 AIController and fed the track through the pawn's own input events, its position corrected by the
 recorded state, dev-toggle first (`ghost_drive.txt`), then `replay.drive_ghost` shipped off; the
 capture gains `cam_yaw`/`cam_pitch` axes first, since the pawn's Move handler needs the camera
