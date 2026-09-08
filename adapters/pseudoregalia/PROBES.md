@@ -592,3 +592,20 @@ through `hud_indicator.txt`.
 - **What it did not judge:** the real recording state (its clock is seconds since load). The C++
   port (`REC_INDICATOR_SCREEN_SPACE`) reads the core's start stamp and pins the pair in the root
   set; `UNVERIFIED.md`.
+
+## `probe_inputnodes/` — which pawn input event is the PRESS and which the RELEASE (2026-09-08)
+
+D0 of the driven-ghost plan (ADR 0057; `agent_docs/ideas.md`, the INPUT plane entry). The drive
+will fire the pawn's own `InpActEvt_IA_*` nodes on a ghost the way `GHOST_CROUCH_INPUT_CALL`
+already fires crouch's `_16`/`_15`, and the census had listed 24 nodes without saying which of a
+pair is which. **No hooks** -- a Blueprint UFunction is never hooked and a Lua `RegisterHook` is a
+freeze suspect -- so the probe CALLS each node on a GHOST pawn (a replay ghost; the active clip is
+set to loop so one is always present) with a zero `ActionValue` and reads the pawn's own fields
+back: every BoolProperty on the chain by name, the census's scalars and vectors, the actor's Z.
+Two rounds per action, ascending then descending index, 3 s per call, a 600 ms per-frame window
+and a 2.5 s late read each. Skips Pause, MenuAdvance, QuickMap, PerspectiveToggle (UI, camera)
+and Interact (the world). Move (`_19`) is not called: its value cannot be passed from Lua.
+
+- **Runs from the scratch slot**, autonomous; the log is `input_nodes-<HHMMSS>.log` at the slot's
+  root. Nothing is asked of the person at the game beyond keeping the ghost on screen if they
+  want to see the calls land. **Unload afterwards** -- it fires input events on a pawn.

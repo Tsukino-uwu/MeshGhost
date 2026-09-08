@@ -3310,3 +3310,24 @@ box did not recur and has no cause on record**; kept in `UNVERIFIED.md` with the
 **Owed:** the user's word that a row changes on the SAME frame the ghost visibly acts, and that the
 rows read as what they pressed. **Next:** D0 (the Lua census of press/release nodes per action)
 and D1 ("moves under its own power") before any drive code -- `ideas.md`, the INPUT plane entry.
+
+## 2026-09-08 (late) — D0, the input-node census, and a probe that fired on the player
+
+`probes/probe_inputnodes/`: no hooks (a Blueprint UFunction is never hooked; a Lua hook is a
+freeze suspect), so each of the pawn's `InpActEvt_IA_*` nodes is CALLED on a ghost pawn and the
+pawn's own fields read back for 600 ms and at 2.5 s, two rounds, ascending then descending index.
+**Its first run chose the PLAYER's pawn** -- `p ~= player_pawn` on two UE4SS Lua wrappers of the
+same object is true, and so was `ctl ~= pc` -- and fired Jump `_20`, Jump `_21` and Crouch `_15`
+on the user's character before the stub was reloaded over it (~40 s). The user's read: *"I guess
+this is still useful, now we know it can send to the player for dev/testing, but we still have to
+figure out how to send it to a ghost"* -- right on both counts: the mechanism drives a pawn, and
+driving the player is dev tooling only, never an adapter (`CLAUDE.md`). Fixed: identity by
+`GetAddress()`/FName, the controller's class must contain `AIController`, and a per-tick refusal
+before any call. Second run on `BP_PlayerGoatMain_C_2147468810` steered by an AIController:
+Jump `_20`/`_21` and WallRide `_13`/`_14` are press/release by the pawn's own latches; Crouch is
+consistent with the shipped `_16`/`_15`; Attack, Power, Guard, LockOn, Look unreadable on a
+REPLAY ghost (the clip's mirror rewrites `moveState`/`actionState`/`animJumpType` every tick, the
+loop seam swapped the pawn at call 13, round two read nothing -- the ghost probably dormant past
+the far tier). Move not callable from Lua. Verdict and the next rig (D1's C++ dev toggle, mirror
+off, tick on) in `UNVERIFIED.md`. The old looping clip was cleared from `active/` and the user
+went to make a longer recording (*"this recording we had was hard to judge"*).

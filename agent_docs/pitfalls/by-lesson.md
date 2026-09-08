@@ -6681,3 +6681,13 @@ the engine made.
 where the fault was -- one log line reading the handle back on the tick it was built -- after the
 first guess (the root-set pin) had been removed and the symptom had not moved. Two guesses
 failing the same way is the signal; the third step was an instrument, not a third guess.
+
+## Two UE4SS Lua wrappers for ONE object are never `==` -- a "not the player" test written as `~=` passes for the player (Pseudoregalia, 2026-09-08)
+
+**Symptom.** A probe meant to fire input events on a ghost pawn logged `GHOST: BP_PlayerGoatMain_C_2147482216 (player pawn BP_PlayerGoatMain_C_2147482216)` -- the same object twice -- and fired three events on the user's own character.
+
+**Cause.** `FindAllOf` hands back a fresh userdata per object per call, and so does every property read; Lua's `==`/`~=` on two userdata compares the wrappers, not the UObject. `p ~= player_pawn` and `ctl ~= pc` were both true for the player's own pawn and controller.
+
+**Fix.** Identity is `GetAddress()` (or the FName, unique per live object): `same_object(a, b)` in `probes/probe_inputnodes/Scripts/main.lua`. Plus a positive test on what a ghost IS (its `Controller`'s class contains `AIController`) and a per-tick refusal before any call.
+
+**Check.** Any probe that acts on "the other one" proves identity by address or name, never by `~=`; and a probe that can act on a pawn logs the chosen pawn's name beside the player's BEFORE its first action, so the log convicts it instantly.
