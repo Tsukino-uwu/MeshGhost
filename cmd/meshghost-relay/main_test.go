@@ -290,8 +290,14 @@ func TestResolveQuicAddr(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if got != FallbackUDPAddr {
-			t.Fatalf("got %q, want %q -- udp takes the odd port when quic is served", got, FallbackUDPAddr)
+		// The PORT moves; the interface does not. This asserted FallbackUDPAddr
+		// until 2026-09-08, i.e. the loopback host -- which is what let
+		// resolveUDPAddr discard the operator's -addr entirely and bind udp
+		// somewhere no remote player could reach, while the startup banner told
+		// them to forward it.
+		want := "0.0.0.0:" + FallbackUDPPort
+		if got != want {
+			t.Fatalf("got %q, want %q -- udp takes the odd port when quic is served, on -addr's own interface", got, want)
 		}
 	})
 

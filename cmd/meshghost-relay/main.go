@@ -6,14 +6,18 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Tsukino-uwu/MeshGhost/internal/cfg"
@@ -169,7 +173,21 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) {
 // on the same machine). Neither would actually collide -- the bridge is TCP and
 // this is UDP, which are separate port spaces -- but a reader comparing two
 // config files should not have to know that to tell whether something is a typo.
-const FallbackUDPAddr = "127.0.0.1:7780"
+//
+// **Only the PORT relocates. The bind interface is always -addr's** -- see
+// relocatedUDPAddr. Every paragraph above justifies the port and none of them
+// ever addressed the host, and until 2026-09-08 this whole string was returned
+// wholesale: a host running `-addr 0.0.0.0:7777 -transport tcp,udp,quic` bound
+// udp on loopback, unreachable from anywhere but that machine, while the startup
+// banner told them to forward 7780 and the relay advertised udp:7780 to remote
+// clients who resolved it against the address they had dialled and failed.
+const FallbackUDPPort = "7780"
+
+// FallbackUDPAddr is what the relocation lands on for the DEFAULT -addr
+// (127.0.0.1:7777), which is what the -listen-udp help text quotes. It is an
+// example of the rule, not the rule: the rule is FallbackUDPPort on -addr's own
+// host, and a relay bound to 0.0.0.0 relocates udp to 0.0.0.0:7780.
+const FallbackUDPAddr = "127.0.0.1:" + FallbackUDPPort
 
 // sharesAddrPort is the default for both -listen-quic and -listen-udp: empty
 // means "use -addr's port". quic is carried over udp and tcp/udp are separate
@@ -253,9 +271,31 @@ func resolveUDPAddr(kinds []netx.Kind, addr, udpAddr string) (string, error) {
 		return udpAddr, nil
 	}
 	if servesKind(kinds, netx.QUIC) {
-		return FallbackUDPAddr, nil
+		return relocatedUDPAddr(addr), nil
 	}
 	return addr, nil
+}
+
+// relocatedUDPAddr moves udp off -addr's port and nowhere else: same bind
+// interface, FallbackUDPPort instead of the port. This is the shape
+// resolveQuicAddr next door has always had -- it returns addr, so it inherits
+// whatever interface the operator chose -- and the shape resolveUDPAddr lacked
+// until 2026-09-08, when it returned the whole of FallbackUDPAddr and threw the
+// operator's bind interface away with the port. A host who typed
+// `-addr 0.0.0.0:7777` got a udp listener nobody outside the machine could
+// reach, plus a startup banner telling them to forward a port that would never
+// carry anything.
+//
+// An -addr with no port at all (or otherwise unsplittable) keeps the old
+// constant. It is not a shape this binary can bind anyway -- netx.ListenWithTLS
+// gets the same string and fails -- so this is about not inventing a second
+// error path for input that is already about to be refused with its own message.
+func relocatedUDPAddr(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return FallbackUDPAddr
+	}
+	return net.JoinHostPort(host, FallbackUDPPort)
 }
 
 func main() {
@@ -318,9 +358,10 @@ func main() {
 			"needs -listen-quic's port forwarded too, not just -addr's")
 	udpAddr := flag.String("listen-udp", sharesAddrPort,
 		"where the plain udp transport listens. Empty (the default) means -addr's port -- except "+
-			"when quic is served too, where udp moves to "+FallbackUDPAddr+" so quic can keep the "+
-			"shared number. quic is a default transport and plain udp is opt-in, so udp is the one "+
-			"that takes the odd port. Ignored unless udp is in -transport")
+			"when quic is served too, where udp moves to port "+FallbackUDPPort+" on -addr's own "+
+			"interface (so a relay on 0.0.0.0:7777 serves udp on 0.0.0.0:"+FallbackUDPPort+") and "+
+			"quic keeps the shared number. quic is a default transport and plain udp is opt-in, so "+
+			"udp is the one that takes the odd port. Ignored unless udp is in -transport")
 	quicAddr := flag.String("listen-quic", sharesAddrPort,
 		"address to serve quic on. Empty (the default) means share -addr's port -- quic runs "+
 			"over udp and tcp/udp are separate port spaces, so tcp:7777 and quic:7777/udp "+
@@ -420,7 +461,7 @@ func main() {
 	// because Room.Forward sends through the transport.Transport interface.
 	type boundListener struct {
 		kind netx.Kind
-		ln   net.Listener
+		ln   *trackingListener
 	}
 	// One certificate for the whole process, generated once. Per-connection
 	// generation would be a free CPU lever for an unauthenticated stranger,
@@ -454,7 +495,11 @@ func main() {
 		if err != nil {
 			log.Fatalf("meshghost-relay: listen %s on %s: %v", k, bind, err)
 		}
-		listeners = append(listeners, boundListener{kind: k, ln: ln})
+		// Wrapped so Ctrl+C can reach the connections this listener handed
+		// out: closing a listener does NOT close them (quic-go's Listener.Close
+		// says so in as many words, and quic is the shipped default), and a
+		// client whose relay simply vanishes waits out its own idle timeout.
+		listeners = append(listeners, boundListener{kind: k, ln: trackConns(ln)})
 		label := k.String()
 		if k == netx.TCP && tlsChoice != tlsx.Off {
 			label = fmt.Sprintf("%s, tls %s", k, tlsChoice)
@@ -625,5 +670,208 @@ func main() {
 			serveErr <- fmt.Errorf("%s: %w", bl.kind, server.Serve(bl.ln))
 		}(bl)
 	}
-	log.Fatalf("meshghost-relay: serve: %v", <-serveErr)
+
+	// Ctrl+C, and what it used to do: nothing. Before 2026-09-08 this binary
+	// imported no os/signal at all and main() ended only via log.Fatalf, so an
+	// interrupt killed the process where it stood. On tcp the kernel at least
+	// sends a FIN as the sockets are reclaimed; on QUIC -- the SHIPPED DEFAULT
+	// transport -- the udp socket simply stops existing, nothing is sent, and
+	// every player's client sits there until its own idle timeout expires
+	// (~17s, agent_docs/contract.md) with its ghosts aged out at 3s. From the
+	// player's side the host "froze", and the log said the relay was fine right
+	// up to the last line.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-serveErr:
+		log.Fatalf("meshghost-relay: serve: %v", err)
+	case sig := <-stop:
+		// A SECOND Ctrl+C must kill immediately. Restoring the default handler
+		// before doing any work is what makes that true: a host whose shutdown
+		// is taking longer than they expected can always press it again, and
+		// the alternative -- an interrupt landing in a buffered channel nobody
+		// reads -- is a relay that appears to ignore Ctrl+C entirely.
+		signal.Reset(os.Interrupt, syscall.SIGTERM)
+		log.Printf("meshghost-relay: %v -- shutting down", sig)
+		lns := make([]*trackingListener, 0, len(listeners))
+		for _, bl := range listeners {
+			lns = append(lns, bl.ln)
+		}
+		n := shutdown(lns, shutdownDrain)
+		log.Printf("meshghost-relay: closed %d listener(s) and %d client connection(s) -- goodbye",
+			len(lns), n)
+	}
 }
+
+// shutdownDrain is how long shutdown keeps the process alive after telling the
+// clients to go, before the sockets are reclaimed by exit.
+//
+// One second, and it is not a round trip being waited for -- nothing is
+// expected back. It is the time a goodbye needs to LEAVE: a quic connection's
+// CONNECTION_CLOSE is sent 250ms after its stream is closed (netx/quicconn's
+// closeLinger, which exists because a goodbye written and then hard-closed went
+// missing on quic on 2026-08-17), and exiting inside that window would put the
+// relay right back to saying nothing at all. Far under the 3s a ghost is aged
+// out at, so a host restarting a relay never costs a player a visible despawn
+// they would not have had anyway.
+const shutdownDrain = time.Second
+
+// shutdown stops accepting and then tells every connected client to go, in that
+// order, and returns how many connections it spoke to.
+//
+// The order matters: closing the listeners first means a client that reconnects
+// during the drain is refused by the OS rather than admitted into a room that is
+// about to disappear. Closing the CONNECTIONS is the part that cannot be left
+// out -- see trackingListener -- and it is done the way the relay already closes
+// a client it wants to say something to (transport.CloseGracefully): half-close
+// where the connection can, which puts a FIN behind whatever was last written,
+// and a plain Close where it cannot, which for quic is a stream FIN followed by
+// CONNECTION_CLOSE. Either way the client learns in one round trip instead of
+// waiting out an idle timeout.
+func shutdown(lns []*trackingListener, drain time.Duration) int {
+	for _, ln := range lns {
+		if err := ln.Close(); err != nil {
+			log.Printf("meshghost-relay: closing a listener: %v", err)
+		}
+	}
+	n := 0
+	for _, ln := range lns {
+		n += ln.closeClients()
+	}
+	if n > 0 && drain > 0 {
+		time.Sleep(drain)
+	}
+	return n
+}
+
+// trackingListener remembers the connections a listener has handed out, so that
+// shutdown can reach them.
+//
+// It exists because closing a listener does not close them. quic-go's
+// Listener.Close documents it outright ("Already established (accepted)
+// connections will be unaffected"), and quic is what a default relay and a
+// default client negotiate -- so the transport almost every real session uses is
+// exactly the one where closing the listeners tells nobody anything.
+// netx/udpconn's own Listener.Close does close its conns; tcp's does not.
+type trackingListener struct {
+	net.Listener
+	mu    sync.Mutex
+	conns map[net.Conn]struct{}
+}
+
+func trackConns(ln net.Listener) *trackingListener {
+	return &trackingListener{Listener: ln, conns: map[net.Conn]struct{}{}}
+}
+
+func (t *trackingListener) Accept() (net.Conn, error) {
+	c, err := t.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	t.conns[c] = struct{}{}
+	t.mu.Unlock()
+	// The wrapper's ONLY job is to forget the connection when it closes, so the
+	// map cannot grow for the life of a long-running relay. Everything else it
+	// does is forwarding, and that is the dangerous part: a wrapper embedding
+	// net.Conn as an INTERFACE hides any method net.Conn does not declare, and
+	// this repo has been bitten by that three times (2026-09-05, 2026-09-06,
+	// 2026-09-07 -- netx/limit.go's limitedConn carries the story). The three
+	// optional methods this codebase type-asserts for are forwarded below;
+	// WriteUnreliable gets a separate type so it stays ABSENT on a connection
+	// that genuinely has no datagram plane, since transport.SendUnreliable
+	// decides by asking whether the method is there.
+	tc := &trackedConn{Conn: c, owner: t, key: c}
+	if uw, ok := c.(unreliableWriter); ok {
+		return &trackedLossyConn{trackedConn: tc, uw: uw}, nil
+	}
+	return tc, nil
+}
+
+func (t *trackingListener) forget(c net.Conn) {
+	t.mu.Lock()
+	delete(t.conns, c)
+	t.mu.Unlock()
+}
+
+// closeClients half-closes (or closes) every connection still open on this
+// listener and returns how many there were.
+//
+// SNAPSHOT UNDER THE LOCK, CLOSE OUTSIDE IT, for the reason netx/udpconn's
+// Listener.Close spells out at length: closing a connection calls back into
+// forget, which wants this same mutex, and holding it across the close is a
+// lock-ordering deadlock -- a relay that never finishes shutting down, which is
+// a worse failure than the one this whole function exists to fix.
+func (t *trackingListener) closeClients() int {
+	t.mu.Lock()
+	open := make([]net.Conn, 0, len(t.conns))
+	for c := range t.conns {
+		open = append(open, c)
+	}
+	t.conns = map[net.Conn]struct{}{}
+	t.mu.Unlock()
+	for _, c := range open {
+		if cw, ok := c.(interface{ CloseWrite() error }); ok {
+			if err := cw.CloseWrite(); err == nil {
+				continue
+			}
+		}
+		_ = c.Close()
+	}
+	return len(open)
+}
+
+// unreliableWriter is the datagram plane as transport discovers it: by type
+// assertion on the net.Conn. Declared here for the same reason netx declares
+// its own copy -- it is an optional method, not an exported interface.
+type unreliableWriter interface {
+	WriteUnreliable(p []byte) (int, error)
+}
+
+type trackedConn struct {
+	net.Conn
+	owner *trackingListener
+	key   net.Conn // the raw connection, which is what owner's map is keyed by
+	once  sync.Once
+}
+
+func (c *trackedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(func() { c.owner.forget(c.key) })
+	return err
+}
+
+// CloseWrite and TransportName forward for the reason netx/limit.go documents:
+// transport.CloseGracefully asserts for CloseWrite and silently degrades to a
+// RESET without it (losing the reject the relay just wrote), and relay's
+// per-client log line asserts for TransportName and calls everything "tcp"
+// without it -- in the very line a remote tester is asked to send back.
+func (c *trackedConn) CloseWrite() error {
+	cw, ok := c.Conn.(interface{ CloseWrite() error })
+	if !ok {
+		return errors.New("meshghost-relay: the underlying connection cannot half-close")
+	}
+	return cw.CloseWrite()
+}
+
+func (c *trackedConn) TransportName() string {
+	tn, ok := c.Conn.(interface{ TransportName() string })
+	if !ok {
+		return "tcp"
+	}
+	return tn.TransportName()
+}
+
+// trackedLossyConn is trackedConn for a connection that also has the datagram
+// plane (quic, udp). Separate type rather than a method on trackedConn so that
+// the method is missing exactly when the underlying connection lacks it: the
+// 2026-09-02 incident behind netx/limit.go's limitedLossyConn was every quic
+// state silently riding the ordered stream because a wrapper answered the type
+// assertion the transport uses to find the datagram path.
+type trackedLossyConn struct {
+	*trackedConn
+	uw unreliableWriter
+}
+
+func (c *trackedLossyConn) WriteUnreliable(p []byte) (int, error) { return c.uw.WriteUnreliable(p) }
