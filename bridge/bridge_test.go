@@ -2,6 +2,10 @@ package bridge
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -20,25 +24,46 @@ import (
 // reason: the core decodes whatever an adapter sends, and an adapter is a script
 // a user edits.
 
+// wireNames is every bridge message type, with the literal each of the four
+// hand-written adapters matches on, written out rather than derived from the
+// constants. A test that says TypeHello == TypeHello proves nothing; these are
+// the strings the other three languages have hardcoded.
+//
+// ALL of them, since 2026-09-08. Until then this map held 8 of the 18, and the
+// ten it omitted were not the obscure ones: Pseudoregalia's Plugin.cpp compares
+// against "remote_name" and "recording_state" and emits a raw
+// {"type":"player_frozen",...} line it composes by hand, so a rename of any of
+// those compiled cleanly, passed every Go test, and stopped a shipped adapter.
+// The mechanical backstop that would have caught it -- preflight.ps1's
+// bridge-coverage gate -- runs from docs.yml, whose trigger is **.md, so the
+// .go push that did the renaming fired ci.yml and never ran the gate.
+var wireNames = map[MessageType]string{
+	TypeHello:          "hello",
+	TypeLocalState:     "local_state",
+	TypeRenderRemote:   "render_remote",
+	TypeDespawnRemote:  "despawn_remote",
+	TypeRemoteName:     "remote_name",
+	TypeBridgeReady:    "bridge_ready",
+	TypeReject:         "reject",
+	TypeReplayControl:  "replay_control",
+	TypePlayerFrozen:   "player_frozen",
+	TypeSessionPolicy:  "session_policy",
+	TypeRecordingState: "recording_state",
+	TypeEvent:          "event",
+	TypeLease:          "lease",
+	TypeLeaseState:     "lease_state",
+	TypeEscrow:         "escrow",
+	TypeEscrowState:    "escrow_state",
+	TypeWorld:          "world",
+	TypeWorldState:     "world_state",
+}
+
 // TestEnvelopeRoundTripsEveryMessageType is the one that would catch a renamed
 // JSON tag. Every adapter matches on these exact strings -- the Lua ones do a
 // literal string compare against "render_remote" -- so a Go-side rename compiles
 // cleanly, passes every other test, and silently stops four games rendering.
 func TestEnvelopeRoundTripsEveryMessageType(t *testing.T) {
-	// The wire names, written out rather than derived from the constants. A test
-	// that says TypeHello == TypeHello proves nothing; these are the literals the
-	// other three languages have hardcoded.
-	want := map[MessageType]string{
-		TypeHello:         "hello",
-		TypeLocalState:    "local_state",
-		TypeRenderRemote:  "render_remote",
-		TypeDespawnRemote: "despawn_remote",
-		TypeBridgeReady:   "bridge_ready",
-		TypeReject:        "reject",
-		TypeSessionPolicy: "session_policy",
-		TypeReplayControl: "replay_control",
-	}
-	for typ, literal := range want {
+	for typ, literal := range wireNames {
 		if string(typ) != literal {
 			t.Errorf("message type is %q, but adapters match on the literal %q", typ, literal)
 		}
@@ -58,6 +83,111 @@ func TestEnvelopeRoundTripsEveryMessageType(t *testing.T) {
 			t.Errorf("round trip changed type: %q -> %q", typ, back.Type)
 		}
 	}
+}
+
+// TestEveryBridgeMessageTypeValueIsFrozen closes the hole the map above cannot
+// close on its own: a map of 8 entries and a map of 18 look identical from
+// inside a test that only iterates it, which is exactly how the list fell ten
+// behind between 2026-08-25 and 2026-09-08. Iterating the pinned names can
+// never notice a name that was never pinned.
+//
+// WHY IT PARSES THE SOURCE. Go constants do not survive into the running
+// program as a set: they are folded into their use sites at compile time, and
+// reflect offers no way to enumerate a package's constants (there is no
+// runtime object to enumerate). The declaration list exists in exactly one
+// place a test can reach -- bridge.go itself -- so this reads it with go/ast
+// and compares the declared MessageType constants against wireNames in BOTH
+// directions. Adding a TypeSomethingNew constant therefore fails this test
+// until it is pinned above, which is the property the review asked for; the
+// same walk is what internal/gameblind already does to enforce its own rules,
+// so the technique is not new to this repo.
+//
+// The go test working directory is the package directory, so "bridge.go" is
+// the file this test's own package is compiled from -- there is no path
+// configuration to drift.
+func TestEveryBridgeMessageTypeValueIsFrozen(t *testing.T) {
+	declared := parseMessageTypeConstants(t, "bridge.go")
+	if len(declared) == 0 {
+		t.Fatal("parsed no MessageType constants out of bridge.go -- the parse, not the contract, is what broke")
+	}
+	for name, value := range declared {
+		literal, ok := wireNames[MessageType(value)]
+		if !ok {
+			t.Errorf("bridge.%s = %q is not pinned in wireNames -- add it there (and add a sample to "+
+				"internal/gameblind's bridgeSamples), so a later rename of it cannot pass this suite", name, value)
+			continue
+		}
+		if literal != value {
+			t.Errorf("bridge.%s declares %q but is pinned as %q", name, value, literal)
+		}
+	}
+	byValue := make(map[string]string, len(declared))
+	for name, value := range declared {
+		byValue[value] = name
+	}
+	for typ := range wireNames {
+		if _, ok := byValue[string(typ)]; !ok {
+			t.Errorf("wireNames pins %q but no MessageType constant in bridge.go declares it -- "+
+				"was the constant renamed or removed? Four adapters still match on that literal", typ)
+		}
+	}
+}
+
+// parseMessageTypeConstants returns every constant of type MessageType
+// declared in the named file, as constant name -> string value. It follows
+// Go's own rule that a spec with neither a type nor a value repeats the
+// previous one, so a future iota-style block is read the same way the compiler
+// reads it rather than silently skipped.
+func parseMessageTypeConstants(t *testing.T, filename string) map[string]string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", filename, err)
+	}
+	out := map[string]string{}
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		lastType := ""
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			switch typ := vs.Type.(type) {
+			case *ast.Ident:
+				lastType = typ.Name
+			default:
+				if len(vs.Values) > 0 {
+					lastType = ""
+				}
+			}
+			if lastType != "MessageType" {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i >= len(vs.Values) {
+					t.Errorf("const %s has no literal value this test can read", name.Name)
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					t.Errorf("const %s is not a plain string literal, so it cannot be pinned by value", name.Name)
+					continue
+				}
+				value, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Errorf("const %s: unquoting %s: %v", name.Name, lit.Value, err)
+					continue
+				}
+				out[name.Name] = value
+			}
+		}
+	}
+	return out
 }
 
 // TestHelloDefaultsAreTheCosmeticShippedOnes pins what an adapter that declares

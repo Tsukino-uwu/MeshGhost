@@ -341,6 +341,30 @@ var frozenBridgeFields = map[string][]string{
 	"ReplayControl": {"action", "seconds"},
 	"Reject":        {"reason"},
 	"LocalState":    {"state"},
+	// bridge_ready (2026-08-16) carries nothing at all, and the empty list is the point: it
+	// answers one question -- may I use you -- and every other answer worth having is either
+	// the adapter's own input or none of its business. A field appearing here would be the
+	// core telling an adapter something about the session at attach time, which is what
+	// session_policy and recording_state are for.
+	"BridgeReady": {},
+	// remote_name (2026-08-28) is the nametag handover, frozen here from 2026-09-08 -- it was
+	// missing from bridgeSamples until then, so its field list was never pinned at all. It
+	// qualifies the same way protocol.Nametag beside it does: a label over a character is
+	// something every game that can draw a ghost can draw, and the core treats both halves as
+	// opaque -- sanitized for SAFETY, never read for meaning, never branched on.
+	"RemoteName": {"color", "display_name", "player_id"},
+	// recording_state (ADR 0048) is core -> adapter and says nothing about any game: a bool
+	// and a wall-clock stamp for a recording the CORE owns, so a player can see that F9 did
+	// something without reading a hidden console. Frozen from 2026-09-08 for the same reason
+	// remote_name is.
+	"RecordingState": {"recording", "started_unix_ms"},
+	// player_frozen (ADR 0053) is adapter -> core and is the closest call in this file, so it
+	// is worth stating plainly: the bool means "the game is holding the player still and this
+	// is not gameplay", which every game has some form of -- a modal, a popup, a pause -- and
+	// the core learns nothing about WHICH from it. Its one consumer is the chaser clock. What
+	// would breach the rule is a reason string naming the game's own state; there is none.
+	// Frozen from 2026-09-08.
+	"PlayerFrozen": {"frozen"},
 	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
 	// above, and are the cleanest case of it in the list: the two orientation blobs are the
 	// SAME opaque bytes `orientation` already is, carried verbatim, and interp_t is a fraction
@@ -392,7 +416,9 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"WorldState": bridge.WorldState{}, "SessionPolicy": bridge.SessionPolicy{},
 		"Reject": bridge.Reject{}, "LocalState": bridge.LocalState{},
 		"RenderRemote": bridge.RenderRemote{}, "DespawnRemote": bridge.DespawnRemote{},
-		"ReplayControl": bridge.ReplayControl{},
+		"ReplayControl": bridge.ReplayControl{}, "BridgeReady": bridge.BridgeReady{},
+		"RemoteName": bridge.RemoteName{}, "RecordingState": bridge.RecordingState{},
+		"PlayerFrozen": bridge.PlayerFrozen{},
 	}
 
 	compare := func(which string, samples map[string]any, frozen map[string][]string) {
@@ -421,6 +447,54 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 
 	compare("protocol", protocolSamples, frozenProtocolFields)
 	compare("bridge", bridgeSamples, frozenBridgeFields)
+}
+
+// TestEveryBridgeMessageStructIsSampled closes the hole TestWireFieldsAreFrozen has always had.
+// That test compares samples against frozen lists in both directions, so it catches a field
+// added to a SAMPLED message and a frozen entry whose sample disappeared -- but a message type
+// that was never sampled at all is invisible to it, because nothing in either map mentions it.
+// That is not hypothetical: bridge.RemoteName, bridge.RecordingState, bridge.PlayerFrozen and
+// bridge.BridgeReady were all missing here from the day they were written until 2026-09-08, so
+// their field lists were free to grow a game-shaped field with the whole suite green. Adding a
+// message and forgetting to sample it is the easiest possible mistake, and it disabled the
+// check precisely for the newest message -- the one most likely to be contract creep.
+//
+// It reads bridge/bridge.go with go/ast rather than reflect for the same reason
+// TestEveryBridgeMessageTypeValueIsFrozen in the bridge package does: a Go package exposes no
+// list of its own declared types at runtime, so the declaration list has to come from the
+// source. Every exported struct type in that file is a bridge message by construction -- it is
+// a single file of wire shapes -- so "declared and exported" is the right test for "must be
+// frozen here".
+func TestEveryBridgeMessageStructIsSampled(t *testing.T) {
+	path := filepath.Join(repoRoot(t), "bridge", "bridge.go")
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	declared := 0
+	ast.Inspect(f, func(n ast.Node) bool {
+		ts, ok := n.(*ast.TypeSpec)
+		if !ok {
+			return true
+		}
+		if _, isStruct := ts.Type.(*ast.StructType); !isStruct {
+			return true
+		}
+		if !ts.Name.IsExported() {
+			return true
+		}
+		declared++
+		if _, ok := frozenBridgeFields[ts.Name.Name]; !ok {
+			t.Errorf("bridge.%s is an exported bridge message with no entry in frozenBridgeFields "+
+				"-- add it to frozenBridgeFields AND to bridgeSamples in TestWireFieldsAreFrozen, "+
+				"and read the burden of proof above frozenProtocolFields before you do", ts.Name.Name)
+		}
+		return true
+	})
+	if declared == 0 {
+		t.Fatalf("found no exported struct types in %s -- the parse, not the contract, is what broke", path)
+	}
 }
 
 // THE THREE STAY THREE.
