@@ -323,7 +323,7 @@ func (s *Server) resumeInto(nd transport.Transport, transportName string, r *Roo
 	// The resumed Client is brand new, so its cached area starts empty while
 	// the room still remembers this player's real one. See seedLastAreaLocked.
 	r.seedLastAreaLocked(resumed)
-	r.members[sess.playerID] = resumed
+	r.putMemberLocked(resumed)
 	roster := make([]string, 0, len(r.members))
 	var rosterNames map[string]protocol.Nametag
 	for id, m := range r.members {
@@ -461,7 +461,15 @@ func (r *Room) resumeSnapshot(to string) {
 	defer r.sendMu.Unlock()
 
 	r.mu.Lock()
-	outs := r.escrowSnapshotLocked(to)
+	// FIRST, ahead of even the escrow records, because a missed event is the
+	// only thing here that no later message and no relay state can restate: the
+	// relay keeps the escrow, the world, the leases and every peer's last state
+	// and can therefore re-derive all four at any moment, while an event exists
+	// only in flight. What this pushes off the tail of a 192-line snapshot is
+	// state seeds, the most droppable line in it -- the peer's next sample
+	// overwrites a dropped seed within ~50ms. See missedEventsLocked.
+	outs := r.missedEventsLocked(to)
+	outs = append(outs, r.escrowSnapshotLocked(to)...)
 	// A resuming client that is NOT the host has missed every lossy world write
 	// sent while it was away, and nothing else will ever resend them — a lossy
 	// write is superseded by the next one, not retried.

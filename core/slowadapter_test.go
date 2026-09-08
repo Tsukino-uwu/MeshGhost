@@ -216,6 +216,13 @@ func TestBridgeWritersDoNotOutliveTheirConnections(t *testing.T) {
 // count in stats (2026-09-07). One line each way is the whole point -- a line
 // per superseded render would be tens of thousands a second at 512 ghosts and
 // the logging would become the bottleneck it is reporting on.
+//
+// ONLY THE FIRST HALF IS HERE. With no run() goroutine this reaches the
+// behind=true transition and never the recovery, which is decided in run() and
+// so had no coverage at all until 2026-09-08: see
+// TestTheWriterReportsTheAdapterCaughtUpAgain in
+// core/weakspot_adapterqueue_test.go, which drives a real writer against an
+// adapter that stops reading on demand.
 func TestTheSlowAdapterIsReportedOnceEachWay(t *testing.T) {
 	// The struct directly, with NO writer goroutine: this exercises the
 	// enqueue side alone, which is where coalescing, the counter and the

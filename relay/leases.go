@@ -62,7 +62,7 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 			}, asker); ok {
 				outs = append(outs, o)
 			}
-		case l == nil && len(r.leases) >= protocol.MaxLeasesPerRoom:
+		case l == nil && r.leaseTableFullLocked(from):
 			// A resource bound, not a policy: without it a client can grow
 			// the relay's lease table without limit by claiming a fresh key
 			// per message. Denied like any other refusal.
@@ -108,6 +108,50 @@ func (r *Room) handleLease(from string, req protocol.Lease) {
 	r.deliver(outs)
 }
 
+// maxLeasesPerMember bounds how many keys ONE member may hold at once, and it
+// is derived from the room cap rather than chosen: eight members' cooperation
+// to fill the table, exactly the ratio protocol.MaxLiveEscrowsPerMember has to
+// protocol.MaxEscrowsPerRoom.
+//
+// Added 2026-09-08. Escrow was given a per-member bound in the 2026-09-02
+// adversarial review and leases were not, though the abuse is the same one and
+// worse here: a re-claim by the current holder is a RENEW, so a held key never
+// lapses, and one member claiming protocol.MaxLeasesPerRoom keys and renewing
+// them answered every other member's lease.claim with LeaseTooMany for as long
+// as it kept renewing. In a world.v1 room nobody else could write to the world
+// at all, since a write is only accepted from the holder of the lease it names.
+// docs/security.md carried it as an accepted risk with this fix shape named.
+const maxLeasesPerMember = protocol.MaxLeasesPerRoom / 8
+
+// leaseTableFullLocked is the claim-time bound: the room's whole table, and
+// this claimant's own share of it. Only a claim for a NEW key consults it -- a
+// renew, and a re-claim by the current holder, take no new slot and must never
+// be refused, or a member at its own cap would lose the keys it already holds
+// to its own retries. Caller holds r.mu.
+func (r *Room) leaseTableFullLocked(claimant string) bool {
+	return len(r.leases) >= protocol.MaxLeasesPerRoom ||
+		r.leasesBy[claimant] >= maxLeasesPerMember
+}
+
+// heldLeaseLocked and releasedLeaseLocked keep r.leasesBy in step with
+// r.leases. Both transitions live here rather than at their call sites because
+// a count that drifts one way silently locks a member out of a table with room
+// in it, and the other way un-bounds the cap entirely. Caller holds r.mu.
+func (r *Room) heldLeaseLocked(holder string) {
+	if r.leasesBy == nil {
+		r.leasesBy = make(map[string]int)
+	}
+	r.leasesBy[holder]++
+}
+
+func (r *Room) releasedLeaseLocked(holder string) {
+	if n := r.leasesBy[holder] - 1; n > 0 {
+		r.leasesBy[holder] = n
+	} else {
+		delete(r.leasesBy, holder)
+	}
+}
+
 // grantLeaseLocked gives key to holder for ttl, (re)arming its expiry timer,
 // and returns the broadcast announcing it — followed, when the holder actually
 // CHANGED and this room has world.v1, by the world that holder now inherits.
@@ -133,8 +177,17 @@ func (r *Room) grantLeaseLocked(key, holder string, ttl time.Duration, to []stri
 	if l == nil {
 		l = &lease{}
 		r.leases[key] = l
+		r.heldLeaseLocked(holder)
 	} else {
 		previousHolder = l.holder
+		// A handover in place: no caller does this today (handleLease only
+		// reaches here for a free key or the current holder's own renew), but
+		// the count has to survive one arriving, since a miscount here is a
+		// lockout nobody can clear without restarting the relay.
+		if previousHolder != holder {
+			r.releasedLeaseLocked(previousHolder)
+			r.heldLeaseLocked(holder)
+		}
 	}
 	if l.timer != nil {
 		l.timer.Stop()
@@ -181,6 +234,7 @@ func (r *Room) freeLeaseLocked(key, reason string, to []string) []outgoing {
 		l.timer.Stop()
 	}
 	delete(r.leases, key)
+	r.releasedLeaseLocked(l.holder)
 	if o, ok := out(protocol.TypeLeaseState, protocol.LeaseState{
 		Key: key, Seq: r.nextSeq(), Reason: reason,
 	}, to); ok {

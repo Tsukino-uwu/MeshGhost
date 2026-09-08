@@ -186,9 +186,77 @@ func (r *Room) handleEvent(from string, ev protocol.Event) {
 			}
 		}
 	}
+	// Anyone in that recipient list whose connection is currently down gets the
+	// event held for its resume instead of dropped -- see queueMissedEventLocked.
+	for _, id := range to {
+		if c, ok := r.members[id]; ok && c.suspended {
+			r.queueMissedEventLocked(id, ev)
+		}
+	}
 	r.mu.Unlock()
 
 	if o, ok := out(protocol.TypeEvent, ev, to); ok {
 		r.deliver([]outgoing{o})
 	}
+}
+
+// maxMissedEventsPerMember bounds one suspended member's event backlog.
+//
+// 64 is a quarter of maxSnapshotLines (resume.go, 192), which is the budget the
+// whole resume snapshot shares: a backlog that could fill it would push the
+// escrow, world and lease lines off the end and break, to save the event plane,
+// three planes that were not broken. At the event flood cap the grace window
+// (protocol.DefaultResumeGrace, 20s) can carry far more than 64 events, so this
+// is a ceiling on the guarantee and not a promise it always holds -- which is
+// the honest shape available without a per-client ack the protocol does not
+// have. Overflow drops the OLDEST and is logged once per room, so an operator
+// sees the one case where a returning client is still told less than everything.
+const maxMissedEventsPerMember = 64
+
+// queueMissedEventLocked holds one stamped event for a member whose connection
+// is down, to be replayed by resumeSnapshot. Caller holds r.mu, and (like every
+// other event path) sendMu, so the backlog is in the sequencer's own order.
+//
+// Held for SUSPENDED members only. A member with a live connection was written
+// to; a member that has really left has had its backlog dropped with its
+// identity (Room.remove), so this map can only grow while a resumable session
+// is waiting, and only to maxMissedEventsPerMember per waiting member.
+func (r *Room) queueMissedEventLocked(id string, ev protocol.Event) {
+	if r.missedEvents == nil {
+		r.missedEvents = make(map[string][]protocol.Event)
+	}
+	q := r.missedEvents[id]
+	if len(q) >= maxMissedEventsPerMember {
+		// Oldest first: the newer half of a trade conversation is the half the
+		// returning client still needs in order to answer.
+		q = append(q[:0], q[1:]...)
+		r.missedEventsDroppedOnce.Do(func() {
+			log.Printf("relay: room %q: %s missed more than %d events while it was away "+
+				"-- the oldest are being dropped, so its replay on resume will be incomplete",
+				r.Name, id, maxMissedEventsPerMember)
+		})
+	}
+	r.missedEvents[id] = append(q, ev)
+}
+
+// missedEventsLocked takes the backlog held for a returning member, as
+// outgoings addressed to it alone, and clears it. Caller holds r.mu.
+//
+// The events carry the Seq they were stamped with when they were first sent, not
+// a fresh one: they ARE those events, and re-stamping them would place a peer's
+// action after things that really happened later. That is the whole point of a
+// total order the relay owns.
+func (r *Room) missedEventsLocked(to string) []outgoing {
+	q := r.missedEvents[to]
+	if len(q) == 0 {
+		return nil
+	}
+	delete(r.missedEvents, to)
+	outs := make([]outgoing, 0, len(q))
+	for _, ev := range q {
+		if o, ok := out(protocol.TypeEvent, ev, []string{to}); ok {
+			outs = append(outs, o)
+		}
+	}
+	return outs
 }

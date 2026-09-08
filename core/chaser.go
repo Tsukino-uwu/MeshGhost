@@ -382,10 +382,37 @@ func (c *Core) StopChasers() {
 	for _, ch := range pack {
 		ch.halt()
 	}
+	// ONE second for the WHOLE PACK, not one per chaser (2026-09-08). This
+	// used to be a fresh time.After per member, so the total wait was the
+	// count times a second -- and the count has been uncapped since
+	// 2026-09-06. The starved pack is exactly the pack that misses its joins
+	// (an adapter that cannot keep up is what starves these goroutines), and
+	// StopChasers runs on the bridge's hello goroutine, so the wait sat
+	// directly across the attach path: a relaunched game that had already been
+	// told bridge_ready hung there with no error, and finishBridgeTeardown
+	// stalled behind it too.
+	//
+	// A shared budget rather than no budget: a goroutine that is about to
+	// finish is still joined, and once the second is spent the rest are
+	// checked without blocking -- one that has already closed done is joined
+	// at zero cost, and one that has not is left to exit on its own, which it
+	// does the moment it next reads ch.stop. Its ghost is gone either way,
+	// because dropLocalPeer below is unconditional.
+	budget := time.NewTimer(time.Second) // wall-clock: a shutdown join -- virtual would turn a leak into a hang
+	defer budget.Stop()
+	spent := false
 	for _, ch := range pack {
-		select {
-		case <-ch.done:
-		case <-time.After(time.Second): // wall-clock: a shutdown join -- virtual would turn a leak into a hang
+		if spent {
+			select {
+			case <-ch.done:
+			default:
+			}
+		} else {
+			select {
+			case <-ch.done:
+			case <-budget.C:
+				spent = true
+			}
 		}
 		c.dropLocalPeer(ch.id)
 	}

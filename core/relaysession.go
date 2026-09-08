@@ -248,6 +248,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 		timeout = DefaultDialTimeout
 	}
 
+	if fn := beforeHandshakeSelectHook.Load(); fn != nil {
+		(*fn)()
+	}
+
 	select {
 	case w := <-welcome:
 		// THE FLOOR, CLIENT SIDE. The relay checks the client's version in the
@@ -311,6 +315,28 @@ func (c *Core) ConnectRelay(gameID string) error {
 		c.clearRelayIfCurrent(conn)
 		return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
 	case <-gone:
+		// A REJECT THAT ALREADY ARRIVED BEATS THE DROP. The relay writes the
+		// Reject and closes immediately after (relay.go's rejectAndClose), so
+		// the buffered reject channel and the closed gone channel are routinely
+		// ready in the same instant -- and a select with two ready cases picks
+		// uniformly at random, so roughly half of all refusals took this branch.
+		// The caller then got a plain transport error instead of a *RejectError,
+		// IsPermanentRejectErr never saw it, and a wrong room code was redialled
+		// every 15 s for the life of the process with the log saying only
+		// "dropped before the welcome arrived" -- never the actual reason the
+		// player needed in order to fix it (2026-09-08 review).
+		//
+		// A reject is strictly more information than a drop: the drop says the
+		// socket is gone, the reject says WHY, so when both are true the reject
+		// is the answer. Code and Retryable ride along unchanged; they are what
+		// callers branch on.
+		select {
+		case r := <-reject:
+			_ = conn.Close()
+			c.clearRelayIfCurrent(conn)
+			return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
+		default:
+		}
 		// Deliberately the same shape as the timeout below -- an error, not a
 		// retry from in here. Whoever asked for this connection decides what
 		// to do about it, and both callers already know how: cmd/meshghost's
@@ -406,10 +432,28 @@ func (c *Core) forgetRelaySessionLocked() {
 	c.activeFeatures = nil
 	c.resumed = false
 	c.clock = clockSync{}
-	// Reset with the clock it derives from: a new connection may have a
-	// completely different offset, and carrying the old ceiling across would
-	// freeze the new one until real time caught up.
-	c.lastNowMs = 0
+	// c.lastNowMs IS DELIBERATELY NOT CLEARED HERE. It was, until 2026-09-08,
+	// on the reasoning that a ceiling belongs to the connection whose offset
+	// produced it -- and that reasoning traded a freeze for a REWIND, which
+	// online.go's nowMsLocked spends a page explaining must never happen:
+	// remoteBuffer.add requires non-decreasing timestamps and does not re-sort,
+	// and a render time that went backwards can flip an opaque field back to a
+	// previous value, manufacturing a state edge the core is forbidden to
+	// interpret and an adapter may act on.
+	//
+	// Concretely, in a clock.v1 room whose offset was +5 s: at the instant the
+	// relay drops, the offset goes to zero with the clock above and the emitted
+	// now falls by five seconds. recordLocal then stamps five seconds in the
+	// past, the chaser is fed nothing it considers new for five wall seconds,
+	// every chaser sees a gap past replayGapSeamMs, and the whole pack
+	// despawns and respawns on the player -- the same on-screen signature as
+	// the 2026-09-05 queue-hole bug.
+	//
+	// Keeping the ceiling costs the clamp's documented behaviour instead: the
+	// emitted clock holds still until real time catches up, bounded by the
+	// dropped offset. A held clock is sortable and rewinds nothing; a step back
+	// is neither. The OFFSET is still reset above, so a new relay's clock is
+	// never inherited -- only the floor under what we already told the room.
 	c.pendingPings = nil
 	// Roster is per-connection: player_ids are only meaningful within the
 	// connection that assigned them. Welcome used to be the de facto reset (it
@@ -678,6 +722,23 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 // The load costs an atomic read on a path that is already dialling a socket.
 var beforeArmingAutoRetryHook atomic.Pointer[func()]
 
+// beforeHandshakeSelectHook, if set, runs immediately before ConnectRelay's
+// handshake select, and exists for exactly one test.
+//
+// The window it opens is real and cannot be aimed at from outside: a relay
+// refusal is written and the socket closed in the same breath, so the buffered
+// reject channel and the closed gone channel are routinely both ready when the
+// select runs -- and Go then picks between them at random. Reproducing THAT
+// ordering, rather than the far commoner one where the reject is handed
+// straight to an already-parked select, means holding the connecting goroutine
+// back until both are ready. Nothing else in this package can do that.
+//
+// Atomic for the same reason beforeArmingAutoRetryHook is: reconnect
+// goroutines outlive the test that set it, so a plain variable is a data race
+// the -race job would fail on. The cost in a real session is one atomic load
+// per connect, on a path that has just dialled a socket.
+var beforeHandshakeSelectHook atomic.Pointer[func()]
+
 // runBeforeArmingAutoRetryHook loads and runs the hook if one is set.
 func runBeforeArmingAutoRetryHook() {
 	if fn := beforeArmingAutoRetryHook.Load(); fn != nil {
@@ -925,20 +986,39 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 	case protocol.TypeReject:
 		var r protocol.Reject
 		if err := json.Unmarshal(env.Payload, &r); err == nil {
+			// WHICH REJECT THIS IS gets decided by the handshake's state, not
+			// by whether a channel send happens to block. Until 2026-09-08 the
+			// send below was tried first and the logging lived in its default
+			// branch -- but reject is buffered (cap 1) and the relay closes
+			// right after a reject, so there is only ever one: the send ALWAYS
+			// succeeded and the default branch was dead code. A mid-session
+			// refusal (ReasonRateLimited on an already-joined connection) went
+			// into a channel nobody reads again after the handshake returned,
+			// and the player saw only "core: relay disconnected: EOF" with no
+			// hint that they had been rate-limited or why.
+			//
+			// playerID is set only by our own Welcome and cleared both on
+			// disconnect and when a new connection takes the slot over
+			// (forgetRelaySessionLocked), so a non-empty one means this Core
+			// finished a handshake and nothing is waiting on reject.
+			c.mu.Lock()
+			joined := c.playerID != ""
+			c.mu.Unlock()
+			if joined {
+				// Code as well as Reason: Reason is the sentence for a human,
+				// Code is the stable name anything reading this log
+				// programmatically can match on (protocol.go's Reject).
+				log.Printf("core: relay closed this connection: %s (code %q)", r.Reason, r.Code)
+				break
+			}
 			select {
 			case reject <- r:
 			default:
-				// No handshake select is waiting on this channel — this is a
-				// Reject arriving after the handshake (the relay closing an
-				// already-joined connection, e.g. ReasonRateLimited). Without
-				// logging it here the reason is lost entirely and the user
-				// sees only a bare "relay disconnected" from OnDisconnect.
-				c.mu.Lock()
-				connected := c.playerID != ""
-				c.mu.Unlock()
-				if connected {
-					log.Printf("core: relay closed this connection: %s", r.Reason)
-				}
+				// A second refusal on one handshake. The relay does not send
+				// one today, but dropping it silently is how the first one got
+				// lost, so it goes to the log rather than nowhere.
+				log.Printf("core: relay refused this connection again before it was read: %s (code %q)",
+					r.Reason, r.Code)
 			}
 		}
 	case protocol.TypeJoin:

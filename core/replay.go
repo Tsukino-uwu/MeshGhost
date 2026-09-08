@@ -861,11 +861,35 @@ func (c *Core) StopReplays() {
 	for _, p := range players {
 		p.halt()
 	}
+	// ONE second for every player here put together, not one each
+	// (2026-09-08) -- the same fix, and the same reasoning, as StopChasers.
+	// A fresh time.After per player made the total wait the count times a
+	// second on the bridge's hello goroutine, and the players that miss their
+	// joins are the starved ones, i.e. all of them at once. What the player
+	// saw was a relaunched game hanging on attach with no error after it had
+	// already been told bridge_ready.
+	//
+	// The budget is shared, not removed: a player about to finish is still
+	// joined, and after the second is spent the rest are checked without
+	// blocking, so one that has already closed done is still joined. Whoever
+	// is left exits on its own at its next read of the stop channel, and its
+	// ghost is gone regardless -- dropLocalPeer below is unconditional.
+	budget := time.NewTimer(time.Second) // wall-clock: a shutdown join -- virtual would turn a leak into a hang
+	defer budget.Stop()
+	spent := false
 	for _, p := range players {
 		if p.running() {
-			select {
-			case <-p.done:
-			case <-time.After(time.Second): // wall-clock: a shutdown join -- virtual would turn a leak into a hang
+			if spent {
+				select {
+				case <-p.done:
+				default:
+				}
+			} else {
+				select {
+				case <-p.done:
+				case <-budget.C:
+					spent = true
+				}
 			}
 		}
 		c.dropLocalPeer(p.id)

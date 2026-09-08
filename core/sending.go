@@ -296,9 +296,11 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	// still not fit: measured 2026-09-07 at 4167 bytes for a maximal-but-legal
 	// state (area_id 256B, anim 256B, orientation 256B, extras 1024B, 8 position
 	// components) carrying a prev that differs in every field, against
-	// protocol.MaxLineBytes of 4096. ValidateState returns true for it, and its
-	// three call sites are all on RECEIVE, so until 2026-09-08 nothing on this
-	// side looked.
+	// protocol.MaxPayloadBytes (4095, one under MaxLineBytes -- the receiving
+	// scanner counts the delimiter against its own buffer, so a payload of
+	// exactly 4096 is refused; see that constant). ValidateState returns true for
+	// such a state, and its three call sites are all on RECEIVE, so until
+	// 2026-09-08 nothing on this side looked.
 	//
 	// What that cost: the relay's read loop turns an over-long line into
 	// bufio.ErrTooLong, which ends the loop and drops the connection WITHOUT a
@@ -318,25 +320,25 @@ func (c *Core) sendState(relay transport.Transport, st protocol.State) {
 	// state is the last resort, and it is still better than sending it: an
 	// oversized line does not deliver this frame either, and takes the session
 	// down with it.
-	if len(env) > protocol.MaxLineBytes && st.Prev != nil {
+	if len(env) > protocol.MaxPayloadBytes && st.Prev != nil {
 		full := len(env)
 		st.Prev = nil // st is this function's own copy; attachPrev's record is unaffected
 		if p, err := json.Marshal(st); err == nil {
 			env = protocol.AppendEnvelope(nil, protocol.TypeState, p)
 		}
-		if len(env) <= protocol.MaxLineBytes {
+		if len(env) <= protocol.MaxPayloadBytes {
 			noteOversizedState(&oversizedPrevDropped, "core: state was %d bytes with its loss-cover "+
 				"prev attached, over the %d-byte line limit -- sent it without the prev (%d bytes). "+
 				"Redundancy is off for this frame only; nothing else changes.",
-				full, protocol.MaxLineBytes, len(env))
+				full, protocol.MaxPayloadBytes, len(env))
 		}
 	}
-	if len(env) > protocol.MaxLineBytes {
+	if len(env) > protocol.MaxPayloadBytes {
 		noteOversizedState(&oversizedDropped, "core: NOT sending a %d-byte state -- the line limit is "+
 			"%d bytes and the relay drops the whole connection on an over-long line rather than "+
 			"rejecting the message. Something in this frame's area_id/anim/orientation/extras is "+
 			"near its own maximum; shrink it in the adapter.",
-			len(env), protocol.MaxLineBytes)
+			len(env), protocol.MaxPayloadBytes)
 		return
 	}
 	// SendUnreliable, not Send: this is the state plane, which

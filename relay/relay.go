@@ -103,6 +103,19 @@ type Room struct {
 
 	mu      sync.Mutex
 	members map[string]*Client
+	// memberCount is len(members), maintained under mu by putMemberLocked and
+	// deleteMemberLocked and readable WITHOUT mu.
+	//
+	// It exists for dropIfEmpty, which runs under Server.mu and used to call
+	// r.size() there -- establishing an s.mu-then-r.mu lock order, which is
+	// exactly the order introspect.go's Snapshot goes out of its way not to
+	// create so that a future r.mu-then-s.mu path stays a compile-time-free
+	// choice rather than a deadlock. The invariant was stated in one file and
+	// contradicted in another; an atomic read costs nothing and makes the
+	// stated one true. Nothing else may read this instead of len(members) under
+	// mu: it is a lock-free count, and only dropIfEmpty's Server.mu-held check
+	// (see there) makes a lock-free read safe to act on. 2026-09-08.
+	memberCount atomic.Int64
 
 	// Everything below is guarded by mu, and exists only for rooms whose
 	// feature set actually asked for it — see online.go.
@@ -114,6 +127,17 @@ type Room struct {
 	seqCounter uint64
 	// leases maps an opaque key to its current holder. nil until first use.
 	leases map[string]*lease
+	// leasesBy is how many keys each member currently holds, so
+	// leaseTableFullLocked can bound one member without scanning the table.
+	// Maintained in leases.go at the only two transitions that move it, a
+	// grant and a free -- the same shape escrowsLiveBy uses, and added on
+	// 2026-09-08 for the same reason: until then only the room-wide cap
+	// existed, so one member could hold all protocol.MaxLeasesPerRoom keys and
+	// renew them indefinitely (a re-claim by the holder is a renew), and every
+	// other member's claim was answered LeaseTooMany for as long as it cared
+	// to. In a world.v1 room that is a write lockout, since a world write is
+	// only accepted from the holder of the lease it names.
+	leasesBy map[string]int
 	// escrows maps an opaque exchange id to its record, including terminal
 	// ones inside their retention window. nil until first use, and bounded as
 	// a whole by maxEscrowRecordsPerRoom (escrow.go) -- the retained terminal
@@ -125,6 +149,20 @@ type Room struct {
 	// at the two transitions that move them.
 	escrowsLive   int
 	escrowsLiveBy map[string]int
+	// missedEvents is the reliable event backlog for a SUSPENDED member: the
+	// stamped events it would have received while its connection was down,
+	// replayed by resumeSnapshot when it comes back. nil until a room actually
+	// has a suspended member with events addressed to it, so a cosmetic room
+	// allocates nothing.
+	//
+	// It exists because the event plane is specified reliable and ordered
+	// (agent_docs/contract.md), while forwardLine skips a suspended member
+	// outright and resumeSnapshot replayed state, leases, escrows and world but
+	// not events -- so two peers mid-trade over event.v1, one blipping inside
+	// the 20s grace, and the returning client was told nothing had happened. It
+	// could not even notice: events are addressed, so a peer never sees a gap
+	// in seq. Closed 2026-09-08; bounded by maxMissedEventsPerMember.
+	missedEvents map[string][]protocol.Event
 	// lastState is each member's most recent valid state, for seeding a
 	// late joiner via Join.State. Recorded for EVERY room: the snapshot.v1
 	// gate that survives is on whether to SEND a seed, which is the receiving
@@ -193,7 +231,12 @@ type Room struct {
 	worldWithoutLeaseOnce sync.Once
 	worldLossyCreateOnce  sync.Once
 	snapshotTruncatedOnce sync.Once
-	worldUnknownOpOnce    sync.Once
+	// missedEventsDroppedOnce: a suspended member's event backlog overflowed
+	// maxMissedEventsPerMember and the oldest are being dropped, so its replay
+	// on resume is incomplete. Once per room, same reasoning as the line above:
+	// the condition repeats per event in exactly the room already under load.
+	missedEventsDroppedOnce sync.Once
+	worldUnknownOpOnce      sync.Once
 }
 
 // Client is one connected relay peer.
@@ -527,6 +570,25 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 	}
 }
 
+// putMemberLocked and deleteMemberLocked are the only two writers of
+// r.members, so r.memberCount cannot drift from it. A replacement (resume swaps
+// a fresh Client onto an existing id) moves neither the map's size nor the
+// count, which is why the existence check is here and not at the call sites.
+// Caller holds r.mu.
+func (r *Room) putMemberLocked(c *Client) {
+	if _, existed := r.members[c.PlayerID]; !existed {
+		r.memberCount.Add(1)
+	}
+	r.members[c.PlayerID] = c
+}
+
+func (r *Room) deleteMemberLocked(id string) {
+	if _, existed := r.members[id]; existed {
+		r.memberCount.Add(-1)
+	}
+	delete(r.members, id)
+}
+
 // tryAdd adds c to the room. Test-only: production joins go through
 // tryAddAndSnapshotRoster below, which combines the add with a roster
 // snapshot under one critical section (see its own doc comment for why
@@ -535,7 +597,7 @@ func (r *Room) forwardLine(payload []byte, to []string, unreliable bool) {
 func (r *Room) tryAdd(c *Client) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.members[c.PlayerID] = c
+	r.putMemberLocked(c)
 }
 
 // maxPendingBeforeWelcome bounds Client.pending. The window it covers is
@@ -545,7 +607,7 @@ func (r *Room) tryAdd(c *Client) {
 const maxPendingBeforeWelcome = 64
 
 // boundWelcomeRoster trims the roster (and the nametags that go with it) until the
-// Welcome's MARSHALLED envelope fits protocol.MaxLineBytes, and returns the members it
+// Welcome's MARSHALLED envelope fits protocol.MaxPayloadBytes, and returns the members it
 // could not carry -- which the caller hands over as ordinary Joins (see the
 // bounded-Welcome comment at the send site).
 //
@@ -559,7 +621,10 @@ const maxPendingBeforeWelcome = 64
 // not ~60, and the 2026-09-01 incident reopened at a fifth of the player count it was
 // fixed at: measured 2026-09-07 against the shipped Welcome, one with maximal escaped
 // names is 3927 B at 20 members, 4115 B at 21 and 6183 B at the old cap of 32, against
-// MaxLineBytes 4096. Past that the JOINING core's scanner dies with "token too long" --
+// MaxPayloadBytes 4095 -- one under MaxLineBytes, because the receiving scanner counts
+// the delimiter against its own buffer, so a line of exactly 4096 is refused (that
+// constant has the measurement). Past it the JOINING core's scanner dies with
+// "token too long" --
 // the exact failure the cap was written to prevent, and relayfix_test.go reproduces it.
 //
 // Bounding on the serialized size cannot be wrong for a reason nobody predicted: it asks
@@ -581,7 +646,7 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 		}
 		return out
 	}
-	if welcomeLineBytes(withPrefix(len(roster))) <= protocol.MaxLineBytes {
+	if welcomeLineBytes(withPrefix(len(roster))) <= protocol.MaxPayloadBytes {
 		return withPrefix(len(roster)), nil
 	}
 	// Largest prefix that fits. lo always fits (or is 0, which is sent anyway --
@@ -590,7 +655,7 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 	lo, hi := 0, len(roster)
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
-		if welcomeLineBytes(withPrefix(mid)) <= protocol.MaxLineBytes {
+		if welcomeLineBytes(withPrefix(mid)) <= protocol.MaxPayloadBytes {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -606,11 +671,11 @@ func boundWelcomeRoster(w protocol.Welcome, roster []string, names map[string]pr
 func welcomeLineBytes(w protocol.Welcome) int {
 	env, err := envelope(protocol.TypeWelcome, w)
 	if err != nil {
-		return protocol.MaxLineBytes + 1
+		return protocol.MaxPayloadBytes + 1
 	}
 	b, err := json.Marshal(env)
 	if err != nil {
-		return protocol.MaxLineBytes + 1
+		return protocol.MaxPayloadBytes + 1
 	}
 	return len(b)
 }
@@ -708,7 +773,7 @@ func (r *Room) tryAddAndSnapshotRoster(c *Client) (rosterBeforeJoin []string, na
 		}
 	}
 	r.seedLastAreaLocked(c)
-	r.members[c.PlayerID] = c
+	r.putMemberLocked(c)
 	return rosterBeforeJoin, namesBeforeJoin
 }
 
@@ -766,7 +831,10 @@ func (r *Room) remove(playerID string) {
 		// relay/leak_test.go exists to catch.
 		gone.out.close()
 	}
-	delete(r.members, playerID)
+	r.deleteMemberLocked(playerID)
+	// The event backlog goes with the identity: this is a real departure, not a
+	// suspension, so there is nobody left to replay it to.
+	delete(r.missedEvents, playerID)
 	remaining := make([]*Client, 0, len(r.members))
 	for _, c := range r.members {
 		remaining = append(remaining, c)
@@ -1298,7 +1366,17 @@ func (s *Server) dropIfEmpty(r *Room) {
 	defer s.mu.Unlock()
 	// joining > 0 means a client has been handed this room and is about to add
 	// itself; sweeping now would strand it somewhere unreachable.
-	if r.size() == 0 && r.joining == 0 {
+	//
+	// r.memberCount rather than r.size(): size() takes r.mu, and taking it here
+	// would nest r.mu under s.mu -- the lock order introspect.go's Snapshot
+	// deliberately does not create, and which this function quietly created
+	// anyway until 2026-09-08. The lock-free read is safe HERE and only here,
+	// because joining is guarded by s.mu: with s.mu held and joining == 0, no
+	// join is in flight (finishJoin decrements only after its member is in the
+	// map), so the count cannot rise under us. It can only fall, and a room
+	// that empties a moment after this check is swept by that leave's own
+	// dropIfEmpty.
+	if r.memberCount.Load() == 0 && r.joining == 0 {
 		// Keyed by r.key, not r.Name: two games can hold a room of the same
 		// name, and deleting by name would evict the wrong one.
 		if cur, ok := s.rooms[r.key]; ok && cur == r {

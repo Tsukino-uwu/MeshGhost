@@ -185,7 +185,41 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 	stale := c.remoteStaleAfter()
 	cutoff := c.nowMsLocked() - stale.Milliseconds()
 	for id, buf := range c.remotes {
-		if stale > 0 && buf.newestTimestamp() < cutoff {
+		// THE ID, NOT A c.localPeers LOOKUP -- the same rule cosmetic is built
+		// from, for the same reason (localpeer.go). Membership is dropped and
+		// re-admitted at every seam, so a tick landing inside that window would
+		// move this ghost's render time by the whole difference and teleport it,
+		// once per lap. A relay peer whose id happened to carry the prefix
+		// already renders cosmetic=true today; it now also edge-holds, which
+		// escalates to nothing (no send path, no solidity).
+		local := isLocalPeerID(id)
+		// A LOCAL PEER IS EXEMPT FROM THE AGE-OUT (2026-09-08). Everything the
+		// block below explains is about a peer on the far side of a network
+		// that gives no goodbye. A ghost this core invented has no far side:
+		// its buffer is fed by a goroutine in this process and is dropped
+		// explicitly -- on a seam, on halt, by StopChasers/StopReplays -- all
+		// through dropLocalPeer, which takes the roster seat and the nametag
+		// with it. There is nothing here for a timeout to cover.
+		//
+		// Applying it anyway broke exactly what ADR 0053 was written to fix.
+		// The chaser sleeps on the GAMEPLAY clock, which stands still while the
+		// adapter reports the player frozen, so during a pause no sample ever
+		// falls due and the buffer stops being fed -- while the adapter keeps
+		// sending frames, so render ticks keep running and this wall-clock
+		// cutoff keeps advancing. What the player saw: sit in a pause menu for
+		// longer than RemoteStaleAfter (3s by default) and the whole pack
+		// blinks out, then pops back on the first frame after the resume.
+		// Worse, the chaser goroutine still believed it was admitted, so it
+		// re-fed through feedLocalPeer without re-running admitLocalPeer, and
+		// the ghosts that popped back had lost their nametags.
+		//
+		// The equivalent safety net for a local peer already exists on the
+		// clock that belongs to it: a live gap longer than replayGapSeamMs
+		// makes the chaser drop and re-spawn itself (chaser.go), and a replay
+		// player owns its own clip's end. An adapter that stops sending frames
+		// altogether stops driving render ticks too, so nothing is drawn in the
+		// meantime either way.
+		if stale > 0 && !local && buf.newestTimestamp() < cutoff {
 			// Dropped from the map, not merely skipped: keeping it would hold
 			// its snapshots forever and let it spring back to life.
 			delete(c.remotes, id)
@@ -212,14 +246,6 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 		var st protocol.State
 		var br orientBracket
 		var ok bool
-		// THE ID, NOT A c.localPeers LOOKUP -- the same rule cosmetic is built
-		// from, for the same reason (localpeer.go). Membership is dropped and
-		// re-admitted at every seam, so a tick landing inside that window would
-		// move this ghost's render time by the whole difference and teleport it,
-		// once per lap. A relay peer whose id happened to carry the prefix
-		// already renders cosmetic=true today; it now also edge-holds, which
-		// escalates to nothing (no send path, no solidity).
-		local := isLocalPeerID(id)
 		renderTime := netRenderTime
 		// Extrapolation is for a peer whose next sample has not ARRIVED yet.
 		// A replay's future is on disk and a chaser's is already recorded, so

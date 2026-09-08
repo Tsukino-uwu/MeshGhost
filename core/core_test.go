@@ -123,7 +123,7 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 		conn:       conn,
 		rendered:   make(map[string]protocol.State),
 		renderMsgs: make(map[string]bridge.RenderRemote),
-		despawns:   make(chan string, 16),
+		despawns:   make(chan string, 1024),
 		ready:      make(chan struct{}, 4),
 		rejects:    make(chan string, 4),
 		policies:   make(chan bridge.SessionPolicy, 8),
@@ -160,7 +160,16 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			fa.mu.Lock()
 			delete(fa.rendered, dr.PlayerID)
 			fa.mu.Unlock()
-			fa.despawns <- dr.PlayerID
+			// Non-blocking, like every sibling channel in this callback. A blocking
+			// send here stalls the bridge READ LOOP once the buffer fills, which
+			// grows the core queue until the stuck-adapter verdict tears the session
+			// down -- while the test's remaining assertions still pass. StopChasers
+			// drops one peer per chaser, and chaser_test.go stops packs of 99 and
+			// 512, so this is reachable today rather than theoretical (2026-09-08).
+			select {
+			case fa.despawns <- dr.PlayerID:
+			default:
+			}
 		case bridge.TypeRemoteName:
 			var rn bridge.RemoteName
 			if err := json.Unmarshal(env.Payload, &rn); err != nil {
@@ -1141,7 +1150,7 @@ type inProcessAdapter struct {
 func newInProcessAdapter() *inProcessAdapter {
 	return &inProcessAdapter{
 		rendered: make(map[string]protocol.State),
-		despawns: make(chan string, 16),
+		despawns: make(chan string, 1024),
 	}
 }
 
@@ -1159,7 +1168,13 @@ func (a *inProcessAdapter) DespawnRemote(playerID string) {
 	a.mu.Lock()
 	delete(a.rendered, playerID)
 	a.mu.Unlock()
-	a.despawns <- playerID
+	// Same reason as the other double in this file (2026-09-08): a blocking
+	// send stalls whatever goroutine delivers the despawn once the buffer
+	// fills, and StopChasers drops one peer per chaser.
+	select {
+	case a.despawns <- playerID:
+	default:
+	}
 }
 
 func (a *inProcessAdapter) rendersOf(playerID string) (protocol.State, bool) {

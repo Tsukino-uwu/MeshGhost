@@ -52,8 +52,54 @@ var (
 	// that the adapter is stuck rather than behind.
 	errBridgeGone = errors.New("the adapter's bridge connection is gone")
 	// errBridgeMarshal is a bug in this process, never a peer's doing.
+	//
+	// IT IS PER-MESSAGE AND THE CONNECTION IS FINE. Until 2026-09-08
+	// onAdapterFrame discriminated neither error and ran the dead-socket
+	// teardown for both, so one un-marshalable payload sent the relay a
+	// Goodbye, stopped the chasers, the replays and the recording, and logged
+	// "the adapter's socket is dead" about a socket that was never touched --
+	// pointing the next debugger at the transport while the defect was in a
+	// value this process built. The reachable trigger is a non-finite float
+	// (encoding/json refuses NaN and +-Inf) in a state's extras or position.
+	// See onAdapterFrame for what happens instead.
 	errBridgeMarshal = errors.New("bridge payload failed to marshal")
 )
+
+// logBridgeBugOnce prints a line the first time a given bug is seen in this
+// process and never again.
+//
+// A marshal failure is now survivable (errBridgeMarshal above), and survivable
+// means it can repeat: a peer whose extras carry a NaN fails to marshal on
+// EVERY render tick, which at Pseudoregalia's ~180Hz is 180 identical lines a
+// second for the rest of the session. One line names the defect; the rest are
+// the log becoming the problem. Keyed, so a second distinct bug still speaks.
+// The key space is closed -- one per bridge message type per side of the
+// envelope, plus the frame path's own -- so this map cannot grow with traffic.
+var bridgeBugSeen sync.Map
+
+func logBridgeBugOnce(key, format string, args ...any) {
+	if _, seen := bridgeBugSeen.LoadOrStore(key, struct{}{}); seen {
+		return
+	}
+	log.Printf(format, args...)
+}
+
+// closedAdapterWriter is a writer that is finished before it starts: no
+// goroutine, nothing queued, and an enqueue that reports false. writerFor hands
+// one back rather than registering a real writer for a connection whose socket
+// has already gone -- see the note there for the map that grew without bound.
+//
+// It is returned rather than a nil pointer because writerFor's callers, tests
+// included, dereference the result (idle(), stats(), forgetPending): a nil
+// would turn a bounded leak into a panic on the frame path.
+func closedAdapterWriter(nd transport.Transport) *adapterWriter {
+	return &adapterWriter{
+		nd:      nd,
+		pending: make(map[string]int),
+		wake:    make(chan struct{}, 1),
+		closed:  true,
+	}
+}
 
 // adapterQueueCap bounds the queue in ENTRIES. Renders coalesce, so the
 // render side is already bounded by the peer count (at most
@@ -378,12 +424,12 @@ func (w *adapterWriter) stats() (dropped, stalls uint64) {
 func marshalBridge(t bridge.MessageType, payload any) ([]byte, bool) {
 	b, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("core: BUG: %s payload failed to marshal: %v", t, err)
+		logBridgeBugOnce(string(t)+":payload", "core: BUG: %s payload failed to marshal: %v -- that message is dropped and the bridge connection is left alone; further %s marshal failures are silent", t, err, t)
 		return nil, false
 	}
 	env, err := json.Marshal(bridge.Envelope{Type: t, Payload: b})
 	if err != nil {
-		log.Printf("core: BUG: %s envelope failed to marshal: %v", t, err)
+		logBridgeBugOnce(string(t)+":envelope", "core: BUG: %s envelope failed to marshal: %v -- that message is dropped and the bridge connection is left alone; further %s marshal failures are silent", t, err, t)
 		return nil, false
 	}
 	return env, true

@@ -210,16 +210,38 @@ func TestRelayDropForgetsEverythingThatConnectionTaughtUs(t *testing.T) {
 		}
 	}
 
-	// lastNowMs gets its own assertion rather than a row in the table above,
-	// because "cleared" is not observable: nowMs() re-stamps it every time it is
-	// called, and the heartbeat keeps calling it. What must not survive is the
-	// inflated CEILING -- the clamp holds the clock still until real time
-	// catches up, so a stale ceiling from a relay whose clock ran ahead would
-	// freeze every outgoing timestamp on the next connection until it did.
-	if after.lastNowMs >= before.lastNowMs {
-		t.Errorf("lastNowMs still sits at the old connection's ceiling (%d, was %d) -- the next "+
-			"session's timestamps would be frozen until real time caught up",
-			after.lastNowMs, before.lastNowMs)
+	// lastNowMs MUST SURVIVE THE DROP, and this assertion was the inverse until
+	// 2026-09-08. Both directions are genuinely bad, which is why the reasoning
+	// is written out rather than just the rule:
+	//
+	//   - CLEARING it (what this used to assert) lets nowMs step BACKWARDS by
+	//     the dropped offset, because forgetRelaySessionLocked also clears
+	//     activeFeatures and clockAdjustLocked returns 0 without clock.v1. A
+	//     backwards clock is not a cosmetic problem: interp.go's remoteBuffer.add
+	//     states that callers must add snapshots in non-decreasing Timestamp
+	//     order and that it does not re-sort, so every peer's buffer goes
+	//     unsorted; and recordLocal stamps the past, so a +5s room feeds the
+	//     chaser pack nothing for five seconds, every chaser sees a gap past
+	//     replayGapSeamMs, and the whole pack despawns and respawns on the
+	//     player -- the same visible signature as the 2026-09-05 queue-hole bug.
+	//   - KEEPING it (what this now asserts) means the clamp holds the emitted
+	//     clock still until real time catches up: in that same +5s room,
+	//     outgoing timestamps freeze for up to five seconds after the drop.
+	//     That is a real cost and it is NOT nothing -- chasers and replays read
+	//     the same clock, so they stall with it.
+	//
+	// Keeping it is the lesser of the two: a freeze is bounded by the offset and
+	// self-heals, while an unsorted buffer is a corruption that persists. The
+	// fix that avoids BOTH is to re-anchor the clock at the drop (carry the
+	// offset forward as a baseline so the emitted value is continuous rather
+	// than either rewound or frozen), which needs a new persistent term in
+	// nowMsLocked -- the root every timestamp, render time and playback due-time
+	// comes from. Recorded as the known residual rather than attempted in the
+	// same pass; see REVIEW-FINDINGS.md E9.
+	if after.lastNowMs < before.lastNowMs {
+		t.Errorf("lastNowMs went BACKWARDS across the relay drop (%d, was %d) -- the emitted clock "+
+			"rewinds by the dropped offset, which leaves every peer's interpolation buffer unsorted "+
+			"and despawns the chaser pack", after.lastNowMs, before.lastNowMs)
 	}
 
 	// The two deliberate exceptions.

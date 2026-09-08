@@ -8,6 +8,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"time"
@@ -483,21 +484,60 @@ func (c *Core) onAdapterFrame(msg bridge.LocalState, nd transport.Transport, ren
 	// same cleanup OnDisconnect would run happens now, so the reconnect finds
 	// the slot free. bridgeConnGone is idempotent; the read loop's own call
 	// afterwards is a no-op.
-	var sendErr error
+	//
+	// TWO ERRORS, TWO MEANINGS -- and until 2026-09-08 this told them apart in
+	// neither the handling nor the log. sendToAdapter returns errBridgeGone
+	// when the connection is finished, and errBridgeMarshal when a payload
+	// THIS PROCESS BUILT could not be turned into JSON. Both ran the teardown
+	// above and both printed "the adapter's socket is dead", so a single
+	// un-marshalable value -- a NaN in one peer's extras is the reachable case,
+	// since encoding/json refuses non-finite floats -- sent the relay a
+	// Goodbye, stopped the chasers, the replays and the recording, and reported
+	// a healthy socket as dead. The next person to read that log goes looking
+	// at the transport.
+	//
+	// A MARSHAL FAILURE DROPS THAT ONE MESSAGE AND NOTHING ELSE. It is
+	// per-message by construction (marshalBridge runs per payload) and it is a
+	// defect in this process, so there is nothing for a teardown to repair and
+	// no reason to cost the player their session for it: the bad peer loses one
+	// frame, everyone else in the same tick still renders, and the frame after
+	// this one tries again. Only errBridgeGone still latches and stops the
+	// tick, which is the case the latch was written for -- 352 further failed
+	// sends and 352 log lines after the first one, 2026-09-06.
+	var goneErr error
+	marshalBugs := 0
+	note := func(err error) {
+		switch {
+		case err == nil:
+		case errors.Is(err, errBridgeMarshal):
+			marshalBugs++
+		case goneErr == nil:
+			goneErr = err
+		}
+	}
 	c.tickRenders(rendered,
 		func(id string, st protocol.State, br orientBracket) {
-			if sendErr == nil {
-				sendErr = c.sendRenderRemote(nd, id, st, br)
+			if goneErr == nil {
+				note(c.sendRenderRemote(nd, id, st, br))
 			}
 		},
 		func(id string) {
-			if sendErr == nil {
-				sendErr = c.sendDespawnRemote(nd, id)
+			if goneErr == nil {
+				note(c.sendDespawnRemote(nd, id))
 			}
 		},
 	)
-	if sendErr != nil {
-		log.Printf("core: the adapter's socket is dead (%v) -- detaching now so a reconnect is accepted", sendErr)
+	if marshalBugs > 0 {
+		// Once per process, not once per frame: the trigger repeats on every
+		// tick for as long as that peer keeps sending the value, and at ~180Hz
+		// the logging would be the next defect. marshalBridge's own line, also
+		// once, names the message type.
+		logBridgeBugOnce("adapter-frame-marshal",
+			"core: BUG: %d message(s) in this adapter frame could not be marshalled -- dropped them and KEPT the session, "+
+				"because a payload this process built is a defect here, not a dead socket (repeats are silent)", marshalBugs)
+	}
+	if goneErr != nil {
+		log.Printf("core: the adapter's socket is dead (%v) -- detaching now so a reconnect is accepted", goneErr)
 		c.bridgeConnGone(nd)
 	}
 }
@@ -772,11 +812,39 @@ func (c *Core) sendToAdapter(nd transport.Transport, t bridge.MessageType, paylo
 // use. Keyed by the connection rather than held on the Core because a hello
 // that gets refused is answered on a connection that never became the
 // adapter, and the two must not share a queue.
+//
+// A CONNECTION WHOSE SOCKET IS ALREADY GONE GETS NO ENTRY IN THE MAP, and that
+// is the whole of the fix for c.writers growing without bound (2026-09-08).
+// Every sendToAdapter caller reads nd under c.mu and RELEASES the lock before
+// sending -- deliberately, so a wedged adapter socket cannot stall the relay
+// side (see pushSessionPolicy's note, and the callers in online.go and
+// remotenames.go). So this interleaving is ordinary: a nametag push takes nd,
+// the read loop ends and bridgeConnGone runs dropWriter, and the push then
+// arrives here with a connection nothing will ever remove again. It registered
+// a fresh writer -- one goroutine and one queue -- keyed by the dead
+// NDJSONConn, which the map key itself then pinned along with its buffers, for
+// the life of the process. One entry per game relaunch that lands in that
+// window, forever.
+//
+// transportIsClosed is the exact test because dropWriter is only ever reached
+// through bridgeConnGone, and every path into it has closed the socket first:
+// the transport closes itself before firing OnDisconnect, transport.Send closes
+// it on a failed write, the stuck-adapter verdict closes it explicitly
+// (adapterwriter.go), and the dead-incumbent hello path checks this very
+// predicate before calling. A message for a closed socket is undeliverable
+// anyway, so refusing it costs nothing that was going to arrive, and it also
+// stops spawning a writer goroutine for a socket nobody can write to.
+//
+// A transport that cannot answer the question (the in-process test doubles)
+// answers false and gets the behaviour it had before this existed.
 func (c *Core) writerFor(nd transport.Transport) *adapterWriter {
 	c.writerMu.Lock()
 	defer c.writerMu.Unlock()
 	if w, ok := c.writers[nd]; ok {
 		return w
+	}
+	if transportIsClosed(nd) {
+		return closedAdapterWriter(nd)
 	}
 	if c.writers == nil {
 		c.writers = make(map[transport.Transport]*adapterWriter)

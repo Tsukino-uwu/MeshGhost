@@ -120,7 +120,37 @@ type sampleRing struct {
 	buf  []protocol.State
 }
 
+// maxRingSpan caps how much recent play the ring keeps, for the same reason
+// maxHistoryMs caps remote history and maxChaserBehind caps chaser depth: a
+// hostile or fat-fingered setting must not turn a buffer into unbounded memory.
+// replay.save_last was the one duration in the config with no ceiling at all
+// until 2026-09-08 (review G8) -- setSpan took whatever arrived and only asked
+// whether it was positive.
+//
+// The cost of the missing ceiling, at the 100Hz the tap is fed at: "save_last":
+// "6h" asks the ring to hold 2.16 million protocol.State values for the whole
+// session -- ~280MB by the chaser history's own per-sample figure (7.7MB for 10
+// minutes, chaser.go), and that figure counts the struct only, not the Position
+// slice and Extras map each sample points at. Pseudoregalia's adapter sends
+// ~180Hz, so nearly double there. It is the player's own config file rather
+// than anything an attacker reaches, which is why this is the low-severity one
+// of the three, but the player who typed it gets a core that grows all evening
+// and no line anywhere saying why.
+//
+// Ten minutes matches maxChaserBehind deliberately: both bound the same
+// question -- how far back this core keeps the player's own past -- and one
+// number for both is one number to remember. Save-last is the "do a trick, then
+// press the key" mode; a clip older than that is a clip from a different
+// session.
+const maxRingSpan = 10 * time.Minute
+
+// setSpan is the raw setter and clamps SILENTLY: armRing is the config path and
+// says out loud what it asked for and what took effect, and repeating that here
+// would log once per adapter attach for a setting that has not changed.
 func (r *sampleRing) setSpan(span time.Duration) {
+	if span > maxRingSpan {
+		span = maxRingSpan
+	}
 	r.mu.Lock()
 	r.span = span.Milliseconds()
 	if r.span <= 0 {
@@ -701,7 +731,15 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	samples := c.ring.snapshot()
 	if len(samples) == 0 {
-		return "", 0, errors.New("nothing to save yet: no in-game samples in the last " + c.SaveLastSpan.String())
+		// The span the ring ACTUALLY kept, not the one asked for: a config of
+		// "6h" is clamped to maxRingSpan, and naming the unclamped number here
+		// would tell the player nothing arrived in six hours of play when the
+		// window looked at was ten minutes (2026-09-08, review G8).
+		kept := c.SaveLastSpan
+		if kept > maxRingSpan {
+			kept = maxRingSpan
+		}
+		return "", 0, errors.New("nothing to save yet: no in-game samples in the last " + kept.String())
 	}
 	c.mu.Lock()
 	game, version := c.adapterGameID, c.adapterGameVersion
@@ -794,6 +832,14 @@ func (c *Core) SaveLast() (string, int, error) {
 func (c *Core) armRing() {
 	span := c.SaveLastSpan
 	if span > 0 {
+		// Named out loud, the way StartChasers reports its own clamp: the
+		// player asked for something the ring will not do, and the only place
+		// they would otherwise notice is a save-last file that is shorter than
+		// the number in their config with nothing to explain it (2026-09-08,
+		// review G8).
+		if span > maxRingSpan {
+			log.Printf("core: replay save_last asks for %s of recent play; keeping %s (the most the ring holds)", span, maxRingSpan)
+		}
 		c.SetRingSpan(span)
 	}
 }

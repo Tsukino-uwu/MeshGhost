@@ -128,6 +128,30 @@ const (
 	// payload through Extras.
 	MaxLineBytes = 4096
 
+	// MaxPayloadBytes is the largest line a receiver will actually ACCEPT, and
+	// it is one byte under MaxLineBytes because bufio.Scanner counts the
+	// delimiter against its own buffer.
+	//
+	// Measured 2026-09-08 against Go's scanner with Buffer(_, 4096):
+	//
+	//	payload=4095 -> delivered
+	//	payload=4096 -> REFUSED, "token too long"
+	//
+	// The buffer may grow to max, and the token plus its newline must both fit
+	// inside it -- so a payload of exactly max never does. Every sender bound in
+	// this repo was written against MaxLineBytes and was therefore one byte
+	// optimistic: an envelope of exactly 4096 passed the check, went out, and
+	// killed the receiver's read loop with the very ErrTooLong the check existed
+	// to prevent. That is a one-byte window, which is exactly the kind that
+	// survives review and then shows up as an unexplained reconnect loop.
+	//
+	// SENDERS compare against this; the scanner keeps being configured with
+	// MaxLineBytes, because that is the buffer size it is allowed to grow to.
+	// Found by the agent closing the transport test gaps (H11), which asserted
+	// "exactly MaxLineBytes must be accepted", watched it fail, and reported the
+	// premise as wrong rather than adjusting the test to match.
+	MaxPayloadBytes = MaxLineBytes - 1
+
 	// DefaultSendHz is the room-wide state send rate a relay advertises in
 	// Welcome.SendHz when its operator hasn't configured one, and the rate a
 	// client falls back to when the relay advertises nothing at all (an

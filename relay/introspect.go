@@ -216,10 +216,20 @@ type Snapshot struct {
 //
 // Room pointers are collected under s.mu and then each room is locked
 // separately, rather than locking a room while still holding s.mu. Nothing in
-// this package currently nests those the other way round, so the nested form
-// would also be safe today — but it would make this function the reason a
-// future r.mu-then-s.mu path becomes a deadlock, and a debugging aid must not
-// be the thing that constrains the code it inspects.
+// this package nests those the other way round, so the nested form would also
+// be safe today — but it would make this function the reason a future
+// r.mu-then-s.mu path becomes a deadlock, and a debugging aid must not be the
+// thing that constrains the code it inspects.
+//
+// **This paragraph was false between the day it was written and 2026-09-08**:
+// dropIfEmpty took s.mu and then called r.size(), which takes r.mu, so the
+// s.mu-then-r.mu order this function abstains from creating already existed and
+// abstaining bought nothing. Latent rather than live — nothing took r.mu and
+// then reached for s.mu — but an invariant asserted in one file and contradicted
+// in another is how the next reader gets it wrong. dropIfEmpty now reads
+// Room.memberCount, which needs no lock, and
+// relay/lockorder_test.go's TestDropIfEmptyDoesNotTakeARoomLockWhileHoldingTheServerLock
+// is what keeps it that way.
 func (s *Server) Snapshot() Snapshot {
 	s.mu.Lock()
 	snap := Snapshot{
