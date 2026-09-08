@@ -9066,9 +9066,10 @@ namespace MeshGhostPseudo
         double g_disp_size = 22.0;         // input_display.size (font)
         bool g_disp_player_left = true;    // input_display.player_side == "left"
         // input_display.unit: what the count on a row measures. "cs" (hundredths of a second, the
-        // default -- a tester's point, 2026-09-08: runners play at different framerates per
-        // category, so a frame count is not comparable between them and a time is), "ms", or
-        // "frames" (engine frames, the fighting-game convention at a fixed 60).
+        // default: players run different framerates per category, so a frame count is not
+        // comparable between them and a time is), "ms" (the most precise for short inputs at a
+        // high framerate), or "frames" (engine frames, the fighting-game convention at a fixed
+        // 60, and the only unit that can show a single-frame press). Default open to revision.
         std::string g_disp_unit = "cs";
         bool g_disp_count_left = true;     // input_display.count_side: the count before or after the inputs
         double g_disp_margin_x = 200.0;    // panel inset from its side, pixels (the prototype's)
@@ -10706,12 +10707,16 @@ namespace MeshGhostPseudo
                 {
                     count = static_cast<unsigned long long>(r.last_ms - r.start_ms);
                 }
-                if (count > 999)
+                // The cap follows the unit: three digits for frames and hundredths, four for
+                // milliseconds, so "ms" is not cut off at one second.
+                const unsigned long long cap = (g_disp_unit == "ms") ? 9999ull : 999ull;
+                if (count > cap)
                 {
-                    count = 999;
+                    count = cap;
                 }
                 wchar_t head[16]{};
-                std::swprintf(head, sizeof(head) / sizeof(head[0]), g_disp_count_left ? STR("%4llu  ") : STR("  %llu"), count);
+                std::swprintf(head, sizeof(head) / sizeof(head[0]),
+                              g_disp_count_left ? (cap > 999 ? STR("%5llu  ") : STR("%4llu  ")) : STR("  %llu"), count);
                 std::wstring inputs;
                 if (g_disp_count_left)
                 {
