@@ -2775,7 +2775,7 @@ ahead on the render clock with `at` per edge, reset behind every seam, only to a
 hello set `input_tracks`. **BUILT the same night, the adapter half**: Pseudoregalia draws it on a
 second panel of the same code, on `ghost_side` (the player's side when the player's display is
 off), seen by the user across seven restarts (`pseudoregalia/UNVERIFIED.md`); the capture gained
-`cam_yaw`/`cam_pitch` from the camera manager. **NEXT, the same stream, the driven ghost** -- the plan the user approved 2026-09-08: a replay ghost possessed by its own
+`cam_yaw`/`cam_pitch` from the camera manager. **BUILT AS A DEV RIG 2026-09-09 (`ghost_drive.txt`, `pseudoregalia/FLAGS.md` `GHOST_DRIVE`): the driven ghost** -- -- the plan the user approved 2026-09-08: a replay ghost possessed by its own
 AIController and fed the track through the pawn's own input events, its position corrected by the
 recorded state, dev-toggle first (`ghost_drive.txt`), then `replay.drive_ghost` shipped off; the
 capture gains `cam_yaw`/`cam_pitch` axes first, since the pawn's Move handler needs the camera

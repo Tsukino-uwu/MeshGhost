@@ -609,3 +609,11 @@ and Interact (the world). Move (`_19`) is not called: its value cannot be passed
 - **Runs from the scratch slot**, autonomous; the log is `input_nodes-<HHMMSS>.log` at the slot's
   root. Nothing is asked of the person at the game beyond keeping the ghost on screen if they
   want to see the calls land. **Unload afterwards** -- it fires input events on a pawn.
+
+Three helpers beside it, all hot-loaded over the scratch slot during the 2026-09-08/09 drive work:
+`attack_loop.lua` (fires the three attack nodes in blocks on the first AI-steered ghost; every block
+was silent with a zero value, which is what sent the census to C++), `grant_attack.lua` (set
+`obtainedAttack?` on the ghost -- a clone has class defaults; superseded by the rig's ability copy),
+and `sit_watch.lua` (READ-ONLY on the player's pawn: the fields around a chair sit on change; it
+showed a real stand-up is the rising edge of movement input while `Interaction Target` is never
+cleared, and that the table glitch is the same sequence with the input already held).

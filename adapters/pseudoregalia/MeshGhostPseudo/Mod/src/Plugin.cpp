@@ -9049,7 +9049,13 @@ namespace MeshGhostPseudo
         double g_hud_gap = 10.0;  // between the square and the box
         double g_hud_text = 30.0; // the digits' font size
         double g_hud_pad = 4.0;   // the box's padding around the digits
-        int32_t g_hud_z = 1000;   // viewport z-order: over the game's own HUD
+        // Viewport z-order for the indicator and both input panels. **0, not 1000 (2026-09-08,
+        // a tester's report):** at 1000 they drew OVER the pause menu and sat in front of its
+        // mouse input; the tester's own overlay mod adds at 0 and *"even 99 is already above
+        // everything actually in game"*. At 0 the game's menus draw above them and take the
+        // mouse, and the overlays are still over the world. `hud_z=` in rec_indicator.txt
+        // overrides it live.
+        int32_t g_hud_z = 0;
         OwnedObjectHandle g_hud_dot;   // stale-safe: OwnedObjectHandle, validated on every Get() -- a runtime widget is the collector's the moment the viewport lets go of it (a level transition does)
         OwnedObjectHandle g_hud_clock; // stale-safe: same
         OwnedObjectHandle g_hud_text_block; // stale-safe: same
@@ -10615,6 +10621,607 @@ namespace MeshGhostPseudo
         // held actions as one letter each in the label table's order: J jump, A attack, C crouch,
         // W cling, T throw, G guard, I interact, L lock-on, P power, M map, V view.
         constexpr const wchar_t* INPUT_HISTORY_TOKENS = STR("JACWTGILPMV");
+
+        // ------------------------------------------------------------------------------------------
+        // THE GHOST DRIVE DEV RIG (ADR 0057, stage D1; 2026-09-08). `ghost_drive.txt` beside the
+        // DLL arms it; the file's lines are `key=value`:
+        //   mode=attack_loop   fire the pawn's attack event nodes _3, _4, _5 on the driven ghost in
+        //                      blocks of `block` calls, `gap` seconds apart (the user's ask: "doing
+        //                      a lot of attacks in a row will be instantly noticeable")
+        //   mode=attack3|attack4|attack5   one node, repeated
+        //   gap=1.5  block=5
+        // The driven ghost is the first replay ghost seen while armed; its mirrors (the whole
+        // PERF_LOOP_MIRRORS section and the pose teleport) are skipped while the file exists, so
+        // what the pawn does is the call's doing and nothing else. Removing the file hands the
+        // ghost back to the mirror on the next tick.
+        //
+        // WHY C++ AND NOT THE LUA CENSUS: the Lua probe (`probes/probe_inputnodes/`) could only
+        // pass a ZERO FInputActionValue -- the struct has no reflected fields -- and three rigs
+        // of zero-valued attack calls produced nothing visible, while a swing on "pressed" is
+        // a swing on a TRUE value. This writes the value by the struct's measured layout
+        // (INPUT_ACTION_VALUE_SIZE: three doubles then a one-byte type), the same layout the
+        // input track reads it by. Dev-only; never ships armed.
+        struct GhostDriveCfg
+        {
+            bool armed = false;
+            std::string mode = "attack_loop";
+            double gap_s = 1.5;
+            int block = 5;
+            // How much of the per-ghost TAIL a driven ghost still runs -- the bisect knob for
+            // the chair sit that reached it with everything gated (23:08 run) and vanished
+            // with the tail off (23:15 run). 0 = none; 1 = up to the sweeps; 2 = up to the
+            // light hold; 3 = up to the events; 4 = up to the weapon mirror; 5 = up to the
+            // montage mirror; 6 = the whole tail. Live: edit the file, the ghost follows.
+            int tail_until = 6;
+            // Track mode's correction threshold, in the game's units (the capsule is 65 tall).
+            double snap = 150.0;
+            std::string text; // the file as last read, for change detection
+        };
+        GhostDriveCfg g_drive;
+        std::string g_drive_id; // the replay ghost being driven; empty until one is seen while armed
+
+        auto poll_ghost_drive_toggle() -> void
+        {
+            const std::wstring dir = module_directory();
+            std::ifstream f(dir + L"/ghost_drive.txt");
+            if (!f)
+            {
+                if (g_drive.armed)
+                {
+                    g_drive = GhostDriveCfg{};
+                    g_drive_id.clear();
+                    Output::send(STR("[MeshGhostPseudo] DRIVE: ghost_drive.txt gone -- the ghost is the mirror's again.\n"));
+                }
+                return;
+            }
+            const std::string text((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            if (g_drive.armed && text == g_drive.text)
+            {
+                return;
+            }
+            GhostDriveCfg cfg;
+            cfg.armed = true;
+            cfg.text = text;
+            size_t pos = 0;
+            while (pos < text.size())
+            {
+                size_t line_end = text.find('\n', pos);
+                if (line_end == std::string::npos)
+                {
+                    line_end = text.size();
+                }
+                std::string line = text.substr(pos, line_end - pos);
+                pos = line_end + 1;
+                if (const size_t hash = line.find('#'); hash != std::string::npos)
+                {
+                    line.erase(hash);
+                }
+                const size_t eq = line.find('=');
+                if (eq == std::string::npos)
+                {
+                    continue;
+                }
+                auto trim = [](std::string s) {
+                    while (!s.empty() && (s.back() == ' ' || s.back() == '\r' || s.back() == '\t')) s.pop_back();
+                    size_t b = 0;
+                    while (b < s.size() && (s[b] == ' ' || s[b] == '\t')) ++b;
+                    return s.substr(b);
+                };
+                const std::string key = trim(line.substr(0, eq));
+                const std::string value = trim(line.substr(eq + 1));
+                if (key == "mode")
+                {
+                    cfg.mode = value;
+                }
+                else if (key == "gap")
+                {
+                    cfg.gap_s = std::clamp(std::atof(value.c_str()), 0.1, 30.0);
+                }
+                else if (key == "block")
+                {
+                    cfg.block = std::clamp(std::atoi(value.c_str()), 1, 100);
+                }
+                else if (key == "tail_until")
+                {
+                    cfg.tail_until = std::clamp(std::atoi(value.c_str()), 0, 6);
+                }
+                else if (key == "snap")
+                {
+                    cfg.snap = std::clamp(std::atof(value.c_str()), 10.0, 1.0e7);
+                }
+            }
+            g_drive = cfg;
+            Output::send(STR("[MeshGhostPseudo] DRIVE: armed -- mode={} gap={}s block={} tail_until={} (the first replay ghost's mirrors are OFF while this file exists)\n"),
+                         to_wide_ascii(cfg.mode), cfg.gap_s, cfg.block, cfg.tail_until);
+        }
+
+        // Fires one Enhanced Input event node on a pawn with a REAL action value: `x` into the
+        // FInputActionValue's first double (a pressed button is 1.0), the value type byte left
+        // Boolean (0), SourceAction null (the crouch calls pass nothing and work). Size-checked
+        // against the parameter's reflected size before a byte is written.
+        auto call_input_action_event(UObject* pawn, const wchar_t* function_name, double x, double y, uint8_t value_type = 255) -> bool
+        {
+            if (!pawn)
+            {
+                return false;
+            }
+            UFunction* function = mg_cached_function(pawn, function_name);
+            if (!function)
+            {
+                return false;
+            }
+            const int32_t parms_size = function->GetPropertiesSize();
+            if (parms_size <= 0)
+            {
+                return false;
+            }
+            std::vector<uint8_t> params(static_cast<size_t>(parms_size), 0);
+            FProperty* value_param = function->FindProperty(FName(STR("ActionValue"), FNAME_Find));
+            if (value_param && value_param->GetSize() == INPUT_ACTION_VALUE_SIZE &&
+                value_param->GetOffset_Internal() + INPUT_ACTION_VALUE_SIZE <= parms_size)
+            {
+                double* v = std::bit_cast<double*>(params.data() + value_param->GetOffset_Internal());
+                v[0] = x;
+                v[1] = y;
+                v[2] = 0.0;
+                // EInputActionValueType: Boolean 0, Axis1D 1, Axis2D 2, Axis3D 3. A button is
+                // Boolean; the stick is Axis2D whatever its value this frame (a released stick
+                // is a zero Axis2D, not a false button).
+                params[static_cast<size_t>(value_param->GetOffset_Internal()) + 24] = value_type != 255 ? value_type : ((y != 0.0) ? 2 : 0);
+            }
+            else if (value_param)
+            {
+                static bool warned = false;
+                if (!warned)
+                {
+                    warned = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: DRIVE: ActionValue is {} bytes, expected {} -- calling with a zero value.\n"),
+                                 value_param->GetSize(), INPUT_ACTION_VALUE_SIZE);
+                }
+            }
+            pawn->ProcessEvent(function, params.data());
+            return true;
+        }
+
+        // The actor's Z for the drive log, through the engine's own getter.
+        auto pcall_actor_z(AActor* actor, double& z) -> void
+        {
+            if (actor)
+            {
+                z = actor->K2_GetActorLocation().Z();
+            }
+        }
+
+        // Which ghost the rig drives: the first replay ghost seen while armed, sticky. Sets and
+        // returns remote.driven for this tick.
+        auto ghost_drive_select(const std::string& id, RemoteGhost& remote, UObject* local_pawn) -> bool
+        {
+            if (!g_drive.armed)
+            {
+                remote.driven = false;
+                return false;
+            }
+            const bool is_replay = id.rfind("replay:", 0) == 0;
+            if (g_drive_id.empty() && is_replay)
+            {
+                g_drive_id = id;
+                Output::send(STR("[MeshGhostPseudo] DRIVE: driving {} -- its mirrors are OFF from this tick.\n"), to_wide_ascii(id));
+            }
+            remote.driven = is_replay && g_drive_id == id;
+            if (remote.driven && !remote.drive_prepared && remote.ghost)
+            {
+                // A DRIVEN PAWN NEEDS A FLOOR (22:59 run: the first driven jump landed in the
+                // floor -- a mirrored ghost has collision off entirely, and once its own
+                // movement runs there is nothing under it). Collision on; the capsule ignores
+                // the Pawn channel (never solid to the player) and the Camera channel (never
+                // in the player's boom), is typed WorldDynamic (not a target for enemies), and
+                // generates no overlap events (never fires the world's triggers). Engine
+                // constants from Engine/EngineTypes.h: ECC_WorldDynamic=1, ECC_Pawn=2,
+                // ECC_Camera=4; ECR_Ignore=0. Once per pawn instance; a respawn is a new one.
+                remote.drive_prepared = true;
+                AActor* ghost_actor = remote.ghost;
+                ghost_actor->SetActorEnableCollision(true);
+                UObject* ghost = static_cast<UObject*>(remote.ghost);
+                if (UObject** cap = mg_property_value<UObject*>(ghost, STR("CapsuleComponent")); cap && *cap)
+                {
+                    if (UFunction* fn = (*cap)->GetFunctionByNameInChain(STR("SetCollisionResponseToChannel")))
+                    {
+                        call_set_collision_response_to_channel(*cap, fn, 2, 0); // Pawn -> Ignore
+                        call_set_collision_response_to_channel(*cap, fn, 4, 0); // Camera -> Ignore
+                    }
+                    call_set_collision_object_type(*cap, 1); // WorldDynamic
+                    mg_write_bool(*cap, STR("bGenerateOverlapEvents"), false);
+                }
+                // The pawn turns itself toward its movement again (23:44 run: "walking around,
+                // but not changing its facing"): the spawn path forces this OFF so the mirror's
+                // rotation write is the only source of facing, and a driven ghost has no such
+                // write. A bitfield on the movement component -- the bit-safe setter, never a
+                // byte write.
+                if (UObject** mv = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); mv && *mv)
+                {
+                    mg_write_bool(*mv, STR("bOrientRotationToMovement"), true);
+                }
+                // ABILITY PARITY (23:06 run: `obtainedAttack?` false on the clone, and the attack
+                // node refused until a probe set it). A fresh clone has the class defaults; the
+                // player's pawn has what their save unlocked. Every `obtained*` / `has*` bool on
+                // the pawn class is copied from the local pawn -- the names from the class's own
+                // reflection, never a list from memory -- through the bit-safe read and write.
+                int copied = 0;
+                if (local_pawn)
+                {
+                    for (FProperty* property : TFieldRange<FProperty>(ghost->GetClassPrivate(), EFieldIterationFlags::Default))
+                    {
+                        if (!property || property->GetClass().GetName() != STR("BoolProperty"))
+                        {
+                            continue;
+                        }
+                        const StringType name = property->GetName();
+                        if (name.rfind(STR("obtained"), 0) != 0 && name.rfind(STR("has"), 0) != 0)
+                        {
+                            continue;
+                        }
+                        const bool value = mg_read_bool(local_pawn, name.c_str(), false);
+                        if (mg_write_bool(ghost, name.c_str(), value))
+                        {
+                            ++copied;
+                        }
+                    }
+                }
+                Output::send(STR("[MeshGhostPseudo] DRIVE: {} prepared -- collision ON, capsule ignores Pawn and Camera, WorldDynamic, no overlap events, facing follows movement, {} ability flag(s) copied from the player.\n"),
+                             to_wide_ascii(id), copied);
+            }
+            return remote.driven;
+        }
+
+        // The trace: every change of the driven pawn's own crouch/action/move state, its
+        // movement mode and capsule height, with the tick -- so a pose that appears on it
+        // (the chair sit, 23:08 run, "same point every loop") names the tick it arrived on.
+        auto ghost_drive_trace(const std::string& id, RemoteGhost& remote, uint64_t tick_count) -> void
+        {
+            UObject* ghost = static_cast<UObject*>(remote.ghost);
+            if (!ghost)
+            {
+                return;
+            }
+            const uint8_t* as = mg_property_value<uint8_t>(ghost, STR("actionState"));
+            const uint8_t* ms = mg_property_value<uint8_t>(ghost, STR("moveState"));
+            const int action = as ? static_cast<int>(*as) : -1;
+            const int move = ms ? static_cast<int>(*ms) : -1;
+            const int crouched = mg_read_bool(ghost, STR("bIsCrouched"), false) ? 1 : 0;
+            int mode = -1;
+            if (UObject** mv = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); mv && *mv)
+            {
+                if (const uint8_t* mm = mg_property_value<uint8_t>(*mv, STR("MovementMode")))
+                {
+                    mode = static_cast<int>(*mm);
+                }
+            }
+            double capsule = -1.0;
+            if (UObject** cap = mg_property_value<UObject*>(ghost, STR("CapsuleComponent")); cap && *cap)
+            {
+                if (const float* h = mg_property_value<float>(*cap, STR("CapsuleHalfHeight")))
+                {
+                    capsule = static_cast<double>(*h);
+                }
+            }
+            if (action != remote.drive_last_action || move != remote.drive_last_move || crouched != remote.drive_last_crouched ||
+                mode != remote.drive_last_mode || capsule != remote.drive_last_capsule)
+            {
+                Output::send(STR("[MeshGhostPseudo] DRIVE TRACE {} tick={} actionState={} moveState={} bIsCrouched={} MovementMode={} capsule={:.1f} (clip says move={} action={})\n"),
+                             to_wide_ascii(id), tick_count, action, move, crouched, mode, capsule,
+                             static_cast<int>(clamp_to_uint8(remote.target_move_state)), static_cast<int>(clamp_to_uint8(remote.target_action_state)));
+                remote.drive_last_action = action;
+                remote.drive_last_move = move;
+                remote.drive_last_crouched = crouched;
+                remote.drive_last_mode = mode;
+                remote.drive_last_capsule = capsule;
+            }
+        }
+
+        // TRACK MODE (`mode=track`): the ghost is driven by its clip's streamed input track.
+        //
+        // Buttons: every bit that changes between one applied edge and the next fires the
+        // pawn's own event node for that action -- press and release where the census settled
+        // both (Jump 20/21, WallRide 13/14, LockOn 11/12), press only where one node is the
+        // whole action (Attack 4 -- the swing; 3 is the charge hold, 5 nothing -- Throw 7,
+        // Guard 9, Crouch 16 with 15 on release per the shipped crouch call). Interact,
+        // QuickMap, Perspective and Power are never fired: the world, the UI, and an action
+        // whose three nodes are unmeasured. Bit order is the capture's label table
+        // (jump attack crouch wallride throw guard interact lockon power quickmap perspective).
+        //
+        // Stick: the recorded `move_x/move_y` into the pawn's own Move node (_19) as an Axis2D
+        // value every tick while non-zero, and once as zero on release -- the handler turns it
+        // into a world direction through its CONTROLLER's rotation, which is why the track's
+        // `cam_yaw/cam_pitch` go onto the ghost's AIController first (SetControlRotation).
+        //
+        // Correction: the pawn owns where it is until it is more than `snap` units from the
+        // recorded position rendered for this tick; then it is teleported there and its
+        // movement zeroed (the user's call, 2026-09-08: snap in place). Counted and reported.
+        struct DriveNode
+        {
+            int bit;
+            const wchar_t* press;
+            const wchar_t* release; // nullptr: nothing fires on release
+        };
+        constexpr DriveNode DRIVE_NODES[] = {
+            {0, STR("InpActEvt_IA_Jump_K2Node_EnhancedInputActionEvent_20"), STR("InpActEvt_IA_Jump_K2Node_EnhancedInputActionEvent_21")},
+            {1, STR("InpActEvt_IA_Attack_K2Node_EnhancedInputActionEvent_4"), nullptr},
+            {2, STR("InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_16"), STR("InpActEvt_IA_Crouch_K2Node_EnhancedInputActionEvent_15")},
+            {3, STR("InpActEvt_IA_WallRide_K2Node_EnhancedInputActionEvent_13"), STR("InpActEvt_IA_WallRide_K2Node_EnhancedInputActionEvent_14")},
+            {4, STR("InpActEvt_IA_Throw_K2Node_EnhancedInputActionEvent_7"), nullptr},
+            {5, STR("InpActEvt_IA_Guard_K2Node_EnhancedInputActionEvent_9"), nullptr},
+            // Interact fires too (the user's call, 2026-09-08 23:50): a chair sit is an interact,
+            // and so are doors, pickups and save points -- what the ghost actually reaches with
+            // its overlaps off is the measurement. Press only; the node is the whole action.
+            {6, STR("InpActEvt_IA_Interact_K2Node_EnhancedInputActionEvent_10"), nullptr},
+            {7, STR("InpActEvt_IA_LockOn_K2Node_EnhancedInputActionEvent_11"), STR("InpActEvt_IA_LockOn_K2Node_EnhancedInputActionEvent_12")},
+        };
+
+        // Defined further down (the per-ghost-per-tick mover); the correction below uses it.
+        auto call_set_actor_location_and_rotation(AActor* actor, const FVector& new_location, const FRotator& new_rotation) -> void;
+
+        // What the track tick reads of a ghost's streamed inputs (the buffer itself is the
+        // Plugin's; this is the slice of it the rig needs).
+        struct GhostInputTrackView
+        {
+            bool have_state;
+            int ax_n;
+            const double* ax;
+        };
+
+        // One applied edge: fire the node for every bit that changed.
+        auto ghost_drive_edge(const std::string& id, RemoteGhost& remote, uint32_t prev_mask, uint32_t mask) -> void
+        {
+            UObject* ghost = static_cast<UObject*>(remote.ghost);
+            if (!ghost || prev_mask == mask)
+            {
+                return;
+            }
+            const uint32_t changed = prev_mask ^ mask;
+            for (const DriveNode& n : DRIVE_NODES)
+            {
+                const uint32_t bit = 1u << n.bit;
+                if (!(changed & bit))
+                {
+                    continue;
+                }
+                const bool down = (mask & bit) != 0;
+                const wchar_t* fn = down ? n.press : n.release;
+                if (fn)
+                {
+                    call_input_action_event(ghost, fn, down ? 1.0 : 0.0, 0.0, 0);
+                    ++remote.drive_edges_applied;
+                }
+            }
+        }
+
+        // Every tick in track mode, after the edges: the camera onto the controller, the stick
+        // into the pawn, then the correction against the rendered target.
+        auto ghost_drive_track_tick(const std::string& id, RemoteGhost& remote, const GhostInputTrackView& track, double snap) -> void
+        {
+            UObject* ghost = static_cast<UObject*>(remote.ghost);
+            if (!ghost)
+            {
+                return;
+            }
+            const double now_s = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (track.have_state)
+            {
+                // Camera first: the frame the stick is read in.
+                if (track.ax_n >= 6)
+                {
+                    if (UObject** ctl = mg_property_value<UObject*>(ghost, STR("Controller")); ctl && *ctl)
+                    {
+                        if (UFunction* fn = mg_cached_function(*ctl, STR("SetControlRotation")))
+                        {
+                            const int32_t parms_size = fn->GetPropertiesSize();
+                            if (FProperty* p = fn->FindProperty(FName(STR("NewRotation"), FNAME_Find)); p && parms_size > 0)
+                            {
+                                std::vector<uint8_t> params(static_cast<size_t>(parms_size), 0);
+                                write_rotator_param(params.data(), p, FRotator(track.ax[5], track.ax[4], 0.0));
+                                (*ctl)->ProcessEvent(fn, params.data());
+                            }
+                        }
+                    }
+                }
+                const double mx = track.ax[0];
+                const double my = track.ax[1];
+                if (mx != 0.0 || my != 0.0)
+                {
+                    // NOT the pawn's Move event node (23:38 run: fed every tick with the
+                    // stick, moveState stayed 0 and the ghost never walked -- the census had
+                    // said it: this pawn reads Move through Enhanced Input's BOUND value, which
+                    // on a pawn with no player input is zero whatever the event's parameter
+                    // says). The engine's own APawn::AddMovementInput takes a world direction
+                    // and a scale, and the movement component consumes it on a possessed pawn
+                    // -- the jump already proved that component runs here. Direction from the
+                    // recorded camera yaw: forward is (cos, sin), right is (-sin, cos), the
+                    // stick's y along forward and x along right, the same frame the player's
+                    // own handler builds.
+                    const double yaw_rad = (track.ax_n >= 6 ? track.ax[4] : 0.0) * 3.14159265358979323846 / 180.0;
+                    const double fx = std::cos(yaw_rad), fy = std::sin(yaw_rad);
+                    const double rx = -fy, ry = fx;
+                    const double wx = fx * my + rx * mx;
+                    const double wy = fy * my + ry * mx;
+                    const double len = std::sqrt(wx * wx + wy * wy);
+                    if (len > 1e-6)
+                    {
+                        if (UFunction* fn = mg_cached_function(ghost, STR("AddMovementInput")))
+                        {
+                            const int32_t parms_size = fn->GetPropertiesSize();
+                            FProperty* dir = fn->FindProperty(FName(STR("WorldDirection"), FNAME_Find));
+                            FProperty* scale = fn->FindProperty(FName(STR("ScaleValue"), FNAME_Find));
+                            if (dir && scale && parms_size > 0)
+                            {
+                                std::vector<uint8_t> params(static_cast<size_t>(parms_size), 0);
+                                write_vector_param(params.data(), dir, FVector(wx / len, wy / len, 0.0));
+                                *std::bit_cast<float*>(params.data() + scale->GetOffset_Internal()) = static_cast<float>((std::min)(len, 1.0)); // parenthesised: <windows.h>'s min macro
+                                ghost->ProcessEvent(fn, params.data());
+                            }
+                        }
+                    }
+                    // AND the pawn's own Move event, with the same stick (23:55 run: the ghost
+                    // sat on the chair through interact and stayed seated while walking -- the
+                    // recording left the chair by moving the stick, so "leave the sit on input"
+                    // lives in the pawn's Move handler, which the engine-level input above never
+                    // enters). The handler cannot move the pawn on a clone (it reads the bound
+                    // value, zero here); its side effects are what this call is for.
+                    call_input_action_event(ghost, STR("InpActEvt_IA_Move_K2Node_EnhancedInputActionEvent_19"), mx, my, 2);
+                    // THE PAWN'S OWN INPUT FIELDS, written from the stick (00:05 run, two
+                    // recordings with the SAME inputs -- interact, then move -- where the game
+                    // stood the player up in one and kept them seated in the other, the table
+                    // glitch). So the exit is the game's decision on world state, made by logic
+                    // that reads what the pawn's Move handler writes: `inputVectorWorld`,
+                    // `moveInputAmount`, `hasMovementInput?` (the census: the three that move
+                    // with IA_Move). A clone's handler leaves them zero, so nothing in the game
+                    // ever saw the ghost move. An explicit EndInteract-on-stick was tried first
+                    // and was exactly wrong for the glitch. Written by the property's own
+                    // reflection, the vector field by field.
+                    if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                    {
+                        write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(wx, wy, 0.0));
+                    }
+                    if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
+                    {
+                        *amount = (std::min)(len, 1.0);
+                    }
+                    mg_write_bool(ghost, STR("hasMovementInput?"), true);
+                    remote.drive_move_live = true;
+                }
+                else if (remote.drive_move_live)
+                {
+                    call_input_action_event(ghost, STR("InpActEvt_IA_Move_K2Node_EnhancedInputActionEvent_19"), 0.0, 0.0, 2);
+                    if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                    {
+                        write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(0.0, 0.0, 0.0));
+                    }
+                    if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
+                    {
+                        *amount = 0.0;
+                    }
+                    mg_write_bool(ghost, STR("hasMovementInput?"), false);
+                    remote.drive_move_live = false; // the engine input vector is consumed per frame; only the event needs a release
+                }
+            }
+            // Correction, against where the recording says the ghost is drawn this tick.
+            const FVector actual = remote.ghost->K2_GetActorLocation();
+            const double dx = actual.X() - remote.target_x;
+            const double dy = actual.Y() - remote.target_y;
+            const double dz = actual.Z() - remote.target_z;
+            const double drift = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (drift > remote.drive_max_drift)
+            {
+                remote.drive_max_drift = drift;
+            }
+            if (drift > snap)
+            {
+                call_set_actor_location_and_rotation(remote.ghost,
+                                                     FVector(remote.target_x, remote.target_y, remote.target_z),
+                                                     FRotator(remote.target_pitch, remote.target_yaw, remote.target_roll));
+                if (UObject** mv = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); mv && *mv)
+                {
+                    call_named_no_arg(*mv, STR("StopMovementImmediately"));
+                }
+                ++remote.drive_corrections;
+            }
+            if (now_s - remote.drive_report_s >= 10.0)
+            {
+                remote.drive_report_s = now_s;
+                Output::send(STR("[MeshGhostPseudo] DRIVE track {}: edges applied={} corrections={} max drift={:.0f} now={:.0f} (snap {:.0f}) stick=({:.2f},{:.2f}) cam=({:.0f},{:.0f})\n"),
+                             to_wide_ascii(id), remote.drive_edges_applied, remote.drive_corrections, remote.drive_max_drift, drift, snap,
+                             track.ax[0], track.ax[1], track.ax_n >= 6 ? track.ax[4] : 0.0, track.ax_n >= 6 ? track.ax[5] : 0.0);
+                remote.drive_max_drift = 0.0;
+            }
+        }
+
+        // One tick of the rig on the driven ghost.
+        auto ghost_drive_tick(const std::string& id, RemoteGhost& remote) -> void
+        {
+            if (!remote.ghost)
+            {
+                return;
+            }
+            const double now_s = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_s < remote.drive_next_s)
+            {
+                return;
+            }
+            UObject* ghost = static_cast<UObject*>(remote.ghost);
+            // What the pawn says about itself after every call: the two latches the census
+            // proved live, the attack's own state, and whether the sword is in hand (the
+            // mirror that puts it there is OFF for a driven ghost -- an attack may need it).
+            auto report = [&](const std::wstring& what, bool ok) {
+                const uint8_t* as = mg_property_value<uint8_t>(ghost, STR("actionState"));
+                const uint8_t* ms = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                double z = 0.0;
+                pcall_actor_z(remote.ghost, z);
+                Output::send(STR("[MeshGhostPseudo] DRIVE {} {} -> {} actionState={} moveState={} z={:.0f} weaponEquipped?={} jumpButtonHeld?={} saveAttack?={} lockAttack?={} obtainedAttack?={} freeAttack?={}\n"),
+                             to_wide_ascii(id), what, ok ? STR("ok") : STR("NO SUCH FUNCTION"),
+                             as ? static_cast<int>(*as) : -1, ms ? static_cast<int>(*ms) : -1, z,
+                             mg_read_bool(ghost, STR("weaponEquipped?"), false), mg_read_bool(ghost, STR("jumpButtonHeld?"), false),
+                             mg_read_bool(ghost, STR("saveAttack?"), false), mg_read_bool(ghost, STR("lockAttack?"), false),
+                             mg_read_bool(ghost, STR("obtainedAttack?"), false), mg_read_bool(ghost, STR("freeAttack?"), false));
+            };
+            static constexpr int ATTACK_NODES[3] = {3, 4, 5};
+            if (g_drive.mode == "track")
+            {
+                return; // the track's edges and stick drive it from the remotes loop, not a timer
+            }
+            if (g_drive.mode == "jump")
+            {
+                // The CONTROL: the press/release pair the census settled. A driven ghost that
+                // jumps here proves the node path drives this pawn; an attack that does not is
+                // then the attack's own gating, not the rig's.
+                const bool press = (remote.drive_fired % 2) == 0;
+                const wchar_t* fname = press ? STR("InpActEvt_IA_Jump_K2Node_EnhancedInputActionEvent_20")
+                                             : STR("InpActEvt_IA_Jump_K2Node_EnhancedInputActionEvent_21");
+                const bool ok = call_input_action_event(ghost, fname, press ? 1.0 : 0.0, 0.0);
+                ++remote.drive_fired;
+                report(press ? STR("Jump _20 (press) value=1") : STR("Jump _21 (release) value=0"), ok);
+                remote.drive_next_s = now_s + (press ? 0.3 : g_drive.gap_s);
+                return;
+            }
+            if (g_drive.mode.rfind("fn:", 0) == 0)
+            {
+                // Any no-arg function on the pawn by name, repeated: for the attack-shaped
+                // functions the census lists, when the input nodes turn out not to be the door.
+                const std::wstring fname = to_wide_ascii(g_drive.mode.substr(3));
+                const bool ok = call_named_no_arg(ghost, fname.c_str());
+                ++remote.drive_fired;
+                report(fname + STR(" (no-arg)"), ok);
+                remote.drive_next_s = now_s + g_drive.gap_s;
+                return;
+            }
+            int node = -1;
+            if (g_drive.mode == "attack_loop")
+            {
+                node = ATTACK_NODES[remote.drive_node_i % 3];
+            }
+            else if (g_drive.mode == "attack3" || g_drive.mode == "attack4" || g_drive.mode == "attack5")
+            {
+                node = g_drive.mode.back() - '0';
+            }
+            if (node < 0)
+            {
+                if (remote.drive_fired == 0)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DRIVE: unknown mode \"{}\" -- nothing fired.\n"), to_wide_ascii(g_drive.mode));
+                    remote.drive_fired = 1;
+                }
+                remote.drive_next_s = now_s + 5.0;
+                return;
+            }
+            const std::wstring fname = std::format(STR("InpActEvt_IA_Attack_K2Node_EnhancedInputActionEvent_{}"), node);
+            const bool ok = call_input_action_event(ghost, fname.c_str(), 1.0, 0.0);
+            ++remote.drive_fired;
+            report(std::format(STR("Attack _{} value=1 ({} of {})"), node, remote.drive_fired, g_drive.block), ok);
+            if (remote.drive_fired >= g_drive.block)
+            {
+                remote.drive_fired = 0;
+                remote.drive_node_i = (remote.drive_node_i + 1) % 3;
+            }
+            remote.drive_next_s = now_s + g_drive.gap_s;
+        }
 
         auto input_display_tear_down(InputPanel& p) -> void
         {
@@ -22255,6 +22862,11 @@ namespace MeshGhostPseudo
 
             perf_stop(PERF_LOOP_HEAD);
             perf_start(PERF_LOOP_MIRRORS);
+            // The drive rig (ADR 0057, D1): a driven ghost gets none of the mirrors below and no
+            // pose teleport; its pawn's own code is the only thing moving it.
+            const bool drive_this = ghost_drive_select(id, remote, pawn_obj);
+            if (!drive_this)
+            {
             // **Drive the ghost's blob shadow with the game's own function.** Every tick, because
             // that is how often the player's own Blueprint runs it and the arm has to keep up with
             // a ghost that is moving; the call is one reflected lookup and a ProcessEvent on an
@@ -22650,8 +23262,11 @@ namespace MeshGhostPseudo
                 }
             }
 
+            } // !drive_this
             perf_stop(PERF_LOOP_MIRRORS);
             perf_start(PERF_LOOP_POSE_XFORM);
+            if (!drive_this)
+            {
             // **Ordered AFTER the capsule mirror, deliberately.** Running first made the pose
             // one frame stale: the Blueprint's update handler reads the capsule it finds, so with
             // the capsule still last frame's size the mesh and the actor moved on different
@@ -22692,6 +23307,11 @@ namespace MeshGhostPseudo
                     }
                 }
             }
+            } // !drive_this (the pose section up to here)
+            if (drive_this)
+            {
+                ghost_drive_tick(id, remote);
+            }
             // A replay ghost's streamed inputs (ADR 0057): apply every edge whose `at` the
             // newest rendered state has reached, then show the resulting state on the ghost
             // panel if this is the ghost it follows. The mask is opaque: bit i is drawn as
@@ -22701,6 +23321,7 @@ namespace MeshGhostPseudo
                 if (auto gi = ghost_inputs.find(id); gi != ghost_inputs.end())
                 {
                     GhostInputTrack& track = gi->second;
+                    const bool track_drive = drive_this && g_drive.mode == "track";
                     while (!track.edges.empty() && track.edges.front().at <= remote.target_ts)
                     {
                         const GhostInputEdge& e = track.edges.front();
@@ -22712,14 +23333,26 @@ namespace MeshGhostPseudo
                             Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: {} first edge applied f={} at={:.0f} target_ts={:.0f} ({} queued).\n"),
                                          to_wide_ascii(id), e.f, e.at, remote.target_ts, track.edges.size());
                         }
+                        if (track_drive)
+                        {
+                            ghost_drive_edge(id, remote, track.have_state ? track.mask : 0u, e.m);
+                        }
                         track.mask = e.m;
                         for (int i = 0; i < e.ax_n && i < 8; ++i)
                         {
                             track.ax[i] = e.ax[i];
                         }
+                        if (e.ax_n > track.ax_n)
+                        {
+                            track.ax_n = e.ax_n;
+                        }
                         track.have_state = true;
                         track.edges.pop_front();
                         track.applied_at_tick = tick_count;
+                    }
+                    if (track_drive)
+                    {
+                        ghost_drive_track_tick(id, remote, GhostInputTrackView{track.have_state, track.ax_n, track.ax}, g_drive.snap);
                     }
                     if (!track.have_state && !track.edges.empty() && (tick_count % 120) == 0)
                     {
@@ -22742,6 +23375,17 @@ namespace MeshGhostPseudo
             }
             FVector target_loc(remote.target_x, remote.target_y, remote.target_z);
             FRotator target_rot(remote.target_pitch, remote.target_yaw, remote.target_roll);
+            if (drive_this)
+            {
+                // Driven: the pawn's own movement owns where it is (D1 measures how far that
+                // drifts from the recording; correction comes in the next stage). The targets
+                // above still feed the tail's traces.
+                perf_stop(PERF_LOOP_POSE_XFORM);
+                perf_start(PERF_LOOP_TAIL);
+                perf_start(PERF_TAIL_POSE_TRACE);
+            }
+            else
+            {
             // Facing-direction root cause fix, 2026-08-13: the real bug was never bTeleport --
             // it was the vendored SDK's K2_SetActorLocationAndRotation marshaling FRotator's
             // Pitch/Yaw/Roll as hardcoded float into a double-sized slot on this UE5 game (see
@@ -22752,6 +23396,21 @@ namespace MeshGhostPseudo
             perf_stop(PERF_LOOP_POSE_XFORM);
             perf_start(PERF_LOOP_TAIL);
             perf_start(PERF_TAIL_POSE_TRACE);
+            } // !drive_this (the teleport)
+            if (drive_this)
+            {
+                // SUBTRACTION (23:08 run): the chair sit still reached the driven ghost at the
+                // clip's own moment with every gated section off, and vanished with the whole
+                // tail off (23:15) -- so the tail is bisected live by `tail_until` (six
+                // markers below, each `if (drive_this && g_drive.tail_until < k) continue`).
+                ghost_drive_trace(id, remote, tick_count);
+                if (g_drive.tail_until < 1)
+                {
+                    perf_stop(PERF_TAIL_POSE_TRACE);
+                    perf_stop(PERF_LOOP_TAIL);
+                    continue;
+                }
+            }
 
             // Per-tick window across a pose transition -- see POSE_WINDOW_TRACE. Placed after the
             // teleport so each line is the FINAL state of that frame, which is what renders.
@@ -22901,6 +23560,11 @@ namespace MeshGhostPseudo
             }
 
             perf_stop(PERF_TAIL_POSE_TRACE);
+            if (drive_this && g_drive.tail_until < 2)
+            {
+                perf_stop(PERF_LOOP_TAIL); // the drive rig's tail bisect (marker 2)
+                continue;
+            }
             perf_start(PERF_TAIL_SWEEPS);
             // See GHOST_HOLD_OUTLINE_OFF: re-assert the outline disable every tick, because the
             // game turns custom depth back on during an attack and a spawn-time write cannot
@@ -23300,6 +23964,11 @@ namespace MeshGhostPseudo
             }
 
             perf_stop(PERF_TAIL_SWEEPS);
+            if (drive_this && g_drive.tail_until < 3)
+            {
+                perf_stop(PERF_LOOP_TAIL); // the drive rig's tail bisect (marker 3)
+                continue;
+            }
             perf_start(PERF_TAIL_LIGHT);
             // See GHOST_HOLD_LIGHT_OFF: a ghost is born holding the pawn Blueprint's default
             // ascendant-light brightness, because it never runs the logic that drives a real
@@ -23525,6 +24194,11 @@ namespace MeshGhostPseudo
             }
 
             perf_stop(PERF_TAIL_LIGHT);
+            if (drive_this && g_drive.tail_until < 4)
+            {
+                perf_stop(PERF_LOOP_TAIL); // the drive rig's tail bisect (marker 4)
+                continue;
+            }
             perf_start(PERF_TAIL_EVENTS);
             // Hurt reaction on the ghost -- see MIRROR_HURT_REACTION, including why this reads the
             // player's health around the call.
@@ -23718,6 +24392,11 @@ namespace MeshGhostPseudo
             // should make the ghost's anim instance drive itself the same way -- no direct AnimBP
             // writes needed. No-ops safely (nullptr checks) in hijack mode, where the ghost is a
             // StaticMeshActor with no such properties.
+            // A DRIVEN ghost (the D1 rig) keeps its own animation state: these writes are what
+            // wiped a called attack before it could show (22:51 run: "walking" and "sitting"
+            // from the clip on a pawn that was not being moved).
+            if (!drive_this)
+            {
             if (uint8_t* g_move_state = mg_property_value<uint8_t>(remote.ghost, STR("moveState")))
             {
                 *g_move_state = clamp_to_uint8(remote.target_move_state);
@@ -23746,6 +24425,7 @@ namespace MeshGhostPseudo
                     *g_movement_mode = clamp_to_uint8(remote.target_movement_mode);
                 }
             }
+            } // !drive_this (the animation-state writes)
             // Ghost-side state timeline for the ledge-lingering question -- see ANIM_TRACE's own
             // comment. Logged right after the writes above, on change only, so it lines up
             // line-for-line with the local timeline and the gap between "the real player let go"
@@ -23852,6 +24532,11 @@ namespace MeshGhostPseudo
                 remote.last_synced_weapon_equipped = remote.target_weapon_equipped;
                 remote.weapon_equip_call_armed = true;
             }
+            if (drive_this && g_drive.tail_until < 5)
+            {
+                perf_stop(PERF_LOOP_TAIL); // the drive rig's tail bisect (marker 5)
+                continue;
+            }
             // **The Dream Breaker MESH, mirrored directly from the peer's flag (2026-09-04).**
             // Measured with `probe_pickup/`, both pawns read side by side while a replay ghost was
             // on screen and the local player had never picked the sword up: `weaponEquipped?`,
@@ -23923,13 +24608,25 @@ namespace MeshGhostPseudo
                 }
             }
 
+            if (drive_this && g_drive.tail_until < 6)
+            {
+                perf_stop(PERF_LOOP_TAIL); // the drive rig's tail bisect (marker 6)
+                continue;
+            }
             // Montage mirror -- see RemoteGhost::target_montage. Deliberately NOT tied to the
             // weapon-equip edge above: this is the general "the peer's character started playing
             // an animation montage" path, and the Dream Breaker throw is simply its first
             // customer. Counter-gated the same way as the land/jump pulses, so a montage shorter
             // than the send interval still arrives.
             bool montage_started_this_tick = false;
-            if (remote.target_montage_count > remote.last_seen_montage_count && !remote.target_montage.empty())
+            if (drive_this)
+            {
+                // A driven ghost plays no mirrored montage (the chair sit reached it through
+                // this door, 22:57 run); the counters are consumed so nothing replays later.
+                remote.last_seen_montage_count = remote.target_montage_count;
+                remote.last_seen_montage_stop_count = remote.target_montage_stop_count;
+            }
+            else if (remote.target_montage_count > remote.last_seen_montage_count && !remote.target_montage.empty())
             {
                 remote.last_seen_montage_count = remote.target_montage_count;
                 montage_started_this_tick = true;
@@ -24027,7 +24724,7 @@ namespace MeshGhostPseudo
             // the send cadence can easily merge into one packet) doesn't stop the montage it just
             // started -- ordering matters here in exactly the way the weapon call/write reorder
             // taught.
-            if (remote.target_montage_stop_count > remote.last_seen_montage_stop_count)
+            if (!drive_this && remote.target_montage_stop_count > remote.last_seen_montage_stop_count)
             {
                 remote.last_seen_montage_stop_count = remote.target_montage_stop_count;
                 // Only stop if a montage didn't just START on this same tick -- see above. This has
@@ -24111,7 +24808,11 @@ namespace MeshGhostPseudo
             // any other. GHOST_SELF_MONTAGE_PROBE needs them gone to see what the ghost does alone;
             // MONTAGE_CATALOG_PROBE needs them gone because it deliberately plays montages the peer
             // isn't playing, which is precisely what this block exists to undo.
-            if (!MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS &&
+            // A DRIVEN ghost is exempt (ADR 0057's rig, 2026-09-08 23:20): its montages are its
+            // own, and this corrector is the door the chair sit came through -- the ghost played
+            // nothing, the clip said "sit", and the correction played the sit onto it at the
+            // clip's own moment every loop (the tail bisect: gone at tail_until=5, back at 6).
+            if (!drive_this && !MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS &&
                 tick_count % MONTAGE_DIVERGENCE_CHECK_INTERVAL_TICKS == 0)
             {
                 if (UObject** g_abp_ptr = mg_property_value<UObject*>(remote.ghost, STR("animBPref")); g_abp_ptr && *g_abp_ptr)
@@ -24561,8 +25262,19 @@ namespace MeshGhostPseudo
             // whether a new render_remote line arrived this tick (this loop runs unconditionally
             // per PROTOCOL.md), and write_animbp_bool targets the ghost's own animBPref -- the
             // object these fields actually live on, unlike every other field mirrored above.
-            bool land_edge = remote.target_land_count > remote.last_seen_land_count;
-            bool jump_edge = remote.target_jump_count > remote.last_seen_jump_count;
+            // A DRIVEN ghost lands and jumps on its own: the clip's landings must not pulse its
+            // AnimBP or stop its montages (2026-09-09 00:12, the table glitch: the ghost sat,
+            // fell, landed -- the same path the player's pawn took -- and the clip's landing
+            // pulse then stopped the sit animation the pawn had started; on the player it kept
+            // playing, which IS the glitch's seated walk). The counters are consumed so a later
+            // hand-back to the mirror does not replay them.
+            if (drive_this)
+            {
+                remote.last_seen_land_count = remote.target_land_count;
+                remote.last_seen_jump_count = remote.target_jump_count;
+            }
+            bool land_edge = !drive_this && remote.target_land_count > remote.last_seen_land_count;
+            bool jump_edge = !drive_this && remote.target_jump_count > remote.last_seen_jump_count;
             if (land_edge)
             {
                 remote.last_seen_land_count = remote.target_land_count;
@@ -25727,6 +26439,7 @@ namespace MeshGhostPseudo
                 // one failed file open per interval when the file is absent, which is the shipped
                 // state -- the same price the toggles beside it already pay.
                 poll_recording_indicator_tuning();
+                poll_ghost_drive_toggle(); // the D1 drive rig, `ghost_drive.txt` (ADR 0057)
 
                 const bool perf_on = dev_toggle_present(STR("perf_report.txt"));
                 if (perf_on != g_perf_armed)

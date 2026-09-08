@@ -1932,3 +1932,24 @@ whatever `session_policy.ghost_collision` says. The contact half (a chaser that 
 on-screen confirmation before a line of it is written, and no shipped adapter has either. An
 in-game key for the replay actions is optional (`replay_control`, `PROTOCOL.md`); do not register
 the chord the core already owns, because the core registered first and yours will fail.
+
+## A driven ghost: the starting recipe (2026-09-09, from Pseudoregalia's rig; ADR 0057)
+
+A clone of the player's pawn fed its own input events, with the recorded state snapping it back,
+gets animation, abilities and effects from the game's own code instead of a mirror per field.
+What the first one cost, so the next starts here:
+
+- **A fresh clone has class defaults.** Copy the player's unlocked-ability flags onto it before
+  the first event, or the pawn refuses (an attack node did nothing until `obtainedAttack?` was
+  true). Take the names from the class's own reflection, never a list from memory.
+- **Collision on for the world, off for the player**: a mirrored ghost has none, a driven one
+  falls through the floor without it. Ignore the Pawn and Camera channels, no overlap events.
+- **The mirrors and the drive never both own the pawn.** Skip EVERY mirror for a driven ghost --
+  the ones that write state, and the ones that CORRECT it (a montage divergence corrector and a
+  landing pulse each undid what the pawn had started). Keep the cosmetic ones.
+- **An input event's value may be read from the input system, not the parameter**: if a handler
+  reads a bound value, feed the engine's own movement input and write the pawn's own input
+  fields; let the pawn decide the rest (a stand-up-from-a-chair was the rising edge of those
+  fields, and an explicit exit call was wrong for a glitch the player can do).
+- **Shared singletons stay cut** (health on a game instance): what the pawn reads through them
+  comes back empty, and that is a known difference, not a reason to re-attach.

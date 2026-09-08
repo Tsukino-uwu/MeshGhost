@@ -130,6 +130,24 @@ namespace MeshGhostPseudo
         // render_remote), read since ADR 0057: a remote_input edge applies on the first render
         // whose stamp reaches the edge's `at`. Nothing else in the adapter ever needed it.
         double target_ts{0.0};
+        // The GHOST DRIVE dev rig (ADR 0057, D1; `ghost_drive.txt` beside the DLL): this ghost
+        // is driven through its own input events instead of mirrored -- mechanisms 1-12 skip
+        // it while `driven` is true. Dev-only; nothing shipped sets it.
+        bool driven{false};
+        bool drive_prepared{false}; // collision on, Pawn/Camera channels ignored, overlaps off -- once per pawn instance
+        // The drive trace: the pawn's own state as last logged, so a change names its tick.
+        int drive_last_action{-1}, drive_last_move{-1}, drive_last_crouched{-1}, drive_last_mode{-1};
+        double drive_last_capsule{-1.0};
+        // Track mode: the stick as last fed (so a release is sent once), corrections made,
+        // the largest drift seen, and the last report.
+        bool drive_move_live{false};
+        uint32_t drive_corrections{0};
+        double drive_max_drift{0.0};
+        double drive_report_s{0.0};
+        uint32_t drive_edges_applied{0};
+        double drive_next_s{0.0};
+        int drive_node_i{0};
+        int drive_fired{0};
 
         // Facing-direction bisection, 2026-08-13: rotation reads correct immediately after
         // SpawnActor and immediately after Possess() (same tick as spawn), but garbage by the
@@ -1220,6 +1238,7 @@ namespace MeshGhostPseudo
             std::deque<GhostInputEdge> edges; // in order; applied from the front
             uint32_t mask{0};                 // the state after the last applied edge
             double ax[8]{};
+            int ax_n{0};                      // how many axes the track's edges carry
             bool have_state{false};
             uint32_t dropped{0};              // edges refused by the cap since the last reset
             bool drop_logged{false};

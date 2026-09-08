@@ -3331,3 +3331,45 @@ loop seam swapped the pawn at call 13, round two read nothing -- the ghost proba
 the far tier). Move not callable from Lua. Verdict and the next rig (D1's C++ dev toggle, mirror
 off, tick on) in `UNVERIFIED.md`. The old looping clip was cleared from `active/` and the user
 went to make a longer recording (*"this recording we had was hard to judge"*).
+
+## 2026-09-09 (night, from 22:50) — D1 and Stage C in one sitting: the driven ghost
+
+The user: *"lets try that i guess"* -- the C++ rig (`ghost_drive.txt`, `GHOST_DRIVE`), on their
+walk-sit-idle recording looping in `active/`. Builds and what each one showed, in order:
+
+1. `mode=attack_loop` with a REAL pressed value, mirrors off: nothing -- the animation-state
+   writes live in the TAIL, not the mirror section (the ghost still "walked" and "sat" from the
+   clip while its position was frozen). Gated; then still a sit: the montage mirror's
+   DIVERGENCE CORRECTOR (replays the clip's montage onto a ghost playing something else), found
+   by a live `tail_until` bisect (gone at 5, back at 6). Gated with the stop half.
+2. `mode=jump` (the control): *"it jumped, and then fell down into the floor"* -- a mirrored
+   ghost has collision off. Prepared: collision ON, capsule ignores Pawn and Camera, WorldDynamic,
+   no overlaps. *"yee it lands on the floor."*
+3. Attack still silent with the sword in hand: the log named it, `obtainedAttack?` false -- a
+   clone has class defaults. A Lua grant flipped it and the very next node 4 put actionState to
+   2: *"i saw it attack a few times"*. Node 3 reads as the charge hold (actionState 10 on the
+   fifth press), 5 does nothing. The rig now copies every `obtained*`/`has*` bool from the
+   player's pawn at prepare (20 of them).
+4. `mode=track`: the Move node with the stick did nothing (`moveState` 0, 16 corrections per
+   10 s) -- the census had said it: this pawn reads Move through the BOUND value. The engine's
+   `AddMovementInput` with the direction from `cam_yaw` walked the route: corrections 1-2 per
+   10 s, drift under 25 while walking. Facing: `bOrientRotationToMovement` back on.
+   *"its facing properly, and also still walking not gliding."*
+5. Interact (the user's call: fire it; measure what it reaches): *"now it sat down, but it kept
+   being in the sitting move"*. An EndInteract-on-stick rule stood it up -- and was exactly wrong
+   for the user's second recording, the table glitch (seated walk). `sit_watch.lua` on the
+   player's own pawn: a real stand-up is the RISING EDGE of `hasMovementInput?` while seated
+   (moveState 8, MovementMode 5); `Interaction Target` is never cleared; the glitch is the same
+   sequence with the input already held. The rig now writes `inputVectorWorld` /
+   `moveInputAmount` / `hasMovementInput?` from the stick and decides nothing itself.
+6. The glitch clip still did not reproduce until the clip's LANDING PULSE (a `Montage_Stop` on
+   every recorded landing) was gated too: the ghost had sat, fallen, landed -- the player's own
+   path -- and the pulse killed the sit animation the pawn had started. *"okay now it was doing
+   the chair glitch."* Two lessons on the way: `min`/`max` under `<windows.h>` (twice), and a
+   watcher that waits on `UE4SS.log` must not read the previous launch's file.
+
+Open at the close: the sit is the HURT variant (health on the shared instance the ghost is cut
+from; a private instance object is the candidate), corrections spike on the clip's cling, Power
+and the crouch release are unmapped, and the 1:1 side-by-side is the user's to judge. The
+tester's z-order report landed the same evening: `g_hud_z` 1000 -> 0, confirmed live on the
+indicator. Every mirror stays the shipped path; the rig is a file beside the DLL.
