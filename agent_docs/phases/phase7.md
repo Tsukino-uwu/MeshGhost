@@ -3133,3 +3133,16 @@ Deployed to BOTH installs (`11ee35453e62`) the moment the game exited — the us
 away — and the game-root config set to `inputs: true`, `record_on_launch: true` for the first run.
 `bridge/inputlimits_test.go` pins the adapter's exact lines as accepted. UNWATCHED: no game has run
 with it. The first run's questions are in `UNVERIFIED.md`'s READY entry.
+
+**13:14, the first run, and the second build.** The user launched; the mod took the config gate,
+sent the label table, passed the layout check (`Actor@0 Action@8 ReturnValue@16 size 32`) and sent
+155 edges -- all axis-only, the jump check silent. Not a byte-layout fault: `GetBoundActionValue`
+answers only for actions the Blueprint binds by VALUE, and the census's own function list names
+them (`setInputVariables`, `poleTick` -- the sticks); every button is event-bound and reads zero.
+The census had proved the call, not its coverage, and the plan's ranking had assumed one implied
+the other. Second build at 13:40 (`43332482f484`): buttons through `IsInputKeyDown(FKey)` per key the live
+mapping contexts bind to each action (all offsets reflected, the FName copied from the game's own
+table into a zeroed FKey), sticks unchanged, the log line every tenth bridge line, `source`
+`imc_keys+bound_axes`. Two more from that run: the game root's core was the 2026-09-07 build,
+older than the track, so no file could be written -- both roots now carry the fresh core -- and
+the first build's log line printed ~1.5 times a second. Deployed to both installs; unwatched.

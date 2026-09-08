@@ -14,8 +14,8 @@ import (
 // hears about it.
 func TestPseudoregaliaAdapterLinesAreAccepted(t *testing.T) {
 	lines := []string{
-		`{"type":"input_sample","payload":{"labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],"axes":["move_x","move_y","look_x","look_y"],"source":"enhanced_input_bound_value","edges":[{"f":1041,"t":17350,"m":1,"ax":[0,0,0,0]}]}}`,
-		`{"type":"input_sample","payload":{"labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],"axes":["move_x","move_y","look_x","look_y"],"source":"enhanced_input_bound_value","edges":[]}}`,
+		`{"type":"input_sample","payload":{"labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],"axes":["move_x","move_y","look_x","look_y"],"source":"imc_keys+bound_axes","edges":[{"f":1041,"t":17350,"m":1,"ax":[0,0,0,0]}]}}`,
+		`{"type":"input_sample","payload":{"labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],"axes":["move_x","move_y","look_x","look_y"],"source":"imc_keys+bound_axes","edges":[]}}`,
 		`{"type":"input_sample","payload":{"drop":3,"edges":[{"f":1043,"t":17383,"m":0,"ax":[0.5,-0.25,0.015625,-1]},{"f":1044,"t":17400,"m":9,"ax":[0.5,-0.25,0.015625,-1]}]}}`,
 	}
 	for i, line := range lines {

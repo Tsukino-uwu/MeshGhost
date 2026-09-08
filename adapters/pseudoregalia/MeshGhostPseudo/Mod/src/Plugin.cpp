@@ -150,17 +150,27 @@ namespace MeshGhostPseudo
     // compile-time `false` here would make that setting a lie, which is why this is not the
     // plan's original "INPUT_TRACK_CAPTURE (false)" (deviation recorded in FLAGS.md).
     //
-    // WHERE THE BITS COME FROM -- decided by the 2026-09-08 census (`probes/probe_inputcensus/`,
-    // `UNVERIFIED.md`): Enhanced Input's already-merged per-action value,
-    // `UEnhancedInputLibrary::GetBoundActionValue(Actor, Action)`, a reflected BlueprintPure static
-    // (dev.epicgames.com, UEnhancedInputLibrary) on the library's default object. Device-agnostic
-    // and rebind-proof for free, because the game merged keyboard, gamepad and its mapping
-    // contexts before we look. The census proved the CALL (55,000 of them, no fault) and could not
-    // read the VALUE from Lua -- FInputActionValue has no reflected fields -- so the value's layout
-    // is checked here at runtime (size) and against the pawn's own `jumpButtonHeld?` latch on
-    // every jump edge (the agree/disagree counters on the INPUTTRACK log line). The fallback the
-    // census also proved, `IsInputKeyDown(FKey)` per mapped key, is not built; reach for it only
-    // if those counters disagree.
+    // WHERE THE BITS COME FROM -- two reads, and the first live run (2026-09-08 13:15) decided the
+    // split. The 2026-09-08 census (`probes/probe_inputcensus/`, `UNVERIFIED.md`) had ranked
+    // Enhanced Input's merged per-action value, `UEnhancedInputLibrary::GetBoundActionValue(Actor,
+    // Action)` (dev.epicgames.com, UEnhancedInputLibrary), first. The first build read all 13
+    // actions through it, and the run produced 155 edges, every one axis-only, with the jump check
+    // never firing: **a bound action VALUE exists only for the actions the Blueprint binds by
+    // value**, and this pawn's function list shows exactly which -- `setInputVariables` and
+    // `poleTick` read one (the sticks), the buttons are event-bound (`InpActEvt_*`) and read zero.
+    //   - STICKS (`IA_Move`, `IA_Look`): `GetBoundActionValue`, whose FInputActionValue has no
+    //     reflected fields, so its size is checked against reflection before the first call and
+    //     the doubles are read from the ProcessEvent buffer.
+    //   - BUTTONS (11 actions): `APlayerController::IsInputKeyDown(FKey)` -- native, pure,
+    //     reflected, the path the census proved end to end (118,000 calls) -- once per KEY the
+    //     game's own `InputMappingContext`s bind to those actions, OR'd into each action's bit.
+    //     Every offset (the FKey parameter, its `KeyName`, each mapping's `Action` and `Key`) comes
+    //     from reflection; the FName bytes are copied from the game's mapping into a zeroed FKey,
+    //     so the hand-built key has no `KeyDetails` to destruct. Rebind-aware because the table is
+    //     rebuilt from the live contexts on a cadence; device-agnostic because both devices' keys
+    //     are in the same contexts.
+    // The jump bit is still checked live against the pawn's own `jumpButtonHeld?` latch on every
+    // jump edge (the agree/disagree counters on the INPUTTRACK log line).
     constexpr bool INPUT_TRACK_CAPTURE = true;
     // The two sticks (IA_Move, IA_Look; both Axis2D per the census) as four axes on every edge,
     // quantized to 1/64 and throttled to ~30 Hz unless a button edge carries them. `false` sends
@@ -23536,19 +23546,16 @@ namespace MeshGhostPseudo
     // `probes/probe_inputcensus/`). Two functions: this one reads, on the game thread, once per
     // engine frame; the next drains and sends on UE4SS's thread.
     //
-    // Everything about the reflected call is resolved by NAME off the function's own reflection
-    // and checked before the first call, in the spirit of spawn_niagara_attached: the two
-    // parameters by name, the return slot by name AND by size. FInputActionValue has no reflected
-    // fields, so its size is the one thing reflection can vouch for; the rest of its layout (an
-    // FVector of doubles at offset 0, the type byte after it) is the engine's header, which is why
-    // the jump bit is checked live against the pawn's own `jumpButtonHeld?` on every jump edge and
-    // the two counters are printed beside the bridge stats. Disagreement means the layout is wrong
-    // and the fallback the census proved (IsInputKeyDown per mapped key) is the next build.
+    // Everything about both reflected calls is resolved by NAME off the function's own reflection
+    // and checked before the first call, in the spirit of spawn_niagara_attached: parameters by
+    // name, return slots by name, the FInputActionValue return by size too (it has no reflected
+    // fields, so its size is the one thing reflection can vouch for; the doubles at its start are
+    // the engine's header). The jump bit is checked live against the pawn's own `jumpButtonHeld?`
+    // on every jump edge and the two counters are printed beside the bridge stats.
     auto Plugin::input_track_sample(UObject* controller, UObject* pawn) -> void
     {
-        (void)controller;
         ++input_frame; // engine frames on which a read was possible, whether or not one happened
-        if (!g_input_track_enabled || !pawn)
+        if (!g_input_track_enabled || !pawn || !controller)
         {
             input_have_prev = false;
             return;
@@ -23574,18 +23581,13 @@ namespace MeshGhostPseudo
         static bool layout_resolved = false;
         static bool layout_refused = false;
         constexpr size_t PARMS_CAP = 128;
-        if (layout_refused)
-        {
-            return;
-        }
-        if (!layout_resolved)
+        if (!layout_resolved && !layout_refused)
         {
             if (!function || !library_cdo)
             {
                 layout_refused = true;
-                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK refused -- GetBoundActionValue={} EnhancedInputLibrary CDO={}; no input track on this build.\n"),
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK sticks refused -- GetBoundActionValue={} EnhancedInputLibrary CDO={}; buttons still record, axes stay 0.\n"),
                              function ? STR("found") : STR("MISSING"), library_cdo ? STR("found") : STR("MISSING"));
-                return;
             }
             parms_size = function->GetPropertiesSize();
             for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
@@ -23618,13 +23620,18 @@ namespace MeshGhostPseudo
             if (!plausible)
             {
                 layout_refused = true;
-                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK refused -- GetBoundActionValue layout not as expected (Actor@{} Action@{} ReturnValue@{} size {} of {} bytes; expected a {}-byte FInputActionValue). No input track on this build.\n"),
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK sticks refused -- GetBoundActionValue layout not as expected (Actor@{} Action@{} ReturnValue@{} size {} of {} bytes; expected a {}-byte FInputActionValue). Buttons still record, axes stay 0.\n"),
                              actor_offset, action_offset, return_offset, return_size, parms_size, INPUT_ACTION_VALUE_SIZE);
-                return;
             }
-            layout_resolved = true;
-            Output::send(STR("[MeshGhostPseudo] INPUTTRACK: GetBoundActionValue resolved (Actor@{} Action@{} ReturnValue@{} size {}, {} bytes of params).\n"),
-                         actor_offset, action_offset, return_offset, return_size, parms_size);
+            else
+            {
+                layout_resolved = true;
+            }
+            if (layout_resolved)
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: GetBoundActionValue resolved (Actor@{} Action@{} ReturnValue@{} size {}, {} bytes of params).\n"),
+                             actor_offset, action_offset, return_offset, return_size, parms_size);
+            }
         }
 
         // The label table IS this array's order: bit i of the mask is BUTTONS[i]. The names are
@@ -23682,7 +23689,7 @@ namespace MeshGhostPseudo
         // is all the track needs (Conv_InputActionValueToBool/Axis2D read the same vector).
         uint8_t params[PARMS_CAP];
         auto read_value = [&](UObject* action, double out[3]) -> bool {
-            if (!action)
+            if (!action || !layout_resolved)
             {
                 return false;
             }
@@ -23701,18 +23708,227 @@ namespace MeshGhostPseudo
             return true;
         };
 
-        uint32_t mask = 0;
-        double raw_jump[3] = {0.0, 0.0, 0.0};
-        for (size_t i = 0; i < BUTTON_COUNT; ++i)
+        // BUTTONS. `IsInputKeyDown(FKey)` on the controller, resolved once per controller
+        // instance; the FKey parameter's `KeyName` offset and size from the struct's own
+        // reflection, so the only bytes written into the zeroed parameter are an FName the game's
+        // mapping table already holds.
+        static UObject* key_fn_owner = nullptr;
+        static UFunction* key_fn = nullptr;
+        static int32_t key_param_offset = -1;
+        static int32_t key_param_size = 0;
+        static int32_t keyname_offset = -1;
+        static int32_t keyname_size = 0;
+        static int32_t key_ret_offset = -1;
+        static int32_t key_parms_size = 0;
+        static bool key_layout_refused = false;
+        if (!key_layout_refused && (key_fn == nullptr || key_fn_owner != controller))
         {
-            double v[3];
-            if (read_value(buttons[i].asset, v) && v[0] != 0.0)
+            key_fn = mg_cached_function(controller, STR("IsInputKeyDown"));
+            key_fn_owner = controller;
+            key_param_offset = -1;
+            keyname_offset = -1;
+            key_ret_offset = -1;
+            if (key_fn)
             {
-                mask |= (1u << i);
+                key_parms_size = key_fn->GetPropertiesSize();
+                for (FProperty* param : TFieldRange<FProperty>(key_fn, EFieldIterationFlags::None))
+                {
+                    if (!param)
+                    {
+                        continue;
+                    }
+                    const StringType name = param->GetName();
+                    if (name == STR("Key") && param->GetClass().GetName() == STR("StructProperty"))
+                    {
+                        key_param_offset = param->GetOffset_Internal();
+                        key_param_size = param->GetSize();
+                        if (UScriptStruct* fkey = static_cast<FStructProperty*>(param)->GetStruct())
+                        {
+                            for (FProperty* f : TFieldRange<FProperty>(fkey, EFieldIterationFlags::Default))
+                            {
+                                if (f && f->GetName() == STR("KeyName"))
+                                {
+                                    keyname_offset = f->GetOffset_Internal();
+                                    keyname_size = f->GetSize();
+                                }
+                            }
+                        }
+                    }
+                    else if (name == STR("ReturnValue"))
+                    {
+                        key_ret_offset = param->GetOffset_Internal();
+                    }
+                }
             }
-            if (i == 0)
+            const bool ok = key_fn && key_param_offset >= 0 && keyname_offset >= 0 && key_ret_offset >= 0 &&
+                            keyname_size > 0 && keyname_size <= 16 && key_param_size >= keyname_offset + keyname_size &&
+                            key_parms_size > 0 && static_cast<size_t>(key_parms_size) <= PARMS_CAP &&
+                            key_ret_offset < key_parms_size;
+            if (!ok)
             {
-                std::memcpy(raw_jump, v, sizeof(raw_jump));
+                key_layout_refused = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK buttons refused -- IsInputKeyDown={} (Key@{} size {}, KeyName@{} size {}, ReturnValue@{}, {} bytes of params); no button bits on this build.\n"),
+                             key_fn ? STR("found") : STR("MISSING"), key_param_offset, key_param_size, keyname_offset, keyname_size, key_ret_offset, key_parms_size);
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: IsInputKeyDown resolved (Key@{} size {}, KeyName@{} size {}, ReturnValue@{}, {} bytes of params).\n"),
+                             key_param_offset, key_param_size, keyname_offset, keyname_size, key_ret_offset, key_parms_size);
+            }
+        }
+
+        // THE KEY TABLE: which keys the game's mapping contexts bind to which of our actions, as
+        // the FName bytes of each key and the mask bits it sets, one entry per distinct key. Read
+        // from every loaded `InputMappingContext`'s `Mappings` array through its reflected struct
+        // layout (`Action`, `Key.KeyName`), rebuilt on the resolve cadence so a rebind lands
+        // without a relaunch. A key bound to two of our actions sets both bits -- the game's own
+        // table has several (the census: Gamepad_FaceButton_Left is Jump AND Attack).
+        struct KeyEntry
+        {
+            uint8_t name[16];
+            int32_t name_size;
+            uint32_t bits;
+        };
+        static std::vector<KeyEntry> keys;
+        static uint64_t keys_built_frame = 0;
+        static size_t keys_contexts = 0;
+        if (keys_built_frame == 0 || input_frame - keys_built_frame >= INPUT_TRACK_RESOLVE_INTERVAL_FRAMES)
+        {
+            keys_built_frame = input_frame;
+            std::vector<KeyEntry> fresh;
+            size_t contexts = 0;
+            std::vector<UObject*> imcs;
+            UObjectGlobals::FindAllOf(STR("InputMappingContext"), imcs);
+            for (UObject* imc : imcs)
+            {
+                if (!imc || imc->HasAnyFlags(RF_ClassDefaultObject))
+                {
+                    continue;
+                }
+                FProperty* mappings_prop = mg_cached_property(imc, STR("Mappings"));
+                if (!mappings_prop || mappings_prop->GetClass().GetName() != STR("ArrayProperty"))
+                {
+                    continue;
+                }
+                FArrayProperty* arr = static_cast<FArrayProperty*>(mappings_prop);
+                FProperty* inner = arr->GetInner();
+                if (!inner || inner->GetClass().GetName() != STR("StructProperty"))
+                {
+                    continue;
+                }
+                UScriptStruct* mapping_struct = static_cast<FStructProperty*>(inner)->GetStruct();
+                if (!mapping_struct)
+                {
+                    continue;
+                }
+                int32_t action_off = -1;
+                int32_t key_off = -1;
+                int32_t kn_off = -1;
+                int32_t kn_size = 0;
+                for (FProperty* f : TFieldRange<FProperty>(mapping_struct, EFieldIterationFlags::Default))
+                {
+                    if (!f)
+                    {
+                        continue;
+                    }
+                    const StringType n = f->GetName();
+                    if (n == STR("Action"))
+                    {
+                        action_off = f->GetOffset_Internal();
+                    }
+                    else if (n == STR("Key") && f->GetClass().GetName() == STR("StructProperty"))
+                    {
+                        key_off = f->GetOffset_Internal();
+                        if (UScriptStruct* fkey = static_cast<FStructProperty*>(f)->GetStruct())
+                        {
+                            for (FProperty* g : TFieldRange<FProperty>(fkey, EFieldIterationFlags::Default))
+                            {
+                                if (g && g->GetName() == STR("KeyName"))
+                                {
+                                    kn_off = g->GetOffset_Internal();
+                                    kn_size = g->GetSize();
+                                }
+                            }
+                        }
+                    }
+                }
+                if (action_off < 0 || key_off < 0 || kn_off < 0 || kn_size <= 0 || kn_size > 16)
+                {
+                    continue;
+                }
+                FScriptArrayHelper helper(arr, arr->ContainerPtrToValuePtr<void>(imc));
+                const int32_t n = helper.Num();
+                if (n <= 0 || n > 512)
+                {
+                    continue;
+                }
+                ++contexts;
+                for (int32_t i = 0; i < n; ++i)
+                {
+                    uint8_t* elem = helper.GetRawPtr(i);
+                    if (!elem)
+                    {
+                        continue;
+                    }
+                    UObject* action = *reinterpret_cast<UObject**>(elem + action_off);
+                    if (!action)
+                    {
+                        continue;
+                    }
+                    uint32_t bits = 0;
+                    for (size_t b = 0; b < BUTTON_COUNT; ++b)
+                    {
+                        if (buttons[b].asset && buttons[b].asset == action)
+                        {
+                            bits |= (1u << b);
+                        }
+                    }
+                    if (bits == 0)
+                    {
+                        continue;
+                    }
+                    const uint8_t* name = elem + key_off + kn_off;
+                    bool merged = false;
+                    for (KeyEntry& k : fresh)
+                    {
+                        if (k.name_size == kn_size && std::memcmp(k.name, name, static_cast<size_t>(kn_size)) == 0)
+                        {
+                            k.bits |= bits;
+                            merged = true;
+                            break;
+                        }
+                    }
+                    if (!merged && fresh.size() < 64)
+                    {
+                        KeyEntry k{};
+                        std::memcpy(k.name, name, static_cast<size_t>(kn_size));
+                        k.name_size = kn_size;
+                        k.bits = bits;
+                        fresh.push_back(k);
+                    }
+                }
+            }
+            if (fresh.size() != keys.size() || contexts != keys_contexts)
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: key table: {} distinct key(s) for {} actions from {} mapping context(s).\n"),
+                             fresh.size(), BUTTON_COUNT, contexts);
+            }
+            keys.swap(fresh);
+            keys_contexts = contexts;
+        }
+
+        uint32_t mask = 0;
+        if (key_fn && !key_layout_refused)
+        {
+            for (const KeyEntry& k : keys)
+            {
+                std::memset(params, 0, sizeof(params));
+                std::memcpy(params + key_param_offset + keyname_offset, k.name, static_cast<size_t>(k.name_size));
+                controller->ProcessEvent(key_fn, params);
+                if (params[key_ret_offset] != 0)
+                {
+                    mask |= k.bits;
+                }
             }
         }
         double ax[4] = {0.0, 0.0, 0.0, 0.0};
@@ -23812,19 +24028,9 @@ namespace MeshGhostPseudo
 
         if constexpr (INPUT_TRACK_TRACE)
         {
-            static int raw_lines = 0;
-            if (raw_lines < 12 && button_edge)
-            {
-                ++raw_lines;
-                Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) jump_raw=({},{},{}) jumpButtonHeld?={}\n"),
-                             edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], raw_jump[0], raw_jump[1], raw_jump[2],
-                             mg_read_bool(pawn, STR("jumpButtonHeld?"), false));
-            }
-            else
-            {
-                Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) {}\n"),
-                             edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], button_edge ? STR("button") : STR("axis"));
-            }
+            Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) {} jumpButtonHeld?={}\n"),
+                         edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], button_edge ? STR("button") : STR("axis"),
+                         mg_read_bool(pawn, STR("jumpButtonHeld?"), false));
         }
     }
 
@@ -23866,7 +24072,7 @@ namespace MeshGhostPseudo
             {
                 line += R"("axes":["move_x","move_y","look_x","look_y"],)";
             }
-            line += R"("source":"enhanced_input_bound_value",)";
+            line += R"("source":"imc_keys+bound_axes",)";
         }
         if (drops > 0)
         {
@@ -24290,10 +24496,12 @@ namespace MeshGhostPseudo
                 stats.lines_malformed);
             if constexpr (INPUT_TRACK_CAPTURE)
             {
-                if (g_input_track_enabled)
+                // Every tenth bridge line: the first run printed this at the bridge line's own
+                // cadence, ~1.5 a second, which is the log spam FLAGS.md's probe section is about.
+                if (g_input_track_enabled && (tick_count % (LOG_INTERVAL_TICKS * 10)) == 0)
                 {
                     // The success path, logged from the first build: the read's live check beside
-                    // its throughput. disagree > 0 means the value layout is wrong for this build.
+                    // its throughput. disagree > 0 means a button read is wrong for this build.
                     Output::send<LogLevel::Normal>(
                         STR("[MeshGhostPseudo] INPUTTRACK: frames={} edges_sent={} batches={} jump_check agree={} disagree={}\n"),
                         input_frame, input_edges_sent, input_batches_sent, input_jump_agree, input_jump_disagree);

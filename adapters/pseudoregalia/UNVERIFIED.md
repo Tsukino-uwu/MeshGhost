@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **THE INPUT TRACK captures on Pseudoregalia (built 2026-09-08 midday, both installs, `11ee35453e62`), UNWATCHED.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
+- READY — **THE INPUT TRACK captures on Pseudoregalia (second build 2026-09-08 13:40, both installs, `43332482f484`; the first build's buttons read zero -- see the entry), UNWATCHED.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -79,6 +79,26 @@ entry without one.
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
 ## [READY] the input track's capture is built and deployed, UNWATCHED (2026-09-08 midday)
+
+**First run, 13:14-13:16, the user's own launch (build `11ee35453e62`): the plumbing worked and the
+buttons did not.** `replay.inputs` reached the mod (`config replay.inputs=true`), the label table went
+out after the hello, the layout check passed exactly as the header says (`Actor@0 Action@8
+ReturnValue@16 size 32`), frames counted at ~140 a second, and 155 edges were sent -- **every one of
+them axis-only: the jump check never fired.** The census had proved `GetBoundActionValue` CALLABLE,
+not that it answers for every action, and it does not: a bound action value exists only for the
+actions the Blueprint binds by VALUE, and this pawn's own function list (the census file) shows which
+-- `setInputVariables` and `poleTick` read one, i.e. the sticks; every button is event-bound
+(`InpActEvt_*`) and reads zero. Two other findings from the same run: the core in the game root was
+the 2026-09-07 build, older than the input track, so no file was written (both game roots now carry
+`57a22f8b8cd0`); and the `INPUTTRACK:` line printed at the bridge line's cadence, ~1.5 a second.
+
+**Second build (`43332482f484`, 13:40):** buttons through `IsInputKeyDown(FKey)` per key the game's mapping
+contexts bind to each action, the census's proven path, folded into the action bits (a key bound to
+two of our actions sets both -- the game's own table has several); sticks unchanged through the bound
+value; the log line every tenth bridge line; `source` is now `imc_keys+bound_axes`. Expect two new
+lines at the first gameplay frame -- `IsInputKeyDown resolved (Key@.. size 24, KeyName@0 size 8, ..)`
+and `key table: N distinct key(s) for 11 actions from 2 mapping context(s)` (the census saw 35
+mappings per context, ~28 keys for these 11 actions).
 
 **What it is.** The adapter half of ADR 0056: once per engine frame the mod reads the game's own
 merged Enhanced Input value for 11 actions and the two sticks on the local pawn, and sends every
