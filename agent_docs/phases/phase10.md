@@ -1080,3 +1080,23 @@ about a leaked path had quoted the literal path.
 captured tail held only teardown noise and not the test name, and seven subsequent core runs plus a
 full suite pass are clean. Filed as O3 with the only useful instruction available: capture the whole
 output next time, because without a test name there is nothing to bisect.
+
+## 2026-09-08 — the Go side of the input track, logged here as well as in phase11
+
+Three Go-touching commits since this file's last entry, all the input track (ADR 0056), whose full
+account is `phase11.md`'s 2026-09-08 entries because the feature is a replay feature; this file is
+the Go side's own log, so the pointer lives here too:
+
+- `5e70a57e` — `input_sample` on the bridge, `bridge/inputlimits.go` (the limits live in `bridge`,
+  not `protocol/limits.go`: `protocol` cannot import `bridge`), `core/inputrecorder.go` and
+  `core/inputtrack.go`, the `replay.inputs` flag and config key, shipped off. Suite, race and a
+  10-minute fuzz campaign green. The pre-existing ~17% `-race` flake in
+  `TestARejectWinsARaceAgainstTheSocketClosing` was attributed the same evening (`status.md`).
+- `5f23f1ca` — one unmarked `time.Now()` in `inputrecorder.go` marked `wall-clock:` (an artefact
+  timestamp, the same as its neighbour); preflight's clock gate had caught it.
+- `cb869f7d` — `bridge/inputlimits_test.go`: the Pseudoregalia adapter's exact `input_sample`
+  lines, byte for byte as its `std::format` calls shape them, pinned as accepted by
+  `ValidateInputSample`, so a change on either side that breaks the other is a red test and not a
+  silently dropped track.
+
+Nothing in `core` changed for the adapter half; the format was source-agnostic by design.
