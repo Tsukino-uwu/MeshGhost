@@ -2740,8 +2740,33 @@ needs an ADR.
 
 **BUILT 2026-09-08, the capture half: ADR 0056** (`adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md`).
 A `input_sample` bridge message and a second NDJSON track in `replay/inputs/`, shipped off behind
-`replay.inputs`; no adapter sends one yet. Everything below still stands as the reasoning, and the
-three blockers it names are unchanged and still block the PLAYBACK half.
+`replay.inputs`. **Pseudoregalia's mod sends one from the 2026-09-08 build** (buttons through the
+controller's `IsInputKeyDown` per key the game's mapping contexts bind, sticks through Enhanced
+Input's bound value; `adapters/pseudoregalia/UNVERIFIED.md`, unwatched). Everything below still
+stands as the reasoning, and the three blockers it names are unchanged and still block the PLAYBACK
+half.
+
+**Design references for the DISPLAY half, read 2026-09-08 at the user's pointer (both licences
+checked first, `licensing.md`; facts only, nothing copied):**
+
+- **CelesteInputHistory (Apache-2.0)** -- an on-screen input history for Celeste, i.e. the thing the
+  Pseudoregalia speedrun Discord's owner asked for. Its model is exactly what an edge track turns
+  into: a history ROW is the whole input state (a signed integer axis pair plus one entry per
+  button) with a FRAME count, and a new frame either EXTENDS the current row (state unchanged) or
+  starts one -- our track's consecutive edges are those rows, and `f` differences are the counts.
+  It labels buttons in TAS notation (`J`ump, `X` dash, `Z` crouch-dash, `G` grab) and can write the
+  history as a TAS replay file (`N,J,X` lines), with its own caveat that two binds for one button
+  can desync a replay -- a caveat our per-action mask does not have, since the game merged the
+  binds before we read. Its TODO list is a to-do list for ours too: mark an input that was BUFFERED
+  or had NO EFFECT (needs the game's state beside the press -- our clip has it), show a screen
+  transition as its own row (our `area_id` changes), keep the overlay off the character, and make
+  the shown buttons configurable rather than the player's own key glyphs (widths differ).
+- **PseudoregaliaHealth (MIT)** -- the drawing mechanism for that overlay in this game: a UMG
+  `UserWidget` built at runtime from reflection and added to the viewport
+  (`adapters/pseudoregalia/documentation.md`, "What a tester's MIT-licensed mod showed").
+
+A visualizer built from these reads the track the core writes -- or, live, the same edges the mod
+already has in hand before it sends them -- and never needs the core to know what a label means.
 
 **The user's question, and it is a good one because it names a real gap:** *"could you learn how to
 play a game by watching a recording i have done?"* — no, and the reason is structural rather than a
