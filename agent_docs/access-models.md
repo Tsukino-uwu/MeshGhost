@@ -420,15 +420,16 @@ obscure one is tier 8 and a differential hunt.
 |---|---|---|---|---|
 | **BizHawk** | GBA etc. | Lua memory API | **`gui.*` primitives** | Why Emerald exists at all |
 | **PCSX2** | PS2 | **PINE** IPC — sanctioned external read/write (verify) | no equivalent API | GPL — a distributed fork carries obligations |
-| **Dolphin** | GC / Wii | proven by **Dolphin Memory Engine** (separate open-source tool) | no mainline equivalent (verify) | GPL |
+| **Dolphin** | GC / Wii | proven by **Dolphin Memory Engine** (separate open-source tool) | no host-side API — but see **inject code into the guest** below (2026-09-08) | GPL |
 | **Cemu** | **Wii U**, not Switch | route unknown (verify) | unknown | open-sourced 2022, MPL (verify) |
 
 So for anything but BizHawk, **the adapter's hard problem is rendering, not finding data** — the
 opposite of every adapter this project has written. Options are hooking the emulator's renderer
 (PCSX2 and Dolphin draw their own ImGui overlays, so there is something to hook), an external
 transparent overlay window, or a fork. All three are real work, and the fork option collides with
-GPL in a way the MIT/permissive tools we bundle today do not. `licensing.md`'s rule applies first:
-read the licence before the source.
+GPL in a way the MIT/permissive tools we bundle today do not — and all three try to draw from the
+HOST side, which a fourth option below (2026-09-08) avoids entirely. `licensing.md`'s rule applies
+first: read the licence before the source.
 
 ### One upside of the external route, added 2026-08-28
 
@@ -445,6 +446,83 @@ It also sidesteps the host-scripting constraints this repo has already paid for 
 **This does not change the ordering above.** Reading was never the hard half here; **drawing is**,
 and an external process is no closer to drawing than anything else. Take it as a reason the
 reading half is cheaper than it looks, not as a reason the adapter is.
+
+### A fourth drawing option, and it is not on the list above: inject code into the GAME
+
+**Found 2026-09-08 by reading a shipped Archipelago client for a GameCube title**
+([`aXu-AP/archipelago-double-dash`](https://github.com/aXu-AP/archipelago-double-dash), MIT — read
+for facts, nothing copied). The three options in the paragraph above all try to draw from the HOST
+side: hook the emulator's renderer, overlay a window, fork it. There is a fourth that never touches
+the emulator at all — **an external process writes machine code into emulated RAM at runtime, and
+the GAME draws the ghost.**
+
+What that client actually does, as a worked example:
+
+- It is a Python process **outside** Dolphin. It attaches with
+  [`py-dolphin-memory-engine`](https://github.com/henriquegemignani/py-dolphin-memory-engine) (MIT)
+  — `hook()`, `read_bytes()`, `write_word()`, `write_byte()`, `un_hook()` — and polls on a 0.1 s
+  loop. The user supplies an unmodified retail disc image and a **stock** Dolphin: no custom build,
+  no plugin, no patched image, and its setup guide warns that Gecko codes such as widescreen hacks
+  can crash it.
+- It ships hand-written PowerPC assembly (`asm/patch.asm`). A build script assembles it with
+  devkitPro's `powerpc-gekko-as` and emits a table of `address -> [instruction words]`; the client
+  writes that table into low MEM1 at boot — the conventional free/OS-globals scratch region, well
+  below the game's own code — and then reports "Patch Applied."
+- Functionally it is a ROM patch, applied *after* boot instead of before.
+
+**Why this is the shape to reach for first if a Dolphin adapter is ever picked up:**
+
+- **It is the patch-and-cable split described under [Real hardware](#snes-and-other-retro-consoles--patch-and-cable),
+  minus the patch and minus the cable.** Injected code owns rendering and interpolation on the
+  guest; our process owns the network and writes a ghost-state struct. That client's 0.1 s poll is
+  nowhere near enough for ghosts, but that is an argument for putting interpolation *in the injected
+  code* — exactly as the SNES sketch does — not an argument against the shape.
+- **It is the cleanest of the four against this file's own publishability test.** Dolphin is
+  untouched and unforked, so the GPL question never arises; the memory tool is MIT; the disc image
+  is the user's own; and what we would commit is our own assembly plus its assembled words — our
+  expression, not the game's. The fork option cannot say any of that.
+- **Hot reload is stronger here than the 2026-08-28 note above claims.** Re-injecting is itself a
+  memory write, so the *drawing* code reloads without restarting the emulator or the game.
+
+**Unverified, and each of these is a real risk rather than a detail:**
+
+- Whether external-process writes sustain a per-frame ghost struct without jitter. Nothing here has
+  measured it, and the client read did not need to.
+- Whether enough free guest RAM exists in a GIVEN title for code plus sprite state. Low MEM1 is
+  conventional, not guaranteed, and a few kB of scratch is not a sprite renderer.
+- What per-frame routine you hook to run the injected code at all — the equivalent of the NMI hook
+  in the SNES sketch, and the thing that decides whether this is possible in a title.
+- What the bytes MEAN is still the ordinary per-game tier question. That client's addresses came
+  from reverse-engineering work on that title, not from the emulator.
+
+**One operational trap, already this repo's:** `powerpc-gekko-as` is devkitPro — the install that has
+shadowed `PATH` three times here (`CLAUDE.md`, `pitfalls.md`). Toolchain work on this path starts
+from an absolute path, never a bare name.
+
+**This collides with a decision recorded 2026-09-04, and that collision is the thing to settle
+before anything else.** `licensing.md`'s `BetterSunshineEngine` row reads a console-injection mod as
+*"a route this project has closed"*, citing `CLAUDE.md`'s "nothing that ships writes a save, game
+state, or a ROM patch — ever" and the rule that emulator adapters are Lua-only. Three distinctions
+might survive that, and **none of them is settled here**:
+
+- **It is not a ROM patch.** Nothing on disk is touched, the disc image stays byte-identical, and
+  every write vanishes when the emulator closes. `CLAUDE.md`'s target is world custody — saves,
+  patches, persistent state.
+- **It is not obviously different from what a shipped adapter already does.** Crystal's adapter
+  *writes* to emulated RAM to spawn a ghost. The rule was never "no writes".
+- **But it puts OUR CODE inside the game's execution**, which no shipped adapter does, and that is
+  a larger step than a data write regardless of where the bytes live.
+
+**So do not read this section as a decision.** It records that the option exists and what shape it
+has; whether it is open at all is the user's call, and the answer belongs in an ADR
+(`architecture.md`).
+
+**The generalisation, which is the reason this is written down.** The question is not "does this
+emulator let me draw?" but **"can I get code into the guest, and does the guest have a renderer?"**
+Every emulator has a writable guest RAM by construction, so this option exists wherever a memory
+API does — PCSX2 via PINE, Cemu if its route is ever answered — and it converts the hard half from
+*host-side rendering work* into *the ordinary per-game reverse-engineering question* the rest of
+this file is about.
 
 ### Dolphin has a wrinkle none of the others do: netplay already exists
 
@@ -486,7 +564,9 @@ Order of work, cheapest question first:
 2. **Confirm the memory API** exists and is supported — PINE, or whatever the equivalent is.
 3. **Answer the drawing question before anything else**, because it is the hard half here and the
    one with no precedent in this repo. An adapter that can read perfectly and cannot draw is not
-   an adapter.
+   an adapter. Start from [inject code into the GAME](#a-fourth-drawing-option-and-it-is-not-on-the-list-above-inject-code-into-the-game),
+   which turns this into "can I get code into the guest, and where is the free RAM?" rather than
+   an emulator-rendering problem.
 4. Only then the per-game tier question: does this title have a decomp or documented addresses?
 
 ## Real hardware — the console itself, and where the network boundary sits
