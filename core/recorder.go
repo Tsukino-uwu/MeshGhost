@@ -65,6 +65,11 @@ type replayHeader struct {
 	// the line before, with everything else carried forward at load time.
 	// Written by the recorder; a file without it is read as it always was.
 	Delta bool `json:"delta,omitempty"`
+	// RecordingID is this recording's own base filename, and it appears in the
+	// INPUT track's header too (ADR 0056) -- the one value tying the two
+	// artefacts of a single run together. Absent on every file written before
+	// that, which reads as "no input track was taken".
+	RecordingID string `json:"recording_id,omitempty"`
 
 	Game            string `json:"game"`
 	GameVersion     string `json:"game_version"`
@@ -612,7 +617,29 @@ func replayFileName(dir, prefix string, at time.Time, gz bool) (string, error) {
 // the file is created at the first sample (see recorder). ReplayDir must be
 // set; an empty one is refused so nothing is ever written "beside the exe" by
 // accident.
+// StartRecording arms the state recording and, when ReplayInputs is on, the
+// input track beside it, both carrying the same recording_id.
+//
+// TWO CALLS AND NOT ONE BODY, because of a lock ordering rule this file has
+// paid for twice: startStateRecording holds c.rec.mu for its whole body, and
+// the input side takes c.mu (for the game labels) and its own mutexes. Taking
+// those under c.rec.mu is the shape of the 2026-09-04 hang and the 2026-09-06
+// re-entrancy deadlock. So the state half finishes and releases first, and the
+// input half starts afterwards on the id it minted.
 func (c *Core) StartRecording() (string, error) {
+	path, err := c.startStateRecording()
+	if err != nil {
+		return path, err
+	}
+	if _, ierr := c.StartInputRecording(recordingIDFor(path)); ierr != nil {
+		// The state recording is already running and is the artefact the player
+		// asked for; losing the input track is worth a line, not a failure.
+		log.Printf("core: input track could not start: %v", ierr)
+	}
+	return path, nil
+}
+
+func (c *Core) startStateRecording() (string, error) {
 	if c.ReplayDir == "" {
 		return "", errors.New("no replay folder configured")
 	}
@@ -648,6 +675,7 @@ func (c *Core) StartRecording() (string, error) {
 	// After the header is built, not before: replayHeaderFor returns a fresh
 	// one and would otherwise wipe this.
 	c.rec.header.Delta = c.ReplayDelta
+	c.rec.header.RecordingID = recordingIDFor(path)
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
 	c.rec.on = true
@@ -676,6 +704,12 @@ func (c *Core) StopRecording() (path string, written int, err error) {
 	c.rec.mu.Unlock()
 	c.rearmTap()
 	c.pushRecordingState()
+	// After the state half is closed and its mutex released, never under it.
+	if ipath, iwritten, ierr := c.StopInputRecording(); ierr != nil {
+		log.Printf("core: input track stopped with an error: %v", ierr)
+	} else if iwritten > 0 {
+		log.Printf("core: input track stopped: %d edge(s) in %s", iwritten, ipath)
+	}
 	if !on {
 		return "", 0, nil
 	}
@@ -823,6 +857,13 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	span := time.Duration(samples[len(samples)-1].Timestamp-samples[0].Timestamp) * time.Millisecond
 	log.Printf("core: saved the last %s (%d samples) to %s", span.Round(time.Millisecond), len(samples), path)
+	// The input half of the same key press, tied to this clip by the same id.
+	// Best-effort: the state clip is written and returned either way.
+	if ipath, iedges, ierr := c.SaveLastInputs(recordingIDFor(path)); ierr != nil {
+		log.Printf("core: could not save the last inputs: %v", ierr)
+	} else if iedges > 0 {
+		log.Printf("core: saved the last %d input edge(s) to %s", iedges, ipath)
+	}
 	return path, len(samples), nil
 }
 

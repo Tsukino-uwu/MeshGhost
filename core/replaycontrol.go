@@ -112,18 +112,36 @@ func (c *Core) describeStart() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "recording STARTED -> " + path, nil
+	msg := "recording STARTED -> " + path
+	// Both tracks or neither: this sentence is the only feedback the key gives,
+	// so a player who turned replay.inputs on has to be able to see that the
+	// input half armed too (ADR 0056).
+	if ipath, _, on := c.inputTrackProgress(); on {
+		msg += " (+ inputs -> " + ipath + ")"
+	}
+	return msg, nil
 }
 
 func (c *Core) describeStop() (string, error) {
+	// Read BEFORE stopping: StopRecording closes the input track with it and
+	// reports only the state half's numbers.
+	ipath, iwritten, ion := c.inputTrackProgress()
 	path, written, err := c.StopRecording()
 	if err != nil {
 		return "", err
 	}
-	if written == 0 {
-		return "recording STOPPED -- no in-game samples, nothing written", nil
+	inputs := ""
+	if ion {
+		if iwritten == 0 {
+			inputs = " (no inputs recorded)"
+		} else {
+			inputs = fmt.Sprintf(" (+ %d input edge(s) -> %s)", iwritten, ipath)
+		}
 	}
-	return fmt.Sprintf("recording STOPPED -- %d sample(s) -> %s", written, path), nil
+	if written == 0 {
+		return "recording STOPPED -- no in-game samples, nothing written" + inputs, nil
+	}
+	return fmt.Sprintf("recording STOPPED -- %d sample(s) -> %s%s", written, path, inputs), nil
 }
 
 // seekReplays sends one command to every player. A player whose goroutine

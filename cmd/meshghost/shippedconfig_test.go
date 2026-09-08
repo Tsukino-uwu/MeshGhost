@@ -52,6 +52,7 @@ type shippedConfig struct {
 			SplitTimes     bool   `json:"split_times"`
 			Gzip           bool   `json:"gzip"`
 			Delta          bool   `json:"delta"`
+			Inputs         bool   `json:"inputs"`
 		} `json:"replay"`
 		Chaser struct {
 			Enabled    bool   `json:"enabled"`
@@ -184,6 +185,10 @@ func TestShippedConfigNeverRecordsOrChasesBySurprise(t *testing.T) {
 	cfg := loadShippedConfig(t, filepath.Join("packaging", "release", "config.json"))
 	if cfg.Client.Replay.RecordOnLaunch {
 		t.Error("shipped replay.record_on_launch must be false: nobody's disk fills up by surprise")
+	}
+	if cfg.Client.Replay.Inputs {
+		t.Error("shipped replay.inputs must be false: recording what the player pressed is a new " +
+			"kind of artefact and ships off, like every other capability here")
 	}
 	if cfg.Client.Replay.SplitTimes {
 		t.Error("shipped replay.split_times must be false: a nametag that changes several times a second is opted into")

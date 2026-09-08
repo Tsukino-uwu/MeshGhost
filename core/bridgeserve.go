@@ -224,6 +224,14 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// file itself appears at the first in-game sample, so the main menu
 			// is never in it and a game quit before play leaves nothing behind.
 			c.armRing()
+			// The input ring is the ALWAYS-ON half of the input track (ADR
+			// 0056): armed from attach whenever replay.inputs is set, so
+			// save-last can export the last stretch of input without anything
+			// having been armed in advance. reset() first, because a second
+			// adapter's bit 3 is not the first one's bit 3 and its frame
+			// counter starts again from zero.
+			c.inputMeta.reset()
+			c.armInputRing()
 			if c.RecordOnLaunch {
 				if _, err := c.StartRecording(); err != nil {
 					log.Printf("core: record_on_launch: %v", err)
@@ -285,6 +293,19 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 				return
 			}
 			c.SetPlayerFrozen(msg.Frozen)
+		case bridge.TypeInputSample:
+			var msg bridge.InputSample
+			if err := json.Unmarshal(env.Payload, &msg); err != nil {
+				return
+			}
+			// Validated here rather than in recordInput so a malformed batch is
+			// named once, at the boundary it arrived at. Dropped, never a
+			// disconnect: an adapter is not detached for sending a bad line.
+			if !bridge.ValidateInputSample(msg) {
+				c.logInputReject(bridge.InputSampleRejectReason(msg))
+				return
+			}
+			c.recordInput(msg)
 		case bridge.TypeEvent:
 			var msg bridge.Event
 			if err := json.Unmarshal(env.Payload, &msg); err != nil {
@@ -444,6 +465,12 @@ func (c *Core) finishBridgeTeardown(nd transport.Transport, wasAdapter, ownsRela
 	if _, _, err := c.StopRecording(); err != nil {
 		log.Printf("core: closing the recording on adapter disconnect: %v", err)
 	}
+	// StopRecording closes the input track that started with it; this covers
+	// the other case -- a track armed on its own, with no state recording.
+	if _, _, err := c.StopInputRecording(); err != nil {
+		log.Printf("core: closing the input track on adapter disconnect: %v", err)
+	}
+	c.SetInputRingSpan(0)
 }
 
 // onAdapterFrame is the one entry point a wire-speaking adapter drives, per

@@ -331,6 +331,50 @@ Actions: `record_start`, `record_stop`, `record_toggle`, `save_last`, `replay_la
 configured `replay.seek`. Do not register the same chord the core already owns for its hotkey:
 the core registered first and yours will fail.
 
+## Input track (optional, adapter -> core, 2026-09-08)
+
+What the PLAYER PRESSED, as a track of its own beside the state recording (ADR 0056). Entirely
+optional: an adapter that never sends this loses nothing, and the core ships with the whole
+feature off (`replay.inputs`).
+
+```json
+{"type":"input_sample","payload":{
+  "labels":["jump","attack","dash"],"axes":["move_x","move_y"],"source":"pawn_properties",
+  "edges":[{"f":1041,"t":17350,"m":1},{"f":1043,"t":17383,"m":0,"ax":[0.5,-0.25]}]}}
+```
+
+**Record ACTIONS, not devices.** Read the game's own already-merged input state -- the action a
+button maps to -- not raw OS keys. The game has merged keyboard, gamepad and rebinding before you
+see it, so a track built this way is device-agnostic and rebind-proof for free. It also cannot
+capture what the player types outside the game, which raw key reading would, on a track that is
+meant to be left running.
+
+**Read only, and never inject.** Reading input is unrestricted, like every other read. Feeding
+input to anything -- a ghost, and above all the local player -- is the forbidden side of the
+no-writes rule, and nothing in a shipped adapter may do it.
+
+`labels` names bit 0..n-1 of `m`, and `axes` names the slots of `ax`. Both are STICKY: send them
+on your first batch and again only when they change; absent means unchanged. `source` is a free
+tag saying where you read the bits, so a file says what it is. All three are opaque -- the core
+copies them into the track's header and never reads one.
+
+**Edges, not samples.** Send a line when the input CHANGES, and nothing when it does not: a
+one-frame press is two edges with consecutive `f`. Never rate-limit a button change; that is the
+one thing a track may not lose. Analog axes are the exception, since a stick changes every frame
+-- quantize them (1/64 is plenty) and send at most ~30 a second, but an edge carrying a BUTTON
+change must go immediately and carry the current axes with it.
+
+`f` is your own frame counter and `t` your own millisecond stamp, both monotonic and both kept
+verbatim -- the core stamps its own clock beside them. Both must not go backwards, within a batch
+or across batches: a batch that does is dropped whole, never repaired. If your own queue overflows,
+say so in `drop` rather than losing edges silently; a reader can then tell a lossy stretch from a
+quiet one.
+
+Caps: at most 64 edges per batch, 32 labels (the mask is 32 bits), 32 bytes per label or axis name,
+8 axes per edge, and axis values finite and within ±10000. Over 1000 edges a second the core drops
+batches and logs; it never disconnects you for it. A track is written to `replay/inputs/` and never
+plays back as a ghost.
+
 ## Player frozen (optional, adapter -> core, 2026-09-05)
 
 When the game holds the player still outside gameplay -- an item popup, the pause menu, any

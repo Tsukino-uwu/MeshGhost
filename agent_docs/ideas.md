@@ -2738,6 +2738,11 @@ needs an ADR.
 
 ## An INPUT plane: record what a player pressed, not only what their character did (filed 2026-09-04)
 
+**BUILT 2026-09-08, the capture half: ADR 0056** (`adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md`).
+A `input_sample` bridge message and a second NDJSON track in `replay/inputs/`, shipped off behind
+`replay.inputs`; no adapter sends one yet. Everything below still stands as the reasoning, and the
+three blockers it names are unchanged and still block the PLAYBACK half.
+
 **The user's question, and it is a good one because it names a real gap:** *"could you learn how to
 play a game by watching a recording i have done?"* — no, and the reason is structural rather than a
 missing feature. **A recording holds STATE, never INPUT.** Position, orientation, `anim`, the extras

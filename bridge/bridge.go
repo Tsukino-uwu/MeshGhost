@@ -87,6 +87,19 @@ const (
 	// recordings/replay ghosts"). Optional: an adapter that never sends it keeps
 	// today's behaviour exactly.
 	TypePlayerFrozen MessageType = "player_frozen"
+	// TypeInputSample is adapter -> core, added 2026-09-08 (ADR 0056): what the
+	// player PRESSED, as a track of its own beside the state recording. It is a
+	// SECOND track, never a field on state -- inputs change at frame rate and a
+	// 15Hz sample of them would be a lie, and the state plane does not grow new
+	// fields for deeper features (agent_docs/beyond-cosmetic.md).
+	//
+	// Nothing plays one back. This slice records only: the core writes the track
+	// to replay/inputs/ and never drives anything with it. Driving a ghost from
+	// inputs is a later, per-game ADR blocked on determinism; driving the LOCAL
+	// player is forbidden in anything that ships, and the two live one bug apart.
+	//
+	// Optional -- an adapter that never sends it loses nothing.
+	TypeInputSample MessageType = "input_sample"
 	// TypeSessionPolicy is core -> adapter, added 2026-08-19: the room-wide
 	// rules the host set, that the adapter is the only party able to apply.
 	// See SessionPolicy for why this is a message of its own rather than a
@@ -398,6 +411,75 @@ type ReplayControl struct {
 // event, and sent on change only; a repeat of the current value is harmless.
 type PlayerFrozen struct {
 	Frozen bool `json:"frozen"`
+}
+
+// InputSample is the payload of TypeInputSample: a BATCH of the moments the
+// player's input changed, adapter -> core.
+//
+// WHY A BITMASK AND A LABEL TABLE, rather than a list of button names per
+// sample. The core must not learn what any button MEANS, which rules out it
+// reading a name; and a track whose whole premise is "cheap enough to leave
+// running" cannot spend 60-120 bytes per edge on strings that repeat. A mask
+// costs ~10, makes the core's identical-check an integer compare, and has a
+// stable bit order -- so a future diff of two runs is `a.M ^ b.M` rather than
+// set arithmetic. The labels ride along once so the FILE stays readable by a
+// person; the core copies them into a header and never reads one.
+//
+// WHY THE ADAPTER NAMES ITS OWN BUTTONS. What counts as input is per game --
+// eight buttons on a handheld, a stick and a camera axis on a 3D platformer,
+// a cursor somewhere else -- and none of that is the core's business. The
+// recommended source is the GAME's already-merged action state rather than raw
+// OS keys, which makes a track device-agnostic and rebind-proof, and which
+// structurally cannot capture what the player types outside the game.
+type InputSample struct {
+	// Labels names bit 0..n-1 of each edge's Mask, and Axes names the slots of
+	// Ax. STICKY: sent on the first batch of a connection and again only when
+	// they change, exactly like a delta'd extras key -- absent means unchanged.
+	// Opaque to the core, which copies them into the track's file header and
+	// never reads one.
+	Labels []string `json:"labels,omitempty"`
+	Axes   []string `json:"axes,omitempty"`
+	// Source is an opaque provenance tag naming WHERE the adapter read these
+	// bits (say "pawn_properties"). It exists so a track is self-describing: a
+	// reader built later can refuse one whose source it does not understand,
+	// instead of silently trusting bits that mean something else.
+	Source string `json:"source,omitempty"`
+	// Drop is how many edges the ADAPTER dropped since the last batch, because
+	// its own queue was full. Recording that input was lost is strictly better
+	// than losing it silently -- a reader can tell a lossy region from a quiet
+	// one, which it could not do from a gap alone.
+	Drop uint32 `json:"drop,omitempty"`
+	// Edges are in order and never coalesced. Empty is legal only on a batch
+	// that carries Labels, which is how an adapter declares its table before
+	// the player has touched anything.
+	Edges []InputEdge `json:"edges"`
+}
+
+// InputEdge is one moment the input changed. Edges, not samples: a button is
+// written when it goes down and when it comes up, so a one-frame press is two
+// edges with consecutive F and no sampling rate can erase it.
+type InputEdge struct {
+	// F is the adapter's own frame counter and T its own millisecond stamp,
+	// both monotonic, both kept VERBATIM. They are the adapter's domains, not
+	// the core's: the core stamps each batch with its own clock on receipt, so
+	// a track correlates to the state recording by that stamp while F and T
+	// preserve the exact frame spacing inside a batch that one receipt stamp
+	// would smear. A hold's length stays expressible in FRAMES, which is the
+	// property a future re-drive needs and a millisecond stamp cannot give.
+	F uint64 `json:"f"`
+	T int64  `json:"t"`
+	// M is the button mask, bit i meaning Labels[i]. Opaque to the core, which
+	// compares it to the previous one for equality and never decomposes it.
+	//
+	// 32 bits deliberately, not 64: a JSON number is a float64 to every reader
+	// that is not Go, so a 64-bit mask would silently lose bits above 2^53. If
+	// 32 is ever too few the growth path is a second field for the high bits,
+	// additive, no format bump.
+	M uint32 `json:"m"`
+	// Ax are the analog axes -- a stick, a camera, a cursor. Absent means
+	// unchanged since the previous edge. Quantized by the adapter rather than
+	// sampled sparsely, so a reader gets an exact value and not a guess.
+	Ax []float64 `json:"ax,omitempty"`
 }
 
 // Reject is sent core -> adapter when a Hello cannot be accepted, immediately

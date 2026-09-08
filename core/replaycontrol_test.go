@@ -228,3 +228,46 @@ func TestRecordToggleSaysWhichWayItWent(t *testing.T) {
 		t.Errorf("record_stop describes itself differently from the toggle: %q vs %q", explicitStop, stopped)
 	}
 }
+
+// The hotkey's own sentence is the ONLY feedback a player gets (see
+// ReplayControl's doc comment), so when the input track is on it has to say so
+// -- otherwise a player who enabled replay.inputs has no way to tell whether
+// the second half armed.
+func TestRecordControlsNameBothTracks(t *testing.T) {
+	c := inputCore(t)
+
+	msg, err := c.ReplayControl(ReplayRecordStart, 0)
+	if err != nil {
+		t.Fatalf("record_start: %v", err)
+	}
+	if !strings.Contains(msg, "inputs") {
+		t.Errorf("record_start said %q, want it to name the input track too", msg)
+	}
+
+	c.recordLocal(&protocol.State{AreaID: "a", Position: []float64{1, 2}})
+	c.recordInput(batch([]string{"jump"}, [2]uint64{1, 1}))
+
+	msg, err = c.ReplayControl(ReplayRecordStop, 0)
+	if err != nil {
+		t.Fatalf("record_stop: %v", err)
+	}
+	if !strings.Contains(msg, "input edge") {
+		t.Errorf("record_stop said %q, want it to report the input edges written", msg)
+	}
+}
+
+// And with the feature off the sentence is unchanged -- a player who never
+// asked for an input track should not read about one.
+func TestRecordControlsStaySilentWithoutTheInputTrack(t *testing.T) {
+	c := recordingCore(t)
+	msg, err := c.ReplayControl(ReplayRecordStart, 0)
+	if err != nil {
+		t.Fatalf("record_start: %v", err)
+	}
+	if strings.Contains(msg, "inputs") {
+		t.Errorf("record_start said %q with replay.inputs off", msg)
+	}
+	if _, _, err := c.StopRecording(); err != nil {
+		t.Logf("stop: %v", err)
+	}
+}

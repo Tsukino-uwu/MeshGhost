@@ -26,6 +26,8 @@ func FuzzApplyFileConfigNeverPanicsAndKeepsDefaultsSane(f *testing.F) {
 	f.Add(`{}`)
 	f.Add(`null`)
 	f.Add(`{"client":{"replay":{"split_times":"yes"}}}`)
+	f.Add(`{"client":{"replay":{"inputs":"yes"}}}`)
+	f.Add(`{"client":{"replay":{"inputs":true}}}`)
 	f.Add("\xef\xbb\xbf{\"client\":{\"replay\":{\"save_last\":\"30s\"}}}")
 	f.Fuzz(func(t *testing.T, body string) {
 		dir := t.TempDir()

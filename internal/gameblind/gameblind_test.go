@@ -365,6 +365,27 @@ var frozenBridgeFields = map[string][]string{
 	// would breach the rule is a reason string naming the game's own state; there is none.
 	// Frozen from 2026-09-08.
 	"PlayerFrozen": {"frozen"},
+	// input_sample (2026-09-08, ADR 0056) qualifies under BOTH tests, and it is
+	// worth being explicit because "record the buttons" SOUNDS like the most
+	// game-specific thing in this file.
+	//
+	// The two-unrelated-games test: every game has input. A handheld's eight
+	// buttons, a 3D platformer's stick and camera, a point-and-click's cursor --
+	// all of them are "some bits changed at some frame", which is the whole of
+	// what these two structs say.
+	//
+	// The opaque-by-construction test, which is the one actually load-bearing:
+	// `m` is an integer the core compares to the previous one for equality and
+	// never decomposes -- it cannot tell a jump from a pause button, and nothing
+	// anywhere branches on a bit. `labels`, `axes` and `source` are strings
+	// copied verbatim into a file header and never read back for meaning; the
+	// core does not even know how many buttons a game HAS except by counting a
+	// list it was handed. `f` and `t` are monotonic counters checked for
+	// ordering only, `ax` is bounded floats carried through, and `drop` is a
+	// count of what the adapter threw away. The ADAPTER names its own buttons,
+	// which is precisely the split that keeps this side blind.
+	"InputSample": {"axes", "drop", "edges", "labels", "source"},
+	"InputEdge":   {"ax", "f", "m", "t"},
 	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
 	// above, and are the cleanest case of it in the list: the two orientation blobs are the
 	// SAME opaque bytes `orientation` already is, carried verbatim, and interp_t is a fraction
@@ -419,6 +440,7 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"ReplayControl": bridge.ReplayControl{}, "BridgeReady": bridge.BridgeReady{},
 		"RemoteName": bridge.RemoteName{}, "RecordingState": bridge.RecordingState{},
 		"PlayerFrozen": bridge.PlayerFrozen{},
+		"InputSample":  bridge.InputSample{}, "InputEdge": bridge.InputEdge{},
 	}
 
 	compare := func(which string, samples map[string]any, frozen map[string][]string) {

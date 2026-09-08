@@ -224,6 +224,10 @@ type replayFileConfig struct {
 	// which is where a recording's size went once gzip stopped being the
 	// default. The header is untouched, so editing a clip is unaffected.
 	Delta *bool `json:"delta"`
+	// Inputs also records what you PRESSED, as a separate track in
+	// replay/inputs/. Off by default. It never plays back as a ghost; it is a
+	// record of the run's input, for a visualizer and for debugging.
+	Inputs *bool `json:"inputs"`
 	// Name and Color label the recordings this client writes -- the clip
 	// header a replay ghost draws its nametag from. Blank falls back to the
 	// player's own "name"/"name_color", so a clip is born labelled rather
@@ -278,6 +282,7 @@ type configTargets struct {
 	splitTimes     *bool
 	replayGzip     *bool
 	replayDelta    *bool
+	replayInputs   *bool
 	replayName     *string
 	replayColor    *string
 	hotkeys        *hotkeyTargets
@@ -387,6 +392,9 @@ func applyFileConfig(path string, explicit map[string]bool, t configTargets) str
 		}
 		if t.replayDelta != nil {
 			cfg.Override(explicit, "replay-delta", t.replayDelta, fc.Replay.Delta)
+		}
+		if t.replayInputs != nil {
+			cfg.Override(explicit, "replay-inputs", t.replayInputs, fc.Replay.Inputs)
 		}
 		if t.replayName != nil {
 			cfg.Override(explicit, "replay-name", t.replayName, fc.Replay.Name)
@@ -733,6 +741,10 @@ func main() {
 		"write only the values that CHANGED since the previous sample, carrying the rest forward "+
 			"when the clip is loaded -- about 4x smaller, still plain text, and the header you edit "+
 			"is untouched. false writes every value on every line (config: replay.delta)")
+	replayInputs := flag.Bool("replay-inputs", false,
+		"also record what you PRESSED, as a separate track in replay/inputs/ alongside the ordinary "+
+			"recording. Off by default. A track never plays back as a ghost -- it is a record of the "+
+			"run's input, which stays true however the rest changes (config: replay.inputs)")
 	splitTimes := flag.Bool("replay-split-times", false, "show how far behind or ahead of a replay ghost you are on its nametag, e.g. \"PB +1.2s\" (config: replay.split_times)")
 	replaySeek := flag.Duration("replay-seek", 5*time.Second,
 		"how far one rewind or fast-forward moves a replay ghost (config: replay.seek)")
@@ -790,6 +802,7 @@ func main() {
 		splitTimes:     splitTimes,
 		replayGzip:     replayGzip,
 		replayDelta:    replayDelta,
+		replayInputs:   replayInputs,
 		replayName:     replayName,
 		replayColor:    replayColor,
 		hotkeys: &hotkeyTargets{recordToggle: hkRecord, saveLast: hkSaveLast, replayLast: hkReplayLast,
@@ -977,6 +990,7 @@ func main() {
 	c.SplitTimes = *splitTimes
 	c.ReplayGzip = *replayGzip
 	c.ReplayDelta = *replayDelta
+	c.ReplayInputs = *replayInputs
 	c.ReplayName = *replayName
 	c.ReplayColor = *replayColor
 	c.ChaserEnabled, c.ChaserCount, c.ChaserDelay, c.ChaserSpacing = *chaserOn, *chaserCount, *chaserDelay, *chaserSpacing

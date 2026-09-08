@@ -591,6 +591,18 @@ type Core struct {
 	// editor and grepped.
 	ReplayGzip bool
 
+	// ReplayInputs also records what the player PRESSED, as a separate track in
+	// replay/inputs/ (ADR 0056). OFF by default: it is a new kind of artefact,
+	// and the house rule is that a new capability ships off.
+	//
+	// On, the input ring runs from the moment the adapter attaches -- whether
+	// or not anything is recording -- so save-last can export the last stretch
+	// of input after the fact. The file half follows the ordinary record
+	// controls, and a track never plays back as a ghost: nothing in this slice
+	// reads one, and it is written to a SUBFOLDER precisely so that neither
+	// replay scanner can pick it up.
+	ReplayInputs bool
+
 	// Offline means this Core never dials a relay: no room, no peers, and no
 	// retry loop logging that it cannot reach one. Everything that does not
 	// need a relay still runs -- the bridge still binds (it is how the adapter
@@ -831,6 +843,14 @@ type Core struct {
 	rec        recorder
 	ring       sampleRing
 	tapArmed   uint32
+	// The input track (core/inputrecorder.go, ADR 0056): a SECOND, independent
+	// tap recording what the player pressed. Its own atomic, deliberately --
+	// see rearmInputTap for why folding it into tapArmed would start feeding
+	// chasers nobody asked for.
+	inputRec      inputRecorder
+	inputRing     inputRing
+	inputMeta     inputMeta
+	inputTapArmed uint32
 	// Playback (core/replay.go): the loaded players, armed by StartReplays
 	// and launched by the first in-game frame (replaysPending).
 	replayMu       sync.Mutex
