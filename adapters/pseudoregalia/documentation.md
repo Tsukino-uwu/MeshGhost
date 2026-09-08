@@ -686,6 +686,37 @@ copied; these are the facts it establishes, each a thing this adapter had not me
 - The mod's own reading of keys is UE4SS's `RegisterKeyBind` -- a mod hotkey, not the game's input
   state; nothing in it bears on the input track.
 
+## Two mapping contexts stay loaded, and only one is applied (measured 2026-09-08)
+
+`FindAllOf("InputMappingContext")` returns two live assets, `IMC_Default` and `IMC_Reference`, 35
+mappings each. **`IMC_Default` is the player's CURRENT bindings and rebinding rewrites it;
+`IMC_Reference` is the factory defaults and is never applied.** They differed on this machine by
+four keys (the user's Jump on the bottom face button against the factory's left one; Throw on R
+against X; QuickMap on Tab against R; WallRide on LeftShift against Z). Anything that reads "the
+game's key bindings" must read the engine's applied merged table --
+`UEnhancedPlayerInput::EnhancedActionMappings` on the controller's `PlayerInput`, reflected on this
+build -- never the union of loaded contexts; the input track's second build did the latter and put
+a jump on every gamepad attack.
+
+## The community Blueprint pak-mod ecosystem (read 2026-09-08, MIT repos, facts only)
+
+The `pseudoregalia-modding` GitHub organisation ships mods as **cooked Blueprint paks** (UE 5.1
+project + `UnrealPak`), not UE4SS scripts -- a second modding mechanism beside ours, and one this
+adapter has never been run alongside. What its READMEs establish (`licensing.md` lists the five
+repos read):
+
+- **Hooks work by cooking OVER the game's own Blueprints.** `hooked-player-controller` and
+  `hooked-tpgm` ship a replacement `BP_PlayerGoatMain` / `BP_ThirdPersonGameMode` that calls dummy
+  library functions; a referenced-but-missing asset is a silent no-op in this game, which is what
+  makes the append-only hook registry possible. Consequence for us: a player running such a mod is
+  running a REPLACED player pawn Blueprint -- same class name, same fields so far as the hooks are
+  additive, but a thing to test against before assuming the pawn we read is the shipped one.
+- **`quickstart` launches straight into a named map from the command line** (`pseudoregalia.exe
+  Zone_Caves`, `-spawn=`, `-upgrades=`), skipping the title screen; needs their `init-hooks`. A
+  lead for our own test loop, where every iteration costs the user a title screen and a load.
+- **`custom-options` adds an in-game options tab for third-party mods' widgets** (on Nexus). The
+  natural home for a MeshGhost settings page if config.json editing ever becomes the complaint.
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:

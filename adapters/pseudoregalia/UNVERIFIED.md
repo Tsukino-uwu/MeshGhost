@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **THE INPUT TRACK captures on Pseudoregalia (second build 2026-09-08 13:40, both installs, `bc30c56f9baf`; the first build's buttons read zero -- see the entry), UNWATCHED.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
+- READY — **THE INPUT TRACK captures on Pseudoregalia: the 13:36 run WROTE A CORRECT FILE for everything but one shared button (third build `29c2c91fae0f` fixes that, both installs), UNWATCHED by you.** The file is `replay/inputs/in-20260908-133553.ndjson`; entry below. With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -92,7 +92,24 @@ actions the Blueprint binds by VALUE, and this pawn's own function list (the cen
 the 2026-09-07 build, older than the input track, so no file was written (both game roots now carry
 `57a22f8b8cd0`); and the `INPUTTRACK:` line printed at the bridge line's cadence, ~1.5 a second.
 
-**Second build (`bc30c56f9baf`, 13:40):** buttons through `IsInputKeyDown(FKey)` per key the game's mapping
+**Second run, 13:35-13:36, build `bc30c56f9baf`: the track WORKS, with one wrong bit.** Both reads
+resolved (`IsInputKeyDown` Key@0 size 24, KeyName@0 size 8; a key table of 23 keys for 11 actions),
+the core wrote `replay/inputs/in-20260908-133553.ndjson` beside the clip with the same
+`recording_id`, 281 edges, and read back it is the sequence: three jumps held 31/31/48 frames,
+crouch held 309 frames, a throw, a cling with the stick pinned, jumps mid-square with the stick
+values on them. **The one fault: every gamepad attack also raised the jump bit** -- `jump_check`
+agree=19 disagree=9 for exactly 9 attacks -- because the table merged EVERY loaded mapping context,
+and this game keeps two: `IMC_Default` (the player's CURRENT bindings, rewritten by rebinding) and
+`IMC_Reference` (the factory defaults, never applied), and the factory default for that face button
+is Jump while the user's binding is Attack. Same for R (factory QuickMap, user Throw), X/Z.
+
+**Third build (`29c2c91fae0f`):** the key table is read from the engine's own APPLIED merged table,
+`PlayerInput.EnhancedActionMappings` (a reflected array the census listed), never from the loaded
+contexts -- so it is what the game acts on, it follows a rebind the moment the engine does, and the
+periodic `FindAllOf` is gone. Expect `key table: N distinct key(s) for 11 actions from M applied
+mapping(s)` and `disagree=0` across a run with attacks in it. UNWATCHED.
+
+**Second build (`bc30c56f9baf`, 13:26):** buttons through `IsInputKeyDown(FKey)` per key the game's mapping
 contexts bind to each action, the census's proven path, folded into the action bits (a key bound to
 two of our actions sets both -- the game's own table has several); sticks unchanged through the bound
 value; the log line every tenth bridge line; `source` is now `imc_keys+bound_axes`. Expect two new

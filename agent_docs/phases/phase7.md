@@ -3140,9 +3140,26 @@ sent the label table, passed the layout check (`Actor@0 Action@8 ReturnValue@16 
 answers only for actions the Blueprint binds by VALUE, and the census's own function list names
 them (`setInputVariables`, `poleTick` -- the sticks); every button is event-bound and reads zero.
 The census had proved the call, not its coverage, and the plan's ranking had assumed one implied
-the other. Second build at 13:40 (`bc30c56f9baf`): buttons through `IsInputKeyDown(FKey)` per key the live
+the other. Second build at 13:26 (`bc30c56f9baf`): buttons through `IsInputKeyDown(FKey)` per key the live
 mapping contexts bind to each action (all offsets reflected, the FName copied from the game's own
 table into a zeroed FKey), sticks unchanged, the log line every tenth bridge line, `source`
 `imc_keys+bound_axes`. Two more from that run: the game root's core was the 2026-09-07 build,
 older than the track, so no file could be written -- both roots now carry the fresh core -- and
 the first build's log line printed ~1.5 times a second. Deployed to both installs; unwatched.
+
+**13:35, the second run: it works, and one button was wrong for a reason worth keeping.** The
+core wrote the first real track, `in-20260908-133553.ndjson`, 281 edges, correlated to the clip
+by `recording_id`, and read back it is the user's sequence in frames. Every gamepad attack also
+raised the jump bit: 9 disagreements for 9 attacks. The cause is the game's own asset layout --
+two mapping contexts stay loaded, `IMC_Default` (the live bindings, which rebinding rewrites) and
+`IMC_Reference` (the factory defaults, never applied) -- and the second build merged both. Third
+build (`29c2c91fae0f`): the key table comes from `PlayerInput.EnhancedActionMappings`, the engine's applied
+merged table, so it is what the game acts on and it follows a rebind live; the `FindAllOf` went
+with it (preflight's count back to 46). Deployed to both installs; the user has not watched a run
+of it. **The lesson, filed for the next adapter: a loaded asset is not an applied asset -- read the
+table the engine ACTS on, never the union of what is in memory.**
+
+The user's pointer to the `pseudoregalia-modding` organisation was read the same sitting (five MIT
+repos, READMEs only; `licensing.md`). Facts in `documentation.md`: a Blueprint pak-mod ecosystem
+beside UE4SS, whose hooks work by cooking over the game's own `BP_PlayerGoatMain`; a quickstart mod
+that launches straight into a named map, which is a lead for our own test loop.

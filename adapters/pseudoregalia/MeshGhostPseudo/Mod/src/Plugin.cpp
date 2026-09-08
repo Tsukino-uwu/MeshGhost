@@ -163,12 +163,14 @@ namespace MeshGhostPseudo
     //     the doubles are read from the ProcessEvent buffer.
     //   - BUTTONS (11 actions): `APlayerController::IsInputKeyDown(FKey)` -- native, pure,
     //     reflected, the path the census proved end to end (118,000 calls) -- once per KEY the
-    //     game's own `InputMappingContext`s bind to those actions, OR'd into each action's bit.
-    //     Every offset (the FKey parameter, its `KeyName`, each mapping's `Action` and `Key`) comes
-    //     from reflection; the FName bytes are copied from the game's mapping into a zeroed FKey,
-    //     so the hand-built key has no `KeyDetails` to destruct. Rebind-aware because the table is
-    //     rebuilt from the live contexts on a cadence; device-agnostic because both devices' keys
-    //     are in the same contexts.
+    //     engine's APPLIED merged table (`UEnhancedPlayerInput::EnhancedActionMappings`) binds to
+    //     those actions, OR'd into each action's bit. Not every loaded mapping context: the game
+    //     keeps its factory defaults loaded as `IMC_Reference` beside the player's live bindings,
+    //     and merging both put a jump on every gamepad attack (the 13:36 run). Every offset (the
+    //     FKey parameter, its `KeyName`, each mapping's `Action` and `Key`) comes from reflection;
+    //     the FName bytes are copied from the game's mapping into a zeroed FKey, so the hand-built
+    //     key has no `KeyDetails` to destruct. Rebind-aware because the applied table is what a
+    //     rebind rewrites; device-agnostic because both devices' keys are in it.
     // The jump bit is still checked live against the pawn's own `jumpButtonHeld?` latch on every
     // jump edge (the agree/disagree counters on the INPUTTRACK log line).
     constexpr bool INPUT_TRACK_CAPTURE = true;
@@ -23777,12 +23779,21 @@ namespace MeshGhostPseudo
             }
         }
 
-        // THE KEY TABLE: which keys the game's mapping contexts bind to which of our actions, as
-        // the FName bytes of each key and the mask bits it sets, one entry per distinct key. Read
-        // from every loaded `InputMappingContext`'s `Mappings` array through its reflected struct
-        // layout (`Action`, `Key.KeyName`), rebuilt on the resolve cadence so a rebind lands
-        // without a relaunch. A key bound to two of our actions sets both bits -- the game's own
-        // table has several (the census: Gamepad_FaceButton_Left is Jump AND Attack).
+        // THE KEY TABLE: which keys are bound to which of our actions RIGHT NOW, as the FName bytes
+        // of each key and the mask bits it sets, one entry per distinct key. Read from the
+        // engine's own merged, APPLIED table -- `UEnhancedPlayerInput::EnhancedActionMappings`
+        // (dev.epicgames.com, UEnhancedPlayerInput: `TArray<FEnhancedActionKeyMapping>`, Transient;
+        // reflected on this build, the census lists it) -- through its reflected struct layout
+        // (`Action`, `Key.KeyName`), rebuilt on the resolve cadence so a rebind lands live.
+        //
+        // NOT from every loaded `InputMappingContext`, which is what the second build did and what
+        // the 2026-09-08 13:36 run refused: this game keeps TWO contexts loaded, `IMC_Default` (the
+        // player's CURRENT bindings, rewritten by rebinding) and `IMC_Reference` (the factory
+        // defaults, never applied), and merging both made every attack press on the gamepad's
+        // left face button raise the jump bit too -- 9 disagreements for 9 attacks, because the
+        // factory default for that button is Jump and the user's binding is Attack. The applied
+        // table is the only one the game acts on. A key bound to two applied actions still sets
+        // both bits, which is then the game's own truth.
         struct KeyEntry
         {
             uint8_t name[16];
@@ -23791,37 +23802,30 @@ namespace MeshGhostPseudo
         };
         static std::vector<KeyEntry> keys;
         static uint64_t keys_built_frame = 0;
-        static size_t keys_contexts = 0;
+        static size_t keys_mappings = 0;
+        static bool keys_source_warned = false;
         if (keys_built_frame == 0 || input_frame - keys_built_frame >= INPUT_TRACK_RESOLVE_INTERVAL_FRAMES)
         {
             keys_built_frame = input_frame;
             std::vector<KeyEntry> fresh;
-            size_t contexts = 0;
-            std::vector<UObject*> imcs;
-            // Cadence: PER-INTERVAL -- once every INPUT_TRACK_RESOLVE_INTERVAL_FRAMES engine frames
-            // (~2 s), and only while replay.inputs is on; never on the steady per-tick path.
-            UObjectGlobals::FindAllOf(STR("InputMappingContext"), imcs);
-            for (UObject* imc : imcs)
-            {
-                if (!imc || imc->HasAnyFlags(RF_ClassDefaultObject))
+            size_t mappings_seen = 0;
+            // One array of FEnhancedActionKeyMapping, wherever it lives; the struct layout is read
+            // off the array's own inner type each time, never assumed.
+            auto harvest = [&](UObject* holder, FProperty* mappings_prop) {
+                if (!holder || !mappings_prop || mappings_prop->GetClass().GetName() != STR("ArrayProperty"))
                 {
-                    continue;
-                }
-                FProperty* mappings_prop = mg_cached_property(imc, STR("Mappings"));
-                if (!mappings_prop || mappings_prop->GetClass().GetName() != STR("ArrayProperty"))
-                {
-                    continue;
+                    return;
                 }
                 FArrayProperty* arr = static_cast<FArrayProperty*>(mappings_prop);
                 FProperty* inner = arr->GetInner();
                 if (!inner || inner->GetClass().GetName() != STR("StructProperty"))
                 {
-                    continue;
+                    return;
                 }
                 UScriptStruct* mapping_struct = static_cast<FStructProperty*>(inner)->GetStruct();
                 if (!mapping_struct)
                 {
-                    continue;
+                    return;
                 }
                 int32_t action_off = -1;
                 int32_t key_off = -1;
@@ -23856,15 +23860,14 @@ namespace MeshGhostPseudo
                 }
                 if (action_off < 0 || key_off < 0 || kn_off < 0 || kn_size <= 0 || kn_size > 16)
                 {
-                    continue;
+                    return;
                 }
-                FScriptArrayHelper helper(arr, arr->ContainerPtrToValuePtr<void>(imc));
+                FScriptArrayHelper helper(arr, arr->ContainerPtrToValuePtr<void>(holder));
                 const int32_t n = helper.Num();
                 if (n <= 0 || n > 512)
                 {
-                    continue;
+                    return;
                 }
-                ++contexts;
                 for (int32_t i = 0; i < n; ++i)
                 {
                     uint8_t* elem = helper.GetRawPtr(i);
@@ -23872,6 +23875,7 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
+                    ++mappings_seen;
                     UObject* action = *reinterpret_cast<UObject**>(elem + action_off);
                     if (!action)
                     {
@@ -23909,14 +23913,28 @@ namespace MeshGhostPseudo
                         fresh.push_back(k);
                     }
                 }
-            }
-            if (fresh.size() != keys.size() || contexts != keys_contexts)
+            };
+
+            UObject** pi_ptr = mg_property_value<UObject*>(controller, STR("PlayerInput"));
+            UObject* player_input = pi_ptr ? *pi_ptr : nullptr;
+            FProperty* applied = player_input ? mg_cached_property(player_input, STR("EnhancedActionMappings")) : nullptr;
+            if (applied)
             {
-                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: key table: {} distinct key(s) for {} actions from {} mapping context(s).\n"),
-                             fresh.size(), BUTTON_COUNT, contexts);
+                harvest(player_input, applied);
+            }
+            else if (!keys_source_warned)
+            {
+                keys_source_warned = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK: PlayerInput.EnhancedActionMappings did not resolve (PlayerInput {}) -- no button bits until it does.\n"),
+                             player_input ? STR("present") : STR("null"));
+            }
+            if (fresh.size() != keys.size() || mappings_seen != keys_mappings)
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: key table: {} distinct key(s) for {} actions from {} applied mapping(s).\n"),
+                             fresh.size(), BUTTON_COUNT, mappings_seen);
             }
             keys.swap(fresh);
-            keys_contexts = contexts;
+            keys_mappings = mappings_seen;
         }
 
         uint32_t mask = 0;
