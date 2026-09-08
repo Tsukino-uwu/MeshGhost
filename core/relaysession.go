@@ -235,6 +235,29 @@ func (c *Core) ConnectRelay(gameID string) error {
 		return err
 	}
 	if err := conn.Send(env); err != nil {
+		// A REJECT THAT ALREADY ARRIVED BEATS THE SEND ERROR, for the same
+		// reason it beats the drop in the select below. The read loop runs on
+		// its own goroutine from the moment the socket is dialled, so a relay
+		// that refuses and closes fast enough has its Reject delivered AND the
+		// socket closed under this send before the send even starts -- the
+		// write then fails with "use of closed network connection", and the
+		// reason the player needs is sitting in the buffered channel, unread.
+		// CI's race job caught exactly this ordering on 2026-09-08, the day the
+		// select-side fix landed: the regression test forces the reject and
+		// the FIN onto the wire before the hello, and one attempt in a hundred
+		// or so lost the hello write rather than the select.
+		//
+		// The reject can only be there because the read loop already ran, and
+		// that is the only thing that closes this connection out from under a
+		// send, so the check never mistakes an unrelated write error for a
+		// refusal.
+		select {
+		case r := <-reject:
+			_ = conn.Close()
+			c.clearRelayIfCurrent(conn)
+			return &RejectError{Reason: r.Reason, Code: r.Code, Retryable: r.Retryable}
+		default:
+		}
 		_ = conn.Close()
 		return fmt.Errorf("core: send hello: %w", err)
 	}

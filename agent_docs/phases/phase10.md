@@ -1113,3 +1113,32 @@ and therefore an ADR.
 user's call), each landing in every shipped config and `docs/config.md`, with
 `shippedconfig_test.go` still pinning the section off. No core change; the adapter reads the
 keys. Pushed at the end of the session -- the next session reads CI first.
+
+## 2026-09-08 — CI red twice on the evening push; both fixed, the flake was a second race
+
+`gh run list` on the session's first read: run 34234373461 red in two jobs, the rest green.
+
+- **`TestARejectWinsARaceAgainstTheSocketClosing` under `-race -count=3`** — the ~17% flake
+  `status.md` had recorded that morning. The failing message was never the ordering the test
+  asserts: it was `send hello: write tcp ... use of closed network connection`, the hello WRITE
+  failing. Cause: the read loop starts at dial, so a relay that writes the Reject and half-closes
+  before the hello lands has the Reject in the buffered channel AND the socket closed by the
+  read loop's OnDisconnect before `conn.Send` runs; the send path returned the write error and
+  never looked at the reject channel. Same class as the 2026-09-08 select fix, one step earlier.
+  Fix in `core/relaysession.go`: the send-error path drains the reject channel non-blocking
+  first, exactly as the `gone` case does. Measured locally (mingw gcc, `-race -count=50`):
+  without the fix attempts 5 and 30 fail; with it 50/50 pass. The existing test is the
+  regression test; nothing added.
+- **`FuzzHelloProtocolVersion`** reported "a real failing input", but the failure was
+  `listen tcp 127.0.0.1:0: bind: address already in use` after 22 s and ~55k execs — the
+  harness listened AND dialled over real TCP once per iteration and exhausted the ephemeral
+  ports. The input it wrote is meaningless and was not committed. Fix: one relay on the
+  in-memory `pipeListener` for the whole campaign, as the two targets in `fuzz_test.go` already
+  do, join log silenced. Local 30 s campaign: 756k execs, ~40k/s (CI on TCP managed ~2k/s), clean.
+
+Lesson for the fuzz side: `ci-fuzz.sh` treats "Failing input written to" as a real finding, and a
+harness that fails on a resource it exhausts itself produces one. Any new relay target starts from
+`pipeListener`, never `startServerWith`.
+
+`run-gotests.bat`, `run-gotests-race.bat` green. The release the user asked for (v1.2.5) waits on
+CI confirming this push.

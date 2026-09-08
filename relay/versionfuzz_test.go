@@ -3,6 +3,9 @@ package relay
 import (
 	"encoding/binary"
 	"encoding/json"
+	"io"
+	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -47,20 +50,40 @@ func FuzzHelloProtocolVersion(f *testing.F) {
 		f.Add(b)
 	}
 
+	// One relay for the whole campaign, on an in-memory listener, for the same
+	// reason the two targets in fuzz_test.go do it: a real 127.0.0.1:0 listener
+	// plus a real dial PER ITERATION burns two ephemeral ports each, and at a
+	// few thousand executions a second the kernel runs out of them long before
+	// the campaign ends. CI hit exactly that on 2026-09-08 -- "listen tcp
+	// 127.0.0.1:0: bind: address already in use" after 22 s and ~55k execs --
+	// and reported it as a finding against whatever input happened to be
+	// running, which is a harness defect wearing a crasher's clothes. Nothing
+	// under test here is the TCP layer; the decision is made on the decoded
+	// hello.
+	//
+	// The join log is silenced like the siblings do: every accepted version is
+	// a join, and the log volume rather than the relay is what throttles the run.
+	log.SetOutput(io.Discard)
+	f.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	ln := newPipeListener()
+	f.Cleanup(func() { ln.Close() })
+	srv := NewServer()
+	srv.SendHz = protocol.MaxSendHz
+	srv.MaxClients = 4096 // see the MaxClients note on FuzzRelaySurvivesArbitraryLines
+	go srv.Serve(ln)
+
 	f.Fuzz(func(t *testing.T, seed []byte) {
 		if len(seed) < 8 {
 			return
 		}
 		version := int(int64(binary.LittleEndian.Uint64(seed[:8])))
 
-		s := NewServer()
-		s.SendHz = protocol.MaxSendHz
-		addr := startServerWith(t, s)
-
-		conn, err := transport.Dial(addr)
+		raw, err := ln.dial()
 		if err != nil {
-			return
+			t.Fatalf("relay listener stopped accepting: %v", err)
 		}
+		conn := transport.FromConn(raw)
 		defer conn.Close()
 
 		envs := make(chan protocol.Envelope, 4)
