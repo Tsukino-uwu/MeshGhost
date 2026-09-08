@@ -38,6 +38,10 @@
       "enabled": false, "count": 1, "delay": "3s", "spacing": "2s",
       "name": "", "color": "", "contact": false, "spawn_delay": "0s"
     },
+    "input_display": {
+      "player": false, "ghost": false, "always": false, "background": true,
+      "rows": 10, "size": 22, "player_side": "left", "ghost_side": "right"
+    },
     "hotkeys": {
       "record_toggle": "ctrl+shift+F9", "save_last": "ctrl+shift+F10",
       "replay_last": "ctrl+shift+F11", "replay_restart": "ctrl+shift+F5",
