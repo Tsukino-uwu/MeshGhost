@@ -3140,7 +3140,7 @@ sent the label table, passed the layout check (`Actor@0 Action@8 ReturnValue@16 
 answers only for actions the Blueprint binds by VALUE, and the census's own function list names
 them (`setInputVariables`, `poleTick` -- the sticks); every button is event-bound and reads zero.
 The census had proved the call, not its coverage, and the plan's ranking had assumed one implied
-the other. Second build at 13:40 (`43332482f484`): buttons through `IsInputKeyDown(FKey)` per key the live
+the other. Second build at 13:40 (`bc30c56f9baf`): buttons through `IsInputKeyDown(FKey)` per key the live
 mapping contexts bind to each action (all offsets reflected, the FName copied from the game's own
 table into a zeroed FKey), sticks unchanged, the log line every tenth bridge line, `source`
 `imc_keys+bound_axes`. Two more from that run: the game root's core was the 2026-09-07 build,
