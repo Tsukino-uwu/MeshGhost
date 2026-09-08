@@ -3237,3 +3237,31 @@ live by the running game from the game-root config. Final build `cad2022f5083` o
 the user's ask at the end of the session; **the next session reads CI first** (`gh run list -L 5`)
 -- this day's Go commits (the input track's core, the launch-path log line, the shipped-config
 test) have not been through the race job or the fuzzer yet.
+
+## 2026-09-08 (evening) — the input track carries the camera: Stage 0 of the driven ghost
+
+The user's ask and the approved plan are in `phase11.md`'s 2026-09-08 (evening) entry (the core
+half, ADR 0057, built the same evening). This adapter's first step, built and deployed tonight,
+unwatched: **two more axes on every input edge, `cam_yaw` and `cam_pitch`**, the controller's
+`ControlRotation` in degrees, absolute. Why: the pawn's own Move handler turns the stick into a
+world direction through its controller's rotation, so a ghost driven from the track later needs
+the camera frame the stick was pushed in, and the look axes are deltas. Read by the property's
+reflected SIZE (24 on this build = three doubles, Pitch/Yaw/Roll), never through the SDK's
+`FRotator` (this adapter's CLAUDE.md, the ABI rule); resolved once and logged either way; a build
+that refuses it sends the six slots with the last two at 0 and keeps the old `source`, and the
+declaration line waits for that first read so it never names a camera it did not get. `source` is
+`imc_keys+bound_axes+camrot` now. Same 1/64 quantization and 33 ms axis throttle as the other
+four. `INPUT_TRACK_AXIS_COUNT` in `Plugin.cpp`; `InputEdgeRec::ax` and `input_prev_ax` widened.
+
+Build `395765d6f4eb`, deployed to both installs with the rebuilt `meshghost.exe` (ADR 0057's
+core), hashes verified UPDATED on all four; the game-root `config.json` was left as the user set
+it this afternoon (`inputs` and `record_on_launch` on), since the READY entries still depend on
+it -- said here rather than overwritten. What the first run has to show is the new READY entry at
+the top of `UNVERIFIED.md`: `ControlRotation resolved (size 24)` in `UE4SS.log`, six `axes` in
+the track header, the fifth value walking a full circle while the camera does.
+
+**Next, in the next game session the user starts:** Stage B (the display's ghost half reads
+`remote_input` -- the mod's hello gains `input_tracks`, `render_remote`'s `state.timestamp` is
+read for the first time, the panel code takes a panel struct), then the D0 event-node census in
+Lua and D1 "moves under its own power" before any drive code. The plan in full:
+`ideas.md`'s INPUT plane entry.

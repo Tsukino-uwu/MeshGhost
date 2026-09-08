@@ -1306,15 +1306,17 @@ namespace MeshGhostPseudo
             uint64_t f;
             int64_t t;
             uint32_t m;
-            double ax[4];
+            double ax[6]; // INPUT_TRACK_AXIS_COUNT: move_x, move_y, look_x, look_y, cam_yaw, cam_pitch
             bool button;
         };
         std::deque<InputEdgeRec> input_edges; // under state_mutex
         uint32_t input_drops{0};              // under state_mutex: edges the queue refused since the last batch
         uint64_t input_frame{0};              // game thread only
         uint32_t input_prev_mask{0};          // game thread only
-        double input_prev_ax[4]{};            // game thread only
+        double input_prev_ax[6]{};            // game thread only
         int64_t input_last_axis_ms{0};        // game thread only
+        bool input_cam_resolved{false};       // game thread only: ControlRotation looked up once
+        bool input_cam_refused{false};        // game thread only: missing or an unexpected size -> cam axes stay 0
         bool input_have_prev{false};          // game thread only; false again whenever the core is not ready
         bool input_labels_sent{false};        // on_update thread only; false again at every hello
         uint64_t input_edges_sent{0};         // on_update thread only

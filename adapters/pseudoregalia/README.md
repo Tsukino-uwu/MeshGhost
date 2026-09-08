@@ -529,7 +529,10 @@ Nothing outstanding is a ghost failing to do something the player can do.
     (a loaded context is not an applied one -- the factory-default context stays in memory beside
     the live bindings), and look reads the vector key state of the keys bound to it. Every offset
     comes from reflection and a jump edge is checked live against the pawn's own `jumpButtonHeld?`;
-    the third run read back as the user's sequence in frames with zero disagreements.
+    the third run read back as the user's sequence in frames with zero disagreements. The same
+    evening the track gained the camera's absolute yaw and pitch as two more axes (the controller's
+    `ControlRotation`, read by its reflected size), because a ghost driven from the track later
+    (ADR 0057) needs the frame the stick was pushed in, and the look deltas cannot give it.
 
 69. **The recording indicator as a screen-space widget (2026-09-08).** The world-space one hid
     behind geometry and drifted with the field of view, both properties of text placed in the

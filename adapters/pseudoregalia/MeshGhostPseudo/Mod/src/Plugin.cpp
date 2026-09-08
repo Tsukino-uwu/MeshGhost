@@ -189,6 +189,12 @@ namespace MeshGhostPseudo
     constexpr bool INPUT_TRACK_TRACE = false;
     // Axis-only edges may not be closer than this; a button edge is never throttled.
     constexpr int64_t INPUT_TRACK_AXIS_MIN_MS = 33;
+    // The axes on every edge, in this order: move_x, move_y, look_x, look_y, cam_yaw, cam_pitch.
+    // The last two (2026-09-08, ADR 0057's Stage 0) are the controller's ControlRotation in
+    // degrees, absolute -- the frame the pawn's own Move handler turns a stick into a world
+    // direction in, which the look DELTAS above cannot give a driven ghost. Read by the property's
+    // reflected size, never through the SDK's FRotator (this adapter's CLAUDE.md, the ABI rule).
+    constexpr int INPUT_TRACK_AXIS_COUNT = 6;
     // The queue between the game thread and on_update. Drained every UE4SS tick, so it holds a
     // few edges in practice; the cap is what a stuck bridge costs, and a full queue drops the
     // newest AXIS-only edge first and counts what it refuses into `drop`.
@@ -25227,7 +25233,7 @@ namespace MeshGhostPseudo
                 }
             }
         }
-        double ax[4] = {0.0, 0.0, 0.0, 0.0};
+        double ax[INPUT_TRACK_AXIS_COUNT] = {};
         if constexpr (INPUT_TRACK_AXES)
         {
             double v[3];
@@ -25235,6 +25241,53 @@ namespace MeshGhostPseudo
             {
                 ax[0] = std::round(v[0] * 64.0) / 64.0;
                 ax[1] = std::round(v[1] * 64.0) / 64.0;
+            }
+            // The camera frame: the controller's ControlRotation, by its reflected SIZE (24 =
+            // three doubles on this UE 5.1 build, 12 = three floats on an older one; Pitch, Yaw,
+            // Roll in memory), never through the SDK's FRotator. Resolved once per session; a
+            // build where the property is missing or an unexpected size sends the other four
+            // axes and says so with a WARNING, so a track never carries a camera it did not read.
+            if (!input_cam_resolved)
+            {
+                input_cam_resolved = true;
+                FProperty* cam = mg_cached_property(controller, STR("ControlRotation"));
+                const int32_t size = cam ? cam->GetSize() : -1;
+                if (!cam || (size != 24 && size != 12))
+                {
+                    input_cam_refused = true;
+                    Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK camera refused -- ControlRotation {} (size {}); cam_yaw/cam_pitch stay 0.\n"),
+                                 cam ? STR("found") : STR("MISSING"), size);
+                }
+                else
+                {
+                    Output::send(STR("[MeshGhostPseudo] INPUTTRACK: ControlRotation resolved (size {}) -- cam_yaw/cam_pitch ride every edge.\n"), size);
+                }
+            }
+            if (!input_cam_refused)
+            {
+                if (FProperty* cam = mg_cached_property(controller, STR("ControlRotation")))
+                {
+                    const uint8_t* base = cam->ContainerPtrToValuePtr<uint8_t>(controller);
+                    double pitch = 0.0;
+                    double yaw = 0.0;
+                    if (cam->GetSize() == 24)
+                    {
+                        const double* r = std::bit_cast<const double*>(base);
+                        pitch = r[0];
+                        yaw = r[1];
+                    }
+                    else
+                    {
+                        const float* r = std::bit_cast<const float*>(base);
+                        pitch = r[0];
+                        yaw = r[1];
+                    }
+                    if (std::isfinite(yaw) && std::isfinite(pitch))
+                    {
+                        ax[4] = std::round(yaw * 64.0) / 64.0;
+                        ax[5] = std::round(pitch * 64.0) / 64.0;
+                    }
+                }
             }
             if (vec_fn && !vec_layout_refused && !key_layout_refused)
             {
@@ -25274,7 +25327,7 @@ namespace MeshGhostPseudo
         }
         const bool button_edge = !input_have_prev || mask != input_prev_mask;
         bool axes_changed = !input_have_prev;
-        for (int i = 0; i < 4 && !axes_changed; ++i)
+        for (int i = 0; i < INPUT_TRACK_AXIS_COUNT && !axes_changed; ++i)
         {
             axes_changed = ax[i] != input_prev_ax[i];
         }
@@ -25350,8 +25403,8 @@ namespace MeshGhostPseudo
 
         if constexpr (INPUT_TRACK_TRACE)
         {
-            Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) {} jumpButtonHeld?={}\n"),
-                         edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], button_edge ? STR("button") : STR("axis"),
+            Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{},{},{}) {} jumpButtonHeld?={}\n"),
+                         edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], ax[4], ax[5], button_edge ? STR("button") : STR("axis"),
                          mg_read_bool(pawn, STR("jumpButtonHeld?"), false));
         }
     }
@@ -25384,6 +25437,13 @@ namespace MeshGhostPseudo
         {
             return;
         }
+        if (!input_labels_sent && !input_cam_resolved)
+        {
+            // The declaration names its `source`, and whether the camera is in it is decided
+            // by the first sample's read: wait for that rather than declare a camera the
+            // build may refuse a frame later.
+            return;
+        }
         // Order of `labels` IS the bit order of input_track_sample's BUTTONS array; the two are
         // kept adjacent in FLAGS.md's row so a change to one is a change to both.
         std::string line = R"({"type":"input_sample","payload":{)";
@@ -25392,9 +25452,13 @@ namespace MeshGhostPseudo
             line += R"("labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],)";
             if constexpr (INPUT_TRACK_AXES)
             {
-                line += R"("axes":["move_x","move_y","look_x","look_y"],)";
+                // Six slots always, cam_yaw/cam_pitch zero when the camera read was refused
+                // (the WARNING says so); a reader that needs the camera checks `source`.
+                line += R"("axes":["move_x","move_y","look_x","look_y","cam_yaw","cam_pitch"],)";
             }
-            line += R"("source":"imc_keys+bound_axes",)";
+            // `+camrot` names the camera frame on every edge (ADR 0057): a driver refuses an
+            // older track by this tag, a display reads either.
+            line += input_cam_refused ? R"("source":"imc_keys+bound_axes",)" : R"("source":"imc_keys+bound_axes+camrot",)";
         }
         if (drops > 0)
         {
@@ -25411,7 +25475,7 @@ namespace MeshGhostPseudo
             line += std::format(R"({{"f":{},"t":{},"m":{})", e.f, e.t, e.m);
             if constexpr (INPUT_TRACK_AXES)
             {
-                line += std::format(R"(,"ax":[{},{},{},{}])", e.ax[0], e.ax[1], e.ax[2], e.ax[3]);
+                line += std::format(R"(,"ax":[{},{},{},{},{},{}])", e.ax[0], e.ax[1], e.ax[2], e.ax[3], e.ax[4], e.ax[5]);
             }
             line += '}';
         }
