@@ -919,6 +919,17 @@ require one to deploy.
 
 ### Build order
 
+0. **THE CUTOVER, and it is deliberate.** Bump `protocol.Version` past today's `1` in the same
+   change, and set `MinProtocolVersion` to that new number — so **everything built before this
+   change is refused, on both sides, once.** The user, 2026-09-08: *"basically, just break anything
+   old/before this change, so we can properly start to have a min version or above going forward"*.
+   That is the point rather than a side effect: the floor mechanism cannot do anything useful about
+   builds that predate it, so the clean move is to draw the line here and have the floor work from
+   here on. It also makes the "relay advertises nothing" case need no special rule — no version is
+   by definition pre-cutover, which is below the minimum, which the general rule already refuses.
+   **This is the only breaking step; every version bump after it is a floor decision, not a flag
+   day.** The release carrying it says so plainly, and says the relay must be updated too.
+
 1. **`protocol`** — `MinProtocolVersion`; `Reject` gains `Code` and `Retryable`; a code constant per
    existing reason (the prose constants stay, for logs). `welcome` gains the relay's protocol
    version. Round-trip and bounds tests; the reject-reason value test added 2026-09-08
