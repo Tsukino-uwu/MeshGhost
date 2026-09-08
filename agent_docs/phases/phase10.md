@@ -1107,3 +1107,9 @@ off. The core does not read it (the adapter does; unknown keys pass the decoder)
 so a release cannot ship an overlay on. The ghost half of that display is the next Go work: the
 core streaming a clip's input track to the adapter beside the clip, a new core -> adapter message
 and therefore an ADR.
+
+**Evening, the input_display keys.** Three more commits touching `cmd/` and `packaging/`: the
+`input_display` section grew `unit`, `count_side` and `fps_note` (the last shipped off at the
+user's call), each landing in every shipped config and `docs/config.md`, with
+`shippedconfig_test.go` still pinning the section off. No core change; the adapter reads the
+keys. Pushed at the end of the session -- the next session reads CI first.
