@@ -8993,6 +8993,50 @@ namespace MeshGhostPseudo
 
         // The screen-space indicator's state (REC_INDICATOR_SCREEN_SPACE; the code is beside
         // tick_recording_indicator). Declared here because the tuning reader above it sets them.
+        // A handle to an object THIS mod constructed, validated through the object array without
+        // a serial number. FWeakObjectPtr cannot hold one: its Get() compares serial numbers, and
+        // the engine assigns an object's serial only when the ENGINE first makes a weak pointer
+        // to it -- the SDK's constructor reads the number, never allocates one -- so a widget we
+        // built reads back EMPTY on the very tick it was made (2026-09-08 15:07, all three
+        // handles, both rebuilt every frame). Ghost pawns work through FWeakObjectPtr because the
+        // engine had already pointed at them. This checks the array slot still holds our pointer,
+        // that it is not unreachable, and that its name is the one we gave it (a reused slot with
+        // the same name is ours by construction: the names are unique to this mod).
+        struct OwnedObjectHandle
+        {
+            UObject* ptr = nullptr; // stale-safe: validated through the object array on every Get(), never dereferenced before
+            int32_t index = -1;
+            FName name{};
+            auto Set(UObject* object) -> void
+            {
+                ptr = object;
+                index = object ? object->GetInternalIndex() : -1;
+                name = object ? object->GetNamePrivate() : FName{};
+            }
+            auto Clear() -> void
+            {
+                ptr = nullptr;
+                index = -1;
+            }
+            auto Get() const -> UObject*
+            {
+                if (!ptr || index < 0)
+                {
+                    return nullptr;
+                }
+                FUObjectItem* item = UObjectArray::IndexToObject(index);
+                if (!item || item->GetUObject() != ptr || item->IsUnreachable() || !item->IsValid(false))
+                {
+                    return nullptr;
+                }
+                if (ptr->GetNamePrivate().GetComparisonIndex() != name.GetComparisonIndex())
+                {
+                    return nullptr;
+                }
+                return ptr;
+            }
+        };
+
         double g_hud_x = 26.0;    // the clock box's right edge, in from the viewport's right edge
         double g_hud_y = 22.0;    // the pair's top edge, down from the viewport's top
         double g_hud_size = 44.0; // the square's side
@@ -9000,9 +9044,9 @@ namespace MeshGhostPseudo
         double g_hud_text = 30.0; // the digits' font size
         double g_hud_pad = 4.0;   // the box's padding around the digits
         int32_t g_hud_z = 1000;   // viewport z-order: over the game's own HUD
-        FWeakObjectPtr g_hud_dot;   // stale-safe: FWeakObjectPtr, Get() per use -- a runtime widget is the collector's the moment the viewport lets go of it (a level transition does)
-        FWeakObjectPtr g_hud_clock; // stale-safe: same
-        FWeakObjectPtr g_hud_text_block; // stale-safe: same
+        OwnedObjectHandle g_hud_dot;   // stale-safe: OwnedObjectHandle, validated on every Get() -- a runtime widget is the collector's the moment the viewport lets go of it (a level transition does)
+        OwnedObjectHandle g_hud_clock; // stale-safe: same
+        OwnedObjectHandle g_hud_text_block; // stale-safe: same
         bool g_hud_in_viewport = false;
         double g_hud_vw = 0.0; // the viewport as last laid out for, pixels
         double g_hud_vh = 0.0;
@@ -9026,8 +9070,8 @@ namespace MeshGhostPseudo
         double g_disp_pad = 6.0;
         unsigned g_disp_tuning_gen = 1;    // bumped by a config change that needs a rebuild
         unsigned g_disp_built_gen = 0;
-        FWeakObjectPtr g_disp_panel;       // stale-safe: FWeakObjectPtr, Get() per use -- a runtime widget is the collector's whenever the viewport lets go
-        FWeakObjectPtr g_disp_text;        // stale-safe: same
+        OwnedObjectHandle g_disp_panel;    // stale-safe: OwnedObjectHandle, validated on every Get() -- a runtime widget is the collector's whenever the viewport lets go
+        OwnedObjectHandle g_disp_text;     // stale-safe: same
         bool g_disp_in_viewport = false;
         double g_disp_vw = 0.0;
         double g_disp_meas_w = 0.0;        // the panel's laid-out width, for the right-hand placement
@@ -10206,20 +10250,20 @@ namespace MeshGhostPseudo
             });
         }
 
-        auto hud_remove(FWeakObjectPtr& weak) -> void
+        auto hud_remove(OwnedObjectHandle& weak) -> void
         {
             if (UObject* w = weak.Get())
             {
                 hud_call(w, STR("RemoveFromParent"), nullptr);
             }
-            weak = FWeakObjectPtr{};
+            weak.Clear();
         }
 
         auto hud_tear_down() -> void
         {
             hud_remove(g_hud_dot);
             hud_remove(g_hud_clock);
-            g_hud_text_block = FWeakObjectPtr{};
+            g_hud_text_block.Clear();
             g_hud_in_viewport = false;
             g_hud_last_second = -1;
         }
@@ -10307,9 +10351,9 @@ namespace MeshGhostPseudo
             // validity test disagree on this build; the Lua prototype never pinned and held its
             // widgets for minutes, losing them only at a level transition, which the rebuild
             // below handles. So: weak handles, rebuild on loss, no pin.
-            g_hud_dot = FWeakObjectPtr{dot};
-            g_hud_clock = FWeakObjectPtr{clock};
-            g_hud_text_block = FWeakObjectPtr{text};
+            g_hud_dot.Set(dot);
+            g_hud_clock.Set(clock);
+            g_hud_text_block.Set(text);
             g_hud_built_gen = g_hud_tuning_gen;
             g_hud_in_viewport = false;
             g_hud_vw = 0.0;
@@ -10496,7 +10540,7 @@ namespace MeshGhostPseudo
         auto input_display_tear_down() -> void
         {
             hud_remove(g_disp_panel);
-            g_disp_text = FWeakObjectPtr{};
+            g_disp_text.Clear();
             g_disp_in_viewport = false;
             g_disp_last_text.clear();
             g_disp_meas_w = 0.0;
@@ -10555,8 +10599,8 @@ namespace MeshGhostPseudo
                        hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
             });
             hud_set_text(text, STR(""));
-            g_disp_panel = FWeakObjectPtr{panel}; // no root-set pin: see hud_build
-            g_disp_text = FWeakObjectPtr{text};
+            g_disp_panel.Set(panel); // no root-set pin, no FWeakObjectPtr: see OwnedObjectHandle
+            g_disp_text.Set(text);
             g_disp_built_gen = g_disp_tuning_gen;
             g_disp_in_viewport = false;
             g_disp_vw = 0.0;
