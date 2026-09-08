@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **THE INPUT TRACK captures on Pseudoregalia: the 13:36 run WROTE A CORRECT FILE for everything but one shared button (third build `29c2c91fae0f` fixes that, both installs), UNWATCHED by you.** The file is `replay/inputs/in-20260908-133553.ndjson`; entry below. With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
+- READY — **THE INPUT TRACK WORKS on Pseudoregalia: the 13:46 run's file reads back as your sequence with zero disagreements (`replay/inputs/in-20260908-134545.ndjson`); the fourth build `27a091d57453` adds the LOOK axes, which read zero until now. Nothing on screen changes; what is yours to say is whether the read-back matches what you pressed. Entry below.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -91,6 +91,24 @@ actions the Blueprint binds by VALUE, and this pawn's own function list (the cen
 (`InpActEvt_*`) and reads zero. Two other findings from the same run: the core in the game root was
 the 2026-09-07 build, older than the input track, so no file was written (both game roots now carry
 `57a22f8b8cd0`); and the `INPUTTRACK:` line printed at the bridge line's cadence, ~1.5 a second.
+
+**Third run, 13:45-13:47, build `29c2c91fae0f`: CORRECT.** The applied table gave 21 keys for 11
+actions from 35 applied mappings; `jump_check agree=30 disagree=0` across the run; 565 edges, no
+drops, 6,455 frames. Read back: 15 jumps (11-53 frames each), 7 attacks with no jump bit on any,
+8 crouches including the 278-frame hold, 3 clings, 3 guards, 3 lock-ons, a throw, the square on the
+move axes -- and interact and power ALWAYS together, 4 for 4, which is the game's own table (both
+on E and the right face button; the census's MAP lines). **One gap: `look_x/look_y` stayed 0 for a
+whole run of looking around** -- `IA_Look` is not value-bound either (its handlers are
+`InpActEvt_IA_Look_*` events), so its bound value is zero like the buttons' were.
+
+**Fourth build (`27a091d57453`, 13:50):** look reads `APlayerController::GetInputVectorKeyState(FKey)` summed
+over the keys the applied table binds to `IA_Look` (`Mouse2D`, `Gamepad_Right2D`): the stick's
+position plus the mouse's per-frame delta, on one pair of axes; layout checked (a 24-byte FVector
+back) before the first call, refused with a WARNING otherwise. Move stays on the bound value, which
+the third run proved. Also the core (`4c8980ec09f0`, both game roots) now logs `input track to ...`
+on the launch path, where the first runs said nothing about it. UNWATCHED: expect
+`GetInputVectorKeyState resolved (Key@0 size 24, ReturnValue@24 size 24, ..)`, `.. 2 look key(s) ..`,
+and non-zero `look_x/look_y` in the next file.
 
 **Second run, 13:35-13:36, build `bc30c56f9baf`: the track WORKS, with one wrong bit.** Both reads
 resolved (`IsInputKeyDown` Key@0 size 24, KeyName@0 size 8; a key table of 23 keys for 11 actions),

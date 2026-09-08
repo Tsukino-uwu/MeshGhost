@@ -158,9 +158,14 @@ namespace MeshGhostPseudo
     // never firing: **a bound action VALUE exists only for the actions the Blueprint binds by
     // value**, and this pawn's function list shows exactly which -- `setInputVariables` and
     // `poleTick` read one (the sticks), the buttons are event-bound (`InpActEvt_*`) and read zero.
-    //   - STICKS (`IA_Move`, `IA_Look`): `GetBoundActionValue`, whose FInputActionValue has no
-    //     reflected fields, so its size is checked against reflection before the first call and
-    //     the doubles are read from the ProcessEvent buffer.
+    //   - MOVE (`IA_Move`): `GetBoundActionValue`, whose FInputActionValue has no reflected
+    //     fields, so its size is checked against reflection before the first call and the doubles
+    //     are read from the ProcessEvent buffer. The one action this pawn value-binds.
+    //   - LOOK: the third run (13:46) read `IA_Look` as zero for a whole run of looking around --
+    //     not value-bound either (its handlers are `InpActEvt_IA_Look_*` events) -- so look is
+    //     `APlayerController::GetInputVectorKeyState(FKey)` summed over the keys the applied table
+    //     binds to `IA_Look` (`Mouse2D`, `Gamepad_Right2D` here): the stick's position plus the
+    //     mouse's per-frame delta, as one pair of axes. Opaque to everything downstream.
     //   - BUTTONS (11 actions): `APlayerController::IsInputKeyDown(FKey)` -- native, pure,
     //     reflected, the path the census proved end to end (118,000 calls) -- once per KEY the
     //     engine's APPLIED merged table (`UEnhancedPlayerInput::EnhancedActionMappings`) binds to
@@ -23801,6 +23806,7 @@ namespace MeshGhostPseudo
             uint32_t bits;
         };
         static std::vector<KeyEntry> keys;
+        static std::vector<KeyEntry> look_keys; // bits unused: the keys the applied table binds to IA_Look
         static uint64_t keys_built_frame = 0;
         static size_t keys_mappings = 0;
         static bool keys_source_warned = false;
@@ -23808,6 +23814,7 @@ namespace MeshGhostPseudo
         {
             keys_built_frame = input_frame;
             std::vector<KeyEntry> fresh;
+            std::vector<KeyEntry> fresh_look;
             size_t mappings_seen = 0;
             // One array of FEnhancedActionKeyMapping, wherever it lives; the struct layout is read
             // off the array's own inner type each time, never assumed.
@@ -23881,6 +23888,27 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
+                    const uint8_t* name = elem + key_off + kn_off;
+                    if (sticks[1].asset && sticks[1].asset == action)
+                    {
+                        bool have = false;
+                        for (const KeyEntry& k : fresh_look)
+                        {
+                            if (k.name_size == kn_size && std::memcmp(k.name, name, static_cast<size_t>(kn_size)) == 0)
+                            {
+                                have = true;
+                                break;
+                            }
+                        }
+                        if (!have && fresh_look.size() < 8)
+                        {
+                            KeyEntry k{};
+                            std::memcpy(k.name, name, static_cast<size_t>(kn_size));
+                            k.name_size = kn_size;
+                            fresh_look.push_back(k);
+                        }
+                        continue;
+                    }
                     uint32_t bits = 0;
                     for (size_t b = 0; b < BUTTON_COUNT; ++b)
                     {
@@ -23893,7 +23921,6 @@ namespace MeshGhostPseudo
                     {
                         continue;
                     }
-                    const uint8_t* name = elem + key_off + kn_off;
                     bool merged = false;
                     for (KeyEntry& k : fresh)
                     {
@@ -23928,13 +23955,71 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK: PlayerInput.EnhancedActionMappings did not resolve (PlayerInput {}) -- no button bits until it does.\n"),
                              player_input ? STR("present") : STR("null"));
             }
-            if (fresh.size() != keys.size() || mappings_seen != keys_mappings)
+            if (fresh.size() != keys.size() || fresh_look.size() != look_keys.size() || mappings_seen != keys_mappings)
             {
-                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: key table: {} distinct key(s) for {} actions from {} applied mapping(s).\n"),
-                             fresh.size(), BUTTON_COUNT, mappings_seen);
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: key table: {} distinct key(s) for {} actions, {} look key(s), from {} applied mapping(s).\n"),
+                             fresh.size(), BUTTON_COUNT, fresh_look.size(), mappings_seen);
             }
             keys.swap(fresh);
+            look_keys.swap(fresh_look);
             keys_mappings = mappings_seen;
+        }
+
+        // LOOK. `GetInputVectorKeyState(FKey)` on the controller, same FKey parameter shape as
+        // IsInputKeyDown's (resolved separately, checked separately), a 24-byte FVector back.
+        static UObject* vec_fn_owner = nullptr;
+        static UFunction* vec_fn = nullptr;
+        static int32_t vec_key_offset = -1;
+        static int32_t vec_ret_offset = -1;
+        static int32_t vec_parms_size = 0;
+        static bool vec_layout_refused = false;
+        if (!vec_layout_refused && !key_layout_refused && (vec_fn == nullptr || vec_fn_owner != controller))
+        {
+            vec_fn = mg_cached_function(controller, STR("GetInputVectorKeyState"));
+            vec_fn_owner = controller;
+            vec_key_offset = -1;
+            vec_ret_offset = -1;
+            int32_t vec_key_size = 0;
+            int32_t vec_ret_size = 0;
+            if (vec_fn)
+            {
+                vec_parms_size = vec_fn->GetPropertiesSize();
+                for (FProperty* param : TFieldRange<FProperty>(vec_fn, EFieldIterationFlags::None))
+                {
+                    if (!param)
+                    {
+                        continue;
+                    }
+                    const StringType name = param->GetName();
+                    if (name == STR("Key") && param->GetClass().GetName() == STR("StructProperty"))
+                    {
+                        vec_key_offset = param->GetOffset_Internal();
+                        vec_key_size = param->GetSize();
+                    }
+                    else if (name == STR("ReturnValue") && param->GetClass().GetName() == STR("StructProperty"))
+                    {
+                        vec_ret_offset = param->GetOffset_Internal();
+                        vec_ret_size = param->GetSize();
+                    }
+                }
+            }
+            // The Key parameter is the same FKey IsInputKeyDown takes, so its KeyName offset and
+            // size are reused; the return must be three doubles (this build's FVector, the
+            // FRotator lesson's sibling).
+            const bool ok = vec_fn && vec_key_offset >= 0 && vec_ret_offset >= 0 && vec_key_size == key_param_size &&
+                            vec_ret_size == static_cast<int32_t>(sizeof(double) * 3) && vec_parms_size > 0 &&
+                            static_cast<size_t>(vec_parms_size) <= PARMS_CAP && vec_ret_offset + vec_ret_size <= vec_parms_size;
+            if (!ok)
+            {
+                vec_layout_refused = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK look refused -- GetInputVectorKeyState={} (Key@{} size {}, ReturnValue@{} size {}, {} bytes of params); look axes stay 0.\n"),
+                             vec_fn ? STR("found") : STR("MISSING"), vec_key_offset, vec_key_size, vec_ret_offset, vec_ret_size, vec_parms_size);
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: GetInputVectorKeyState resolved (Key@{} size {}, ReturnValue@{} size {}, {} bytes of params).\n"),
+                             vec_key_offset, vec_key_size, vec_ret_offset, vec_ret_size, vec_parms_size);
+            }
         }
 
         uint32_t mask = 0;
@@ -23960,10 +24045,25 @@ namespace MeshGhostPseudo
                 ax[0] = std::round(v[0] * 64.0) / 64.0;
                 ax[1] = std::round(v[1] * 64.0) / 64.0;
             }
-            if (read_value(sticks[1].asset, v))
+            if (vec_fn && !vec_layout_refused && !key_layout_refused)
             {
-                ax[2] = std::round(v[0] * 64.0) / 64.0;
-                ax[3] = std::round(v[1] * 64.0) / 64.0;
+                double look_x = 0.0;
+                double look_y = 0.0;
+                for (const KeyEntry& k : look_keys)
+                {
+                    std::memset(params, 0, sizeof(params));
+                    std::memcpy(params + vec_key_offset + keyname_offset, k.name, static_cast<size_t>(k.name_size));
+                    controller->ProcessEvent(vec_fn, params);
+                    double out[3];
+                    std::memcpy(out, params + vec_ret_offset, sizeof(out));
+                    if (std::isfinite(out[0]) && std::isfinite(out[1]))
+                    {
+                        look_x += out[0];
+                        look_y += out[1];
+                    }
+                }
+                ax[2] = std::round(look_x * 64.0) / 64.0;
+                ax[3] = std::round(look_y * 64.0) / 64.0;
             }
         }
 

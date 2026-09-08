@@ -3163,3 +3163,13 @@ The user's pointer to the `pseudoregalia-modding` organisation was read the same
 repos, READMEs only; `licensing.md`). Facts in `documentation.md`: a Blueprint pak-mod ecosystem
 beside UE4SS, whose hooks work by cooking over the game's own `BP_PlayerGoatMain`; a quickstart mod
 that launches straight into a named map, which is a lead for our own test loop.
+
+**13:45, the third run: correct.** `disagree=0` across 30 jump edges, the applied table at 21 keys,
+565 edges with no drops, and the file reads back as the user's sequence -- 15 jumps, 7 attacks with
+no jump bit, the 278-frame crouch, clings, guards, lock-ons, a throw, the square. One gap the file
+showed: the look axes never left zero, because `IA_Look` is event-bound like the buttons and its
+bound value is 0. Fourth build (`27a091d57453`, 13:50): look from `GetInputVectorKeyState` summed over the
+applied look keys (stick position plus mouse delta), move unchanged; the core's launch path now
+logs the track's path (`4c8980ec09f0` in both game roots). README step 68 written -- the feature
+WORKS, by the file, which is the Go-side kind of fact; what remains the user's is whether the
+read-back matches what they pressed, and the look axes are unwatched.

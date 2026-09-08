@@ -631,10 +631,16 @@ func (c *Core) StartRecording() (string, error) {
 	if err != nil {
 		return path, err
 	}
-	if _, ierr := c.StartInputRecording(recordingIDFor(path)); ierr != nil {
+	if ipath, ierr := c.StartInputRecording(recordingIDFor(path)); ierr != nil {
 		// The state recording is already running and is the artefact the player
 		// asked for; losing the input track is worth a line, not a failure.
 		log.Printf("core: input track could not start: %v", ierr)
+	} else if ipath != "" {
+		// The launch path's only feedback (the hotkey path has describeStart's
+		// sentence): the first live run on 2026-09-08 logged "recording to" and
+		// nothing about the track, and the reader could not tell an off feature
+		// from a broken one.
+		log.Printf("core: input track to %s (the file appears at the first input edge)", ipath)
 	}
 	return path, nil
 }

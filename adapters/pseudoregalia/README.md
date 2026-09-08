@@ -519,6 +519,18 @@ the bitfield trap, first item for the next session; several things confirmed onl
 a real second player would judge differently; and a handful of built-but-unwatched changes.
 Nothing outstanding is a ghost failing to do something the player can do.
 
+68. **The input track: what the player pressed, beside what their character did (2026-09-08).**
+    The mod now sends the core every CHANGE of the player's input -- 11 actions as a bitmask, the
+    two sticks as axes -- and the core writes them to `replay/inputs/` beside the clip, sharing its
+    recording id (ADR 0056; `replay.inputs` in config.json turns it on). Three reads were tried in
+    one afternoon, each chosen by a measurement: Enhanced Input's bound action value turned out to
+    answer only for what the Blueprint value-binds (the move stick), so the buttons read the
+    controller's own key state once per key the game's APPLIED mapping table binds to each action
+    (a loaded context is not an applied one -- the factory-default context stays in memory beside
+    the live bindings), and look reads the vector key state of the keys bound to it. Every offset
+    comes from reflection and a jump edge is checked live against the pawn's own `jumpButtonHeld?`;
+    the third run read back as the user's sequence in frames with zero disagreements.
+
 ## Dev tools
 
 Thirty-five dev-only Lua probe scripts across twenty-one mod folders under [probes/](probes/)
