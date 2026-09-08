@@ -11810,9 +11810,11 @@ namespace MeshGhostPseudo
         // has one), on `ghost_side` -- or the player's side when the player's panel is off.
         auto input_display_tick(UObject* controller, bool ghost_has_track) -> void
         {
-            const bool player_wanted = g_disp_player && g_rec_indicator_enabled; // shown whenever `player` is on (no `always` since 2026-09-09)
+            // The input history is its own thing (the user, 2026-09-09): `player`/`ghost` alone decide,
+            // never `replay.indicator` -- an indicator switched off used to hide both panels too.
+            const bool player_wanted = g_disp_player;
             input_display_tick_panel(g_disp_player_panel, player_wanted, g_disp_player_left, controller);
-            const bool ghost_wanted = g_disp_ghost && ghost_has_track && g_rec_indicator_enabled;
+            const bool ghost_wanted = g_disp_ghost && ghost_has_track;
             const bool ghost_left = player_wanted ? g_disp_ghost_left : g_disp_player_left;
             input_display_tick_panel(g_disp_ghost_panel, ghost_wanted, ghost_left, controller);
         }
