@@ -95,7 +95,9 @@ How far behind is a ghost drawn? ("interp" in config.json)
 One note specific to TEVI:
 - The mod finds its own local bridge port, walking 127.0.0.1:7778-7785 and taking the
   first one a core will have it on, so two copies of TEVI on one machine work with nothing
-  to configure. The starting port comes from config.json's "local_game_bridge" setting;
-  BepInEx's own per-install config file (BepInEx\config\dev.meshghost.tevi.cfg, [Network]
-  BridgePort) only overrides it if you change that entry away from its default of 7778.
-  You should not need to touch either.
+  to configure. The config.json beside it deliberately has no "local_game_bridge" setting --
+  the mod passes the port it picked to MeshGhost itself, so there is only one place it can
+  be set rather than two that could disagree. The one thing that overrides it is BepInEx's
+  own per-install config file (BepInEx\config\dev.meshghost.tevi.cfg, [Network] BridgePort),
+  and only if you change that entry away from its default of 7778. You should not need to
+  touch it.

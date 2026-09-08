@@ -106,9 +106,12 @@ go test -race -count=3 ./...
 
 **The fuzzers.** These feed inputs nobody chose into the parsers and the listeners, and they are
 the part that does not share the author's blind spots. Run any of them for as long as your
-suspicion lasts; CI runs a short campaign against the parser and listener targets on each push
-(the list of steps in `.github/workflows/ci.yml`; the property-style targets that pin an encoder
-against its decoder run there as ordinary tests instead). Nothing here needs
+suspicion lasts; CI runs a short campaign against nearly all of them on each push — on 2026-09-08,
+**24 explicit steps in `.github/workflows/ci.yml` against the 26 `Fuzz*` targets in the tree**,
+across eight packages, one step per target. The two with no step are the socket-bound schedule
+fuzzers in `core`, opt-in on purpose; they still run their committed seed corpus in the ordinary
+test job. (The property-style targets that pin an encoder against its decoder have their own steps
+too, since 2026-09-06 — they used to run only as ordinary tests.) Nothing here needs
 trusting CI — the targets are ordinary `go test -fuzz` functions:
 
 ```sh

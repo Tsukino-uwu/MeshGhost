@@ -31,7 +31,9 @@ Setup, once:
    `...\Steam\steamapps\common\Pseudoregalia\` (NOT the `pseudoregalia` subfolder already
    inside it -- drop this one ON TOP of that outer folder so the two merge).
 2. Windows will ask about merging folders and replacing files -- say yes to all of it.
-   Nothing already in your install is deleted, and no other mod is unlisted or disabled.
+   No mod of yours is deleted, unlisted or disabled. The one thing that IS replaced, if you
+   already have UE4SS installed for another mod, is UE4SS itself -- read the next paragraph
+   before you say yes.
 
 ALREADY USING OTHER MODS? Read this one paragraph.
    MeshGhost is built to go on TOP of an existing setup, and it deliberately ships no mod
@@ -41,15 +43,19 @@ ALREADY USING OTHER MODS? Read this one paragraph.
    you do not need to add MeshGhost to them.
 
    The one thing step 1 DOES replace, if you already have UE4SS installed for another mod,
-   is UE4SS itself -- UE4SS.dll, dwmapi.dll and UE4SS-settings.ini. That is usually fine
-   -- and NECESSARY if your UE4SS is an older one whose Mods folder sits directly in
-   Binaries\Win64 (no ue4ss\ folder): that loader never looks where this mod lives, so if
-   you decline the replace, MeshGhost silently never loads (seen 2026-09-05 on a tester's
-   older Archipelago install; a clean game reinstall and then both mods fixed it). Letting
-   the copy replace UE4SS is what makes the old mod keep working too.
-   (it is a normal UE4SS build), but it means a different UE4SS version and any settings
-   you had tuned in that .ini are overwritten. If you would rather keep your own UE4SS,
-   copy just this one folder instead of the whole thing:
+   is UE4SS itself -- UE4SS.dll, dwmapi.dll and UE4SS-settings.ini. That is usually fine, as
+   the bundled copy is a normal UE4SS build; what you lose is that it is a different UE4SS
+   version from the one you had, and any settings you had tuned in UE4SS-settings.ini are
+   overwritten.
+
+   Saying yes is also NECESSARY if your UE4SS is an older one whose Mods folder sits
+   directly in Binaries\Win64 (no ue4ss\ folder): that loader never looks where this mod
+   lives, so if you decline the replace, MeshGhost silently never loads (seen 2026-09-05 on
+   a tester's older Archipelago install; a clean game reinstall and then both mods fixed
+   it). Letting the copy replace UE4SS is what makes the old mod keep working too.
+
+   If you would rather keep your own UE4SS, copy just this one folder instead of the whole
+   thing:
 
        pseudoregalia\Binaries\Win64\ue4ss\Mods\MeshGhostPseudo\
 

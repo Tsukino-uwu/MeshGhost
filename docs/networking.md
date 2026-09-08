@@ -97,8 +97,14 @@ anything else this early is silently ignored.
    rejection logs without echoing the field values — the normal rejection path prints them,
    and printing an unbounded attacker-controlled field into the host's own log is precisely
    what bounding the field was for.
-2. **Protocol version** (`relay.go`). A mismatch is refused outright rather than guessed
-   at. Everything below can now safely log the fields, since they're known short.
+2. **Protocol version** (`relay.go`). Since 2026-09-08 this is a **floor, not an equality
+   test**: `hello.protocol_version` is compared against `protocol.MinProtocolVersion` (2) by
+   `protocol.AcceptsPeerVersion`, and anything below it is refused outright rather than
+   guessed at — a peer that advertises none needs no special case, since 0 is below any
+   floor. The same check runs in the other direction: the `welcome` carries the relay's own
+   `protocol_version`, and a core refuses a relay below *its* floor
+   (`core/relaysession.go`). Everything below can now safely log the fields, since they're
+   known short.
 3. **Room code** (`relay.go`). `subtle.ConstantTimeCompare`, so a wrong guess can't be
    refined byte by byte. An empty configured `Server.RoomCode` means auth is off — the original
    friend-hosted posture.
@@ -117,10 +123,18 @@ anything else this early is silently ignored.
    two simultaneous joins past `MaxClients`. If the reservation fails, `dropIfEmpty` cleans up
    the room this attempt may just have created.
 
-Every one of those refusals goes through `rejectAndClose` (`relay.go`): send a `reject`
-with a reason string, log one line, then close. Not a bare hangup — a hangup is
+Every one of those refusals goes through `rejectAndClose` (`relay.go`): send a `reject`, log
+one line, then close. Not a bare hangup — a hangup is
 indistinguishable from "the relay is down" or "the relay is slow", and the client can't tell
 its user anything useful about it.
+
+**A `reject` carries three fields, since 2026-09-08** (`protocol.Reject`): the prose `reason`
+it always had, a stable machine-readable `code` (`protocol.CodeServerFull` and its eight
+siblings), and a `retryable` flag. The relay fills the last two from
+`protocol.RetryableForCode` and the core reads them back through the same table
+(`core.isPermanentReject`), so the sender's claim and the receiver's expectation cannot drift
+apart — which is what the previous prose-matching arrangement did. A reader that does not
+recognise a code falls back to `retryable`, and only then to the prose.
 
 **Admission.** `nextPlayerID` (`relay.go`) hands out `p1`, `p2`, … from an atomic counter;
 ids are never reused, and carry nothing about the connection. Then
@@ -488,7 +502,7 @@ happens when each one trips*.
   nothing to gain from staying connected to find out why. The cap only ever scales *up* from
   120 — turning a relay's `send_hz` down must never start disconnecting older clients still
   sending at the 20Hz default their build shipped with. `ReasonRateLimited` is classified *retryable* by
-  `core.isPermanentRejectReason` (`core.go`), because a reconnecting client re-reads the
+  `protocol.RetryableForCode`, read by `core.isPermanentReject` (`core.go`), because a reconnecting client re-reads the
   room's advertised `send_hz` from the new `welcome` and may well fit the second time.
 - **MaxClients** — server-wide (section 4). Trips → `ReasonServerFull`, also retryable, since
   someone may leave.

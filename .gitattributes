@@ -63,8 +63,37 @@ go.sum text eol=lf
 # Scoped to the READMEs WE write, deliberately: a wider glob also swept the vendored
 # UE4SS runtime's own LICENSE and THIRD-PARTY-NOTICES.txt, and a vendored file stays
 # byte-identical to what its project shipped.
+#
+# `**` and not `*` in the games rule, corrected 2026-09-08. A gitattributes `*` does not
+# cross a `/`, so `games/*/README.txt` reached tevi/ and pseudoregalia/ and MISSED both
+# Pokemon READMEs, which sit a level deeper under games/pokemon/. `git check-attr eol` on
+# those two printed `unspecified`: they were CRLF only because the bytes in the blob
+# happened to be, which is precisely the state the paragraph above records going wrong on
+# 2026-09-06. Check the fix the same way rather than by reading the pattern -- all four
+# paths must print `eol: crlf`.
+#
+# `**` also reaches one file the old `*` never did and that IS wanted: the explanatory
+# README.txt we ship inside the user's ue4ss\Mods\ folder, which is our text, opened by
+# double-click on Windows exactly like the other four. It is LF in the blob today, so the
+# first checkout after this rule lands rewrites it -- a whole-file ending diff with no
+# content change, which is the pin doing its job and not something to revert. The vendored
+# UE4SS files in that same tree are untouched: they are LICENSE and THIRD-PARTY-NOTICES.txt,
+# and this glob only matches the basename README.txt.
 packaging/release/README.txt text eol=crlf
-packaging/release/games/*/README.txt text eol=crlf
+packaging/release/games/**/README.txt text eol=crlf
+
+# The Linux and macOS READMEs are the same player-facing text for the OTHER packages, and
+# they are pinned the opposite way for the same reason: release.yml renames each into the
+# tarball as README.txt, where a stray CR is what shows up as a visible ^M in a terminal
+# pager. They were unpinned until 2026-09-08 and are LF today only on the blob's bytes.
+packaging/unix/README-*.txt text eol=lf
+
+# config.json is the one shipped file that goes to ALL THREE packages from one blob -- the
+# Windows zip root, both tarballs, and (cut down by dev-scripts/stage-release.ps1) every
+# game folder. LF rather than CRLF deliberately: encoding/json does not care on either
+# side, and the two tarballs are the copies where the ending is visible to a reader. Pinned
+# 2026-09-08 so it stays decided here rather than by whichever runner checks the tree out.
+packaging/release/config.json text eol=lf
 
 # Batch files, for the same reason one line up and with the same history.
 #

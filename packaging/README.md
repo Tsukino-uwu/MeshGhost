@@ -8,10 +8,14 @@ builds the Go `.exe`s and then delegates the assembly to `dev-scripts/stage-rele
 and drops a `config.json` into every game's folder (`games/tevi/` and `games/pseudoregalia/`, beside
 each README.txt — NOT inside the mod folder, since 2026-09-05; `games/pokemon/emerald/` and
 `games/pokemon/crystal/`) — the root `config.json`'s `client` block
-with that game's `packaging/config-overrides/<game>.json` merged on top (a staging input that stays OUT of the zip -- it shipped as an empty `{}` until 2026-09-05 and a player asked whether it was where name and colour go). Since 2026-09-02 they all carry the
-same values (450ms interp, collision disabled), trimmed to the player-facing keys (basics,
-collision, the render group; the rest take built-in defaults), and no game overrides anything; the two
-overrides files are empty and stay for the day a game needs its own value. The workflow zips the whole `packaging/release/` folder as the
+with that game's `packaging/config-overrides/<game>.json` merged on top (a staging input that stays OUT of the zip -- it shipped as an empty `{}` until 2026-09-05 and a player asked whether it was where name and colour go). Since 2026-09-02 they share the
+same networking values (450ms interp, collision disabled), trimmed to the player-facing keys (basics,
+collision, the render group; the rest take built-in defaults). **One game does override**: since
+2026-09-06 `config-overrides/pseudoregalia.json` carries three values of its own —
+`ghost_range_throttle` 6500, `ghost_range_far` 8500, `ghost_range` 10500, the distance tiers in
+that game's own units (`docs/config.md`). `config-overrides/tevi.json` is still empty, and the two
+Pokemon games have no override file at all, so all three take the root client block unchanged.
+The workflow zips the whole `packaging/release/` folder as the
 Windows release asset. It does **not** stage a copy of the client beside those mods — see "One
 copy of the client, copied in by hand" below. Two more assets go
 out beside it — the Linux and macOS client+server tarballs; see "…and then two more, for Linux and macOS" below.
@@ -238,7 +242,8 @@ fresh by CI. TEVI is different because **CI cannot build it**: `MeshGhostTevi.cs
 against `adapters/tevi/MeshGhostTevi/lib/*.dll`, copies of the developer's own proprietary TEVI
 install that are gitignored and never committed
 ([agent_docs/licensing.md](../agent_docs/licensing.md)). Our own output —
-~27 KB, `<Private>false</Private>` so no game DLL is embedded in it — is fine to distribute,
+53,248 bytes as committed on 2026-09-08, `<Private>false</Private>` so no game DLL is embedded in
+it — is fine to distribute,
 it just has to be built on a machine that already has TEVI installed.
 
 The DLL is staged under a `MeshGhost/` subfolder rather than flat in `games/tevi/` so the whole
@@ -252,7 +257,12 @@ lands in a user's `BepInEx/plugins/` folder) recording the SHA-256 of the four s
 (`Plugin.cs`, `BridgeClient.cs`, `CoreLauncher.cs`, `MeshGhostTevi.csproj`) it was built from.
 `.github/workflows/release.yml` rehashes those same files before assembling a release and fails
 the build if they don't match — a release physically cannot ship a `MeshGhostTevi.dll` older
-than the source that's supposed to have produced it. Whoever edits the TEVI adapter re-runs
+than the source that's supposed to have produced it. **All three provenance records
+(`built-from.txt`, `MeshGhostPseudo-built-from.txt`, `ue4ss-runtime-built-from.txt`) are deleted
+from the runner's staging copy before the zip is made, since 2026-09-08** — keeping them out of
+the drag-and-drop tree stopped them reaching a user's `plugins\` folder but not the zip itself,
+and the gate they exist for has already run by then; a player has no use for a list of source
+hashes for source they do not have. Local dry runs of `stage-release.ps1` leave them in place. Whoever edits the TEVI adapter re-runs
 `build-tevi.bat` and commits the result as part of that change.
 
 TEVI ships marked experimental (see `packaging/release/README.txt` and

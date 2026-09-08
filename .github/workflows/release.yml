@@ -260,10 +260,26 @@ jobs:
           done
           ls -l cmd/meshghost/rsrc_windows_amd64.syso cmd/meshghost-relay/rsrc_windows_amd64.syso
 
+      # CGO_ENABLED: "0" is here for the same reason it is on the unix job above, and it was
+      # MISSING here until 2026-09-08 -- the one job whose output is the signed, shipped
+      # artifact. Go's default is 1 whenever a C compiler is on PATH, and windows-latest has
+      # one, so the cgo setting of the file every player downloads was decided by whatever
+      # toolchain happened to be in the runner image rather than by this file. That is exactly
+      # the input a reproducible build cannot have: docs/reviewing.md's recipe pins
+      # CGO_ENABLED=0, and docs/code-signing.md rests the signature's meaning on anyone being
+      # able to rebuild the tag and get the same bytes. A reviewer whose hash did not match had
+      # no way to tell whether the source or the runner was the thing that differed.
+      #
+      # Setting it on the job's build steps rather than the whole job deliberately: the Vet and
+      # Test steps above stay as they were, since the tests are not what ships.
       - name: Build meshghost.exe
+        env:
+          CGO_ENABLED: "0"
         run: go build -trimpath -ldflags="-s -w" -o meshghost.exe ./cmd/meshghost
 
       - name: Build meshghost-server.exe
+        env:
+          CGO_ENABLED: "0"
         run: go build -trimpath -ldflags="-s -w" -o meshghost-server.exe ./cmd/meshghost-relay
 
 
@@ -414,6 +430,24 @@ jobs:
           # -ForRelease: kept for compatibility, a no-op since 2026-09-02 -- every game's
           # config.json is cut from the root config.json's client block, no template to remove.
           pwsh dev-scripts/stage-release.ps1 -NoBuild -ForRelease
+
+          # The three provenance records do NOT go in the zip (2026-09-08). Each was already
+          # kept out of the drag-and-drop tree so it could not land in a user's game folder --
+          # but Compress-Archive takes packaging\release\* wholesale, so all three shipped one
+          # level up from where they were being kept out of, next to the README a player reads.
+          #
+          # They are a build gate, not a deliverable: their own headers say "Do not hand-edit",
+          # their whole job is a hash comparison done EARLIER IN THIS JOB (the three "isn't
+          # stale" steps above), and by the time the zip exists they have already done it. What
+          # a player gets from one is a file of SHA-256 lines that looks like something they
+          # are supposed to check and is not, next to filenames of source they do not have.
+          #
+          # Deleted from the runner's working copy, never from the repo -- the tracked files are
+          # what the gates read, and nothing after this step touches them.
+          Remove-Item -Force `
+            packaging\release\games\tevi\built-from.txt, `
+            packaging\release\games\pseudoregalia\MeshGhostPseudo-built-from.txt, `
+            packaging\release\games\pseudoregalia\ue4ss-runtime-built-from.txt
 
           # "full" rather than "windows", for two reasons. It says what is actually in here
           # (client, server, and every game's mod) instead of naming a platform, and GitHub

@@ -399,10 +399,18 @@ Setup, once:
                    moving for a while ("spawn_delay", normally the
                    chaser's own delay), so nothing spawns on top of
                    you while you stand at the start.
-                 * Replay and chaser ghosts are ALWAYS just pictures:
-                   never solid, never hurt, whatever "ghost_collision"
-                   says. A replay file from a friend can do exactly what
-                   a stranger in a room can do and nothing more.
+                 * A replay or chaser ghost is MEANT to be just a
+                   picture -- never solid, never hurt, whatever
+                   "ghost_collision" says. Your client marks every one
+                   of them that way when it hands it to the game, and
+                   in TEVI and Pseudoregalia that is what you get.
+                   Emerald and Crystal do not run replays or chasers
+                   at all yet (2026-09-08), so the question does not
+                   arise there -- when they do, read the "Ghost
+                   collision" section further down first.
+                   Nothing else about them changes: a replay file from a
+                   friend can do exactly what a stranger in a room can
+                   do and nothing more.
                  * The keys are system-wide and work with the game
                    focused. Change them under "hotkeys" (ctrl/shift/alt
                    plus one key; F12 and the Windows key are refused;
@@ -690,7 +698,11 @@ Hosting (skip this section if you're not the host):
    it) -- they'll need it for their "connect_to" setting. If you didn't set
    a "room_code", treat the address itself as the shared secret: anyone
    who has it can join.
-4. To stop hosting: close the window (or Ctrl+C).
+4. To stop hosting: close the window (or Ctrl+C). Since 2026-09-08 the
+   server says goodbye to everyone still connected before it exits, so
+   their games notice at once instead of sitting on a frozen room for
+   about fifteen seconds waiting to time out. Press Ctrl+C a second time
+   if you want it gone immediately without that.
 
 Playing, every session (everyone, including the host):
 1. Just start the game. ALL FOUR mods start MeshGhost for you, with no
@@ -913,14 +925,21 @@ themselves. The strictest setting wins, so a player who turns it off keeps
 it off, and a player cannot turn it back on in a room where the host
 turned it off.
 
-Two honest caveats:
+Three honest caveats:
 
-  It is a REQUEST, not a rule the server can enforce. The server has no
-  idea what any of these games are or what collision means in them -- it
-  publishes the setting and the game mods honor it. Nothing on the server
-  can check that a mod did, and an old mod that predates the setting will
-  ignore it entirely. If ghosts are still solid after you set this, the
-  mod is the thing to update.
+  NO SHIPPED MOD ACTS ON IT YET (2026-09-08). The setting travels the
+  whole way -- your client works out the answer and hands it to the game
+  mod -- and then all four mods ignore the message. So setting it today
+  changes nothing you can see in any of the four games: whether a ghost
+  blocks you is still whatever the list above says for that game. There
+  is no mod to update and nothing you can change on your end; the work
+  is in each game's mod and is being done. This paragraph is what to
+  re-read after an update to find out whether that is still true.
+
+  It is a REQUEST, not a rule the server can enforce, and it stays one
+  once the mods do act on it. The server has no idea what any of these
+  games are or what collision means in them -- it publishes the setting,
+  and nothing on the server can check that a mod honoured it.
 
   Turning it off is not free in the two Pokemon games. Solidity there
   comes from the ghost being a real engine character, so the only way to

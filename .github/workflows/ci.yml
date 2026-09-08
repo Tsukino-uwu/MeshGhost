@@ -2,10 +2,9 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against twenty-three targets across eight packages (protocol 13,
-# bridge 2, relay 2, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1).
+# short fuzz campaign against twenty-four targets across eight packages (protocol 13, bridge 2, relay 3, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1).
 # That is every target in the tree but two: `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l`
-# counts 25 on 2026-09-06, and agent_docs/testing.md names the two with no step here and why
+# counted 26 on 2026-09-08, and agent_docs/testing.md names the two with no step here and why
 # (both are socket-bound schedule fuzzers that are opt-in on purpose; they still run on their
 # seed corpus in the test job). Count both rather than trusting this line, which said eleven
 # across four for as long as the two bridge targets below had existed. Until this existed,

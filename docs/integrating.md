@@ -148,7 +148,7 @@ The discovery step is available if you want it: send a `hello` with `"query_only
 back a list of offers instead of joining. Real exchange, captured from a running relay:
 
 ```text
->> {"type":"hello","payload":{"protocol_version":1,"game_id":"mygame","room":"lobby","display_name":"x","query_only":true}}
+>> {"type":"hello","payload":{"protocol_version":2,"game_id":"mygame","room":"lobby","display_name":"x","query_only":true}}
 << {"type":"transports","payload":{"offers":[{"kind":"tcp","port":7851},{"kind":"quic","port":7851}]}}
 ```
 
@@ -198,8 +198,8 @@ Lines are capped at 4096 bytes by the relay.
 **What bob sends and receives:**
 
 ```text
->> {"type":"hello","payload":{"protocol_version":1,"game_id":"mygame","room":"lobby","display_name":"bob"}}
-<< {"type":"welcome","payload":{"player_id":"p3","roster":["p2"],"send_hz":20,"server_time_ms":1786980386656}}
+>> {"type":"hello","payload":{"protocol_version":2,"game_id":"mygame","room":"lobby","display_name":"bob"}}
+<< {"type":"welcome","payload":{"player_id":"p3","roster":["p2"],"send_hz":20,"protocol_version":2,"server_time_ms":1786980386656}}
 >> {"type":"state","payload":{"area_id":"level1","position":[12.5,0,-3.25],"anim":"run"}}
 >> {"type":"leave","payload":{}}
 ```
@@ -207,7 +207,7 @@ Lines are capped at 4096 bytes by the relay.
 **What alice sees while that happens:**
 
 ```text
-<< {"type":"welcome","payload":{"player_id":"p2","roster":[],"send_hz":20,"server_time_ms":1786980385270}}
+<< {"type":"welcome","payload":{"player_id":"p2","roster":[],"send_hz":20,"protocol_version":2,"server_time_ms":1786980385270}}
 << {"type":"join","payload":{"player_id":"p3"}}
 << {"type":"state","payload":{"player_id":"p3","seq":0,"timestamp":0,"area_id":"level1","position":[12.5,0,-3.25],"anim":"run"}}
 << {"type":"leave","payload":{"player_id":"p3"}}
@@ -245,18 +245,32 @@ A refusal arrives as one line, then the relay hangs up:
 
 ```text
 >> {"type":"hello","payload":{"protocol_version":2,"game_id":"mygame","room":"lobby","display_name":"x"}}
-<< {"type":"reject","payload":{"reason":"protocol version mismatch"}}
+<< {"type":"reject","payload":{"reason":"protocol version mismatch","code":"protocol_version_mismatch"}}
 ```
 
-`reason` is plain text, not a coded enum, so match it defensively. The full set:
-`protocol version mismatch`, `hello field too long`, `invalid room code`,
-`game version mismatch for this room`, `feature set mismatch for this room`,
-`game not allowed on this relay`, `server full`, `rate limited`, and `game mismatch for this room`
-(kept for wire compatibility; a current relay no longer sends it).
+**Since 2026-09-08 a `reject` carries three things, and you should read them in this order:**
 
-**Only two are worth retrying**: `server full` resolves when somebody leaves, and `rate limited`
-resolves on reconnect. Treat every other reason as permanent — retrying a version mismatch just
-hammers the relay forever.
+1. **`code`** — a stable, machine-readable identifier, and the only field you should branch on.
+   The set: `protocol_version_mismatch`, `hello_field_too_long`, `invalid_room_code`,
+   `game_mismatch`, `game_version_mismatch`, `feature_mismatch`, `game_not_allowed`,
+   `server_full`, `rate_limited`. A code is frozen once it ships; a new kind of refusal gets a
+   new code rather than reusing a near-miss, so **treat one you do not recognise as unknown
+   rather than guessing at it**.
+2. **`retryable`** — a boolean the relay fills in from the same table the code comes from. This
+   is your fallback when you do not recognise the code, and it is what makes adding a code safe.
+   Only `server_full` and `rate_limited` are retryable: a full room empties when somebody
+   leaves, and a rate limit clears on reconnect. Everything else needs a config edit first, so
+   retrying it is pure noise — and retrying a version mismatch just hammers the relay forever.
+3. **`reason`** — the prose sentence, unchanged and still sent: `protocol version mismatch`,
+   `hello field too long`, `invalid room code`, `game version mismatch for this room`,
+   `feature set mismatch for this room`, `game not allowed on this relay`, `server full`,
+   `rate limited`, and `game mismatch for this room` (kept for wire compatibility; a current
+   relay no longer sends it). **It is for a human reading a log. Do not match on it** — that is
+   what this repo did until 2026-09-08 and the substring heuristics it produced were wrong in
+   both directions.
+
+Both `code` and `retryable` are `omitempty`, so a relay older than 2026-09-08 sends neither; that
+build is below the protocol floor below and will not reach you anyway.
 
 And a great deal is **not** answered at all, which is deliberate and will look like your bug:
 
@@ -351,13 +365,27 @@ import path and none was affected by any of it.
 
 ## Compatibility, honestly
 
-`protocol_version` is checked for **exact equality**. A mismatch is refused outright rather than
-negotiated, so a bump would reject every existing client at once.
+`protocol_version` is checked against a **floor, not for equality** — changed 2026-09-08, and this
+is the one thing on this page whose behaviour a client written earlier gets wrong.
 
-In practice it has stayed at `1` while seven capabilities, most of the message types and a good
-number of fields were added, because new capability travels through the `features` list plus two
-forward compatibility rules: **unknown fields are ignored, and unknown message types are ignored.** Build
-your client to honour both and additive changes will pass straight over it.
+`protocol.Version` is `2` and `protocol.MinProtocolVersion` is `2`. **A relay accepts a client at
+or above the floor, and a client accepts a relay at or above it** — the check runs in both
+directions, and a `welcome` now carries the relay's own `protocol_version` back so your client can
+make it. At or above the MINIMUM, not at or above the current version: the concrete case that must
+keep working is a `2.3` client talking to a `2.0` relay. Send the highest version you implement;
+do not send the relay's back at it.
+
+Until 2026-09-08 it was `!=`, i.e. exact equality, which meant any bump refused every older build
+at once and so the version could never be raised at all — it sat at `1` for the whole life of the
+protocol while seven capabilities, most of the message types and a good number of fields were
+added. **The move to `2` is a deliberate, one-time break**: everything built before that date is
+refused once, and from here a bump is a compatibility decision rather than a flag day. If you have
+a client in the wild, `1` no longer connects to anything.
+
+None of that replaces the forward-compatibility rules, which are still how routine additions
+travel: new capability goes through the `features` list, **unknown fields are ignored, and unknown
+message types are ignored.** Build your client to honour both and additive changes pass straight
+over it without the floor moving at all.
 
 **That is our internal discipline, not a promise to you.** It has held so far and we intend to keep
 it, but nothing here commits us to it, and there is no deprecation process for outside clients
