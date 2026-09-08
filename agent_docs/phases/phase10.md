@@ -960,10 +960,10 @@ decision: that half is the only non-additive piece, so relay operators must upda
 the release notes have to say so.
 
 Two process notes from the same day. Committing the ideas entry is what caught a bug I had
-introduced hours earlier: adding the clone-path patterns to `.githooks/pre-commit`'s TEXT scan made
+introduced earlier the same day: adding the clone-path patterns to `.githooks/pre-commit`'s TEXT scan made
 it refuse an ordinary edit to `ideas.md` over a sentence QUOTING the rule. `preflight.ps1`'s own
 clone-path check has been scripts-only from the start and says why; the hook now matches it. Three
 copies of one rule, changed in one place -- the same shape as the `pitfalls/` split that broke CI on
-2026-08-25. And the duration gate caught a "runs for weeks" that had already landed in a commit,
+2026-08-25. And the duration gate caught a vague-duration phrase that had already landed in a commit,
 because the hook scans paths and preflight scans durations: the two gates do not overlap, which is
 worth knowing when deciding which one a new rule belongs in.
