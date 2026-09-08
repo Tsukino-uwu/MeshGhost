@@ -10676,7 +10676,7 @@ namespace MeshGhostPseudo
                 out += head;
                 if (r.dir == 0 && r.mask == 0)
                 {
-                    out += STR(" b7"); // a neutral row: a middle dot, so a held nothing reads as a row
+                    out += L'\xB7'; // a neutral row: a middle dot (U+00B7), so a held nothing reads as a row
                 }
                 // One glyph per direction, diagonals included (the user, against the Celeste
                 // display: "down/right as its own thing, not right + down"). Bits: 1 up, 2 down,
