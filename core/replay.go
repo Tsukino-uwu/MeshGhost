@@ -28,6 +28,7 @@ package core
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"errors"
@@ -103,6 +104,15 @@ type replayClip struct {
 	startDelay time.Duration
 	loop       bool
 	forcedSeam map[int]bool // sample index -> a gap was cut before it
+
+	// The surgery applyTrim and applySkipGaps did to the samples, kept so a
+	// track can be put through the same (attachTrack): the raw stamps of the
+	// first and last surviving sample, and every gap cut in order.
+	trimFirst, trimLast int64
+	gapCuts             []gapCut
+	// track is the clip's input track, mapped into the clip's own stamp
+	// domain, or nil for a clip that has none or an adapter that did not ask.
+	track *inputTrack
 }
 
 // duration returns the clip's length at speed 1.
@@ -185,6 +195,13 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 	// entry may still be a full-size clip; what it may not do is be the
 	// hundredth one. See replayMaxSamplesPerArchive.
 	budget := replayMaxSamplesPerArchive
+	// A ZIP MAY CARRY ITS CLIPS' INPUT TRACKS (ADR 0057): an entry whose first
+	// line is an input header is a track, not a clip, and is matched to a clip
+	// in the same archive by recording_id once every entry has been read. Its
+	// own budget, spent the same way. Someone sharing a run zips the clip and
+	// the file beside it, and the recipient's ghost gets its inputs too.
+	trackBudget := replayMaxTrackEdgesPerArchive
+	var tracks []*inputTrack
 	// The archive's own order, not sorted: a zip made from a selection keeps
 	// the order the person made it in, and StartReplays sorts the FILES it
 	// found anyway. An entry that is not a clip -- a readme, a screenshot, the
@@ -199,6 +216,24 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 			continue
 		}
 		inner := name + "/" + filepath.Base(entry.Name)
+		if isTrack, err := zipEntryIsInputTrack(entry); err != nil {
+			log.Printf("core: replay skipped: %s: %v", inner, err)
+			continue
+		} else if isTrack {
+			if trackBudget <= 0 {
+				log.Printf("core: replay: %s holds more than %d input edges in total -- "+
+					"the remaining tracks are not loaded", name, replayMaxTrackEdgesPerArchive)
+				continue
+			}
+			tr, err := readZipInputTrack(entry, inner, trackBudget)
+			if err != nil {
+				log.Printf("core: replay: input track skipped: %v", err)
+				continue
+			}
+			trackBudget -= len(tr.edges)
+			tracks = append(tracks, tr)
+			continue
+		}
 		if budget <= 0 {
 			// Said once, not once per remaining entry: an archive built to
 			// exhaust this has plenty of entries left and the log is the thing
@@ -221,7 +256,70 @@ func loadReplayAll(path string) ([]loadedClip, error) {
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s: no .ndjson inside", name)
 	}
+	// Match by recording_id, the one value the two files share. Unmatched
+	// either way is said out loud: a track with no clip is a person who
+	// zipped the wrong pair, and a clip with no track simply predates one.
+	for _, tr := range tracks {
+		matched := false
+		for _, lc := range out {
+			if tr.header.RecordingID != "" && lc.clip.header.RecordingID == tr.header.RecordingID {
+				lc.clip.attachTrack(tr)
+				matched = true
+			}
+		}
+		if !matched {
+			log.Printf("core: replay: %s: input track %s matches no clip in the archive (recording_id %q)",
+				name, tr.file, tr.header.RecordingID)
+		}
+	}
 	return out, nil
+}
+
+// zipEntryIsInputTrack peeks an entry's first line for the input header's
+// key. A clip's first line has meshghost_replay instead; anything else is
+// neither and is refused by whichever parser gets it.
+func zipEntryIsInputTrack(entry *zip.File) (bool, error) {
+	rc, err := entry.Open()
+	if err != nil {
+		return false, err
+	}
+	defer rc.Close()
+	var r io.Reader = rc
+	if strings.HasSuffix(strings.ToLower(entry.Name), ".gz") {
+		gz, err := gzip.NewReader(rc)
+		if err != nil {
+			return false, fmt.Errorf("not a gzip file: %w", err)
+		}
+		defer gz.Close()
+		r = gz
+	}
+	// The wire's line cap, as everywhere a line is read: a first line longer
+	// than this is not a header of either kind.
+	head := make([]byte, protocol.MaxLineBytes)
+	n, _ := io.ReadFull(r, head)
+	head = head[:n]
+	if i := bytes.IndexByte(head, '\n'); i >= 0 {
+		head = head[:i]
+	}
+	return bytes.Contains(head, []byte(`"meshghost_inputs"`)), nil
+}
+
+func readZipInputTrack(entry *zip.File, name string, maxEdges int) (*inputTrack, error) {
+	rc, err := entry.Open()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", name, err)
+	}
+	defer rc.Close()
+	var r io.Reader = rc
+	if strings.HasSuffix(strings.ToLower(entry.Name), ".gz") {
+		gz, err := gzip.NewReader(rc)
+		if err != nil {
+			return nil, fmt.Errorf("%s: not a gzip file: %w", name, err)
+		}
+		defer gz.Close()
+		r = gz
+	}
+	return parseInputTrackLimited(r, name, maxEdges)
 }
 
 func readZipEntry(entry *zip.File, name string, maxSamples int) (*replayClip, error) {
@@ -462,6 +560,10 @@ func (rc *replayClip) applyTrim() {
 		}
 	}
 	rc.samples = rc.samples[start:end]
+	if len(rc.samples) > 0 {
+		rc.trimFirst = rc.samples[0].Timestamp
+		rc.trimLast = rc.samples[len(rc.samples)-1].Timestamp
+	}
 }
 
 // applySkipGaps collapses every gap longer than skip_gaps to one millisecond
@@ -481,6 +583,7 @@ func (rc *replayClip) applySkipGaps() {
 		if gap > limit {
 			shift += gap - 1
 			rc.forcedSeam[i] = true
+			rc.gapCuts = append(rc.gapCuts, gapCut{from: orig - gap, to: orig, shift: shift})
 		}
 		rc.samples[i].Timestamp = orig - shift
 	}
@@ -500,6 +603,8 @@ type replayPlayer struct {
 	started uint32
 
 	split splitState
+	// in is the input track cursor (replayinputs.go); touched only by run().
+	in inputStream
 
 	mu        sync.Mutex
 	startedAt int64 // nowMs at which clip time 0 is due, for the current lap
@@ -589,6 +694,13 @@ func (p *replayPlayer) run() {
 		log.Printf("core: replay %s: the roster is full, not playing", clip.file)
 		return
 	}
+	// The track's cursor starts at the top with the ghost; every later admit
+	// (seam) re-aims it (ADR 0057).
+	p.inputReset(0)
+	if clip.track != nil {
+		log.Printf("core: replay %s: streaming its input track %s (%d edges) beside the frames",
+			clip.file, clip.track.file, len(clip.track.edges))
+	}
 	delay := clip.startDelay
 	if delay == 0 {
 		p.c.mu.Lock()
@@ -644,7 +756,11 @@ func (p *replayPlayer) run() {
 		setStart(now - int64(float64(pos)/clip.speed))
 		*i = indexAt(pos)
 		log.Printf("core: replay %s: %s -> %s into the clip", clip.file, cmd.kind, (time.Duration(pos) * time.Millisecond).Round(time.Millisecond))
-		return p.seam(tag)
+		if !p.seam(tag) {
+			return false
+		}
+		p.inputReset(pos)
+		return true
 	}
 
 	prevNow := p.c.nowMs()
@@ -686,6 +802,7 @@ func (p *replayPlayer) run() {
 			p.laps++
 			p.mu.Unlock()
 			i = 0
+			p.inputReset(0)
 			continue
 		}
 		s := clip.samples[i]
@@ -693,6 +810,10 @@ func (p *replayPlayer) run() {
 			if !p.seam(tag) {
 				return
 			}
+			// Edges past the gap may already have gone out ahead of it, and
+			// the adapter dropped them with the pawn: send them again from
+			// here, behind a reset.
+			p.inputReset(s.Timestamp - clip.t0)
 		}
 		due := start + int64(float64(s.Timestamp-clip.t0)/clip.speed)
 		cmd, stopped := p.sleepUntil(due)
@@ -715,6 +836,7 @@ func (p *replayPlayer) run() {
 			if !p.seam(tag) {
 				return
 			}
+			p.inputReset(s.Timestamp - clip.t0)
 		}
 		prevNow = now
 		st := s
@@ -731,6 +853,9 @@ func (p *replayPlayer) run() {
 		p.mu.Lock()
 		p.idx = i
 		p.mu.Unlock()
+		// After the sample, never before: a seam above has re-admitted the
+		// ghost by now, so the reset this may carry lands behind the despawn.
+		p.streamInputs(start, now)
 		i++
 	}
 }
@@ -756,7 +881,21 @@ func (c *Core) StartReplays() int {
 	if game == "" {
 		game = c.relayGame
 	}
+	wantTracks := c.adapterWantsInputTracks
 	c.mu.Unlock()
+	// Built lazily, once per call, and only for an adapter that asked: the
+	// scan is a header read per track on disk, and an adapter that cannot use
+	// one must not pay for it (ADR 0057).
+	var trackIndex map[string]string
+	findTrack := func(clip *replayClip, name string) {
+		if !wantTracks || clip.track != nil || clip.header.RecordingID == "" {
+			return
+		}
+		if trackIndex == nil {
+			trackIndex = c.inputTrackIndex()
+		}
+		c.attachTrackFromIndex(clip, name, trackIndex)
+	}
 
 	names := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -798,6 +937,7 @@ func (c *Core) StartReplays() int {
 			if clip.header.Game == "" && game != "" {
 				log.Printf("core: replay %s names no game; assuming it is for %q", name, game)
 			}
+			findTrack(clip, name)
 			id := localPeerReplayPrefix + name
 			p := newReplayPlayer(c, id, clip)
 			if c.replays == nil {

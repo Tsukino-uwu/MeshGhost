@@ -82,6 +82,15 @@ type fakeAdapter struct {
 	policies chan bridge.SessionPolicy
 	// recordings receives every recording_state push, in order.
 	recordings chan bridge.RecordingState
+	// inputs receives every remote_input (ADR 0057), each stamped with what
+	// this adapter had seen for that player at the moment it arrived: the
+	// newest rendered state.timestamp (so a test can prove the edges came
+	// AHEAD of the frames they are due on) and how many despawns (so a test
+	// can prove a seam's first line carried a reset).
+	inputs chan receivedInput
+	// lastRenderTs and despawnCount are the per-player stamps above.
+	lastRenderTs map[string]int64
+	despawnCount map[string]int
 	// order records the sequence of message types as they actually arrive, so
 	// a test can assert bridge_ready precedes session_policy. The two are
 	// produced on DIFFERENT goroutines inside the Core (the adapter read loop
@@ -129,6 +138,11 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 		policies:   make(chan bridge.SessionPolicy, 8),
 		recordings: make(chan bridge.RecordingState, 8),
 		order:      make(chan bridge.MessageType, 32),
+		// Deep, and never blocking (below): a dense track at 4x can send a
+		// few hundred lines in a short test.
+		inputs:       make(chan receivedInput, 4096),
+		lastRenderTs: map[string]int64{},
+		despawnCount: map[string]int{},
 	}
 	conn.OnReceive(func(payload []byte) {
 		var env bridge.Envelope
@@ -150,6 +164,9 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			fa.mu.Lock()
 			fa.rendered[rr.PlayerID] = rr.State
 			fa.renderMsgs[rr.PlayerID] = rr
+			if rr.State.Timestamp > fa.lastRenderTs[rr.PlayerID] {
+				fa.lastRenderTs[rr.PlayerID] = rr.State.Timestamp
+			}
 			fa.mu.Unlock()
 		case bridge.TypeDespawnRemote:
 			var dr bridge.DespawnRemote
@@ -159,6 +176,7 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			}
 			fa.mu.Lock()
 			delete(fa.rendered, dr.PlayerID)
+			fa.despawnCount[dr.PlayerID]++
 			fa.mu.Unlock()
 			// Non-blocking, like every sibling channel in this callback. A blocking
 			// send here stalls the bridge READ LOOP once the buffer fills, which
@@ -205,6 +223,22 @@ func newFakeAdapter(t *testing.T, conn *transport.NDJSONConn) *fakeAdapter {
 			}
 			select {
 			case fa.recordings <- rs:
+			default:
+			}
+		case bridge.TypeRemoteInput:
+			var ri bridge.RemoteInput
+			if err := json.Unmarshal(env.Payload, &ri); err != nil {
+				t.Errorf("unmarshal remote_input: %v", err)
+				return
+			}
+			if ri.Edges == nil {
+				t.Errorf("remote_input for %s carries no edges array at all (null), want [] at least", ri.PlayerID)
+			}
+			fa.mu.Lock()
+			got := receivedInput{msg: ri, renderTs: fa.lastRenderTs[ri.PlayerID], despawns: fa.despawnCount[ri.PlayerID]}
+			fa.mu.Unlock()
+			select {
+			case fa.inputs <- got:
 			default:
 			}
 		case bridge.TypeReject:
@@ -296,6 +330,31 @@ func (fa *fakeAdapter) renderMsgOf(playerID string) (bridge.RenderRemote, bool) 
 	defer fa.mu.Unlock()
 	rr, ok := fa.renderMsgs[playerID]
 	return rr, ok
+}
+
+// receivedInput is one remote_input as the fake adapter saw it, with the
+// per-player stamps it had at that moment (see fakeAdapter.inputs).
+type receivedInput struct {
+	msg      bridge.RemoteInput
+	renderTs int64
+	despawns int
+}
+
+// helloInputTracks is the opt-in an adapter that can draw or drive with a
+// replay's input track sends -- see bridge.Hello's input_tracks (ADR 0057).
+func (fa *fakeAdapter) helloInputTracks(gameID string) {
+	fa.t.Helper()
+	payload, err := json.Marshal(bridge.Hello{GameID: gameID, InputTracks: true})
+	if err != nil {
+		fa.t.Fatalf("marshal hello: %v", err)
+	}
+	env, err := json.Marshal(bridge.Envelope{Type: bridge.TypeHello, Payload: payload})
+	if err != nil {
+		fa.t.Fatalf("marshal envelope: %v", err)
+	}
+	if err := fa.conn.Send(env); err != nil {
+		fa.t.Fatalf("send hello: %v", err)
+	}
 }
 
 // helloInterpolateOrientation is the opt-in an adapter with CONTINUOUS rotation

@@ -2769,13 +2769,17 @@ A visualizer built from these reads the track the core writes -- or, live, the s
 already has in hand before it sends them -- and never needs the core to know what a label means.
 
 **BUILT 2026-09-08, the player half of the display** (`adapters/pseudoregalia/README.md` step 70;
-config `input_display`). **NEXT: the ghost half**, designed with the user the same day and not
-started: a replay ghost's inputs on the other side of the screen, from the input track recorded
-beside its clip (same `recording_id`, in `replay/inputs/`). That needs the CORE: when a replay
-loads, find its track by id, and stream the edges to the adapter beside the clip's frames --
-a new core -> adapter message (an ADR), its timing in the replay's own clock so a seek or a loop
-seam moves both. Then the adapter draws it with the same panel code, on `ghost_side`, taking the
-player's side when the player's display is off. Also open, small: a live look-direction marker
+config `input_display`). **BUILT 2026-09-08 (evening), the CORE half of the ghost side: ADR 0057**
+-- `remote_input`, the clip's track found by `recording_id` (or inside the clip's zip), streamed
+ahead on the render clock with `at` per edge, reset behind every seam, only to an adapter whose
+hello set `input_tracks`. **NEXT, the adapter half**: draw it with the same panel code, on
+`ghost_side`, taking the player's side when the player's display is off; and, the same stream,
+**the driven ghost** -- the plan the user approved 2026-09-08: a replay ghost possessed by its own
+AIController and fed the track through the pawn's own input events, its position corrected by the
+recorded state, dev-toggle first (`ghost_drive.txt`), then `replay.drive_ghost` shipped off; the
+capture gains `cam_yaw`/`cam_pitch` axes first, since the pawn's Move handler needs the camera
+frame. Audio of a driven pawn is accepted as-is (user, 2026-09-08); a ghost mute/silence config
+option is future work under the SILENCE CLAUSE. Also open, small: a live look-direction marker
 beside the panel (the camera is in the track but deliberately not in the rows), and marking a
 press that had no effect by pairing the row with the clip's state.
 

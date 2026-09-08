@@ -325,7 +325,11 @@ var frozenBridgeFields = map[string][]string{
 	// The core learns nothing about the game from it; it does not even learn what an orientation
 	// IS, which is precisely why the interpolation happens in the adapter. Bridge-only, so it
 	// cannot fragment room compatibility. See bridge.Hello and ADR 0043.
-	"Hello":       {"features", "game_id", "game_version", "interpolate_orientation", "render_all_areas"},
+	// input_tracks (2026-09-08, ADR 0057) is the third adapter-local bool beside the two above and
+	// qualifies the same way: "stream me a replay's input track" declares a capability of the
+	// adapter's own (it has something to draw or drive with one). The core learns nothing about
+	// the game from it, and off it does not even look for a track.
+	"Hello":       {"features", "game_id", "game_version", "input_tracks", "interpolate_orientation", "render_all_areas"},
 	"Event":       {"Event"},
 	"Lease":       {"Lease"},
 	"LeaseState":  {"LeaseState"},
@@ -386,6 +390,15 @@ var frozenBridgeFields = map[string][]string{
 	// which is precisely the split that keeps this side blind.
 	"InputSample": {"axes", "drop", "edges", "labels", "source"},
 	"InputEdge":   {"ax", "f", "m", "t"},
+	// remote_input (2026-09-08, ADR 0057) is input_sample going the other way, and qualifies on
+	// the same two grounds: the mask, the axes and the three header tables are the file's own
+	// bytes carried verbatim, never decomposed; `at` is a timestamp the core computed from two it
+	// owns (the track's stamp and the replay's start), exactly as interp_t below is a fraction of
+	// two timestamps it owns; `reset` is a bare "drop what you hold" with no reason attached, the
+	// same shape as a despawn. The core sends what a file says at the time a clip says, and
+	// could not tell a jump from a pause button while doing it.
+	"RemoteInput":     {"axes", "edges", "labels", "player_id", "reset", "source"},
+	"RemoteInputEdge": {"at", "ax", "f", "m", "t"},
 	// orientation_from/orientation_to/interp_t (2026-08-30) qualify under the SECOND test
 	// above, and are the cleanest case of it in the list: the two orientation blobs are the
 	// SAME opaque bytes `orientation` already is, carried verbatim, and interp_t is a fraction
@@ -441,6 +454,7 @@ func TestWireFieldsAreFrozen(t *testing.T) {
 		"RemoteName": bridge.RemoteName{}, "RecordingState": bridge.RecordingState{},
 		"PlayerFrozen": bridge.PlayerFrozen{},
 		"InputSample":  bridge.InputSample{}, "InputEdge": bridge.InputEdge{},
+		"RemoteInput": bridge.RemoteInput{}, "RemoteInputEdge": bridge.RemoteInputEdge{},
 	}
 
 	compare := func(which string, samples map[string]any, frozen map[string][]string) {

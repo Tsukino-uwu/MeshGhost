@@ -153,6 +153,25 @@ it is set, so a pause costs the chaser no delay and it never converges onto a pl
 move. The recorder, replay ghosts and the wire never see it. What counts as frozen is the
 adapter's per-game fact, found by measurement, never a heuristic on the sample stream.
 
+**`remote_input` (core -> adapter, added 2026-09-08, ADR 0057)** is a replay ghost's recorded
+input track (ADR 0056), streamed beside its frames to an adapter whose `hello` set
+`input_tracks`, and to no other. Sent in windows ~500 ms AHEAD of the clock, never just in time.
+
+| Field | Meaning |
+|---|---|
+| `player_id` | the replay ghost (`replay:<file>`), never a real peer |
+| `labels`, `axes`, `source` | the track's own header tables, verbatim; STICKY, carried only on a `reset` line |
+| `reset` | drop every edge held for this player: the clip started, looped or was seeked (always behind that seam's `despawn_remote`) |
+| `edges[]` | `f`, `t`, `m`, `ax` as recorded (see `input_sample`), plus `at` |
+| `edges[].at` | the render-clock time the edge is due: apply it on the first `render_remote` for this player whose `state.timestamp >= at` |
+
+`at` is the ONE value the core computes — the track's own stamp through the same rebasing the
+clip's samples get (start, speed, trim, `skip_gaps`) — and the only thing here that is not the
+file's bytes carried verbatim. The core still cannot tell a jump from a pause button. An adapter
+that ignores the message is unaffected; one that reads it buffers per player, clears on `reset`
+and on `despawn_remote`, and never feeds an edge to anything but a ghost pawn it spawned itself
+(`_template/PROTOCOL.md`, the rule).
+
 **`remote_name` (core -> adapter)** carries a peer's sanitized nametag (`player_id`,
 `display_name`, colour), sent when it becomes known: on join, and once per already-present peer on
 attach. Never re-sent after `despawn_remote`, so an adapter keys names by `player_id` for the
@@ -939,6 +958,11 @@ itself. Opt-in for efficiency, not safety: a stepped facing (four compass direct
 sprite) has no midpoint to render, so sending two extra blobs per peer per frame to an adapter
 that discards them is waste. Absent means false, byte-for-byte what shipped before the bracket
 existed. Adapter-local like `render_all_areas`: nothing on the wire changes.
+
+An adapter may also declare `"input_tracks": true` here (added 2026-09-08, ADR 0057): the core
+then streams a replay ghost's recorded input track beside its frames as `remote_input` (above).
+Off, the core never looks for a track at all -- no directory scan, no parse, no line on the
+bridge -- so an adapter that cannot use one pays nothing. Adapter-local like the two above.
 
 An adapter may also declare `"features"` here — the capabilities it needs the core to negotiate
 on its behalf (see `features` above). The core advertises the union of that and its own

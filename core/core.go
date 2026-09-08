@@ -1042,6 +1042,17 @@ type Core struct {
 	// adapter state on detach.
 	adapterWantsOrientBracket bool
 
+	// adapterWantsInputTracks mirrors the attached adapter's Hello
+	// input_tracks (ADR 0057): when true, a replay whose clip has an input
+	// track streams it as remote_input beside the frames. Off, the track is
+	// never looked for. Reset with the rest of the adapter state on detach.
+	adapterWantsInputTracks bool
+
+	// inputTrackScans counts how many times a replay load scanned
+	// replay/inputs/ for a track -- a test's proof that an adapter which did
+	// not ask cost no directory read at all. Atomic.
+	inputTrackScans uint32
+
 	// resumeToken is the single-use secret from the last Welcome, presented
 	// in a later Hello to reclaim this identity after an unexpected drop.
 	// Deliberately NOT cleared on disconnect — that is precisely when it

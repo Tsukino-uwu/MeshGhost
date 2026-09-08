@@ -99,6 +99,11 @@ type fuzzEverythingCfg struct {
 	// path and the orientation bracket -- peer-controlled bytes the core
 	// hands to the adapter -- were both dead ground.
 	allAreas, orientBracket bool
+	// inputTracks is the third hello declaration (ADR 0057): with it on, a
+	// file.valid step also writes an input track beside its clip, and every
+	// replay of that clip streams remote_input through every seek, lap and
+	// detach this target generates.
+	inputTracks bool
 }
 
 func (c fuzzEverythingCfg) String() string {
@@ -169,6 +174,7 @@ func decodeFuzzEverythingCfg(b []byte) fuzzEverythingCfg {
 		extrapolate:   fuzzEverythingDurations[(b[3]>>3)&0x07],
 		allAreas:      b[4]&0x08 != 0,
 		orientBracket: b[4]&0x10 != 0,
+		inputTracks:   b[4]&0x20 != 0,
 	}
 }
 
@@ -286,8 +292,29 @@ func fuzzEverythingClip(b byte) []byte {
 		// leaves the gap raw, so the expensive path stays reachable too, at
 		// one shape in eight rather than half of them.
 		"skip_gaps": []string{"0s", "1s", "0s", "0s", "0s", "0s", "0s", "x"}[k],
+		// The id a track beside this clip is matched by (ADR 0057). One per
+		// shape, so a later file of the same shape reuses the same track.
+		"recording_id": fmt.Sprintf("fz%d", k),
 	}
 	return clipBytes(hdr, states)
+}
+
+// fuzzEverythingTrack is the input track that goes beside fuzzEverythingClip(b)
+// when the config asks for tracks: an edge every 10ms across the span every
+// shape's samples cover (including across shape 1's collapsed gap and shape
+// 3's raw one), a stick value on every other edge, so the stream path sees
+// dense lines, gap cuts, trims and the 4x speed of shape 3.
+func fuzzEverythingTrack(b byte) []byte {
+	k := b >> 5
+	var edges []inputEdgeLine
+	for i := 0; i < 320; i++ {
+		e := inputEdgeLine{Ts: 1_000_000 + int64(i)*10, F: uint64(i), T: int64(i) * 10, M: uint32(i & 3)}
+		if i%2 == 1 {
+			e.Ax = []float64{float64(i%7) / 7}
+		}
+		edges = append(edges, e)
+	}
+	return trackBytes(map[string]any{"recording_id": fmt.Sprintf("fz%d", k)}, edges)
 }
 
 func FuzzEverything(f *testing.F) {
@@ -308,6 +335,14 @@ func FuzzEverything(f *testing.F) {
 	// seeks so the player's own re-base path (replay.go's prevNow check) runs
 	// against a clamped clock rather than a rewound one.
 	f.Add([]byte{2, 1, 4, 0, 2, 0x00, 1, 0x00, 8, 42, 14, 59, 17, 124, 59, 18, 0})
+	// THE INPUT TRACK (ADR 0057): config byte 4 with bit 5 set turns the
+	// hello's input_tracks on, so file.valid writes a track beside its clip
+	// and the replay streams it. Once through the cheap seam (shape 1, whose
+	// gap cut also drops and shifts edges), once through a restart and a
+	// rewind, once through a detach mid-stream.
+	f.Add([]byte{2, 1, 4, 0, 0x22, 0x00, 1, 0x00, 8, 42, 14, 124, 0, 124})
+	f.Add([]byte{2, 1, 4, 0, 0x21, 0x00, 1, 0x00, 8, 0, 10, 14, 0, 0, 16, 0, 0, 17, 0, 0, 9})
+	f.Add([]byte{2, 1, 4, 0, 0x21, 0x00, 1, 0x00, 8, 106, 14, 0, 0, 9, 8, 0, 0, 16, 0})
 
 	f.Fuzz(func(t *testing.T, seed []byte) {
 		if len(seed) <= fuzzEverythingConfigBytes {
@@ -385,6 +420,7 @@ func FuzzEverything(f *testing.F) {
 			c.mu.Lock()
 			c.adapterRenderAllAreas = cfg.allAreas
 			c.adapterWantsOrientBracket = cfg.orientBracket
+			c.adapterWantsInputTracks = cfg.inputTracks
 			c.mu.Unlock()
 		}
 		detach := func() {
@@ -411,6 +447,9 @@ func FuzzEverything(f *testing.F) {
 			c.handleRelayMessage(rt, env, make(chan protocol.Welcome, 1), make(chan protocol.Reject, 1))
 		}
 		files := 0
+		// The newest `at` seen per local id since its last reset (the
+		// remote_input invariant below).
+		inputLastAt := map[string]int64{}
 		ran := make([]string, 0, len(steps))
 
 		// THE PEER ID SPACE, widened 2026-09-06 at the user's ask: "it should
@@ -465,6 +504,45 @@ func FuzzEverything(f *testing.F) {
 			}
 			if bound := files + cfg.chaserCount; local > bound && local > protocol.MaxRosterSize {
 				t.Fatalf("after %s: %d local ghosts, more than %d files + %d chasers (%s; ran %s)", step, local, files, cfg.chaserCount, cfg, strings.Join(ran, " "))
+			}
+			// The input stream's own shape (ADR 0057): a line never carries
+			// more than the batch cap, a reset line always carries the
+			// tables, and within one reset epoch `at` never runs backwards.
+			// Only ever for a local id, and only if the adapter asked.
+			if fa != nil {
+				for {
+					var r receivedInput
+					select {
+					case r = <-fa.inputs:
+					default:
+						goto inputsChecked
+					}
+					id := r.msg.PlayerID
+					if !cfg.inputTracks {
+						t.Fatalf("after %s: remote_input for %q reached an adapter that never asked (%s; ran %s)", step, id, cfg, strings.Join(ran, " "))
+					}
+					if !isLocalPeerID(id) {
+						t.Fatalf("after %s: remote_input for a non-local id %q (%s; ran %s)", step, id, cfg, strings.Join(ran, " "))
+					}
+					if len(r.msg.Edges) > bridge.MaxInputEdgesPerBatch {
+						t.Fatalf("after %s: remote_input for %q carries %d edges, over %d (%s; ran %s)", step, id, len(r.msg.Edges), bridge.MaxInputEdgesPerBatch, cfg, strings.Join(ran, " "))
+					}
+					if r.msg.Reset {
+						if r.msg.Labels == nil {
+							t.Fatalf("after %s: a reset line for %q carries no labels (%s; ran %s)", step, id, cfg, strings.Join(ran, " "))
+						}
+						delete(inputLastAt, id)
+					} else if r.msg.Labels != nil {
+						t.Fatalf("after %s: a non-reset line for %q re-declared the tables (%s; ran %s)", step, id, cfg, strings.Join(ran, " "))
+					}
+					for _, e := range r.msg.Edges {
+						if last, ok := inputLastAt[id]; ok && e.At < last {
+							t.Fatalf("after %s: remote_input for %q runs backwards, at %d after %d, with no reset between (%s; ran %s)", step, id, e.At, last, cfg, strings.Join(ran, " "))
+						}
+						inputLastAt[id] = e.At
+					}
+				}
+			inputsChecked:
 			}
 			// Cosmetic on every local render, never on a relay one.
 			if fa != nil {
@@ -543,6 +621,13 @@ func FuzzEverything(f *testing.F) {
 				switch op {
 				case "file.valid":
 					data = fuzzEverythingClip(b)
+					if cfg.inputTracks {
+						// The track goes where the recorder would put it, under
+						// the id the clip's header carries; overwriting the
+						// same shape's track is harmless and cheap.
+						os.MkdirAll(c.inputsDir(), 0o755)
+						os.WriteFile(filepath.Join(c.inputsDir(), fmt.Sprintf("in-fz%d.ndjson", b>>5)), fuzzEverythingTrack(b), 0o644)
+					}
 				case "file.otherGame":
 					data = clipBytes(map[string]any{"game": "someothergame"}, walkStates(3, 50))
 				case "file.huge":

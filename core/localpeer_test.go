@@ -31,6 +31,12 @@ func startLocalPeerCore(t *testing.T) (*Core, *recordingTransport, *fakeAdapter)
 // test that needs a field the hello handler reads (ReplayDir, the Chaser*
 // fields): anything set after the adapter attaches races the bridge goroutine.
 func startLocalPeerCoreWith(t *testing.T, cfg func(*Core)) (*Core, *recordingTransport, *fakeAdapter) {
+	return startLocalPeerCoreHello(t, cfg, func(fa *fakeAdapter) { fa.hello("emerald") })
+}
+
+// startLocalPeerCoreHello is startLocalPeerCoreWith with the hello supplied,
+// for a test whose adapter declares something in it (input_tracks).
+func startLocalPeerCoreHello(t *testing.T, cfg func(*Core), hello func(*fakeAdapter)) (*Core, *recordingTransport, *fakeAdapter) {
 	t.Helper()
 	c := New()
 	c.InterpolationDelay = 0
@@ -53,7 +59,7 @@ func startLocalPeerCoreWith(t *testing.T, cfg func(*Core)) (*Core, *recordingTra
 	go c.ServeBridge(ln)
 
 	fa := dialFakeAdapter(t, ln.Addr().String())
-	fa.hello("emerald")
+	hello(fa)
 	fa.awaitReady()
 	return c, rt, fa
 }

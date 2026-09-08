@@ -1114,6 +1114,14 @@ user's call), each landing in every shipped config and `docs/config.md`, with
 `shippedconfig_test.go` still pinning the section off. No core change; the adapter reads the
 keys. Pushed at the end of the session -- the next session reads CI first.
 
+## 2026-09-08 (night) — ADR 0057, the replay input stream, logged here as well as in phase11
+
+One Go-touching change after v1.2.5: `remote_input` on the bridge (`bridge/bridge.go`, a third
+adapter-local hello flag `input_tracks`), `core/replayinputs.go`, the track lookup and zip case in
+`core/inputtrack.go` and `core/replay.go`, the frozen lists in `internal/gameblind`. The full
+account is `phase11.md`'s 2026-09-08 (evening) entry, because it is a replay feature; suite, race
+and a 90 s `FuzzEverything` campaign green, the eleven new tests each shown able to fail.
+
 ## 2026-09-08 — CI red twice on the evening push; both fixed, the flake was a second race
 
 `gh run list` on the session's first read: run 34234373461 red in two jobs, the rest green.

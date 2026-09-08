@@ -151,6 +151,10 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// Same lock, same reason: remoteStatesAt reads this, so the
 			// change is atomic with the attach rather than landing mid-tick.
 			c.adapterWantsOrientBracket = h.InterpolateOrientation
+			// Read by StartReplays on this same goroutine a moment later, and
+			// by replayLast from a hotkey; under c.mu for the same reason as
+			// its two siblings.
+			c.adapterWantsInputTracks = h.InputTracks
 			c.mu.Unlock()
 
 			// Logged from what the core PARSED, not from what the adapter
@@ -161,6 +165,11 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// the raw orientation whatever its own flag says.
 			if h.InterpolateOrientation {
 				log.Printf("core: adapter asked for interpolated orientation -- render_remote will carry the bracket")
+			}
+			// Same independent read for the same reason: no line here means
+			// the core parsed no flag, whatever the adapter logged it sent.
+			if h.InputTracks {
+				log.Printf("core: adapter asked for input tracks -- a replay whose clip has one will stream remote_input")
 			}
 
 			if err := c.ConnectRelayOnAdapterHello(h.GameID, h.GameVersion, nd); err != nil {
@@ -384,6 +393,7 @@ func (c *Core) releaseAdapterSlot(nd transport.Transport) (wasAdapter, ownsRelay
 		// and until then the core's own filter is the default.
 		c.adapterRenderAllAreas = false
 		c.adapterWantsOrientBracket = false
+		c.adapterWantsInputTracks = false
 	}
 	// Disarm auto-retry (see autoRetryGameID's doc comment): this Close is the
 	// adapter/game intentionally going away, not an unexpected relay drop, so

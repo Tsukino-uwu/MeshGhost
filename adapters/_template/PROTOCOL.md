@@ -311,9 +311,10 @@ checks `extras.room_x`/`room_y` before they reach a map-lookup call. Write the e
 whatever your engine's own render call would otherwise do with an unbounded value.
 
 Those four types are the whole cosmetic contract, and three of them are the three functions above.
-The bridge defines **nine more** (`bridge/bridge.go`), every one of them inert unless your
-`hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, and the
-other seven are in "Beyond cosmetic" at the bottom of this file.
+The bridge defines **ten more** (`bridge/bridge.go`), every one of them inert unless your
+`hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, the
+replay input stream is its own section below, and the other seven are in "Beyond cosmetic" at the
+bottom of this file.
 
 ## Replay control (optional, adapter -> core, 2026-09-03)
 
@@ -349,9 +350,14 @@ see it, so a track built this way is device-agnostic and rebind-proof for free. 
 capture what the player types outside the game, which raw key reading would, on a track that is
 meant to be left running.
 
-**Read only, and never inject.** Reading input is unrestricted, like every other read. Feeding
-input to anything -- a ghost, and above all the local player -- is the forbidden side of the
-no-writes rule, and nothing in a shipped adapter may do it.
+**Read freely; feed only a ghost you spawned, and never the player.** Reading input is
+unrestricted, like every other read. Feeding input to the LOCAL player's controller or pawn, or to
+any actor the game owns, is the forbidden side of the no-writes rule, and nothing in a shipped
+adapter may do it. A ghost pawn the adapter spawned itself is the adapter's own actor, and driving
+it from a replay's track (the section below) is the same class of act as calling its montages --
+permitted for that pawn only, behind the adapter's own shipped-off setting, and only with the
+recorded state correcting where it is (user's call, 2026-09-08; ADR 0057). The two live one bug
+apart, so the line is the pawn's identity, checked on every call, never a mode.
 
 `labels` names bit 0..n-1 of `m`, and `axes` names the slots of `ax`. Both are STICKY: send them
 on your first batch and again only when they change; absent means unchanged. `source` is a free
@@ -372,8 +378,44 @@ quiet one.
 
 Caps: at most 64 edges per batch, 32 labels (the mask is 32 bits), 32 bytes per label or axis name,
 8 axes per edge, and axis values finite and within ±10000. Over 1000 edges a second the core drops
-batches and logs; it never disconnects you for it. A track is written to `replay/inputs/` and never
-plays back as a ghost.
+batches and logs; it never disconnects you for it. A track is written to `replay/inputs/`; it is
+streamed back to you beside a replay of its clip only if your `hello` asked (the next section),
+and it never plays as a ghost by itself.
+
+## Replay input stream (optional, core -> adapter, 2026-09-08)
+
+A replay ghost's recorded input track, streamed beside its frames (ADR 0057). Only to an adapter
+whose `hello` carried `"input_tracks": true`; with it absent the core never looks for a track and
+you never see this message. Off by construction for the emulated games and for any adapter
+without an input display or a driven ghost.
+
+```json
+{"type":"remote_input","payload":{"player_id":"replay:pb.ndjson","reset":true,
+  "labels":["jump","attack"],"axes":["move_x","move_y"],"source":"pawn_properties",
+  "edges":[{"f":1041,"t":17350,"m":1,"at":1757360001234},{"f":1043,"t":17383,"m":0,"ax":[0.5,-0.25],"at":1757360001267}]}}
+```
+
+**Buffer per player, apply by `at`.** Lines arrive ~500 ms AHEAD of when they are due. Hold each
+player's edges in order and apply an edge on the first `render_remote` for that player whose
+`state.timestamp` is at or past the edge's `at` -- the same number, the same clock; no offset, no
+clock of your own. That puts a press on the frame the ghost's rendered state reaches it, whatever
+the bridge's latency. Read `state.timestamp` off `render_remote`: nothing else in the cosmetic
+contract needed it, so an adapter written before this never did.
+
+**`reset` means drop what you hold.** The clip started, looped or was seeked; it always arrives
+BEHIND that seam's `despawn_remote`, so the pawn the old edges were for is already gone. Treat a
+`despawn_remote` for the player the same way. `labels`, `axes` and `source` ride only a `reset`
+line and are STICKY until the next one, exactly as you send them on `input_sample`; `f`, `t`, `m`
+and `ax` are the file's own values, verbatim, so a hold is still measurable in the recording
+adapter's frames.
+
+**What you may feed it to** is the rule two sections up: a ghost pawn you spawned, and nothing
+else -- never the local player, never an actor the game owns -- behind your own shipped-off
+setting, with the ghost's position corrected from the recorded state you already render. A track
+whose `source` you do not recognise is a track you refuse to drive with and may still draw.
+
+Caps are the track's: at most 64 edges a line, 32 labels, 8 axes. A window of a dense track can be
+several lines; keep the per-player buffer bounded (a few thousand edges) and count what you drop.
 
 ## Player frozen (optional, adapter -> core, 2026-09-05)
 

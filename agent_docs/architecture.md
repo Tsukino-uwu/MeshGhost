@@ -216,6 +216,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-01 — The default room send rate drops from 20Hz to 15Hz](adr/0054-2026-09-01-the-default-room-send-rate-drops-from-20hz-to-15hz.md)
 - [2026-09-05 — The relay half-closes and drains instead of resetting, so a last line survives](adr/0055-2026-09-05-the-relay-half-closes-and-drains-instead-of-resetting.md)
 - [2026-09-08 — Inputs are their own track, in their own file](adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md)
+- [2026-09-08 — A replay streams its input track beside its frames](adr/0057-2026-09-08-a-replay-streams-its-input-track-beside-its-frames.md)
 
 ## Prior art
 

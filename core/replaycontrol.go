@@ -247,6 +247,15 @@ func (c *Core) replayLast() error {
 	if err != nil {
 		return err
 	}
+	// The newest recording's track is very often the one still being written
+	// -- the same "let me see what I just did" moment the flush above serves.
+	// The recorder flushes the input track with the clip (flushRecordingIfOpen).
+	c.mu.Lock()
+	wantTracks := c.adapterWantsInputTracks
+	c.mu.Unlock()
+	if wantTracks && clip.track == nil && clip.header.RecordingID != "" {
+		c.attachTrackFromIndex(clip, name, c.inputTrackIndex())
+	}
 	p := newReplayPlayer(c, id, clip)
 	if c.replays == nil {
 		c.replays = make(map[string]*replayPlayer)

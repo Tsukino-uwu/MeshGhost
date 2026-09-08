@@ -100,6 +100,19 @@ const (
 	//
 	// Optional -- an adapter that never sends it loses nothing.
 	TypeInputSample MessageType = "input_sample"
+	// TypeRemoteInput is core -> adapter, added 2026-09-08 (ADR 0057): a replay
+	// ghost's recorded input track, streamed beside the ghost's frames. The
+	// edges are the track's own (opaque mask, opaque axes, the adapter's own
+	// frame and millisecond stamps) plus ONE value the core computes: `at`,
+	// the render-clock time the edge is due, in the same domain render_remote's
+	// state.timestamp carries. The core still knows nothing about what a bit
+	// means and drives nothing with it; it is a courier between a file and the
+	// adapter that wrote the file's shape.
+	//
+	// Sent only to an adapter whose hello asked (Hello.InputTracks), only for a
+	// ghost the core invented from a clip that has a track, and never on the
+	// wire. Optional: an adapter that ignores it is unaffected.
+	TypeRemoteInput MessageType = "remote_input"
 	// TypeSessionPolicy is core -> adapter, added 2026-08-19: the room-wide
 	// rules the host set, that the adapter is the only party able to apply.
 	// See SessionPolicy for why this is a message of its own rather than a
@@ -235,6 +248,17 @@ type Hello struct {
 	// and nothing on the wire, so it must never fragment room compatibility.
 	// Two peers in one room may disagree about it and neither can tell.
 	InterpolateOrientation bool `json:"interpolate_orientation,omitempty"`
+
+	// InputTracks asks the core to stream a replay ghost's recorded input track
+	// beside its frames, as remote_input messages (ADR 0057). Off, the core
+	// never even looks for a track: an adapter that cannot use one -- the
+	// emulated games, an adapter with no input display -- pays nothing, not a
+	// directory scan, not a parse, not a line on the bridge.
+	//
+	// Adapter-local, deliberately NOT a room feature, exactly as RenderAllAreas
+	// and InterpolateOrientation are not: it changes what this core hands its
+	// own adapter and nothing on the wire. Absent means false.
+	InputTracks bool `json:"input_tracks,omitempty"`
 }
 
 // Event is one event-plane message, in either direction. Adapter -> core it
@@ -480,6 +504,40 @@ type InputEdge struct {
 	// unchanged since the previous edge. Quantized by the adapter rather than
 	// sampled sparsely, so a reader gets an exact value and not a guess.
 	Ax []float64 `json:"ax,omitempty"`
+}
+
+// RemoteInput is core -> adapter (ADR 0057): a window of a replay ghost's
+// recorded input edges, ahead of when they are due. The adapter buffers them
+// per player and applies each one on the first render_remote for that player
+// whose state.timestamp is at or past the edge's At -- so a press lands on the
+// frame the ghost's rendered state reaches it, whatever the bridge's latency.
+//
+// Labels, Axes and Source are the track's own header tables, copied verbatim
+// (InputSample's rule, and the file's): STICKY, carried on the first line after
+// every Reset and absent otherwise. Reset marks a discontinuity -- the clip
+// started, looped, was seeked -- and means "drop every edge you are holding
+// for this player; what follows is a fresh window". A despawn_remote for the
+// player means the same, since the ghost it applied to is gone.
+type RemoteInput struct {
+	PlayerID string            `json:"player_id"`
+	Labels   []string          `json:"labels,omitempty"`
+	Axes     []string          `json:"axes,omitempty"`
+	Source   string            `json:"source,omitempty"`
+	Reset    bool              `json:"reset,omitempty"`
+	Edges    []RemoteInputEdge `json:"edges"`
+}
+
+// RemoteInputEdge is one InputEdge plus At, the ONLY value the core adds: the
+// render-clock time this edge is due, computed from the track's own timestamp
+// through the same rebasing the clip's samples get (start, speed, trim,
+// skip_gaps). F, T, M and Ax are the file's, verbatim, so a hold's length is
+// still expressible in the recording adapter's own frames.
+type RemoteInputEdge struct {
+	F  uint64    `json:"f"`
+	T  int64     `json:"t"`
+	M  uint32    `json:"m"`
+	Ax []float64 `json:"ax,omitempty"`
+	At int64     `json:"at"`
 }
 
 // Reject is sent core -> adapter when a Hello cannot be accepted, immediately

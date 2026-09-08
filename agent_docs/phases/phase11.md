@@ -918,3 +918,47 @@ the census could not check from Lua is checked live in C++: every jump edge agai
 `jumpButtonHeld?`, counted on the `INPUTTRACK:` log line. Built, deployed to both installs, config
 armed, unwatched — `phase7.md`'s 2026-09-08 entry has the build; `pseudoregalia/UNVERIFIED.md` the
 READY entry with what the first run has to show.
+
+## 2026-09-08 (evening) — the replay input stream: ADR 0057, the core half of the ghost's inputs
+
+The user's ask, straight after the input-display keys landed: *"can we work on making a ghost move
+with inputs as well? would this also allow the game to handle things for the ghost more on its own
+in a intended way and less triggers etc?"* The honest answer given and planned out with them:
+half yes -- the pawn's own code produces animation, abilities, VFX and movement from inputs, which
+is most of what the adapter mirrors today (mechanisms 1-12 of 19), but Unreal is not deterministic
+and the viewer's world may differ, so the shape is **inputs drive, state corrects**. The plan
+(seven stages, three measurements) was approved in full; the user's four calls: a ghost the
+adapter spawned is OURS and may be driven (the template's "never inject, a ghost included" is
+rewritten, ADR 0057), a driven pawn's audio is accepted as-is with a mute config option as future
+work, a correction snaps in place, and the core half goes first because tools verify it.
+
+**Built and green tonight -- the core half.** `remote_input`, core -> adapter: the clip's track
+found by `recording_id` in `replay/inputs/` (newest wins, a first-line read per file, capped at
+2,000) or inside the clip's own zip (a second archive budget, `replayMaxTrackEdgesPerArchive`),
+mapped through the clip's trim window and every `skip_gaps` cut at load (`attachTrack`; edges
+inside a cut are dropped and counted), streamed from the player's goroutine in 500 ms windows
+after each fed sample with `at = start + (ts - t0)/speed` -- the same formula as the sample's due
+time, in the domain `render_remote`'s `state.timestamp` carries -- at most 64 edges a line and 8
+lines a call, the header tables re-declared behind `reset:true` after every admit (start, lap,
+seek, gap seam, clock backstep). Hello-gated by a third adapter-local flag, `input_tracks`; off,
+the inputs folder is never scanned (a counter proves it). Eleven tests in
+`core/replayinputs_test.go`; each shown to fail under the mutation it guards (no streaming: 8 red;
+no reset: 3; no gap shift: 1; just-in-time instead of ahead: 1). `FuzzEverything` gained the flag
+as a config bit, a 320-edge track beside every accepted clip shape, three seeds and per-line
+invariants; 90 s campaign clean at ~30k execs. `run-gotests.bat` and `-race` green; the new tests
+ten times over.
+
+**Two things the plan agent found that the design as posed had wrong**, both fixed before a line
+was written: `applySkipGaps` REWRITES sample timestamps, so a track's raw `ts` does not map onto
+`ts - t0` for such a clip (the clip now records its gap cuts and trim window); and a recorded-gap
+seam is a drop-and-readmit too, so edges already sent past the gap are lost with the pawn and the
+cursor has to be re-aimed there as well (caught by reasoning, then pinned by
+`TestReplayTrackFollowsSkipGapsAndTrim`).
+
+**Records:** ADR 0057; `contract.md` (the message, the hello flag); `_template/PROTOCOL.md` (the
+section, the rewritten "never inject" rule, "never plays back" amended, "nine more" -> ten);
+`internal/gameblind` (three frozen lists); `docs/config.md`; `ideas.md`'s INPUT plane entry now
+carries the approved plan for the adapter half. **Next:** Stage 0 (the capture gains
+`cam_yaw`/`cam_pitch` axes, `source` -> `imc_keys+bound_axes+camrot`) and Stage B (the display's
+ghost half reads `remote_input`) in the next game session the user starts; then the D0 event-node
+census and D1 "moves under its own power" before any drive code. No adapter reads the stream yet.
