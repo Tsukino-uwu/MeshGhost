@@ -3220,3 +3220,12 @@ it for everything this mod constructs; the ghosts keep the weak pointer. One mor
 mangled escape that had put a NUL byte and the text `b7` into the neutral-row marker. Build `57fba63a04e6`
 on both installs; the user's 15:16 screenshot shows the panel and the indicator together; their
 words are still owed. `pitfalls/by-lesson.md` has the serial-number lesson with how it was found.
+
+**Evening, later: the count's unit.** The row count is a time by default now -- hundredths of a
+second, comparable between players at different framerates -- with `ms` (the most precise for
+short inputs at a high framerate; its cap is four digits so it is not cut at one second) and
+`frames` (the only unit that can show a single-frame press) as config values, and the count on
+either side of the inputs. The default is open to revision on player feedback. The user changed
+`rows`, then `unit`, in the game-root config with the game running and both landed live. Build
+`0e1c5dc9f3d9` on both installs; the user's screenshots show the panel and the indicator together;
+their words on the read-back are still owed.
