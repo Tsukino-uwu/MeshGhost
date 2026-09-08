@@ -6573,3 +6573,28 @@ contract, and it was only written down after a fuzzer found the one place it was
 extras. That is the argument for a time-boxed campaign on every push rather than a targeted one:
 the input it needed (`null`) is trivial and had simply never been generated in the years the target
 had existed.
+
+## A UE4SS `ForEach*` callback that returns `false` stops the walk; and a class count is not a leftover count (Pseudoregalia, 2026-09-08)
+
+**Symptom.** The input census's first run reported the pawn's class chain as 5 functions and 4
+properties -- one per class -- where the 2026-09-06 dump had walked 389 properties on the same pawn.
+The summary line looked complete and the live phase ran against ONE bool.
+
+**Cause.** `ForEachFunction` / `ForEachProperty` (`RE-UE4SS/docs/lua-api/classes/UStruct.md`) say
+*"return `true` in the callback to stop iterating"*, which reads as if `false` were the safe explicit
+form. It is not: the walk stops on ANY returned value. `probe_dump/` never returns from its callbacks
+and walks everything; a callback written the tidy way walks one.
+
+**Fix.** Return nothing. Stated in `probe_inputcensus/Scripts/main.lua` where someone will meet it.
+
+**The second one, same session.** "Did the chaser pack leave anything behind?" answered by a
+`FindAllOf` count: 24 pawns three minutes after the kill, 34 three minutes later, against 4 expected.
+Read per object, `bActorIsBeingDestroyed` was true on every extra: destroyed actors sit in the
+pending-kill state until the engine's periodic purge, and looping replay clips despawn a pawn at
+every seam. **A count of a class rises and falls with the garbage collector; only the flag says what
+is alive.** `UNVERIFIED.md`, the 2026-09-08 leftover entry.
+
+**And one Lua limit worth knowing before the next Unreal probe.** A UFunction returning a struct
+with NO reflected fields (`FInputActionValue`) comes back to Lua as an empty table -- the call
+succeeds, the value is gone. Reading such a value is a C++ question, where the ProcessEvent return
+buffer is bytes with a size reflection reports.

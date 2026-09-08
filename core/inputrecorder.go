@@ -691,7 +691,7 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
-	hdr := c.inputHeaderFor(game, version, recordingID, time.Now())
+	hdr := c.inputHeaderFor(game, version, recordingID, time.Now()) // wall-clock: an artefact timestamp, like Recorded below
 	// recorded is when the clip STARTS, back-dated from the edges themselves.
 	span := time.Duration(edges[len(edges)-1].Ts-edges[0].Ts) * time.Millisecond
 	hdr.Recorded = time.Now().Add(-span).UTC().Format(time.RFC3339) // wall-clock: an artefact timestamp

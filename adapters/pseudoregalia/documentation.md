@@ -660,6 +660,32 @@ for 9 pawns after a session of respawns); and its `BP_PlayerCam_C` camera rig ou
 reachable only through the rig's own `OwningActor` while the pawn still exists, and otherwise
 cleared only by a level reload.
 
+## What a tester's MIT-licensed mod showed (read 2026-09-08, facts only)
+
+A tester's own UE4SS Lua mod for this game (`PseudoregaliaHealth`, MIT -- `agent_docs/licensing.md`;
+infinite health plus an on-screen damage readout) was read at the user's suggestion. Nothing from it is
+copied; these are the facts it establishes, each a thing this adapter had not measured:
+
+- **A screen-space HUD element can be built at runtime from reflection alone**, with no widget asset
+  in the game's content: construct a `UserWidget` (`/Script/UMG.UserWidget`) on the game instance, give
+  it a `WidgetTree`, a `Border` as `RootWidget`, a `BorderSlot` holding a `TextBlock`, then
+  `AddToViewport(<z-order>)` and `SetPositionInViewport`. That mod draws its readout this way in
+  ordinary play, so the route is known to work on this build. **It is the lead for both open
+  recording-indicator complaints** (`UNVERIFIED.md`: drawn behind world geometry; drifting when speed
+  or FOV changes) -- a viewport widget is composited over the scene and pinned in screen space, which
+  is exactly what a world-space `TextRenderComponent` is not. Unbuilt; the look is the user's call.
+- **The player's health lives on the pawn's `BP_HPHitable` component: `CurrentHp` and `maxHP`** (that
+  capitalisation on the player; enemies read `currentHP`). The adapter clears `BP_HpHitable` off a
+  ghost at spawn ("ghost decoupled" log line), so this is the field a future split-time or
+  contact-damage feature would read on the LOCAL player, never a ghost.
+- **The current zone name is a string on the game instance**: `MV_GameInstance_C.activeZoneStr`, a
+  struct whose field is Blueprint-GUID-suffixed (`mapName_4_<GUID>`), values like `Zone_Tower`. Our
+  `area_id` is the level path instead; if a human-readable zone is ever wanted, this is where it is.
+- **Enemy classes**: everything derives from `BP_EnemyBase_C` or `BP_Hazemy_Base_C`; the pawn exposes
+  `lockedOn` and `LocketActorTarget` (sic) for the lock-on target and `activeAttackID` per enemy.
+- The mod's own reading of keys is UE4SS's `RegisterKeyBind` -- a mod hotkey, not the game's input
+  state; nothing in it bears on the input track.
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:

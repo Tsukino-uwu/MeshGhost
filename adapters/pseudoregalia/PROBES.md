@@ -11,8 +11,8 @@ fixed `<ModName>/Scripts/main.lua`, so each probe has to be its *own mod directo
 as one; since 2026-09-06 those directories sit together under `probes/` (the user's call, to keep
 the adapter root readable — they were loose at the root before, so a record dated earlier that says
 `adapters/pseudoregalia/probe_x/` means `adapters/pseudoregalia/probes/probe_x/`). This index stays
-at the adapter root because it is one of the adapter's files, not a probe. Twenty-one directories,
-thirty-five scripts, one index (2026-09-06 count, measured not incremented — `ls probes` and a `find`
+at the adapter root because it is one of the adapter's files, not a probe. Twenty-two directories,
+thirty-six scripts, one index (2026-09-08 count, measured not incremented — `ls probes` and a `find`
 for `*.lua`; six directories and nine scripts when this was written
 2026-08-25 — before that the directories had no index at all, which `../_template/README.md` had
 mandated since it was written). Three arrived on 2026-08-29, when `CLAUDE.md` made
@@ -535,3 +535,35 @@ game in about a minute, which is the loop that slot exists to make possible.
   after the walk returns), one loop services all requests so nothing overlaps, and the walk is a
   fresh-launch instrument: never hot-reload a changed copy and then walk (`pitfalls/by-lesson.md`,
   2026-09-06). The measurements: `UNVERIFIED.md`, 2026-09-06.
+
+## `probe_inputcensus/` — which way of reading what the player PRESSED works here (2026-09-08)
+
+The adapter half of ADR 0056 starts with a question nobody had measured: `Plugin.cpp` reads no input
+at all, so which reflected API is reachable was unknown. One file, two stages through the scratch
+slot, both run inside one game session while the user held each input ~3 s at keyboard then gamepad.
+
+- **Stage 1 (read-only, no UFunction on anything):** a census to a file of EVERY function (flags,
+  parameters) and property on the PlayerController's, its `PlayerInput`'s and the pawn's class
+  chains, every loaded `InputAction`, every `InputMappingContext` with its key->action table, and
+  the legacy `InputSettings` lists -- unfiltered, grepped afterwards; then a 20 Hz on-change log of
+  every bool on the pawn plus the named input vectors, so each button names the field it moves.
+- **Stage 2 (the calls):** per sample, `GetBoundActionValue` for every action and
+  `IsInputKeyDown` / `GetInputAnalogKeyState` for every mapped key with an FKey built from a Lua
+  table; each path disarms itself on its first Lua error. Separate from stage 1 because a struct
+  marshalled wrong is a native fault no `pcall` sees, and stage 1's file is already on disk by then.
+- **Also a class count** of what a ghost brings (pawn, camera rig, AI controller, Niagara, nametag),
+  so a reload after a pack despawns answers "did anything stay?" on the same file.
+
+**What it found:** the FKey-by-table call works end to end; `GetBoundActionValue` is callable and
+safe but its `FInputActionValue` is opaque to Lua (no reflected fields -- an empty table), so its
+VALUE is a C++ question; the pawn's own fields cover jump, cling, move, crouch and throw and nothing
+for look, interact, guard, lock-on or power; `EnhancedPlayerInput.ActionInstanceData` IS reflected on
+this UE 5.1 build though the current engine docs omit it. Vocabulary, key table and the verdict:
+`UNVERIFIED.md`, the 2026-09-08 census entry. Cost 3-4.8 ms a sample at 20 Hz -- a census, not a ship.
+
+**Two things it cost, kept in the file's own header.** Its first run returned ONE function and ONE
+property per class: the `ForEachFunction` / `ForEachProperty` callbacks ended in `return false`, and
+UE4SS stops a walk on ANY returned value -- the docs' "return true to stop" reads as if `false` were
+safe. And a class count is not a leftover count: 34 pawns where 4 were live, the other 30 flagged
+`bActorIsBeingDestroyed` and waiting for the engine's purge. The census logs themselves are not in
+the repo (a class-schema dump is expression); the facts derived from them are.

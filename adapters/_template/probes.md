@@ -2294,3 +2294,15 @@ A spike "when ghosts spawn" is two halves -- the engine's `SpawnActor` and every
 does to the clone afterwards -- and only a timer around each names the owner. QueryPerformanceCounter
 before and after the spawn call, a `mark(label)` after each after-spawn block, one log line per spawn
 with the list. The adapter's half was 19 ms; one block was 18 of it.
+
+## Census an input API before choosing one (Pseudoregalia, 2026-09-08)
+
+When the question is "which reflected read of the player's input works on this build", do not pick
+from the docs: one probe, two stages. Stage 1 dumps EVERY function and property on the controller,
+its `PlayerInput` and the pawn (a name that exists is a candidate; the docs for the current engine
+omitted a map this 5.1 build reflects), every loaded action asset and mapping context -- and then
+logs every bool on the pawn on change while the person holds each input ~3 s, so each button names
+its field. Stage 2, a separate reload once that file is on disk, makes the calls: per action and per
+mapped key, each path disarming itself on its first Lua error. What the pawn already latches, what
+the engine can be asked, and what is opaque to the script host (a struct with no reflected fields
+comes back empty) fall out as three columns. `adapters/pseudoregalia/probes/probe_inputcensus/`.

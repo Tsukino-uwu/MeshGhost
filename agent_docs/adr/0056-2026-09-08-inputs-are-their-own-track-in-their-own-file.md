@@ -135,10 +135,15 @@ A future session reading the capture work as a green light for any of the three 
 
 ## The open half
 
-- **No adapter sends one.** Pseudoregalia is first, and **there is no input read anywhere in
-  `Plugin.cpp` today**, so which API is reachable is genuinely unknown. Ranked candidates and the
-  one-shot census probe that decides between them are in the plan and in that adapter's `PROBES.md`
-  when it lands. The format is source-agnostic, so this does not gate the Go side.
+- **No adapter sends one.** Pseudoregalia is first. **The census ran 2026-09-08**
+  (`adapters/pseudoregalia/probes/probe_inputcensus/`, verdict in that adapter's `UNVERIFIED.md`):
+  Enhanced Input's `GetBoundActionValue` is callable and safe but its value is opaque to Lua, so
+  the C++ reads the returned struct's bytes and checks them once against the pawn's own
+  `jumpButtonHeld?`/`wallRideButtonHeld?`/`inputVectorWorld`; the controller's `IsInputKeyDown` /
+  `GetInputAnalogKeyState` / `GetInputVectorKeyState` with a hand-built `FKey` work end to end and
+  are the fallback; the pawn's own fields alone are partial (nothing for look, interact, guard,
+  lock-on, power). The label table is the game's 13 pawn-bound `IA_*` actions; `source` names which
+  of the two reads produced the track. The format is source-agnostic, so none of this touched the Go side.
 - **G4 applies here too:** nothing closes a recording on Ctrl+C or a closed console, and a gzipped
   track without its footer is refused whole. The input track doubles that blast radius, which is a
   standing argument for `replay.gzip` remaining default-off.

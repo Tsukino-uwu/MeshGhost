@@ -77,6 +77,80 @@ entry without one.
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
 
+## [DONE] INPUT API CENSUS -- which input read works on this build, measured (2026-09-08)
+
+**Measured by the agent, not confirmed on screen by the user, and nothing here is a visual claim**: it is
+which reflected API answers, and which pawn field moves for which button. The probe is
+`probes/probe_inputcensus/` (two stages through the scratch slot, 12:04-12:13, the user at keyboard then
+gamepad, holding each input ~3 s); the raw census files stay in the install's scratch folder and are NOT
+committed (a full class-schema dump is expression, `CLAUDE.md`). The decision it feeds is the C++ half of
+ADR 0056, the input track.
+
+**The verdict, three sources, in the order the C++ should reach for them:**
+
+1. **E -- Enhanced Input's merged action value, `UEnhancedInputLibrary::GetBoundActionValue(pawn, IA_*)`:
+   CALLABLE and SAFE** (a reflected BlueprintPure static on the library's default object, two object
+   parameters; ~55,000 calls over 4 minutes, no crash, no Lua error). **Its VALUE is unreadable from Lua**:
+   the returned `FInputActionValue` came back as an EMPTY table, because that struct has no reflected
+   fields, so Lua cannot see `Value`/`ValueType`. C++ can: the return is a fixed-layout struct whose size
+   the reflected `ReturnValue` property reports, and the C++ step reads it from the ProcessEvent buffer
+   and asserts the size. **So E is proven callable, NOT proven correct** -- its first C++ read needs one
+   live check against the pawn fields below. Also reflected on this build and untried:
+   `EnhancedPlayerInput.ActionInstanceData` (a `MapProperty`, action -> instance), which the current
+   engine API page does not list at all.
+2. **A -- `APlayerController::IsInputKeyDown(FKey)` / `GetInputAnalogKeyState(FKey)` with an FKey built
+   from a Lua table `{KeyName = FName("SpaceBar")}`: WORKS END TO END.** 118,000 calls, every mapped key
+   answered, gamepad buttons, both sticks, both triggers, the mouse and WASD all seen going down and up
+   in step with the pawn. `GetInputVectorKeyState(FKey)` exists for the 2D keys (`Gamepad_Left2D`,
+   `Gamepad_Right2D`, `Mouse2D`), untried; the analog read on a 2D key yields one component. Every one
+   of these is `native,pure,callable` on the controller. Folded through the live mapping contexts this
+   is device-agnostic too, and it is the fallback if E's value read disagrees.
+3. **C -- the pawn's own Blueprint fields: PARTIAL, as predicted.** `jumpButtonHeld?` <-> IA_Jump (24 of
+   24 presses), `wallRideButtonHeld?` <-> IA_WallRide, `inputVectorWorld` / `moveInputAmount` /
+   `hasMovementInput?` and the engine's `ControlInputVector` / `LastControlInputVector` <-> IA_Move,
+   `bIsCrouched` <-> IA_Crouch, `weaponEquipped?` <-> IA_Throw. Attack shows only downstream
+   (`saveAttack?`, `attackComboPosition`, `actionState`), and NOTHING on the pawn moves for IA_Look,
+   IA_Interact, IA_Guard (only `obtainedSlideJump` toggled with it, 15 times -- recorded, not
+   interpreted), IA_LockOn, IA_Power, IA_Pause. B (`UPlayerInput`'s key map) is confirmed unreflected.
+
+**The vocabulary, from the game itself.** 15 `InputAction` assets under `/Game/ThirdPerson/Input/Actions/`:
+Attack, Crouch, Guard, Interact, Jump, LockOn, Look (Axis2D), MenuAdvance, Move (Axis2D), Pause,
+PerspectiveToggle, Power, QuickMap, Throw, WallRide. The pawn binds 13 of them through 23 `InpActEvt_IA_*`
+Blueprint events (Pause and MenuAdvance are not the pawn's). Two mapping contexts, `IMC_Default` and
+`IMC_Reference`, 35 mappings each; the legacy `InputSettings` action/axis lists are both empty. Keys as
+loaded: Jump = SpaceBar, Gamepad_FaceButton_Bottom AND Gamepad_FaceButton_Left; Attack = LeftMouseButton,
+Gamepad_FaceButton_Left; Crouch = Q, Gamepad_LeftTriggerAxis; WallRide = LeftShift, Z,
+Gamepad_RightTriggerAxis; Throw = X, R, Gamepad_LeftShoulder; Guard = LeftControl, Gamepad_FaceButton_Top;
+Interact = E, Gamepad_FaceButton_Right; LockOn = RightMouseButton, Gamepad_RightShoulder; Power = F,
+Gamepad_FaceButton_Right; QuickMap = Tab, R, Gamepad_DPad_Up; PerspectiveToggle = Y,
+Gamepad_RightThumbstick; Pause = Escape, Gamepad_Special_Right; Move = WASD, Gamepad_Left2D; Look =
+Mouse2D, Gamepad_Right2D. Several keys map to two actions; that is the game's table, not a finding.
+
+**Cost of the instrument**: 3-4.8 ms per sample at 20 Hz on the game thread with 110 bools, 15 E calls
+and 32 A calls per sample -- fine for a census, nothing to ship. **What it could not see**: a one-frame
+press between 50 ms samples (the protocol held everything); SpaceBar and LeftMouseButton never went
+down during stage 2 (the keyboard jump/attack fell in stage 1, before path A existed), so A is proven
+for them only by the other 30 keys; the pause menu was not exercised on the record.
+
+## [DONE] Did the 512-chaser pack leave anything behind? No -- measured 2026-09-08
+
+The user's question after the pack was switched off mid-session (config `chaser.enabled` false, then the
+core killed so the mod respawned it): *"did the leak/leave anything left over?"* Two `FindAllOf` counts
+and then a flag read, from the scratch slot, with three looping clips as the only ghosts:
+
+| when | `BP_PlayerGoatMain_C` | `BP_PlayerCam_C` |
+| --- | --- | --- |
+| 12:09:27, 3 min after the kill | 24 | 24 |
+| 12:12:45 | 34 | 34 |
+| 12:13:28, with `bActorIsBeingDestroyed` read per object | **4 alive**, 19 dying | **4 alive**, 19 dying |
+
+Four alive is exactly the player plus three replay ghosts. Everything above it carries the destroy
+flag: pawns AND their camera rigs the looping clips despawn at every seam, sitting in the pending-kill
+state until the engine's periodic purge collects them -- which is why a bare count rose 24 -> 34 and
+then fell to 23. **A count of a class is not a count of leftovers; read the flag** (the 2026-09-06
+census lesson, sharpened). Nothing from the chaser pack survived, and the rigs die with their pawns,
+which is the 2026-09-06 camera-rig fix doing its job on the seam path.
+
 ## [OPEN] a single afterimage on a loop restart, and probably on any ghost spawn (the user, 2026-09-06)
 
 **What was seen.** The user, watching their own looping recordings: *"1 single after image is shown
@@ -111,6 +185,12 @@ from the baked defaults with no tuning file). These are defects in where and ove
    HUD element does. Whatever it is drawn WITH is taking part in depth testing.
 2. **It leaves its intended position during a move or ability that changes the player's SPEED or FOV.**
    It drifts off the corner it is pinned to while such a move is happening and returns afterwards.
+
+**Lead, 2026-09-08 (from a tester's MIT mod, `documentation.md`, "What a tester's MIT-licensed mod
+showed").** Both complaints are properties of a WORLD-space text component. A screen-space UMG widget
+built at runtime (`UserWidget` + `WidgetTree` + `TextBlock`, `AddToViewport`) is composited over the
+scene and pinned to the viewport, and that mod draws its readout that way in this game today. Unbuilt;
+whether the indicator should move to it is the user's call, since it changes what they see.
 
 **What is NOT established.** Which specific moves do it (the ultra hop, the slide, the charged attack
 and the wall ride all change speed and/or FOV, and none has been named); whether the trigger is the

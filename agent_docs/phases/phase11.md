@@ -867,3 +867,44 @@ triggers, platforms, breakables and pickups — today's ghost is safe BECAUSE it
 revisits the user's own standing rule, *"Cosmetics yes, movement authority no."* (3) Driving the
 LOCAL player: never in anything that ships, and already legitimate as a dev probe, which is where a
 TAS-like tool would land.
+
+## 2026-09-08 (midday) — the input census on Pseudoregalia, and a leftover question answered
+
+The adapter half of ADR 0056 began where the plan said: **the census, not the C++.** The user launched
+the game; the probe (`probes/probe_inputcensus/`, written against the vendored UE4SS Lua docs and
+Epic's API pages, parse-checked with lupa before it cost a launch) rode the scratch slot for two
+stages while they held each input ~3 s on keyboard, then on gamepad. A Lua probe changes no DLL, so
+the v1.1.7 crash watcher stayed unconfounded; the DLL is the 2026-09-06 build throughout.
+
+**The answer** (`pseudoregalia/UNVERIFIED.md`, the census entry): the hand-built `FKey` call the plan
+flagged as the risk WORKS -- `IsInputKeyDown` / `GetInputAnalogKeyState` answered 118,000 times for
+32 mapped keys, gamepad and keyboard, in step with the pawn. Enhanced Input's `GetBoundActionValue`
+is callable and safe (55,000 calls) but Lua gets an EMPTY table back, because `FInputActionValue`
+has no reflected fields; reading its value is a C++ step with one live check attached. The pawn's
+own fields are partial exactly as predicted: jump, cling, move, crouch, throw yes; look, interact,
+guard, lock-on, power no. The game's vocabulary is 15 `IA_*` assets, 13 bound on the pawn through 23
+Blueprint input events, two mapping contexts of 35 keys. **Decision for the C++:** E first with its
+bytes checked against C, A as the labelled fallback; `source` says which produced a track.
+
+**Two instrument lessons, filed** (`pitfalls/by-lesson.md`, `checklists/before-a-probe.md`): a
+`ForEach*` callback that `return false`s walks ONE entry -- the first run's summary looked complete
+at 5 functions per chain and was caught only because the 2026-09-06 dump had counted 389 properties
+on the same pawn; and a struct with no reflected fields returns to Lua as an empty table.
+
+**Mid-session the user found the 512-chaser config still live** (the 2026-09-07 test): `chaser.enabled`
+set false in the game-root `config.json`, the core killed so the mod respawned it clean -- the rising
+probe cost (0.8 -> 10 ms a sample) was the pack. Then *"did the leak/leave anything left over?"*: a
+class count said 24 then 34 pawns against 4 expected, and a flag read said **4 alive, the rest
+`bActorIsBeingDestroyed`** -- the looping clips' seam despawns waiting for the engine's purge. Nothing
+from the pack survived; the rigs die with their pawns. Filed as a DONE entry in `UNVERIFIED.md`.
+
+The scratch slot holds the pristine stub again (reload confirmed in `UE4SS.log` 12:13:53); the census
+logs stay in the install's scratch folder, uncommitted -- a class-schema dump is expression, the facts
+are in the records. The game was left running at the user's hand; the core it spawned is theirs.
+
+**Later the same sitting -- a tester's mod, read licence-first.** The user pointed at a tester's
+`PseudoregaliaHealth` (MIT; `gh api` checked before a byte of source was read; the tester's other mod
+has no licence and stayed closed). Facts only, recorded in `pseudoregalia/documentation.md`: a HUD
+element can be a runtime-built UMG widget added to the viewport -- the lead for both open
+recording-indicator complaints -- plus the player's HP fields, the game instance's zone string and
+the enemy base classes. Nothing bears on the input track.
