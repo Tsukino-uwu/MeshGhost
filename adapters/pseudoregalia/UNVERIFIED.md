@@ -44,6 +44,8 @@ entry without one.
 
 - READY — **THE INPUT TRACK WORKS on Pseudoregalia, every button and both sticks (the 13:55 file, `replay/inputs/in-20260908-135457.ndjson`, 1,107 edges, zero disagreements, no drops). Nothing on screen changes; what is yours to say is whether the read-back matches what you pressed. Entry below.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
+- READY — **THE INPUT HISTORY DISPLAY, player half (build `3235d9cdff92`, both installs): with `input_display.player` and `always` true in the game-root config (set for this run), a translucent panel on the left lists what you hold, newest on top, with a frame count and direction arrows -- judge the look, the directions (all eight should read now; the prototype missed some), and whether it costs frames.** Entry below.
+- OPEN — **a session with the input-display PROTOTYPE loaded ended in "Abort signal received" (14:41:52), 63 s after a reload, with the Archipelago mod also live. UNATTRIBUTED**: nothing logged an error; the probe had one unguarded game-thread callback (since guarded, poll halved) and it is the same signature as the 2026-09-06 probe aborts. The shipped DLL in that session was the input-track build with the track OFF. Archipelago is disabled in the main install at your ask. If the C++ display's session aborts the same way, the display is the suspect; if not, the prototype was.
 - READY — **the recording indicator is a SCREEN-SPACE widget now (build `7b0fc8535823`): start a recording and it should look exactly like the 14:30 prototype you ShareX-checked, keep the real time across a zone change, and vanish on stop.** Entry below.
 - DONE (mechanism confirmed on the prototype) — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -277,6 +279,33 @@ mechanism is written down.
 records that naming a game state from code reasoning has produced a false regression here before),
 and remember that the ghost-spawn path already does several things at once -- the light kill, the
 outfit apply, the emitter switch-off -- any of which lands on the same tick.
+
+## [READY] the input history display, player half, in C++, UNWATCHED (2026-09-08 late afternoon)
+
+**The user's design, all of it recorded because it shapes the ghost half too:** a fighting-game-
+style input history -- each row is what was held and for how many frames, newest on top -- the
+PLAYER's on the left, a replay GHOST's on the right fed by the input track recorded beside its
+clip, each with its own on/off in the client config, the player's showable with no recording
+running, a toggle for the translucent background (on by default), rows and text size as options,
+and each display's side changeable (defaults player left, ghost right; the ghost takes the left
+when the player's is off). The Lua prototype (`probes/probe_inputdisplay/`) was judged *"it works"*
+with two asks folded in: the diagnostic text gone, the background a toggle. One report against it:
+sideways directions did not all show -- it read raw keys and the stick's vector; the C++ reads the
+game's merged move value, which the track file already showed reaching both extremes.
+
+**What shipped (build `3235d9cdff92`, `INPUT_HISTORY_DISPLAY`):** the player half. Config section
+`input_display` (`docs/config.md`; shipped off, pinned by the shipped-config test). The panel is a
+UMG Border + TextBlock like the indicator, pinned in the root set while shown, rebuilt after a
+transition, placed left (`x=200 y=300` at 1920x1080, the prototype's) or right (from the panel's
+laid-out width), rows `JACWTGILPMV` letters after the frame count and arrows, text rewritten on a
+row change and every 4th frame while a state holds. The read is the input track's own, run when
+either consumer wants it.
+
+**What to look at:** with `player` and `always` true the panel is there in gameplay with no
+recording. Hold things, walk diagonally, press two buttons together: rows should split exactly
+where your input changed, all eight directions should appear as arrows, letters should match the
+action (J A C W T G I L P M V). Say if it costs frames (`perf_report.txt` puts the read in
+`input_read`). The ghost half is next and needs the core.
 
 ## [READY] the recording indicator is a SCREEN-SPACE widget now: the C++ port of the confirmed prototype, UNWATCHED (2026-09-08)
 

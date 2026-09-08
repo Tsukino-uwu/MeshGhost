@@ -216,6 +216,16 @@ namespace MeshGhostPseudo
     // go (a level transition does), and they are simply rebuilt.
     constexpr bool REC_INDICATOR_SCREEN_SPACE = true;
 
+    // **THE INPUT HISTORY DISPLAY (2026-09-08), the player half.** A fighting-game-style list on
+    // screen: each row is what was held and for how many engine frames, newest on top, fed by the
+    // same per-frame read the input track uses (no second read of the game). Config.json's
+    // `input_display` section is the runtime gate and ships off: `player` shows it, `always` shows
+    // it with no recording running, `background` draws the panel, `rows`/`size`/`player_side` are
+    // the look. The user's design, prototyped in Lua the same day (`probes/probe_inputdisplay/`,
+    // judged: "it works"). The GHOST half (a replay ghost's own track on the other side) needs the
+    // core to stream a clip's input track and is not here yet. `false` compiles the display out.
+    constexpr bool INPUT_HISTORY_DISPLAY = true;
+
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
     // diff rather than another guessed lever. Flip OFF once the driver is named.
@@ -9003,6 +9013,33 @@ namespace MeshGhostPseudo
         double g_hud_meas_w = 0.0; // the clock box's LAID-OUT size, once the engine has one; 0 before
         double g_hud_meas_h = 0.0;
 
+        // The input history display's state (INPUT_HISTORY_DISPLAY). Config-driven, polled with the
+        // indicator settings; the numbers are 1920x1080 pixels like the indicator's.
+        bool g_disp_player = false;        // input_display.player
+        bool g_disp_always = false;        // input_display.always: show with no recording running
+        bool g_disp_background = true;     // input_display.background
+        int32_t g_disp_rows = 10;          // input_display.rows
+        double g_disp_size = 22.0;         // input_display.size (font)
+        bool g_disp_player_left = true;    // input_display.player_side == "left"
+        double g_disp_margin_x = 200.0;    // panel inset from its side, pixels (the prototype's)
+        double g_disp_margin_y = 300.0;    // panel top, pixels
+        double g_disp_pad = 6.0;
+        unsigned g_disp_tuning_gen = 1;    // bumped by a config change that needs a rebuild
+        unsigned g_disp_built_gen = 0;
+        FWeakObjectPtr g_disp_panel;       // stale-safe: FWeakObjectPtr, Get() per use -- a runtime widget is the collector's whenever the viewport lets go
+        FWeakObjectPtr g_disp_text;        // stale-safe: same
+        bool g_disp_in_viewport = false;
+        double g_disp_vw = 0.0;
+        double g_disp_meas_w = 0.0;        // the panel's laid-out width, for the right-hand placement
+        struct InputHistoryRow
+        {
+            uint32_t mask;
+            int dir; // bit 0 up, 1 down, 2 left, 3 right
+            uint64_t frames;
+        };
+        std::deque<InputHistoryRow> g_disp_rows_data; // newest at the front
+        std::wstring g_disp_last_text;
+
         // Each carries its own annotation rather than one for the group: preflight checks these
         // line by line, and it is right to -- a group comment is exactly how a later addition
         // inherits a guarantee nobody re-checked for it.
@@ -9545,6 +9582,38 @@ namespace MeshGhostPseudo
                 g_rec_tuning_dirty = true;
                 Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator={}\n"),
                              enabled ? STR("on") : STR("off"));
+            }
+            // The input history display (INPUT_HISTORY_DISPLAY): its section's keys are unique in
+            // the file, which this first-occurrence reader needs (`"player"`, `"always"`,
+            // `"background"`, `"rows"`, `"size"`, `"player_side"` -- checked against docs/config.md).
+            if constexpr (INPUT_HISTORY_DISPLAY)
+            {
+                const bool player = config_bool_value("player", false);
+                const bool always = config_bool_value("always", false);
+                const bool background = config_bool_value("background", true);
+                double rows = 0.0;
+                const bool have_rows = config_number_value("rows", rows);
+                double size = 0.0;
+                const bool have_size = config_number_value("size", size);
+                std::string side;
+                const bool have_side = config_string_value("player_side", side);
+                const int32_t rows_i = have_rows ? static_cast<int32_t>(std::clamp(rows, 1.0, 40.0)) : g_disp_rows;
+                const double size_d = have_size ? std::clamp(size, 6.0, 96.0) : g_disp_size;
+                const bool left = have_side ? (side != "right") : g_disp_player_left;
+                if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
+                    rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left)
+                {
+                    g_disp_player = player;
+                    g_disp_always = always;
+                    g_disp_background = background;
+                    g_disp_rows = rows_i;
+                    g_disp_size = size_d;
+                    g_disp_player_left = left;
+                    ++g_disp_tuning_gen;
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: config player={} always={} background={} rows={} size={} side={}\n"),
+                                 player ? STR("on") : STR("off"), always ? STR("on") : STR("off"),
+                                 background ? STR("on") : STR("off"), rows_i, size_d, left ? STR("left") : STR("right"));
+                }
             }
             // The input track's runtime gate. The key is `inputs`, nested under `replay` in the
             // file; this reader finds the first `"inputs"` anywhere, which is that one -- no other
@@ -10404,6 +10473,258 @@ namespace MeshGhostPseudo
                 if (std::max<size_t>(4, g_recording_time_text.size()) != g_hud_placed_glyphs && g_hud_vw > 0.0)
                 {
                     hud_place(g_hud_vw, g_hud_vh);
+                }
+            }
+        }
+
+        // ------------------------------------------------------------------------------------------
+        // THE INPUT HISTORY DISPLAY (INPUT_HISTORY_DISPLAY), player half. One UserWidget: a Border
+        // (the translucent panel) holding one TextBlock whose text is the rows joined by newlines,
+        // newest on top -- one SetText per row change, nothing per frame otherwise. Same reflected
+        // helpers as the indicator; same weak handles, root-set pin and rebuild-after-transition.
+        //
+        // A row: the frame count, direction arrows (from the move stick's bound value), then the
+        // held actions as one letter each in the label table's order: J jump, A attack, C crouch,
+        // W cling, T throw, G guard, I interact, L lock-on, P power, M map, V view.
+        constexpr const wchar_t* INPUT_HISTORY_TOKENS = STR("JACWTGILPMV");
+
+        auto input_display_tear_down() -> void
+        {
+            hud_remove(g_disp_panel);
+            g_disp_text = FWeakObjectPtr{};
+            g_disp_in_viewport = false;
+            g_disp_last_text.clear();
+            g_disp_meas_w = 0.0;
+        }
+
+        auto input_display_build(UObject* controller) -> bool
+        {
+            UObject* gi = hud_game_instance(controller);
+            if (!gi)
+            {
+                return false;
+            }
+            UObject* panel = hud_construct(STR("/Script/UMG.UserWidget"), gi, STR("MeshGhostInputPanel"));
+            UObject* tree = panel ? hud_construct(STR("/Script/UMG.WidgetTree"), panel, STR("MeshGhostInputPanel_Tree")) : nullptr;
+            UObject* border = tree ? hud_construct(STR("/Script/UMG.Border"), tree, STR("MeshGhostInputPanel_Border")) : nullptr;
+            UObject* text = tree ? hud_construct(STR("/Script/UMG.TextBlock"), tree, STR("MeshGhostInputPanel_Text")) : nullptr;
+            if (!panel || !tree || !border || !text)
+            {
+                Output::send(STR("[MeshGhostPseudo] WARNING: input display could not be built (panel={} tree={} border={} text={}).\n"),
+                             panel ? STR("ok") : STR("NULL"), tree ? STR("ok") : STR("NULL"), border ? STR("ok") : STR("NULL"), text ? STR("ok") : STR("NULL"));
+                return false;
+            }
+            if (UObject** slot = mg_property_value<UObject*>(panel, STR("WidgetTree")))
+            {
+                *slot = tree;
+            }
+            if (UObject** root = mg_property_value<UObject*>(tree, STR("RootWidget")))
+            {
+                *root = border;
+            }
+            if (FProperty* font = mg_cached_property(text, STR("Font")); font && font->GetClass().GetName() == STR("StructProperty"))
+            {
+                hud_write_field(static_cast<FStructProperty*>(font)->GetStruct(), font->ContainerPtrToValuePtr<uint8_t>(text), STR("Size"), g_disp_size);
+            }
+            // Panel: black at 55% when on, fully transparent when off (the toggle keeps the layout).
+            const float panel_rgba[4] = {0.0f, 0.0f, 0.0f, g_disp_background ? 0.55f : 0.0f};
+            const float ink[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+            hud_call(border, STR("SetBrushColor"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_color(fn, buf, STR("InBrushColor"), panel_rgba); });
+            hud_call(border, STR("SetPadding"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("InPadding"), {{STR("Left"), g_disp_pad}, {STR("Top"), g_disp_pad}, {STR("Right"), g_disp_pad}, {STR("Bottom"), g_disp_pad}});
+            });
+            hud_call(border, STR("SetContent"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_object(fn, buf, STR("Content"), text); });
+            hud_call(text, STR("SetColorAndOpacity"), [&](UFunction* fn, uint8_t* buf) {
+                FProperty* p = hud_param(fn, STR("InColorAndOpacity"));
+                if (!p || p->GetClass().GetName() != STR("StructProperty"))
+                {
+                    return false;
+                }
+                UScriptStruct* sub = nullptr;
+                uint8_t* sub_base = nullptr;
+                if (!hud_nested(static_cast<FStructProperty*>(p)->GetStruct(), buf + p->GetOffset_Internal(), STR("SpecifiedColor"), sub, sub_base))
+                {
+                    return false;
+                }
+                return hud_write_field(sub, sub_base, STR("R"), ink[0]) && hud_write_field(sub, sub_base, STR("G"), ink[1]) &&
+                       hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
+            });
+            hud_set_text(text, STR(""));
+            panel->SetRootSet();
+            g_disp_panel = FWeakObjectPtr{panel};
+            g_disp_text = FWeakObjectPtr{text};
+            g_disp_built_gen = g_disp_tuning_gen;
+            g_disp_in_viewport = false;
+            g_disp_vw = 0.0;
+            g_disp_meas_w = 0.0;
+            g_disp_last_text.clear();
+            Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: panel built (rows={} size={} side={} background={}).\n"),
+                         g_disp_rows, g_disp_size, g_disp_player_left ? STR("left") : STR("right"), g_disp_background ? STR("on") : STR("off"));
+            return true;
+        }
+
+        auto input_display_place(double vw) -> void
+        {
+            UObject* panel = g_disp_panel.Get();
+            if (!panel)
+            {
+                return;
+            }
+            // Left: the inset from the left edge. Right: the inset from the right edge, which
+            // needs the panel's laid-out width (0 before the first layout: placed as if 260 wide,
+            // then corrected on the next cadence).
+            const double width = g_disp_meas_w > 0.0 ? g_disp_meas_w : 260.0;
+            const double x = g_disp_player_left ? g_disp_margin_x : (vw - g_disp_margin_x - width);
+            hud_call(panel, STR("SetPositionInViewport"), [&](UFunction* fn, uint8_t* buf) {
+                return hud_fill_struct(fn, buf, STR("Position"), {{STR("X"), x}, {STR("Y"), g_disp_margin_y}}) && hud_fill_bool(fn, buf, STR("bRemoveDPIScale"), true);
+            });
+            g_disp_vw = vw;
+        }
+
+        // Per engine frame, from input_track_sample: the mask and the move axes as read this frame.
+        // Extends the newest row while the state holds, starts one when it changes, and rewrites
+        // the text only when a row was added (the frame count of the top row is redrawn with it,
+        // at most once per frame it changes -- see the throttle below).
+        auto input_display_observe(uint32_t mask, double move_x, double move_y) -> void
+        {
+            int dir = 0;
+            if (move_y > 0.35) dir |= 1;
+            if (move_y < -0.35) dir |= 2;
+            if (move_x < -0.35) dir |= 4;
+            if (move_x > 0.35) dir |= 8;
+            if (!g_disp_rows_data.empty() && g_disp_rows_data.front().mask == mask && g_disp_rows_data.front().dir == dir)
+            {
+                ++g_disp_rows_data.front().frames;
+            }
+            else
+            {
+                g_disp_rows_data.push_front(InputHistoryRow{mask, dir, 1});
+                while (g_disp_rows_data.size() > static_cast<size_t>((std::max)(g_disp_rows, 1)))
+                {
+                    g_disp_rows_data.pop_back();
+                }
+            }
+            UObject* text = g_disp_text.Get();
+            if (!text)
+            {
+                return;
+            }
+            // The top row's count changes every frame while a state holds; redrawing text 144
+            // times a second is the one cost this display could have, so the count is redrawn
+            // every 4th frame and every row change immediately.
+            const bool top_only = g_disp_rows_data.front().frames > 1;
+            if (top_only && (g_disp_rows_data.front().frames % 4) != 0)
+            {
+                return;
+            }
+            std::wstring out;
+            for (const InputHistoryRow& r : g_disp_rows_data)
+            {
+                wchar_t head[16]{};
+                std::swprintf(head, sizeof(head) / sizeof(head[0]), STR("%4llu  "), static_cast<unsigned long long>(r.frames));
+                out += head;
+                // One glyph per direction, diagonals included (the user, against the Celeste
+                // display: "down/right as its own thing, not right + down"). Bits: 1 up, 2 down,
+                // 4 left, 8 right; opposites cannot both be set, the value is one vector.
+                static const wchar_t* const ARROWS[16] = {
+                    STR(""), STR("\x2191"), STR("\x2193"), STR(""),        // -, up, down, (up+down)
+                    STR("\x2190"), STR("\x2196"), STR("\x2199"), STR(""), // left, up-left, down-left
+                    STR("\x2192"), STR("\x2197"), STR("\x2198"), STR(""), // right, up-right, down-right
+                    STR(""), STR(""), STR(""), STR("")};
+                if (r.dir >= 0 && r.dir < 16 && ARROWS[r.dir][0] != 0)
+                {
+                    out += ARROWS[r.dir];
+                    out += L' ';
+                }
+                for (int b = 0; b < 11; ++b)
+                {
+                    if (r.mask & (1u << b))
+                    {
+                        out += INPUT_HISTORY_TOKENS[b];
+                        out += L' ';
+                    }
+                }
+                out += L'\n';
+            }
+            if (!out.empty())
+            {
+                out.pop_back();
+            }
+            if (out != g_disp_last_text)
+            {
+                g_disp_last_text = out;
+                hud_set_text(text, g_disp_last_text.c_str());
+            }
+        }
+
+        // Once per gameplay frame, after input_track_sample: lifecycle only.
+        auto input_display_tick(UObject* controller) -> void
+        {
+            const bool wanted = g_disp_player && (g_disp_always || g_recording_active) && g_rec_indicator_enabled;
+            if (!wanted)
+            {
+                if (g_disp_panel.Get())
+                {
+                    input_display_tear_down();
+                    g_disp_rows_data.clear();
+                    Output::send(STR("[MeshGhostPseudo] INPUTDISPLAY: panel removed.\n"));
+                }
+                return;
+            }
+            if (!controller)
+            {
+                return;
+            }
+            if (g_disp_built_gen != g_disp_tuning_gen && g_disp_panel.Get())
+            {
+                input_display_tear_down();
+            }
+            if (!g_disp_panel.Get() || !g_disp_text.Get())
+            {
+                if (!input_display_build(controller))
+                {
+                    return;
+                }
+            }
+            UObject* panel = g_disp_panel.Get();
+            if (!panel)
+            {
+                return;
+            }
+            if (!g_disp_in_viewport || (g_registry_tick % 60) == 0)
+            {
+                double vw = 0.0, vh = 0.0;
+                bool replace = false;
+                if (hud_viewport_size(controller, vw, vh) && vw != g_disp_vw)
+                {
+                    replace = true;
+                }
+                double mw = 0.0, mh = 0.0;
+                if (g_disp_in_viewport && !g_disp_player_left && hud_desired_size(panel, mw, mh) && mw != g_disp_meas_w)
+                {
+                    g_disp_meas_w = mw;
+                    replace = true;
+                }
+                if (replace && vw > 0.0)
+                {
+                    input_display_place(vw);
+                }
+                std::vector<uint8_t> out;
+                bool in_viewport = false;
+                if (hud_call(panel, STR("IsInViewport"), nullptr, &out))
+                {
+                    if (UFunction* fn = mg_cached_function(panel, STR("IsInViewport")))
+                    {
+                        if (FProperty* ret = hud_param(fn, STR("ReturnValue")))
+                        {
+                            in_viewport = out[ret->GetOffset_Internal()] != 0;
+                        }
+                    }
+                }
+                if (!in_viewport && g_disp_vw > 0.0)
+                {
+                    hud_call(panel, STR("AddToViewport"), [&](UFunction* fn, uint8_t* buf) { return hud_fill_int(fn, buf, STR("ZOrder"), g_hud_z); });
+                    g_disp_in_viewport = true;
                 }
             }
         }
@@ -13715,6 +14036,8 @@ namespace MeshGhostPseudo
         g_hud_in_viewport = false;
         g_hud_vw = 0.0;
         g_hud_vh = 0.0;
+        g_disp_in_viewport = false;
+        g_disp_vw = 0.0;
 
         for (auto& [id, remote] : remotes)
         {
@@ -20809,6 +21132,10 @@ namespace MeshGhostPseudo
                 {
                     input_track_sample(controller, pawn_obj);
                 }
+                if constexpr (INPUT_HISTORY_DISPLAY)
+                {
+                    input_display_tick(controller);
+                }
             }
         }
         else
@@ -24249,15 +24576,15 @@ namespace MeshGhostPseudo
     auto Plugin::input_track_sample(UObject* controller, UObject* pawn) -> void
     {
         ++input_frame; // engine frames on which a read was possible, whether or not one happened
-        if (!g_input_track_enabled || !pawn || !controller)
+        // Two consumers of one read: the track (sent to the core) and the on-screen history
+        // (INPUT_HISTORY_DISPLAY, drawn here). The read runs when either wants it; the queue is
+        // fed only when the track does AND the core is there to drain it.
+        const bool display_wants = INPUT_HISTORY_DISPLAY && g_disp_player && (g_disp_always || g_recording_active);
+        const bool track_wants = g_input_track_enabled && bridge && bridge->is_ready();
+        if ((!track_wants && !display_wants) || !pawn || !controller)
         {
-            input_have_prev = false;
-            return;
-        }
-        if (!bridge || !bridge->is_ready())
-        {
-            // Nothing to send to; forget the previous sample so the first frame after the core
-            // attaches emits the current mask as an edge (a track has to start from a known state).
+            // Forget the previous sample so the first frame after the core attaches emits the
+            // current mask as an edge (a track has to start from a known state).
             input_have_prev = false;
             return;
         }
@@ -24757,6 +25084,17 @@ namespace MeshGhostPseudo
         const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                    std::chrono::steady_clock::now().time_since_epoch())
                                    .count();
+        if constexpr (INPUT_HISTORY_DISPLAY)
+        {
+            if (display_wants)
+            {
+                input_display_observe(mask, ax[0], ax[1]);
+            }
+        }
+        if (!track_wants)
+        {
+            return; // the display is the only consumer this frame; no edge is queued
+        }
         const bool button_edge = !input_have_prev || mask != input_prev_mask;
         bool axes_changed = !input_have_prev;
         for (int i = 0; i < 4 && !axes_changed; ++i)

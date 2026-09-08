@@ -3196,3 +3196,16 @@ sized to its laid-out height, re-placed on a resize or a digit-count change; dep
 installs at the game's next exit, unwatched. The tester's three notes from the same hour are in
 `documentation.md` and `ideas.md`: UI is laid out at 1920x1080 and scaled, no community input
 tracker exists, most community mods ship as unlicensed paks.
+
+**Late afternoon: the input history display, and a crash on the record.** The user's design came
+in pieces over an hour and is written whole in `UNVERIFIED.md`: two fighting-game-style history
+panels, the player's left and a replay ghost's right (from its clip's input track), each with an
+on/off, the player's showable without a recording, background toggle, rows, size, sides. The Lua
+prototype (`probes/probe_inputdisplay/`) was judged *"it works"* within minutes of loading; the
+session it ran in then ended in "Abort signal received" 63 s after its second reload -- the
+2026-09-06 signature, unattributed (nothing logged; one unguarded callback in the probe, since
+guarded; the Archipelago mod was live and is now disabled in the main install at the user's
+ask). The config section landed everywhere with the docs and a shipped-off test; the C++ player
+half (`INPUT_HISTORY_DISPLAY`, `3235d9cdff92`) reuses the indicator's widget helpers and the track's own
+per-frame read, deployed to both installs, unwatched. Next: the ghost half, which is Go work --
+the core streaming a clip's input track to the adapter beside the clip.
