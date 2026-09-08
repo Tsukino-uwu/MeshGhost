@@ -724,6 +724,15 @@ repos read):
 - **`custom-options` adds an in-game options tab for third-party mods' widgets** (on Nexus). The
   natural home for a MeshGhost settings page if config.json editing ever becomes the complaint.
 
+## The Archipelago mod is THREE switches, and half-off will not load into the game (2026-09-08)
+
+`AP_Randomizer` is a C++ UE4SS mod (`ue4ss/Mods/AP_Randomizer/enabled.txt`, its `dlls/main.dll`) AND
+two Blueprint paks the game's own mod loader picks up whatever UE4SS does:
+`Content/Paks/AP_Randomizer_p.pak` and `Content/Paks/LogicMods/AP_Randomizer.pak` (BPModLoaderMod logs
+`Loading mod: AP_Randomizer` from the latter). Renaming only `enabled.txt` left the paks live, and
+the user could not get into the game at all: *"it either has to be enabled, or disabled fully"*. To
+disable: rename all three (`.off`); to enable: all three back. Both installs carry it.
+
 ## Known unknowns
 
 Recorded so nobody re-runs a search that already came up empty:
