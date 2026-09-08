@@ -40,9 +40,22 @@ KEEP='^(CLAUDE\.md|agent_docs/environment\.md|agent_docs/pitfalls\.md|agent_docs
 # the build directory in a PDB reference and a Rust toolchain embeds the cargo registry in panic
 # strings -- the one file type this hook could not see. A tracked, shipped UE4SS.dll carried the
 # maintainer's username 86 times while every scanner in the repo reported clean (found 2026-09-07).
-# The clone-path forms are here too, for the same reason preflight scans scripts for them: there is
-# no username in `<drive>:\dev\MeshGhost` for the home-directory patterns to catch.
-PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/ -e C:\dev\MeshGhost -e C:/dev/MeshGhost'
+PATTERNS='-e C:\Users -e C:/Users -e /home/ -e /Users/'
+
+# The CLONE path gets its own pass, over SCRIPTS AND BINARIES ONLY -- never prose. There is no
+# username in `<drive>:\dev\MeshGhost` for the patterns above to catch, so it needs its own; but
+# the rule text legitimately QUOTES it (CLAUDE.md, brief.md, claude-md-cap.md and ideas.md all say
+# "ask before touching anything outside <clone>"), so scanning prose refuses a commit to a
+# perfectly correct document. That is not hypothetical: adding these patterns to the scan above on
+# 2026-09-07 made this hook refuse an ordinary edit to agent_docs/ideas.md on 2026-09-08, over a
+# sentence stating the rule. dev-scripts/preflight.ps1's clone-path check has been scripts-only
+# from the start and says why; this now matches it, which is the point -- three copies of a rule
+# that disagree is how the pitfalls/ split broke CI on 2026-08-25.
+#
+# What breaks on another machine is a SCRIPT that hardcodes the path, or a BINARY that had it
+# baked in by a toolchain. Prose naming the boundary is the rule working.
+CLONE_PATTERNS='-e C:\dev\MeshGhost -e C:/dev/MeshGhost'
+CLONE_FILES='\.(ps1|bat|sh|lua|go|cs|cpp|hpp|h|py|dll|exe|so|dylib|pdb|lib|a|bin|node)$'
 
 # The four binaries already in history that carry these strings. They are skipped so this hook can
 # still be used at all while they are outstanding; preflight names them, with the rebuild each one
@@ -58,6 +71,10 @@ for f in $staged; do
 	# The STAGED blob, not the file on disk -- they can differ, and the staged one is what is
 	# about to become history.
 	if git show ":$f" 2>/dev/null | grep -qaF $PATTERNS 2>/dev/null; then
+		hits="$hits$f
+"
+	elif printf '%s' "$f" | grep -qE "$CLONE_FILES" &&
+		git show ":$f" 2>/dev/null | grep -qaF $CLONE_PATTERNS 2>/dev/null; then
 		hits="$hits$f
 "
 	fi

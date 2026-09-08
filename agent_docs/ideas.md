@@ -26,6 +26,7 @@ is USED, that project is checked and recorded there first.
 - Emerald: VRAM/sprite injection investigation (draw vs. inject)
 - TEVI: ghost collision investigation
 - Pseudoregalia
+- Go side: a protocol_version FLOOR and a machine-readable reject reason (2026-09-08)
 - Go side: carry the previous state in every unreliable packet, quic datagrams and udp alike (loss redundancy, 2026-09-02)
 - Go side: quic datagrams are congestion-controlled, so a loss paces the samples after it — measure, then decide (2026-09-02)
 - The bandage register (audited 2026-08-16) — moved
@@ -3039,3 +3040,81 @@ adapters in three languages, and a separate on-screen confirmation per game.
 healthy* — i.e. a log showing sustained "the adapter is not keeping up" and a climbing
 `Stats.RendersSuperseded` on a game that is not visibly struggling. That is the signal this is
 worth its cost; the numbers above are already gathered for when it comes.
+
+## Go side: a protocol_version FLOOR and a machine-readable reject reason (2026-09-08)
+
+**Two contract changes that came out of the 2026-09-08 adversarial review, both ADR-shaped, neither
+started.** They are one idea in two halves: the first decides *who may talk to whom*, the second is
+what makes a refusal legible to the player, and doing the first without the second produces a relay
+that refuses correctly and a game that says nothing.
+
+Read against Archipelago's `MultiServer.py`, which is cleared MIT in `licensing.md` and has been read
+for facts before. **Facts only; no code taken.**
+
+### N1 — `protocol_version` should be a floor, not exact equality
+
+The relay refuses on `hello.ProtocolVersion != protocol.Version`. Archipelago's default is a
+MINIMUM: `minver > args['version']` against a `min_client_version` (`Version(0, 5, 0)`) that is
+bumped rarely and deliberately, and their exact-match is an opt-in mode
+(`ctx.compatibility == 0`). **So MeshGhost currently runs Archipelago's strict mode as its only
+mode.**
+
+The user's stated goal (2026-09-08) is "anything older than v2 is unsupported once v2 ships", and
+today's equality cannot express it: a protocol bump refuses even a patch-level difference between two
+v2 builds, forcing a flag day where everyone upgrades simultaneously or nobody connects.
+
+- Declare a minimum and compare `>=`.
+- **Bump the minimum when the WIRE changes, not when the release number does.** A major version that
+  does not break the wire buys no protection and costs a flag day.
+- **Do NOT copy their per-slot minimum** (`ctx.minimum_client_versions[slot]`, which lets one world
+  demand a newer client). The analogue here is a per-game floor, and that cuts directly against the
+  2026-09-07 decision never to separate players by game build — see `contract.md`'s `game_version`
+  section, which now spells out why that field is a constant on purpose.
+
+### N2 — a reject reason should be a code, not prose
+
+Archipelago sends `errors: ['IncompatibleVersion']` — an enum the client branches on. MeshGhost sends
+a human sentence, and that is the ROOT of a live defect rather than a style preference: **all four
+adapters substring-match the reason, and the heuristic is inverted.** Every PERMANENT refusal string
+contains the word "relay" (`core/core.go` renders them all as "core: relay refused connection: %s"),
+and the only reason that does NOT is `"busy"` — so a wrong room code, a version mismatch or a feature
+mismatch is treated as "the relay is briefly down", retried forever, and the player is never told to
+fix their config. ADR 0050 already deleted the transient case that branch was written for.
+
+`contract.md` says the reason is "for the adapter's log, **not for branching on**", and Emerald's own
+comment says "The reason is never BRANCHED on" two lines above the branch. Four adapters ignoring the
+same instruction is a sign the protocol asked for the wrong thing, not that four authors were
+careless.
+
+- Add a machine-readable code to `bridge.Reject` (and `protocol.Reject`), and let adapters branch on
+  that. The prose stays, for the log.
+- **Port-walking behaviour should not change**: `"busy"` → walk to the next port is correct and is the
+  common case. What changes is that a permanent refusal is *legible* instead of retried in silence.
+- One thing NOT to copy from Archipelago: they keep the connection OPEN after a refusal so a client
+  can retry with different credentials. MeshGhost closes, which is right for us — we have no
+  credential retry — but it is exactly why the reject must survive the close, which is what the
+  2026-09-07/08 graceful-close and reject-latch work was about.
+
+**Prerequisite for N1 being worth doing:** a version floor that silently retries forever is worse than
+no floor, so N2 lands first or with it. Also `H4` in the review checklist — until 2026-09-08 no test
+asserted the relay emits any reject reason BY VALUE, which is now fixed, and that test is what would
+catch a code and its prose drifting apart.
+
+### N3 — nothing tests a "coherent but wrong game" peer (the user's question, 2026-09-08)
+
+`game_id` is self-declared and `only_game` is a plain string compare (`relay/relay.go`), so an
+Emerald Lua script editing one constant joins an `only_game=pseudoregalia` relay and is forwarded.
+**The relay cannot detect this without becoming game-aware, so this is a consequence of the
+invariant, not a defect** — the work is not "stop it" but "know what it does".
+
+Damage is bounded and mostly self-limiting, all read from the code rather than measured: a foreign
+`area_id` is dropped by the cross-area filter (no ghost at all); a matching `area_id` with
+foreign-scale coordinates draws a ghost somewhere odd, bounded by `MaxPositionComponent`; an unknown
+`anim` is refused by each adapter's own validation (TEVI checks `Animator.HasState`, Pseudoregalia
+resolves against a catalog of already-loaded objects of the right class).
+
+The gap is that **nothing tests it**. Every existing fuzzer feeds INVALID values; this case is
+interesting precisely because every field is individually valid and only the combination is wrong.
+Worth one cross-game test per adapter parser — a state carrying another game's area, anim and
+coordinate scale must not crash and must not spawn at a nonsense transform — plus a line in
+`docs/security.md` saying plainly that `only_game` filters mistakes, not lies.
