@@ -1100,3 +1100,10 @@ the Go side's own log, so the pointer lives here too:
   silently dropped track.
 
 Nothing in `core` changed for the adapter half; the format was source-agnostic by design.
+
+**Later the same day -- the `input_display` config section.** `79acc726`: the section lands in
+every shipped config.json and `docs/config.md`, and `cmd/meshghost/shippedconfig_test.go` pins it
+off. The core does not read it (the adapter does; unknown keys pass the decoder); the test exists
+so a release cannot ship an overlay on. The ghost half of that display is the next Go work: the
+core streaming a clip's input track to the adapter beside the clip, a new core -> adapter message
+and therefore an ADR.
