@@ -16,6 +16,13 @@ import (
 // gone. EPERM means the process exists but belongs to someone else, which is
 // still an answer: it is alive, so the client keeps running.
 //
+// No consecutive-failure rule and no creation-time check here, unlike the
+// Windows half since 2026-09-08 (review G5): kill(pid, 0) is a syscall against
+// the kernel's own process table with no handle to exhaust and no hook in the
+// way, and its two answers are both real answers rather than "I could not ask".
+// POSIX pids also walk upwards to a large maximum before wrapping instead of
+// being reissued immediately, so the recycled-parent orphan is a Windows shape.
+//
 // This matters beyond the Windows-game case: MeshGhost's client and server are
 // meant to build for Linux and macOS (README.md), and the Linux story for a
 // Windows game under Proton includes a NATIVE client that a Windows mod inside

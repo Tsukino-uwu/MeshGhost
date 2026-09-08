@@ -290,6 +290,32 @@ func resolveUDPAddr(kinds []netx.Kind, addr, udpAddr string) (string, error) {
 // constant. It is not a shape this binary can bind anyway -- netx.ListenWithTLS
 // gets the same string and fails -- so this is about not inventing a second
 // error path for input that is already about to be refused with its own message.
+// roomCodeFlagHelp is -room-code's help text, at package level so a test can
+// assert what it tells the host (the same reason resolveQuicAddr was lifted out
+// of main on 2026-08-25).
+//
+// It names config.json FIRST and says why, which it did not until 2026-09-08
+// (review F21). A flag value is the process command line: on Windows any local
+// process reads it with `Get-Process -Module`/WMI without elevation, on Linux it
+// sits in /proc/<pid>/cmdline world-readable by default, and on both it lands in
+// the shell history file of whoever typed it. Nothing about that is remote --
+// but a room code is a shared secret whose whole job is that people who do not
+// have it cannot join, and the host who typed it on a shared box has no way of
+// knowing it leaked. The old text pointed at config.json as merely the friendlier
+// spelling; it is also the one that keeps the secret out of an argv every other
+// program on the machine can read.
+//
+// The flag STAYS: it is what dev-scripts and a one-off `-room-code x` test run
+// use, and removing it would break every host who scripted their relay.
+const roomCodeFlagHelp = "shared secret clients must send to join a room -- " +
+	"prefer \"room_code\" in config.json: a value passed here is part of this " +
+	"process's command line, which any other local process can read (Get-Process, " +
+	"ps, /proc) and which your shell writes to its history file. " +
+	"Leave both empty to run open (anyone with the address can join, the " +
+	"pre-existing default); see agent_docs/architecture.md's room-code ADR for " +
+	"what this does and doesn't defend against (no TLS: the code crosses the " +
+	"wire in plaintext)"
+
 func relocatedUDPAddr(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -303,10 +329,7 @@ func main() {
 	loopback := flag.Bool("loopback", false, "dev-only Phase 3 flag: echo each client's own "+
 		"state back to it under a synthetic <id>-ghost player_id, so a single client exercises "+
 		"a real core->relay->core round trip. Never enable this outside dev/testing.")
-	roomCode := flag.String("room-code", "", "shared secret clients must send to join a room -- "+
-		"leave empty to run open (anyone with the address can join, the pre-existing default); "+
-		"see agent_docs/architecture.md's room-code ADR for what this does and doesn't defend "+
-		"against (no TLS: the code crosses the wire in plaintext)")
+	roomCode := flag.String("room-code", "", roomCodeFlagHelp)
 	onlyGame := flag.String("only-game", "", "restrict this relay to a single game: a client "+
 		"playing anything else is refused at the handshake. Leave empty (the default) to host any "+
 		"game, including several at once in different rooms. Valid values are the game_id an "+
