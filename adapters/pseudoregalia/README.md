@@ -531,6 +531,22 @@ Nothing outstanding is a ghost failing to do something the player can do.
     comes from reflection and a jump edge is checked live against the pawn's own `jumpButtonHeld?`;
     the third run read back as the user's sequence in frames with zero disagreements.
 
+69. **The recording indicator as a screen-space widget (2026-09-08).** The world-space one hid
+    behind geometry and drifted with the field of view, both properties of text placed in the
+    camera's frame. It is two UMG widgets now, constructed at runtime from reflection with no
+    asset (a border each; the clock's holds a text block), added to the viewport and placed from
+    the top-left off the engine's own viewport size -- anchored placement went off-screen on this
+    build. Prototyped in Lua in one session, ShareX-checked against the old look, then the same
+    calls in C++. The one thing the port had to learn: the SDK's weak pointer cannot hold an
+    object this mod constructs (no engine-assigned serial number), so these live in a handle that
+    validates through the object array instead. [VERIFIED.md](VERIFIED.md) 2026-09-08.
+70. **An on-screen input history (2026-09-08).** A fighting-game-style list beside the game: one
+    row per change of what is held, the direction as one arrow, a letter per action, and a count
+    in hundredths of a second, milliseconds or frames -- several at once if wanted. Fed by the
+    input track's own per-frame read, so it costs one text rewrite per row change, and gated by
+    the `input_display` section of config.json, shipped off. The ghost half -- a replay's own
+    track on the other side -- is designed and waits on the core streaming a clip's track.
+
 ## Dev tools
 
 Thirty-five dev-only Lua probe scripts across twenty-one mod folders under [probes/](probes/)

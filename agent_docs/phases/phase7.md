@@ -3229,3 +3229,11 @@ either side of the inputs. The default is open to revision on player feedback. T
 `rows`, then `unit`, in the game-root config with the game running and both landed live. Build
 `0e1c5dc9f3d9` on both installs; the user's screenshots show the panel and the indicator together;
 their words on the read-back are still owed.
+
+**Close of the day (2026-09-08).** The last hour was the display's units: a list of units at once
+(`"cs,frames"`), a framerate header when frames are shown (`fps_note`, shipped off at the user's
+call), hundredths of a second the default, four digits for milliseconds. Every change was read
+live by the running game from the game-root config. Final build `cad2022f5083` on both installs. Pushed at
+the user's ask at the end of the session; **the next session reads CI first** (`gh run list -L 5`)
+-- this day's Go commits (the input track's core, the launch-path log line, the shipped-config
+test) have not been through the race job or the fuzzer yet.

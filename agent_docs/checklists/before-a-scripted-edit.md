@@ -16,3 +16,4 @@ Anything `python`, `perl` or a heredoc writes into a file is unverified until re
 - A scripted edit can land a thousand lines from where you meant it (2026-08-23) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A parked audit rots faster than the thing it audited (2026-08-25) — [by-lesson.md](../pitfalls/by-lesson.md)
 - An inline heredoc plus a bypassing PowerShell in one bash command is a Defender trojan signature (2026-09-03) — [method.md](../pitfalls/method.md)
+- **An inline shell heredoc mangles backslash escapes on this machine** (2026-09-08): `\n` inside a Python patch written through the Bash tool reached the source as a real newline, and `\x00b7` as a NUL byte plus the text `b7`, twice in one afternoon -- write the patch script to a file with the Write tool and run it by path, and grep the result for the literal you meant.

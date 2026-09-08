@@ -2768,6 +2768,17 @@ checked first, `licensing.md`; facts only, nothing copied):**
 A visualizer built from these reads the track the core writes -- or, live, the same edges the mod
 already has in hand before it sends them -- and never needs the core to know what a label means.
 
+**BUILT 2026-09-08, the player half of the display** (`adapters/pseudoregalia/README.md` step 70;
+config `input_display`). **NEXT: the ghost half**, designed with the user the same day and not
+started: a replay ghost's inputs on the other side of the screen, from the input track recorded
+beside its clip (same `recording_id`, in `replay/inputs/`). That needs the CORE: when a replay
+loads, find its track by id, and stream the edges to the adapter beside the clip's frames --
+a new core -> adapter message (an ADR), its timing in the replay's own clock so a seek or a loop
+seam moves both. Then the adapter draws it with the same panel code, on `ghost_side`, taking the
+player's side when the player's display is off. Also open, small: a live look-direction marker
+beside the panel (the camera is in the track but deliberately not in the rows), and marking a
+press that had no effect by pairing the row with the clip's state.
+
 **The user's question, and it is a good one because it names a real gap:** *"could you learn how to
 play a game by watching a recording i have done?"* — no, and the reason is structural rather than a
 missing feature. **A recording holds STATE, never INPUT.** Position, orientation, `anim`, the extras
