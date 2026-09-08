@@ -40,7 +40,7 @@
     },
     "input_display": {
       "player": false, "ghost": false, "always": false, "background": true,
-      "rows": 10, "size": 22, "unit": "cs", "count_side": "left",
+      "rows": 10, "size": 22, "unit": "cs", "count_side": "left", "fps_note": true,
       "player_side": "left", "ghost_side": "right"
     },
     "hotkeys": {

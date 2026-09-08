@@ -9072,6 +9072,7 @@ namespace MeshGhostPseudo
         // 60, and the only unit that can show a single-frame press). Default open to revision.
         std::string g_disp_unit = "cs";   // one or more of cs, ms, frames, in display order ("cs,frames")
         bool g_disp_count_left = true;     // input_display.count_side: the count before or after the inputs
+        bool g_disp_fps_note = true;       // input_display.fps_note: the "@ N fps" header when frames are shown
         // The measured framerate, shown as a header line whenever "frames" is among the units so a
         // frame count carries its own scale: engine frames counted per wall second.
         uint64_t g_disp_fps_frames = 0;
@@ -9659,6 +9660,7 @@ namespace MeshGhostPseudo
                 const bool have_unit = config_string_value("unit", unit);
                 std::string count_side;
                 const bool have_count_side = config_string_value("count_side", count_side);
+                const bool fps_note = config_bool_value("fps_note", true);
                 const int32_t rows_i = have_rows ? static_cast<int32_t>(std::clamp(rows, 1.0, 40.0)) : g_disp_rows;
                 const double size_d = have_size ? std::clamp(size, 6.0, 96.0) : g_disp_size;
                 const bool left = have_side ? (side != "right") : g_disp_player_left;
@@ -9687,8 +9689,9 @@ namespace MeshGhostPseudo
                 const bool count_left = have_count_side ? (count_side != "right") : g_disp_count_left;
                 if (player != g_disp_player || always != g_disp_always || background != g_disp_background ||
                     rows_i != g_disp_rows || size_d != g_disp_size || left != g_disp_player_left ||
-                    unit_s != g_disp_unit || count_left != g_disp_count_left)
+                    unit_s != g_disp_unit || count_left != g_disp_count_left || fps_note != g_disp_fps_note)
                 {
+                    g_disp_fps_note = fps_note;
                     g_disp_player = player;
                     g_disp_always = always;
                     g_disp_background = background;
@@ -10732,7 +10735,7 @@ namespace MeshGhostPseudo
             }
             std::wstring out;
             const bool show_frames = g_disp_unit.find("frames") != std::string::npos;
-            if (show_frames)
+            if (show_frames && g_disp_fps_note)
             {
                 // The frame count's scale, so a screenshot carries it: measured, not the cap.
                 wchar_t fps_line[24]{};
