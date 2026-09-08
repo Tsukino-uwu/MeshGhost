@@ -895,8 +895,13 @@ require one to deploy.
    advertises its own protocol version in `welcome` so a current client will not sit in a v0.1.0
    relay's room. The user's framing: *"so a current client don't try to connect to a v0.1.0 server"*.
    - **A relay that advertises NOTHING is REFUSED** — the user's call, 2026-09-08, overriding the
-     softer allow-and-log this entry first proposed: *"no version = older/unsupported version; if
-     its not at or above the current version, it should not work"*.
+     softer allow-and-log this entry first proposed: *"no version = older/unsupported version"*.
+   - **"At or above the MINIMUM", never "at or above the current version"** (the user, clarifying
+     the same day). Both sides compare against a FLOOR, not against each other's latest: the relay
+     accepts `client >= relay.MinProtocolVersion`, and the core accepts
+     `relay >= core.MinProtocolVersion`. Reading it as "current" would make each side demand the
+     newest build the other has — an exact match in disguise, and precisely the flag day this whole
+     entry exists to remove. Anyone implementing this: a v2.3 client MUST work against a v2.0 relay.
    - **Know what that costs before building it.** This is the ONE part of the plan that is not
      additive: the first client carrying the check refuses every relay built before the field exists,
      so relay operators must update in lockstep with players. Accepted deliberately, and consistent
