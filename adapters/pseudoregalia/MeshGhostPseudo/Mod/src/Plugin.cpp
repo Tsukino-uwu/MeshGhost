@@ -10620,9 +10620,16 @@ namespace MeshGhostPseudo
             std::wstring out;
             for (const InputHistoryRow& r : g_disp_rows_data)
             {
+                // The count is DISPLAY only: the track stores the frame of every edge, never a
+                // count, so a cap here loses nothing; 999 keeps the column from widening on a
+                // long hold, the way a fighting game's list does.
                 wchar_t head[16]{};
-                std::swprintf(head, sizeof(head) / sizeof(head[0]), STR("%4llu  "), static_cast<unsigned long long>(r.frames));
+                std::swprintf(head, sizeof(head) / sizeof(head[0]), STR("%4llu  "), static_cast<unsigned long long>(r.frames > 999 ? 999 : r.frames));
                 out += head;
+                if (r.dir == 0 && r.mask == 0)
+                {
+                    out += STR(" b7"); // a neutral row: a middle dot, so a held nothing reads as a row
+                }
                 // One glyph per direction, diagonals included (the user, against the Celeste
                 // display: "down/right as its own thing, not right + down"). Bits: 1 up, 2 down,
                 // 4 left, 8 right; opposites cannot both be set, the value is one vector.

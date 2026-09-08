@@ -3206,6 +3206,6 @@ session it ran in then ended in "Abort signal received" 63 s after its second re
 2026-09-06 signature, unattributed (nothing logged; one unguarded callback in the probe, since
 guarded; the Archipelago mod was live and is now disabled in the main install at the user's
 ask). The config section landed everywhere with the docs and a shipped-off test; the C++ player
-half (`INPUT_HISTORY_DISPLAY`, `3235d9cdff92`) reuses the indicator's widget helpers and the track's own
+half (`INPUT_HISTORY_DISPLAY`, `1598e915c39a`) reuses the indicator's widget helpers and the track's own
 per-frame read, deployed to both installs, unwatched. Next: the ghost half, which is Go work --
 the core streaming a clip's input track to the adapter beside the clip.
