@@ -16,6 +16,7 @@ package e2e
 
 import (
 	"encoding/json"
+	"math/rand/v2"
 	"net"
 	"os"
 	"os/exec"
@@ -86,31 +87,64 @@ func buildBinary(t *testing.T, dir, pkg, base string) string {
 // can all lose -- which is exactly what CI did today, the same three tests as 2026-08-16.
 // Letting the OS pick the UDP port means the exclusions are applied by the OS instead of
 // gambled against, and TCP, which has no such blocks, is the one being probed.
+//
+// AND FROM THREE SOURCES IN TURN, 2026-09-08. The udp-first draw lost 200 times in a row on the
+// v1.2.5 release runner -- every tcp probe answered "forbidden by its access permissions", the
+// Windows text for a RESERVED port -- because the exclusions on that runner were on the TCP side
+// this time, and Windows hands out ephemeral ports SEQUENTIALLY: 200 draws from :0 are 200
+// consecutive numbers, which a single reservation block hundreds wide swallows whole. So the
+// draws now rotate: the OS's udp pick, the OS's tcp pick, and a random number from the
+// unreserved-by-default range below the ephemeral one. Whichever protocol a block excludes, the
+// other's pick or the random jump lands outside it. Every candidate is still probed on BOTH.
 func freePort(t *testing.T) int {
 	t.Helper()
 	const attempts = 200
 	var lastErr error
 	for i := 0; i < attempts; i++ {
-		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("reserve port: %v", err)
+		var port int
+		switch i % 3 {
+		case 0:
+			pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			port = pc.LocalAddr().(*net.UDPAddr).Port
+			pc.Close()
+		case 1:
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				lastErr = err
+				continue
+			}
+			port = ln.Addr().(*net.TCPAddr).Port
+			ln.Close()
+		default:
+			// Below Windows' 49152+ ephemeral range, above the registered
+			// services most machines actually run; random so that consecutive
+			// misses are never neighbours inside one block.
+			port = 20000 + rand.IntN(29000)
 		}
-		port := pc.LocalAddr().(*net.UDPAddr).Port
-		pc.Close()
 
-		// Probe tcp on the same number. Closed immediately: this only answers
-		// "is this number usable", the same way the udp bind above does.
+		// Probe both on the same number. Closed immediately: this only answers
+		// "is this number usable", the same way the picks above do.
 		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			lastErr = err
-			continue // taken for tcp -- ask for a different one
+			continue // taken or reserved for tcp -- try a different one
 		}
 		ln.Close()
+		pc, err := net.ListenPacket("udp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			lastErr = err
+			continue // taken or reserved for udp -- try a different one
+		}
+		pc.Close()
 		return port
 	}
 	// The reason, not just the count: without it the next failure is as undiagnosable as this
 	// one was, and the error text is what names a reservation as a reservation.
-	t.Fatalf("could not find a port free for both tcp and udp after %d attempts (last tcp error: %v)",
+	t.Fatalf("could not find a port free for both tcp and udp after %d attempts (last error: %v)",
 		attempts, lastErr)
 	return 0
 }

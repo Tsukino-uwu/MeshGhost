@@ -1181,3 +1181,14 @@ so the first frame's batch already overflows them instead of several autotuned m
 
 Worth a look later, not for the release: 512 chaser goroutines all waking on every sample is a
 thundering herd, and on a starved box it is what pushed the reader and the adapter off the CPU.
+
+**The v1.2.5 release dispatch (run 34254121068) failed in `build-and-package`** before any tag or
+release existed: the Windows packaging runner re-runs the suite, and `internal/e2e`'s
+`TestWorldSurvivesTheHostProcessDyingAndSeedsALateJoiner` could not find a port -- 200 tcp probes
+in a row answered "forbidden by its access permissions", Windows' text for a reserved port. The
+2026-08-20 `freePort` asked udp for a number and probed tcp on it; this runner's exclusions were on
+the TCP side, and Windows hands out ephemeral ports sequentially, so 200 draws were 200 neighbours
+inside one block. `freePort` now rotates three sources (udp :0, tcp :0, a random number in
+20000-48999) and probes every candidate on both protocols. Test-only; the e2e package passed
+locally after it. Same commit passed CI's own Windows job minutes earlier -- luck of the draw,
+exactly the 2026-08-16 shape.
