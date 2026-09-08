@@ -23798,6 +23798,8 @@ namespace MeshGhostPseudo
             std::vector<KeyEntry> fresh;
             size_t contexts = 0;
             std::vector<UObject*> imcs;
+            // Cadence: PER-INTERVAL -- once every INPUT_TRACK_RESOLVE_INTERVAL_FRAMES engine frames
+            // (~2 s), and only while replay.inputs is on; never on the steady per-tick path.
             UObjectGlobals::FindAllOf(STR("InputMappingContext"), imcs);
             for (UObject* imc : imcs)
             {
