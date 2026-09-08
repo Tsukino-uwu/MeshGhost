@@ -685,13 +685,13 @@ copied; these are the facts it establishes, each a thing this adapter had not me
   `lockedOn` and `LocketActorTarget` (sic) for the lock-on target and `activeAttackID` per enemy.
 - The mod's own reading of keys is UE4SS's `RegisterKeyBind` -- a mod hotkey, not the game's input
   state; nothing in it bears on the input track.
-- **Three notes from the same tester, 2026-09-08, in their words as facts:** UI position in UE
-  *"is largely just a 1920x1080p display that gets scaled to the actual output"* (which is why the
-  screen-space indicator computes its corner from `GetViewportSize` and passes positions with the
-  DPI scale removed); the community has *"no input tracker, people just use their own external
-  input display if at all"*; and most mods *"are just shared as their .pak file sadly, largely not
-  having a github repo or license"* -- which the licensing rule already answers. The health mod's
-  structure was reworked after the version read here, so its layout is not their current practice.
+- **Three facts learnt from the same tester, 2026-09-08:** Unreal lays UI out in a 1920x1080 space
+  and scales it to the actual output (which is why the screen-space indicator computes its corner
+  from `GetViewportSize` and passes positions with the DPI scale removed); the community has no
+  input tracker of its own, people use external input displays if anything; and most community
+  mods are shared as bare `.pak` files with no repository or licence, which the licensing rule
+  already answers. The health mod's structure was reworked after the version read here, so its
+  layout is not their current practice.
 
 ## Two mapping contexts stay loaded, and only one is applied (measured 2026-09-08)
 
