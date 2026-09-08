@@ -1166,3 +1166,18 @@ Both gates green, a 45 s local `FuzzEverything` campaign clean. Lesson filed her
 `pitfalls.md` because both are Go-side: a fuzz finding in one package's harness can be a defect
 in the package UNDER it, and a test whose precondition is "the core closed the socket" has to
 observe that event, not a deadline of its own.
+
+**Third red run (34247545500), same test, the other way round**: this time the core "never gave
+up writing" inside 20 s. Reproduced locally with `-cpu 1` (fails 5/5, with or without `-race`);
+a goroutine dump at 10 s showed the core's reader idle in Read, the writer idle, and all 512
+chaser goroutines runnable at once. The cause was the TEST's fake clock: A's write loop advanced
+it 5 ms per frame, and on one CPU the scheduler alternated "A runs and advances the clock" with
+"the core drains A's buffered frames", so every sample the core stamped carried the same
+gameplay time, `movingSince` never reached the 1 ms spawn window, nothing rendered, no write
+failed. Two changes, both test-only: the real clock (movement is visible however goroutines
+interleave), and 4 KB socket buffers on both ends of A's connection (`smallWriteBufferListener`)
+so the first frame's batch already overflows them instead of several autotuned megabytes.
+`-cpu 1` 10/10 under `-race`, default CPUs 20/20, both gates green.
+
+Worth a look later, not for the release: 512 chaser goroutines all waking on every sample is a
+thundering herd, and on a starved box it is what pushed the reader and the adapter off the CPU.

@@ -22,9 +22,18 @@ import (
 // started a second core. This is that sequence with a 300 ms write deadline
 // and an adapter that stops reading: the reconnect must be ACCEPTED.
 func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
-	clk := newFakeClock()
+	// THE REAL CLOCK, not newFakeClock. This test used to advance a fake clock
+	// 5 ms per frame from A's write loop, and that coupling is what made it
+	// hang on one CPU (CI's -race job, 2026-09-08, the third red run): with
+	// 512 chaser goroutines woken per sample, the scheduler alternated between
+	// "A runs and advances the clock" and "the core drains A's buffered
+	// frames", so every sample the core stamped carried the SAME gameplay
+	// time, the chasers never saw their 1 ms of movement, nothing was ever
+	// rendered, no write ever failed, and the 20 s guard fired. Real time
+	// stamps each frame as the core reads it, so movement is always visible
+	// however the goroutines interleave. Verified with `-cpu 1` on both
+	// sides: hangs on the fake clock, passes on the real one.
 	c := New()
-	c.timeSrc = clk
 	c.InterpolationDelay = 0
 	c.LocalInterpolationDelay = 0
 	c.bridgeWriteTimeout = 300 * time.Millisecond
@@ -48,7 +57,17 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 		t.Fatalf("listen bridge: %v", err)
 	}
 	t.Cleanup(func() { ln.Close() })
-	go c.ServeBridge(ln)
+	// TINY SOCKET BUFFERS, on both ends of A's connection. The property under
+	// test is "a write that fails frees the slot"; it says nothing about how
+	// many bytes it takes to make one fail. Left to the kernel, that is
+	// several megabytes of send buffer plus receive buffer, autotuned upward
+	// on Linux, and the core has to push all of it -- 512 render lines per
+	// frame -- before its 300 ms deadline can fire. Under -race on a loaded
+	// CI runner (2026-09-08, the second red run on this test) it managed
+	// under that in 20 s, and the guard below fired instead. A fixed 4 KB
+	// each way, which also switches autotuning off, means the FIRST frame's
+	// batch is already more than the socket can hold.
+	go c.ServeBridge(smallWriteBufferListener{ln})
 
 	// Adapter A: a raw socket, so the test controls when it reads.
 	a, err := net.Dial("tcp", ln.Addr().String())
@@ -56,6 +75,9 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 		t.Fatalf("dial A: %v", err)
 	}
 	t.Cleanup(func() { a.Close() })
+	if tcp, ok := a.(*net.TCPConn); ok {
+		_ = tcp.SetReadBuffer(4096)
+	}
 	hello, _ := json.Marshal(bridge.Envelope{Type: bridge.TypeHello, Payload: json.RawMessage(`{"game_id":"emerald"}`)})
 	if _, err := a.Write(append(hello, '\n')); err != nil {
 		t.Fatalf("A hello: %v", err)
@@ -71,13 +93,12 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 		}
 	}
 
-	// A now sends frames and never reads again. Every frame advances the
-	// clock and moves the player, so the whole pack is admitted and every tick
-	// writes 512 render lines into a socket nobody drains.
+	// A now sends frames and never reads again. Every frame moves the player,
+	// so the whole pack is admitted and every tick writes 512 render lines
+	// into a socket nobody drains.
 	aDead := make(chan error, 1)
 	go func() {
 		for i := 0; ; i++ {
-			clk.Advance(5 * time.Millisecond)
 			st := protocol.State{AreaID: "a", Position: []float64{float64(i), 0}, Anim: "run"}
 			payload, _ := json.Marshal(bridge.LocalState{State: &st})
 			env, _ := json.Marshal(bridge.Envelope{Type: bridge.TypeLocalState, Payload: payload})
@@ -128,4 +149,20 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 	case <-time.After(testTimeout):
 		t.Fatal("timed out waiting for the reconnect's bridge_ready")
 	}
+}
+
+// smallWriteBufferListener shrinks the send buffer of every connection the
+// core accepts, so a peer that stops reading makes the core's write fail
+// after a few kilobytes rather than a few megabytes. See the note at its use.
+type smallWriteBufferListener struct{ net.Listener }
+
+func (l smallWriteBufferListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetWriteBuffer(4096)
+	}
+	return conn, nil
 }
