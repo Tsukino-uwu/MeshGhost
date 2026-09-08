@@ -908,3 +908,13 @@ has no licence and stayed closed). Facts only, recorded in `pseudoregalia/docume
 element can be a runtime-built UMG widget added to the viewport -- the lead for both open
 recording-indicator complaints -- plus the player's HP fields, the game instance's zone string and
 the enemy base classes. Nothing bears on the input track.
+
+**Midday, the C++ half.** On the user's *"keep going until we have a working input recording"*, the
+capture went into `Plugin.cpp` the same sitting: `input_track_sample` (game thread, per engine frame,
+11 `GetBoundActionValue` calls plus the two sticks, edges into a bounded queue) and
+`input_track_drain_and_send` (UE4SS thread, at most 64 edges an `input_sample` line, labels on the
+first line after a hello), compiled in and gated by config.json's `replay.inputs`. The value read
+the census could not check from Lua is checked live in C++: every jump edge against the pawn's own
+`jumpButtonHeld?`, counted on the `INPUTTRACK:` log line. Built, deployed to both installs, config
+armed, unwatched — `phase7.md`'s 2026-09-08 entry has the build; `pseudoregalia/UNVERIFIED.md` the
+READY entry with what the first run has to show.

@@ -143,6 +143,47 @@ namespace MeshGhostPseudo
     // as the probes FLAGS.md warns about.
     constexpr bool STATE_SEND_TRACE = true;
 
+    // **THE INPUT TRACK -- what the player pressed, recorded beside the state clip (ADR 0056).**
+    // Compiled in and shipped `true`; the RUNTIME gate is config.json's `replay.inputs`, which
+    // ships false and is polled live with the indicator settings, so a player turns the track on
+    // by editing the file they are already told to edit -- the same shape as the indicator. A
+    // compile-time `false` here would make that setting a lie, which is why this is not the
+    // plan's original "INPUT_TRACK_CAPTURE (false)" (deviation recorded in FLAGS.md).
+    //
+    // WHERE THE BITS COME FROM -- decided by the 2026-09-08 census (`probes/probe_inputcensus/`,
+    // `UNVERIFIED.md`): Enhanced Input's already-merged per-action value,
+    // `UEnhancedInputLibrary::GetBoundActionValue(Actor, Action)`, a reflected BlueprintPure static
+    // (dev.epicgames.com, UEnhancedInputLibrary) on the library's default object. Device-agnostic
+    // and rebind-proof for free, because the game merged keyboard, gamepad and its mapping
+    // contexts before we look. The census proved the CALL (55,000 of them, no fault) and could not
+    // read the VALUE from Lua -- FInputActionValue has no reflected fields -- so the value's layout
+    // is checked here at runtime (size) and against the pawn's own `jumpButtonHeld?` latch on
+    // every jump edge (the agree/disagree counters on the INPUTTRACK log line). The fallback the
+    // census also proved, `IsInputKeyDown(FKey)` per mapped key, is not built; reach for it only
+    // if those counters disagree.
+    constexpr bool INPUT_TRACK_CAPTURE = true;
+    // The two sticks (IA_Move, IA_Look; both Axis2D per the census) as four axes on every edge,
+    // quantized to 1/64 and throttled to ~30 Hz unless a button edge carries them. `false` sends
+    // buttons only, which halves the track's size at the cost of camera and movement.
+    constexpr bool INPUT_TRACK_AXES = true;
+    // One log line per edge with the raw value bytes for the first few -- the layout check made
+    // visible. A press a frame is a line a frame; off.
+    constexpr bool INPUT_TRACK_TRACE = false;
+    // Axis-only edges may not be closer than this; a button edge is never throttled.
+    constexpr int64_t INPUT_TRACK_AXIS_MIN_MS = 33;
+    // The queue between the game thread and on_update. Drained every UE4SS tick, so it holds a
+    // few edges in practice; the cap is what a stuck bridge costs, and a full queue drops the
+    // newest AXIS-only edge first and counts what it refuses into `drop`.
+    constexpr size_t INPUT_TRACK_QUEUE_CAP = 256;
+    // Edges per `input_sample` line: bridge/inputlimits.go's MaxInputEdgesPerBatch.
+    constexpr size_t INPUT_TRACK_BATCH_MAX = 64;
+    // sizeof(FInputActionValue) on UE 5.1: an FVector of three doubles (24) and a one-byte value
+    // type, padded to 32. Checked against the ReturnValue property's reflected size before the
+    // first call; a mismatch refuses the whole feature with a log line rather than reading bytes.
+    constexpr int32_t INPUT_ACTION_VALUE_SIZE = 32;
+    // An action asset that did not resolve is retried this often, in engine frames.
+    constexpr uint64_t INPUT_TRACK_RESOLVE_INTERVAL_FRAMES = 300;
+
     // Diffs the LOCAL pawn's whole property set, standing versus mid-slide and standing versus
     // crouching, to identify what actually drives the pose. See its block in tickLocal for why a
     // diff rather than another guessed lever. Flip OFF once the driver is named.
@@ -8902,6 +8943,9 @@ namespace MeshGhostPseudo
         // is the whole reason this feature exists. Off is for someone who does not want it in a
         // video capture, since a screen indicator lands in one like any other UI.
         bool g_rec_indicator_enabled = true;
+        // config.json `replay.inputs` (ADR 0056), polled live beside the indicator settings. Ships
+        // false in the core's config and defaults false here when the key is absent.
+        bool g_input_track_enabled = false;
         // The square's own vertical nudge, added to `up`. See above for why it needs its own.
         double g_rec_dot_up = 0.4;
 
@@ -9447,6 +9491,16 @@ namespace MeshGhostPseudo
                 g_rec_tuning_dirty = true;
                 Output::send(STR("[MeshGhostPseudo] RECINDICATOR: config indicator={}\n"),
                              enabled ? STR("on") : STR("off"));
+            }
+            // The input track's runtime gate. The key is `inputs`, nested under `replay` in the
+            // file; this reader finds the first `"inputs"` anywhere, which is that one -- no other
+            // key in config.json carries the name (checked 2026-09-08 against docs/config.md).
+            const bool inputs_on = config_bool_value("inputs", false);
+            if (inputs_on != g_input_track_enabled)
+            {
+                g_input_track_enabled = inputs_on;
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK: config replay.inputs={} -- the input track is now {}.\n"),
+                             inputs_on ? STR("true") : STR("false"), inputs_on ? STR("CAPTURING") : STR("off"));
             }
             if (config_string_value("indicator_color", value) && value != g_rec_dot_color)
             {
@@ -10111,6 +10165,8 @@ namespace MeshGhostPseudo
             PERF_LS_SLIDE,
             PERF_LS_AFTERIMG,
             PERF_LS_TRAIL,
+            // The input track's per-frame read (2026-09-08): up to 13 reflected calls a frame.
+            PERF_INPUT_READ,
             PERF_SLOT_COUNT
         };
 
@@ -10122,7 +10178,8 @@ namespace MeshGhostPseudo
             STR("tail_posetrc "), STR("tail_sweeps  "), STR("tail_light   "), STR("tail_events  "),
             STR("ls_camrig    "), STR("ls_outfit    "), STR("ls_projectile"), STR("ls_rest      "),
             STR("ls_recall    "), STR("ls_vfxmirror "), STR("ls_json      "),
-            STR("ls_weapon    "), STR("ls_traces    "), STR("ls_slide     "), STR("ls_afterimg  "), STR("ls_trail     ")};
+            STR("ls_weapon    "), STR("ls_traces    "), STR("ls_slide     "), STR("ls_afterimg  "), STR("ls_trail     "),
+            STR("input_read   ")};
 
         bool g_perf_armed = false;
         long long g_perf_qpc[PERF_SLOT_COUNT] = {};
@@ -20037,8 +20094,17 @@ namespace MeshGhostPseudo
             }
             else
             {
-                std::lock_guard<std::mutex> lock(state_mutex);
-                cached_local_state_json = std::move(local_state);
+                {
+                    std::lock_guard<std::mutex> lock(state_mutex);
+                    cached_local_state_json = std::move(local_state);
+                }
+                // The input track, read on the same frame the state was: same pawn, same gate
+                // (a non-gameplay map withholds both), so a track line and a clip line share a
+                // frame by construction. Ships `true`; config.json's replay.inputs is the gate.
+                if constexpr (INPUT_TRACK_CAPTURE)
+                {
+                    input_track_sample(controller, pawn_obj);
+                }
             }
         }
         else
@@ -23465,6 +23531,371 @@ namespace MeshGhostPseudo
     // latest cached local_state (built by game_thread_tick, the real game thread), and hands off
     // received lines for game_thread_tick to process. No actor reads/writes happen on this thread
     // anymore (see game_thread_tick's doc comment for why that mattered).
+    // ------------------------------------------------------------------------------------------
+    // THE INPUT TRACK, adapter half (ADR 0056; the census that chose the source: 2026-09-08,
+    // `probes/probe_inputcensus/`). Two functions: this one reads, on the game thread, once per
+    // engine frame; the next drains and sends on UE4SS's thread.
+    //
+    // Everything about the reflected call is resolved by NAME off the function's own reflection
+    // and checked before the first call, in the spirit of spawn_niagara_attached: the two
+    // parameters by name, the return slot by name AND by size. FInputActionValue has no reflected
+    // fields, so its size is the one thing reflection can vouch for; the rest of its layout (an
+    // FVector of doubles at offset 0, the type byte after it) is the engine's header, which is why
+    // the jump bit is checked live against the pawn's own `jumpButtonHeld?` on every jump edge and
+    // the two counters are printed beside the bridge stats. Disagreement means the layout is wrong
+    // and the fallback the census proved (IsInputKeyDown per mapped key) is the next build.
+    auto Plugin::input_track_sample(UObject* controller, UObject* pawn) -> void
+    {
+        (void)controller;
+        ++input_frame; // engine frames on which a read was possible, whether or not one happened
+        if (!g_input_track_enabled || !pawn)
+        {
+            input_have_prev = false;
+            return;
+        }
+        if (!bridge || !bridge->is_ready())
+        {
+            // Nothing to send to; forget the previous sample so the first frame after the core
+            // attaches emits the current mask as an edge (a track has to start from a known state).
+            input_have_prev = false;
+            return;
+        }
+        PerfScope perf(PERF_INPUT_READ);
+
+        static UFunction* function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/EnhancedInput.EnhancedInputLibrary:GetBoundActionValue"));
+        static UObject* library_cdo = UObjectGlobals::StaticFindObject<UObject*>(
+            nullptr, nullptr, STR("/Script/EnhancedInput.Default__EnhancedInputLibrary"));
+        static int32_t actor_offset = -1;
+        static int32_t action_offset = -1;
+        static int32_t return_offset = -1;
+        static int32_t return_size = 0;
+        static int32_t parms_size = 0;
+        static bool layout_resolved = false;
+        static bool layout_refused = false;
+        constexpr size_t PARMS_CAP = 128;
+        if (layout_refused)
+        {
+            return;
+        }
+        if (!layout_resolved)
+        {
+            if (!function || !library_cdo)
+            {
+                layout_refused = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK refused -- GetBoundActionValue={} EnhancedInputLibrary CDO={}; no input track on this build.\n"),
+                             function ? STR("found") : STR("MISSING"), library_cdo ? STR("found") : STR("MISSING"));
+                return;
+            }
+            parms_size = function->GetPropertiesSize();
+            for (FProperty* param : TFieldRange<FProperty>(function, EFieldIterationFlags::None))
+            {
+                if (!param)
+                {
+                    continue;
+                }
+                const StringType name = param->GetName();
+                Output::send(STR("[MeshGhostPseudo] DIAG: GetBoundActionValue param '{}' ({}) offset={} size={}\n"),
+                             name, param->GetClass().GetName(), param->GetOffset_Internal(), param->GetSize());
+                if (name == STR("Actor"))
+                {
+                    actor_offset = param->GetOffset_Internal();
+                }
+                else if (name == STR("Action"))
+                {
+                    action_offset = param->GetOffset_Internal();
+                }
+                else if (name == STR("ReturnValue"))
+                {
+                    return_offset = param->GetOffset_Internal();
+                    return_size = param->GetSize();
+                }
+            }
+            const bool plausible = actor_offset >= 0 && action_offset >= 0 && return_offset >= 0 &&
+                                   return_size == INPUT_ACTION_VALUE_SIZE && parms_size > 0 &&
+                                   static_cast<size_t>(parms_size) <= PARMS_CAP &&
+                                   return_offset + return_size <= parms_size;
+            if (!plausible)
+            {
+                layout_refused = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK refused -- GetBoundActionValue layout not as expected (Actor@{} Action@{} ReturnValue@{} size {} of {} bytes; expected a {}-byte FInputActionValue). No input track on this build.\n"),
+                             actor_offset, action_offset, return_offset, return_size, parms_size, INPUT_ACTION_VALUE_SIZE);
+                return;
+            }
+            layout_resolved = true;
+            Output::send(STR("[MeshGhostPseudo] INPUTTRACK: GetBoundActionValue resolved (Actor@{} Action@{} ReturnValue@{} size {}, {} bytes of params).\n"),
+                         actor_offset, action_offset, return_offset, return_size, parms_size);
+        }
+
+        // The label table IS this array's order: bit i of the mask is BUTTONS[i]. The names are
+        // ours (opaque to the core, copied into the track header); the paths are the game's, as
+        // the census listed them. Pause and MenuAdvance are not the pawn's actions and are left
+        // out; Move and Look are the axes below.
+        struct ActionSlot
+        {
+            const wchar_t* path;
+            UObject* asset;
+            bool warned;
+        };
+        static ActionSlot buttons[] = {
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Jump.IA_Jump"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Attack.IA_Attack"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Crouch.IA_Crouch"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_WallRide.IA_WallRide"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Throw.IA_Throw"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Guard.IA_Guard"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Interact.IA_Interact"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_LockOn.IA_LockOn"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Power.IA_Power"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_QuickMap.IA_QuickMap"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_PerspectiveToggle.IA_PerspectiveToggle"), nullptr, false},
+        };
+        static ActionSlot sticks[] = {
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Move.IA_Move"), nullptr, false},
+            {STR("/Game/ThirdPerson/Input/Actions/IA_Look.IA_Look"), nullptr, false},
+        };
+        constexpr size_t BUTTON_COUNT = sizeof(buttons) / sizeof(buttons[0]);
+        static_assert(BUTTON_COUNT <= 32, "the mask is 32 bits wide");
+        auto resolve = [&](ActionSlot& slot) {
+            if (slot.asset || (input_frame % INPUT_TRACK_RESOLVE_INTERVAL_FRAMES) != 1)
+            {
+                return;
+            }
+            slot.asset = UObjectGlobals::StaticFindObject<UObject*>(nullptr, nullptr, slot.path);
+            if (!slot.asset && !slot.warned)
+            {
+                slot.warned = true;
+                Output::send(STR("[MeshGhostPseudo] WARNING: INPUTTRACK action asset '{}' not found -- its bit stays 0 until it loads.\n"), slot.path);
+            }
+        };
+        for (ActionSlot& b : buttons)
+        {
+            resolve(b);
+        }
+        for (ActionSlot& a : sticks)
+        {
+            resolve(a);
+        }
+
+        // One reflected call: the pawn and the action in, three doubles out. The type byte after
+        // them is not read -- a bool action carries 1.0 in X and an Axis2D its two components, which
+        // is all the track needs (Conv_InputActionValueToBool/Axis2D read the same vector).
+        uint8_t params[PARMS_CAP];
+        auto read_value = [&](UObject* action, double out[3]) -> bool {
+            if (!action)
+            {
+                return false;
+            }
+            std::memset(params, 0, sizeof(params));
+            *std::bit_cast<UObject**>(params + actor_offset) = pawn;
+            *std::bit_cast<UObject**>(params + action_offset) = action;
+            library_cdo->ProcessEvent(function, params);
+            std::memcpy(out, params + return_offset, sizeof(double) * 3);
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!std::isfinite(out[i]))
+                {
+                    out[i] = 0.0;
+                }
+            }
+            return true;
+        };
+
+        uint32_t mask = 0;
+        double raw_jump[3] = {0.0, 0.0, 0.0};
+        for (size_t i = 0; i < BUTTON_COUNT; ++i)
+        {
+            double v[3];
+            if (read_value(buttons[i].asset, v) && v[0] != 0.0)
+            {
+                mask |= (1u << i);
+            }
+            if (i == 0)
+            {
+                std::memcpy(raw_jump, v, sizeof(raw_jump));
+            }
+        }
+        double ax[4] = {0.0, 0.0, 0.0, 0.0};
+        if constexpr (INPUT_TRACK_AXES)
+        {
+            double v[3];
+            if (read_value(sticks[0].asset, v))
+            {
+                ax[0] = std::round(v[0] * 64.0) / 64.0;
+                ax[1] = std::round(v[1] * 64.0) / 64.0;
+            }
+            if (read_value(sticks[1].asset, v))
+            {
+                ax[2] = std::round(v[0] * 64.0) / 64.0;
+                ax[3] = std::round(v[1] * 64.0) / 64.0;
+            }
+        }
+
+        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                   std::chrono::steady_clock::now().time_since_epoch())
+                                   .count();
+        const bool button_edge = !input_have_prev || mask != input_prev_mask;
+        bool axes_changed = !input_have_prev;
+        for (int i = 0; i < 4 && !axes_changed; ++i)
+        {
+            axes_changed = ax[i] != input_prev_ax[i];
+        }
+        const bool axis_edge = INPUT_TRACK_AXES && axes_changed && (now_ms - input_last_axis_ms >= INPUT_TRACK_AXIS_MIN_MS);
+        if (!button_edge && !axis_edge)
+        {
+            return;
+        }
+
+        // The live check of the value read, on every edge that flips the jump bit: the pawn's own
+        // Blueprint latch `jumpButtonHeld?` (a confirmed live-read bool, PLAYER_FIELDS.md) moved
+        // in step with the jump button on 24 of 24 presses in the census. If the bytes read here
+        // mean what the header says, the two agree on the same frame.
+        if (button_edge && input_have_prev && ((mask ^ input_prev_mask) & 1u))
+        {
+            const bool held = mg_read_bool(pawn, STR("jumpButtonHeld?"), false);
+            if (held == ((mask & 1u) != 0))
+            {
+                ++input_jump_agree;
+            }
+            else
+            {
+                ++input_jump_disagree;
+            }
+        }
+
+        InputEdgeRec edge{};
+        edge.f = input_frame;
+        edge.t = now_ms;
+        edge.m = mask;
+        std::memcpy(edge.ax, ax, sizeof(ax));
+        edge.button = button_edge;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            if (input_edges.size() >= INPUT_TRACK_QUEUE_CAP)
+            {
+                // Full: give up the newest axis-only edge for this one; if there is none and this
+                // is itself axis-only, refuse it; a button edge is never refused while an axis
+                // edge can make room. Every refusal is counted into the next batch's `drop`.
+                bool made_room = false;
+                for (auto it = input_edges.rbegin(); it != input_edges.rend(); ++it)
+                {
+                    if (!it->button)
+                    {
+                        input_edges.erase(std::next(it).base());
+                        made_room = true;
+                        break;
+                    }
+                }
+                if (!made_room)
+                {
+                    ++input_drops;
+                    if (!button_edge)
+                    {
+                        return;
+                    }
+                    input_edges.pop_front(); // a queue of nothing but button edges: the oldest goes, counted
+                }
+                else
+                {
+                    ++input_drops;
+                }
+            }
+            input_edges.push_back(edge);
+        }
+        if (axes_changed)
+        {
+            input_last_axis_ms = now_ms;
+        }
+        input_prev_mask = mask;
+        std::memcpy(input_prev_ax, ax, sizeof(ax));
+        input_have_prev = true;
+
+        if constexpr (INPUT_TRACK_TRACE)
+        {
+            static int raw_lines = 0;
+            if (raw_lines < 12 && button_edge)
+            {
+                ++raw_lines;
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) jump_raw=({},{},{}) jumpButtonHeld?={}\n"),
+                             edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], raw_jump[0], raw_jump[1], raw_jump[2],
+                             mg_read_bool(pawn, STR("jumpButtonHeld?"), false));
+            }
+            else
+            {
+                Output::send(STR("[MeshGhostPseudo] INPUTTRACK edge f={} t={} m={:#x} ax=({},{},{},{}) {}\n"),
+                             edge.f, edge.t, edge.m, ax[0], ax[1], ax[2], ax[3], button_edge ? STR("button") : STR("axis"));
+            }
+        }
+    }
+
+    // Drains the queue into at most one `input_sample` line per UE4SS tick. The label table rides
+    // the first line after every hello (sticky on the core's side, like a delta'd extras key), and
+    // a declaration line with no edges is sent once when nothing has been pressed yet, so a track
+    // that starts before the first press still knows its own names.
+    auto Plugin::input_track_drain_and_send() -> void
+    {
+        if (!bridge || !bridge->is_ready() || !g_input_track_enabled)
+        {
+            return;
+        }
+        std::vector<InputEdgeRec> batch;
+        uint32_t drops = 0;
+        {
+            std::lock_guard<std::mutex> lock(state_mutex);
+            const size_t n = (std::min)(input_edges.size(), INPUT_TRACK_BATCH_MAX); // parenthesised: <windows.h>'s min macro
+            batch.reserve(n);
+            for (size_t i = 0; i < n; ++i)
+            {
+                batch.push_back(input_edges.front());
+                input_edges.pop_front();
+            }
+            drops = input_drops;
+            input_drops = 0;
+        }
+        if (batch.empty() && input_labels_sent)
+        {
+            return;
+        }
+        // Order of `labels` IS the bit order of input_track_sample's BUTTONS array; the two are
+        // kept adjacent in FLAGS.md's row so a change to one is a change to both.
+        std::string line = R"({"type":"input_sample","payload":{)";
+        if (!input_labels_sent)
+        {
+            line += R"("labels":["jump","attack","crouch","wallride","throw","guard","interact","lockon","power","quickmap","perspective"],)";
+            if constexpr (INPUT_TRACK_AXES)
+            {
+                line += R"("axes":["move_x","move_y","look_x","look_y"],)";
+            }
+            line += R"("source":"enhanced_input_bound_value",)";
+        }
+        if (drops > 0)
+        {
+            line += std::format(R"("drop":{},)", drops);
+        }
+        line += R"("edges":[)";
+        for (size_t i = 0; i < batch.size(); ++i)
+        {
+            const InputEdgeRec& e = batch[i];
+            if (i > 0)
+            {
+                line += ',';
+            }
+            line += std::format(R"({{"f":{},"t":{},"m":{})", e.f, e.t, e.m);
+            if constexpr (INPUT_TRACK_AXES)
+            {
+                line += std::format(R"(,"ax":[{},{},{},{}])", e.ax[0], e.ax[1], e.ax[2], e.ax[3]);
+            }
+            line += '}';
+        }
+        line += "]}}";
+        if (bridge->send_line(line))
+        {
+            input_labels_sent = true;
+            ++input_batches_sent;
+            input_edges_sent += batch.size();
+        }
+    }
+
     auto Plugin::on_update() -> void
     {
         if (!unreal_ready)
@@ -23783,6 +24214,7 @@ namespace MeshGhostPseudo
                 // A fresh core starts unfrozen (StartChasers resets its clock); forget what the
                 // old one was told so the current pause state is re-sent on the next tick.
                 player_frozen_sent = false;
+                input_labels_sent = false; // the new core has no label table yet (ADR 0056)
             }
         }
 
@@ -23829,6 +24261,10 @@ namespace MeshGhostPseudo
             {
                 bridge->send_line(local_state_to_send);
             }
+            if constexpr (INPUT_TRACK_CAPTURE)
+            {
+                input_track_drain_and_send();
+            }
 
             if (!received_lines.empty())
             {
@@ -23852,6 +24288,17 @@ namespace MeshGhostPseudo
                 stats.send_fail,
                 stats.lines_received,
                 stats.lines_malformed);
+            if constexpr (INPUT_TRACK_CAPTURE)
+            {
+                if (g_input_track_enabled)
+                {
+                    // The success path, logged from the first build: the read's live check beside
+                    // its throughput. disagree > 0 means the value layout is wrong for this build.
+                    Output::send<LogLevel::Normal>(
+                        STR("[MeshGhostPseudo] INPUTTRACK: frames={} edges_sent={} batches={} jump_check agree={} disagree={}\n"),
+                        input_frame, input_edges_sent, input_batches_sent, input_jump_agree, input_jump_disagree);
+                }
+            }
         }
     }
 } // namespace MeshGhostPseudo

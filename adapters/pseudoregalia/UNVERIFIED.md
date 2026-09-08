@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **THE INPUT TRACK captures on Pseudoregalia (built 2026-09-08 midday, both installs, `11ee35453e62`), UNWATCHED.** With `replay.inputs: true` and `record_on_launch: true` in the game-root config.json (set for this run): press a few things, then look for `replay/inputs/in-*.ndjson` beside the clip and for the `INPUTTRACK:` line in `UE4SS.log` with `disagree=0`. Entry below.
 - OPEN — **at 512 chasers some ghosts LOOKED stuck / not moving, and the game was at 5-7 fps** (the user, on screen, 2026-09-07, hedged in their own words: *"I think all ghosts stay spawned, but also looked like some got stuck/didn't move ? but obviusly hard to tell at 5-7fps as well with this many ghosts at the same time"*). **Not yet a defect** — there is a confound in the rig I set up and it has to be removed first. I ran that test at 100ms chaser spacing to make the pack fill in a minute instead of 8.5, and 100ms is SHORTER than the game's own frame interval at 5-7 fps (140-200ms). At ~6 fps, 52s of history holds ~310 samples for 512 chasers, so consecutive chasers land on the same sample and render at identical positions — which would look exactly like this. **What to run instead:** a count that keeps the framerate judgeable with spacing wider than a frame (~120 chasers at 500ms was the offer). If it survives that, it is real and worth chasing; if it does not, it was the spacing. Go side of the same run is clean and recorded — `../../agent_docs/verified.md`, 2026-09-07.
 - OPEN, NO PRIORITY — **the recording indicator is drawn BEHIND world geometry and objects**: it disappears where something is between it and the camera, instead of sitting on top of everything the way a HUD element does (the user, 2026-09-06). Low priority, by their call.
 - OPEN — **the recording indicator LEAVES its intended position during a move or ability that changes the player's speed or field of view**: it drifts from the corner it is pinned to and comes back afterwards (the user, 2026-09-06). Which moves, and whether it tracks speed or FOV, is not yet named.
@@ -76,6 +77,44 @@ entry without one.
 - Pending — the bridge port walk's SECOND-INSTANCE case is still unwatched (2026-08-27)
 - Pending — ghost collision turned OFF again (2026-08-27), and it may cost the cling-gem VFX
 - OPEN — three faults with no entry of their own: the sword's MID-AIR SNAP, the BLACK FLASH on spawn, and two unattributed crashes (from `status.md`, 2026-09-02; `curve catmull-rom` has its own entry below)
+
+## [READY] the input track's capture is built and deployed, UNWATCHED (2026-09-08 midday)
+
+**What it is.** The adapter half of ADR 0056: once per engine frame the mod reads the game's own
+merged Enhanced Input value for 11 actions and the two sticks on the local pawn, and sends every
+CHANGE to the core as an `input_sample` edge; the core writes them as a second file in
+`replay/inputs/`, correlated to the clip by `recording_id`. Source chosen by the census entry below
+this one. `FLAGS.md`: `INPUT_TRACK_CAPTURE` / `INPUT_TRACK_AXES`, runtime gate `replay.inputs`.
+
+**What to look at, in order.**
+
+1. `UE4SS.log`, at the first gameplay frame: `INPUTTRACK: GetBoundActionValue resolved (Actor@..
+   Action@.. ReturnValue@.. size 32, ..)` — the layout check passed. A `WARNING: INPUTTRACK refused`
+   line instead means the reflected function or its return size is not what UE 5.1's header says,
+   and the feature has switched itself off; nothing else will appear.
+2. Every ~5 s beside the bridge stats: `INPUTTRACK: frames=N edges_sent=N batches=N jump_check
+   agree=A disagree=D`. **`D` must stay 0 while `A` climbs with your jumps.** A non-zero `D` means
+   the value bytes are misread on this build and the fallback (`IsInputKeyDown` per mapped key,
+   census-proven) is the next build. `edges_sent` should move when you press things and stop when
+   you stand still.
+3. `meshghost.log` in the game root: the recording start line should name BOTH files (the clip and
+   the input track); any `input` reject line is a shape mismatch between the two sides.
+4. `replay/inputs/in-<stamp>.ndjson` beside the clip after you quit (or `inlast-` after the save-last
+   key): a header line with `"labels":["jump","attack",...]`, then one line per edge. A short
+   scripted check I can read back: **stand still 3 s, jump 3 times, attack 3 times, hold crouch 2 s,
+   walk in a small square, look around, stand still 3 s** — the file should show 3 jump edge pairs
+   (bit 1 on/off), 3 attack pairs (bit 2), one crouch pair (bit 4) ~2 s apart, `move_x/y` moving
+   during the square and `look_x/y` during the look, and nothing during the stills.
+
+**What correct looks like** for the user: nothing on screen changes at all. This feature draws
+nothing and touches no actor; if anything looks different, that IS the report.
+
+**Cost:** 13 reflected calls a frame when `replay.inputs` is on, in the `input_read` perf slot;
+nothing when it is off. Unmeasured.
+
+**Not done in this build**, deliberately: `record_on_launch` is set `true` in the game-root config
+only for this first run and goes back to `false` after; the `source` tag is
+`enhanced_input_bound_value`; the emulator and TEVI adapters send nothing.
 
 ## [DONE] INPUT API CENSUS -- which input read works on this build, measured (2026-09-08)
 

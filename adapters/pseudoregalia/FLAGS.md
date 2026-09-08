@@ -1,6 +1,6 @@
 # Pseudoregalia — compile-time flag register
 
-`Plugin.cpp` carries 97 `constexpr bool` switches (re-counted 2026-09-07 with `grep -c "constexpr bool "`;
+`Plugin.cpp` carries 100 `constexpr bool` switches (re-counted 2026-09-08 with `grep -c "constexpr bool "`, after the three input-track flags;
 the 91 written here on 2026-08-29 was itself a correction of a stale 87 and was stale again within a
 day, so treat the figure as a date-stamped measurement, not a total). They look alike and they are not alike, and
 mistaking one class for another has already cost this adapter real time — most recently 2026-08-17,
@@ -29,7 +29,7 @@ whole point is to be the thing you trust when a comment and a value disagree.
 "Tunable constants" at the bottom, because a wrong number is as load-bearing as a wrong bool and
 far easier to "tidy".
 
-## Behaviour — the 33 that are `true` (re-counted 2026-09-07, after `GHOST_DESTROY_ORPHAN_CAMERA_RIGS` was added)
+## Behaviour — the 35 that are `true` (re-counted 2026-09-08, after `INPUT_TRACK_CAPTURE` and `INPUT_TRACK_AXES` were added)
 
 Everything here ships. The value in the code is the value a player gets.
 
@@ -55,6 +55,8 @@ The full reasoning lives in the comments above each flag in `Plugin.cpp`, in
 | Flag | What it does |
 |---|---|
 | `GHOST_ROTATION_SLERP` | **Added 2026-08-30, UNWATCHED — the ghost's FACING is interpolated instead of stepping at the send rate.** Orientation is opaque to the core, so it never interpolated it: facing snapped 20 times a second, which the user saw as *"a bit choppy/low fps at 20hz and 250ms when turning around fast but super smooth when turning around slow"* — angular velocity divided by Hz, so a slow pan steps ~2 degrees and a fast spin ~18. The core now names the bracket it used (`orientation_from`/`orientation_to`/`interp_t` on `render_remote`, ADR 0043) and this adapter interpolates it shortest-arc, per component. **Gates the WORK, not the decision, and now the BRIDGE TRAFFIC too** — `false` compiles the block out AND stops the adapter asking for the bracket in its `hello` (`interpolate_orientation`), so the core computes and sends nothing either. Byte-for-byte the pre-2026-08-30 behaviour in both the rendering and the wire, which is what makes an A/B on screen mean something. **Confirm the opt-in took from the CORE log** (`adapter asked for interpolated orientation`), never from the mod's own HELLO line — a missing bracket looks exactly like the old stepping while this flag still says `true`. The bar is a side-by-side spin that is indistinguishable at every speed. |
+| `INPUT_TRACK_CAPTURE` | **Added 2026-09-08, the adapter half of ADR 0056 (the input track), UNWATCHED.** Once per engine frame, in the local-state section of the tick, reads the game's merged Enhanced Input value for 11 actions through `UEnhancedInputLibrary::GetBoundActionValue` on the local pawn and sends the CHANGES to the core as `input_sample` edges; the core writes `replay/inputs/`. **Compiled in and `true`; the runtime gate is config.json's `replay.inputs`, which ships `false`** — the plan had written this flag as `false`, and that was changed so the config key is not a lie (a compile-time off would make the player's setting do nothing). The label order is the `BUTTONS` array in `input_track_sample` and the `labels` string in `input_track_drain_and_send`, which must agree: `jump, attack, crouch, wallride, throw, guard, interact, lockon, power, quickmap, perspective`. Self-checking: the reflected call's parameter and return layout is verified by name and size before the first call (a mismatch refuses the feature with a WARNING), and every jump edge is compared to the pawn's own `jumpButtonHeld?` — the `INPUTTRACK:` log line's `agree`/`disagree` counters; a non-zero `disagree` means the value bytes are misread on this build and the census-proven fallback (`IsInputKeyDown` per mapped key) is the next build. Source decided by the 2026-09-08 census, `probes/probe_inputcensus/`. |
+| `INPUT_TRACK_AXES` | **Added 2026-09-08 with the flag above.** The two sticks (`IA_Move`, `IA_Look`) as four axes (`move_x, move_y, look_x, look_y`) on every edge, quantized to 1/64 and throttled to `INPUT_TRACK_AXIS_MIN_MS` unless a button edge carries them. `false` sends buttons only. |
 | `SPAWN_BASED_GHOSTS` | Ghosts are spawned actors, called from the real game thread. `false` reverts to the older hijack-a-StaticMeshActor design, kept in case the world-leak crash ever reproduces. |
 | `GHOST_DESTROY_ON_DESPAWN` | A despawning ghost is destroyed (`K2_DestroyActor`) instead of being flung to `DESPAWN_PARK_Z`. Turned on 2026-08-17 once the premise for parking went stale: the "destroy silently no-ops" finding was a property of the *hijacked* actor, not of the build, and since Phase 7.6 the ghost is one we spawned. Falls back to parking when the call is not reflected, so the worst case is today's behaviour plus a log line. **The one thing it cannot rule out by itself is the historical "Fatal world leaks detected" crash** — see `BANDAGES.md`'s entry 0, whose whole argument rests on this flag being `true`. Note `DESPAWN_PARK_Z`'s own comment still says "NEVER destroy the actor": that comment is stale, and the value here is what wins. |
 | `GHOST_COLLISION_ENABLED` | **Listed here but `false` — the one row in this table that does not ship as `true`, kept together with the flags it gates.** **`false` since 2026-08-27 — ghosts are NOT solid.** It was on from 2026-08-15 as a deliberate feature; the user asked for it off again, with no new evidence against it. The flag gates the *work*, not just a decision: `SetActorEnableCollision(false)` plus the `if constexpr` block re-typing the ghost's capsule and setting the Pawn-channel `Block` response, all of which compiles out entirely, so this is a real revert. **The `bCanBeDamaged` hurtbox disable used to be gated by this same flag and is now its own, `GHOST_HURTBOX_DISABLED` below** — they were one, which is how turning collision off silently changed damageability too. The melee-death hazard and the never-tested non-player-damage vector only exist while it is `true`. Note `Plugin.cpp`'s long comment above the constant still argues for keeping it on — that argument is intact but no longer in force, and the value here is what wins. |
@@ -98,7 +100,7 @@ The lesson for this register: a probe with no flag is invisible to this file, so
 cannot prove the shipped build is quiet. What proves it is reading a real session's log, which is
 the only reason this was found.
 
-48 flags, all `false`. Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
+49 flags, all `false` (`INPUT_TRACK_TRACE`, one line per input edge with the raw value bytes for the first few, joined 2026-09-08). Names ending `_TRACE`, `_PROBE`, `_DIFF`, `_DUMP`, `_SEARCH`, `_WATCH`,
 `_CENSUS`, `_HUNT`, plus `AFTERIMAGE_CALL_TEST`, `AFTERIMAGE_DISCOVERY`,
 `DUMP_GHOST_SPAWN_VALUES`, `DUMP_VISUALMESH_FUNCTIONS`, and `NAMETAG_STATE_READBACK` (probe by
 nature, not by suffix: reads back what each nametag component actually holds, because "never
@@ -112,8 +114,8 @@ called the flip).
 
 **The arithmetic, so a future audit can check it in one pass** — recounted 2026-09-07, after the
 nametag/sword-throw/crowd sessions (the 2026-08-27 recount of 87 had itself gone stale within
-days, which is why the figure carries a date and the COMMAND, never a total to trust): **97**
-`constexpr bool` declarations in `Plugin.cpp`, being 96 written plus
+days, which is why the figure carries a date and the COMMAND, never a total to trust): **100**
+`constexpr bool` declarations in `Plugin.cpp` (2026-09-08: 97 plus the three input-track flags), being 99 written plus
 `MONTAGE_PROBES_SUPPRESS_ADAPTER_STOPS`, which is **derived** rather than set
 (`GHOST_SELF_MONTAGE_PROBE || MONTAGE_CATALOG_PROBE`) and is therefore false in every shipped
 build without being written so. Of the 96:
@@ -336,6 +338,11 @@ note its enclosing function before citing it.
 
 | Constant | Value | What it decides | Provenance |
 |---|---|---|---|
+| `INPUT_TRACK_AXIS_MIN_MS` | `33` | The floor between two axis-only input edges (~30 Hz); a button edge is never throttled | ADR 0056's stated rate (2026-09-08) |
+| `INPUT_TRACK_QUEUE_CAP` | `256` | The input-edge queue between the game thread and `on_update`; full drops the newest axis-only edge first and counts refusals into the batch's `drop` | Sized: a few edges per drain in practice, the cap is a stuck bridge's cost (2026-09-08) |
+| `INPUT_TRACK_BATCH_MAX` | `64` | Edges per `input_sample` line | `bridge/inputlimits.go` `MaxInputEdgesPerBatch` |
+| `INPUT_ACTION_VALUE_SIZE` | `32` | The byte size `GetBoundActionValue`'s reflected `ReturnValue` must report, or the feature refuses itself: an `FInputActionValue` on UE 5.1 is an `FVector` of doubles plus a type byte, padded | Checked at runtime against reflection, the only layout fact reflection vouches for (2026-09-08) |
+| `INPUT_TRACK_RESOLVE_INTERVAL_FRAMES` | `300` | How often an action asset that failed to resolve is retried | not measured; a load takes seconds, not minutes (2026-09-08) |
 | `NAMETAG_HEIGHT_ABOVE_GHOST` | `110.0` | How far above the ghost the nametag sits; the baked default `rec_indicator.txt`'s `name_up` overrides live | **Tuned by eye**, confirmed 2026-09-05 |
 | `NAMETAG_WORLD_SIZE` | `18.0f` | The nametag's world size; `name_size` in the tuning file overrides live | **Tuned by eye**, confirmed 2026-09-05 |
 | `NAMETAG_PLATE_BEHIND` | `4.0` | Units the colour plate sits behind the glyphs along the facing | not recorded |

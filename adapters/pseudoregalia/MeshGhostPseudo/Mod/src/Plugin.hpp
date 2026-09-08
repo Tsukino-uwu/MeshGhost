@@ -6,6 +6,7 @@
 // UE4SS/include/Mod/CppUserModBase.hpp directly (RE-UE4SS, MIT -- agent_docs/licensing.md),
 // not from memory. No pseudoregalia-archipelago source was read to write this.
 
+#include <deque>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -722,6 +723,15 @@ namespace MeshGhostPseudo
         // hood.
         auto game_thread_tick() -> void;
 
+        // THE INPUT TRACK (ADR 0056, the adapter half, 2026-09-08). What the player PRESSED, as
+        // edges of an action bitmask plus the two sticks, sent to the core as `input_sample`
+        // batches and written by it to replay/inputs/. Read on the GAME thread once per engine
+        // frame (input_track_sample, called from the local-state section of game_thread_tick);
+        // drained and sent on UE4SS's thread (input_track_drain_and_send, from on_update). The
+        // queue and the drop counter are the only shared state, and both live under state_mutex.
+        auto input_track_sample(RC::Unreal::UObject* controller, RC::Unreal::UObject* pawn) -> void;
+        auto input_track_drain_and_send() -> void;
+
         // Phase 7.6: re-opens Phase 7.4's camera bug (a StaticMeshActor never stole the camera, so
         // the hijack design never needed this). Two ProcessEvent-hook-based attempts never fired
         // even once, confirmed by a read-only diagnostic run with zero log output -- root cause
@@ -1287,6 +1297,30 @@ namespace MeshGhostPseudo
         // The last `player_frozen` value sent to the core (ADR 0053); reset to false at every
         // hello so a core that attaches mid-pause is told on the next tick rather than never.
         bool player_frozen_sent{false};
+        // The input track's state. One edge per CHANGE of the mask or (throttled) of the axes;
+        // `button` marks an edge that carries a mask change, which the queue never drops in favour
+        // of an axis-only one. f is engine frames counted by input_track_sample, t is a monotonic
+        // millisecond stamp; the core keeps both verbatim beside its own receipt stamp.
+        struct InputEdgeRec
+        {
+            uint64_t f;
+            int64_t t;
+            uint32_t m;
+            double ax[4];
+            bool button;
+        };
+        std::deque<InputEdgeRec> input_edges; // under state_mutex
+        uint32_t input_drops{0};              // under state_mutex: edges the queue refused since the last batch
+        uint64_t input_frame{0};              // game thread only
+        uint32_t input_prev_mask{0};          // game thread only
+        double input_prev_ax[4]{};            // game thread only
+        int64_t input_last_axis_ms{0};        // game thread only
+        bool input_have_prev{false};          // game thread only; false again whenever the core is not ready
+        bool input_labels_sent{false};        // on_update thread only; false again at every hello
+        uint64_t input_edges_sent{0};         // on_update thread only
+        uint64_t input_batches_sent{0};       // on_update thread only
+        uint64_t input_jump_agree{0};         // game thread only: the live check of the value read
+        uint64_t input_jump_disagree{0};      // game thread only
         uint64_t engine_tick_post_callback_id{0};
         int32_t svtwb_hook_id{-1};
         int32_t fade_hook_id{-1};

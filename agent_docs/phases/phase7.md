@@ -3097,3 +3097,39 @@ the rule the whole sweep runs on.
 though the adapter reads `MESHGHOST_BRIDGE_PORT` and `MESHGHOST_NO_AUTOSTART`, and no bridge
 constants (`BridgeClient.hpp:63-86`). Both Lua registers got their missing rows the same day; this
 one needs a new `##` section rather than rows, so it waits on the user.
+
+## 2026-09-08 — the input track's adapter half: census in the morning, C++ capture at midday
+
+The Go side of ADR 0056 (the input track) landed the day before with no adapter sending one, and
+`Plugin.cpp` had no input read at all. The morning's Lua census (`probes/probe_inputcensus/`; the
+full account is `phase11.md`'s 2026-09-08 entry, the verdict `UNVERIFIED.md`'s census entry) chose
+the source: Enhanced Input's merged per-action value through `UEnhancedInputLibrary::
+GetBoundActionValue` — callable and safe from Lua, its value opaque there because
+`FInputActionValue` has no reflected fields — with the controller's `IsInputKeyDown(FKey)` proven
+end to end as the fallback, and the pawn's own fields partial.
+
+**Built at midday, on the user's go-ahead over the v1.1.7 crash-watcher sequencing** (their words:
+*"keep going until we have a working input recording"*; the three dumps since the hardened DLL were
+all probe crashes from 2026-09-06, none since, so the gate was effectively passed). What landed in
+`Plugin.cpp`, under `INPUT_TRACK_CAPTURE` (compiled in, `true`) and gated at runtime by config.json's
+`replay.inputs` (ships `false`, polled live beside the indicator settings):
+
+- `input_track_sample`, on the game thread once per engine frame in the local-state section, on the
+  same pawn and behind the same non-gameplay-map gate as the state sample: 11 `GetBoundActionValue`
+  calls for the pawn-bound actions (jump, attack, crouch, wallride, throw, guard, interact, lockon,
+  power, quickmap, perspective — the bit order IS the label table) plus two for the sticks. The
+  reflected call is resolved by NAME and checked by SIZE before the first call (`Actor`, `Action`,
+  a 32-byte `ReturnValue`), and refuses the feature with a WARNING otherwise. An edge is queued on a
+  mask change, or an axis change at most every 33 ms; a full queue drops the newest axis-only edge
+  first and counts refusals into `drop`.
+- `input_track_drain_and_send`, on UE4SS's thread after the state send: at most 64 edges a line as
+  `input_sample`, the label table on the first line after every hello.
+- **The live check the census said the value read needs**: on every edge that flips the jump bit,
+  the pawn's own `jumpButtonHeld?` is read and compared; the counts print on the `INPUTTRACK:` line
+  beside the bridge stats. `disagree > 0` means the bytes are misread and the fallback is next.
+- One compile error on the first build, `std::min` against `<windows.h>`'s macro; parenthesised.
+
+Deployed to BOTH installs (`11ee35453e62`) the moment the game exited — the user had closed it while
+away — and the game-root config set to `inputs: true`, `record_on_launch: true` for the first run.
+`bridge/inputlimits_test.go` pins the adapter's exact lines as accepted. UNWATCHED: no game has run
+with it. The first run's questions are in `UNVERIFIED.md`'s READY entry.
