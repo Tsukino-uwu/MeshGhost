@@ -1142,3 +1142,27 @@ harness that fails on a resource it exhausts itself produces one. Any new relay 
 
 `run-gotests.bat`, `run-gotests-race.bat` green. The release the user asked for (v1.2.5) waits on
 CI confirming this push.
+
+**Later: the push after that (run 34243302137) was red on two DIFFERENT things**, both fixed in the
+next commit; the two above stayed green.
+
+- **`FuzzEverything` found a real input** (`core/testdata/fuzz/FuzzEverything/f131a0858b74689b`,
+  committed): the fake adapter's decoder got "unexpected end of JSON input". Cause was in
+  `transport`, not `core`: `bufio.ScanLines` hands back an unterminated remainder at EOF as a
+  final line, and the read loop delivered it. The shape is routine — Send closes the connection
+  when a write fails on its deadline, and the front half of that line is already on the wire, so
+  the peer sees half a message then FIN. Fix: the split function consumes a torn tail with no
+  token. `transport/torntail_test.go` pins it (fails without the fix: `{"b":` delivered). Every
+  reader shares this — core←adapter, core←relay, relay←client — so a timed-out write anywhere
+  no longer produces a phantom message at the other end.
+- **`TestADeadAdapterSocketFreesTheCoreForTheReconnect` under `-race`**: the busy refusal was
+  CORRECT. The CI log shows the core never logged its own write failure before B's hello; adapter
+  A's own 2 s write deadline fired first (the run took 2.66 s) because the core's reader fell
+  behind on a loaded runner, so B met a live incumbent. The test now treats A's timeout as "keep
+  pushing the remaining bytes" and only a non-timeout error as the core's close; the 20 s guard
+  still covers a core that never gives up. 20/20 under `-race` locally.
+
+Both gates green, a 45 s local `FuzzEverything` campaign clean. Lesson filed here rather than
+`pitfalls.md` because both are Go-side: a fuzz finding in one package's harness can be a defect
+in the package UNDER it, and a test whose precondition is "the core closed the socket" has to
+observe that event, not a deadline of its own.

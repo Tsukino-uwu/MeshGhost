@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"net"
 	"strings"
 	"testing"
@@ -80,10 +81,29 @@ func TestADeadAdapterSocketFreesTheCoreForTheReconnect(t *testing.T) {
 			st := protocol.State{AreaID: "a", Position: []float64{float64(i), 0}, Anim: "run"}
 			payload, _ := json.Marshal(bridge.LocalState{State: &st})
 			env, _ := json.Marshal(bridge.Envelope{Type: bridge.TypeLocalState, Payload: payload})
-			_ = a.SetWriteDeadline(time.Now().Add(2 * time.Second))
-			if _, err := a.Write(append(env, '\n')); err != nil {
-				aDead <- err
-				return
+			// Only a NON-timeout error means the core closed this socket.
+			// A's own deadline can expire first: under -race on a loaded
+			// CI runner (2026-09-08) the core's reader fell behind this
+			// loop, A's send buffer filled, and A's 2 s deadline fired
+			// while the core was still healthy and had not yet filled A's
+			// receive buffer -- so B's hello met a live incumbent and was
+			// refused "busy", correctly, and the test failed on a premise
+			// it never reached. A timeout here is "keep pushing", carrying
+			// on from the bytes already written so the line stays whole;
+			// the 20 s guard below still catches a core that never gives up.
+			line := append(env, '\n')
+			for len(line) > 0 {
+				_ = a.SetWriteDeadline(time.Now().Add(2 * time.Second))
+				n, err := a.Write(line)
+				line = line[n:]
+				if err != nil {
+					var ne net.Error
+					if errors.As(err, &ne) && ne.Timeout() {
+						continue
+					}
+					aDead <- err
+					return
+				}
 			}
 		}
 	}()

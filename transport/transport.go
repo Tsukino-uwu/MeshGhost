@@ -269,6 +269,25 @@ func (c *NDJSONConn) readLoop() {
 	var overflowHead []byte
 	scanner.Split(func(data []byte, atEOF bool) (int, []byte, error) {
 		advance, token, err := bufio.ScanLines(data, atEOF)
+		if atEOF && err == nil && token != nil && bytes.IndexByte(data[:advance], '\n') < 0 {
+			// A TORN TAIL IS NOT A MESSAGE. bufio.ScanLines hands back whatever
+			// is left at EOF as a final "line" even when no newline ever
+			// arrived, and on this wire that leftover is always the front
+			// half of a message whose sender's write deadline expired
+			// mid-line -- Send above closes the connection on exactly that,
+			// so the bytes already in flight reach the peer with a FIN and
+			// no terminator. Delivered, they are a payload that decodes to
+			// "unexpected end of JSON input" at best, and at worst a prefix
+			// that happens to be valid JSON of the wrong shape. NDJSON's
+			// frame is the newline; a line without one was never sent.
+			//
+			// Found by the core's FuzzEverything on CI, 2026-09-08: a throttled
+			// adapter stalled the core's 100 ms bridge write, the core closed
+			// the pipe, and the adapter's reader was handed the half-line.
+			// Consuming the bytes with no token ends the scan cleanly at EOF;
+			// the read loop then reports the disconnect as it always has.
+			return len(data), nil, nil
+		}
 		if advance == 0 && token == nil && err == nil && len(data) >= maxLine && overflowHead == nil {
 			// Enough to name the message type and its first field, and no
 			// more: this head goes into a log line, quoted, and a relay
