@@ -3209,3 +3209,14 @@ ask). The config section landed everywhere with the docs and a shipped-off test;
 half (`INPUT_HISTORY_DISPLAY`, `1598e915c39a`) reuses the indicator's widget helpers and the track's own
 per-frame read, deployed to both installs, unwatched. Next: the ghost half, which is Go work --
 the core streaming a clip's input track to the adapter beside the clip.
+
+**Evening: three builds to make the C++ widgets appear at all.** The first C++ display and
+indicator built their widgets every frame and showed nothing. Guess one, the root-set pin,
+removed: no change. Then an instrument -- one log line reading the handles back on the tick they
+were built -- said `EMPTY` three times, and the cause was the SDK's `FWeakObjectPtr`: it compares
+serial numbers the engine assigns only when the engine itself first points a weak pointer at an
+object, which a widget we constructed never gets. `OwnedObjectHandle` (array slot + name) replaced
+it for everything this mod constructs; the ghosts keep the weak pointer. One more build for a
+mangled escape that had put a NUL byte and the text `b7` into the neutral-row marker. Build `57fba63a04e6`
+on both installs; the user's 15:16 screenshot shows the panel and the indicator together; their
+words are still owed. `pitfalls/by-lesson.md` has the serial-number lesson with how it was found.

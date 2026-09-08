@@ -10,6 +10,7 @@
 - **Resolve UFunctions through the class chain, never a hardcoded `/Script` path** — the miss is silent.
 
 ## Every lesson filed here
+- **`FWeakObjectPtr` is empty for an object THIS mod constructed** -- no engine-assigned serial number; hold it in `OwnedObjectHandle` (array slot + name), keep the weak pointer for what the engine made ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), 2026-09-08).
 - **A runtime UMG widget is held by nothing but the viewport** -- pin it (`SetRootSet`) or rebuild on loss; and pin a corner by computing from `GetViewportSize`, since anchored placement went off-screen here ([pitfalls/by-lesson.md](../pitfalls/by-lesson.md), 2026-09-08).
 
 - A UE4SS pre-hook on the pause menu's Reset delegate crashes the click whatever the callback does — and it only ever armed by accident, since 2026-08-30 (Pseudoregalia, 2026-09-05) — [by-lesson.md](../pitfalls/by-lesson.md)

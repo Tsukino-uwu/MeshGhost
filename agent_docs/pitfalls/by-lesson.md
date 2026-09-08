@@ -6653,3 +6653,31 @@ shown and clears it on removal; the handles are weak pointers either way.
 last digit at 10:00; a Border auto-sizes to its content once nothing forces it, and the square is
 then sized from the box's laid-out height (`GetDesiredSize`), which is how "same height, shared
 edges" is kept without a number.
+
+## FWeakObjectPtr cannot hold an object THIS mod constructed -- the engine never gave it a serial number (Pseudoregalia, 2026-09-08)
+
+**Symptom.** The screen-space indicator and the input history panel, both held through
+`FWeakObjectPtr` like every ghost handle in this file, were rebuilt EVERY FRAME and nothing ever
+appeared on screen -- `panel built` and `screen-space widgets built` 140 times a second, with a
+root-set pin and without one. A diagnostic that read the handles back on the tick they were made
+said it plainly: `dot=EMPTY clock=EMPTY text=EMPTY`.
+
+**Cause.** The SDK's `FWeakObjectPtr::Get()` resolves the object array slot and then requires the
+slot's serial number to match the one stored at construction -- and the constructor READS the
+slot's serial, it never allocates one. The engine assigns an object's serial number lazily, the
+first time the engine itself makes a weak pointer to it. A ghost pawn has one (the engine points
+weak pointers at actors constantly); a `UserWidget` this mod constructed with
+`StaticConstructObject` has none, so the stored serial is 0, `Get()` treats 0 as "never valid", and
+the handle is empty from its first tick. The Lua prototype never noticed because UE4SS Lua
+validates through the object array, not a serial.
+
+**Fix.** `OwnedObjectHandle` in `Plugin.cpp`: pointer plus internal index plus the FName we gave
+the object; `Get()` checks the array slot still holds that pointer, that it is neither
+unreachable nor pending kill, and that the name matches (a reused slot with the same unique name
+is ours by construction). Use it for anything this mod constructs; keep `FWeakObjectPtr` for what
+the engine made.
+
+**How it was found, for the next one.** Not by reasoning about the pointer: by putting the check
+where the fault was -- one log line reading the handle back on the tick it was built -- after the
+first guess (the root-set pin) had been removed and the symptom had not moved. Two guesses
+failing the same way is the signal; the third step was an instrument, not a third guess.
