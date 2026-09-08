@@ -10211,10 +10211,6 @@ namespace MeshGhostPseudo
             if (UObject* w = weak.Get())
             {
                 hud_call(w, STR("RemoveFromParent"), nullptr);
-                if (w->IsRootSet())
-                {
-                    w->ClearRootSet();
-                }
             }
             weak = FWeakObjectPtr{};
         }
@@ -10305,14 +10301,12 @@ namespace MeshGhostPseudo
                        hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
             });
             hud_set_text(text, g_recording_time_text.empty() ? STR("0:00") : g_recording_time_text.c_str());
-            // PINNED while shown: nothing but the viewport references a runtime widget, so a
-            // collector pass takes it (the Lua prototype rebuilt every few seconds through one
-            // stretch of play). The root set is the engine's own answer; cleared again in
-            // hud_tear_down so a removed pair can be collected. The subobjects are reachable
-            // from the widget through its own reflected properties (WidgetTree, RootWidget,
-            // Content) and need no pin of their own.
-            dot->SetRootSet();
-            clock->SetRootSet();
+            // NOT pinned in the root set. The first C++ build called SetRootSet() here, and the
+            // weak handle read back EMPTY on the very next tick -- both widgets rebuilt every
+            // frame, nothing on screen (2026-09-08 14:59). The SDK's root-set bit and its
+            // validity test disagree on this build; the Lua prototype never pinned and held its
+            // widgets for minutes, losing them only at a level transition, which the rebuild
+            // below handles. So: weak handles, rebuild on loss, no pin.
             g_hud_dot = FWeakObjectPtr{dot};
             g_hud_clock = FWeakObjectPtr{clock};
             g_hud_text_block = FWeakObjectPtr{text};
@@ -10404,6 +10398,17 @@ namespace MeshGhostPseudo
                 if (!hud_build(controller))
                 {
                     return;
+                }
+                // The handle is tested on the tick it was made: the 14:59 build rebuilt every
+                // frame, and whether the weak pointer or the (since removed) root-set pin was at
+                // fault is the question this line answers on the next run.
+                static bool handle_checked = false;
+                if (!handle_checked)
+                {
+                    handle_checked = true;
+                    Output::send(STR("[MeshGhostPseudo] RECINDICATOR: handle check right after build: dot={} clock={} text={}\n"),
+                                 g_hud_dot.Get() ? STR("valid") : STR("EMPTY"), g_hud_clock.Get() ? STR("valid") : STR("EMPTY"),
+                                 g_hud_text_block.Get() ? STR("valid") : STR("EMPTY"));
                 }
             }
             UObject* dot = g_hud_dot.Get();
@@ -10550,8 +10555,7 @@ namespace MeshGhostPseudo
                        hud_write_field(sub, sub_base, STR("B"), ink[2]) && hud_write_field(sub, sub_base, STR("A"), ink[3]);
             });
             hud_set_text(text, STR(""));
-            panel->SetRootSet();
-            g_disp_panel = FWeakObjectPtr{panel};
+            g_disp_panel = FWeakObjectPtr{panel}; // no root-set pin: see hud_build
             g_disp_text = FWeakObjectPtr{text};
             g_disp_built_gen = g_disp_tuning_gen;
             g_disp_in_viewport = false;
