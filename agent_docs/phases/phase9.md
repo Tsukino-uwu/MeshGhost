@@ -1151,3 +1151,20 @@ on Speedchoice -- and the user saw the flyer DRAGGED to the landing spot on the 
 rather than flown: OPEN in `UNVERIFIED.md`, the out-of-play hold the first suspect. Confirmed on
 screen today, all in Crystal's `VERIFIED.md`: age-out return, standing ghost in battle, ghosts
 through text boxes, no ghosts on menus, the bike, surfing peers and their palette.
+
+## 2026-09-09 (night) — a peer's trainer colour, and the sprite-pixels idea deferred
+
+The Archipelago Crystal developer told the user that the release lets a player pick the trainer's
+colour from the game's own overworld palettes and the prerelease takes a custom colour, patched
+into the one palette the game leaves unused. Read from the patchers: the fixed choice is an OBJ
+palette INDEX on the player's sprite rows, which `extras.pal` (the surf fix) already carries and
+every measured build keeps the same colours for; the custom choice rewrites the pink slot's third
+colour, so the index alone paints pink or the RECEIVER's custom colour. Built: `extras.clo`, the
+sender's own slot's clothing colour from palette RAM, overriding colour 3 on the receiver in the
+receiver's own light. No hardware slot is involved, so the "one unused palette" limit is the
+engine's, not the drawn tier's. No seed on this machine chose a colour (all three read default in
+the file), so `probes/set_colour.lua` fakes both cases on any build after checking the palette-RAM
+address by content; the two-window watch is in `UNVERIFIED.md`. The user asked whether a peer's
+OWN sprite pixels could cross too (a run pose, a custom outfit) and whether that was safe compared
+to Pseudoregalia's match-locally model; answered (content risk, not code; receiver opt-in if built)
+and the user's call: *"just go with the colors for now"* — filed in `ideas.md`.
