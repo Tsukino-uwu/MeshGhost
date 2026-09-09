@@ -1268,3 +1268,16 @@ both ends now close together. CI green on `8a0edd92`. Locally, `run-gotests.bat`
 Mullvad, connected since 2026-09-09 and off before that (the last green local run was 2026-09-08); disconnected, green in the same minute
 (`environment.md`, onboarding checklist). The age-out re-admission fix (`fc89c4ab`, earlier that
 day) had its first CI run in this batch and passed.
+
+**v1.2.6 published, 2026-09-10 (release run 34418254910, on `c54cd21a`)**: three assets, the
+user's own highlights as the body, not a prerelease. The first dispatch was refused by the
+release's staleness gate (the Pseudoregalia DLL postdated a comment-only Plugin.cpp change, and
+preflight had said so that evening -- the user: the second release to hit that gate). The
+answer is `dev-scripts/release.ps1`, which puts the dispatch behind preflight: rebuild what it
+names stale, refuse on any other FAIL, push, wait for every workflow on HEAD, dispatch with the
+highlights file, wait for the run. Its own first three runs each refused or looped on the machine
+rather than the repo -- nine line-ending phantoms in `git status` (the check now reads content),
+PowerShell's `git` being the devkitPro shadow (git by path now), and a jq expression quoted through
+two shells into gh's usage text (JSON parsed in PowerShell now, arrays unrolled for 5.1). The
+fourth cut the release. `pitfalls/by-lesson.md` has the gate lesson; the DLL was deployed to both
+Pseudoregalia installs and the client exe to all four game roots.
