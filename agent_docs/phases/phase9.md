@@ -1095,3 +1095,19 @@ about that project's sources ever is (`agent_docs/licensing.md`; the fork is not
 a 3D pawn's pose is Blueprint state a position stream cannot reproduce. Crystal's overworld is
 tile-stepped with a fixed step animation, and the record already has a ghost walking and facing
 correctly from positions alone. There is nothing an input track would recover.
+
+## 2026-09-09 — ROM-patch compatibility: V1.1, Speedchoice v8.1 and AP-on-V1.1, from hash-verified builds
+
+The user asked for Crystal's ROM-patch compatibility and said "let's do that" to closing V1.1 and
+speedchoice. Both closed the same way, and it was cheaper than measuring: build the exact source,
+prove the hash, read the `.sym`. `pokecrystal`'s `crystal11` target matched the user's V1.1 ROM
+byte for byte, and its symbols differ from V1.0's in one Pokédex label — V1.1 uses vanilla's table
+unchanged. Speedchoice's v8.1 release patch names its base in its own trailing CRCs (V1.1, as the
+user recalled), the choatix fork at tag `v8.1` built byte-identical with rgbds 0.4.0 (cloned to
+`C:\dev\pokecrystal-speedchoice`, the assembler to `C:\dev\rgbds-0.4.0`, both with the user's
+ok), and its table is transcribed: five entries at vanilla+1, the ROM tables shifted a little,
+everything else vanilla's. The user also generated an Archipelago ROM on a V1.1 base; the public
+apworld selects a per-base patch but shares one address table, and the adapter now says which
+base an AP ROM sits on. All three builds wait on a screen (`UNVERIFIED.md`); the tool facts are
+in Crystal's `VERIFIED.md`, three entries. The user also re-shared the AP maintainer's private
+fork with a caveat about its own multiplayer branch; it stays where it was, in agent memory only.

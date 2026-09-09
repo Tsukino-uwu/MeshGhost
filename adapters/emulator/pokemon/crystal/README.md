@@ -27,14 +27,12 @@ loopback ghost on vanilla V1.0 at the dev rig's interpolation, the hardware tier
 judged on screen at all, and the mixed room has only ever been run on one map with two players.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: "Vanilla V1.0", "Archipelago 6.0.0-beta.11".
-- Intended, not yet tested: **Vanilla V1.1**, **speedchoice v8.1**. Each needs its own address
-  table before it is more than a fallback — today an unrecognised build runs on vanilla's table
-  with a one-line "untested" log. The two are not equal work: `pokecrystal` lists V1.1 as one of
-  its own build targets with its own hash, so that table can be *built and hash-verified* the way
-  V1.0's was, while speedchoice is a patch needing each entry *measured*, as Archipelago's were.
-- **One address table per ROM build, chosen at startup from the header title.** Vanilla's entries
-  come from our own hash-verified `pokecrystal` build; Archipelago's were each *measured*, because
+- Confirmed working roms: "Vanilla V1.0", "Archipelago 6.0.0-beta.11" (on a V1.0 base).
+- Recognised from a hash-verified build, not yet watched: **Vanilla V1.1** (same table as V1.0),
+  **Speedchoice v8.1** (its own table; it patches V1.1), and **Archipelago on a V1.1 base** (the
+  apworld's shared table). Each waits in [UNVERIFIED.md](UNVERIFIED.md) for a screen.
+- **One address table per ROM build, chosen at startup from the header title and checksum.** Vanilla's
+  and Speedchoice's entries come from our own hash-verified builds; Archipelago's were each *measured*, because
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
   ([VERIFIED.md](VERIFIED.md), 2026-08-17). An entry nobody has measured stays `nil` rather than
   reading a plausible address, and a `nil` in any of the ten the adapter must read or write makes
@@ -278,6 +276,7 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     450ms ships here like everywhere else (2026-09-02, ADR 0046), the user's explicit call for
     this game from the other three. Also confirmed the same week: ghosts survive relay-side area
     filtering, read from the release files themselves (2026-08-28). [VERIFIED.md](VERIFIED.md).
+
 
 ### Further work past "good enough"
 

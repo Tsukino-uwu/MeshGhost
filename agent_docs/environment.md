@@ -640,6 +640,8 @@ there on the user's explicit instruction, 2026-08-17.
 | `C:\dev\pokeplatinum` | Platinum (**WIP decomp**) | blocked — see below | **no, cloned only** |
 | `C:\dev\agbcc` | — (GBA compiler) | — | prebuilt, shared |
 | `C:\dev\rgbds` | — (GB assembler, v1.0.3) | — | portable, no install |
+| `C:\dev\pokecrystal-speedchoice` | Crystal Speedchoice **v8.1** (tag `v8.1`, patches V1.1) | rgbds **0.4.0** | yes (2026-09-09) |
+| `C:\dev\rgbds-0.4.0` | — (GB assembler, v0.4.0, for speedchoice only) | — | portable, no install |
 
 - **`rgbds` is portable and shared** — unzipped, not installed. Put `C:\dev\rgbds\bin` on `PATH`
   for a build; it changes nothing globally.
@@ -649,6 +651,11 @@ there on the user's explicit instruction, 2026-08-17.
 - **Everything above builds in devkitPro's msys2 shell**, and the wrong-shell trap described in the
   pokecrystal section applies to all of them equally.
 - Build times with `-j8`: pokered ~2 min, pokecrystal ~1.5 min, pokefirered ~3.5 min.
+- **`pokecrystal` also builds V1.1**: `make crystal11` in the same tree yields `pokecrystal11.gbc` +
+  `pokecrystal11.sym`, hash-matched to the user's V1.1 ROM 2026-09-09. **Speedchoice needs the OLD
+  rgbds** — 0.4.0 from `gbdev/rgbds` releases (`rgbds-0.4.0-win64.zip`, five files, no `bin/`), put
+  on `PATH` ahead of everything for that build only; 1.0.3 is not tried. ~1 min with `-j8`, and the
+  fork's `roms.sha1` is stale (vanilla hashes), so compare the output to the user's ROM directly.
 - **`C:\dev\pokeplatinum` (Platinum, NDS) is cloned but NOT built** (2026-08-17, 236 MB), on the
   user's call that a WIP decomp is worth having on disk regardless. Being C, its headers are
   readable as-is for struct layouts and names — a spot check found `FieldSystem`,

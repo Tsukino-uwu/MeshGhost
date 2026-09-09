@@ -60,6 +60,31 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
+## [READY] Three more ROM builds recognised from hash-verified symbol files (2026-09-09), none yet run
+
+**What changed.** `classifyRom()` now returns "known" for **vanilla V1.1** (checksum `$18D2`,
+same table as V1.0 — one Pokédex label moved) and for **Speedchoice v8.1** (version byte 6,
+checksum `$99A8`, its own `ADDRESSES.speedchoice`), and names the base revision of an
+**Archipelago** ROM in its log line. Each table is read off a build compiled byte-identical to the
+user's file (`VERIFIED.md` 2026-09-09, three entries). Before today V1.1 and speedchoice ran on
+vanilla's table behind an "untested" line; speedchoice's coordinate block is at vanilla+1, so its
+ghost would have read one byte off — the exact class of fault the per-build table exists for.
+
+**What to look at, one build at a time, loopback ghost two tiles to the side (`dev-scripts`):**
+
+1. **V1.1**: the log's first ROM line reads `vanilla Crystal V1.1 — addresses verified against a
+   byte-identical build`, and the ghost walks, turns, hops a ledge and fishes exactly as on V1.0.
+2. **Speedchoice 8.1**: the ROM line reads `Crystal Speedchoice v8.1`; the ghost stands on the
+   player's tile offset (not one tile off, which is what the old fallback would have produced) and
+   follows through a map change; the fly landing shows the party Pokémon; a vanilla client and a
+   speedchoice client in one room see each other's real sprite (the table hashes equal).
+3. **Archipelago on a V1.1 base**: the ROM line reads `… on a V1.1 base`; everything the 2026-08-27
+   mixed room confirmed still holds. If it does not, the apworld's shared-table claim is wrong
+   for some entry and it gets measured like the rest of that table.
+
+**Map ids across builds**: the core compares `area_id` by equality, so the cross-build check is
+the same as 2026-08-18's: two clients on different builds, same tile, one ghost each.
+
 ## [READY] `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
 
 **A real defect, currently latent, found by `adapters/emulator/tests/json_fuzz.lua`.** This decoder

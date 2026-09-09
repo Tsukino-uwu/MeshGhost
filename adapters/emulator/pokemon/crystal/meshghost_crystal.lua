@@ -214,8 +214,8 @@ end
 
 -- ONE TABLE PER ROM BUILD, selected by classifyRom() at startup. A build that rearranges WRAM
 -- does not get vanilla's addresses "because they are close" -- it gets its own measured set or it
--- does not run at all. Every entry here is traceable: vanilla's to our own hash-verified
--- pokecrystal build, Archipelago's to a dated probe log (verified.md, 2026-08-18).
+-- does not run at all. Every entry here is traceable: vanilla's and Speedchoice's to our own
+-- hash-verified builds, Archipelago's to a dated probe log (verified.md, 2026-08-18, 2026-09-09).
 local ADDRESSES = {
 	vanilla = {
 		label = "vanilla Crystal V1.0",
@@ -284,7 +284,7 @@ local ADDRESSES = {
 		-- FishingGFX, 2e:44f2 -> 0x2e * 0x4000 + (0x44f2 - 0x4000); KrisFishingGFX at 2e:4582.
 		-- Nine tiles each, of which the engine uses the first eight. Which one a PEER gets is its
 		-- own sprite id (SPRITE_CHRIS 1, SPRITE_KRIS $60) and never the local player's gender.
-		-- VANILLA V1.0 ONLY -- gated on classifyRom() saying "known" below, because unlike the
+		-- PER HASH-VERIFIED BUILD ONLY -- gated on classifyRom() saying "known" below, because unlike the
 		-- sprite table this one has no cheap signature and an unknown build would paint whatever
 		-- is there.
 		FISHING_GFX_ROM = 0xB84F2,
@@ -295,7 +295,7 @@ local ADDRESSES = {
 		-- the jump shadow normally and the fishing rod while somebody is fishing. That is exactly
 		-- why this is read from the cartridge rather than from VRAM: a peer hopping a ledge while
 		-- THIS machine's player has a rod out would otherwise cast a fishing rod for a shadow.
-		-- VANILLA V1.0 ONLY, gated on classifyRom() below, same as the fishing sheet.
+		-- Per hash-verified build only, gated on classifyRom() below, same as the fishing sheet.
 		SHADOW_GFX_ROM = 0x104550,
 		-- Emotes, 05:444d -> 0x5 * 0x4000 + (0x444d - 0x4000). Twelve six-byte entries --
 		-- `dw graphics, db length, db bank, dw vtile` (`data/sprites/emotes.asm`) -- so this
@@ -304,7 +304,7 @@ local ADDRESSES = {
 		EMOTES_ROM = 0x1444D,
 		-- THE FLYING POKEMON. `FlyFunction_InitGFX` reads wCurPartyMon, takes that party slot's
 		-- species, and loads THAT MON'S ICON as the thing the player rides -- so a peer's fly is
-		-- only reproducible if its species crosses the wire. All four are vanilla V1.0 and gated
+		-- only reproducible if its species crosses the wire. All four are per-build and gated
 		-- on classifyRom() saying "known", like the fishing graphics: an unknown build would read
 		-- a species out of the wrong place and paint whatever the pointer landed on.
 		--
@@ -438,6 +438,52 @@ local ADDRESSES = {
 		-- +7 and the object array +6, and no third relationship has ever held on it. Measure the
 		-- block with probes/connections_probe.lua (MESHGHOST_CRYSTAL_CONN_ADDR tests a candidate)
 		-- before filling these in.
+	},
+
+	-- Crystal Speedchoice v8.1 (the choatix fork's release; it patches a V1.1 base -- the release
+	-- `.bps` carries V1.1's CRC as its source, checked 2026-09-09). NOT MEASURED, READ: its source
+	-- built byte-identical to the user's ROM (SHA1 5ffa7ad8..., rgbds 0.4.0), and every entry
+	-- below is that build's own `.sym`, the same standing as vanilla's (VERIFIED.md, 2026-09-09).
+	-- 560 WRAM labels move on this build, so vanilla's table would be wrong in exactly the way
+	-- the Archipelago table's history warns about -- but only five of the ones the adapter reads
+	-- do: the patch inserts one byte (`wLastSpawnMapGroup`) ahead of the coordinate block, so
+	-- group/number/Y/X and the party species each sit at vanilla+1; the object array, the
+	-- map-object table, the gate bytes, the scroll offsets, `wUsedSprites` and the camera HRAM
+	-- pair are all at vanilla's addresses. `wStateFlags` is the same byte under its older label
+	-- (`wVramState`). In ROM the sprite, emote, fishing and icon tables each moved a little and
+	-- carry vanilla's bytes at the new place (`IconPointers` excepted, its entries being
+	-- addresses); the step-vector table did not move and still has three groups.
+	speedchoice = {
+		label = "Crystal Speedchoice v8.1",
+		OBJECT_STRUCTS = flat(0xD4D6), -- 01:d4d6, layout unchanged (wPlayerStruct fields agree)
+		MAP_OBJECTS = flat(0xD71E), -- 01:d71e
+		W_MAPGROUP = flat(0xDCB6), -- vanilla+1, all four
+		W_MAPNUMBER = flat(0xDCB7),
+		W_YCOORD = flat(0xDCB8),
+		W_XCOORD = flat(0xDCB9),
+		W_MAPSTATUS = flat(0xD432),
+		W_BATTLEMODE = flat(0xD22D),
+		W_BGMAPOFFSETX = flat(0xD14C),
+		W_BGMAPOFFSETY = flat(0xD14D),
+		W_MAPCONNECTIONS = flat(0xD1A8),
+		W_MAPHEIGHT = flat(0xD19E),
+		W_MAPWIDTH = flat(0xD19F),
+		W_USEDSPRITES = flat(0xD154),
+		W_STATEFLAGS = flat(0xD0ED), -- `wVramState` in this fork's older label set
+		OVERWORLD_SPRITES_ROM = 0x14723, -- 05:4723, vanilla-0x13; same 612 bytes, so gfxSig agrees
+		STEP_VECTORS_ROM = 0x4700, -- 01:4700, GetStepVectorSign still at 01:4730: three groups
+		H_SCX = 0xFFCF,
+		H_SCY = 0xFFD0,
+		FISHING_GFX_ROM = 0xB84D7, -- 2e:44d7
+		FISHING_GFX_ROM_KRIS = 0xB8567, -- 2e:4567
+		SHADOW_GFX_ROM = 0x104550, -- 41:4550, unmoved
+		EMOTES_ROM = 0x1443A, -- 05:443a
+		W_SPRITEUPDATESON = flat(0xC2CE),
+		W_CURPARTYMON = flat(0xD109),
+		W_PARTYSPECIES = flat(0xDCD9), -- vanilla+1
+		MON_ICONS_ROM = 0x8EACA, -- 23:6aca, vanilla+6, same bytes
+		ICON_POINTERS_ROM = 0x8EBC5, -- 23:6bc5; entries differ from vanilla's because Icons moved
+		ICONS_BANK = 0x23,
 	},
 }
 
@@ -959,7 +1005,10 @@ end
 
 -- ROM classification, three-way rather than pass/fail (user's call, 2026-08-18).
 --
---   "known"        vanilla V1.0 — the addresses below were derived from a byte-identical build.
+--   "known"        vanilla V1.0, vanilla V1.1 or Speedchoice v8.1 — a build we compiled ourselves
+--                  byte-identical to the ROM, so its table is read from a `.sym`, never measured.
+--                  V1.1's table IS vanilla's (one Pokédex label moved, nothing the adapter
+--                  touches); Speedchoice gets ADDRESSES.speedchoice (2026-09-09).
 --   "archipelago"  Archipelago's Crystal patch, which rearranges WRAM non-uniformly. It no longer
 --                  means "refuse": it selects ADDRESSES.archipelago, a measured set of its own.
 --                  It still refuses while that set is incomplete — see the startup check, which
@@ -984,14 +1033,36 @@ local function classifyRom()
 		and u8(0x14E, ROM_DOMAIN) == 0x12 and u8(0x14F, ROM_DOMAIN) == 0x9F then
 		return "known", "vanilla Crystal V1.0", "vanilla"
 	end
+	-- V1.1 shares vanilla's table: pokecrystal's own `crystal11` target built byte-identical to
+	-- the user's V1.1 ROM (SHA1 f2f52230..., matching its roms.sha1), and its pokecrystal11.sym
+	-- differs from V1.0's in ONE label (wPokedexStatus) -- every address in ADDRESSES.vanilla,
+	-- HRAM included, and every ROM table the adapter reads (OverworldSprites, StepVectors, the
+	-- fishing/shadow/emote/icon graphics) is identical, checked byte-for-byte (VERIFIED.md,
+	-- 2026-09-09). Mask-ROM version byte $14C is 1 on V1.1 and 0 on V1.0; the global checksum is
+	-- the stronger tell and the one checked here.
+	if title == "PM_CRYSTAL" and u8(0x14C, ROM_DOMAIN) == 0x01
+		and u8(0x14E, ROM_DOMAIN) == 0x18 and u8(0x14F, ROM_DOMAIN) == 0xD2 then
+		return "known", "vanilla Crystal V1.1", "vanilla"
+	end
 	-- Archipelago renames the header, which is a cheaper and stronger signal than the checksum --
 	-- and seed-independent, which the checksum is not: every seed patches different item data on
 	-- top of one shared base recompile. Emerald's adapter relies on the same property for its own
 	-- Archipelago addresses; if a future world update recompiles that base, the measured addresses
 	-- move and the fingerprint check below is what notices.
 	if title:sub(1, 3) == "AP_" then
-		return "archipelago", string.format("ROM title %q — Archipelago's Crystal patch", title),
-			"archipelago"
+		-- The apworld patches a V1.0 or a V1.1 base with one shared address table of its own,
+		-- and stamps the base's revision into header byte $14C. Named in the log because every
+		-- Archipelago session before 2026-09-09 ran on a V1.0 base; the table is the same either
+		-- way per the apworld, and an AP-on-V1.1 session is what checks that (UNVERIFIED.md).
+		return "archipelago", string.format("ROM title %q — Archipelago's Crystal patch on a V1.%d base",
+			title, u8(0x14C, ROM_DOMAIN) or 0), "archipelago"
+	end
+	-- Speedchoice keeps vanilla's title and changes the manufacturer code ($13F-$142, "KAPB" for
+	-- "BYTE"), the mask-ROM version ($14C = 6) and the checksum. v8.1 is the one whose source was
+	-- built byte-identical (SHA1 5ffa7ad8...); another version gets its own row or the fallback.
+	if title == "PM_CRYSTAL" and u8(0x14C, ROM_DOMAIN) == 0x06
+		and u8(0x14E, ROM_DOMAIN) == 0x99 and u8(0x14F, ROM_DOMAIN) == 0xA8 then
+		return "known", "Crystal Speedchoice v8.1", "speedchoice"
 	end
 	return "unknown", string.format("ROM title %q, checksum %02X%02X — not a build these addresses "
 		.. "were derived from", title, u8(0x14E, ROM_DOMAIN) or 0, u8(0x14F, ROM_DOMAIN) or 0),

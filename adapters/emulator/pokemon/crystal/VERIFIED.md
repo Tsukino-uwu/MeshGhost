@@ -129,6 +129,10 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-08-27 — Crystal: three of four facings were drawing mirrored
 - CONFIRMED ON SCREEN 2026-08-28 — Crystal survives relay-side area filtering, and the reject line finally tells the truth
 - Crystal: 450ms interp at 15Hz on the worst-case link -- the user's explicit exception to this file's gate (2026-09-02)
+- 2026-09-09 — Crystal V1.1 builds byte-identical from `pokecrystal` and every adapter address is V1.0's
+- 2026-09-09 — Speedchoice v8.1 builds byte-identical from its own fork, and it patches a V1.1 base
+- 2026-09-09 — The apworld patches a V1.0 or a V1.1 base with one shared address table; the user's AP ROM was V1.0
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2360,3 +2364,74 @@ other adapters. and a higher interp wouldn't make anything visually worse either
 Crystal's shipped and confirmed value by the user's call. **This is the one entry in this file whose
 evidence is the other three games rather than this one on screen**; if a Crystal run on that link ever
 shows a stutter at 450ms, this entry is the first thing to reopen.
+
+## 2026-09-09 — Crystal V1.1 builds byte-identical from `pokecrystal` and every adapter address is V1.0's
+
+- Date: 2026-09-09
+- Observed: `make crystal11` in the local `pokecrystal` tree (rgbds v1.0.3, devkitPro's msys2 shell,
+  the same setup that built V1.0 on 2026-08-17) produced `pokecrystal11.gbc` with SHA1
+  `f2f52230b536214ef7c9924f483392993e226cfb` — equal to the user's V1.1 ROM and to the hash
+  `pokecrystal`'s own `roms.sha1` lists for that target. Its `pokecrystal11.sym` was then diffed
+  against V1.0's for every label `ADDRESSES.vanilla` uses (32, HRAM and ROM tables included): all
+  identical. The whole `.sym` differs in **six lines** — `wPokedexStatus` moved from `00:cf65` to
+  `00:c7e5`, nothing else — and the two ROMs differ in 584 bytes, none inside the eight ROM
+  regions the adapter reads (sprite table, step vectors, emotes, fishing and shadow graphics,
+  icon tables), each compared by hash at its address.
+- Source: `C:\dev\pokecrystal` `pokecrystal11.sym` vs `pokecrystal.sym`; `roms.sha1` in the same
+  tree; `dd`+`sha1sum` over both ROM files; V1.1's header — version byte `$14C` = 1, global
+  checksum `$18D2` — is what `classifyRom()` now keys on.
+- Notes: agent-confirmed, tools only, and that is the whole claim: V1.1 shares vanilla's table.
+  That the adapter RUNS correctly on V1.1 is a screen fact and sits in `UNVERIFIED.md` until the
+  user sees it.
+
+## 2026-09-09 — Speedchoice v8.1 builds byte-identical from its own fork, and it patches a V1.1 base
+
+- Date: 2026-09-09
+- Observed: the v8.1 release of Crystal Speedchoice ships one file, `VanillaTo811.1.bps`; a BPS
+  carries its source and target CRC32s in its last twelve bytes, and they read `3358E30A` and
+  `FD3DC071` — the CRC32 of the user's **V1.1** ROM and of the user's speedchoice 8.1 ROM
+  respectively, so the patch applies to V1.1 (as the user recalled) and the file on disk is
+  exactly that release's output. The fork's source at tag `v8.1` (licensing.md row added the
+  same day) then built with rgbds **0.4.0**, the version its `INSTALL.md` pins, to a
+  `crystal-speedchoice.gbc` of SHA1 `5ffa7ad8cbb15f6e398425f9c40ab5b9e7bf151e` — equal to the
+  user's ROM. So `crystal-speedchoice.sym` is authoritative for that build the way
+  `pokecrystal.sym` is for V1.0, and `ADDRESSES.speedchoice` is transcribed from it, not measured.
+  What it says: 560 WRAM labels present in both files sit at different addresses (it is a real
+  rearranging patch), but of the fifteen WRAM entries the adapter uses only five move — the patch
+  inserts `wLastSpawnMapGroup` one byte ahead of the coordinate block, so `wMapGroup`,
+  `wMapNumber`, `wYCoord`, `wXCoord` and `wPartySpecies` are each vanilla+1; the object array,
+  map-object table, both gate bytes, both scroll offsets, `wUsedSprites`, `wSpriteUpdatesEnabled`
+  and the `hSCX`/`hSCY` pair are at vanilla's. `wStateFlags` is the same byte under the fork's
+  older label `wVramState`. In ROM, `OverworldSprites` (`05:4723`), `Emotes` (`05:443a`), the
+  fishing sheets (`2e:44d7`/`2e:4567`) and `MonMenuIcons`/`IconPointers`/`Icons` (`23:6aca`/
+  `23:6bc5`/`23:6c13`) moved; each carries vanilla's bytes at the new address except
+  `IconPointers`, whose entries are addresses. `StepVectors` is at `01:4700` with
+  `GetStepVectorSign` at `01:4730`: three groups, as the bank scan found on 2026-08-26. The
+  object struct layout is unchanged (`wPlayerStruct`'s fields agree offset for offset).
+- Source: `C:\dev\pokecrystal-speedchoice` (tag `v8.1`, commit `cb460c4`), its
+  `crystal-speedchoice.sym`; the release asset's trailing CRCs read with a twelve-line Python
+  script; header bytes `$13F-$142` = `KAPB`, `$14C` = 6, checksum `$99A8`.
+- Notes: agent-confirmed, tools only. The sprite table's 612 bytes are identical to vanilla's, so
+  `ENGINE.gfxSig` agrees across the two and a sprite id is portable between a vanilla and a
+  speedchoice client — that is the design working, not an accident. Running on it is a screen
+  fact (`UNVERIFIED.md`). The fork's `roms.sha1` still lists vanilla's hashes, so `make compare`
+  is meaningless there; the comparison was made against the user's file directly.
+
+## 2026-09-09 — The apworld patches a V1.0 or a V1.1 base with one shared address table; the user's AP ROM was V1.0
+
+- Date: 2026-09-09
+- Observed: the public `Archipelago-Crystal` world (`rom.py`, branch `pokecrystal-develop`)
+  accepts two base hashes and ships two base patches, `basepatch.bsdiff4` for V1.0 and
+  `basepatch11.bsdiff4` for V1.1, selected by the base's header version byte `$14C` — which it
+  also exposes as `AP_ROM_Revision` = 332 (= `$14C`) in one `data.json` whose `ram_addresses`
+  table is shared by both. The AP ROM every Crystal session so far ran on reads `$14C` = 0 and
+  the base ROM in the Archipelago folder hashes as V1.0; the user generated an AP-on-V1.1 ROM
+  the same day (`$14C` = 1, title still `AP_CRYSTAL`), which `classifyRom()` now names in its
+  log line.
+- Source: `worlds/pokemon_crystal_prerelease/rom.py` lines 33-49 and 113-116, `data/data.json`;
+  the two ROMs' header bytes; MD5 `9f2922b2…` (V1.0) of the folder's base ROM matching the
+  world's `CRYSTAL_1_0_HASH`.
+- Notes: the apworld's own claim is that the AP table is base-independent, and V1.0 vs V1.1
+  moving one Pokédex label makes that plausible — but it stays a claim until an AP-on-V1.1
+  session is run (`UNVERIFIED.md`). The adapter's tell is the title prefix, so both bases select
+  `ADDRESSES.archipelago` today.
