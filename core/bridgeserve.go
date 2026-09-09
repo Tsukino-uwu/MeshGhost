@@ -218,7 +218,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 					rejectBridge(nd, err.Error(), code, retryable)
 					return
 				}
-				if !c.Offline {
+				if !c.offline() {
 					log.Printf("core: playing alone -- no relay reached yet (%v). The game is "+
 						"attached and recording, replays and chasers all work; nobody else will "+
 						"appear until a relay answers, and one is still being tried for.", err)
@@ -241,7 +241,7 @@ func (c *Core) handleBridgeConn(netConn net.Conn) {
 			// counter starts again from zero.
 			c.inputMeta.reset()
 			c.armInputRing()
-			if c.RecordOnLaunch {
+			if c.recordOnLaunch() {
 				if _, err := c.StartRecording(); err != nil {
 					log.Printf("core: record_on_launch: %v", err)
 				}

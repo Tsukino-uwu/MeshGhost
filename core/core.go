@@ -789,6 +789,9 @@ type Core struct {
 	// the pre-fix idle-timeout-churn bug directly).
 	HeartbeatInterval time.Duration
 
+	// settingsMu guards the replay and connection fields a config.json re-read
+	// may change while running (settings.go); every read goes through an accessor there.
+	settingsMu  sync.RWMutex
 	mu          sync.Mutex
 	remotes     map[string]*remoteBuffer
 	localAreaID string // this Core's own most recently known area_id, for cross-area filtering

@@ -1205,3 +1205,40 @@ exactly the 2026-08-16 shape.
 highlights as the body, not a prerelease. Five CI reds stood between the user's ask and the tag,
 all Go-side and all accounted for above; two were real defects in shipped code (the hello-send
 reject race, the torn-tail delivery), three were test or harness faults.
+
+## 2026-09-09 (late) — config.json is live: a save is re-read and applied by the client
+
+A tester's report, relayed by the user: editing config.json mid-session changed the input display
+and nothing else. Why: the Pseudoregalia mod polls the file for its own keys, while every client
+setting was read once by `cmd/meshghost/main.go` and copied onto plain `Core` fields -- replay,
+chaser and hotkeys never looked again. The user's call: *"basically make everything refresh if
+edit/save is used"*. Built (Go side, mine to verify, suite + race green):
+
+- `core/settings.go`: `SetSmoothing` (under `c.mu`, refuses a bad curve/predict), `SetGhostCollisionPreference`
+  (clears the de-dupe key, re-pushes the session policy), `SetChaserSettings` (restarts the pack),
+  `SetReplaySettings` (re-arms the rings), `SetConnectionSettings` (closes the live relay session so
+  the existing auto-retry rejoins with the new Hello; offline off with a game attached dials). The
+  replay/connection fields were read bare from several goroutines, so they now sit behind
+  `settingsMu` and every read goes through an accessor -- a write from the poll would otherwise be
+  a data race the -race suite would catch.
+- `cmd/meshghost/reload.go`: a 1 s mtime+size poll that applies on the second poll a change holds
+  still (an editor's two-step save), re-reads into a FRESH copy of the pre-file flag values (a
+  removed key falls back; an explicit flag still wins), diffs, applies per group, logs one line per
+  changed key with its effect ("applied", "the next recording", "rejoining", "needs the client
+  relaunched"). Hotkeys are released and re-registered through a stop channel `startHotkeys` now takes.
+- Tests: `core/settings_test.go` (pack restart, policy re-push through a real relay + fake adapter,
+  a rejoin observed as a second `OnRelayConnected`, ring re-arm) and `cmd/meshghost/reload_test.go`
+  (every key named with old -> new, a refused curve keeps the old, a quiet save logs nothing, the
+  watcher on a real file: second-poll apply, removed-key fallback, flag pin honoured).
+- Suite and -race: every touched package green (`core` 124 s / 233 s under -race, `cmd/meshghost`,
+  `relay`, `transport`, `bridge`). `netx/udpconn` and `cmd/meshghost-netsim` FAILED on this machine
+  after a reboot with `dial udp 127.0.0.1: The requested address is not valid in its context` --
+  a plain Go program dialing UDP to loopback fails the same way outside the repo, so it is the
+  machine's network stack tonight, not the code (both untouched); CI's runners are the check.
+
+Same evening, the tester's second point: `input_display.always` was confusing (they had to set
+both `player` and `always`). Removed at the user's call -- the panel shows whenever `player`/`ghost`
+is on -- and then decoupled from `replay.indicator` too, which used to hide both panels (the user:
+*"the input history should be its own thing"*). Pseudoregalia DLL `0a944434aa98`, both installs;
+unwatched. Not touched: the mod-read keys (`ghost_range*`, `replay.indicator*`, `input_display`),
+which the mod already polls, and TEVI's mod, whose own config reads were not audited tonight.

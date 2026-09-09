@@ -15015,6 +15015,11 @@ namespace MeshGhostPseudo
         it->second.nametag_component = nullptr;
         it->second.nametag_plate = nullptr;
         it->second.nametag_plate_mid = nullptr;
+        // The drive rig's per-pawn objects die with the pawn (outer = the pawn): cleared here
+        // and in release_all_ghosts so a respawn never reads them (2026-09-09).
+        it->second.drive_private_gi = nullptr;
+        it->second.drive_own_hitable = nullptr;
+        it->second.drive_prepared = false;
         it->second.nametag_applied_name.clear();
         it->second.nametag_applied_color.clear();
         it->second.nametag_plate_applied_color.clear();
@@ -15212,6 +15217,9 @@ namespace MeshGhostPseudo
             remote.nametag_component = nullptr;
             remote.nametag_plate = nullptr;
             remote.nametag_plate_mid = nullptr;
+            remote.drive_private_gi = nullptr; // the drive rig's per-pawn objects (see release_ghost)
+            remote.drive_own_hitable = nullptr;
+            remote.drive_prepared = false;
             remote.nametag_applied_name.clear();
             remote.nametag_applied_color.clear();
             remote.nametag_plate_applied_color.clear();

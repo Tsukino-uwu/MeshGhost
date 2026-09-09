@@ -295,7 +295,16 @@ set up and which savestate slots hold what, which is rig knowledge, not status. 
   hardcoded 8 would eat the fly state. The savestate-is-not-a-save trap: `environment.md`.
   **`MESHGHOST_SQUARE_LOAD_STATE` loads a slot on EVERY re-attach of `square_drive` — clear it.**
 
-## Changing a client setting WITHOUT relaunching the game — kill the core, the adapter respawns it (2026-09-04)
+## Changing a client setting WITHOUT relaunching the game — since 2026-09-09, just SAVE config.json
+
+**The client re-reads `config.json` about a second after a save** (`cmd/meshghost/reload.go`,
+`core/settings.go`) and logs `config.json changed: <key> <old> -> <new> (<effect>)` per key --
+read those lines, never assume from the save. Smoothing, ghost collision, chaser, replay and hotkey
+settings apply live; a connection key (relay, room, name...) makes the core leave and rejoin the
+relay; the launch-time keys say "needs the client relaunched". The kill-the-core route below still
+works and is what reaches those. `docs/config.md` has the player-facing list.
+
+### The older route — kill the core, the adapter respawns it (2026-09-04)
 
 **A UE4SS adapter starts its own core, and it will start another one if that core dies.** So a
 config change that only the CLIENT reads — send rate, interp, chaser delay, replay settings,

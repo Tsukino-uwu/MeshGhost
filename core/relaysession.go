@@ -37,7 +37,7 @@ import (
 // reconnects reporting a new version is advertised under the new one.
 func (c *Core) ConnectRelay(gameID string) error {
 	addr, room, displayName, roomCode, timeout :=
-		c.RelayAddr, c.Room, c.DisplayName, c.RoomCode, c.DialTimeout
+		c.relayAddr(), c.room(), c.displayName(), c.roomCode(), c.DialTimeout
 
 	gameVersion := c.GameVersion
 	if gameVersion == "" {
@@ -217,10 +217,10 @@ func (c *Core) ConnectRelay(gameID string) error {
 		GameID:          gameID,
 		Room:            room,
 		DisplayName:     displayName,
-		NameColor:       c.NameColor,
+		NameColor:       c.nameColor(),
 		RoomCode:        roomCode,
 		GameVersion:     gameVersion,
-		MaxReceiveHz:    c.MaxReceiveHz,
+		MaxReceiveHz:    c.maxReceiveHz(),
 		Features:        c.effectiveFeatures(),
 		ResumeToken:     resumeToken,
 		OwnAreaOnly:     ownAreaOnly,
@@ -526,7 +526,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 	// bridge when it is not -- which is exactly why it was written as a funnel.
 	// Guarding only the loop would leave a game launching itself into a dial
 	// the player asked not to happen. Nil, not an error: nothing failed.
-	if c.Offline {
+	if c.offline() {
 		return nil
 	}
 	c.relayConnectMu.Lock()
@@ -653,7 +653,7 @@ func (c *Core) ConnectRelayOnAdapterHello(gameID, adapterGameVersion string, bri
 			c.lastConnectErrLoggedAt = now
 		}
 		failingFor := now.Sub(c.connectFailingSince)
-		relayAddr := c.RelayAddr
+		relayAddr := c.relayAddr()
 		if permanent {
 			c.permanentRejectGame = gameID
 			c.permanentRejectReason = reason

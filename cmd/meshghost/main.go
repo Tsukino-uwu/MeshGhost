@@ -770,7 +770,7 @@ func main() {
 
 	explicit := cfg.ExplicitFlags()
 
-	configShown := applyFileConfig(*configPath, explicit, configTargets{
+	targets := configTargets{
 		relayAddr:      relayAddr,
 		bridgeAddr:     bridgeAddr,
 		gameID:         gameID,
@@ -809,7 +809,11 @@ func main() {
 			replayRestart: hkRestart, replayRewind: hkRewind, replayFastForward: hkFastForward},
 		chaser: &chaserTargets{enabled: chaserOn, count: chaserCount, delay: chaserDelay, spacing: chaserSpacing,
 			name: chaserName, color: chaserColor, contact: chaserContact, spawnDelay: chaserSpawn},
-	})
+	}
+	// The flag values BEFORE the file: what every later re-read of the file
+	// starts from (reload.go), so a key removed from the file falls back here.
+	base := snapshot(targets)
+	configShown := applyFileConfig(*configPath, explicit, targets)
 	if *replayDir == "" {
 		// Beside the config file, read or not: that is the one folder a player
 		// autostarted by their game can find, and the one the README names.
@@ -999,6 +1003,7 @@ func main() {
 	if *chaserOn {
 		log.Printf("meshghost: chaser ON -- %d ghost(s) of your own past, %s behind and then every %s", *chaserCount, *chaserDelay, *chaserSpacing)
 	}
+	hkStop := make(chan struct{})
 	startHotkeys(c, []hotkeyBinding{
 		{core.ReplayRecordToggle, *hkRecord},
 		{core.ReplaySaveLast, *hkSaveLast},
@@ -1006,7 +1011,7 @@ func main() {
 		{core.ReplayRestart, *hkRestart},
 		{core.ReplayRewind, *hkRewind},
 		{core.ReplayFastForward, *hkFastForward},
-	})
+	}, hkStop)
 	if *recordOnLaunch {
 		log.Printf("meshghost: record_on_launch is ON -- every session is written to %s from the first in-game sample", *replayDir)
 	}
@@ -1020,6 +1025,16 @@ func main() {
 	c.OnRelayConnected = func(gameID string) {
 		log.Printf("meshghost: connected to relay %s as %s in room %q (game %q)", *relayAddr, c.PlayerID(), *room, gameID)
 	}
+	// config.json stays live from here: a save is re-read and applied
+	// (reload.go). The hotkey rebind releases the old chords first; hkStop is
+	// touched only from the watcher's goroutine after this point.
+	watcher := newConfigWatcher(configShown, explicit, base, snapshot(targets), c, func(b []hotkeyBinding) {
+		close(hkStop)
+		hkStop = make(chan struct{})
+		startHotkeys(c, b, hkStop)
+	})
+	go watcher.run(make(chan struct{}))
+	log.Print(describeReloadable(configShown))
 
 	if *stats > 0 {
 		// With stats on, a dry render also gets its own line (at most one a
@@ -1217,7 +1232,7 @@ func parseHotkeys(bindings []hotkeyBinding) (actions []hotkey.Action, warnings [
 	return actions, warnings
 }
 
-func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
+func startHotkeys(c *core.Core, bindings []hotkeyBinding, stop <-chan struct{}) {
 	actions, warnings := parseHotkeys(bindings)
 	for _, w := range warnings {
 		log.Printf("meshghost: %s", w)
@@ -1248,7 +1263,7 @@ func startHotkeys(c *core.Core, bindings []hotkeyBinding) {
 		log.Printf("meshghost: hotkey %s bound to %s (system-wide; works with the game focused)", r.Name, r.Binding)
 	}
 	go func() {
-		if err := hotkey.Run(actions, fire, report, make(chan struct{})); err != nil {
+		if err := hotkey.Run(actions, fire, report, stop); err != nil {
 			log.Printf("meshghost: hotkeys stopped: %v", err)
 		}
 	}()

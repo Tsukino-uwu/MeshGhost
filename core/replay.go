@@ -704,7 +704,7 @@ func (p *replayPlayer) run() {
 	delay := clip.startDelay
 	if delay == 0 {
 		p.c.mu.Lock()
-		delay = p.c.ReplayStartDelay
+		delay = p.c.replayStartDelay()
 		p.c.mu.Unlock()
 	}
 	durMs := clip.duration().Milliseconds()
@@ -865,10 +865,10 @@ func (p *replayPlayer) run() {
 // to call again (running players are stopped first). Returns how many loaded.
 func (c *Core) StartReplays() int {
 	c.StopReplays()
-	if c.ReplayDir == "" {
+	if c.replayDir() == "" {
 		return 0
 	}
-	dir := filepath.Join(c.ReplayDir, "active")
+	dir := filepath.Join(c.replayDir(), "active")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {

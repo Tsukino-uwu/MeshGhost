@@ -525,10 +525,10 @@ func (c *Core) inputHeaderFor(game, version, recordingID string, at time.Time) i
 
 // inputsDir is the folder every track is written to.
 func (c *Core) inputsDir() string {
-	if c.ReplayDir == "" {
+	if c.replayDir() == "" {
 		return ""
 	}
-	return filepath.Join(c.ReplayDir, inputsSubdir)
+	return filepath.Join(c.replayDir(), inputsSubdir)
 }
 
 // gameLabels answers what the header's game/version pair should say, with the
@@ -553,7 +553,7 @@ func (c *Core) gameLabels() (game, version string) {
 // A no-op returning "" when ReplayInputs is off: the whole feature is opt-in,
 // and a caller should not have to check.
 func (c *Core) StartInputRecording(recordingID string) (string, error) {
-	if !c.ReplayInputs {
+	if !c.replayInputs() {
 		return "", nil
 	}
 	dir := c.inputsDir()
@@ -569,7 +569,7 @@ func (c *Core) StartInputRecording(recordingID string) (string, error) {
 		return c.inputRec.path, errors.New("already recording inputs to " + c.inputRec.path)
 	}
 	c.inputRec.dir = dir
-	c.inputRec.gzip = c.ReplayGzip
+	c.inputRec.gzip = c.replayGzip()
 	path, err := replayFileName(dir, "in", time.Now(), c.inputRec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
 	if err != nil {
 		return "", err
@@ -617,7 +617,7 @@ func (c *Core) SetInputRingSpan(span time.Duration) {
 // -- and folding them would make an always-on input ring silently switch the
 // state tap on and start feeding chasers that nobody asked for.
 func (c *Core) rearmInputTap() {
-	if !c.ReplayInputs {
+	if !c.replayInputs() {
 		atomic.StoreUint32(&c.inputTapArmed, 0)
 		return
 	}
@@ -641,10 +641,10 @@ func (c *Core) rearmInputTap() {
 // "always record inputs, and a button to export the last X seconds" -- and it
 // costs one ring plus one atomic per batch.
 func (c *Core) armInputRing() {
-	if !c.ReplayInputs {
+	if !c.replayInputs() {
 		return
 	}
-	if span := c.SaveLastSpan; span > 0 {
+	if span := c.saveLastSpan(); span > 0 {
 		c.SetInputRingSpan(span)
 	}
 }
@@ -653,7 +653,7 @@ func (c *Core) armInputRing() {
 // replay/inputs/inlast-YYYYMMDD-HHMMSS.ndjson. recordingID ties it to the
 // state clip written by the same key press.
 func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
-	if !c.ReplayInputs {
+	if !c.replayInputs() {
 		return "", 0, nil
 	}
 	dir := c.inputsDir()
@@ -669,7 +669,7 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", 0, fmt.Errorf("create %s: %w", dir, err)
 	}
-	path, err := replayFileName(dir, "inlast", time.Now(), c.ReplayGzip) // wall-clock: a filename, as above
+	path, err := replayFileName(dir, "inlast", time.Now(), c.replayGzip()) // wall-clock: a filename, as above
 	if err != nil {
 		return "", 0, err
 	}
@@ -686,7 +686,7 @@ func (c *Core) SaveLastInputs(recordingID string) (string, int, error) {
 	}
 	var sink io.Writer = f
 	var gz *gzip.Writer
-	if c.ReplayGzip {
+	if c.replayGzip() {
 		gz = gzip.NewWriter(f)
 		sink = gz
 	}

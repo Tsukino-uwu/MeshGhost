@@ -109,9 +109,9 @@ func defaultReplayHeader(game, version string, recorded time.Time) replayHeader 
 // which is the previous behaviour and renders no tag at all.
 func (c *Core) replayHeaderFor(game, version string, at time.Time) replayHeader {
 	h := defaultReplayHeader(game, version, at)
-	h.Name, h.Color = c.ReplayName, c.ReplayColor
+	h.Name, h.Color = c.replayNameColor()
 	if h.Name == "" {
-		h.Name, h.Color = c.DisplayName, c.NameColor
+		h.Name, h.Color = c.displayName(), c.nameColor()
 	}
 	return h
 }
@@ -646,7 +646,7 @@ func (c *Core) StartRecording() (string, error) {
 }
 
 func (c *Core) startStateRecording() (string, error) {
-	if c.ReplayDir == "" {
+	if c.replayDir() == "" {
 		return "", errors.New("no replay folder configured")
 	}
 	c.mu.Lock()
@@ -665,14 +665,14 @@ func (c *Core) startStateRecording() (string, error) {
 	if c.rec.on {
 		return c.rec.path, errors.New("already recording to " + c.rec.path)
 	}
-	c.rec.dir = c.ReplayDir
-	c.rec.gzip = c.ReplayGzip
-	c.rec.delta = c.ReplayDelta
+	c.rec.dir = c.replayDir()
+	c.rec.gzip = c.replayGzip()
+	c.rec.delta = c.replayDelta()
 	c.rec.prevExtras = nil
 	// A name this cannot answer is a recording that never starts, reported to
 	// the caller: the folder is unreachable, and arming the tap would only fail
 	// again at the first sample with the indicator already lit.
-	path, err := replayFileName(c.ReplayDir, "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
+	path, err := replayFileName(c.replayDir(), "rec", time.Now(), c.rec.gzip) // wall-clock: a filename, deduplicated against the real filesystem
 	if err != nil {
 		return "", err
 	}
@@ -680,7 +680,7 @@ func (c *Core) startStateRecording() (string, error) {
 	c.rec.header = c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
 	// After the header is built, not before: replayHeaderFor returns a fresh
 	// one and would otherwise wipe this.
-	c.rec.header.Delta = c.ReplayDelta
+	c.rec.header.Delta = c.replayDelta()
 	c.rec.header.RecordingID = recordingIDFor(path)
 	c.rec.keepaliveMs = keepalive.Milliseconds()
 	c.rec.clk = c.timeSrc
@@ -766,7 +766,7 @@ func (c *Core) rearmTap() {
 // way. The "do a trick, then press the key" mode: nothing is ever armed from
 // the player's point of view, and the file is written after the fact.
 func (c *Core) SaveLast() (string, int, error) {
-	if c.ReplayDir == "" {
+	if c.replayDir() == "" {
 		return "", 0, errors.New("no replay folder configured")
 	}
 	samples := c.ring.snapshot()
@@ -775,7 +775,7 @@ func (c *Core) SaveLast() (string, int, error) {
 		// "6h" is clamped to maxRingSpan, and naming the unclamped number here
 		// would tell the player nothing arrived in six hours of play when the
 		// window looked at was ten minutes (2026-09-08, review G8).
-		kept := c.SaveLastSpan
+		kept := c.saveLastSpan()
 		if kept > maxRingSpan {
 			kept = maxRingSpan
 		}
@@ -791,10 +791,10 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	c.mu.Unlock()
 
-	if err := os.MkdirAll(c.ReplayDir, 0o755); err != nil {
-		return "", 0, fmt.Errorf("create %s: %w", c.ReplayDir, err)
+	if err := os.MkdirAll(c.replayDir(), 0o755); err != nil {
+		return "", 0, fmt.Errorf("create %s: %w", c.replayDir(), err)
 	}
-	path, err := replayFileName(c.ReplayDir, "last", time.Now(), c.ReplayGzip) // wall-clock: a filename, as above
+	path, err := replayFileName(c.replayDir(), "last", time.Now(), c.replayGzip()) // wall-clock: a filename, as above
 	if err != nil {
 		return "", 0, err
 	}
@@ -817,13 +817,13 @@ func (c *Core) SaveLast() (string, int, error) {
 	}
 	var sink io.Writer = f
 	var gz *gzip.Writer
-	if c.ReplayGzip {
+	if c.replayGzip() {
 		gz = gzip.NewWriter(f)
 		sink = gz
 	}
 	w := bufio.NewWriterSize(sink, 64*1024)
 	hdr := c.replayHeaderFor(game, version, time.Now()) // wall-clock: an artefact timestamp
-	hdr.Delta = c.ReplayDelta
+	hdr.Delta = c.replayDelta()
 	// recorded is when the clip STARTS, which for a save-last file is the
 	// oldest sample's moment, not the key press.
 	// wall-clock: an artefact timestamp, back-dated from sample timestamps that ARE virtual.
@@ -838,7 +838,7 @@ func (c *Core) SaveLast() (string, int, error) {
 	for i := range samples {
 		samples[i].Seq = uint64(i + 1)
 		out := roundedForFile(samples[i])
-		if c.ReplayDelta {
+		if c.replayDelta() {
 			full := out.Extras
 			out.Extras = extrasDelta(prevExtras, full)
 			prevExtras = full
@@ -877,7 +877,7 @@ func (c *Core) SaveLast() (string, int, error) {
 // save-last key wants SaveLastSpan. (The chaser adds its own need later; the
 // ring keeps the longest.) Called when the adapter attaches.
 func (c *Core) armRing() {
-	span := c.SaveLastSpan
+	span := c.saveLastSpan()
 	if span > 0 {
 		// Named out loud, the way StartChasers reports its own clamp: the
 		// player asked for something the ring will not do, and the only place

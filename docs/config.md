@@ -15,6 +15,19 @@ folder; Emerald and Crystal run from the release folder itself and nothing is co
 Everything below is taken from the two programs' own config definitions (`cmd/meshghost/main.go`,
 `cmd/meshghost-relay/main.go`), the mods' own config readers, and the shipped file, on 2026-09-06.
 
+**Saving the file while the game runs applies it (2026-09-09).** `meshghost.exe` re-reads
+`config.json` about a second after a save and logs one line per changed key saying what happened
+to it: smoothing (`interp`, `extrapolate`, `curve`, `predict`), `ghost_collision`, the whole
+`chaser` section (the pack restarts from the new values), the `replay` section (most of it applies
+to the next recording or replay; `save_last`, `seek` and `split_times` at once) and the `hotkeys`
+apply without a relaunch; a change to `connect_to`, `room`, `room_code`, `name`, `name_color`,
+`max_receive_hz_per_player` or `offline` makes the client leave the relay and rejoin with the new
+values (your ghosts blink out and back for the others); `transport`, `tls`, `show_console` and the
+other launch-time keys are named in the log as needing a relaunch. A key you remove falls back to
+its default. The keys a game's mod reads itself (`ghost_range*`, `replay.indicator*`,
+`input_display`) were already re-read by the mod on its own poll. Before this, only those mod-read
+keys changed on a save and everything else waited for the next launch -- a tester's report.
+
 ## `client` — read by `meshghost.exe`
 
 | Key | Shipped value | What it does |

@@ -183,10 +183,10 @@ func (c *Core) seekReplays(cmd replayCmd) error {
 // replayLast plays the newest recording in the replay folder itself (not
 // active/) right now, without moving the file. Pressing it again restarts it.
 func (c *Core) replayLast() error {
-	if c.ReplayDir == "" {
+	if c.replayDir() == "" {
 		return errors.New("no replay folder configured")
 	}
-	entries, err := os.ReadDir(c.ReplayDir)
+	entries, err := os.ReadDir(c.replayDir())
 	if err != nil {
 		return fmt.Errorf("replay folder: %w", err)
 	}
@@ -243,7 +243,7 @@ func (c *Core) replayLast() error {
 	// everything up to this instant rather than everything up to the last time
 	// a 64KiB buffer happened to fill.
 	c.flushRecordingIfOpen()
-	clip, err := loadReplay(filepath.Join(c.ReplayDir, filepath.Base(name)))
+	clip, err := loadReplay(filepath.Join(c.replayDir(), filepath.Base(name)))
 	if err != nil {
 		return err
 	}
