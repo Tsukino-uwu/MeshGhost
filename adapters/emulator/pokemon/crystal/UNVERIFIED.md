@@ -80,9 +80,8 @@ the second is the state every window's log agreed with (4 peers waiting, 4 drawn
    that player on (the table's +1 was the whole risk); walk, fish, fly land.
 2. **AP on V1.1**: behaves as AP on V1.0 did in the 2026-08-27 room.
 3. **V1.1**: indistinguishable from V1.0.
-4. **The fix**: a window paused for longer than 3s (a menu open, or unfocused with *run in
-   background* off) blinks out of the other windows and is BACK within a second of resuming, with
-   no reload -- and the paused window itself sees everyone again on resume.
+(A fourth item, the age-out fix seen on screen, was confirmed by the user the same day and moved
+to `VERIFIED.md`.)
 
 ## [READY] Three more ROM builds recognised from hash-verified symbol files (2026-09-09), none yet run
 

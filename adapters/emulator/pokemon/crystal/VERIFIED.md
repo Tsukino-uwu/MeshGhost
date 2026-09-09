@@ -133,6 +133,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-09 — Speedchoice v8.1 builds byte-identical from its own fork, and it patches a V1.1 base
 - 2026-09-09 — The apworld patches a V1.0 or a V1.1 base with one shared address table; the user's AP ROM was V1.0
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: a paused window's ghost leaves the other clients and comes back on resume
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2435,3 +2437,17 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
   moving one Pokédex label makes that plausible — but it stays a claim until an AP-on-V1.1
   session is run (`UNVERIFIED.md`). The adapter's tell is the title prefix, so both bases select
   `ADDRESSES.archipelago` today.
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: a paused window's ghost leaves the other clients and comes back on resume
+
+- Date: 2026-09-09
+- Observed: on the five-build rig (V1.0, V1.1, AP on each base, Speedchoice; one relay, five
+  cores on the age-out re-admission fix, `agent_docs/verified.md` the same day), with the V1.0
+  window set to pause when unfocused, the user swapped focus back and forth and reported: *"it
+  comes back after being inactive now and goes away properly for other bizhawk clients as well"*.
+  The cores' logs agreed on every cycle (`core: p12 is sending again after going quiet -- back in
+  the room` in all four, within a second of the refocus).
+- Source: the user, on screen; `core/agedout_return_test.go` for the mechanism.
+- Notes: the visible behaviour is now "a peer in a menu or an unfocused window blinks out for the
+  length of the pause and returns on resume". Before the fix it never returned. The per-build
+  checks for Speedchoice, V1.1 and AP-on-V1.1 stay in `UNVERIFIED.md`.
