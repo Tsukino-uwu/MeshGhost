@@ -1067,12 +1067,12 @@ another machine; prose naming the boundary is the rule working.
 Proven to fail before being trusted: a planted line in `zoom.ps1` reported it, and the check went
 green again once removed.
 
-## 2026-09-09 — Crystal in focus: the next adapter to make stranger-ready
+## 2026-09-09 — Crystal active: the next adapter to make stranger-ready
 
 No code changed. The user's call after taking stock across the four adapters: Pseudoregalia is
 the only one that has been played with anyone outside (one session, four players, the user plus
 three testers, on Archipelago with the ghost layer); Emerald has been played once with one other
-person; Crystal and TEVI have never been run with a second human. Every adapter stays live and the user swaps between them; Crystal takes the focus now
+person; Crystal and TEVI have never been run with a second human. Crystal is active now
 because the Archipelago Crystal maintainer knows the project exists and agreed, in conversation,
 that a dedicated relay is the right shape for presence rather than routing it through
 Archipelago's own server. They have not run it. Nothing beyond that is recorded here, and nothing
