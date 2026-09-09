@@ -140,6 +140,8 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: a player in a battle, a menu or a fishing cast keeps a standing ghost
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: a ghost under a text box or a menu is hidden only where the box's tiles set BG priority
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: no ghost on the pause menu on any of the five builds; the text box shows them
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2493,3 +2495,21 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
   Speedchoice START menu case behaves.
 - Source: the user, on screen; the probe logs of 16:50 that day; `meshghost_crystal.lua`.
 - Notes: the START/Pack menus on vanilla clear the sprite engine, a different gate, unchanged.
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: no ghost on the pause menu on any of the five builds; the text box shows them
+
+- Date: 2026-09-09
+- Observed: after the tile-priority rule was wrongly extended from the text box to menus (*"we
+  accidently regressed with the pause menu things, ghosts are showing up on it now"*), it was
+  measured back: `probes/drive_menu_npc.lua` showed the Archipelago build REMOVING its NPC's OAM
+  entries under the START menu (8 live -> 4, the player kept) with no priority bit on the menu
+  tiles, and Speedchoice keeping sprites on beside it. So a menu rectangle hides unconditionally
+  again and only the text-box rectangle defers to the tiles' bit. The user: *"it hides properly on
+  speedchoice, but ghosts are shown on the pause menu for AP"* -- the AP-on-V1.0 window's menu had
+  been open across the adapter reload, so the startup stale-rectangle guard (2026-08-26) refused
+  it; on the AP-on-V1.1 window, menu opened after the reload, the UI debug line read `2 painted,
+  2 hidden` with the two painted beside the menu. After closing and reopening the AP menu: *"yee
+  it works now"*.
+- Source: the user, on screen; the probe logs and the adapter's `UI DEBUG` lines of 17:07-17:11.
+- Notes: the stale guard's cost is real on a dev reload with a menu open and nil for a player
+  starting at the title screen. AP keeps `wMenuBorder*` at vanilla's 0x0F82-0x0F85 (measured).
