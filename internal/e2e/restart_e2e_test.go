@@ -64,14 +64,15 @@ func killAndWait(t *testing.T, cmd *exec.Cmd) {
 // to the dead relay, another connection's local end -- can be sitting on it for a while (the
 // TOCTOU testing.md records under freePort; this is its restart-shaped variant). A relay that
 // exits at the bind is told apart from one that is slow to listen by watching the process
-// itself: an exit before the listener answers means "try again", up to attempts times, and a
+// itself: an exit before the listener answers means "try again", a second apart, up to attempts
+// times (the runner held its port for more than four seconds), and a
 // port that is never given back fails with the relay's own bind error in the log above, not a
 // 20s silence. The first start of a test is not retried -- freePort's own race there is the
 // recorded one, and a first bind that fails says something is wrong with the rig, not with
 // timing.
 func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 	t.Helper()
-	const attempts = 5
+	const attempts = 10
 	addr := ""
 	for i, a := range args {
 		if a == "-addr" && i+1 < len(args) {
@@ -90,7 +91,7 @@ func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 			select {
 			case <-exited:
 				t.Logf("restartRelay: attempt %d of %d exited before listening on %s (its bind error is above) -- retrying", attempt, attempts, addr)
-				time.Sleep(500 * time.Millisecond)
+				time.Sleep(time.Second)
 				goto next
 			default:
 			}
@@ -101,7 +102,7 @@ func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
 				select {
 				case <-exited:
 					t.Logf("restartRelay: attempt %d of %d exited before listening on %s (its bind error is above) -- retrying", attempt, attempts, addr)
-					time.Sleep(500 * time.Millisecond)
+					time.Sleep(time.Second)
 					goto next
 				default:
 					return cmd
@@ -130,14 +131,18 @@ func TestRestartRelayRetriesWhileThePortIsHeld(t *testing.T) {
 		t.Fatalf("far listener: %v", err)
 	}
 	defer far.Close()
+	// The far end's accepted connection is closed WITH the holder. Left open, the holder's
+	// close is a half-close and on Linux its local port sits in FIN_WAIT_2 for a minute --
+	// the first version of this test did that, and CI saw the relay refused ten times in a
+	// row after the "release". Both ends closed, the port is TIME_WAIT, which SO_REUSEADDR
+	// lets the relay bind through.
+	accepted := make(chan net.Conn, 1)
 	go func() {
-		for {
-			c, err := far.Accept()
-			if err != nil {
-				return
-			}
-			defer c.Close()
+		c, err := far.Accept()
+		if err != nil {
+			return
 		}
+		accepted <- c
 	}()
 	local, err := net.ResolveTCPAddr("tcp", r.relayAddr)
 	if err != nil {
@@ -147,9 +152,11 @@ func TestRestartRelayRetriesWhileThePortIsHeld(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hold %s: %v", r.relayAddr, err)
 	}
+	farConn := <-accepted
 	released := make(chan struct{})
 	go func() {
 		time.Sleep(time.Second)
+		farConn.Close()
 		holder.Close()
 		close(released)
 	}()

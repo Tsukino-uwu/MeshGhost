@@ -492,7 +492,7 @@ regression test.
   was reaped -- the number is in the kernel's ephemeral range, so any connection's local end on
   the runner can be sitting on it. Fixed in the harness, narrowly: `restartRelay`
   (`internal/e2e/restart_e2e_test.go`) starts the relay again when the process EXITS before its
-  listener answers, up to five times, and checks the process is still alive after a dial that
+  listener answers, a second apart up to ten times, and checks the process is still alive after a dial that
   connected (whatever holds the port may accept too). `TestRestartRelayRetriesWhileThePortIsHeld`
   holds the port the runner's way -- a dialled connection's local end, not a listener -- for a
   second and fails without the retry. A test's FIRST start is still not retried, on purpose.
