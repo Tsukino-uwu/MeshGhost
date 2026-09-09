@@ -1710,9 +1710,32 @@ local function getLocalState()
 end
 
 -- Wrap the above so the freeze flag captures exactly one real sample and then repeats it.
+-- ... and so that a player OUT of play keeps a presence. The live function returns nil in a
+-- battle, a menu or a warp, and until 2026-09-09 that nil meant nothing was sent: the core has no
+-- state to keepalive, every other core aged this player out after 3s, and the ghost vanished --
+-- for the whole of a battle, and for a fishing cast (pack menu, cast, then usually a battle) --
+-- then popped back when play resumed. The user's call, same day, from the five-build room: the
+-- other players should see the ghost STANDING ON ITS TILE, as a trainer mid-battle is, so the
+-- last in-play state is re-sent for as long as the player is out of play. Held with the transient
+-- extras cleared (`entry`, `fly`, `jump`, and `anim` idle): a map-entry or fly marker repeated for
+-- a minute would keep every receiver in its arrival handling. The core dedups identical states
+-- and keepalives at 250ms, so this costs exactly what a standing player costs. Nothing is sent
+-- before the first in-play state (the title screen still sends nothing), and a warp still hands
+-- the receivers the OLD tile until the new map's first state, which is what a door looks like.
+-- A bare global, for the 200-local reason given above.
 local getLocalStateLive = getLocalState
 function getLocalState()
 	local st = getLocalStateLive()
+	if st == nil then
+		return MESHGHOST_CRYSTAL_HELD
+	end
+	do
+		local ex = {}
+		for k, v in pairs(st.extras or {}) do ex[k] = v end
+		ex.entry, ex.fly, ex.jump = nil, nil, nil
+		MESHGHOST_CRYSTAL_HELD = { area_id = st.area_id, position = st.position,
+			orientation = st.orientation, anim = "idle", extras = ex }
+	end
 	if MESHGHOST_CRYSTAL_FREEZE_STATE and st and not MESHGHOST_CRYSTAL_FROZEN then
 		MESHGHOST_CRYSTAL_FROZEN = st
 		logFile("FREEZE: peers pinned to " .. tostring(st.position[1]) .. ","

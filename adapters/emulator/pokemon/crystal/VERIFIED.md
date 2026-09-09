@@ -135,6 +135,8 @@ filed under the right theme, but anything can check that it is listed.
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: a paused window's ghost leaves the other clients and comes back on resume
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: the bike works across all five builds
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2451,3 +2453,13 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
 - Notes: the visible behaviour is now "a peer in a menu or an unfocused window blinks out for the
   length of the pause and returns on resume". Before the fix it never returned. The per-build
   checks for Speedchoice, V1.1 and AP-on-V1.1 stay in `UNVERIFIED.md`.
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: the bike works across all five builds
+
+- Date: 2026-09-09
+- Observed: after `probes/grant_all_vanilla.lua` and `probes/grant_all_ap.lua` handed every window
+  a Bicycle (V1.0, V1.1, Speedchoice v8.1, Archipelago on a V1.0 and on a V1.1 base), the user:
+  *"bike works properly across all clients"* -- a riding peer is drawn riding, at the right speed,
+  in every other window, across the sprite-table groups (vanilla-family and AP seeds differ).
+- Source: the user, on screen; the grant logs read back id `07` (vanilla family) and `06` (AP).
+- Notes: the first time the bike gait was watched on V1.1, Speedchoice and AP-on-V1.1.

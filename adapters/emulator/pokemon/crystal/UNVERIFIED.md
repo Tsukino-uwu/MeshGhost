@@ -60,6 +60,22 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
+## [READY] A player in a battle, a menu or a fishing cast keeps a standing ghost (2026-09-09), reloaded live, unwatched
+
+**What the user saw first**, five-build room: *"went invisible for other clients when fishing,
+and while in a fight"*. The cores agreed: the two battling windows aged out (`4 peers known` ->
+`2`). Cause: `getLocalState` returns nil outside "in play" (battle, menu, warp), so the core had
+nothing to keepalive and every other core aged the player out after 3s.
+
+**The user's call**: the other players should see the ghost *standing still on its tile*, as a
+trainer mid-battle is. So the adapter now re-sends its last in-play state while out of play, with
+`anim` idle and the transient extras (`entry`, `fly`, `jump`) cleared; the pose in `extras.act`
+is kept, so a fishing cast keeps the rod up. Nothing is sent before the first in-play state.
+
+**What to look at**: fish and fight in one window; in the others the ghost stays on its tile for
+the whole battle and is still there, unchanged, when the battle ends -- no vanish, no pop. Walk
+through a door: the ghost stays on the old tile until you appear on the new map.
+
 ## [READY] The five-build room: all five builds saw each other, and the drop-out had a Go-side cause, fixed (2026-09-09)
 
 **What ran.** Five BizHawk windows on one relay at shipped settings, one core each: vanilla V1.0,
