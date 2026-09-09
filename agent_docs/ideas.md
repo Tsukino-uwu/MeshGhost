@@ -3195,3 +3195,12 @@ local-cartridge guarantee stays for everyone who does not want the trade.
 **What ships instead** (same day): the peer's clothing COLOUR crosses as two bytes and tints a
 sprite the receiver already owns — see `crystal/UNVERIFIED.md`, the trainer-colour entry.
 
+**A `trainer_color` config key: DECLINED (the user, 2026-09-09).** Possible on the wire side (the
+receiver already honours the two bytes), and it would refresh better than the nametag does (a
+re-read file, the next packet, no rejoin). Declined because the local screen could never show it:
+the game's palette RAM is not saved and could be held, but moving the player onto the spare slot
+writes the object table, which the save routine copies verbatim (`wPlayerData..wPlayerDataEnd`
+in the decomp's save code), and recolouring the current slot instead repaints every NPC sharing
+it. The shipped adapter stays read-only. *"ppl can play AP if they want to swap color"* -- the
+patch does the write, and its choice crosses the wire as built.
+
