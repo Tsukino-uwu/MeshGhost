@@ -268,3 +268,6 @@ adapters/**/config.json
 # pattern above expects `relay-<run>.err.log`.
 /relay.err.log
 /core.err.log
+
+# Session working checklist, local only (committed once by mistake 2026-09-08, untracked 2026-09-09)
+REVIEW-FINDINGS.md
