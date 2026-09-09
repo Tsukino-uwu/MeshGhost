@@ -71,6 +71,7 @@ is USED, that project is checked and recorded there first.
 - Per-clip and per-chaser interpolation delay: an `interp` key in a replay file's header, and a `chaser.interp` beside `chaser.delay` (the user's ask, 2026-09-06)
 - Fuzz the PEER, not just ourselves: an adapter that stops reading, a write that fails, a reconnect racing the close (filed 2026-09-06, after a bug no peer COUNT would have found)
 - The everything-fuzzer's peer space: eight ids became a wide space, a flood past the roster cap and eight hostile ids (the user's ask; BUILT 2026-09-06, and it found a deadlock the same evening)
+- Crystal: a peer's OWN SPRITE PIXELS over the wire -- custom outfits, a run pose on a cartridge that has none -- deferred behind the colour-only version (the user's call, 2026-09-09)
 
 ---
 
@@ -3166,3 +3167,31 @@ interesting precisely because every field is individually valid and only the com
 Worth one cross-game test per adapter parser — a state carrying another game's area, anim and
 coordinate scale must not crash and must not spawn at a nonsense transform — plus a line in
 `docs/security.md` saying plainly that `only_game` filters mistakes, not lies.
+
+---
+
+## Crystal: a peer's OWN SPRITE PIXELS over the wire — deferred 2026-09-09, colours first
+
+**The user's call, 2026-09-09:** *"just go with the colors for now, and worry about custom
+animations / custom outfit sprites later and just log them as a possible idea"*.
+
+**What it would be.** The drawn tier paints a ghost from bytes, not from hardware palettes or
+sprite slots, so it can show a peer wearing graphics THIS cartridge does not have: a run pose from
+a patch that adds one, a replaced player sprite, anything the peer's own game draws for its player.
+A walking sprite is a few hundred bytes of 2bpp tiles. It cannot ride in every state packet, so it
+needs a slow path — a once-per-peer field in the shape of the nametag (a contract revision, an ADR)
+is the right one; a periodic resend in `extras` is the cheap one.
+
+**Why it is deferred, and the condition on it.** Today a peer sends a sprite NUMBER and the
+receiver draws that number from its own cartridge, gated by the sprite-table signature — nothing
+appears on a screen that its owner does not already have, the same model Pseudoregalia uses. Pixels
+from a peer are the first place a stranger would choose the picture rather than pick from the
+receiver's own set. It is not a code path (fixed-size tile data decoded into colour indices and
+painted as lines, no interpreter, bounded by the relay's message cap), so the risk is CONTENT: a
+rude 16x16 drawing, the same class of thing as a rude display name, answered the same way — mute
+the peer, not inspect the bytes. **If built: a receiver-side opt-in, off by default**, so the
+local-cartridge guarantee stays for everyone who does not want the trade.
+
+**What ships instead** (same day): the peer's clothing COLOUR crosses as two bytes and tints a
+sprite the receiver already owns — see `crystal/UNVERIFIED.md`, the trainer-colour entry.
+

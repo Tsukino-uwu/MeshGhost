@@ -43,6 +43,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — a peer's TRAINER COLOUR crosses the wire: a chosen palette index already did, a CUSTOM clothing colour now does (`extras.clo`), built 2026-09-09, unwatched; `probes/set_colour.lua` fakes both on any build
 - READY — `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
@@ -59,6 +60,52 @@ BROKEN relay (the limiter hid `WriteUnreliable` until `341a768`) — the 450ms v
 is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load crash; hop a ledge
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
+
+## [READY] A peer's trainer colour, fixed OR custom, on the drawn ghost (built 2026-09-09, unwatched)
+
+**The ask.** The Archipelago Crystal developer told the user that the current release lets a player
+pick the trainer's colour from the game's own overworld palettes, and the next one takes a custom
+colour, patched into the one palette the game leaves unused; the user: *"it would be a fun feature
+to support and probly doable as we are only using drawn ghosts in crystal now anyway"*.
+
+**What the mechanism is, as read from the release and prerelease patchers (2026-09-09).** The fixed
+choice writes an OBJ palette INDEX (red 0, blue 1, green 2, brown 3) into the palette column of the
+player's sprite rows. The custom choice converts the hex to BGR555 and overwrites the THIRD colour
+(the clothing colour) of the pink slot, index 4, in every time-of-day block, then points the player's
+rows at slot 4. So on the wire a fixed colour is an index every cartridge agrees about, and a custom
+colour is an index every cartridge DISAGREES about: a receiver painting from its own slot 4 shows
+pink, or its own custom colour, and nothing says so.
+
+**What was built.**
+- The fixed case needed nothing new: `extras.pal` (the surf fix, `VERIFIED.md` 2026-09-09) already
+  carries the player object's palette index, and every build measured keeps the same four colours in
+  slots 0-3.
+- The custom case: the sender also sends `extras.clo`, the third colour of ITS slot as palette RAM
+  holds it right now (`ENGINE.clothing`), and the receiver overrides colour 3 of its own slot with it
+  when drawing that peer (`paletteColors`, `drawCharacter`, the fishing rod too). Colours 1 and 2 stay
+  the receiver's, because the highlight is where the time of day lives and the peer is in OUR light;
+  the clothing colour is the same at every hour on every build measured. No hardware slot is used, so
+  every peer may wear a different colour -- the "only one unused palette" limit is the engine's, and
+  the drawn tier does not have it. An older peer sends no `clo` and is painted from the slot as before.
+- The file sits at Lua's 200 top-level locals, so the BGR555 converter is `ENGINE.bgr555`, not a local
+  (`adapters/emulator/CLAUDE.md`).
+
+**What is NOT established.**
+- No seed on this machine chose a colour: the three Archipelago ROMs here all carry the default
+  indices in every player row (read from the files, 2026-09-09). A real end-to-end run needs a seed
+  generated with a colour chosen, fixed first (release), custom second (prerelease).
+- Whether palette RAM sits at the adapter's `W_OBPALS` on the Archipelago build was never measured
+  by content; the drawn colours looked right in the five-build room, which is weaker. `set_colour.lua`
+  checks it by reading the red slot's third colour before it writes anything.
+- That the patched index actually lands in the player object's palette byte on the release build
+  while walking, biking AND running, rather than being overridden by the gender rule the surf fix
+  documents. One read on a coloured seed; a patched ROM, so that reading is mine.
+
+**What to watch, two windows on any two builds.** Run `probes/set_colour.lua` on the dev loader of
+window A with `MESHGHOST_COLOUR_PAL=2`: A's own player turns green on the next palette refresh, and
+A's ghost in window B is green (the fixed path). Then `MESHGHOST_COLOUR_PAL=4` with
+`MESHGHOST_COLOUR_RGB=FF8040`: A's ghost in window B wears that orange, at B's time of day, while B's
+own pink NPCs stay pink. Correct is the peer's colour on the peer's ghost and nobody else's.
 
 ## [OPEN] User-reported 2026-09-09 — a peer's Fly is DRAGGED to the landing spot on the other clients, not flown
 

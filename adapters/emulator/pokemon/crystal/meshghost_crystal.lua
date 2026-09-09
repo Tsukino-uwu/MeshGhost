@@ -494,6 +494,8 @@ local W_MAPSTATUS, W_BATTLEMODE, W_BGMAPOFFSETX, W_BGMAPOFFSETY
 -- nil on any build where it has not been measured (Archipelago's), which switches the peer's own
 -- appearance off rather than reading a plausible address.
 local W_USEDSPRITES, W_STATEFLAGS
+-- wOBPals1, the eight object palettes the game is using right now; see paletteColors.
+local W_OBPALS = 0x5040
 local USED_SPRITES_CAPACITY = 32 -- SPRITE_GFX_LIST_CAPACITY
 
 local OBJECT_LENGTH, MAPOBJECT_LENGTH = 0x28, 0x10
@@ -1699,6 +1701,12 @@ local function getLocalState()
 			-- otherwise (the four others). The user, 2026-09-09: "speedchoice is blue when its
 			-- surfing, v1.1 is red when its surfing, on their own games". One byte.
 			pal = u8(base + F_PALETTE) or 0,
+			-- THE COLOUR THAT SLOT HOLDS, third colour, as the game has it in wOBPals1 right now
+			-- (BGR555, two bytes). The index alone is portable only between cartridges that keep
+			-- the same colours in the same slots; a build that lets the player choose a clothing
+			-- colour rewrites a slot, and then a receiver painting from ITS slot shows the wrong
+			-- colour with nothing to say so. See paletteColors for what the receiver does with it.
+			clo = ENGINE.clothing(u8(base + F_PALETTE) or 0),
 			-- The signature of THIS SPRITE's own table row, not of the whole table. See
 			-- ENGINE.spriteSig: a receiver wears the id only if its own cartridge describes that id
 			-- the same way, so a bike or a surf blob crosses between builds that agree about it
@@ -2263,22 +2271,44 @@ local DRAW_OVERFLOW = (MESHGHOST_CRYSTAL_DRAW_OVERFLOW or os.getenv("MESHGHOST_C
 -- wOBPals1 (05:d040 -> flat 0x5040, WRAM bank 5 in this domain's flat layout) holds the eight
 -- object palettes the game is actually using, four BGR555 colours each. Read them and a drawn
 -- ghost is coloured by the same bytes the hardware is colouring the spawned ghosts with.
-local W_OBPALS = 0x5040
+-- (`W_OBPALS` itself is declared with the other WRAM addresses near the top of the file,
+-- because the sender reads it too -- see `clo` in getLocalState.)
 
-local function paletteColors(palIndex)
+-- BGR555 -> 8 bits per channel. The <<3 | >>2 scaling keeps white at 0xFF rather than
+-- 0xF8, which is what makes a hand-rolled conversion look washed out.
+-- An ENGINE field, not a local: this file sits at Lua's 200 top-level locals (adapters/emulator/CLAUDE.md).
+function ENGINE.bgr555(c)
+	local r = ((c & 0x1F) << 3) | ((c & 0x1F) >> 2)
+	local g = (((c >> 5) & 0x1F) << 3) | (((c >> 5) & 0x1F) >> 2)
+	local b = (((c >> 10) & 0x1F) << 3) | (((c >> 10) & 0x1F) >> 2)
+	return 0xFF000000 | (r << 16) | (g << 8) | b
+end
+
+-- THE PEER'S OWN CLOTHING COLOUR, when it sent one (`clothing`, a BGR555 word from `clo`).
+--
+-- A palette INDEX is portable only while every cartridge keeps the same colours in that slot.
+-- A build may let the player pick a clothing colour and write it into a slot's third colour,
+-- and then the index points at the right slot on the peer's cartridge and a different colour
+-- on this one: painted with this machine's slot, the peer wears whatever WE keep there, which
+-- is a plausible colour and never a fault anyone would report. So the peer also sends the
+-- colour its own slot holds, and it wins here -- for the THIRD colour only. The first two are
+-- this machine's, deliberately: the highlight is where the time of day lives (morning, day,
+-- night and dark each tint it) and the peer is in OUR world, lit by our clock, exactly as a
+-- spawned ghost would be. The clothing colour is the same at every hour on every build measured
+-- (2026-09-09), so overriding it and nothing else is the peer's colour in our light.
+--
+-- No slot is consumed: the drawn tier paints lines from bytes, so every peer may wear a
+-- different colour with no hardware palette to run out of -- a thing the spawned tier can never
+-- do. An older peer sends no `clo` and is painted from the slot as before.
+local function paletteColors(palIndex, clothing)
 	local base = W_OBPALS + (palIndex & 7) * 8
 	local colors = { [0] = nil } -- colour 0 of an object palette is transparent
 	for i = 1, 3 do
 		local lo = u8(base + i * 2) or 0
 		local hi = u8(base + i * 2 + 1) or 0
-		local c = lo | (hi << 8)
-		-- BGR555 -> 8 bits per channel. The <<3 | >>2 scaling keeps white at 0xFF rather than
-		-- 0xF8, which is what makes a hand-rolled conversion look washed out.
-		local r = ((c & 0x1F) << 3) | ((c & 0x1F) >> 2)
-		local g = (((c >> 5) & 0x1F) << 3) | (((c >> 5) & 0x1F) >> 2)
-		local b = (((c >> 10) & 0x1F) << 3) | (((c >> 10) & 0x1F) >> 2)
-		colors[i] = 0xFF000000 | (r << 16) | (g << 8) | b
+		colors[i] = ENGINE.bgr555(lo | (hi << 8))
 	end
+	if clothing then colors[3] = ENGINE.bgr555(clothing & 0x7FFF) end
 	return colors
 end
 
@@ -2345,6 +2375,17 @@ local function invalidateTileCache()
 		end
 	end
 	tileCache = kept
+end
+
+-- THE CLOTHING COLOUR OF ONE OF OUR OWN PALETTE SLOTS, as the game has it right now: the third
+-- colour of slot `palIndex` in wOBPals1, one BGR555 word. Sent as `clo` beside the slot index so
+-- a receiver whose cartridge keeps a different colour in that slot paints ours (paletteColors).
+-- Read from palette RAM rather than the cartridge's palette table on purpose: whatever put the
+-- colour there -- the base game, a patch, a colour the player chose -- this is the colour the
+-- hardware is painting the player with at this moment, and that is the one to send.
+function ENGINE.clothing(palIndex)
+	local at = W_OBPALS + ((palIndex or 0) & 7) * 8 + 6
+	return (u8(at) or 0) | ((u8(at + 1) or 0) << 8)
 end
 
 -- SPRITE GRAPHICS STRAIGHT FROM THE CARTRIDGE, for a peer whose sprite this map never loaded.
@@ -3408,8 +3449,8 @@ end
 -- source is { vram = <tile base> } for a sprite the map has loaded, or { rom = <gfx offset> } for
 -- one read straight from the cartridge. Everything else is identical, which is the point: the
 -- arrangement is learned once from the engine and applies to both.
-local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, stride, fishRom)
-	local colors = paletteColors(palIndex or 0)
+local function drawCharacter(source, sx, sy, palIndex, facing, walking, prog, stride, fishRom, clothing)
+	local colors = paletteColors(palIndex or 0, clothing)
 	local frame = facingFrames.pick(facing, walking, prog or 0, stride)
 	local function partRows(offset)
 		-- A FISHING CHARACTER IS TWO SHEETS. The engine replaces the bottom half of the standing
@@ -6979,7 +7020,7 @@ function drawOverflow()
 							sy = sy + o.yoff
 						end
 						drawCharacter(source, sx, sy, palette, poseFacing,
-							poseWalking, peerProg, poseStride, fishRom)
+							poseWalking, peerProg, poseStride, fishRom, o.clo)
 						if poseRod and fishRom then
 							-- The fifth sprite of a fishing pose. Drawn AFTER the character so it
 							-- overlaps the same way the engine's OAM order does (the rod entry is
@@ -6990,7 +7031,7 @@ function drawOverflow()
 							local r = facingFrames.ROD[poseRod]
 							if r then
 								drawRows(decodeRomTile(fishRom, r.t),
-									sx + r.dx, sy + r.dy, paletteColors(palette or 0), r.flip)
+									sx + r.dx, sy + r.dy, paletteColors(palette or 0, o.clo), r.flip)
 							end
 						end
 					end
@@ -8073,6 +8114,7 @@ ENGINE.xmap.build(here) end
 	local peerGait = state.extras and tonumber(state.extras.gait) or 1
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
 	local peerPal = state.extras and tonumber(state.extras.pal) or nil -- nil from an older peer
+	local peerClo = state.extras and tonumber(state.extras.clo) or nil -- the same, see paletteColors
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
@@ -8603,7 +8645,7 @@ ENGINE.xmap.build(here) end
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal, clo = peerClo,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
@@ -8914,7 +8956,7 @@ ENGINE.xmap.build(here) end
 			end
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal, clo = peerClo,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
