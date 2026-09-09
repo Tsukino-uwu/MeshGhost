@@ -10745,7 +10745,9 @@ namespace MeshGhostPseudo
         // track's `move_x/move_y` ARE the player's bound value -- so the Blueprint does its own
         // moving, gating and steering. These three are what the hook reads; written per tick by
         // the track-mode section, cleared with the rig.
-        UObject* g_drive_ghost = nullptr;
+        UObject* g_drive_ghost = nullptr; // stale-safe: compared only, never dereferenced (the hook tests
+                                          // `actor != g_drive_ghost`); nulled in release_ghost, release_all_ghosts
+                                          // and the rig's disarm, so a freed pawn's address never answers
         double g_drive_stick_x = 0.0;
         double g_drive_stick_y = 0.0;
 
