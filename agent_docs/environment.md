@@ -868,6 +868,13 @@ All done on this machine — kept as the checklist a fresh setup should still fo
       Emerald" above).
 - [x] Confirm the correct Emerald ROM revision and record the expected map/format notes.
 - [x] Set up BizHawk Lua scripting and verify access to the Lua console.
+- [x] **Run the Go tests with the VPN disconnected (2026-09-10).** With Mullvad connected, every
+      loopback UDP dial in `netx/udpconn`'s tests fails at once with Windows' "The requested
+      address is not valid in its context", so `run-gotests.bat` is red on five tests that CI's
+      Windows job passes on the same commit; disconnecting made the package green in the same
+      minute, nothing else changed. The user had it off until 2026-09-09, which is why no earlier
+      local run saw this. TCP and QUIC were unaffected (the Crystal rig ran on quic
+      through the same VPN). A red UDP package with that error text is the VPN, not the code.
 
 ## Workspace conventions
 
