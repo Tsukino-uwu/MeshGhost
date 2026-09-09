@@ -49,6 +49,12 @@ $ErrorActionPreference = "Continue"
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $root
 
+# git BY PATH, never by name: in PowerShell on this machine `git` resolves to the devkitPro/MSYS2
+# shadow (CLAUDE.md, Method: "anything on PATH may resolve to the wrong install"), whose diff of
+# a CRLF working copy against an LF index reported 3,167 phantom lines and refused the second run.
+$git = @("C:\Program Files\Git\cmd\git.exe", "C:\Program Files\Gitin\git.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $git) { Write-Host "no Git for Windows under Program Files -- falling back to whatever 'git' on PATH is" -ForegroundColor Yellow; $git = "git" }
+
 function Step($msg) { Write-Host ""; Write-Host "== $msg ==" -ForegroundColor Cyan }
 function Refuse($msg) { Write-Host ""; Write-Host "RELEASE REFUSED: $msg" -ForegroundColor Red; exit 1 }
 function Cmd($file, $argList) {
@@ -62,21 +68,22 @@ if ($Version -notmatch '^v\d+\.\d+\.\d+$') { Refuse "version must look like v1.2
 if ($HighlightsFile -ne "" -and -not (Test-Path -LiteralPath $HighlightsFile)) { Refuse "no highlights file at $HighlightsFile" }
 
 Step "Repository state"
-$branch = (& git rev-parse --abbrev-ref HEAD).Trim()
+$branch = (& $git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -ne "master") { Refuse "on branch '$branch'; releases are cut from master" }
 # CONTENT, not status: on this machine `git status` lists files whose only difference is the line
 # ending the .gitattributes would give them on the next touch (the first run of this script refused
 # on nine such phantoms, every one with an empty `git diff`). A release cares that no edit is
-# uncommitted, and `git diff --quiet HEAD` answers exactly that. Submodules are ignored because a
+# uncommitted, and `git diff --quiet --ignore-cr-at-eol HEAD` answers exactly that (a CRLF-only
+# working copy is not a change either). Submodules are ignored because a
 # dirty submodule checkout is not a change to this repository's content.
-& git diff --quiet --ignore-submodules HEAD -- 2>$null
+& $git diff --quiet --ignore-cr-at-eol --ignore-submodules HEAD -- 2>$null
 if ($LASTEXITCODE -ne 0) {
-    & git --no-pager diff --ignore-submodules --stat HEAD -- 2>$null | ForEach-Object { Write-Host $_ }
+    & $git --no-pager diff --ignore-cr-at-eol --ignore-submodules --stat HEAD -- 2>$null | ForEach-Object { Write-Host $_ }
     Refuse "tracked files have uncommitted changes -- commit or stash first"
 }
-& git fetch origin --tags --quiet
-if ((& git ls-remote --tags origin "refs/tags/$Version")) { Refuse "tag $Version already exists on origin" }
-$behind = (& git rev-list --count "HEAD..origin/master").Trim()
+& $git fetch origin --tags --quiet
+if ((& $git ls-remote --tags origin "refs/tags/$Version")) { Refuse "tag $Version already exists on origin" }
+$behind = (& $git rev-list --count "HEAD..origin/master").Trim()
 if ($behind -ne "0") { Refuse "HEAD is $behind commit(s) behind origin/master -- pull first" }
 Write-Host "master, clean, $Version is free"
 
@@ -114,10 +121,10 @@ if ($staleMods.Count -gt 0) {
             "Pseudoregalia" { Cmd (Join-Path $root "dev-scripts\build-pseudoregalia.bat") "" }
         }
     }
-    $changed = @(& git status --porcelain --untracked-files=no -- packaging/release/games)
+    $changed = @(& $git status --porcelain --untracked-files=no -- packaging/release/games)
     if ($changed.Count -eq 0) { Refuse "the build scripts ran but nothing under packaging/release/games changed -- look at their output" }
-    & git add -- packaging/release/games
-    & git commit -q -m "release prep: $($staleMods -join ' and ') DLL rebuilt from current sources (dev-scripts/release.ps1 for $Version)"
+    & $git add -- packaging/release/games
+    & $git commit -q -m "release prep: $($staleMods -join ' and ') DLL rebuilt from current sources (dev-scripts/release.ps1 for $Version)"
     if ($LASTEXITCODE -ne 0) { Refuse "commit of the rebuilt DLL(s) failed" }
     Write-Host "committed the rebuilt DLL(s); deploy them to the live installs before the next live test (feedback on record)"
 }
@@ -131,9 +138,9 @@ if (-not $p.ok) {
 Write-Host "preflight clean"
 
 Step "Push"
-& git push origin master
+& $git push origin master
 if ($LASTEXITCODE -ne 0) { Refuse "push failed" }
-$sha = (& git rev-parse HEAD).Trim()
+$sha = (& $git rev-parse HEAD).Trim()
 Write-Host "pushed $($sha.Substring(0,8))"
 
 if (-not $SkipCI) {
