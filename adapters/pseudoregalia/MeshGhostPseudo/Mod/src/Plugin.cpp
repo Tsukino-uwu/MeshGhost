@@ -10715,6 +10715,11 @@ namespace MeshGhostPseudo
             // the montage still playing -- that path has no stick edge, so this never fires there,
             // which is the behaviour the glitch needs. Negative = no stop.
             double stand_stop_blend = 0.2;
+            // move_gate=3,4 / action_gate=18: the states in which the player's own Blueprint does
+            // NOT pass the stick to the movement component (measured 2026-09-09, `input_gate.lua`);
+            // the rig's AddMovementInput is skipped in them. Empty = never gated.
+            std::set<uint8_t> move_gate{3, 4};
+            std::set<uint8_t> action_gate{18};
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
@@ -10784,6 +10789,28 @@ namespace MeshGhostPseudo
                 else if (key == "stand_stop_blend")
                 {
                     cfg.stand_stop_blend = std::clamp(std::atof(value.c_str()), -1.0, 5.0);
+                }
+                else if (key == "move_gate" || key == "action_gate")
+                {
+                    // A comma-separated list of state bytes; an empty value clears the set.
+                    std::set<uint8_t> parsed;
+                    std::string item;
+                    for (char c : value + ",")
+                    {
+                        if (c == ',')
+                        {
+                            if (!item.empty())
+                            {
+                                parsed.insert(static_cast<uint8_t>(std::clamp(std::atoi(item.c_str()), 0, 255)));
+                                item.clear();
+                            }
+                        }
+                        else if (std::isdigit(static_cast<unsigned char>(c)))
+                        {
+                            item += c;
+                        }
+                    }
+                    (key == "move_gate" ? cfg.move_gate : cfg.action_gate) = parsed;
                 }
                 else if (key == "tail_until")
                 {
@@ -11306,7 +11333,22 @@ namespace MeshGhostPseudo
                     const double wx = fx * my + rx * mx;
                     const double wy = fy * my + ry * mx;
                     const double len = std::sqrt(wx * wx + wy * wy);
-                    if (len > 1e-6)
+                    // THE GAME'S OWN INPUT GATE (measured on the player 2026-09-09 12:2x,
+                    // `probes/probe_pawndiff/Scripts/input_gate.lua`, the stick held through the
+                    // route): the player's Blueprint lets the stick reach the movement component
+                    // in moveState 0 and 1 and during an attack (actionState 2), and swallows it
+                    // in moveState 4 (the wall cling: 1 tick of 125 passed) and 3 (0 of 9) and in
+                    // actionState 18 (0 of its ticks). The engine-level AddMovementInput below
+                    // has no such gate, so before this the clone pushed into the wall at run
+                    // speed during every cling and rode UP it at ~80 units/s while the recording
+                    // slid down -- a 150-unit correction every 0.4 s (`snap_watch.lua`; the user:
+                    // *"it was snapping a lot"*). Same rule, copied: `move_gate`/`action_gate`
+                    // in `ghost_drive.txt` hold the measured sets.
+                    const uint8_t* gate_ms = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                    const uint8_t* gate_as = mg_property_value<uint8_t>(ghost, STR("actionState"));
+                    const bool gated = (gate_ms && g_drive.move_gate.count(*gate_ms) != 0) ||
+                                       (gate_as && g_drive.action_gate.count(*gate_as) != 0);
+                    if (len > 1e-6 && !gated)
                     {
                         if (UFunction* fn = mg_cached_function(ghost, STR("AddMovementInput")))
                         {
@@ -11459,6 +11501,16 @@ namespace MeshGhostPseudo
                     call_named_no_arg(*mv, STR("StopMovementImmediately"));
                 }
                 ++remote.drive_corrections;
+                // Each correction on its own line (2026-09-09: a two-cling clip snapped ~8 times a
+                // loop and the 10 s summary could not say WHERE): the offset the ghost had built
+                // up, signed, ghost-minus-clip, plus both sides' move states -- the direction
+                // says whether the clone ran ahead, fell early or clung higher than the recording.
+                {
+                    const uint8_t* ms_now = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                    Output::send(STR("[MeshGhostPseudo] DRIVE {} correction #{}: ghost was ({:+.0f},{:+.0f},{:+.0f}) off the clip ({:.0f} units); ghost moveState={} clip moveState={}\n"),
+                                 to_wide_ascii(id), remote.drive_corrections, dx, dy, dz, drift,
+                                 ms_now ? static_cast<int>(*ms_now) : -1, static_cast<int>(clamp_to_uint8(remote.target_move_state)));
+                }
             }
             if (now_s - remote.drive_report_s >= 10.0)
             {
@@ -23241,8 +23293,6 @@ namespace MeshGhostPseudo
             // The drive rig (ADR 0057, D1): a driven ghost gets none of the mirrors below and no
             // pose teleport; its pawn's own code is the only thing moving it.
             const bool drive_this = ghost_drive_select(id, remote, pawn_obj);
-            if (!drive_this)
-            {
             // **Drive the ghost's blob shadow with the game's own function.** Every tick, because
             // that is how often the player's own Blueprint runs it and the arm has to keep up with
             // a ghost that is moving; the call is one reflected lookup and a ProcessEvent on an
@@ -23252,6 +23302,12 @@ namespace MeshGhostPseudo
             // that silently does nothing looks exactly like a call that worked, and this adapter
             // has paid for that confusion more than once. The independent readback is
             // SHADOWTRACE's own `armLength=` field, not anything this code reports about itself.
+            //
+            // For a DRIVEN ghost too (2026-09-09): this sat inside the `!drive_this` block below
+            // with the mirrors, so a driven pawn never had it called and its shadow rode the model
+            // through every jump and cling -- the user: *"the shadow is following the ghost model,
+            // instead of being at the ground"*. The pawn's own tick does not run it on a clone
+            // any more than on a mirrored ghost; it is the adapter's call either way.
             if constexpr (GHOST_BLOB_SHADOW_DRIVE)
             {
                 static bool logged_blob_shadow_drive = false;
@@ -23269,6 +23325,8 @@ namespace MeshGhostPseudo
                     }
                 }
             }
+            if (!drive_this)
+            {
 
             // **Mirror the player's spring-arm length onto the ghost's** -- see
             // GHOST_BLOB_SHADOW_ARM_MIRROR for why this exists alongside the function call above.
