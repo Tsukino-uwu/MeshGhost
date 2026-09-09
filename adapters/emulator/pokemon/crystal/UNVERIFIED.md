@@ -76,8 +76,8 @@ the second is the state every window's log agreed with (4 peers waiting, 4 drawn
 
 **Still to settle on screen, each on its own:**
 
-1. **Speedchoice**: the ghost of the speedchoice player stands ON the tile the other windows show
-   that player on (the table's +1 was the whole risk); walk, fish, fly land.
+1. **Speedchoice**: the ghost stood on the right tile and surfed in the right colour in every
+   other window (2026-09-09, `VERIFIED.md`); still to see: a fish and a Fly landing.
 2. **AP on V1.1**: behaves as AP on V1.0 did in the 2026-08-27 room.
 3. **V1.1**: indistinguishable from V1.0.
 (A fourth item, the age-out fix seen on screen, was confirmed by the user the same day and moved

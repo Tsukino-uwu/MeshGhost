@@ -144,6 +144,8 @@ filed under the right theme, but anything can check that it is listed.
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: under a menu, ghosts hide in the menu box and the bottom rows and stay beside it; a menu is recognised by its corner tile
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: surfing peers across all five builds, in the peer's own gender palette
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2532,3 +2534,23 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
 - Source: the user, on screen; the drive_menu_npc logs of 17:04-17:20 and the UI DEBUG lines.
 - Notes: not 1:1 with either build by the user's choice, recorded as such in the code. The
   fishing text box still shows the other ghosts (its own entry above).
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: surfing peers across all five builds, in the peer's own gender palette
+
+- Date: 2026-09-09
+- Observed: `probes/drive_surf.lua` surfed the V1.1 player from New Bark's east shore (tile
+  21,13 -> 23,13), across the seam into Route 27 (x wrapped to 4) and back; the user surfed the
+  Speedchoice player (female) on the pond. Every other window drew both surfers on the water in
+  the surf sprite. The colour was then wrong by WINDOW: the user, *"its red on v1.1 but its blue
+  for all other ones"*, then *"speedchoice is blue when its surfing, v1.1 is red when its
+  surfing, on their own games"*. Cause: the game sets the player object's palette by gender
+  (`_SetPlayerPalette`, `engine/overworld/map_objects.asm`; PAL_OW_RED 0 / PAL_OW_BLUE 1) and
+  the surf sprite inherits it, while a peer's palette never crossed the wire -- a window whose
+  own player was surfing painted every surfer with its own resident palette, the others with the
+  sprite table's blue. Fix: `extras.pal` carries the peer's OBJECT_PALETTE and the receiver
+  paints with it. After the reload, with both surfers in every window: *"yee it looks correct
+  now"* -- V1.1's surfer red everywhere, Speedchoice's blue everywhere.
+- Source: the user, on screen; the drive_surf log of 17:33; the decomp for the palette rule.
+- Notes: "reached" by input driving, not walked by a player. The peer's palette byte also
+  corrects a walking Kris ghost painted from resident tiles with the local Chris's red, which
+  nobody had reported. AP peers send it too (same struct offset, measured layout).
