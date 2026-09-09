@@ -64,8 +64,16 @@ if ($HighlightsFile -ne "" -and -not (Test-Path -LiteralPath $HighlightsFile)) {
 Step "Repository state"
 $branch = (& git rev-parse --abbrev-ref HEAD).Trim()
 if ($branch -ne "master") { Refuse "on branch '$branch'; releases are cut from master" }
-$dirty = @(& git status --porcelain --untracked-files=no)
-if ($dirty.Count -gt 0) { Refuse "tracked files are modified -- commit or stash first:`n$($dirty -join "`n")" }
+# CONTENT, not status: on this machine `git status` lists files whose only difference is the line
+# ending the .gitattributes would give them on the next touch (the first run of this script refused
+# on nine such phantoms, every one with an empty `git diff`). A release cares that no edit is
+# uncommitted, and `git diff --quiet HEAD` answers exactly that. Submodules are ignored because a
+# dirty submodule checkout is not a change to this repository's content.
+& git diff --quiet --ignore-submodules HEAD -- 2>$null
+if ($LASTEXITCODE -ne 0) {
+    & git --no-pager diff --ignore-submodules --stat HEAD -- 2>$null | ForEach-Object { Write-Host $_ }
+    Refuse "tracked files have uncommitted changes -- commit or stash first"
+}
 & git fetch origin --tags --quiet
 if ((& git ls-remote --tags origin "refs/tags/$Version")) { Refuse "tag $Version already exists on origin" }
 $behind = (& git rev-list --count "HEAD..origin/master").Trim()
