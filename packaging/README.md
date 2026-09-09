@@ -1,5 +1,8 @@
 # Packaging
 
+**A release is cut with `dev-scripts/release.ps1`, never a bare `gh workflow run`** -- it runs
+preflight, rebuilds stale mod DLLs, waits for CI and only then dispatches (2026-09-10).
+
 What actually goes in a release, and why it's laid out the way it is. Consumed by
 `.github/workflows/release.yml` — this folder holds the hand-written parts (the config
 template, player-facing READMEs, and the committed TEVI/Pseudoregalia plugins); the workflow

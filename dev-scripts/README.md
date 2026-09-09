@@ -432,6 +432,13 @@ default silently drags every dev client back down, and a ghost updating at 15Hz 
   staged. The stock Mods folder is deliberately NOT staged -- see the script's own header for the
   cheat-manager/console reasoning -- and no mods.txt/mods.json ships either. Re-run whenever the
   RE-UE4SS submodule pin changes; requires the build tree already built once.
+- `release.ps1` — **the only way a release is cut** (`-Version v1.2.6 -HighlightsFile <file>`, `-Prerelease`).
+  Runs preflight, rebuilds whatever it names stale (the two mod DLLs via their `build-*.bat`, the root
+  `.exe`s) and commits that, runs preflight again and refuses on any FAIL, pushes, waits for every
+  workflow on HEAD to be green, dispatches `release.yml` with the highlights file (`@`-read), and
+  waits for the run. Exists because v1.2.6's first dispatch was refused by the release's own
+  staleness gate after preflight had already said the DLL was stale -- the second such release
+  (the user, 2026-09-10). A bare `gh workflow run release.yml` skips every check this repo has.
 - `stage-release.ps1` — **assembles the Windows release into `packaging/release/`, so a release
   can be tried without cutting one.** That folder holds only the hand-written half; the Go
   binaries and the Emerald/Crystal adapter scripts were added by `release.yml` and existed

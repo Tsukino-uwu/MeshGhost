@@ -6834,3 +6834,27 @@ touches no memory, and the memory-writing mode became the opt-in for faking the 
 **Reach for first.** Before overriding one entry of anything indexed, write out the layout in words
 and say which index means what; and when a write is "confirmed" by a read-back but the screen
 disagrees, ask what ELSE the consumer reads from -- the answer was a second copy 128 bytes away.
+
+## A release dispatched past a preflight FAIL that was already on screen -- the stale-DLL gate, the second time (repo, 2026-09-10)
+
+**Symptom.** `release.yml` for v1.2.6 refused at `build-and-package`: *"Plugin.cpp has changed since
+main.dll was built"*. No tag was made (the gate runs before it), so the cost was one wasted run
+and a re-cut -- and the user's note that this was the second release to hit that gate.
+
+**Cause.** Earlier the same evening preflight had printed `FAIL Pseudoregalia DLL is STALE --
+Plugin.cpp`, and I read it as "pre-existing, not mine" and moved on, because I was checking the
+tree for my OWN change rather than for the release. The dispatch was a bare `gh workflow run`,
+which asks nothing. A gate that exists only as a line a person must act on is a gate that a person
+in a hurry walks through; the change behind it was a comment (`a9f547ca`), which made "not mine"
+feel safe and was irrelevant -- the gate hashes sources, not meaning.
+
+**Fix.** `dev-scripts/release.ps1`: preflight, rebuild what it names stale (the repo's own
+`build-*.bat` and `go build -o`), commit that, preflight again and refuse on any FAIL, push, wait
+for every workflow on HEAD, dispatch with the highlights file, wait for the run. The dispatch sits
+BEHIND the checks, so the line cannot be read and ignored. Nothing is re-derived: preflight's
+verdict lines are the contract, so a check added there gates releases from then on.
+
+**Reach for first.** A preflight FAIL is a FAIL for whatever comes next, not only for what you
+changed; and when the same gate has refused twice, put the action behind the gate instead of
+resolving to read more carefully.
+
