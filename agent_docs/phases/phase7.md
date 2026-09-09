@@ -3424,3 +3424,15 @@ next prepare, and `stand_fn=<function>` lets the next session try `BPI_EndIntera
 01:15; the rig DISARMED in the install (`ghost_drive.txt.disarmed`) at the user's "new chat" -- live,
 replay and chaser ghosts run the shipped path; the input history works for replay ghosts (their 1:1
 word still owed); the driven ghost is a dev rig, WIP.
+
+## 2026-09-09 (late) — the input display is its own thing, and the rig's pointers are released
+
+Three adapter commits after the driven-ghost session, from a tester's report the user relayed:
+`input_display.always` removed (the player's panel shows whenever `player` is on, recording or not;
+an old config's key is ignored; `0a8fdcc7`), then both panels decoupled from `replay.indicator`,
+which used to hide them too (the user: *"the input history should be its own thing"*; `a345684d`),
+and the drive rig's per-pawn objects (`drive_private_gi`, `drive_own_hitable`, the prepared flag)
+cleared in both ghost release paths for preflight's stale-pointer check (`66738c1c`). DLL
+`9e382478fb4f` on both installs, UNWATCHED -- nothing should look different with the panel off; with
+`player` on it should now show with no recording running and with the indicator off. The Go-side
+half of the evening (config.json live) is `phase10.md`, same date.
