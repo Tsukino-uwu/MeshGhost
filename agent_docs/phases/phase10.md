@@ -1250,3 +1250,21 @@ which the mod already polls, and TEVI's mod, whose own config reads were not aud
 **The user found `REVIEW-FINDINGS.md` on GitHub.** It had been committed on 2026-09-08 (`80fc0f3f`) despite its own header saying it was deliberately untracked; untracked again in `3d34e694` and ignored from now on. It stays in history; a rewrite of public history was offered as the user's decision and not taken. The lesson and the two new gates (root allowlist, local-only header) are in `pitfalls/by-lesson.md`, proven to fail on a plant before being trusted. The Docs run on the first push of the day failed on two older drive-rig gates (five unindexed pitfalls, one unannotated pointer cache), fixed in `a9f547ca`.
 
 **Crystal is active** (`phase9.md`, this date) -- the next adapter to make ready for a second person.
+
+## 2026-09-10 (night) — the release's CI: a relay restarted on a held port, and the VPN that reddened the local run
+
+Pushing the evening's Crystal work for v1.2.6, the race job failed
+`TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart`: the relay killed mid-test and
+started again on the same freePort number logged `bind: address already in use` four seconds
+after the old one was reaped -- the freePort TOCTOU `testing.md` records, in a restart shape.
+Fixed in the harness only: `restartRelay` starts the relay again when the process exits before
+its listener answers, a second apart up to ten times, and checks the process is alive after a
+probe dial that connected (whatever holds the port may accept too).
+`TestRestartRelayRetriesWhileThePortIsHeld` holds the port the runner's way -- a dialled
+connection's local end -- and fails without the retry; its first version half-closed the holder
+and Linux kept the port in FIN_WAIT_2 for a minute (ten refusals after the "release" on CI), so
+both ends now close together. CI green on `8a0edd92`. Locally, `run-gotests.bat` was red on five
+`netx/udpconn` tests with Windows' "address not valid in its context" on every loopback UDP dial:
+Mullvad, connected since 2026-09-09 after a long time off; disconnected, green in the same minute
+(`environment.md`, onboarding checklist). The age-out re-admission fix (`fc89c4ab`, earlier that
+day) had its first CI run in this batch and passed.
