@@ -152,7 +152,9 @@ if (-not $SkipCI) {
     while ($true) {
         $json = & gh run list --commit $sha -L 20 --json status,conclusion,workflowName | Out-String
         $runs = @()
-        if ($json.Trim() -ne "") { $runs = @($json | ConvertFrom-Json) }
+        # Windows PowerShell 5.1 hands a JSON array back as ONE object; the ForEach-Object
+        # unrolls it (checked live: without it the two runs printed as one line of joined fields).
+        if ($json.Trim() -ne "") { $runs = @($json | ConvertFrom-Json | ForEach-Object { $_ }) }
         $pending = @($runs | Where-Object { $_.status -ne "completed" })
         if ($runs.Count -gt 0 -and $pending.Count -eq 0) { break }
         if ((Get-Date) -gt $deadline) { Refuse "CI did not finish within 40 minutes" }
@@ -170,7 +172,7 @@ if ($HighlightsFile -ne "") { $ghArgs += @("-F", "highlights=@$HighlightsFile") 
 & gh @ghArgs
 if ($LASTEXITCODE -ne 0) { Refuse "gh workflow run failed" }
 Start-Sleep -Seconds 30
-$latest = @((& gh run list --workflow release.yml -L 1 --json databaseId | Out-String) | ConvertFrom-Json)
+$latest = @((& gh run list --workflow release.yml -L 1 --json databaseId | Out-String) | ConvertFrom-Json | ForEach-Object { $_ })
 if ($latest.Count -eq 0) { Refuse "no release run found after the dispatch" }
 $runId = $latest[0].databaseId
 Write-Host "release run $runId"
@@ -181,10 +183,10 @@ while ($true) {
     if ((Get-Date) -gt $deadline) { Refuse "the release run did not finish within 40 minutes" }
     Start-Sleep -Seconds 30
 }
-$run.jobs | ForEach-Object { Write-Host "$($_.conclusion)`t$($_.name)" }
+@($run.jobs | ForEach-Object { $_ }) | ForEach-Object { Write-Host "$($_.conclusion)`t$($_.name)" }
 if ($run.conclusion -ne "success") { Refuse "the release run failed -- gh run view $runId --log-failed" }
 
 Step "Published"
 $rel = (& gh release view $Version --json name,url,assets | Out-String) | ConvertFrom-Json
 Write-Host "$($rel.name)`t$($rel.url)"
-$rel.assets | ForEach-Object { Write-Host "  $($_.name)`t$($_.size) bytes" }
+@($rel.assets | ForEach-Object { $_ }) | ForEach-Object { Write-Host "  $($_.name)`t$($_.size) bytes" }
