@@ -25,6 +25,16 @@ local function menuAttr()
 		memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
 		memory.read_u8(map + 2 * 32 + 12, "VRAM") or 0, memory.read_u8(0x2000 + map + 2 * 32 + 12, "VRAM") or 0)
 end
+-- Bank-0 WRAM dump (flat 0x0F00-0x0FFF, where vanilla keeps wMenuBorder*Coord at 0x0F82-0x0F85)
+-- with the menu open and again closed, so a build that moved those bytes can be measured by
+-- the four coordinates appearing and disappearing (added 2026-09-09 for the Archipelago build).
+local function dumpBank0(tag)
+	for base = 0x0F00, 0x0FF0, 16 do
+		local h = {}
+		for i = 0, 15 do h[#h + 1] = string.format("%02X", memory.read_u8(base + i, "WRAM") or 0) end
+		log(string.format("%s %04X: %s", tag, base, table.concat(h, " ")))
+	end
+end
 local frames, phase, waited = 0, "wait", 0
 local function tick()
 	frames = frames + 1
@@ -46,11 +56,12 @@ local function tick()
 		waited = waited + 1
 		if waited < 6 then joypad.set({ Start = true }) end
 		if waited % 20 == 0 then local live, s = oam(); log(string.format("menu +%df: %s | live=%d %s", waited, menuAttr(), live, s)) end
+		if waited == 60 then dumpBank0("open") end
 		if waited >= 120 then phase, waited = "close", 0 end
 	elseif phase == "close" then
 		waited = waited + 1
 		if waited < 6 then joypad.set({ B = true }) end
-		if waited >= 30 then phase = "done"; local live, s = oam(); log(string.format("closed; live=%d %s", live, s)); log("done") end
+		if waited >= 30 then phase = "done"; local live, s = oam(); log(string.format("closed; live=%d %s", live, s)); dumpBank0("closed"); log("done") end
 	end
 end
 MESHGHOST_DEV_TICK = tick
