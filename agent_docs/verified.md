@@ -164,6 +164,8 @@ passed. **Conservation catches loss; it cannot catch misfiling.**
 Pseudoregalia correction cites a Go-side transport entry that stayed here, and the RULE CHANGE
 entry cites an Emerald entry that moved. Both name their target by title.
 
+- 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
+
 ## Confirmed facts
 
 ### BizHawk loads a Lua script as an in-memory string chunk, not a file — debug.getinfo can't recover its path
@@ -1796,3 +1798,28 @@ the noise was all 1) rather than guessed.
 **The remaining ceiling is now the game, and this run is the first direct evidence of it.** At 512
 ghosts Pseudoregalia rendered at 5-7 fps by the user's report. The bridge is no longer what binds;
 the engine drawing that many characters is, and that is adapter/game territory rather than Go.
+
+## 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
+
+- Date: 2026-09-09
+- Observed: in a five-client Crystal room (five BizHawk windows, five cores, one relay at shipped
+  settings), a window that paused -- BizHawk pauses on its own menus, and on focus loss with *run
+  in background* off -- went silent, was aged out by the other four cores after 3s, and was never
+  rendered again until every client reconnected. The cause was the 2026-09-08 change (E6) that
+  drops an aged-out peer's roster seat: `storeRemoteState` refuses an id without a seat, and only
+  Welcome/Join grant one. With the fix (`core.agedOut`; a fresh state from an unseated-for-silence
+  id retakes its seat through the capped `admitToRosterLocked`; a Leave clears the mark; the
+  nametag is kept), the same room logged `core: p12 is sending again after going quiet -- back in
+  the room` in all four other cores within a second of the V1.0 window regaining focus, five
+  focus cycles in a row, and each core's stats went `3 peers known, 3 rendered` -> `4 known, 4
+  rendered`. The adapters' own tallies followed (`4 peers waiting, 4 drawn`).
+- Source: `core/remotes.go` (age-out and `storeRemoteState`), `core/relaysession.go` (Leave),
+  `core/agedout_return_test.go` -- three tests, the first confirmed failing with the re-admission
+  neutralised; `core/interpfix_roster_test.go` updated for the kept nametag. `Stats.RemotesReturned`
+  added beside `RemotesAgedOut`. The live logs: the five `core2-*.err.log` files of that rig.
+- Notes: `dev-scripts/run-gotests.bat`: every package green except `cmd/meshghost-netsim`, whose
+  two UDP proxy tests failed to DIAL `127.0.0.2` on this machine that day ("requested address is
+  not valid in its context") while `ping 127.0.0.2` answered -- an environment fault in a package
+  this change does not touch; the last CI runs on the branch were green and CI is where it is
+  re-checked. What a player sees now: a peer in a menu blinks out for the length of the visit
+  and is back on the first frame after; that on-screen half is the user's (`crystal/UNVERIFIED.md`).
