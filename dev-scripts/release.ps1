@@ -147,15 +147,19 @@ if (-not $SkipCI) {
     Step "Waiting for CI on $($sha.Substring(0,8))"
     Start-Sleep -Seconds 25
     $deadline = (Get-Date).AddMinutes(40)
+    # `--json` and ConvertFrom-Json, never a `-q` jq expression: the first run of this script
+    # quoted one through PowerShell into gh's usage text, every 30 s, for the whole deadline.
     while ($true) {
-        $runs = @(& gh run list -L 20 --json status,conclusion,workflowName,headSha -q ".[] | select(.headSha==`"$sha`") | `"\(.status)`t\(.conclusion)`t\(.workflowName)`"")
-        $pending = @($runs | Where-Object { $_ -match '^(in_progress|queued|waiting|requested|pending)' })
+        $json = & gh run list --commit $sha -L 20 --json status,conclusion,workflowName | Out-String
+        $runs = @()
+        if ($json.Trim() -ne "") { $runs = @($json | ConvertFrom-Json) }
+        $pending = @($runs | Where-Object { $_.status -ne "completed" })
         if ($runs.Count -gt 0 -and $pending.Count -eq 0) { break }
-        if ((Get-Date) -gt $deadline) { Refuse "CI did not finish within 40 minutes:`n$($runs -join "`n")" }
+        if ((Get-Date) -gt $deadline) { Refuse "CI did not finish within 40 minutes" }
         Start-Sleep -Seconds 30
     }
-    $runs | ForEach-Object { Write-Host $_ }
-    $red = @($runs | Where-Object { $_ -notmatch "`tsuccess`t" })
+    $runs | ForEach-Object { Write-Host "$($_.status)`t$($_.conclusion)`t$($_.workflowName)" }
+    $red = @($runs | Where-Object { $_.conclusion -ne "success" })
     if ($red.Count -gt 0) { Refuse "CI is red on HEAD -- read it (gh run view <id> --log-failed), fix, run this again" }
     Write-Host "every workflow on HEAD is green"
 }
@@ -166,17 +170,21 @@ if ($HighlightsFile -ne "") { $ghArgs += @("-F", "highlights=@$HighlightsFile") 
 & gh @ghArgs
 if ($LASTEXITCODE -ne 0) { Refuse "gh workflow run failed" }
 Start-Sleep -Seconds 30
-$runId = (& gh run list --workflow release.yml -L 1 --json databaseId -q '.[0].databaseId').Trim()
+$latest = @((& gh run list --workflow release.yml -L 1 --json databaseId | Out-String) | ConvertFrom-Json)
+if ($latest.Count -eq 0) { Refuse "no release run found after the dispatch" }
+$runId = $latest[0].databaseId
 Write-Host "release run $runId"
 $deadline = (Get-Date).AddMinutes(40)
 while ($true) {
-    $st = (& gh run view $runId --json status,conclusion -q '"\(.status)\t\(.conclusion)"').Trim()
-    if ($st -match '^completed') { break }
+    $run = (& gh run view $runId --json status,conclusion,jobs | Out-String) | ConvertFrom-Json
+    if ($run.status -eq "completed") { break }
     if ((Get-Date) -gt $deadline) { Refuse "the release run did not finish within 40 minutes" }
     Start-Sleep -Seconds 30
 }
-& gh run view $runId --json jobs -q '.jobs[] | "\(.conclusion)\t\(.name)"' | ForEach-Object { Write-Host $_ }
-if ($st -notmatch "`tsuccess$") { Refuse "the release run failed -- gh run view $runId --log-failed" }
+$run.jobs | ForEach-Object { Write-Host "$($_.conclusion)`t$($_.name)" }
+if ($run.conclusion -ne "success") { Refuse "the release run failed -- gh run view $runId --log-failed" }
 
 Step "Published"
-& gh release view $Version --json name,url,assets -q '"\(.name)\t\(.url)", (.assets[] | "  \(.name)\t\(.size) bytes")'
+$rel = (& gh release view $Version --json name,url,assets | Out-String) | ConvertFrom-Json
+Write-Host "$($rel.name)`t$($rel.url)"
+$rel.assets | ForEach-Object { Write-Host "  $($_.name)`t$($_.size) bytes" }
