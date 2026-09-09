@@ -821,6 +821,21 @@ type Core struct {
 	// in agent_docs/architecture.md.
 	roster map[string]struct{}
 
+	// agedOut is every id the age-out in remoteStatesAt took a roster seat
+	// from WITHOUT the relay saying it left. Such a peer is not gone: a
+	// BizHawk window that paused (menu open, focus lost with "run in
+	// background" off) stops its adapter, so its core sends nothing, and 3s
+	// later every other core aged it out -- and then refused every state it
+	// sent on resume, because a seat is only granted at Welcome/Join and a
+	// paused peer never re-joins. Five clients on one map lost each other one
+	// by one and never recovered until a full reconnect (2026-09-09). This set
+	// is what lets a state from such an id retake its seat (through the same
+	// capped admitToRosterLocked, so the 2026-09-08 fix stands); an id the
+	// relay never admitted is still refused, which is what the roster is for.
+	// A Leave clears it: the relay let the id go, and may hand it to someone
+	// else, whose own Join admits them fresh.
+	agedOut map[string]struct{}
+
 	// localPeers is the set of ids this Core invented -- replays and chasers
 	// (core/localpeer.go, ADR 0047). Every one is also in the roster, or its
 	// state would be dropped; this set is what marks its renders cosmetic.

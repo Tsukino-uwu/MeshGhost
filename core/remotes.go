@@ -53,7 +53,18 @@ func (c *Core) storeRemoteState(st protocol.State) {
 		// dropped rather than trusted — only the relay stamps player_id
 		// server-side, and this Core has no other way to confirm who's
 		// actually in the room. See the roster field's doc comment.
-		return
+		//
+		// The one exception is an id this Core admitted and then aged out
+		// for silence: the relay never said it left, so a fresh state is the
+		// peer coming back (a paused emulator resuming, 2026-09-09), and it
+		// retakes a seat through the same capped admission. A stale state
+		// cannot do this -- it would age out again on the next render tick.
+		if _, was := c.agedOut[st.PlayerID]; !was || !c.admitToRosterLocked(st.PlayerID) {
+			return
+		}
+		delete(c.agedOut, st.PlayerID)
+		atomic.AddUint64(&c.stats.remotesReturned, 1)
+		log.Printf("core: %s is sending again after going quiet -- back in the room", st.PlayerID)
 	}
 	b, ok := c.remotes[st.PlayerID]
 	if !ok {
@@ -236,10 +247,19 @@ func (c *Core) remoteStatesAt(now int64) (map[string]protocol.State, map[string]
 			// with their own chasers and replays refused too, while the stats
 			// read PeersKnown 512 and PeersRendered 0.
 			delete(c.roster, id)
-			// And the nametag with it, for the reason the Leave path gives:
-			// a relay reuses player ids within a session, so a name left
-			// behind here is eventually drawn over somebody else's ghost.
-			delete(c.remoteNames, id)
+			// The seat is REMEMBERED, not merely dropped: a paused emulator
+			// comes back sending under the same id without ever re-joining,
+			// and storeRemoteState re-admits it from this set (2026-09-09,
+			// see the field). The nametag STAYS -- it was deleted here from
+			// 2026-09-08 to 2026-09-09 on the reasoning that a relay reuses
+			// ids, but a reused id always arrives with its own Join, and
+			// Join stores the new name unconditionally; the Leave path is
+			// where a name is dropped. Deleting it here only cost a returning
+			// peer its tag.
+			if c.agedOut == nil {
+				c.agedOut = make(map[string]struct{})
+			}
+			c.agedOut[id] = struct{}{}
 			atomic.AddUint64(&c.stats.remotesAgedOut, 1)
 			continue
 		}

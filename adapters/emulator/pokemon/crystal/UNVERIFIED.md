@@ -60,6 +60,30 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
+## [READY] The five-build room: all five builds saw each other, and the drop-out had a Go-side cause, fixed (2026-09-09)
+
+**What ran.** Five BizHawk windows on one relay at shipped settings, one core each: vanilla V1.0,
+vanilla V1.1, Archipelago on a V1.0 base, Archipelago on a V1.1 base, Speedchoice v8.1 -- the
+first time V1.1, Speedchoice and AP-on-V1.1 ran at all. Every window's first ROM line named its
+build correctly; the sprite-table signature split exactly as predicted (V1.0 = V1.1 = Speedchoice,
+the two AP seeds equal to each other); Speedchoice's ghost was painted on a tile, not one off.
+
+**What the user saw, in their words**, all five on map 24/4 within a few tiles: at first *"not all
+ghosts are showing up for each other"*, then after every adapter was reloaded: *"now i can see all
+5, on all 5 games"*. The first is the pitfall filed the same day (a peer that paused for 3s was
+never re-admitted; `agent_docs/pitfalls/by-lesson.md`, fixed in `core` with a regression test);
+the second is the state every window's log agreed with (4 peers waiting, 4 drawn, 0 off screen).
+
+**Still to settle on screen, each on its own:**
+
+1. **Speedchoice**: the ghost of the speedchoice player stands ON the tile the other windows show
+   that player on (the table's +1 was the whole risk); walk, fish, fly land.
+2. **AP on V1.1**: behaves as AP on V1.0 did in the 2026-08-27 room.
+3. **V1.1**: indistinguishable from V1.0.
+4. **The fix**: a window paused for longer than 3s (a menu open, or unfocused with *run in
+   background* off) blinks out of the other windows and is BACK within a second of resuming, with
+   no reload -- and the paused window itself sees everyone again on resume.
+
 ## [READY] Three more ROM builds recognised from hash-verified symbol files (2026-09-09), none yet run
 
 **What changed.** `classifyRom()` now returns "known" for **vanilla V1.1** (checksum `$18D2`,

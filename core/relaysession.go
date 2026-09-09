@@ -1069,6 +1069,9 @@ func (c *Core) handleRelayMessage(conn transport.Transport, payload []byte, welc
 			// reused by a relay across a session, so a stale name here would
 			// eventually be shown over somebody else's ghost.
 			delete(c.remoteNames, l.PlayerID)
+			// The relay let this id go and may reuse it: whoever gets it next
+			// arrives with a Join, not as a returning peer (see agedOut).
+			delete(c.agedOut, l.PlayerID)
 			c.mu.Unlock()
 			c.dropRemote(l.PlayerID)
 		}

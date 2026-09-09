@@ -1111,3 +1111,21 @@ apworld selects a per-base patch but shares one address table, and the adapter n
 base an AP ROM sits on. All three builds wait on a screen (`UNVERIFIED.md`); the tool facts are
 in Crystal's `VERIFIED.md`, three entries. The user also re-shared the AP maintainer's private
 fork with a caveat about its own multiplayer branch; it stays where it was, in agent memory only.
+
+## 2026-09-09 (later) — the five-build room, and the age-out that never let a peer back
+
+The user asked to run all five builds together. Five launchers and loader targets (untracked),
+one relay at shipped settings with collision off, five cores, five windows; every build identified
+itself right, all five reached map 24/4 within a few tiles. Then the user reported *"not all ghosts
+are showing up for each other"* and the logs agreed: each adapter's `peers waiting` had sunk from
+4 to 1, one peer at a time, with no `stopped sending` line. Range (8 tiles), the area gate across
+builds, the new speedchoice table and a savestate rewind were each ruled out by measurement --
+`probes/where_probe.lua` put every player on 24/4 within three tiles, and a scripted slot-3 load
+changed nothing. The V1.0 window's log going quiet and then growing again while the other four
+kept holding three peers was the tell: BizHawk pauses on its own menus and (with run-in-background
+off) on focus loss, the paused adapter goes silent, the other cores age it out after 3s -- and
+since 2026-09-08 the age-out drops the roster seat, which only a Join can grant, so the peer was
+refused for the rest of the session. Fixed in `core` (`agedOut`, re-admission on the next fresh
+state, nametag kept), three tests, the first failing on the old code. The user's later words, after
+a reload had re-admitted everyone: *"now i can see all 5, on all 5 games"*. Records: the pitfall,
+the network checklist line, `running-the-rig.md`, Crystal `UNVERIFIED.md`, `PROBES.md`.

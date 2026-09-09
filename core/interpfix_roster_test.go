@@ -40,8 +40,12 @@ func TestAgingAPeerOutGivesBackItsRosterSeat(t *testing.T) {
 	if seats != 0 {
 		t.Errorf("roster still holds %d seat(s) for a peer that aged out", seats)
 	}
-	if names != 0 {
-		t.Errorf("remoteNames still holds %d nametag(s) for a peer that aged out -- ids are reused within a session", names)
+	// The nametag is KEPT since 2026-09-09: an aged-out peer is usually a
+	// paused emulator that comes back under the same id without a Join, and
+	// a genuinely reused id always arrives with its own Join, which stores
+	// the new name unconditionally (a Leave is where a name is dropped).
+	if names != 1 {
+		t.Errorf("remoteNames holds %d nametag(s) for a peer that aged out, want 1 kept for its return", names)
 	}
 	if known := c.Stats().PeersKnown; known != 0 {
 		t.Errorf("PeersKnown = %d after the only peer aged out, want 0", known)

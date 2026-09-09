@@ -6767,3 +6767,43 @@ failing the same way is the signal; the third step was an instrument, not a thir
 **Cause.** Every gate in the repo scanned for one thing, machine-specific paths; the file had none once its one quoted path was removed, so nothing refused it. The sentence in the header was addressed to a reader, and the reader that mattered was a commit command. A rule that lives only in a file's prose is honoured exactly as long as it is read.
 **Fix.** Two narrow gates in the usual three homes (`.githooks/pre-commit`, `dev-scripts/preflight.ps1` "Stray files", `hygiene.yml`): the repo ROOT is an allowlist of eight files, so any new root-level file is refused until it is added there with a reason; and any tracked file whose first ten lines say "deliberately untracked" or "do not commit" is refused. Both proven to fail on a planted `STRAY-TEST.md` before being trusted. The file itself was untracked with `git rm --cached` and listed in `.gitignore`; it stays in history, and rewriting that is the user's call, not taken.
 **Check.** When a file says what it is, make a gate read the sentence. And a scanner built for one leak class (paths) is evidence about that class only -- "the scanners are clean" said nothing about whether the file belonged in the tree at all.
+
+## A peer that paused for three seconds was refused for the rest of the session -- the age-out gave its seat back, and only a Join could grant one (core, 2026-09-09)
+
+**Symptom.** Five Crystal clients on one map (V1.0, V1.1, Speedchoice, Archipelago on each base)
+saw each other for two minutes, then lost each other one at a time, in the order the user had
+visited the windows, and never got each other back. Each adapter's log showed `4 peers waiting`
+sinking to `1` with no `stopped sending` line at all; every window was alive, on map 24/4, within
+a few tiles of the others (`probes/where_probe.lua`). Reloading the adapters brought everyone back
+for another two minutes. The receiver's mirror image: the user set the V1.0 window to pause when
+unfocused, and after one alt-tab it *"lost all the ghosts and didn't see anyone"*.
+
+**Wrong theories, and why they looked right.** The 8-tile range cull (the town is wider than a
+screen -- but the probe put everyone within 3 tiles); the area gate across five builds (map ids
+are equality-only -- but every window read 24/4); a per-build address fault (speedchoice's table
+was new that day -- but V1.0 and V1.1 dropped out too); a savestate rewinding timestamps (the user
+had loaded slot 3 on each window in turn -- but timestamps are the core's, and a scripted load on
+one window changed nothing).
+
+**Cause, in two halves.** BizHawk pauses the emulator while any of its own menus is open
+(`PauseWhenMenuActivated`, on by default) and, with *run in background* off, whenever the window
+loses focus; a paused window's Lua stops, so its adapter sends nothing and its core has nothing to
+send. Three seconds later every other core aged that peer out. That was always so and is right.
+The half that broke on 2026-09-08 (E6, `interpfix_roster_test.go`): the age-out now gives back the
+peer's ROSTER seat, and `storeRemoteState` refuses any state from an id without a seat -- a seat
+is granted at Welcome or Join only, and a paused peer never re-joins because the relay never saw
+it leave. So the first menu visit in each window silenced it for the rest of the session, and the
+re-admission on a reconnect was the only way back. The measurement that settled it: the V1.0 log
+growing again after the refocus while the other four kept holding three peers, and the core's own
+`if _, known := c.roster[id]; !known { return }` with nothing upstream of it that could add the id.
+
+**Fix.** `core.agedOut`: the age-out remembers the id it unseated, a fresh state from such an id
+retakes a seat through the same capped `admitToRosterLocked`, a Leave clears the mark, and the
+nametag is kept across the age-out (a reused id always arrives with its own Join, which stores the
+new name). Three tests in `core/agedout_return_test.go`; the first fails on the 2026-09-08 code.
+`Stats.RemotesReturned` counts the returns beside the age-outs.
+
+**Lesson.** A peer going quiet for a few seconds is a NORMAL state of a real player -- a menu, an
+alt-tab, a loading screen -- and any change to what happens at age-out has to be judged against
+the peer coming back, not only against the peer never coming back. The 2026-09-08 fix was tested
+against a full roster of dead peers and never against one live peer that paused.

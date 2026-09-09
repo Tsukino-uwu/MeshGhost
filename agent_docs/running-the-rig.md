@@ -392,3 +392,14 @@ by name, which does not truncate. Cost one silent monitor and a launch nobody wa
   clip at 0/19/38/57 s put the whole route on screen at once; a clip recorded in a modded outfit
   gives a ghost wearing it. Every loop end is a despawn + respawn (a core seam).
 - **Two instances write separate logs:** the copy install's `UE4SS.log` is its own; read both.
+
+## A multi-BizHawk rig: every window pauses on its own menus, and on focus loss unless told not to (2026-09-09)
+
+`PauseWhenMenuActivated` is on by default, so File -> Load State in one window silences that
+window's adapter for as long as the menu is open; with `RunInBackground` off it is silent whenever
+another window has focus. On a five-window rig that is several seconds of silence per window per
+visit, which is past the core's 3s age-out -- and until 2026-09-09 an aged-out peer never came back
+(`pitfalls/by-lesson.md`). Now it does, so the visible effect is a ghost blinking out for the
+length of a menu visit and returning on the first frame after; a longer absence is the paused
+window itself, not the rig. Check `RunInBackground` in the user's `config.ini` before reading
+"ghost missing" as a network fault, and read the adapter log's mtime: a paused window's log stops.

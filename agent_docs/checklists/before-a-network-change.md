@@ -30,3 +30,4 @@ The Go side is confirmed with tools, never by watching. These are the shapes the
 - Interp is sized by the link's wobble plus loss holes, never by raw ping (cross-game, 2026-09-01, CLOSED) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A derived constant transmits a change to places nobody reasoned about (Go side, 2026-09-01, CLOSED before shipping) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A final message followed by Close() is delivered only SOMETIMES: unread peer data turns the close into a reset — use `CloseGracefully` (relay, 2026-09-05, CLOSED) — [by-lesson.md](../pitfalls/by-lesson.md)
+- A peer that goes quiet for seconds is a normal player (menu open, alt-tab, loading screen) and must come back on its next state without a Join -- test any age-out change against the peer RETURNING, not only against dead peers (2026-09-09) — [by-lesson.md](../pitfalls/by-lesson.md)

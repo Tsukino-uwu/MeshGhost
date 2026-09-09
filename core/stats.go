@@ -68,6 +68,10 @@ type coreStats struct {
 	// leaving -- see remoteStatesAt. A non-zero value in a healthy session
 	// means Leaves are not arriving, which is worth knowing on its own.
 	remotesAgedOut uint64
+	// remotesReturned counts aged-out peers re-admitted by a fresh state --
+	// a paused emulator resuming. Zero on a healthy link; equal to the
+	// age-outs in a room of players who alt-tab (2026-09-09).
+	remotesReturned uint64
 
 	// rendersSuperseded counts ghost positions replaced in the bridge's
 	// outbound queue before the adapter could read them (core/adapterwriter.go).
@@ -114,6 +118,11 @@ type Stats struct {
 	// RemotesAgedOut is how many peers were despawned for silence rather than
 	// for a Leave.
 	RemotesAgedOut uint64
+
+	// RemotesReturned is how many of those came back: an aged-out peer whose
+	// states resumed under the same id (a paused emulator unpausing) and
+	// retook its seat without a Join (2026-09-09).
+	RemotesReturned uint64
 
 	// RendersSuperseded is how many ghost positions were replaced in the
 	// bridge queue before the adapter read them -- how far behind the game
@@ -202,6 +211,7 @@ func (c *Core) Stats() Stats {
 		PrevCarried:          atomic.LoadUint64(&c.stats.prevCarried),
 		PrevRecovered:        atomic.LoadUint64(&c.stats.prevRecovered),
 		RemotesAgedOut:       atomic.LoadUint64(&c.stats.remotesAgedOut),
+		RemotesReturned:      atomic.LoadUint64(&c.stats.remotesReturned),
 		RendersSuperseded:    atomic.LoadUint64(&c.stats.rendersSuperseded),
 	}
 	s.PeersRendered = int(atomic.LoadInt64(&c.renderedNow))
