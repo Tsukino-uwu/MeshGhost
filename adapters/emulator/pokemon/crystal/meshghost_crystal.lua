@@ -4497,7 +4497,26 @@ function drawOverflow()
 	if TEXTBOX.stale and rectKey ~= TEXTBOX.stale then
 		TEXTBOX.stale = nil -- the slot changed: whatever it says now is the game speaking, trust it
 	end
-	if (b or 0) > 0 and (r or 0) > 0 and not TEXTBOX.stale then
+	-- IS THE BOX ACTUALLY DRAWN? The stale-string guard above refuses a rectangle until its value
+	-- CHANGES, which is right for the fly map's leftover and wrong for every restart with a menu
+	-- open: five reloads on 2026-09-09 each left the START menu unhidden until it was closed and
+	-- reopened, and a battle that leaves the same rectangle behind would do the same to a player.
+	-- The game's own tilemap answers directly: a box that is on screen has its frame's corner
+	-- tile at the rectangle's top-left (the same tile textBoxOpen() looks for at row 12), and a
+	-- rectangle nothing is drawn at does not. Scroll-compensated, one VRAM read per frame.
+	local boxDrawn = false
+	if (b or 0) > 0 and (r or 0) > 0 then
+		local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
+		local map = ((lcdc & 0x08) ~= 0) and TEXTBOX.hi or TEXTBOX.lo
+		local scy = (memory.read_u8(0xFF42, "System Bus") or 0) // 8
+		local scx = (memory.read_u8(0xFF43, "System Bus") or 0) // 8
+		local tile = memory.read_u8(map + ((t + scy) % 32) * 32 + ((l + scx) % 32), "VRAM") or 0
+		boxDrawn = (tile == TEXTBOX.corner)
+		if UI_DEBUG_ENV or _G.MESHGHOST_CRYSTAL_UI_DEBUG == true then
+			TEXTBOX.dbgCorner = tile
+		end
+	end
+	if boxDrawn then
 		local top, left, bottom, right = t * 8, l * 8, (b + 1) * 8, (r + 1) * 8
 		lastMenuBox = lastMenuBox or {}
 		local known = false
@@ -6289,7 +6308,11 @@ function drawOverflow()
 						end
 					end
 				end
-				if boxOpen and sy + 16 > TEXTBOX.row * 8 and (menuUp or boxCovers(TEXTBOX.row * 8, 0)) then
+				-- The user's call (2026-09-09), with the measurement in front of them -- vanilla keeps
+				-- its NPCs live beside the START menu and over its frameless "Party status" text,
+				-- Archipelago deletes them outright: while a menu is up, hide under the menu AND in
+				-- the bottom rows, keep the rest. Neither build exactly; what they wanted to see.
+				if (boxOpen or menuUp) and sy + 16 > TEXTBOX.row * 8 and (menuUp or boxCovers(TEXTBOX.row * 8, 0)) then
 					hidden = true
 				end
 				if uiOpen and lastMenuBox then
@@ -7004,7 +7027,7 @@ function drawOverflow()
 			nWanted, nDrawn, nOam, nNoTile, nOffScreen, nHidden)
 	end
 
-	if UI_DEBUG and (boxOpen or uiOpen) and drawFrames % 15 == 0 then
+	if UI_DEBUG and (boxOpen or uiOpen or (u8(MENUBOX.bottom) or 0) > 0) and drawFrames % 15 == 0 then
 		local rects = "none"
 		if lastMenuBox then
 			-- The whole list, because the union IS the fix -- one printed rectangle is how the
@@ -7016,11 +7039,11 @@ function drawOverflow()
 			end
 			rects = table.concat(parts, " | ")
 		end
-		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s stale=%s coords=%d,%d,%d,%d "
+		logFile(string.format("UI DEBUG: boxOpen=%s uiOpen=%s stale=%s coords=%d,%d,%d,%d corner=%s "
 			.. "rect=%s wy=%d wx=%d "
 			.. "-- %d painted, %d hidden; painted at: %s",
 			tostring(boxOpen), tostring(uiOpen), tostring(TEXTBOX.stale),
-			t or -1, l or -1, b or -1, r or -1,
+			t or -1, l or -1, b or -1, r or -1, tostring(TEXTBOX.dbgCorner),
 			rects,
 			memory.read_u8(0xFF4A, "System Bus") or 0, memory.read_u8(0xFF4B, "System Bus") or 0,
 			nDrawn, nHidden,
