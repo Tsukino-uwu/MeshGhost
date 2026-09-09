@@ -60,6 +60,29 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
+## [OPEN] User-reported 2026-09-09 — a peer's Fly is DRAGGED to the landing spot on the other clients, not flown
+
+**What the user saw**, five-build room, the Speedchoice window flying (via `probes/fly_menu_drive.lua`,
+four runs, New Bark to its own fly point): *"it got dragged towards the 'landing' spot on all
+the other clients. instead of flying/landing"*. The 2026-08-26 confirmation of the Fly landing
+(V1.0, `VERIFIED.md`) did not reproduce here.
+
+**What changed since that confirmation, in order of suspicion:**
+1. **The out-of-play hold** (same day): while the flyer is on the fly map and in the flight
+   cutscene it is out of play, so the LAST in-play state is re-sent -- position unchanged, with
+   `entry`/`fly` stripped -- and the landing state then arrives as a plain position jump, which
+   the core interpolates across as a drag. Before the hold, nothing was sent during the flight
+   and the receivers aged the flyer out or held its buffer; the arrival marker (`extras.entry`
+   = $FC, `extras.fly` = species, live for 240 frames after landing) drove the descent. Check
+   first whether the marker still reaches the receivers (`MESHGHOST_CRYSTAL_FLY_TRACE`) and
+   whether the drawn tier's arrival handling is skipped because the peer never left `overflow`.
+2. The flyer's species icon path is gated on `romClass == "known"`; Speedchoice is "known" with
+   its own `MON_ICONS_ROM`/`ICON_POINTERS_ROM` (moved +6, table bytes equal) -- unmeasured on screen.
+3. Same-town fly (New Bark to New Bark) may not be the case 2026-08-26 confirmed (cross-town).
+
+**Not chased**: the user ended the session there. The rig: five windows on the fly point, the
+speedchoice flyer at it. `probes/fly_menu_drive.lua` reproduces it in one attach.
+
 ## [READY] The five-build room: all five builds saw each other, and the drop-out had a Go-side cause, fixed (2026-09-09)
 
 **What ran.** Five BizHawk windows on one relay at shipped settings, one core each: vanilla V1.0,

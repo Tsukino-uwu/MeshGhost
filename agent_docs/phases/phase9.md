@@ -1129,3 +1129,25 @@ refused for the rest of the session. Fixed in `core` (`agedOut`, re-admission on
 state, nametag kept), three tests, the first failing on the old code. The user's later words, after
 a reload had re-admitted everyone: *"now i can see all 5, on all 5 games"*. Records: the pitfall,
 the network checklist line, `running-the-rig.md`, Crystal `UNVERIFIED.md`, `PROBES.md`.
+
+## 2026-09-09 (evening) — the five-build room, second half: kit, surf, fly, and what a menu hides
+
+With the age-out fix in, the user asked for the full kit on all five windows (badges, HMs, bike,
+Super Rod: `grant_all_vanilla.lua`, `grant_all_ap.lua` -- the AP addresses measured from the
+cartridge's pack-menu headers and engine-flag table), then a Surf/Fly party (`grant_party.lua`,
+a Cyndaquil created where the party was empty). Each report was measured before it was changed:
+a player in a battle or a fishing cast vanished for the others (the adapter sent nothing out of
+play -- it now re-sends its last in-play state, the user's call: a standing ghost); a fishing
+window hid the other ghosts (the drawn tier hid under text-box rows; measured, Crystal draws its
+characters over text boxes, so a box hides only where its tiles set BG priority); menus regressed
+twice on the way (AP deletes NPC sprites under its START menu with no priority bit; the
+stale-rectangle guard refused any menu open across a reload -- replaced by the box's own corner
+tile; vanilla keeps NPCs live under the frameless "Party status" text and the user chose to hide
+the bottom rows under a menu anyway). Surf was driven by the agent (`drive_surf.lua`, after
+declining its own prompt once) across the seam into Route 27; the surfer's colour differed by
+WINDOW until the peer's object palette crossed the wire (`extras.pal`; the game palettes the
+player by gender). Fly was driven through the menus (`fly_menu_drive.lua`) on V1.1 and four times
+on Speedchoice -- and the user saw the flyer DRAGGED to the landing spot on the other clients
+rather than flown: OPEN in `UNVERIFIED.md`, the out-of-play hold the first suspect. Confirmed on
+screen today, all in Crystal's `VERIFIED.md`: age-out return, standing ghost in battle, ghosts
+through text boxes, no ghosts on menus, the bike, surfing peers and their palette.
