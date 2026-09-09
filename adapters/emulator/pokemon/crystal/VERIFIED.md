@@ -142,6 +142,8 @@ filed under the right theme, but anything can check that it is listed.
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: no ghost on the pause menu on any of the five builds; the text box shows them
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: under a menu, ghosts hide in the menu box and the bottom rows and stay beside it; a menu is recognised by its corner tile
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2513,3 +2515,20 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
 - Source: the user, on screen; the probe logs and the adapter's `UI DEBUG` lines of 17:07-17:11.
 - Notes: the stale guard's cost is real on a dev reload with a menu open and nil for a player
   starting at the title screen. AP keeps `wMenuBorder*` at vanilla's 0x0F82-0x0F85 (measured).
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: under a menu, ghosts hide in the menu box and the bottom rows and stay beside it; a menu is recognised by its corner tile
+
+- Date: 2026-09-09
+- Observed: the last round of the five-build room's menu work. (1) The stale-rectangle guard
+  (2026-08-26) refused a menu that was open across a reload, five times in one hour, and the
+  fix was measured rather than tuned: `probes/drive_menu_npc.lua` showed every build's START
+  menu framed with corner tile 121 at the rectangle's top-left (the same tile `textBoxOpen()`
+  reads at row 12), so a rectangle is live iff that tile is there -- the adapter's `UI DEBUG`
+  line then read `corner=121 ... 3 painted, 1 hidden` with the reload done mid-menu. (2) The
+  frameless "Party status" text under the menu: vanilla V1.1 kept the youngster's OAM live at
+  y 124 inside those rows with the menu open, V1.0 kept an NPC beside the menu, Archipelago
+  deleted its NPC's entries; the user chose, with that in front of them, *hide under the menu
+  and in the bottom rows, keep the rest*. After the reload: *"yee this works good now"*.
+- Source: the user, on screen; the drive_menu_npc logs of 17:04-17:20 and the UI DEBUG lines.
+- Notes: not 1:1 with either build by the user's choice, recorded as such in the code. The
+  fishing text box still shows the other ghosts (its own entry above).
