@@ -6257,20 +6257,33 @@ function drawOverflow()
 				-- see other ghosts"*): this test hid every peer whose sprite reached row 12. Now it
 				-- hides only when the box's tiles set BG priority, the one case the game itself
 				-- covers a sprite. One VRAM read per frame; bank 1 is at +0x2000 in BizHawk's domain.
-				if boxOpen and sy + 16 > TEXTBOX.row * 8 then
+				-- The same one rule for the text box and for every menu rectangle the game reports
+				-- in wMenuBorder*: the text box IS one of those rectangles (rows 12-17), which is why
+				-- fixing only the branch above still hid a fishing window's peers (user, 2026-09-09,
+				-- second report). And Speedchoice keeps sprites ON under its START menu where V1.1
+				-- clears them, so whether a ghost may show over a menu is the same question, answered
+				-- the same way: by the tiles' own priority bit, read at the box's top-left interior
+				-- tile, scroll-compensated.
+				local function boxCovers(topPx, leftPx)
 					local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
 					local map = ((lcdc & 0x08) ~= 0) and TEXTBOX.hi or TEXTBOX.lo
-					local attr = memory.read_u8(0x2000 + map + TEXTBOX.row * 32 + 5, "VRAM") or 0
-					if (attr & 0x80) ~= 0 then
-						hidden = true
-					end
+					local scy = (memory.read_u8(0xFF42, "System Bus") or 0) // 8
+					local scx = (memory.read_u8(0xFF43, "System Bus") or 0) // 8
+					local row = (topPx // 8 + scy) % 32
+					local col = (leftPx // 8 + 1 + scx) % 32
+					local attr = memory.read_u8(0x2000 + map + row * 32 + col, "VRAM") or 0
+					return (attr & 0x80) ~= 0
+				end
+				if boxOpen and sy + 16 > TEXTBOX.row * 8 and boxCovers(TEXTBOX.row * 8, 0) then
+					hidden = true
 				end
 				if uiOpen and lastMenuBox then
 					-- ANY live rectangle hides -- see the list's construction above for why one
-					-- was never enough.
+					-- was never enough -- if its tiles say so.
 					for _, box in ipairs(lastMenuBox) do
 						if sx + 16 > box.left and sx < box.right
-							and sy + 16 > box.top and sy < box.bottom then
+							and sy + 16 > box.top and sy < box.bottom
+							and boxCovers(box.top, box.left) then
 							hidden = true
 							break
 						end

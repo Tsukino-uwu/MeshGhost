@@ -137,6 +137,9 @@ filed under the right theme, but anything can check that it is listed.
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: the bike works across all five builds
 
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: a player in a battle, a menu or a fishing cast keeps a standing ghost
+- CONFIRMED ON SCREEN 2026-09-09 — Crystal: a ghost under a text box or a menu is hidden only where the box's tiles set BG priority
+
 ## Confirmed facts
 
 ## Pokémon Crystal — access-model groundwork (2026-08-17)
@@ -2463,3 +2466,30 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
   in every other window, across the sprite-table groups (vanilla-family and AP seeds differ).
 - Source: the user, on screen; the grant logs read back id `07` (vanilla family) and `06` (AP).
 - Notes: the first time the bike gait was watched on V1.1, Speedchoice and AP-on-V1.1.
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: a player in a battle, a menu or a fishing cast keeps a standing ghost
+
+- Date: 2026-09-09
+- Observed: five-build room. First: *"went invisible for other clients when fishing, and while in
+  a fight"* -- the adapter sent nothing outside "in play", so every other core aged the player
+  out after 3s. The user chose: the others should see the ghost standing on its tile. The last
+  in-play state is now re-sent while out of play (anim idle, `entry`/`fly`/`jump` cleared). After
+  the reload: *"they are visible to other players now"*.
+- Source: the user, on screen; `getLocalState`'s hold wrapper in `meshghost_crystal.lua`.
+- Notes: a battling player's ghost stands where they stand, a fishing one keeps the rod out.
+
+## CONFIRMED ON SCREEN 2026-09-09 — Crystal: a ghost under a text box or a menu is hidden only where the box's tiles set BG priority
+
+- Date: 2026-09-09
+- Observed: *"while fishing they can't see other ghosts"*, then, after the text-box branch alone
+  was changed, *"now it shows onto the menu for other player, the one fishing still can't see
+  other ghosts"* (Speedchoice keeps sprites on under its START menu; the text box is also one of
+  the wMenuBorder rectangles, so the rectangle branch still hid it). Measured on V1.1 with
+  `probes/ui_signals_probe.lua` + `probes/drive_fish.lua`: through the fishing text the New Bark
+  youngster's OAM entries stay live inside the box rows with no behind-BG bit and the box tiles
+  carry palette 7 with CGB priority clear -- the game draws characters over its boxes. Both hide
+  branches now defer to the tiles' priority bit (`boxCovers`, scroll-compensated). The user, after
+  the reload of both branches: *"works now"* -- the fishing window sees the other ghosts, and the
+  Speedchoice START menu case behaves.
+- Source: the user, on screen; the probe logs of 16:50 that day; `meshghost_crystal.lua`.
+- Notes: the START/Pack menus on vanilla clear the sprite engine, a different gate, unchanged.
