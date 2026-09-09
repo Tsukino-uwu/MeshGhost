@@ -1168,3 +1168,13 @@ address by content; the two-window watch is in `UNVERIFIED.md`. The user asked w
 OWN sprite pixels could cross too (a run pose, a custom outfit) and whether that was safe compared
 to Pseudoregalia's match-locally model; answered (content risk, not code; receiver opt-in if built)
 and the user's call: *"just go with the colors for now"* — filed in `ideas.md`.
+
+**Addendum, 2026-09-10 (00:00-00:20).** Four windows in one room (Archipelago on V1.0 and V1.1,
+Speedchoice v8.1, vanilla V1.1), each sending a colour no cartridge holds: *"Yes it looks
+correct"* -- every ghost in its sender's colour, every local player in the game's own. Recorded in
+Crystal's `VERIFIED.md`; a REAL coloured seed is still unwatched. On the way: the clothing colour
+is palette word 2 (the first commit overrode the outline), the hardware loads from the SECOND
+palette block (the probe's local colour stayed salmon), and the user's reading of that salmon as
+a defect reshaped the test -- the adapter now has `MESHGHOST_CRYSTAL_DEV_CLOTHING`, a colour on the
+wire with no local write, and the probe's memory-writing mode is the opt-in. `pitfalls/by-lesson.md`.
+A `trainer_color` config key was declined (`ideas.md`). Rig torn down at the end of the session.
