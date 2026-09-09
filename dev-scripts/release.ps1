@@ -52,7 +52,7 @@ Set-Location $root
 # git BY PATH, never by name: in PowerShell on this machine `git` resolves to the devkitPro/MSYS2
 # shadow (CLAUDE.md, Method: "anything on PATH may resolve to the wrong install"), whose diff of
 # a CRLF working copy against an LF index reported 3,167 phantom lines and refused the second run.
-$git = @("C:\Program Files\Git\cmd\git.exe", "C:\Program Files\Gitin\git.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+$git = @("C:\Program Files\Git\cmd\git.exe", "C:\Program Files\Git\bin\git.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $git) { Write-Host "no Git for Windows under Program Files -- falling back to whatever 'git' on PATH is" -ForegroundColor Yellow; $git = "git" }
 
 function Step($msg) { Write-Host ""; Write-Host "== $msg ==" -ForegroundColor Cyan }
