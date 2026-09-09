@@ -6274,7 +6274,22 @@ function drawOverflow()
 					local attr = memory.read_u8(0x2000 + map + row * 32 + col, "VRAM") or 0
 					return (attr & 0x80) ~= 0
 				end
-				if boxOpen and sy + 16 > TEXTBOX.row * 8 and boxCovers(TEXTBOX.row * 8, 0) then
+				-- ...AND ONLY WHILE THE TEXT BOX IS THE ONLY THING OPEN. The START menu's own
+				-- description box ("Party status") is drawn as a text box, and the game is in menu
+				-- mode there with its NPCs gone -- the user, 2026-09-09: *"we forgot the box in the
+				-- bottom/left, for both vanilla & AP, we only did the pause menu itself"*. A live
+				-- menu rectangle that is NOT the text box means a menu is up, and then the text-box
+				-- rows hide like the rest of the menu.
+				local menuUp = false
+				if uiOpen and lastMenuBox then
+					for _, box in ipairs(lastMenuBox) do
+						if not (box.top >= TEXTBOX.row * 8 and box.left <= 8 and box.right >= 152) then
+							menuUp = true
+							break
+						end
+					end
+				end
+				if boxOpen and sy + 16 > TEXTBOX.row * 8 and (menuUp or boxCovers(TEXTBOX.row * 8, 0)) then
 					hidden = true
 				end
 				if uiOpen and lastMenuBox then
@@ -6293,7 +6308,7 @@ function drawOverflow()
 						if sx + 16 > box.left and sx < box.right
 							and sy + 16 > box.top and sy < box.bottom then
 							local isTextBox = box.top >= TEXTBOX.row * 8 and box.left <= 8 and box.right >= 152
-							if not isTextBox or boxCovers(box.top, box.left) then
+							if not isTextBox or menuUp or boxCovers(box.top, box.left) then
 								hidden = true
 								break
 							end
