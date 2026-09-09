@@ -1265,6 +1265,6 @@ connection's local end -- and fails without the retry; its first version half-cl
 and Linux kept the port in FIN_WAIT_2 for a minute (ten refusals after the "release" on CI), so
 both ends now close together. CI green on `8a0edd92`. Locally, `run-gotests.bat` was red on five
 `netx/udpconn` tests with Windows' "address not valid in its context" on every loopback UDP dial:
-Mullvad, connected since 2026-09-09 after a long time off; disconnected, green in the same minute
+Mullvad, connected since 2026-09-09 and off before that (the last green local run was 2026-09-08); disconnected, green in the same minute
 (`environment.md`, onboarding checklist). The age-out re-admission fix (`fc89c4ab`, earlier that
 day) had its first CI run in this batch and passed.
