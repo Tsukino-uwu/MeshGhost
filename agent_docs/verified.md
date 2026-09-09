@@ -130,6 +130,8 @@ filed under the right theme, but anything can check that it is listed.
 - 2026-09-06 — The fuzzer's peer space widened past the roster cap, and it deadlocked that same evening's fix at 11.5 s
 - 2026-09-07 — The ~350-ghost bridge ceiling: what it actually was, and the two ceilings found on the way
 - 2026-09-07 (evening) — The coalescing bridge, confirmed on a live 512-chaser run
+- 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
+
 ## Split per game — 2026-08-25
 
 **This file used to hold all four games and the Go side, interleaved chronologically, at 10,174
@@ -164,7 +166,6 @@ passed. **Conservation catches loss; it cannot catch misfiling.**
 Pseudoregalia correction cites a Go-side transport entry that stayed here, and the RULE CHANGE
 entry cites an Emerald entry that moved. Both name their target by title.
 
-- 2026-09-09 — core: an aged-out peer is back on its next fresh state (a paused emulator returns), confirmed in a five-client room
 
 ## Confirmed facts
 

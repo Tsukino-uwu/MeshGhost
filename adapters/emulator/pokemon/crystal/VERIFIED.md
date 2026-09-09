@@ -145,6 +145,7 @@ filed under the right theme, but anything can check that it is listed.
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: under a menu, ghosts hide in the menu box and the bottom rows and stay beside it; a menu is recognised by its corner tile
 
 - CONFIRMED ON SCREEN 2026-09-09 — Crystal: surfing peers across all five builds, in the peer's own gender palette
+- CONFIRMED ON SCREEN 2026-09-10 — Crystal: a peer's clothing colour crosses the wire and paints its ghost on every build, the local player untouched
 
 ## Confirmed facts
 
