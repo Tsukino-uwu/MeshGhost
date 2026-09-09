@@ -27,8 +27,14 @@
 -- before judging anything else -- this drives a pawn.
 
 local TAG = "[MeshGhostStandHunt]"
+-- The first ten came from the substring census; the rest from the unfiltered function-name
+-- dump (`pawn_census.lua`, 11:55: 257 names on BP_PlayerGoatMain_C) -- the state machine's own
+-- verbs, which no interact/sit/heal filter could have named.
 local PAWN_FNS = { "EndInteract", "BPI_EndInteract", "BPI_TryInteract", "BPI_InteractConfirm", "exitTransition",
-                   "enterTransition", "trySitHeal", "tryFinishHeal", "healPlayer", "healDing" }
+                   "enterTransition", "trySitHeal", "tryFinishHeal", "healPlayer", "healDing",
+                   "change Move State", "onMoveStateChange", "change Action State", "onActionStateChange",
+                   "changeControlState", "resetControlState", "setInputVariables", "customStopMontage",
+                   "setStateUptimes", "timedResetControlVariables" }
 local CHAIR_FNS = { "BPI_EndInteract", "BPI_TryInteract", "BPI_InteractConfirm" }
 
 local function scriptDir()
@@ -125,7 +131,8 @@ local function read_toggle()
     local new = { fn = "", on = "pawn", arg = "none", text = text }
     for line in text:gmatch("[^\r\n]+") do
         local k, v = line:match("^%s*([%w_]+)%s*=%s*(.-)%s*$")
-        if k == "fn" then new.fn = v elseif k == "on" then new.on = v elseif k == "arg" then new.arg = v end
+        if k == "fn" then new.fn = v elseif k == "on" then new.on = v elseif k == "arg" then new.arg = v
+        elseif k == "then_fn" then new.then_fn = v elseif k == "then_arg" then new.then_arg = v end
     end
     cfg = new
     log(string.format("toggle: fn=%q on=%s arg=%s", cfg.fn, cfg.on, cfg.arg))
@@ -133,17 +140,36 @@ end
 
 local driven, driven_addr = nil, nil
 local last_input = nil
+local player_last_ms = nil
 local ticks = 0
 local pending = {}
 local signatures_done = false
 
+-- The montage side (2026-09-09 12:0x, the user: the ghost LEAVES the chair after
+-- `change Move State(0)` but stays in the sitting pose): the mesh's anim instance, asked through
+-- the engine's own getters -- `IsAnyMontagePlaying`, `GetCurrentActiveMontage` -- and the
+-- pawn's `actionState`/`animJumpType`. Named reads and native getters on a live instance only.
+local function montage_text(pawn)
+    local mesh = prop(pawn, "Mesh")
+    if mesh == nil or not valid(mesh) then return "mesh=?" end
+    local anim = prop(mesh, "AnimScriptInstance")
+    if anim == nil or not valid(anim) then return "anim=none" end
+    local playing, name = "?", "none"
+    pcall(function() playing = tostring(anim:IsAnyMontagePlaying()) end)
+    pcall(function()
+        local m = anim:GetCurrentActiveMontage()
+        if m ~= nil and valid(m) then name = fname_str(m) end
+    end)
+    return string.format("montage_playing=%s montage=%s", playing, name)
+end
 local function readback(pawn, label)
     local target = prop(pawn, "Interaction Target")
     local tname = (target ~= nil and valid(target)) and fname_str(target) or "none"
     local mv = prop(pawn, "CharacterMovement")
     local mm = mv and tostring(prop(mv, "MovementMode")) or "?"
-    log(string.format("%s: moveState=%s MovementMode=%s InteractionTarget=%s hasMovementInput?=%s", label,
-        tostring(prop(pawn, "moveState")), mm, tname, tostring(prop(pawn, "hasMovementInput?"))))
+    log(string.format("%s: moveState=%s actionState=%s MovementMode=%s InteractionTarget=%s hasMovementInput?=%s %s", label,
+        tostring(prop(pawn, "moveState")), tostring(prop(pawn, "actionState")), mm, tname,
+        tostring(prop(pawn, "hasMovementInput?")), montage_text(pawn)))
 end
 
 local pawn_signatures_done = false
@@ -220,6 +246,27 @@ local function fire(pawn)
     end
     log(string.format("rising edge while seated (moveState=8) -> %s.%s(%s) %s", on_name, cfg.fn, cfg.arg,
         ok and "called" or ("FAILED " .. tostring(err))))
+    -- `then_fn=<name>` / `then_arg=none|<number>|true|false`: a second call on the PAWN right
+    -- after the first (the pose that outlives the state change). Same refusals.
+    if cfg.then_fn and cfg.then_fn ~= "" then
+        local fn2 = find_fn(pawn, cfg.then_fn)
+        if not fn2 then
+            log("  then: pawn." .. cfg.then_fn .. " NOT FOUND; nothing called")
+        else
+            local sig2, count2, objects2 = signature(fn2)
+            local a = cfg.then_arg or "none"
+            local ok2, err2
+            if a == "none" then
+                if objects2 > 0 then log("  then: REFUSED, object parameter " .. sig2) else ok2, err2 = pcall(function() pawn[cfg.then_fn](pawn) end) end
+            elseif count2 == 1 and objects2 == 0 then
+                local lit = (a == "true") and true or ((a == "false") and false or tonumber(a))
+                ok2, err2 = pcall(function() pawn[cfg.then_fn](pawn, lit) end)
+            else
+                log(string.format("  then: REFUSED for then_arg=%s: %d param(s) %s", a, count2, sig2))
+            end
+            if ok2 ~= nil then log(string.format("  then: pawn.%s(%s) %s", cfg.then_fn, a, ok2 and "called" or ("FAILED " .. tostring(err2)))) end
+        end
+    end
     readback(pawn, "  +0ms")
     pending[#pending + 1] = { at_tick = ticks + 2, pawn = pawn, label = "  +100ms" }
     pending[#pending + 1] = { at_tick = ticks + 10, pawn = pawn, label = "  +500ms" }
@@ -256,6 +303,23 @@ LoopAsync(50, function()
                 signatures_done = log_signatures(found)
             end
         end
+    end
+    -- THE PLAYER'S OWN SIT AND STAND, for comparison (read-only): on every change of the
+    -- player's moveState, the same read-back at +0/+100/+500 ms -- what the game itself does to
+    -- the montage and the action state when a real stand-up happens.
+    local me_now = player_pawn()
+    if me_now then
+        local pms = prop(me_now, "moveState")
+        if player_last_ms ~= nil and pms ~= player_last_ms then
+            log(string.format("PLAYER moveState %s -> %s", tostring(player_last_ms), tostring(pms)))
+            readback(me_now, "  PLAYER +0ms")
+            -- Every 50 ms for 600 ms: the montage blend-out's length is the number the ghost's
+            -- stop has to match (11:59: still "playing" at +100 ms, gone at +500 ms).
+            for step = 1, 12 do
+                pending[#pending + 1] = { at_tick = ticks + step, pawn = me_now, label = string.format("  PLAYER +%dms", step * 50) }
+            end
+        end
+        player_last_ms = pms
     end
     local keep = {}
     for _, d in ipairs(pending) do

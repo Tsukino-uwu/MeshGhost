@@ -642,3 +642,17 @@ four save-name STRINGS only. Also seen: FIVE pawns of the class with one player 
 probe: the eight upgrade fields written from the player onto every driven pawn (AIController +
 private instance + not being destroyed), read back per write, re-applied on each loop's new pawn.
 Restore the stub after either; the writer is a suspect in every later report while loaded.
+
+Two more beside them (2026-09-09 midday). `standup_hunt.lua` is a CALLING probe: on the stick's
+rising edge while the driven pawn is seated it calls one function named in a toggle file beside
+the slot (`standup_hunt.txt`: `fn=`, `on=pawn|chair`, `arg=none|counterpart|<literal>`, and a
+`then_fn=`/`then_arg=` follow-up), logs every candidate's signature the safe way first (property
+class by name, locals told apart from parameters), refuses object parameters, and reads back
+`moveState`/`MovementMode`/the anim instance's montage at +0/+100/+500 ms -- on the ghost, and on
+the PLAYER at every one of their own `moveState` changes (50 ms steps for 600 ms), which is how the
+montage blend-out was timed. `pawn_census.lua` is READ-ONLY: every pawn of the player's class every
+5 s (controller, being-destroyed, hidden, states, `Interaction Target`, location -- the "second
+ghost" question) and, once the game's own pawn class is up, EVERY function name on its class chain
+to `pawnfns-<HHMMSS>.log` -- the unfiltered list that named `change Move State` after a
+substring census had missed it. Restore the stub after the hunt; the census is harmless but
+loaded-at-launch like anything left in the slot.

@@ -10694,11 +10694,27 @@ namespace MeshGhostPseudo
             // (`sit_watch.lua`), and it runs in a handler that reads the BOUND stick, zero on a
             // clone. `EndInteract` was the first candidate and did nothing (Lua prototype,
             // 2026-09-09 01:08: called on every edge, moveState stayed 8). Empty = call nothing.
-            // Only a function whose reflected parameter size is 0 is ever called; a candidate
-            // with parameters is logged and refused (a zero-filled actor param is a null
-            // dereference inside the Blueprint VM). Edge-triggered only: a level trigger was
-            // exactly wrong for the table glitch.
-            std::string stand_fn;
+            // Only a function whose reflected parameter size is 0 is ever called, or -- with
+            // `:<byte>` appended -- one whose parameter size is exactly 1; anything else is
+            // logged and refused (a zero-filled actor param is a null dereference inside the
+            // Blueprint VM). Edge-triggered only: a level trigger was exactly wrong for the
+            // table glitch. THE DEFAULT IS THE ONE THAT WORKED (2026-09-09 11:56, the Lua hunt
+            // `probes/probe_pawndiff/Scripts/standup_hunt.lua`): the pawn's own
+            // `change Move State` with 0, the state the clip itself shows after the sit;
+            // moveState 8 -> 0 and MovementMode 5 -> 1 on the same tick. Six no-arg candidates
+            // from a substring census (interact/sit/heal) had done nothing; the unfiltered
+            // function-name dump (`pawn_census.lua`) is what named it. Empty = call nothing.
+            std::string stand_fn = "change Move State:0";
+            // stand_stop_blend=<seconds>: right after `stand_fn`, the pawn's own
+            // `customStopMontage(blend)` -- the sit is a montage (`dreamLady_Sit_Montage`) that
+            // the state change alone leaves playing (the user, 2026-09-09 12:0x: *"still stuck in
+            // the sitting pose after leaving the chair"*), and the player's own stand-up blends
+            // it out: measured at 50 ms steps on two stands, still blending at +150 ms, gone at
+            // +200 ms. With both calls the user's word: *"yee it stands up after being on the
+            // chair now"* (the Lua probe, 12:0x). The chair GLITCH is the state leaving 8 with
+            // the montage still playing -- that path has no stick edge, so this never fires there,
+            // which is the behaviour the glitch needs. Negative = no stop.
+            double stand_stop_blend = 0.2;
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
@@ -10764,6 +10780,10 @@ namespace MeshGhostPseudo
                 else if (key == "block")
                 {
                     cfg.block = std::clamp(std::atoi(value.c_str()), 1, 100);
+                }
+                else if (key == "stand_stop_blend")
+                {
+                    cfg.stand_stop_blend = std::clamp(std::atof(value.c_str()), -1.0, 5.0);
                 }
                 else if (key == "tail_until")
                 {
@@ -11334,23 +11354,71 @@ namespace MeshGhostPseudo
                         const uint8_t* ms = mg_property_value<uint8_t>(ghost, STR("moveState"));
                         if (ms && *ms == 8)
                         {
-                            const std::wstring fname = to_wide_ascii(g_drive.stand_fn);
+                            // `stand_fn=<function>[:<byte>]` -- an optional single BYTE argument
+                            // (2026-09-09 11:56, the Lua hunt): the pawn's own `change Move State`
+                            // takes one ByteProperty, and called with 0 on the stick's rising edge
+                            // it took the seated driven pawn from moveState 8 / MovementMode 5 to
+                            // 0 / 1 on the same tick, where six no-arg candidates (EndInteract,
+                            // BPI_EndInteract on pawn and chair, healDing, tryFinishHeal,
+                            // exitTransition) had changed nothing. Found by dumping every function
+                            // name on the class, not by a filtered census. A function with any
+                            // other parameter layout is still refused.
+                            std::string fn_name = g_drive.stand_fn;
+                            int byte_arg = -1;
+                            if (const auto colon = fn_name.rfind(':'); colon != std::string::npos)
+                            {
+                                const std::string tail = fn_name.substr(colon + 1);
+                                if (!tail.empty() && std::all_of(tail.begin(), tail.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+                                {
+                                    byte_arg = std::stoi(tail) & 0xFF;
+                                    fn_name = fn_name.substr(0, colon);
+                                }
+                            }
+                            const std::wstring fname = to_wide_ascii(fn_name);
                             UFunction* fn = mg_cached_function(ghost, fname.c_str());
+                            const int32_t parms = fn ? fn->GetPropertiesSize() : 0;
                             if (!fn)
                             {
                                 Output::send(STR("[MeshGhostPseudo] DRIVE {} stand_fn {}: NOT FOUND on the pawn.\n"), to_wide_ascii(id), fname);
                             }
-                            else if (fn->GetPropertiesSize() != 0)
-                            {
-                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stand_fn {}: REFUSED -- it takes {} byte(s) of parameters; only a no-arg function is called here.\n"),
-                                             to_wide_ascii(id), fname, fn->GetPropertiesSize());
-                            }
-                            else
+                            else if (parms == 0 && byte_arg < 0)
                             {
                                 ghost->ProcessEvent(fn, nullptr);
                                 const uint8_t* after = mg_property_value<uint8_t>(ghost, STR("moveState"));
                                 Output::send(STR("[MeshGhostPseudo] DRIVE {} stick rising edge while seated -> {} called; moveState {} -> {} (same tick).\n"),
                                              to_wide_ascii(id), fname, static_cast<int>(*ms), after ? static_cast<int>(*after) : -1);
+                            }
+                            else if (parms == 1 && byte_arg >= 0)
+                            {
+                                uint8_t buffer = static_cast<uint8_t>(byte_arg);
+                                ghost->ProcessEvent(fn, &buffer);
+                                // The montage half of the game's own stand-up (see
+                                // `stand_stop_blend`): one FloatProperty, written by size, not by
+                                // a guessed struct -- refused if the layout is anything else.
+                                std::wstring stop_note = STR("no montage stop");
+                                if (g_drive.stand_stop_blend >= 0.0)
+                                {
+                                    UFunction* stop_fn = mg_cached_function(ghost, STR("customStopMontage"));
+                                    if (stop_fn && stop_fn->GetPropertiesSize() == static_cast<int32_t>(sizeof(float)))
+                                    {
+                                        float blend = static_cast<float>(g_drive.stand_stop_blend);
+                                        ghost->ProcessEvent(stop_fn, &blend);
+                                        stop_note = std::format(STR("customStopMontage({:.2f}) called"), g_drive.stand_stop_blend);
+                                    }
+                                    else
+                                    {
+                                        stop_note = stop_fn ? std::format(STR("customStopMontage REFUSED (parms={})"), stop_fn->GetPropertiesSize())
+                                                            : STR("customStopMontage NOT FOUND");
+                                    }
+                                }
+                                const uint8_t* after = mg_property_value<uint8_t>(ghost, STR("moveState"));
+                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stick rising edge while seated -> {}({}) called, {}; moveState {} -> {} (same tick).\n"),
+                                             to_wide_ascii(id), fname, byte_arg, stop_note, static_cast<int>(*ms), after ? static_cast<int>(*after) : -1);
+                            }
+                            else
+                            {
+                                Output::send(STR("[MeshGhostPseudo] DRIVE {} stand_fn {}: REFUSED -- it takes {} byte(s) of parameters and the toggle gave {}; only a no-arg function, or a one-byte function with `:<byte>`, is called here.\n"),
+                                             to_wide_ascii(id), fname, parms, byte_arg < 0 ? STR("no argument") : STR("one byte"));
                             }
                         }
                     }

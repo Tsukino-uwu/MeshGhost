@@ -108,6 +108,12 @@ LoopAsync(5000, function()
     ticks = ticks + 1
     local me = player_pawn()
     if not me then return false end
+    -- Before the game is entered the controller holds an engine `DefaultPawn` (measured
+    -- 11:54:16: the first dump listed DefaultPawn/Pawn/Actor/Object, 172 names, none the
+    -- game's). Wait for the game's own pawn class.
+    local early_class = "?"
+    pcall(function() early_class = me:GetClass():GetFName():ToString() end)
+    if not early_class:find("^BP_") then return false end
     if not dumped then
         dumped = true
         local ok, err = pcall(dump_functions, me)

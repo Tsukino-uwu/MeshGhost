@@ -6711,3 +6711,23 @@ failing the same way is the signal; the third step was an instrument, not a thir
 **Fix.** Signatures are read from C++ with the file's own safe walk (`TFieldRange<FProperty>(fn)` naming `GetClass().GetName()` only -- the pose-function dump's pattern), logged once per session at the driven ghost's prepare. The Lua file is kept as `probes/probe_pawndiff/Scripts/fnparams_CRASHED.lua` so nobody rewrites it.
 
 **Check.** In Lua, never call `GetPropertyClass()`, `GetStruct()`, `GetInner()` or any accessor that follows a property's pointer unless the property's class name says it has one; name the class (`p:GetClass():GetFName()`) and stop there. A parameter walk is a reflection walk: it needs the same guard as an object dump.
+
+## A clone's chair sit never ended: the game's stand-up is a STATE SETTER plus a MONTAGE STOP, and a name-filtered census could name neither (Pseudoregalia, 2026-09-09)
+
+**Symptom.** The driven replay ghost sat on the rest chair and stayed seated until its loop seam (`moveState` 8, `MovementMode` 5), while the clip said 0. Six functions from a census filtered on interact/sit/stand/chair/rest/heal/seat were called on the stick's rising edge while seated -- `EndInteract`, `BPI_EndInteract` on the pawn and on the chair, `healDing`, `tryFinishHeal`, `exitTransition` both ways -- and none moved `moveState` (11:45-11:52). Then, with the state fixed, the user: *"its still stuck in the 'sitting pose' after leaving the chair"*.
+
+**Cause.** Two things, neither in the filter. (1) The game's stand-up handler reads the BOUND stick (zero on a clone) and then calls the pawn's own state setter, `change Move State` (one ByteProperty) -- a name with spaces that contains none of the filter words. (2) The sit is a montage, `dreamLady_Sit_Montage`, that the state change does not stop; the player's own stand-up blends it out (measured on the player at 50 ms steps: still blending at +150 ms, gone at +200 ms), through the pawn's `customStopMontage(InBlendOutTime)`. The chair GLITCH is the state leaving 8 WITHOUT the montage stop -- the player's 12:00:06 readings show exactly that -- so "stop the montage whenever the state leaves 8" would have been wrong; only the stick-edge path stops it.
+
+**Fix.** On the stick's rising edge while seated: `change Move State(0)` then `customStopMontage(0.2)` (`ghost_drive.txt` `stand_fn` default and `stand_stop_blend`; the Lua prototype `probes/probe_pawndiff/Scripts/standup_hunt.lua` is what the user confirmed: *"yee it stands up after being on the chair now"*). Found by dumping EVERY function name on the pawn class (`pawn_census.lua`, 257 on `BP_PlayerGoatMain_C`) and reading the list, and by reading the montage state off the PLAYER's own stand-up before choosing the ghost's call.
+
+**Check.** A substring census is a guess about the answer (`/write-a-probe`, rule 3) -- when its candidates all fail, dump the whole list and read it, do not extend the filter. When a state changes and the pose does not, ask the anim instance (`IsAnyMontagePlaying`, `GetCurrentActiveMontage`) on the ghost AND on the player doing the real thing, and match the player's timing, not a default.
+
+## The effect-cleanup's one-time diagnostic dereferenced `wanted.front()` without the liveness check the loop applies -- a freed one-shot burst there crashed the game on a peer's leave (Pseudoregalia, 2026-09-09)
+
+**Symptom.** `EXCEPTION_ACCESS_VIOLATION reading 0x5fd` in `UObjectBase::IsA` under `GetFunctionByNameInChain` under `destroy_world_spawned_components` under `release_ghost`, the instant the relay was restarted with a live (loopback) peer attached -- the peer left, its ghost was released, the game died (11:51; the user's pasted stack).
+
+**Cause.** The loop checks every candidate against `FindAllOf("NiagaraComponent")` before touching it, because a one-shot burst frees itself unannounced. The "which lookup resolved DestroyComponent" line, printed once per session, asked `wanted.front()` directly. The first release of the session whose first candidate (the weapon glow, the projectile, a mirrored effect, a burst) was already freed walked a dangling class chain.
+
+**Fix.** The diagnostic asks the first LIVE candidate, or nothing (`3d5f0949`).
+
+**Check.** Every dereference of a stored `UObject*` in a release path goes through the same liveness set as the work it decorates -- a log line is not exempt. The same rule as the host `CLAUDE.md`'s "can the game free this within a level?": if yes, compare only, never call, until the live set says otherwise.

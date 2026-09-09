@@ -3436,3 +3436,39 @@ cleared in both ghost release paths for preflight's stale-pointer check (`66738c
 `9e382478fb4f` on both installs, UNWATCHED -- nothing should look different with the panel off; with
 `player` on it should now show with no recording running and with the indicator off. The Go-side
 half of the evening (config.json live) is `phase10.md`, same date.
+
+## 2026-09-09 (midday) — the driven ghost stands up: a state setter and a montage stop, found by dumping everything
+
+The user opened with "Pseudoregalia input ghost" and the session was the stand-up hunt. The rig
+came up as before (relay hidden, the sit clip alone in `active/`, `ghost_drive.txt` armed with
+`stand_fn` empty) and a Lua probe over the scratch slot did the calling instead of the C++ rig:
+`probes/probe_pawndiff/Scripts/standup_hunt.lua`, the candidate chosen by a toggle file re-read
+every second, so one game session covered them all. First lesson, cheap: a Blueprint UFunction's
+property list carries its LOCALS (`CallFunc_*`, `K2Node_*`, `Temp_*`) beside its parameters --
+`tryFinishHeal` lists 20, all locals -- so the probe's "has an object parameter" refusal had to
+learn to skip them. Six candidates from the interact/sit/heal census, one clip loop each, 11:45 to
+11:52: `tryFinishHeal`, `healDing`, `BPI_EndInteract` on the pawn, `BPI_EndInteract` on the chair,
+`exitTransition(false)`, `exitTransition(true)` -- `moveState` 8 through every read-back.
+
+Two interruptions. The user saw two ghosts with one clip and guessed loopback; right -- I had
+started the loopback relay from habit, and the `Tsukino-ghost` tag in their screenshot was the
+relay's echo of them. Restarting the relay without it under the live game CRASHED the game: the
+peer's leave released its ghost, and the effect cleanup's one-time diagnostic dereferenced
+`wanted.front()` without the liveness check the loop applies (the user pasted the stack; fixed
+and committed, `3d5f0949`; `pitfalls/by-lesson.md`). The stale seated pawn from the previous loop,
+the other suspect, reads at `0,0,0`, flagged being-destroyed, gone within two loops -- invisible.
+
+Then the unfiltered dump (`pawn_census.lua`: every function name on the pawn class, 257 on
+`BP_PlayerGoatMain_C`, read with no filter) named the state machine's own verbs, and
+`change Move State(0)` on the stick's rising edge took the seated pawn to `moveState` 0 /
+`MovementMode` 1 on the same tick, 11:56. The user: *"its still stuck in the 'sitting pose' after
+leaving the chair"*. The probe grew a montage read-back (`IsAnyMontagePlaying`,
+`GetCurrentActiveMontage` on the mesh's anim instance) on the ghost and on the PLAYER's own state
+changes; the user sat and stood twice and did the chair glitch on request. The real stand-up:
+`dreamLady_Sit_Montage` blending out at the moment the state changes, gone between +150 and
++200 ms (50 ms steps, two stands); the glitch: the state leaves 8 with the montage still playing.
+`customStopMontage(0.2)` right after the state setter, and the user: *"yee it stands up after being
+on the chair now"*. The C++ rig now defaults to the same two calls (`stand_fn` `change Move State:0`,
+`stand_stop_blend` 0.2; build `e33a5bbefef1`, staged, on the Copy install, the main install's DLL
+waits for the game to close) -- UNWATCHED; the user's word is on the Lua prototype. Records:
+`UNVERIFIED.md` (READY), `FLAGS.md`, `pitfalls/by-lesson.md` (two entries), `PROBES.md`.

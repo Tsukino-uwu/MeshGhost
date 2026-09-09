@@ -512,6 +512,14 @@ mismatch is visible.
   owned components followed through the actor's own arrays and no further, sorted keys so two dumps
   diff. It is the safe form of the reflection walk that crashed this adapter four times, and the
   tool for "what does this actor carry, and what changed".
+- **When a candidate list built by a NAME FILTER runs dry, dump every function name on the class and
+  read the whole list (Pseudoregalia, 2026-09-09).** Six interact/sit/heal-named functions did nothing
+  for a clone's stand-up; the unfiltered 257-name dump held `change Move State`, a name with none of
+  the filter words. And when a STATE changes but the POSE does not, ask the anim instance --
+  `IsAnyMontagePlaying`, `GetCurrentActiveMontage` on the mesh's `AnimScriptInstance` -- on the clone
+  and on the player doing the real thing, at 50 ms steps: the player's own stand-up blends its sit
+  montage out in 150-200 ms, which named the second call and its number.
+  `pseudoregalia/probes/probe_pawndiff/Scripts/pawn_census.lua`, `standup_hunt.lua`.
 
 ## Or play to it — reaching a state is a legitimate way to measure it (2026-08-19)
 
