@@ -6279,13 +6279,24 @@ function drawOverflow()
 				end
 				if uiOpen and lastMenuBox then
 					-- ANY live rectangle hides -- see the list's construction above for why one
-					-- was never enough -- if its tiles say so.
+					-- was never enough -- EXCEPT the text box, the one rectangle the game draws its
+					-- characters through. The tile-priority test was tried on menus too and was a
+					-- regression the user caught within minutes (2026-09-09): probes/drive_menu_npc.lua
+					-- showed the Archipelago build REMOVING the youngster's OAM entries while its START
+					-- menu is open (live sprites 8 -> 4, the player kept) with the menu tiles carrying no
+					-- priority bit at all -- the game hides NPCs under its menus by not drawing them,
+					-- not by the PPU. Vanilla clears the whole sprite engine there (a gate above);
+					-- Speedchoice keeps sprites on and is hidden here on the same reasoning. So: a menu
+					-- rectangle hides, full stop; the text-box rectangle (rows 12-17, full width) hides
+					-- only if its tiles say so, which measured as never.
 					for _, box in ipairs(lastMenuBox) do
 						if sx + 16 > box.left and sx < box.right
-							and sy + 16 > box.top and sy < box.bottom
-							and boxCovers(box.top, box.left) then
-							hidden = true
-							break
+							and sy + 16 > box.top and sy < box.bottom then
+							local isTextBox = box.top >= TEXTBOX.row * 8 and box.left <= 8 and box.right >= 152
+							if not isTextBox or boxCovers(box.top, box.left) then
+								hidden = true
+								break
+							end
 						end
 					end
 				end
