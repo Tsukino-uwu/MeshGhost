@@ -1690,6 +1690,15 @@ local function getLocalState()
 		-- session; sent every state because a receiver that joins late has no earlier packet to
 		-- have read it from.
 		extras = { sprite = u8(base + F_SPRITE) or 0,
+			-- THE PLAYER'S OWN OBJECT PALETTE (OBJECT_PALETTE, an OBJ palette index 0-7). The
+			-- game sets it by gender for the player object (`_SetPlayerPalette`) -- red for a
+			-- male trainer, blue for a female one -- and the surf sprite takes it too, while the
+			-- sprite table's own column says blue for SPRITE_SURF. Without this byte a receiver
+			-- painted a surfing peer with whatever it had: its own palette if the sprite was
+			-- resident (the surfing V1.1 window painted every surfer red), the table's blue
+			-- otherwise (the four others). The user, 2026-09-09: "speedchoice is blue when its
+			-- surfing, v1.1 is red when its surfing, on their own games". One byte.
+			pal = u8(base + F_PALETTE) or 0,
 			-- The signature of THIS SPRITE's own table row, not of the whole table. See
 			-- ENGINE.spriteSig: a receiver wears the id only if its own cartridge describes that id
 			-- the same way, so a bike or a surf blob crosses between builds that agree about it
@@ -4983,6 +4992,9 @@ function drawOverflow()
 			end
 		end
 		if not source then nNoTile = nNoTile + 1 end
+		-- The peer's own palette wins over both fallbacks above (see `pal` in getLocalState):
+		-- the sprite is theirs and so is its colour. An older peer sends none and keeps today's.
+		if source and o.pal ~= nil then palette = o.pal end
 		-- SPRITE TRACE, off unless MESHGHOST_CRYSTAL_SPRITE_TRACE is set. EDGE-TRIGGERED: it logs
 		-- only when the answer to "which graphics is this peer being drawn from" CHANGES, so a
 		-- steady session writes one line and a swapping one writes a line per swap.
@@ -8060,6 +8072,7 @@ ENGINE.xmap.build(here) end
 	-- that does not send one -- an older client, or one whose adapter predates the field.
 	local peerGait = state.extras and tonumber(state.extras.gait) or 1
 	local peerProg = state.extras and tonumber(state.extras.prog) or nil
+	local peerPal = state.extras and tonumber(state.extras.pal) or nil -- nil from an older peer
 	local peerWalking = (state.anim == "walk")
 	-- Only the low two bits are used, but the whole byte is carried so a log shows the direction
 	-- the sender was in as well as the stride -- the pair is what makes a facing trace readable.
@@ -8590,7 +8603,7 @@ ENGINE.xmap.build(here) end
 			despawnGhost(id)
 		end
 		local prev = overflow[id]
-		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
+		overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
@@ -8901,7 +8914,7 @@ ENGINE.xmap.build(here) end
 			end
 		else
 			local prev = overflow[id]
-			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait,
+			overflow[id] = { prog = peerProg, walking = peerWalking, face = peerFace, act = peerAct, gait = peerGait, pal = peerPal,
 			yoff = peerYoff, emote = peerEmote, jump = peerJump, drop = dropT, flyMon = a.flySpecies,
 			pixX = peerPixX and (peerPixX + offsetX * 16), pixY = peerPixY,
 			x = x, y = y, sprite = peerSprite,
