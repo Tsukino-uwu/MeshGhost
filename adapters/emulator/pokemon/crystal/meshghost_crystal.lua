@@ -1707,7 +1707,7 @@ local function getLocalState()
 			-- the same colours in the same slots; a build that lets the player choose a clothing
 			-- colour rewrites a slot, and then a receiver painting from ITS slot shows the wrong
 			-- colour with nothing to say so. See paletteColors for what the receiver does with it.
-			clo = ENGINE.clothing(u8(base + F_PALETTE) or 0),
+			clo = ENGINE.devClothing() or ENGINE.clothing(u8(base + F_PALETTE) or 0),
 			-- The signature of THIS SPRITE's own table row, not of the whole table. See
 			-- ENGINE.spriteSig: a receiver wears the id only if its own cartridge describes that id
 			-- the same way, so a bike or a surf blob crosses between builds that agree about it
@@ -2388,6 +2388,34 @@ end
 function ENGINE.clothing(palIndex)
 	local at = W_OBPALS + ((palIndex or 0) & 7) * 8 + 4
 	return (u8(at) or 0) | ((u8(at + 1) or 0) << 8)
+end
+
+-- DEV OVERRIDE FOR THE COLOUR ON THE WIRE, and nothing else: MESHGHOST_CRYSTAL_DEV_CLOTHING (a
+-- global first, then the environment), "RRGGBB", replaces `clo` in every state this adapter sends
+-- and writes NOTHING into the game. It exists because the only other way to put a colour on the
+-- wire is to do what the patch does -- rewrite a palette slot and move the player object onto it
+-- -- and that colours the LOCAL player too, which is not the thing under test (the user,
+-- 2026-09-10: "it still affected the speedchoice player color itself. its not just sending it as
+-- 'ghost' color"). Re-read every state so a probe can change it live; parsed once per value.
+-- Announced as PROBE FLAG IN USE, because a peer wearing a colour no cartridge holds is otherwise
+-- indistinguishable from a fault.
+function ENGINE.devClothing()
+	local v = MESHGHOST_CRYSTAL_DEV_CLOTHING or os.getenv("MESHGHOST_CRYSTAL_DEV_CLOTHING")
+	if not v or v == "" then return nil end
+	if v ~= ENGINE.devClothingRaw then
+		ENGINE.devClothingRaw = v
+		local n = tonumber((tostring(v):gsub("^#", "")), 16)
+		if n then
+			local r, g, b = (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF
+			ENGINE.devClothingWord = (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
+			logFile(string.format("PROBE FLAG IN USE: MESHGHOST_CRYSTAL_DEV_CLOTHING=%s -- the clothing colour "
+				.. "on the wire is %04X, not this game's own; nothing local changes", tostring(v), ENGINE.devClothingWord))
+		else
+			ENGINE.devClothingWord = nil
+			logFile(string.format("MESHGHOST_CRYSTAL_DEV_CLOTHING=%s is not RRGGBB -- ignored", tostring(v)))
+		end
+	end
+	return ENGINE.devClothingWord
 end
 
 -- SPRITE GRAPHICS STRAIGHT FROM THE CARTRIDGE, for a peer whose sprite this map never loaded.

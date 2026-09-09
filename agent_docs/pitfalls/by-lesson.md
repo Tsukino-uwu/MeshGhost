@@ -6807,3 +6807,30 @@ new name). Three tests in `core/agedout_return_test.go`; the first fails on the 
 alt-tab, a loading screen -- and any change to what happens at age-out has to be judged against
 the peer coming back, not only against the peer never coming back. The 2026-09-08 fix was tested
 against a full roster of dead peers and never against one live peer that paused.
+
+## A palette has four words and the colour you want is rarely the last one; and the hardware is copied from the SECOND block (Crystal, 2026-09-10)
+
+**Symptom.** The clothing-colour feature was built, committed and would have shown NOTHING on a
+screen: the sender read palette word 3 and the receiver overrode word 3, and word 3 is the black
+outline on both ends. Caught by re-reading the palette listing before the first run. Then, live:
+the ghosts on the other windows wore the right colours while every local player stayed a salmon
+that no one had asked for -- *"it kept being salmon even after a hard/full reset"* -- with the
+probe's own read-back reporting the written colour every second.
+
+**Cause, twice the same shape.** A GBC object palette is four BGR555 words: transparent, skin,
+clothing, outline (`gfx/overworld/npc_sprites.pal`), so the Archipelago patcher's "color 2" is
+byte 4, index 2 in the adapter's own table, not index 3. And Crystal keeps TWO palette sets:
+`wBGPals1`/`wOBPals1` are the working copy the adapter reads, and `ForceUpdateCGBPals`
+(`home/palettes.asm`) loads the hardware from `wBGPals2`/`wOBPals2`, 128 bytes past it; `ApplyPals`
+copies 1 -> 2 on a map load. A probe that wrote block 1 and set the update flag was faithfully
+copied by the game -- from the block it had not written. The read-back agreed with itself because
+it read the block it wrote (`CLAUDE.md`, "never log the value you just wrote").
+
+**Fix.** Word 2 on both ends; the probe writes both blocks. And the test itself was reshaped on the
+user's reading of the salmon: the wire feature never needed a local write at all, so the adapter
+gained a dev override (`MESHGHOST_CRYSTAL_DEV_CLOTHING`) that puts a colour on the wire and
+touches no memory, and the memory-writing mode became the opt-in for faking the patch.
+
+**Reach for first.** Before overriding one entry of anything indexed, write out the layout in words
+and say which index means what; and when a write is "confirmed" by a read-back but the screen
+disagrees, ask what ELSE the consumer reads from -- the answer was a second copy 128 bytes away.

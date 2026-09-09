@@ -36,3 +36,4 @@ A fix is a claim. These are the ways a claim has looked true here while being fa
 - A dozen single-run A/Bs against an intermittent bug (Pseudoregalia, 2026-08-31) — [by-lesson.md](../pitfalls/by-lesson.md)
 - A blind A/B convicts the renderer, not the knob — the "15Hz tell" fired on 20Hz rounds (Pseudoregalia, 2026-09-01, CLOSED) — [by-lesson.md](../pitfalls/by-lesson.md)
 - "A file is not there" is a filesystem answer to a HISTORY question — before calling any cited path dead, `git log --diff-filter=A --all -- '<path>'`; a rename looks exactly like a deletion to anything that only sees the working tree (2026-09-07) — [method.md](../pitfalls/method.md)
+- A write confirmed by its own read-back and denied by the screen: ask what ELSE the consumer reads from — Crystal loads the hardware from a second palette copy 128 bytes past the one written (2026-09-10) — [by-lesson.md](../pitfalls/by-lesson.md)

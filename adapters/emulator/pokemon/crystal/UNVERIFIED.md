@@ -43,7 +43,6 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — a peer's TRAINER COLOUR crosses the wire: a chosen palette index already did, a CUSTOM clothing colour now does (`extras.clo`), built 2026-09-09, unwatched; `probes/set_colour.lua` fakes both on any build
 - READY — `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
@@ -61,7 +60,7 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
-## [READY] A peer's trainer colour, fixed OR custom, on the drawn ghost (built 2026-09-09, unwatched)
+## [DONE] A peer's trainer colour, fixed OR custom, on the drawn ghost (built 2026-09-09; CONFIRMED ON SCREEN 2026-09-10 across four builds, `VERIFIED.md`; a REAL coloured seed still unwatched)
 
 **The ask.** The Archipelago Crystal developer told the user that the current release lets a player
 pick the trainer's colour from the game's own overworld palettes, and the next one takes a custom

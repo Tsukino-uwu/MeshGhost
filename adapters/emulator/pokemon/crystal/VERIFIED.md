@@ -2554,3 +2554,27 @@ shows a stutter at 450ms, this entry is the first thing to reopen.
 - Notes: "reached" by input driving, not walked by a player. The peer's palette byte also
   corrects a walking Kris ghost painted from resident tiles with the local Chris's red, which
   nobody had reported. AP peers send it too (same struct offset, measured layout).
+
+## CONFIRMED ON SCREEN 2026-09-10 — Crystal: a peer's clothing colour crosses the wire and paints its ghost on every build, the local player untouched
+
+- Date: 2026-09-10 (the session began 2026-09-09)
+- Observed: four windows in one room -- Archipelago on V1.0 (purple), Archipelago on V1.1 (teal),
+  Speedchoice v8.1 (amber), vanilla V1.1 (green) -- each sending a clothing colour no cartridge
+  holds. In every window the other three ghosts wore their senders' colours, clothes only, skin
+  and outline the game's own, and each window's own trainer kept the game's colour (red Chris on
+  both Archipelago windows, blue Kris on Speedchoice). Both sender paths were seen: first with
+  `probes/set_colour.lua` in its fake-patch mode, which does what the Archipelago custom-colour
+  option does to the game's memory (the player object moved onto the spare pink slot, that slot's
+  clothing colour rewritten), so `ENGINE.clothing` read the colour out of palette RAM exactly as
+  it would on a coloured seed -- the user: *"they are displaying the ghosts as purple, yellow,
+  blue"*; then in wire-only mode (`MESHGHOST_CRYSTAL_DEV_CLOTHING`, nothing written), with a
+  fourth window added, after which: *"Yes it looks correct"*.
+- Source: the user, on screen, with the screenshot in front of both of us; the set_colour logs
+  of 23:55-00:07 and the adapters' `PROBE FLAG IN USE` lines.
+- Notes: the palette-RAM address the adapter reads (`W_OBPALS`) passed the probe's content check
+  on all four builds (the red slot's clothing colour reads 04FF), which is the first measurement
+  of it on the Archipelago build. Still unwatched: a REAL coloured seed, fixed or custom -- no seed
+  on this machine chose one; the mechanism was faked, faithfully, by the probe. Two things cost
+  the evening and are in `pitfalls.md`: the clothing colour is palette word 2 (index 3 is the
+  outline), and the hardware is copied from the SECOND palette block, 128 bytes past the one the
+  adapter reads.
