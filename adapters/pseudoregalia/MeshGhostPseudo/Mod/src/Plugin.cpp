@@ -10724,10 +10724,30 @@ namespace MeshGhostPseudo
             // 2026-09-09 12:4x, which killed every plunge and restarted every wall slide);
             // 0 (default) sets the recording's velocity instead. Kept for an A/B.
             bool snap_stop = false;
+            // bound_stick=1 (default): the driven ghost's Blueprint reads the RECORDED stick through
+            // the hooked `GetBoundActionValue`, and does its own moving -- the rig's engine-level
+            // AddMovementInput and its `inputVectorWorld`/`moveInputAmount`/`hasMovementInput?`
+            // writes are OFF. 0 = the pre-hook rig (the A/B).
+            bool bound_stick = true;
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
         std::string g_drive_id; // the replay ghost being driven; empty until one is seen while armed
+        // THE BOUND STICK (2026-09-09). The pawn's Blueprint reads the move stick through Enhanced
+        // Input's bound value (`UEnhancedInputLibrary::GetBoundActionValue(Actor, IA_Move)` --
+        // the census, and the 23:38 run where the Move event node fed with the stick moved
+        // nothing), and on a clone with no player input that value is zero: every stick-dependent
+        // mechanic in the Blueprint ran stickless -- the wall slide fell at full speed where the
+        // recording eased down, the wall run took no direction, the slide jump and Solar Wind had
+        // no steer, and the rig had to move the pawn itself through the engine's AddMovementInput
+        // (with a hand-copied gate). A post-hook on that native getter answers the DRIVEN ghost's
+        // reads with the recorded stick instead -- the same quantity the track recorded, since the
+        // track's `move_x/move_y` ARE the player's bound value -- so the Blueprint does its own
+        // moving, gating and steering. These three are what the hook reads; written per tick by
+        // the track-mode section, cleared with the rig.
+        UObject* g_drive_ghost = nullptr;
+        double g_drive_stick_x = 0.0;
+        double g_drive_stick_y = 0.0;
 
         auto poll_ghost_drive_toggle() -> void
         {
@@ -10738,6 +10758,7 @@ namespace MeshGhostPseudo
                 if (g_drive.armed)
                 {
                     g_drive = GhostDriveCfg{};
+                    g_drive_ghost = nullptr;
                     g_drive_id.clear();
                     Output::send(STR("[MeshGhostPseudo] DRIVE: ghost_drive.txt gone -- the ghost is the mirror's again.\n"));
                 }
@@ -10797,6 +10818,10 @@ namespace MeshGhostPseudo
                 else if (key == "snap_stop")
                 {
                     cfg.snap_stop = std::atoi(value.c_str()) != 0;
+                }
+                else if (key == "bound_stick")
+                {
+                    cfg.bound_stick = std::atoi(value.c_str()) != 0;
                 }
                 else if (key == "move_gate" || key == "action_gate")
                 {
@@ -10929,6 +10954,12 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] DRIVE: driving {} -- its mirrors are OFF from this tick.\n"), to_wide_ascii(id));
             }
             remote.driven = is_replay && g_drive_id == id;
+            if (remote.driven)
+            {
+                // The bound-stick hook (2026-09-09) answers "is this Actor the driven ghost" by
+                // pointer; refreshed every tick so a loop's new pawn is the one it answers for.
+                g_drive_ghost = static_cast<UObject*>(remote.ghost);
+            }
             if (remote.driven && !remote.drive_prepared && remote.ghost)
             {
                 // A DRIVEN PAWN NEEDS A FLOOR (22:59 run: the first driven jump landed in the
@@ -11412,7 +11443,12 @@ namespace MeshGhostPseudo
                     const uint8_t* gate_as = mg_property_value<uint8_t>(ghost, STR("actionState"));
                     const bool gated = (gate_ms && g_drive.move_gate.count(*gate_ms) != 0) ||
                                        (gate_as && g_drive.action_gate.count(*gate_as) != 0);
-                    if (len > 1e-6 && !gated)
+                    // With `bound_stick` (2026-09-09) the pawn's own Blueprint moves the pawn: the
+                    // hooked `GetBoundActionValue` hands it this stick, and the engine-level push
+                    // below stays off -- two writers on one movement component otherwise.
+                    g_drive_stick_x = mx;
+                    g_drive_stick_y = my;
+                    if (len > 1e-6 && !gated && !g_drive.bound_stick)
                     {
                         if (UFunction* fn = mg_cached_function(ghost, STR("AddMovementInput")))
                         {
@@ -11445,15 +11481,20 @@ namespace MeshGhostPseudo
                     // ever saw the ghost move. An explicit EndInteract-on-stick was tried first
                     // and was exactly wrong for the glitch. Written by the property's own
                     // reflection, the vector field by field.
-                    if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                    // With `bound_stick` the pawn's own `setInputVariables` writes these three from
+                    // the hooked stick; the rig writing them too would be a second writer.
+                    if (!g_drive.bound_stick)
                     {
-                        write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(wx, wy, 0.0));
+                        if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                        {
+                            write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(wx, wy, 0.0));
+                        }
+                        if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
+                        {
+                            *amount = (std::min)(len, 1.0);
+                        }
+                        mg_write_bool(ghost, STR("hasMovementInput?"), true);
                     }
-                    if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
-                    {
-                        *amount = (std::min)(len, 1.0);
-                    }
-                    mg_write_bool(ghost, STR("hasMovementInput?"), true);
                     if (!remote.drive_move_live && !g_drive.stand_fn.empty())
                     {
                         // The stick's rising edge (this tick moves, the last did not). Seated?
@@ -11533,15 +11574,20 @@ namespace MeshGhostPseudo
                 else if (remote.drive_move_live)
                 {
                     call_input_action_event(ghost, STR("InpActEvt_IA_Move_K2Node_EnhancedInputActionEvent_19"), 0.0, 0.0, 2);
-                    if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                    g_drive_stick_x = 0.0;
+                    g_drive_stick_y = 0.0;
+                    if (!g_drive.bound_stick)
                     {
-                        write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(0.0, 0.0, 0.0));
+                        if (FProperty* ivw = mg_cached_property(ghost, STR("inputVectorWorld")))
+                        {
+                            write_vector_param(std::bit_cast<uint8_t*>(ghost), ivw, FVector(0.0, 0.0, 0.0));
+                        }
+                        if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
+                        {
+                            *amount = 0.0;
+                        }
+                        mg_write_bool(ghost, STR("hasMovementInput?"), false);
                     }
-                    if (double* amount = mg_property_value<double>(ghost, STR("moveInputAmount")))
-                    {
-                        *amount = 0.0;
-                    }
-                    mg_write_bool(ghost, STR("hasMovementInput?"), false);
                     remote.drive_move_live = false; // the engine input vector is consumed per frame; only the event needs a release
                 }
             }
@@ -12424,6 +12470,10 @@ namespace MeshGhostPseudo
         if (svpv_function && svpv_hook_id != -1)
         {
             svpv_function->UnregisterHook(svpv_hook_id);
+        }
+        if (bsv_function && bsv_hook_id != -1)
+        {
+            bsv_function->UnregisterHook(bsv_hook_id);
         }
         if (salao_function && audio_listener_hook_id != -1)
         {
@@ -15258,6 +15308,10 @@ namespace MeshGhostPseudo
         // and in release_all_ghosts so a respawn never reads them (2026-09-09).
         it->second.drive_private_gi = nullptr;
         it->second.drive_own_hitable = nullptr;
+        if (g_drive_ghost == static_cast<UObject*>(it->second.ghost))
+        {
+            g_drive_ghost = nullptr;
+        }
         it->second.drive_prepared = false;
         it->second.nametag_applied_name.clear();
         it->second.nametag_applied_color.clear();
@@ -15458,6 +15512,10 @@ namespace MeshGhostPseudo
             remote.nametag_plate_mid = nullptr;
             remote.drive_private_gi = nullptr; // the drive rig's per-pawn objects (see release_ghost)
             remote.drive_own_hitable = nullptr;
+        if (g_drive_ghost == static_cast<UObject*>(remote.ghost))
+        {
+            g_drive_ghost = nullptr; // compared only, never dereferenced -- but a released pawn's address must not answer
+        }
             remote.drive_prepared = false;
             remote.nametag_applied_name.clear();
             remote.nametag_applied_color.clear();
@@ -15717,6 +15775,7 @@ namespace MeshGhostPseudo
         if (!hook_disabled("playerlocation"))
         {
             register_playerlocation_guard();
+            register_bound_stick_hook();
             register_audio_listener_guard();
         }
 
@@ -15918,6 +15977,105 @@ namespace MeshGhostPseudo
     // replaced with the local player's live position -- the player's own writes are unchanged by
     // construction, and a ghost's write becomes a no-op refresh of the correct value. No caller
     // attribution needed, which is what makes this safe against however many pawns exist.
+    // THE BOUND STICK HOOK (2026-09-09, the drive rig; see `g_drive_ghost`). A post-hook on the
+    // native static `UEnhancedInputLibrary::GetBoundActionValue(Actor, Action)`: when the Actor
+    // is the DRIVEN ghost and the Action is `IA_Move`, the returned FInputActionValue is replaced
+    // with the recorded stick (Axis2D: X, Y, 0; the type byte the census measured, the same
+    // 32-byte layout the input track reads the player's value by). Native, so a hook is allowed
+    // (host `CLAUDE.md`: never a Blueprint UFunction); a post-hook, so the engine's own answer is
+    // computed first and only the copy the caller receives changes -- both the reflected
+    // ReturnValue slot in the parameter block and the VM's result pointer, whichever this call
+    // used. Every other actor's read, the player's included, passes through untouched, and the
+    // hook is a pointer compare and an early return for them. Offsets from reflection, verified
+    // by name and size before the hook is armed; a layout that is not the expected one leaves
+    // the rig on its pre-hook path with a WARNING.
+    auto Plugin::register_bound_stick_hook() -> void
+    {
+        bsv_function = UObjectGlobals::StaticFindObject<UFunction*>(
+            nullptr, nullptr, STR("/Script/EnhancedInput.EnhancedInputLibrary:GetBoundActionValue"));
+        if (!bsv_function)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: could not find EnhancedInputLibrary:GetBoundActionValue -- the drive rig's bound stick is unavailable this session (the pre-hook path runs).\n"));
+            return;
+        }
+        int32_t actor_offset = -1, action_offset = -1, return_offset = -1, return_size = 0;
+        for (FProperty* param : TFieldRange<FProperty>(bsv_function, EFieldIterationFlags::None))
+        {
+            if (!param)
+            {
+                continue;
+            }
+            const StringType name = param->GetName();
+            if (name == STR("Actor"))
+            {
+                actor_offset = param->GetOffset_Internal();
+            }
+            else if (name == STR("Action"))
+            {
+                action_offset = param->GetOffset_Internal();
+            }
+            else if (name == STR("ReturnValue"))
+            {
+                return_offset = param->GetOffset_Internal();
+                return_size = param->GetSize();
+            }
+        }
+        if (actor_offset < 0 || action_offset < 0 || return_offset < 0 || return_size != INPUT_ACTION_VALUE_SIZE)
+        {
+            Output::send(STR("[MeshGhostPseudo] WARNING: GetBoundActionValue layout not as expected (Actor@{} Action@{} ReturnValue@{} size {}); the drive rig's bound stick is off this session.\n"),
+                         actor_offset, action_offset, return_offset, return_size);
+            bsv_function = nullptr;
+            return;
+        }
+        bsv_hook_id = bsv_function->RegisterPostHook(
+            [this, actor_offset, action_offset, return_offset](UnrealScriptFunctionCallableContext& ctx, void*) {
+                if (!g_drive.armed || !g_drive.bound_stick || !g_drive_ghost)
+                {
+                    return;
+                }
+                uint8_t* params = &ctx.GetParams<uint8_t>();
+                if (!params)
+                {
+                    return;
+                }
+                UObject* actor = *std::bit_cast<UObject**>(params + actor_offset);
+                if (actor != g_drive_ghost)
+                {
+                    return;
+                }
+                static UObject* ia_move = nullptr;
+                if (!ia_move)
+                {
+                    ia_move = UObjectGlobals::StaticFindObject<UObject*>(
+                        nullptr, nullptr, STR("/Game/ThirdPerson/Input/Actions/IA_Move.IA_Move"));
+                }
+                UObject* action = *std::bit_cast<UObject**>(params + action_offset);
+                if (!ia_move || action != ia_move)
+                {
+                    return;
+                }
+                uint8_t value[INPUT_ACTION_VALUE_SIZE]{};
+                const double x = g_drive_stick_x, y = g_drive_stick_y, z = 0.0;
+                std::memcpy(value + 0, &x, sizeof(double));
+                std::memcpy(value + 8, &y, sizeof(double));
+                std::memcpy(value + 16, &z, sizeof(double));
+                value[24] = 2; // EInputActionValueType::Axis2D
+                std::memcpy(params + return_offset, value, sizeof(value));
+                if (ctx.RESULT_DECL)
+                {
+                    std::memcpy(ctx.RESULT_DECL, value, sizeof(value));
+                }
+                static uint64_t answered = 0;
+                if (++answered == 1 || answered % 3000 == 0)
+                {
+                    Output::send(STR("[MeshGhostPseudo] DRIVE: bound stick answered {} read(s) of IA_Move for the driven ghost (latest ({:.2f},{:.2f})).\n"),
+                                 answered, x, y);
+                }
+            });
+        Output::send(STR("[MeshGhostPseudo] DRIVE: bound-stick hook armed on GetBoundActionValue (Actor@{} Action@{} ReturnValue@{}).\n"),
+                     actor_offset, action_offset, return_offset);
+    }
+
     auto Plugin::register_playerlocation_guard() -> void
     {
         svpv_function = UObjectGlobals::StaticFindObject<UFunction*>(
@@ -16609,6 +16767,10 @@ namespace MeshGhostPseudo
         remote.drive_move_live = false;
         remote.drive_private_gi = nullptr;
         remote.drive_own_hitable = nullptr;
+        if (g_drive_ghost == static_cast<UObject*>(remote.ghost))
+        {
+            g_drive_ghost = nullptr; // compared only, never dereferenced -- but a released pawn's address must not answer
+        }
         FVector current_loc = hijack_target->K2_GetActorLocation();
         remote.target_x = current_loc.X();
         remote.target_y = current_loc.Y();

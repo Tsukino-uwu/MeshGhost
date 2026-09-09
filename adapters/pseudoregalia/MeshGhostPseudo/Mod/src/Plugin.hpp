@@ -801,6 +801,7 @@ namespace MeshGhostPseudo
         auto register_afterimage_outline_guard() -> void;
         auto register_object_registry_feed() -> void;
         auto register_playerlocation_guard() -> void;
+        auto register_bound_stick_hook() -> void; // the driven ghost's IA_Move bound value (2026-09-09)
         auto register_audio_listener_guard() -> void;
 
         // Spawns / drives / destroys the prop that stands in for a peer's ranged projectile.
@@ -1409,6 +1410,8 @@ namespace MeshGhostPseudo
         // by game_thread_tick each tick; hook and tick share the game thread, so no lock.
         RC::Unreal::UFunction* svpv_function{nullptr}; // cached "SetVectorParameterValue", found once
         int32_t svpv_hook_id{-1};
+        RC::Unreal::UFunction* bsv_function{nullptr}; // cached "EnhancedInputLibrary:GetBoundActionValue", found once
+        int32_t bsv_hook_id{-1};
         RC::Unreal::UObject* mpc_player_related{nullptr}; // cached MPC asset, found lazily
         double guard_local_x{0.0};
         double guard_local_y{0.0};
