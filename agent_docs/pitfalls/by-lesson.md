@@ -6731,3 +6731,33 @@ failing the same way is the signal; the third step was an instrument, not a thir
 **Fix.** The diagnostic asks the first LIVE candidate, or nothing (`3d5f0949`).
 
 **Check.** Every dereference of a stored `UObject*` in a release path goes through the same liveness set as the work it decorates -- a log line is not exempt. The same rule as the host `CLAUDE.md`'s "can the game free this within a level?": if yes, compare only, never call, until the live set says otherwise.
+
+## A position corrector that STOPS the pawn kills every mechanic with its own velocity -- carry the recording's velocity across the teleport instead (Pseudoregalia, 2026-09-09)
+
+**Symptom.** The driven ghost's Sunsetter plunge never fell: the recording drops at 2000 units/s, the ghost at ~200, `actionState` 6 back to 0 within 250 ms, and a string of 150-unit snaps under it (the user: *"a lot when using sunsetter"*). Every wall slide restarted from zero after each snap too.
+
+**Cause.** The rig's correction teleported the pawn to the recorded position and then called `StopMovementImmediately`. A plunge starts with the game's own small upward hop, so the clone crossed the 150-unit threshold against a 2000 units/s recording within a tenth of a second -- and the stop zeroed the plunge velocity, which ended the plunge. Raising the threshold to 400 LIVE (`ghost_drive.txt`) made the plunge produce no correction at all: the corrector was the cause, not the clone's plunge.
+
+**Fix.** After the teleport, the movement component's `Velocity` is set to the recording's speed (`target_h_speed`, `target_v_speed`) along the direction the recorded target moved in its own last step; `snap_stop=1` restores the stop for an A/B.
+
+**Check.** When a driven or corrected pawn keeps "losing" a mechanic right after a correction, ask what the correction does to VELOCITY, and test by widening the threshold live before touching the mechanic.
+
+## A shipped ghost fix recorded in FLAGS.md was skipped for the driven ghost, and the wrong half was moved first (Pseudoregalia, 2026-09-09)
+
+**Symptom.** The driven ghost's blob shadow rode the model through every jump and cling. The per-tick `manageBlobShadow` call was moved out of the mirror block the driven ghost skips -- and the shadow still rode the model (the user, twice).
+
+**Cause.** `FLAGS.md` had said since 2026-08-27 which of the two blob-shadow mechanisms is the fix: `GHOST_BLOB_SHADOW_ARM_MIRROR` (the shadow hangs from a 5000-unit spring arm; a clone's is 100 by class default), and that the function call is NOT it. Both sat inside the `!drive_this` block. The first move took the one the code's own warning text pointed at, not the one the register did.
+
+**Fix.** Both run for a driven ghost; the register's row says which one matters.
+
+**Check.** Before moving a block out of a skipped section, read the flag register's row for it -- it records which of two lookalike mechanisms is load-bearing, and the code comments near them may not.
+
+## A clone's Blueprint reads the stick through Enhanced Input's BOUND value, which is zero on it -- feed the bound value, not the event node and not the movement component (Pseudoregalia, 2026-09-09)
+
+**Symptom.** With the driven ghost moved by the rig's engine-level `AddMovementInput`, every stick-dependent Blueprint mechanic diverged: the wall slide fell at full speed where the recording eased down, the wall run entered ~15% slow and took no direction, the slide jump launched weak, Solar Wind snapped -- 13-17 corrections a loop on a route with clings, a plunge and a pit fall.
+
+**Cause.** The pawn value-binds `IA_Move` and reads it through `UEnhancedInputLibrary::GetBoundActionValue` (the 2026-09-08 census; the 23:38 run where the Move event node fed with the stick moved nothing). On a pawn with no player input that value is zero, so the Blueprint's own `setInputVariables`, its Move handling and every gate and steer downstream ran stickless. The rig's engine-level push moved the pawn but bypassed all of that, and the hand-copied state gate (`move_gate`) was a copy of one consequence.
+
+**Fix.** A post-hook on the native static `GetBoundActionValue`: when the Actor is the driven ghost and the Action is `IA_Move`, the returned `FInputActionValue` is the recorded stick (the track's `move_x/move_y` ARE that value on the player). The rig's push and stick-field writes are off (`bound_stick`). UNWATCHED at the time of writing.
+
+**Check.** When a clone of the player's Blueprint must be driven, find HOW the Blueprint reads each input (event node, bound value, controller key state) and feed it at that level; moving the pawn from outside reproduces the position and none of the decisions.

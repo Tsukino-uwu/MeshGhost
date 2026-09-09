@@ -3472,3 +3472,49 @@ on the chair now"*. The C++ rig now defaults to the same two calls (`stand_fn` `
 `stand_stop_blend` 0.2; build `e33a5bbefef1`, staged, on the Copy install, the main install's DLL
 waits for the game to close) -- UNWATCHED; the user's word is on the Lua prototype. Records:
 `UNVERIFIED.md` (READY), `FLAGS.md`, `pitfalls/by-lesson.md` (two entries), `PROBES.md`.
+
+## 2026-09-09 (afternoon) — the driven ghost on a real route: five causes, measured one at a time
+
+With the stand-up in, the user recorded a route (two clings, two attacks; later clings, a
+Sunsetter plunge, a pit fall) and the ghost's tracking became the subject: *"it was snapping a
+lot"*. The rig's corrections went from a count to a line each (offset, both move states), then a
+`DRIVE CLING` line every 250 ms with both sides' speeds, and three Lua probes over the scratch
+slot did the rest -- `snap_watch.lua` (the eight samples before every single-tick jump),
+`input_gate.lua` (on the PLAYER: which move states pass the stick to the movement component),
+`wallrun_entry.lua` (a full pawn + CharacterMovement snapshot on every entry into the wall state
+and the plunge, both pawns, plus `respawnTransform` every 2 s). In order of finding:
+
+1. **The wall push.** During a cling the ghost had a full run-speed velocity along the wall and
+   rose ~80 units/s where the recording slid down: the rig's engine-level `AddMovementInput`,
+   which the wall blocked and turned into a slide along and up it. The player's Blueprint gates
+   the stick by state -- measured: moveState 4 passes 1 tick of 125, moveState 3 none, actionState
+   18 none; 0, 1 and attacks pass -- and the gate was copied (`move_gate`/`action_gate`). 8 -> 3
+   corrections a loop. User: *"looks better while using cling on a wall now"*.
+2. **The shadow.** *"the shadow is following the ghost model"*: the per-tick `manageBlobShadow`
+   call sat inside the mirror block a driven ghost skips; moving it alone changed nothing, because
+   `FLAGS.md` had recorded since 2026-08-27 that the actual fix is the SPRING-ARM LENGTH mirror
+   (100 by class default against the player's 5000) -- moved too. User: *"the shadow works now"*.
+3. **The corrector's stop.** A Sunsetter plunge falls at 2000 units/s; the clone entered it with
+   the game's own upward hop, crossed the 150-unit threshold within 0.1 s, and the correction's
+   `StopMovementImmediately` zeroed the plunge (actionState 6 -> 0 within 250 ms, velocity -218);
+   at a 400-unit threshold, set live, the plunge produced no correction at all. Every wall slide
+   restarted from zero after each snap for the same reason. A correction now sets the recording's
+   velocity along the target's own last step (`snap_stop=1` restores the stop). User: *"sunsetter
+   looked a bit better ?"* -- a hedge, kept as one.
+4. **The save's numbers.** Every diff showed `bonusAirKicks` 4/0, `healUpgrades` 2/0, the `can*`
+   bools -- the prepare copied `obtained*`/`has*` bools only. Copied now.
+5. **The bound stick** (built, UNWATCHED). The cling slide still fell at full speed where the
+   recording eased down, the second wall run started ~15% slow, Solar Wind snapped: everything the
+   pawn's Blueprint decides FROM THE STICK, which it reads through `GetBoundActionValue(IA_Move)`,
+   zero on a clone (the census; the 23:38 Move-node run). A post-hook on that native getter
+   answers the driven ghost's reads with the recorded stick -- the track's `move_x/move_y` are
+   that very value on the player -- and the rig's own push and stick-field writes are off. If it
+   holds, the copied gate and the field writes were scaffolding around this one missing input.
+
+Also measured: the pit fall (*"kinda like dying it teleports me back to a recent safe location"*)
+is `respawnTransform` on the pawn -- the player's holds the safe spot, the clone's stays at zero,
+so the clone's reset lands at the world origin until the correction. Not fixed; the clone gets no
+overlap events, which is the likely writer. Two ghosts with one clip were the LOOPBACK relay
+(the user's call: *"its probly loopback ?"*); restarting the relay under the live game crashed it
+on a freed effect pointer in the cleanup's one-time diagnostic (fixed, `3d5f0949`). The user left
+the game running at ~12:50 for probing; the hook build waits for the next relaunch.
