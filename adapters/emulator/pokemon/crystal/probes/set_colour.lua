@@ -3,9 +3,9 @@
 -- feature (`extras.pal` + `extras.clo` in meshghost_crystal.lua): a patched build may let the
 -- player pick a fixed palette or a custom clothing colour, and no seed on this machine has one,
 -- so this probe fakes both, the way that build does it -- an OBJ palette index on the player
--- object, and for the custom case a rewritten third colour in a palette slot.
+-- object, and for the custom case a rewritten clothing colour (word 2 of 4, byte 4) in a slot.
 --   MESHGHOST_COLOUR_PAL  (env) OBJ palette index 0-7 to put on the player object; default 2 (green)
---   MESHGHOST_COLOUR_RGB  (env) RRGGBB hex; when set, that colour is written as the THIRD colour of
+--   MESHGHOST_COLOUR_RGB  (env) RRGGBB hex; when set, that colour is written as the clothing colour (word 2) of
 --                          slot MESHGHOST_COLOUR_PAL (use 4, the pink slot, as the patch does)
 -- Held every frame while attached, because a map load rewrites the object and a time-of-day
 -- refresh rewrites the palettes; take it off the dev-loader target and the next map load restores
@@ -42,17 +42,17 @@ local function bgr(hex)
 	return (r >> 3) | ((g >> 3) << 5) | ((b >> 3) << 10)
 end
 
--- THE ADDRESS CHECK, before writing a byte: the game keeps RGB 31,07,01 as the red slot's third
--- colour at every hour (`gfx/overworld/npc_sprites.pal`), which is 0x04FF as a BGR555 word. If
+-- THE ADDRESS CHECK, before writing a byte: the game keeps RGB 31,07,01 as the red slot's
+-- colour 2 at every hour (`gfx/overworld/npc_sprites.pal`), which is 0x04FF as a BGR555 word. If
 -- slot 0 does not read that, W_OBPALS is wrong on this build and the probe refuses to write.
-local red3 = slotColour(0, 3)
-log(string.format("set_colour on %s: structs@%04X, slot0 colour3 = %04X (want 04FF)", A.name, A.structs, red3))
-if red3 ~= 0x04FF then
+local red2 = slotColour(0, 2)
+log(string.format("set_colour on %s: structs@%04X, slot0 colour2 = %04X (want 04FF)", A.name, A.structs, red2))
+if red2 ~= 0x04FF then
 	log("palette RAM did not read as expected on this build -- NOT writing. Fix W_OBPALS first.")
 	return
 end
 local want = RGB and bgr(RGB) or nil
-log(string.format("plan: OBJECT_PALETTE <- %d%s", PAL, want and string.format(", slot %d colour3 <- %04X (%s)", PAL, want, RGB) or ""))
+log(string.format("plan: OBJECT_PALETTE <- %d%s", PAL, want and string.format(", slot %d colour2 <- %04X (%s)", PAL, want, RGB) or ""))
 
 local frames, reported = 0, false
 event.onframeend(function()
@@ -60,7 +60,7 @@ event.onframeend(function()
 	if frames < 30 then return end
 	w8(A.structs + F_PALETTE, PAL)
 	if want then
-		local at = W_OBPALS + (PAL & 7) * 8 + 6
+		local at = W_OBPALS + (PAL & 7) * 8 + 4
 		w8(at, want & 0xFF); w8(at + 1, want >> 8)
 		-- hCGBPalUpdate ($FFE5): the game copies wOBPals to the hardware only when this is set,
 		-- so without it the LOCAL player keeps the old colour on screen while the wire already
@@ -69,9 +69,9 @@ event.onframeend(function()
 	end
 	if not reported and frames % 60 == 0 then
 		-- read back through the same reads the adapter uses, not the values just written
-		local gotPal, got3 = u8(A.structs + F_PALETTE), slotColour(PAL, 3)
-		log(string.format("read back: OBJECT_PALETTE = %d, slot %d colour3 = %04X", gotPal or -1, PAL, got3))
-		reported = (gotPal == PAL) and (not want or got3 == want)
+		local gotPal, got2 = u8(A.structs + F_PALETTE), slotColour(PAL, 2)
+		log(string.format("read back: OBJECT_PALETTE = %d, slot %d colour2 = %04X", gotPal or -1, PAL, got2))
+		reported = (gotPal == PAL) and (not want or got2 == want)
 		if reported then log("holding; the other window's ghost of this player is the verdict") end
 	end
 end)

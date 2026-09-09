@@ -1160,7 +1160,7 @@ into the one palette the game leaves unused. Read from the patchers: the fixed c
 palette INDEX on the player's sprite rows, which `extras.pal` (the surf fix) already carries and
 every measured build keeps the same colours for; the custom choice rewrites the pink slot's third
 colour, so the index alone paints pink or the RECEIVER's custom colour. Built: `extras.clo`, the
-sender's own slot's clothing colour from palette RAM, overriding colour 3 on the receiver in the
+sender's own slot's clothing colour from palette RAM, overriding colour 2 on the receiver in the
 receiver's own light. No hardware slot is involved, so the "one unused palette" limit is the
 engine's, not the drawn tier's. No seed on this machine chose a colour (all three read default in
 the file), so `probes/set_colour.lua` fakes both cases on any build after checking the palette-RAM

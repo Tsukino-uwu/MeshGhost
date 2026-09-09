@@ -1701,7 +1701,8 @@ local function getLocalState()
 			-- otherwise (the four others). The user, 2026-09-09: "speedchoice is blue when its
 			-- surfing, v1.1 is red when its surfing, on their own games". One byte.
 			pal = u8(base + F_PALETTE) or 0,
-			-- THE COLOUR THAT SLOT HOLDS, third colour, as the game has it in wOBPals1 right now
+			-- THE CLOTHING COLOUR THAT SLOT HOLDS (the third of its four words, index 2 -- colour 0
+			-- is transparent, 1 skin, 2 clothing, 3 outline), as the game has it in wOBPals1 now
 			-- (BGR555, two bytes). The index alone is portable only between cartridges that keep
 			-- the same colours in the same slots; a build that lets the player choose a clothing
 			-- colour rewrites a slot, and then a receiver painting from ITS slot shows the wrong
@@ -2287,15 +2288,16 @@ end
 -- THE PEER'S OWN CLOTHING COLOUR, when it sent one (`clothing`, a BGR555 word from `clo`).
 --
 -- A palette INDEX is portable only while every cartridge keeps the same colours in that slot.
--- A build may let the player pick a clothing colour and write it into a slot's third colour,
+-- A build may let the player pick a clothing colour and write it into a slot's colour 2,
 -- and then the index points at the right slot on the peer's cartridge and a different colour
 -- on this one: painted with this machine's slot, the peer wears whatever WE keep there, which
 -- is a plausible colour and never a fault anyone would report. So the peer also sends the
--- colour its own slot holds, and it wins here -- for the THIRD colour only. The first two are
--- this machine's, deliberately: the highlight is where the time of day lives (morning, day,
--- night and dark each tint it) and the peer is in OUR world, lit by our clock, exactly as a
--- spawned ghost would be. The clothing colour is the same at every hour on every build measured
--- (2026-09-09), so overriding it and nothing else is the peer's colour in our light.
+-- colour its own slot holds, and it wins here -- for COLOUR 2 only, the clothing. The slot's
+-- four words are transparent, skin, clothing, outline (`gfx/overworld/npc_sprites.pal`: the
+-- time of day tints word 0, which an object never shows), so the skin and the outline stay
+-- this machine's and only the one colour a player can choose is the peer's. A first version
+-- overrode index 3, the OUTLINE, on both ends -- black for black, a change no screen would
+-- have shown (caught on re-reading the palette layout, 2026-09-09, before any run).
 --
 -- No slot is consumed: the drawn tier paints lines from bytes, so every peer may wear a
 -- different colour with no hardware palette to run out of -- a thing the spawned tier can never
@@ -2308,7 +2310,7 @@ local function paletteColors(palIndex, clothing)
 		local hi = u8(base + i * 2 + 1) or 0
 		colors[i] = ENGINE.bgr555(lo | (hi << 8))
 	end
-	if clothing then colors[3] = ENGINE.bgr555(clothing & 0x7FFF) end
+	if clothing then colors[2] = ENGINE.bgr555(clothing & 0x7FFF) end
 	return colors
 end
 
@@ -2377,14 +2379,14 @@ local function invalidateTileCache()
 	tileCache = kept
 end
 
--- THE CLOTHING COLOUR OF ONE OF OUR OWN PALETTE SLOTS, as the game has it right now: the third
--- colour of slot `palIndex` in wOBPals1, one BGR555 word. Sent as `clo` beside the slot index so
+-- THE CLOTHING COLOUR OF ONE OF OUR OWN PALETTE SLOTS, as the game has it right now: colour 2
+-- (byte 4) of slot `palIndex` in wOBPals1, one BGR555 word. Sent as `clo` beside the slot index so
 -- a receiver whose cartridge keeps a different colour in that slot paints ours (paletteColors).
 -- Read from palette RAM rather than the cartridge's palette table on purpose: whatever put the
 -- colour there -- the base game, a patch, a colour the player chose -- this is the colour the
 -- hardware is painting the player with at this moment, and that is the one to send.
 function ENGINE.clothing(palIndex)
-	local at = W_OBPALS + ((palIndex or 0) & 7) * 8 + 6
+	local at = W_OBPALS + ((palIndex or 0) & 7) * 8 + 4
 	return (u8(at) or 0) | ((u8(at + 1) or 0) << 8)
 end
 

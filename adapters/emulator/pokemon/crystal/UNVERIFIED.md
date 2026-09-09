@@ -80,11 +80,12 @@ pink, or its own custom colour, and nothing says so.
 - The fixed case needed nothing new: `extras.pal` (the surf fix, `VERIFIED.md` 2026-09-09) already
   carries the player object's palette index, and every build measured keeps the same four colours in
   slots 0-3.
-- The custom case: the sender also sends `extras.clo`, the third colour of ITS slot as palette RAM
-  holds it right now (`ENGINE.clothing`), and the receiver overrides colour 3 of its own slot with it
-  when drawing that peer (`paletteColors`, `drawCharacter`, the fishing rod too). Colours 1 and 2 stay
-  the receiver's, because the highlight is where the time of day lives and the peer is in OUR light;
-  the clothing colour is the same at every hour on every build measured. No hardware slot is used, so
+- The custom case: the sender also sends `extras.clo`, the clothing colour of ITS slot as palette RAM
+  holds it right now (`ENGINE.clothing`), and the receiver overrides colour 2 of its own slot with it
+  when drawing that peer (`paletteColors`, `drawCharacter`, the fishing rod too). A slot's four words
+  are transparent, skin, clothing, outline; the skin and the outline stay the receiver's. **The first
+  commit (`3b8792ea`) overrode index 3, the outline, on both ends** -- black replacing black, which no
+  screen would have shown; caught re-reading the palette layout the same evening. No hardware slot is used, so
   every peer may wear a different colour -- the "only one unused palette" limit is the engine's, and
   the drawn tier does not have it. An older peer sends no `clo` and is painted from the slot as before.
 - The file sits at Lua's 200 top-level locals, so the BGR555 converter is `ENGINE.bgr555`, not a local
@@ -96,7 +97,7 @@ pink, or its own custom colour, and nothing says so.
   generated with a colour chosen, fixed first (release), custom second (prerelease).
 - Whether palette RAM sits at the adapter's `W_OBPALS` on the Archipelago build was never measured
   by content; the drawn colours looked right in the five-build room, which is weaker. `set_colour.lua`
-  checks it by reading the red slot's third colour before it writes anything.
+  checks it by reading the red slot's clothing colour before it writes anything.
 - That the patched index actually lands in the player object's palette byte on the release build
   while walking, biking AND running, rather than being overridden by the gender rule the surf fix
   documents. One read on a coloured seed; a patched ROM, so that reading is mine.
