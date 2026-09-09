@@ -102,3 +102,33 @@ jobs:
             exit 1
           fi
           echo "No NEW binary embeds a machine-identifying path."
+
+      - name: Stray files (root allowlist, local-only headers)
+        run: |
+          # A working checklist whose first line said "deliberately untracked" was committed on
+          # 2026-09-08 and sat here until 2026-09-09: its header was prose and every scanner looked for
+          # paths. Same two rules as .githooks/pre-commit and preflight.ps1's "Stray files".
+          ROOT_ALLOW='.gitattributes
+          .gitignore
+          .gitmodules
+          CLAUDE.md
+          LICENSE
+          README.md
+          go.mod
+          go.sum'
+          status=0
+          for f in $(git ls-files | grep -v /); do
+            if ! printf '%s\n' "$ROOT_ALLOW" | sed 's/^ *//' | grep -qxF "$f"; then
+              echo "STRAY: $f is tracked at the repo root and not in the root allowlist"
+              status=1
+            fi
+          done
+          for f in $(git ls-files | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|agent_docs/pitfalls/)'); do
+            [ -f "$f" ] || continue
+            if head -n 10 "$f" | grep -qiE 'deliberately untracked|do not commit'; then
+              echo "STRAY: $f says in its own header that it must not be committed"
+              status=1
+            fi
+          done
+          [ "$status" -eq 0 ] || exit 1
+          echo "Root holds only allowlisted files; no tracked file declares itself local-only."

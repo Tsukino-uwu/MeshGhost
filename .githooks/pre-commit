@@ -63,6 +63,39 @@ CLONE_FILES='\.(ps1|bat|sh|lua|go|cs|cpp|hpp|h|py|dll|exe|so|dylib|pdb|lib|a|bin
 # fixed. Anything not listed here is still refused, so a NEW binary leak cannot be committed.
 BINKEEP='^(packaging/release/games/pseudoregalia/pseudoregalia/Binaries/Win64/(dwmapi\.dll|ue4ss/UE4SS\.dll|ue4ss/Mods/MeshGhostPseudo/dlls/main\.dll)|packaging/release/games/tevi/MeshGhost/MeshGhostTevi\.dll)$'
 
+# STRAY FILES, since 2026-09-09. A working checklist whose first line said "deliberately
+# untracked" was committed on 2026-09-08 and sat on the public repo until 2026-09-09: its header was
+# prose, and every scanner here looked for paths. Two narrow rules, the same two as preflight's
+# "Stray files" section and hygiene.yml's step:
+#   1. the repo ROOT is an allowlist -- a stray lands there far more often than in a subtree, and
+#      the legitimate set is tiny; a real new root file is one entry here, with a reason;
+#   2. a staged file whose first ten lines say "deliberately untracked" or "do not commit" is
+#      refused -- the file is telling us what it is.
+ROOT_ALLOW='^(\.gitattributes|\.gitignore|\.gitmodules|CLAUDE\.md|LICENSE|README\.md|go\.mod|go\.sum)$'
+strays=''
+for f in $(git diff --cached --name-only --diff-filter=A); do
+	case "$f" in */*) ;; *)
+		printf '%s' "$f" | grep -qE "$ROOT_ALLOW" || strays="$strays    $f  (new file at the repo root -- not in the root allowlist)
+" ;;
+	esac
+done
+for f in $(git diff --cached --name-only --diff-filter=ACMR | grep -Ev '^(\.githooks/|\.github/workflows/|dev-scripts/preflight\.ps1|agent_docs/pitfalls/)'); do
+	if git show ":$f" 2>/dev/null | head -n 10 | grep -qiE 'deliberately untracked|do not commit'; then
+		strays="$strays    $f  (its own header says it is not to be committed)
+"
+	fi
+done
+if [ -n "$strays" ]; then
+	echo "COMMIT REFUSED: a stray file would enter the repo." >&2
+	echo >&2
+	printf '%s' "$strays" >&2
+	echo >&2
+	echo "A local working file stays local: leave it unstaged and list it in .gitignore." >&2
+	echo "A real new root file goes into ROOT_ALLOW in this hook, preflight.ps1's rootAllow and" >&2
+	echo "hygiene.yml's ROOT_ALLOW, with a reason." >&2
+	exit 1
+fi
+
 staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -Ev "$KEEP" | grep -Ev "$BINKEEP")
 [ -z "$staged" ] && exit 0
 

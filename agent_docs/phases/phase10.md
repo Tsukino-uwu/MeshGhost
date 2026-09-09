@@ -1242,3 +1242,11 @@ is on -- and then decoupled from `replay.indicator` too, which used to hide both
 *"the input history should be its own thing"*). Pseudoregalia DLL `0a944434aa98`, both installs;
 unwatched. Not touched: the mod-read keys (`ghost_range*`, `replay.indicator*`, `input_display`),
 which the mod already polls, and TEVI's mod, whose own config reads were not audited tonight.
+
+## 2026-09-09 (afternoon) -- SignPath declined; a stray file found on the public repo, and the gate it now has
+
+**SignPath Foundation declined the application** (submitted 2026-09-06) on visibility grounds, with a reapplication invited; `security-design.md`'s code-signing entry holds the letter's substance and the alternatives, none adopted. Releases stay unsigned.
+
+**The user found `REVIEW-FINDINGS.md` on GitHub.** It had been committed on 2026-09-08 (`80fc0f3f`) despite its own header saying it was deliberately untracked; untracked again in `3d34e694` and ignored from now on. It stays in history; a rewrite of public history was offered as the user's decision and not taken. The lesson and the two new gates (root allowlist, local-only header) are in `pitfalls/by-lesson.md`, proven to fail on a plant before being trusted. The Docs run on the first push of the day failed on two older drive-rig gates (five unindexed pitfalls, one unannotated pointer cache), fixed in `a9f547ca`.
+
+**Crystal is active** (`phase9.md`, this date) -- the next adapter to make ready for a second person.

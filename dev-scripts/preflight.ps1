@@ -157,6 +157,43 @@ $clonePaths = & git grep -inIF -e 'C:\dev\MeshGhost' -e 'C:/dev/MeshGhost' -- '*
 Report-GrepGate $LASTEXITCODE $clonePaths "hardcoded clone path in a tracked script -- use `$PSScriptRoot, debug.getinfo, or a path relative to the script:" `
     "no script hardcodes an absolute path to the clone"
 
+# ---------------------------------------------------------------------------
+Section "Stray files: nothing at the root but the allowlist, nothing marked local-only"
+
+# A working checklist whose FIRST LINE said "deliberately untracked" was committed on 2026-09-08
+# and sat on the public repo until 2026-09-09. The header was prose, and prose is not a gate --
+# the only scanners in the repo looked for paths, and the file had none. Two rules, both cheap and
+# both narrow enough to touch nothing else:
+#
+#   1. The repo ROOT is an allowlist. A stray file lands at the root far more often than in a
+#      subtree (a scratch note, a findings list, a pasted log), and the root's legitimate set is
+#      tiny and changes rarely. Adding a real root file is one line here, with a reason.
+#   2. Any tracked TEXT file whose first ten lines say "deliberately untracked" or "do not commit"
+#      is refused. That is a file telling us what it is; the gate makes the sentence mean something.
+#
+# .githooks/pre-commit refuses both at commit time; hygiene.yml re-checks the tree on every push.
+$rootAllow = @('.gitattributes', '.gitignore', '.gitmodules', 'CLAUDE.md', 'LICENSE', 'README.md', 'go.mod', 'go.sum')
+$rootTracked = @(& git ls-files | Where-Object { $_ -notmatch '/' })
+$rootStray = @($rootTracked | Where-Object { $rootAllow -notcontains $_ })
+if ($rootStray.Count -gt 0) {
+    Report-Fail "tracked file(s) at the repo root that are not in preflight's root allowlist -- a stray, or add it there with a reason: $($rootStray -join ', ')"
+} else {
+    Report-Pass "the repo root holds exactly its $($rootAllow.Count) allowlisted files ($($rootTracked.Count) tracked)"
+}
+
+$localOnly = @()
+foreach ($f in @(& git ls-files)) {
+    if (-not (Test-Path -LiteralPath $f -PathType Leaf)) { continue }
+    if ($f -eq 'dev-scripts/preflight.ps1' -or $f -eq '.githooks/pre-commit' -or $f -like '.github/workflows/*' -or $f -like 'agent_docs/pitfalls/*') { continue }
+    $head = @(Get-Content -LiteralPath $f -TotalCount 10 -ErrorAction SilentlyContinue)
+    if (($head -join "`n") -match '(?i)deliberately untracked|do not commit') { $localOnly += $f }
+}
+if ($localOnly.Count -gt 0) {
+    Report-Fail "tracked file(s) whose own header says they must not be committed: $($localOnly -join ', ')  -- git rm --cached it and add it to .gitignore"
+} else {
+    Report-Pass "no tracked file declares itself local-only in its first ten lines"
+}
+
 Section "Machine-identifying strings inside tracked BINARIES"
 
 # THE GAP THAT MADE EVERY CHECK ABOVE REPORT CLEAN ON A LEAKING TREE (found 2026-09-07).
