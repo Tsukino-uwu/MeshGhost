@@ -205,6 +205,12 @@ LoopAsync(50, function()
             local entered = nil
             if w.last_ms ~= nil and ms == 4 and w.last_ms ~= 4 then entered = "moveState 4 (wall)" end
             if w.last_as ~= nil and as == 6 and w.last_as ~= 6 then entered = "actionState 6 (plunge)" end
+            -- The crouch slide (13:3x): the recording holds actionState 18 for ~0.2 s and jumps out
+            -- of it at 1100; the driven ghost's 18 lasts one tick. Both entries AND the exit.
+            if w.last_as ~= nil and as == 18 and w.last_as ~= 18 then entered = "actionState 18 (slide)" end
+            if w.last_as == 18 and as ~= 18 then entered = "LEFT actionState 18 (slide) -> " .. tostring(as) end
+            -- The crouch itself (moveState 2), for the side that crouches without sliding.
+            if w.last_ms ~= nil and ms == 2 and w.last_ms ~= 2 then entered = "moveState 2 (crouch)" end
             if entered then
                 local tag = string.format("%s %s t=%.2f", w.who, fname_str(w.pawn), t)
                 if w.before then write_snapshot(tag .. " BEFORE (last tick, moveState " .. tostring(w.last_ms) .. " actionState " .. tostring(w.last_as) .. ")", w.before) end

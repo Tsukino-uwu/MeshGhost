@@ -3518,3 +3518,30 @@ overlap events, which is the likely writer. Two ghosts with one clip were the LO
 (the user's call: *"its probly loopback ?"*); restarting the relay under the live game crashed it
 on a freed effect pointer in the cleanup's one-time diagnostic (fixed, `3d5f0949`). The user left
 the game running at ~12:50 for probing; the hook build waits for the next relaunch.
+
+## 2026-09-09 (13:3x-13:4x) — the bound stick watched, the skid, and the side-by-side; session closed
+
+The bound-stick build ran: the hook armed and answered tens of thousands of `IA_Move` reads for
+the driven ghost, and with the rig's own push off the pawn's Blueprint moved it -- so the Move
+event node fed with the stick does move a clone after all (the 23:38 conclusion was wrong or
+context-bound). The user: *"its still snapping a lot"* -- 22 corrections a loop on the `123724`
+clip, at the same places. The ramp probe (`ramp_watch.lua`, the driven pawn's first 3 s each loop
+at 50 ms) against the clip's own positions: acceleration identical (0 -> 550 in ~0.5 s both),
+`MaxWalkSpeed` 550 / `MaxAcceleration` 1600 / `GroundFriction` 8 on both. The divergence was a
+mechanic: the recording's `actionState` 18 at 1.5 s is the SKID TURN from a stick reversal at
+1.2 s (no crouch press in the track there -- the crouch is at 2.15), out of which the jump keeps
+1100; the ghost brakes 550 -> 81 in 0.1 s on the same reversal, its skid fires late at 63 and its
+jump clamps to 550 in the air. The track holds the stick at 30 Hz, quantized; a flick the player's
+Blueprint read across several frames the clone reads as three steps. That is the shape of what is
+left: per-frame analog detail, held to the route by the corrections.
+
+The user asked for a comparison reference: *"a input driven ghost that does everything, and can
+compare against it"*. The side-by-side rig (`mirror_offset`, a `-mirror` copy of the clip in
+`active/`, 250 units to the side) was set up on the current clip and ran; the user is to record an
+everything-clip next session (the move list is in the closing message). Session closed at the
+user's *"lets stop here for now"*: rig DISARMED (`ghost_drive.txt.disarmed`, `mirror_offset` back to
+0,0), the mirror copy removed from `active/` (the `123724` clip stays there, looping), the scratch
+stub restored, the relay stopped and 7777/7778 free; the game and its core were the user's and
+left alone. Everything is committed; the last DLL on both installs is `868a2707d5f1` (bound stick).
+Records: `UNVERIFIED.md` (the READY entry of the afternoon), `pitfalls/by-lesson.md` (three
+entries), `FLAGS.md` (the `ghost_drive.txt` row), `PROBES.md`.
