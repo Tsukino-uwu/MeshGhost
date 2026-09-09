@@ -487,6 +487,15 @@ regression test.
   child report the port it bound, or to retry the rig on early child exit. Neither is done yet.
   **A green re-run is not proof the code was fine**: confirm the failure is this shape (port number
   in the message, child listening elsewhere), because a real startup bug times out identically.
+  **The RESTART-shaped variant (CI race job, 2026-09-09):** the relay killed mid-test and started
+  again on the same number logged `bind: address already in use` four seconds after the old one
+  was reaped -- the number is in the kernel's ephemeral range, so any connection's local end on
+  the runner can be sitting on it. Fixed in the harness, narrowly: `restartRelay`
+  (`internal/e2e/restart_e2e_test.go`) starts the relay again when the process EXITS before its
+  listener answers, up to five times, and checks the process is still alive after a dial that
+  connected (whatever holds the port may accept too). `TestRestartRelayRetriesWhileThePortIsHeld`
+  holds the port the runner's way -- a dialled connection's local end, not a listener -- for a
+  second and fails without the retry. A test's FIRST start is still not retried, on purpose.
 - **A goroutine that outlives its test still reads package globals.** `reconnectWithBackoff` exits
   only on success or a permanent reject, and a dead address produces neither — so it spins past the
   end of the test that started it and races the *next* test's knob-twiddling. Found by CI's race

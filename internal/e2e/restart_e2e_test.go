@@ -53,6 +53,119 @@ func killAndWait(t *testing.T, cmd *exec.Cmd) {
 	_, _ = cmd.Process.Wait()
 }
 
+// restartRelay starts a relay on an address a relay was just killed on, and starts it AGAIN if
+// the first attempt dies at the bind.
+//
+// CI, 2026-09-09 (the race job, TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart):
+// four seconds after the old relay was killed and reaped, the new one logged `listen tcp
+// 127.0.0.1:38126: bind: address already in use` and exited, and the test failed on the
+// render that never came. Nothing of ours held that port: it is a number freePort handed out
+// from the kernel's ephemeral range, and anything on the runner -- a dial the client is making
+// to the dead relay, another connection's local end -- can be sitting on it for a while (the
+// TOCTOU testing.md records under freePort; this is its restart-shaped variant). A relay that
+// exits at the bind is told apart from one that is slow to listen by watching the process
+// itself: an exit before the listener answers means "try again", up to attempts times, and a
+// port that is never given back fails with the relay's own bind error in the log above, not a
+// 20s silence. The first start of a test is not retried -- freePort's own race there is the
+// recorded one, and a first bind that fails says something is wrong with the rig, not with
+// timing.
+func restartRelay(t *testing.T, dir, bin string, args ...string) *exec.Cmd {
+	t.Helper()
+	const attempts = 5
+	addr := ""
+	for i, a := range args {
+		if a == "-addr" && i+1 < len(args) {
+			addr = args[i+1]
+		}
+	}
+	if addr == "" {
+		t.Fatal("restartRelay: no -addr in the relay's args")
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		cmd := start(t, dir, bin, args...)
+		exited := make(chan struct{})
+		go func() { _, _ = cmd.Process.Wait(); close(exited) }()
+		deadline := time.Now().Add(testTimeout)
+		for time.Now().Before(deadline) {
+			select {
+			case <-exited:
+				t.Logf("restartRelay: attempt %d of %d exited before listening on %s (its bind error is above) -- retrying", attempt, attempts, addr)
+				time.Sleep(500 * time.Millisecond)
+				goto next
+			default:
+			}
+			if conn, err := net.DialTimeout("tcp", addr, time.Second); err == nil {
+				conn.Close()
+				// A dial that connects is not proof the RELAY is up: whatever holds the
+				// port may accept too. The process being alive after the dial is.
+				select {
+				case <-exited:
+					t.Logf("restartRelay: attempt %d of %d exited before listening on %s (its bind error is above) -- retrying", attempt, attempts, addr)
+					time.Sleep(500 * time.Millisecond)
+					goto next
+				default:
+					return cmd
+				}
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatalf("restartRelay: nothing listening on %s after %v and the relay did not exit", addr, testTimeout)
+	next:
+	}
+	t.Fatalf("restartRelay: the relay exited at every one of %d starts on %s -- the port was never given back", attempts, addr)
+	return nil
+}
+
+// The regression test for restartRelay's retry: the port is HELD by this test for a second, the
+// relay's first start dies at the bind exactly as CI's did, and the second start is what comes
+// up. Without the retry (a plain start + waitForListener) this is a 20s wait and a failure.
+func TestRestartRelayRetriesWhileThePortIsHeld(t *testing.T) {
+	r := newRig(t)
+	// The holder is the CI shape: not a listener on the port but a connection whose LOCAL end
+	// is the port -- the relay's bind fails and a dial to the port is refused, both exactly as
+	// on the runner. (A listener as the holder would ACCEPT the probe dial and look like a
+	// relay; the first version of this test did that and proved nothing.)
+	far, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("far listener: %v", err)
+	}
+	defer far.Close()
+	go func() {
+		for {
+			c, err := far.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
+		}
+	}()
+	local, err := net.ResolveTCPAddr("tcp", r.relayAddr)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", r.relayAddr, err)
+	}
+	holder, err := (&net.Dialer{LocalAddr: local}).Dial("tcp", far.Addr().String())
+	if err != nil {
+		t.Fatalf("hold %s: %v", r.relayAddr, err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(time.Second)
+		holder.Close()
+		close(released)
+	}()
+	started := time.Now()
+	cmd := restartRelay(t, r.dir, r.relayBin, "-addr", r.relayAddr, "-loopback")
+	<-released
+	if cmd == nil || cmd.Process == nil {
+		t.Fatal("restartRelay returned no process")
+	}
+	if took := time.Since(started); took < 500*time.Millisecond {
+		t.Fatalf("the relay came up in %v while the port was still held -- the holder did not hold, so this test proved nothing", took)
+	}
+	// The relay that came up is a real one: it answers a hello the way any relay does.
+	waitForListener(t, r.relayAddr)
+}
+
 // drainRenders empties whatever the adapter has already buffered, so a later
 // assertion is about renders produced AFTER the restart. startAdapter's
 // channel holds 64, and without this every test here would pass on a render
@@ -133,7 +246,7 @@ func TestASessionRecoversWhenTheRelayProcessIsRestarted(t *testing.T) {
 
 	// Promptly, and on the same address: the client is already backing off, so
 	// every second the relay is missing is a second of backoff to wait out.
-	startRelay(t, r.dir, r.relayBin, r.relayAddr)
+	restartRelay(t, r.dir, r.relayBin, "-addr", r.relayAddr, "-loopback")
 	awaitFreshRender(t, renders, "restarting the relay")
 }
 
@@ -246,7 +359,7 @@ func TestAutomaticTransportIsNotSilentlyDowngradedByARelayRestart(t *testing.T) 
 	killAndWait(t, relayCmd)
 	requireRendersStop(t, renders, "killing the relay")
 
-	start(t, r.dir, r.relayBin, relayArgs...)
+	restartRelay(t, r.dir, r.relayBin, relayArgs...)
 	waitForRelayTransport(t, netx.TCP, r.relayAddr)
 	waitForRelayTransport(t, netx.QUIC, quicAddr)
 	awaitFreshRender(t, renders, "restarting the relay")
