@@ -656,3 +656,17 @@ ghost" question) and, once the game's own pawn class is up, EVERY function name 
 to `pawnfns-<HHMMSS>.log` -- the unfiltered list that named `change Move State` after a
 substring census had missed it. Restore the stub after the hunt; the census is harmless but
 loaded-at-launch like anything left in the slot.
+
+Three more for the driven ghost's tracking (2026-09-09 afternoon), all READ-ONLY. `snap_watch.lua`:
+the driven pawn at 50 ms, and on every single-tick move over 100 units the eight samples before it
+(location, velocity, states, the held buttons) -- which way the pawn was drifting before each
+correction; it is what showed the rig's own movement input riding the ghost up every wall.
+`input_gate.lua`: on the PLAYER, per tick, whether the stick reached the movement component
+(`GetLastMovementInputVector`) against `hasMovementInput?`, tallied per moveState -- the game's own
+input gate as a table (moveState 4 passes 1 tick in 125; 3 and actionState 18 none). Do the route
+with the stick held. `wallrun_entry.lua`: a full plain-property snapshot of the pawn AND its
+CharacterMovement on every entry into moveState 4 (the wall) and actionState 6 (the plunge), for the
+player and every driven pawn, with the light sample from the tick before and reads at +250/+500 ms,
+to `wallrun-<HHMMSS>.log`; plus `respawnTransform` on both pawns every 2 s (the pit reset's target:
+zero on a clone). Diff two entries with `probe_pawndiff/wallrun_diff.py <log> [ENTRY|+250ms|BEFORE]`: latest GHOST ENTRY
+against latest PLAYER ENTRY, keys that differ.
