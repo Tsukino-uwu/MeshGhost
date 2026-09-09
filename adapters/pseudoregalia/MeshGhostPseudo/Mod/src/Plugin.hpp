@@ -148,6 +148,10 @@ namespace MeshGhostPseudo
         // speed, and the last periodic report while either side is in the wall state.
         double drive_prev_x{0.0}, drive_prev_y{0.0}, drive_prev_z{0.0}, drive_prev_t{-1.0};
         double drive_cling_report_s{0.0};
+        // The clip's previous target (2026-09-09): a correction restores the recording's VELOCITY
+        // along the direction the target moved, not a standstill.
+        double drive_prev_target_x{0.0}, drive_prev_target_y{0.0}, drive_prev_target_z{0.0};
+        bool drive_prev_target_valid{false};
         uint32_t drive_edges_applied{0};
         double drive_next_s{0.0};
         int drive_node_i{0};

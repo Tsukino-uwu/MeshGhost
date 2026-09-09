@@ -10720,6 +10720,10 @@ namespace MeshGhostPseudo
             // the rig's AddMovementInput is skipped in them. Empty = never gated.
             std::set<uint8_t> move_gate{3, 4};
             std::set<uint8_t> action_gate{18};
+            // snap_stop=1: a correction stops the pawn after the teleport (the behaviour until
+            // 2026-09-09 12:4x, which killed every plunge and restarted every wall slide);
+            // 0 (default) sets the recording's velocity instead. Kept for an A/B.
+            bool snap_stop = false;
             std::string text; // the file as last read, for change detection
         };
         GhostDriveCfg g_drive;
@@ -10789,6 +10793,10 @@ namespace MeshGhostPseudo
                 else if (key == "stand_stop_blend")
                 {
                     cfg.stand_stop_blend = std::clamp(std::atof(value.c_str()), -1.0, 5.0);
+                }
+                else if (key == "snap_stop")
+                {
+                    cfg.snap_stop = std::atoi(value.c_str()) != 0;
                 }
                 else if (key == "move_gate" || key == "action_gate")
                 {
@@ -10969,13 +10977,41 @@ namespace MeshGhostPseudo
                             continue;
                         }
                         const StringType name = property->GetName();
-                        if (name.rfind(STR("obtained"), 0) != 0 && name.rfind(STR("has"), 0) != 0)
+                        // `can*` joined 2026-09-09: `canMoveHeal?`, `canDoAirRecovery?`, `canDive`
+                        // differed player/ghost in every diff (the 00:29 pawn diff, the 12:4x
+                        // wall-entry snapshots) -- save-granted like the `obtained*` set.
+                        if (name.rfind(STR("obtained"), 0) != 0 && name.rfind(STR("has"), 0) != 0 && name.rfind(STR("can"), 0) != 0)
                         {
                             continue;
                         }
                         const bool value = mg_read_bool(local_pawn, name.c_str(), false);
                         if (mg_write_bool(ghost, name.c_str(), value))
                         {
+                            ++copied;
+                        }
+                    }
+                    // The save's NUMERIC upgrades (2026-09-09; `copy_config.lua` wrote these live on
+                    // 2026-09-09 00:30 and the C++ prepare never took them): a clone has the class
+                    // defaults -- `bonusAirKicks` 0 against the player's 4 is one fewer wall kick
+                    // than the recording had. The damage numbers stay zero on purpose (a ghost
+                    // never hurts). Read and written by the property's own type.
+                    for (const wchar_t* name : {STR("healUpgrades"), STR("damageUpgrades"), STR("powerBuildUpgrades"), STR("powerMeterUpgrades"), STR("bonusAirKicks")})
+                    {
+                        const int32_t* from = mg_property_value<int32_t>(local_pawn, name);
+                        int32_t* to = mg_property_value<int32_t>(ghost, name);
+                        if (from && to)
+                        {
+                            *to = *from;
+                            ++copied;
+                        }
+                    }
+                    for (const wchar_t* name : {STR("healAmountPerDing")})
+                    {
+                        const double* from = mg_property_value<double>(local_pawn, name);
+                        double* to = mg_property_value<double>(ghost, name);
+                        if (from && to)
+                        {
+                            *to = *from;
                             ++copied;
                         }
                     }
@@ -11519,14 +11555,50 @@ namespace MeshGhostPseudo
             {
                 remote.drive_max_drift = drift;
             }
+            // The direction the recording is moving in, from the target's own last step -- the
+            // recording carries speed magnitudes (`target_h_speed`, `target_v_speed`) but no
+            // direction.
+            double tdx = 0.0, tdy = 0.0;
+            if (remote.drive_prev_target_valid)
+            {
+                tdx = remote.target_x - remote.drive_prev_target_x;
+                tdy = remote.target_y - remote.drive_prev_target_y;
+            }
+            remote.drive_prev_target_x = remote.target_x;
+            remote.drive_prev_target_y = remote.target_y;
+            remote.drive_prev_target_z = remote.target_z;
+            remote.drive_prev_target_valid = true;
             if (drift > snap)
             {
                 call_set_actor_location_and_rotation(remote.ghost,
                                                      FVector(remote.target_x, remote.target_y, remote.target_z),
                                                      FRotator(remote.target_pitch, remote.target_yaw, remote.target_roll));
+                // **A correction carries the recording's velocity, it does not stop the pawn
+                // (2026-09-09 12:4x).** This used to call `StopMovementImmediately` after the
+                // teleport, and that call was the cascade: a Sunsetter plunge falls at 2000
+                // units/s, the clone entered it with the game's own upward hop, drifted past the
+                // threshold within a tenth of a second, and the stop zeroed the plunge velocity
+                // and ended the action (actionState 6 -> 0 within 250 ms, velocity -218 where the
+                // recording says -2000; at a 400-unit threshold the plunge produced no correction
+                // at all). The same stop restarted every wall slide from zero after each snap.
+                // Now: the movement component's velocity is set to the recording's speed along
+                // the direction its target moved this step, vertical from the recorded vertical
+                // speed -- the pawn continues as the recording did. `snap_stop=1` restores the
+                // old stop for an A/B.
                 if (UObject** mv = mg_property_value<UObject*>(ghost, STR("CharacterMovement")); mv && *mv)
                 {
-                    call_named_no_arg(*mv, STR("StopMovementImmediately"));
+                    if (g_drive.snap_stop)
+                    {
+                        call_named_no_arg(*mv, STR("StopMovementImmediately"));
+                    }
+                    else if (FProperty* vel = mg_cached_property(*mv, STR("Velocity")))
+                    {
+                        const double tlen = std::sqrt(tdx * tdx + tdy * tdy);
+                        const double ux = tlen > 1e-3 ? tdx / tlen : 0.0;
+                        const double uy = tlen > 1e-3 ? tdy / tlen : 0.0;
+                        write_vector_param(std::bit_cast<uint8_t*>(*mv), vel,
+                                           FVector(ux * remote.target_h_speed, uy * remote.target_h_speed, remote.target_v_speed));
+                    }
                 }
                 ++remote.drive_corrections;
                 // Each correction on its own line (2026-09-09: a two-cling clip snapped ~8 times a
