@@ -60,6 +60,20 @@ is the one that stands (`VERIFIED.md`, 2026-09-02); reproduce the savestate-load
 THEN cast a rod in one session (shared vtile `$fc`). Older READY entries (the 2026-08-19..26 sessions,
 Teleport, the savestate bake-in) stay below with their own headings.
 
+## [READY] Ghosts stay drawn through a text box, as the game's own characters do (2026-09-09), reloaded live, unwatched
+
+**What the user saw**: *"while fishing they can't see other ghosts"*. The fishing window's log
+said `2 hidden by UI`: the drawn tier hid every peer whose sprite reached the text-box rows.
+**Measured on V1.1** (`probes/ui_signals_probe.lua` + `probes/drive_fish.lua`): through the
+"Not even a nibble!" box, sprite updates stay on, the youngster NPC's OAM entries stay live inside
+the box rows with no behind-BG bit, and the box tiles have palette 7 with the CGB priority bit
+clear -- Crystal draws characters over its text boxes. The hide now fires only when a box tile
+sets that priority bit. The menu-rectangle hide is untouched and unmeasured the same way.
+
+**What to look at**: fish, or read a sign, with a peer standing in the bottom rows of your
+screen: the ghost stays visible over the box, exactly as the New Bark youngster does. Then open
+the START menu and the Pack: no ghost over either (those clear the sprite engine, a different gate).
+
 ## [READY] A player in a battle, a menu or a fishing cast keeps a standing ghost (2026-09-09), reloaded live, unwatched
 
 **What the user saw first**, five-build room: *"went invisible for other clients when fishing,

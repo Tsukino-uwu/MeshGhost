@@ -6246,9 +6246,24 @@ function drawOverflow()
 			end
 			if onScreen then
 				local hidden = false
-				-- The text box occupies the bottom six rows at full width, always.
+				-- The text box occupies the bottom six rows at full width, always -- but it COVERS
+				-- A SPRITE ONLY IF THE GAME SAYS SO. Measured 2026-09-09 on V1.1
+				-- (probes/ui_signals_probe.lua, driven by probes/drive_fish.lua): through the
+				-- fishing "Not even a nibble!" box, sprite updates stay ON, the New Bark youngster's
+				-- four OAM entries stay live INSIDE the box rows (y 124/132) with no behind-BG bit,
+				-- and the box's own tiles carry palette 7 with CGB priority bit 7 CLEAR -- so Crystal
+				-- draws its characters over its text boxes, and a peer standing there must be drawn
+				-- too. The user saw the opposite in the five-build room (*"while fishing they can't
+				-- see other ghosts"*): this test hid every peer whose sprite reached row 12. Now it
+				-- hides only when the box's tiles set BG priority, the one case the game itself
+				-- covers a sprite. One VRAM read per frame; bank 1 is at +0x2000 in BizHawk's domain.
 				if boxOpen and sy + 16 > TEXTBOX.row * 8 then
-					hidden = true
+					local lcdc = memory.read_u8(0xFF40, "System Bus") or 0
+					local map = ((lcdc & 0x08) ~= 0) and TEXTBOX.hi or TEXTBOX.lo
+					local attr = memory.read_u8(0x2000 + map + TEXTBOX.row * 32 + 5, "VRAM") or 0
+					if (attr & 0x80) ~= 0 then
+						hidden = true
+					end
 				end
 				if uiOpen and lastMenuBox then
 					-- ANY live rectangle hides -- see the list's construction above for why one
