@@ -11176,12 +11176,40 @@ namespace MeshGhostPseudo
                     capsule = static_cast<double>(*h);
                 }
             }
+            // Speeds on both sides (2026-09-09): the ghost's from its own last two traced
+            // positions, the clip's from the recording's horizontal/vertical speed fields -- with
+            // the wall push gone the two remaining corrections per loop sit inside the second
+            // cling, the ghost 130 units short along the wall and 150 low, which reads as less
+            // momentum into the wall than the recording had; this is the number that says so.
+            const FVector here = remote.ghost->K2_GetActorLocation();
+            const double now_t = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            double ghost_h = -1.0, ghost_v = 0.0;
+            if (remote.drive_prev_t >= 0.0 && now_t > remote.drive_prev_t)
+            {
+                const double dt = now_t - remote.drive_prev_t;
+                const double vx = (here.X() - remote.drive_prev_x) / dt, vy = (here.Y() - remote.drive_prev_y) / dt;
+                ghost_h = std::sqrt(vx * vx + vy * vy);
+                ghost_v = (here.Z() - remote.drive_prev_z) / dt;
+            }
+            remote.drive_prev_x = here.X();
+            remote.drive_prev_y = here.Y();
+            remote.drive_prev_z = here.Z();
+            remote.drive_prev_t = now_t;
+            const int clip_move = static_cast<int>(clamp_to_uint8(remote.target_move_state));
+            if ((move == 4 || clip_move == 4) && now_t - remote.drive_cling_report_s >= 0.25)
+            {
+                remote.drive_cling_report_s = now_t;
+                Output::send(STR("[MeshGhostPseudo] DRIVE CLING {} tick={} ghost moveState={} h={:.0f} v={:+.0f} | clip moveState={} h={:.0f} v={:+.0f} | ghost-clip=({:+.0f},{:+.0f},{:+.0f})\n"),
+                             to_wide_ascii(id), tick_count, move, ghost_h, ghost_v, clip_move, remote.target_h_speed, remote.target_v_speed,
+                             here.X() - remote.target_x, here.Y() - remote.target_y, here.Z() - remote.target_z);
+            }
             if (action != remote.drive_last_action || move != remote.drive_last_move || crouched != remote.drive_last_crouched ||
                 mode != remote.drive_last_mode || capsule != remote.drive_last_capsule)
             {
-                Output::send(STR("[MeshGhostPseudo] DRIVE TRACE {} tick={} actionState={} moveState={} bIsCrouched={} MovementMode={} capsule={:.1f} (clip says move={} action={})\n"),
+                Output::send(STR("[MeshGhostPseudo] DRIVE TRACE {} tick={} actionState={} moveState={} bIsCrouched={} MovementMode={} capsule={:.1f} (clip says move={} action={}) ghost h={:.0f} v={:+.0f} clip h={:.0f} v={:+.0f}\n"),
                              to_wide_ascii(id), tick_count, action, move, crouched, mode, capsule,
-                             static_cast<int>(clamp_to_uint8(remote.target_move_state)), static_cast<int>(clamp_to_uint8(remote.target_action_state)));
+                             clip_move, static_cast<int>(clamp_to_uint8(remote.target_action_state)),
+                             ghost_h, ghost_v, remote.target_h_speed, remote.target_v_speed);
                 remote.drive_last_action = action;
                 remote.drive_last_move = move;
                 remote.drive_last_crouched = crouched;
@@ -23325,11 +23353,14 @@ namespace MeshGhostPseudo
                     }
                 }
             }
-            if (!drive_this)
-            {
-
             // **Mirror the player's spring-arm length onto the ghost's** -- see
             // GHOST_BLOB_SHADOW_ARM_MIRROR for why this exists alongside the function call above.
+            // For a DRIVEN ghost too (2026-09-09): this is THE shadow fix (`FLAGS.md`: the arm is
+            // 100 by class default against the player's 5000, and that length is how far the
+            // shadow may fall to find floor), and it sat inside the `!drive_this` block, so the
+            // driven pawn's shadow hung 100 units under the model -- the user, twice: *"the shadow
+            // is following the ghost model, instead of being at the ground"*, still after the
+            // `manageBlobShadow` call alone was moved out (that call was never the fix, 2026-08-27).
             // Sampled from the live player every tick rather than written as a constant, so this
             // follows whatever the game does instead of asserting a number.
             if constexpr (GHOST_BLOB_SHADOW_ARM_MIRROR)
@@ -23365,6 +23396,9 @@ namespace MeshGhostPseudo
                     Output::send(STR("[MeshGhostPseudo] WARNING: could not resolve 'SpringArm'/'TargetArmLength' on both pawns -- the ghost's shadow will stay pinned to the model.\n"));
                 }
             }
+
+            if (!drive_this)
+            {
 
             // **Shadow trace, the second half of SHADOW_COMPONENT_PROBE.** The census at spawn says
             // which components exist; this says whether the ghost's copy ever MOVES. Both sides are

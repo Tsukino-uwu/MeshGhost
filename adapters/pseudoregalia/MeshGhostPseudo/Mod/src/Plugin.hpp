@@ -144,6 +144,10 @@ namespace MeshGhostPseudo
         uint32_t drive_corrections{0};
         double drive_max_drift{0.0};
         double drive_report_s{0.0};
+        // The cling trace (2026-09-09): the ghost's last traced position and time, for its own
+        // speed, and the last periodic report while either side is in the wall state.
+        double drive_prev_x{0.0}, drive_prev_y{0.0}, drive_prev_z{0.0}, drive_prev_t{-1.0};
+        double drive_cling_report_s{0.0};
         uint32_t drive_edges_applied{0};
         double drive_next_s{0.0};
         int drive_node_i{0};
