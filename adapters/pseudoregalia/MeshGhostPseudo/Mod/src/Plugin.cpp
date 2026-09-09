@@ -6252,11 +6252,30 @@ namespace MeshGhostPseudo
             // claim this file has been burned by before (`K2_DestroyActor` "was reflected and
             // called" on ghosts that then needed a garbage collection to disappear), so the
             // independent check is the population census in `probe_leakcount/`, not this line.
+            //
+            // **On a LIVE candidate only (2026-09-09).** This line used to ask `wanted.front()`,
+            // which skips the liveness check the loop above applies -- and the front of the list
+            // is the weapon glow, then the projectile, then the mirrored effects, then the one-shot
+            // ring, any of which the engine may already have freed. The first release of a session
+            // whose first candidate was a freed one crashed the game inside the chain walk
+            // (`GetFunctionByNameInChain` -> `TFieldRange` -> `IsA` reading near null; a relay
+            // restart made a live peer leave, the user's stack trace, 11:51). A freed pointer is
+            // fine to COMPARE against the live set and fatal to dereference: the same rule the loop
+            // already follows, applied to the diagnostic too.
             static bool lookup_logged = false;
-            if (!lookup_logged && !wanted.empty())
+            UObject* first_live = nullptr;
+            for (UObject* component : wanted)
+            {
+                if (live.find(component) != live.end())
+                {
+                    first_live = component;
+                    break;
+                }
+            }
+            if (!lookup_logged && first_live)
             {
                 lookup_logged = true;
-                UFunction* chain = wanted.front()->GetFunctionByNameInChain(STR("DestroyComponent"));
+                UFunction* chain = first_live->GetFunctionByNameInChain(STR("DestroyComponent"));
                 Output::send(STR("[MeshGhostPseudo] VFXCLEANUP: DestroyComponent via chain walk = {}; K2_DestroyComponent by path = {}\n"),
                              chain ? STR("found") : STR("NOT FOUND"),
                              UObjectGlobals::StaticFindObject<UFunction*>(
