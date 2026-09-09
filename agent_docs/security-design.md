@@ -1180,6 +1180,17 @@ for reputation evidence the project barely has (0 stars, 64 asset downloads acro
 2026-09-06) — a rejection on that ground is possible and would be worth re-applying after. **Then
 mine:** a secret named in the repo settings, two IDs, and the upload/submit/wait/package step.
 
+**Declined 2026-09-09**, on exactly that ground: the Foundation programme wants public-trust signals
+(stars, forks, contributors, independent articles or discussion, institutional backing, sustained
+engagement) and the project shows too few; not a quality judgement, reapplication explicitly
+invited. Their paid subscription was offered as the alternative. Nothing built for it is wasted:
+the policy page, the version resources and the CI-built provenance all stand, and are what a
+reapplication or any other signer needs. Alternatives if signing is wanted before the signals
+exist, none adopted: Azure Artifact Signing (cheap, CI-friendly, but as of 2026-02 public trust is
+limited by the developer's country), a Certum open-source certificate (personal, a few years per
+purchase), or SignPath paid. The free lever meanwhile is the one `docs/antivirus.md` already names:
+report each release binary to the scanner vendor as a false positive, per build.
+
 ## Replay files: one entry point for remote state (2026-09-03)
 
 **The user's requirement:** *"just want to avoid someone ever being able to share a malicious replay

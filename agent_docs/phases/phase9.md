@@ -1066,3 +1066,32 @@ another machine; prose naming the boundary is the rule working.
 
 Proven to fail before being trusted: a planted line in `zoom.ps1` reported it, and the check went
 green again once removed.
+
+## 2026-09-09 — Crystal reopened: the next adapter to make stranger-ready
+
+No code changed. The user's call after taking stock across the four adapters: Pseudoregalia is
+the only one that has been played with anyone outside (one session, four players, the user plus
+three testers, on Archipelago with the ghost layer); Emerald has been played once with one other
+person; Crystal and TEVI have never been run with a second human. Crystal moves to the front
+because the Archipelago Crystal maintainer knows the project exists and agreed, in conversation,
+that a dedicated relay is the right shape for presence rather than routing it through
+Archipelago's own server. They have not run it. Nothing beyond that is recorded here, and nothing
+about that project's sources ever is (`agent_docs/licensing.md`; the fork is not public).
+
+**What the record says is open before a second person runs it**, from `UNVERIFIED.md`:
+
+- The `\uXXXX` decoder fix shipped from measurement and is unwatched.
+- Whether a spawned ghost is solid on Crystal: it is on Emerald (seen live 2026-09-06) and
+  `ghost_collision` reaches no adapter, so assume yes until watched.
+- A two-client Archipelago session installed from the release zip, the way a player would, not
+  from the dev tree.
+- Per new ROM patch, two things: the WRAM addresses (Archipelago's are already non-uniform,
+  2026-08-17) and whether map ids survive the patch unchanged. The core compares `area_id` by
+  equality only, so a patch that renumbers maps would put two clients on different patches in
+  different "areas" while standing on the same tile. Vanilla and Archipelago already see each
+  other (2026-08-18); every further patch is checked the same way.
+
+**Decided against: an input track or driven ghost for Crystal.** Pseudoregalia needed one because
+a 3D pawn's pose is Blueprint state a position stream cannot reproduce. Crystal's overworld is
+tile-stepped with a fixed step animation, and the record already has a ghost walking and facing
+correctly from positions alone. There is nothing an input track would recover.

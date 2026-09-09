@@ -4,10 +4,12 @@ This page exists because the [SignPath Foundation](https://signpath.org) require
 project it signs for, and because a user deciding whether to trust a signed download deserves to
 know exactly what the signature does and does not vouch for.
 
-**Status:** the application to SignPath Foundation is in progress. Until it is approved and the
-signing step is live in the release workflow, no MeshGhost release is signed, and
-[antivirus.md](antivirus.md) describes what a user can check instead. This paragraph is updated
-when that changes; the date of the change goes in [security.md](security.md)'s changelog.
+**Status (2026-09-09):** the first application to SignPath Foundation, submitted 2026-09-06, was
+declined on 2026-09-09. The stated reason was the programme's visibility bar, not the project:
+they look for external signals (stars, forks, contributors, independent write-ups or discussion)
+and invited a reapplication once those exist. No MeshGhost release is signed, and
+[antivirus.md](antivirus.md) describes what a user can check instead. This paragraph, and its
+date, are updated when that changes.
 
 ## What gets signed
 
