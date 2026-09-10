@@ -649,3 +649,54 @@ kills are what proved the snap and the local wall test exact; the residue always
 - **The remaining build-dependent ordinals**: the follower-effect pool index (checked, with a
   same-family fallback), the two muzzle-flash pools, and the orb/summon/shield rows from the
   previous session.
+
+## 2026-09-10 — the queue drains, five beats land, and one of them was wrong on arrival
+
+**The record was the blocker, not the work.** TEVI's `VERIFIED.md` stopped at 2026-09-02 while its
+queue ran to 2026-09-10 — orbitars, core expansions, the boost shield, the trails and projectiles
+all sat in `UNVERIFIED.md` with the user's own confirmations beside them. Two agent misreadings, and
+neither was the user's judgement:
+
+1. **"think" was read as doubt.** It is not. The user, 2026-09-10: *"looks correct, think its
+   perfect now etc. means its done/verified"*. Only voiced uncertainty queues.
+2. **A hold was invented on COVERAGE** — *"held until a second session repeats it, the confirmation
+   was one set of shots"*. No rule asks for that, and it names no trigger, so nothing could ever
+   release it. Two entries said so outright; a third, in Pseudoregalia, survives on the
+   intermittent-fault clause and was given the trigger it was missing.
+
+Drained on the quotes already in the files, each entry naming the quote it drained on. Two new
+`VERIFIED.md` entries: the 2026-09-10 mirroring evening, and projectiles — the second written as
+what it is, *"in a good state, but not fully synced"* (user), with the unmirrored shots listed
+rather than claimed.
+
+**Five beats, not twenty.** The 2026-09-10 work is many queue entries and few capabilities, so the
+orbitars, the crystal trail, the dodge fade, core expansions and the boost shield are ONE beat, and
+projectiles are another. The two lessons that paid for the evening are carried inline because
+without them the beat is just a list of things that now mirror: a clone of a component the game
+parks INACTIVE is born with `Awake` unrun (so every cosmetic sub-feature is now walled in its own
+try/catch), and a shader keyword the game strips from its own template meant the barrier popped
+instead of blooming.
+
+**`documentation.md` covered 2 of the 18 game types the adapter reflects.** It now carries warp
+devices (the whole visual is in `Update`; every side effect is in the triggers; the heal goes to the
+local player rather than to whoever entered), the bullet pool and why a death is not a despawn, core
+expansions, the boost shield, and how the game picks an afterimage trail. The bar applied: whether
+the GAME's mechanism is established, not whether our mirror of it was watched — which is why the
+trail's order of precedence went in while the adapter half of it is still queued.
+
+**A new beat was wrong on arrival, and the user caught it.** Beat 17 said 450ms *"was measured and
+deliberately not shipped"*, taken from the `VERIFIED.md` entry of 2026-09-02, which says exactly
+that. It was true for that hour. **ADR 0046, decided the same night, made 450ms the shipped default
+for every game** — `core.DefaultInterpolationDelay` and all four per-game configs carry it. So a
+brand-new beat asserted a shipped value that had been wrong since 2026-09-02. The user's rule out of
+it: **before writing a build-story beat or a documentation section, fact/stale-check it against the
+code** — the record supplies what happened and what was said, the code supplies what is true now,
+and they are different lookups. *"or it just ends up being something that is wrong twice, or
+something we have to change again directly afterwards anyway."*
+
+The retro-check that followed found one more: beat 15 described the hot-reload loop as ScriptEngine
+simply loading the plugin from `scripts\` with no keypress. The script is a **toggle** — the two
+locations are mutually exclusive on purpose, because with the adapter in both, two plugin instances
+run, which is two bridge connections and two ghosts per peer, *"and every reading agrees with itself
+while being wrong"*. Rewritten to say that, plus the two faults the loop can never show: a cold-start
+fault, and anything the old instance left parented into the scene.

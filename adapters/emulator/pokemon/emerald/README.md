@@ -331,7 +331,7 @@ order:
 41. Ran the whole thing from the release files, with nothing configured. The adapter loaded from
     `games/pokemon/emerald/` in the unzipped release, both cores were started by the adapters
     themselves with no port override set, and cross-map ghosts kept working across a route seam —
-    which mattered that week because the relay had just started filtering by area, and briefly broke
+    which mattered because the relay had just started filtering by area (ADR 0041, 2026-08-28) and briefly broke
     them. Emerald asks for `render_all_areas`, so the relay is obliged to forward everything: its
     own introspection reported nothing filtered against a room where most of the bytes crossed
     areas. Every earlier check had gone through `dev-scripts` (2026-08-28,

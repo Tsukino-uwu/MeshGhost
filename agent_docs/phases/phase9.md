@@ -1229,3 +1229,40 @@ nothing and were swept in a follow-up commit after the user asked whether everyt
 the script reads that folder's config and logs there; `"autostart": false` actually stops the
 client; and — the half most likely to have been broken by this change — a release-root install
 still behaves exactly as it always did.
+
+## 2026-09-10 — six beats, two new mechanic sections, and a documented claim the code disproved
+
+The build story stopped at step 27 (2026-09-02) while the adapter gained six capabilities. Written
+as beats 28-33, appended rather than inserted chronologically: steps 20, 25, 26 and 27 are cited by
+number from `BANDAGES.md`, `README.md` itself and `UNVERIFIED.md`, so renumbering would have broken
+six live references, and "roughly in order" tolerates a dated catch-up better than that does.
+
+The beats: the dev loop that made the rest cheap; ghosts across the map seam; five recognised builds
+with a refuse-to-run gate; a standing ghost for a player in a battle, a menu or a fishing cast; the
+UI hide rule rebuilt on the tiles; and a peer keeping their own colours. The three-of-four mirrored
+facings fix folded into the cross-map beat as a clause rather than standing alone — it is a fix, not
+a capability, and the user's rule for this list is one beat per capability.
+
+**`documentation.md` lost a claim the code had disproved.** "The game's UI covers characters by
+itself" opened by saying every character under a box is covered by hardware priority. That is true
+of a MENU and false of a TEXT BOX: the box's tiles carry CGB priority **clear** and an NPC's
+hardware entries stay live inside its rows. The 2026-08-19 confirmation it rested on was of the
+pause menu, generalised to boxes in general — and undoing that generalisation is what 2026-09-09
+cost. The section now opens by saying it was wrong and why, then splits into the three mechanisms
+that actually exist, because the generalisation is the reusable lesson and hiding the correction
+would throw it away.
+
+**Two new sections.** "How the game colours a character" (palette chosen by gender; the surf blob
+inherits the rider's palette, so a surfer is red or blue; a slot's four words are
+transparent/skin/clothing/outline; the hardware copies from the second palette block). And "What a
+patched or alternate build moves, and what it does not" — the section Emerald has had since
+2026-08-19 and Crystal, with four non-vanilla builds in the field, did not. Facts and citations
+only, in our own words: no address tables, nothing structurally copied.
+
+Also added the closing known-unknowns section, and declared the `[from the decomp]` label the file
+had been leaning on without naming — Emerald ships that vocabulary and Crystal did not.
+
+**The README had been understating what was proven.** It still called V1.1, Speedchoice and
+Archipelago-on-V1.1 "not yet watched" when all three were watched 2026-09-09/10, still said surf was
+unreached on the patched build, and still described the mixed room as one map with two players when
+2026-09-10 ran four windows.

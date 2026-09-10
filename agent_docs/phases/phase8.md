@@ -570,3 +570,34 @@ one — misleading by omission rather than by wording. And `FLAGS.md` gained row
 register, but it cannot check the reverse and cannot see a switch that is not an environment
 variable at all, so both keys had been live and unregistered. Its preamble said everything but
 `MESHGHOST_NO_AUTOSTART` was development-only; there are three supported player settings now.
+
+## 2026-09-10 — the build story gains its missing beat, and a confirmation leaves the queue
+
+Emerald's build story stopped at step 40 while one confirmed thing had never been written down:
+**running the whole adapter from the release files with nothing configured** (2026-08-28,
+`VERIFIED.md`). It mattered because the relay had just started filtering cross-area state
+(ADR 0041, 2026-08-28) and briefly broke cross-map ghosts — Emerald asks for `render_all_areas`, so
+the relay is obliged to forward everything, and its own introspection reported nothing filtered
+against a room where most of the bytes crossed areas. Every earlier check had gone through
+`dev-scripts`. That is now step 41. Crystal's step 27 had carried the same fact for Crystal since
+the day it happened; Emerald's list simply never got it.
+
+**A build-story step was resting on the queue.** Step 39 cited *"two real clients were then
+confirmed on screen (2026-09-03)"* against an `UNVERIFIED.md` entry. The confirmation was real,
+dated and in the user's own words — *"i tested pokemon emerald, 2 clients still work and connect
+properly"* — but it had never been migrated, so the step pointed at the file whose whole meaning is
+"not yet confirmed". Drained to `VERIFIED.md` with the log evidence beside it; the queue entry is
+now `[DONE]` and says where it went. This is the same class of fault the TEVI drain found the same
+day, and the cause is the same: the queue only drains when somebody does it.
+
+**`documentation.md` said the Fly section "was never watched".** A same-town Fly was watched from a
+second instance on 2026-08-26 (`VERIFIED.md`), and the build story's own step 38 said so — the
+provenance note at the top had simply not been updated when the confirmation landed. The boat half
+of that sentence stands and is now the only thing it claims.
+
+**Added the closing known-unknowns section** the template prescribes and this file lacked, including
+one cross-game question worth having written down: whether Emerald's sprite priority under a text
+window behaves like Crystal's, where a text box turned out not to hide characters at all
+(`crystal/documentation.md`, rewritten the same day). Emerald's equivalent has never been exercised
+— `UNVERIFIED.md` lists drawn clipping under a text box as unexercised — so it is a question, not a
+claim.

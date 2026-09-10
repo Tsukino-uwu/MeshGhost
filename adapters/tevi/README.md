@@ -124,23 +124,29 @@ during review passes or later sessions, and say so where it matters:
     step 11 kept a warp device on its "assembling" glow after the peer closed the game, until
     somebody walked on and off it; the disconnect now releases it, watched by the user with two
     real instances (2026-09-02, [VERIFIED.md](VERIFIED.md)).
-15. Made the adapter reload inside a running game, so a test stopped costing a launch. BepInEx's
-    `ScriptEngine` loads the plugin from `BepInEx/scripts/`, and one script rebuilds, copies and
-    fires the reload with no keypress. It leaves no orphan ghost because the plugin's own
-    despawn-all path runs on the way out — read from both instances' logs in a two-instance session
-    with real peers, not loopback (2026-08-28, [VERIFIED.md](VERIFIED.md)). Everything after this
-    step was built against a loop that costs seconds instead of a relaunch.
+15. Made the adapter reloadable inside a running game, so a test stopped costing a launch. The
+    plugin can be moved out of BepInEx's normal `plugins\` slot into ScriptEngine's `scripts\`
+    one, where a rebuild can be reloaded in place; a script toggles between the two and rebuilds
+    into whichever is active, and a file watcher can take the keypress out of the loop entirely.
+    **The two locations are mutually exclusive on purpose** — with the adapter in both, two plugin
+    instances run, which is two bridge connections and two ghosts per peer, and every reading
+    agrees with itself while being wrong. It leaves no orphan ghost because the plugin's despawn-all
+    path runs on the way out, which is a standing obligation for anything new that spawns a
+    `GameObject`. Two faults it can never show you: anything that only goes wrong on a COLD start,
+    and anything the old instance left parented into the scene — so the shipping layout is what a
+    confirmation has to be made on (2026-08-28, [VERIFIED.md](VERIFIED.md)).
 16. Ran two release instances against each other and left them alone. A cold launch brings up two
     cores on their own ports with no configuration and no port churn, and when the relay is stopped
     underneath them both ghosts come back without anyone touching anything (2026-08-28,
     [VERIFIED.md](VERIFIED.md)). This is the first check that used the release files rather than
     the dev scripts.
-17. Chose the shipped interpolation delay by climbing a ladder rather than guessing. On an
-    ocean-tier link 300ms was the first rung with room for one lost sample at 15Hz — 175ms
-    stuttered constantly, 250ms still had holes — and it ships. On the worst case the rig can
-    make (NA↔EU ping plus bad wifi) TEVI wants 450ms, which was measured and deliberately **not**
-    shipped: that call waits until all four games have their number (2026-09-02, ADR 0046,
-    [VERIFIED.md](VERIFIED.md)).
+17. Chose the interpolation delay by climbing a ladder rather than guessing, twice in one night.
+    On an ocean-tier link 300ms was the first rung with room for one lost sample at 15Hz — 175ms
+    stuttered constantly, 250ms still had holes. Then the same ladder on the worst case a shipped
+    default has to survive (NA↔EU ping plus bad wifi): 300ms is arithmetically short there, 375ms
+    still stutters every few seconds, and **450ms is what ships — for every game, not just this
+    one** (2026-09-02, ADR 0046). The rule that came out of it outlived the number: a rate or
+    interpolation verdict is made on nothing milder than that rig ([VERIFIED.md](VERIFIED.md)).
 18. Mirrored what a peer's character carries with it, in one evening and one piece at a time: the
     two orbitars wearing the peer's own look, their crystal trail, the dodge afterimage fade, core
     expansions (the summoned humanoid, its trail out and back), and the boost shield with its two
