@@ -43,33 +43,7 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
 
 ## Setup
 
-1. Grab the latest release zip from the [Releases page](../../releases) and unzip it.
-2. Edit `config.json`: `connect_to` (the host's address), `room` (must match everyone else's),
-   and `name`. If the host set a `room_code`, enter that too.
-3. Load your game's mod from `games\<publisher>\<game>\` — BizHawk's Lua Console for Emerald and
-   Crystal, BepInEx for TEVI, UE4SS for Pseudoregalia. **You do not start `meshghost.exe` yourself:
-   every adapter starts one for you, with no window, and closes it again with the game.** There is
-   no order to get right and nothing to leave open. (The two Pokémon games are the only ones with a
-   `<publisher>` subfolder: `games\pokemon\emerald\` and `games\pokemon\crystal\`.)
-4. Whoever is hosting also runs `meshghost-server.exe` and forwards port 7777 — **both `tcp` and
-   `udp`, which are two separate rules on most routers**. The server prints exactly what to forward
-   when it starts.
-
-**Every game follows one rule: `meshghost.exe` and `config.json` sit next to the mod, and that
-copy is the one MeshGhost reads.** For TEVI and Pseudoregalia that folder is the game's own (the
-one Steam installed); for Emerald and Crystal it is `games\pokemon\<game>\`, beside the script.
-Each game's `config.json` already ships there — only `meshghost.exe` is a one-time copy.
-
-The two Pokémon games are the forgiving ones: their script checks its own folder first and falls
-back to the release root, so an older install that left the exe there keeps working. TEVI and
-Pseudoregalia do not fall back, because the mod lives inside the game.
-
-Setting `"autostart": false` in the `config.json` your game reads turns autostart off, if you would
-rather run the client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still works.)
-
-Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
-
-Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**, with
+**[docs/getting-started.md](docs/getting-started.md)**, with
 [docs/hosting.md](docs/hosting.md) for whoever runs the server and
 [docs/troubleshooting.md](docs/troubleshooting.md) when something is wrong. All three ship in the
 zip too, under `docs\`.
