@@ -10,7 +10,7 @@ that.
 
 ---
 
-# The short version
+## The short version
 
 1. **Double-click `meshghost-server.exe`.** Leave the window open while people play. It prints
    what it is serving and exactly what to forward.
@@ -36,7 +36,7 @@ it starts; look for **`to accept players from outside this machine, forward:`**.
 
 Then give friends your public IP (search "what is my ip"), plus `:7777`.
 
-**C. A VPN, if you cannot or would rather not forward ports**
+### C. A VPN, if you cannot or would rather not forward ports
 
 Plenty of people cannot — a landlord's router, a university network, or carrier-grade NAT where
 your connection has no public address to forward *to*. Tools like **Radmin VPN**, **Hamachi**,
@@ -57,7 +57,7 @@ and are what almost every group should stay on.
 
 ---
 
-# The longer version
+## The longer version
 
 Everything here lives in the `"server"` section of the `config.json` next to
 `meshghost-server.exe`. [config.md](config.md) is the terse reference for every key; this page is
@@ -86,7 +86,7 @@ server, and anyone playing anything else is turned away at connect with a messag
 The valid ids, exactly, all lowercase:
 
 | id | game |
-|---|---|
+| --- | --- |
 | `emerald` | Pokémon Emerald |
 | `crystal` | Pokémon Crystal |
 | `tevi` | TEVI |
@@ -110,7 +110,7 @@ At the default 15 Hz, for the heaviest supported game (Pseudoregalia), in the un
 plan is sold in:
 
 | Players | Your upload needed |
-|---|---|
+| --- | --- |
 | 4 | ~0.9 Mbps |
 | 8 *(the default)* | ~4.1 Mbps |
 | 12 | ~9.5 Mbps |
@@ -158,7 +158,7 @@ Shown per hour, because per second the same number looks tiny and adds up fast:
 **Each player's own upload** (the same no matter how big the room):
 
 | | |
-|---|---|
+| --- | --- |
 | 15 Hz *(default)* | ~8.8 KB/s = ~31 MB/hour |
 | 100 Hz *(max)* | ~58.3 KB/s = ~205 MB/hour |
 
@@ -168,7 +168,7 @@ Shown per hour, because per second the same number looks tiny and adds up fast:
 **Your upload as the host** — everyone's position relayed to everyone else — at 15 Hz:
 
 | Room | Host upload |
-|---|---|
+| --- | --- |
 | 2 players | ~17.5 KB/s = ~61 MB/hour |
 | 4 players | ~104.9 KB/s = ~369 MB/hour |
 | 8 players | ~489.8 KB/s = ~1.7 GB/hour |
@@ -203,7 +203,7 @@ without anyone doing anything, and both sit on the same port *number*, so hostin
 to forward.
 
 | | |
-|---|---|
+| --- | --- |
 | **tcp** — always served whether you list it or not | Works everywhere, and the only one that can be inspected when something goes wrong, so it is easiest to get help with. Its weakness: one lost packet holds up the positions queued behind it, so a bad connection looks "stuttery, then catches up". Not encrypted unless `tls` is on — which it is, by default, on both ends. |
 | **quic** — the other half of the default | Same loss handling as udp, so the same benefit on a bad connection, and encrypted always with nothing to switch on. Rides on UDP but keeps tcp's port number. Harder to troubleshoot. |
 | **udp** — never chosen for anyone; you must ask for it by name | Best on a genuinely bad connection and the lightest of the three. But **it can never be encrypted** — room codes travel in the clear — and it is the hardest to troubleshoot. Prefer quic unless you have a specific reason. |
@@ -216,7 +216,7 @@ to forward.
 Short version:
 
 | | |
-|---|---|
+| --- | --- |
 | Just want it to work? | `tcp,quic` — the default, leave it |
 | Keep it simplest? | `tcp` |
 | Hosting for a group on flaky connections? | `tcp,udp` — but this drops the encrypted default, so room codes go back to travelling in the clear |
@@ -224,7 +224,7 @@ Short version:
 **What to forward, per transport:**
 
 | Transport | Rule |
-|---|---|
+| --- | --- |
 | tcp | forward **TCP** 7777 |
 | quic | forward **UDP** 7777 — the same number as tcp, on purpose |
 | udp | forward **UDP** 7777, and see below |

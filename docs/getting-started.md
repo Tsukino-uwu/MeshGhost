@@ -63,7 +63,7 @@ matters.
 > in step 3, not the one you unzipped.
 >
 > | Game | Where the pair goes |
-> |---|---|
+> | --- | --- |
 > | Pokémon Emerald | `games\pokemon\emerald\`, beside the script |
 > | Pokémon Crystal | `games\pokemon\crystal\`, beside the script |
 > | TEVI | your TEVI folder, next to `TEVI.exe` |
