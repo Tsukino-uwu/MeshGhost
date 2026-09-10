@@ -282,9 +282,9 @@ namespace MeshGhostTevi
             public bulletScript B;
             public float BornAt;
             public float DiedAt = float.NegativeInfinity;
-            public float Cos, Sin, Speed;
-            public bool SpriteAnimated;
+            public float Cos, Sin, Speed;   // birth values, the fallback if the game's own are unreadable
             public bool EffectAttached;
+            public bool BehaveFailed;       // its own behaviour threw once; it flies straight now
         }
 
         private sealed class GhostShield
@@ -2458,6 +2458,8 @@ namespace MeshGhostTevi
             {
                 return;
             }
+            // Bullets step here, on the same physics tick BulletManager gives the real ones.
+            TickGhostBullets();
             foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
             {
                 GhostOrb[] orbs = kv.Value.Orbs;
@@ -3314,11 +3316,61 @@ namespace MeshGhostTevi
         // 150ms: a burst of a core expansion (29 alive at peak) at 300ms pushed one frame's extras to
         // 1047 bytes and the guard dropped every bullet in it (2026-09-10). At the shipped 20Hz
         // this is still three samples of loss cover; at the dev 100Hz, fifteen.
+        //
+        // THE FLIGHT IS THE GAME'S, NOT OURS (2026-09-10, second pass). The census above measured
+        // speed and angle drift and found none -- true of the shots it saw, and false as a premise.
+        // bulletScript._Update calls the bullet's own BulletBehave(), a switch on BulletType, and
+        // the orbitar families move THEMSELVES inside it rather than through speed or angle:
+        // the Sable charged B steps its position up and down every physics tick (the zig-zag a
+        // straight-line mirror flattens), the Celia charged C turns 180 degrees, homes, then
+        // accelerates past 1.6s, the Sable charged C falls on a curve, and the normal orb shot
+        // homes when its counter 3 says so. A straight line at a constant speed is not any of
+        // those (user, 2026-09-10: the ghost's shots "don't do these", "go a really short distance").
+        //
+        // So the watcher no longer reconstructs the flight: it hands the dormant bullet to the
+        // game's own BulletBehave() on the game's own fixed step. Two things make that safe on a
+        // machine that did not fire the shot, and both are guards, not hopes: the bullet is not in
+        // BulletManager's pool and never hits anything, so every branch behind `hitlist.Count > 0`
+        // (the bombs, the meter spend, the camera shake, the sub-bullets) is dead code for it; and
+        // GuardedBulletBehave zeroes `useChargeRemove` around the call and despawns any bullet the
+        // call put in the real pool anyway. See StepGhostBullet.
+        //
+        // WHAT ENDS A BULLET is also the game's: BulletBehave's own off-camera despawns, TimeDelete,
+        // and the peer's mirrored death. The old flat 1.5s kill was read from EnableMe's `life`,
+        // which despawns a bullet only while it is OFF SCREEN -- an on-screen charged shot outlives
+        // it easily, and cutting it at 1.5s is most of "not going as far as intended".
         private const float BulletRingSeconds = 0.15f;
-        private const float BulletDefaultLife = 1.5f;   // bulletScript.EnableMe's `life`
         private const float BulletLingerAfterDeath = 1f; // followers need to SEE isDespawning()
+        // Nothing but a safety net: a type whose behave has no despawn rule of its own, on a frame
+        // whose death row was dropped at the extras cap, would otherwise fly forever.
+        private const float BulletSafetyLife = 12f;
+        // A birth is up to a send interval old when it arrives, and the ghost body renders on the
+        // core's interpolation delay, so a bullet spawned at its birth POSITION starts behind the
+        // one it mirrors and dies short. Spawn replays the missing steps instead; the cap is a
+        // sanity bound (30 steps = 0.5s), never reached at a sane send rate.
+        private const int BulletCatchUpStepsMax = 30;
         private static readonly FieldInfo BulletPrefabField = typeof(BulletManager).GetField("bullet_prefab", BindingFlags.NonPublic | BindingFlags.Instance);
-        private static readonly FieldInfo BulletTimeField = typeof(bulletScript).GetField("time", BindingFlags.NonPublic | BindingFlags.Instance);
+        // bulletScript.time is PUBLIC. Asking for it with NonPublic alone returned null, so the
+        // sprite-advance branch this gated had never once run and drawn-sprite bullets (the lock-on
+        // shot, Sable's charged shot) never animated a frame. Found 2026-09-10 reading the field
+        // list, not the symptom -- a reflection lookup that fails is silent by construction.
+        private static readonly FieldInfo BulletStartSizeField = typeof(bulletScript).GetField("startSize", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletCachePosField = typeof(bulletScript).GetField("cachepos", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletFlagsField = typeof(bulletScript).GetField("flags", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletLifeField = typeof(bulletScript).GetField("life", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletTimeDeleteField = typeof(bulletScript).GetField("TimeDelete", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletStayField = typeof(bulletScript).GetField("isStayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletCounterField = typeof(bulletScript).GetField("counter", BindingFlags.NonPublic | BindingFlags.Instance);
+        // The angle's cached sine and cosine, which SetAngle keeps and BulletBehave changes under a
+        // homing bullet. Read, never written: recomputing them from `angle` would be our arithmetic
+        // standing in for the game's, and it is the game's that steers the bullet.
+        private static readonly FieldInfo BulletCosField = typeof(bulletScript).GetField("_cos", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletSinField = typeof(bulletScript).GetField("_sin", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo BulletBehaveMethod = typeof(bulletScript).GetMethod("BulletBehave", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly MethodInfo BulletStayMethod = typeof(bulletScript).GetMethod("StayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
+        // ShootBullet's own sprite step, which the watcher skipped: a clone off the prefab carries
+        // the prefab's sprite, so every drawn bullet wore the wrong one (or none).
+        private static readonly MethodInfo BulletManagerSetSprite = typeof(BulletManager).GetMethod("SetSprite", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbShootNormalPs1Field = typeof(OrbShootNormal).GetField("ps1", BindingFlags.NonPublic | BindingFlags.Instance);
 
         // Effect kinds the sender recognises, by the follower component and its Setup signature.
@@ -3342,6 +3394,118 @@ namespace MeshGhostTevi
         private int bulletSeq;
         private float[] bulletSlotBorn;   // timeCreated seen per pool slot
         private int[] bulletSlotSeq;      // our seq per pool slot, -1 none
+
+        // A bullet's ten counters as "slot:value" pairs, and only the ones that are not zero --
+        // almost always the empty string, which is what keeps this affordable inside the extras cap.
+        private static string EncodeCounters(bulletScript b)
+        {
+            var arr = BulletCounterField != null ? BulletCounterField.GetValue(b) as float[] : null;
+            if (arr == null) return "";
+            string s = null;
+            for (int i = 0; i < arr.Length; i++)
+            {
+                if (arr[i] == 0f || float.IsNaN(arr[i]) || float.IsInfinity(arr[i])) continue;
+                string one = i.ToString(System.Globalization.CultureInfo.InvariantCulture) + ":"
+                    + (Mathf.Round(arr[i] * 100f) / 100f).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                s = s == null ? one : s + "," + one;
+            }
+            return s ?? "";
+        }
+
+        // The birth state BulletBehave reads, as ONE cell: "startSize|counters|flags|life|delete",
+        // each half empty when it is the default EnableMe already gave the clone. A cell per field
+        // cost ~22 JSON bytes a bullet and bullets are what the extras cap drops first, so a burst
+        // of a core expansion would have paid for this in whole shots that never appeared.
+        private static string EncodeBirthState(bulletScript b)
+        {
+            float startSize = ReadFloatField(BulletStartSizeField, b, -1f);
+            int flags = ReadIntField(BulletFlagsField, b);
+            float life = ReadFloatField(BulletLifeField, b, 1.5f);
+            float del = ReadFloatField(BulletTimeDeleteField, b, float.PositiveInfinity);
+            string counters = EncodeCounters(b);
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            string s = (startSize >= 0f ? (Mathf.Round(startSize * 100f) / 100f).ToString(ci) : "")
+                + "|" + counters
+                + "|" + (flags != 0 ? flags.ToString(ci) : "")
+                + "|" + (life != 1.5f ? (Mathf.Round(life * 100f) / 100f).ToString(ci) : "")
+                + "|" + (float.IsInfinity(del) || float.IsNaN(del) ? "" : (Mathf.Round(del * 100f) / 100f).ToString(ci));
+            return s == "||||" ? "" : s;
+        }
+
+        private static void ApplyBirthState(bulletScript b, object cell, float fallbackScale)
+        {
+            string[] parts = (cell as string ?? "").Split('|');
+            var ci = System.Globalization.CultureInfo.InvariantCulture;
+            float startSize;
+            if (parts.Length > 0 && parts[0].Length > 0
+                && float.TryParse(parts[0], System.Globalization.NumberStyles.Float, ci, out startSize)
+                && startSize > 0f)
+            {
+                // justSpawn:true so the game's own spawn pop runs -- the size read off the wire is
+                // the base one, not whatever frame of the pop the sender happened to sample.
+                b.SetSpriteSize(startSize, justSpawn: true);
+            }
+            else if (!float.IsNaN(fallbackScale) && fallbackScale > 0f)
+            {
+                b.SetSpriteSize(fallbackScale, justSpawn: false);
+            }
+            if (parts.Length > 1) ApplyCounters(b, parts[1]);
+            int flags;
+            if (parts.Length > 2 && parts[2].Length > 0 && BulletFlagsField != null
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, ci, out flags) && flags != 0)
+            {
+                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, flags)); }
+                catch (System.Exception) { }
+            }
+            float life;
+            if (parts.Length > 3 && parts[3].Length > 0
+                && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, ci, out life))
+            {
+                b.SetLife(life);
+            }
+            float del;
+            if (parts.Length > 4 && parts[4].Length > 0
+                && float.TryParse(parts[4], System.Globalization.NumberStyles.Float, ci, out del))
+            {
+                b.SetTimeDelete(del);
+            }
+        }
+
+        private static void ApplyCounters(bulletScript b, object cell)
+        {
+            string s = cell as string;
+            if (string.IsNullOrEmpty(s)) return;
+            foreach (string pair in s.Split(','))
+            {
+                int colon = pair.IndexOf(':');
+                if (colon <= 0) continue;
+                int slot; float v;
+                if (!int.TryParse(pair.Substring(0, colon), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out slot)) continue;
+                if (!float.TryParse(pair.Substring(colon + 1), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out v)) continue;
+                if (slot < 0 || slot > 9 || float.IsNaN(v) || float.IsInfinity(v)) continue;
+                b.SetCounter(slot, v);
+            }
+        }
+
+        private static float ReadFloatField(FieldInfo f, object target, float fallback)
+        {
+            if (f == null || target == null) return fallback;
+            object v = f.GetValue(target);
+            return v is float fv ? fv : fallback;
+        }
+
+        private static int ReadIntField(FieldInfo f, object target)
+        {
+            if (f == null || target == null) return 0;
+            object v = f.GetValue(target);
+            try { return v == null ? 0 : System.Convert.ToInt32(v); }
+            catch (System.Exception) { return 0; }
+        }
+
+        private static float FiniteOrMinusOne(float v)
+        {
+            return float.IsNaN(v) || float.IsInfinity(v) ? -1f : Mathf.Round(v * 100f) / 100f;
+        }
 
         private object[][] ReadBullets(CharacterBase player)
         {
@@ -3376,11 +3540,16 @@ namespace MeshGhostTevi
                     {
                         continue;
                     }
-                    int pool_ = -1, kind = -1; float effScale = 0f; string color = "FFFFFFFF";
+                    int pool_ = -1, kind = -1; float effScale = 0f; string color = "";
                     FindAttachedEffect(b, out pool_, out kind, out effScale, out color);
                     int seq = ++bulletSeq;
                     bulletSlotSeq[i] = seq;
                     Vector3 p = b.transform.position;
+                    // Cells 13-18 are the state the game's own BulletBehave reads and the shooter
+                    // wrote after ShootBullet returned -- without them a ghost's shot runs the same
+                    // switch from the wrong start (the normal orb shot homes on counter 3 == 135,
+                    // the Sable charged B's zig-zag phase is counters 5/6/7). Cheap when unset:
+                    // the counter string is empty for the great majority of bullets.
                     bulletBirths.Add(new BulletBirth
                     {
                         Seq = seq, At = now, B = b,
@@ -3392,6 +3561,8 @@ namespace MeshGhostTevi
                             Mathf.Round(b.transform.localScale.x * 100f) / 100f,
                             (float)pool_, (float)kind, Mathf.Round(effScale * 10f) / 10f, color,
                             b.owner != null && b.owner.direction == Character.Direction.LEFT,
+                            Mathf.Round(b.time * 1000f) / 1000f,             // 13 age, refreshed below
+                            EncodeBirthState(b),                              // 14 the rest, packed
                         },
                     });
                 }
@@ -3412,6 +3583,9 @@ namespace MeshGhostTevi
             // the next sample's row carries the effect). Found 2026-09-10: some shots flew unseen.
             foreach (BulletBirth birth in bulletBirths)
             {
+                // The age travels with the row, not the row's arrival: a receiver that first sees
+                // this birth two samples late still starts the bullet where the real one is now.
+                if (birth.B != null) birth.Row[13] = Mathf.Round(birth.B.time * 1000f) / 1000f;
                 if (birth.B != null && (int)(float)birth.Row[9] < 0 && birth.B.gameObject.activeInHierarchy)
                 {
                     int p2, k2; float es2; string col2;
@@ -3449,7 +3623,7 @@ namespace MeshGhostTevi
         // Which pooled effect is following this newborn bullet, by identity of its bullet field.
         private void FindAttachedEffect(bulletScript b, out int poolIndex, out int kind, out float effScale, out string color)
         {
-            poolIndex = -1; kind = -1; effScale = 0f; color = "FFFFFFFF";
+            poolIndex = -1; kind = -1; effScale = 0f; color = ""; // only kind 0 carries one; "" reads as white
             ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
             if (op == null || op.pooledObjectsList == null)
             {
@@ -3546,9 +3720,7 @@ namespace MeshGhostTevi
             if (prefab == null) return;
             float x = CellF(row, 3), y = CellF(row, 4), angle = CellF(row, 5), speed = CellF(row, 6), scale = CellF(row, 7);
             if (float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(angle) || float.IsNaN(speed) || float.IsInfinity(x) || float.IsInfinity(y)) return;
-            int type = (int)CellF(row, 1), sprite = (int)CellF(row, 2), pool = (int)CellF(row, 8), kind = (int)CellF(row, 9);
-            float effScale = CellF(row, 10);
-            bool left = row[12] is bool lb && lb;
+            int type = (int)CellF(row, 1), sprite = (int)CellF(row, 2);
 
             GameObject go = Instantiate(prefab.gameObject);
             go.name = $"MeshGhostRemote_{playerId}_bullet{seq}";
@@ -3564,19 +3736,41 @@ namespace MeshGhostTevi
             b.sprite = (Bullet.SpriteType)sprite;
             b.SetAngle(angle);
             b.speed = speed;
-            if (!float.IsNaN(scale) && scale > 0f) b.SetSpriteSize(scale, justSpawn: false);
-            go.transform.position = worldOffset + new Vector3(x, y, 0f);
+            // ShootBullet's own two lines for the sprite. Without them a clone off the prefab wore
+            // whatever the prefab carried, so every DRAWN bullet (the lock-on shot, Sable's charged
+            // shot) was wrong or blank -- the pooled-effect families hid it, since they draw nothing.
+            if (b.sprite == Bullet.SpriteType.NONE)
+            {
+                if (b._render != null) b._render.enabled = false;
+            }
+            else if ((int)b.sprite < 91 && BulletManagerSetSprite != null)
+            {
+                try { BulletManagerSetSprite.Invoke(BulletManager.Instance, new object[] { b, b.sprite }); }
+                catch (System.Exception) { }
+            }
+            // The size, counters, flags and lifetimes the shooter gave it -- the state its own
+            // BulletBehave reads. A peer on the previous build sends a 13-cell row and gets the
+            // straight-line flight it always got, which is what the length guards are for.
+            ApplyBirthState(b, row.Length > 14 ? row[14] : null, scale);
+            b.time = 0f;
+            b.SetPosition(worldOffset + new Vector3(x, y, 0f)); // cachepos too: BulletBehave reads it
             go.SetActive(true);
-            bool spriteAnimated = b.sprite != Bullet.SpriteType.NONE && b.sprite != Bullet.SpriteType.USE_PS;
-            if (b._render != null) b._render.enabled = spriteAnimated;
 
             var gb = new GhostBullet
             {
                 Go = go, B = b, BornAt = Time.time, Speed = speed,
                 Cos = Mathf.Cos(Mathf.PI / 180f * angle), Sin = Mathf.Sin(Mathf.PI / 180f * angle),
-                SpriteAnimated = spriteAnimated,
             };
             visual.Bullets[seq] = gb;
+            // CATCH-UP. The row carries the bullet's own age; replay it at the game's step so the
+            // ghost's shot starts where the peer's shot IS, not where it was born.
+            float fdt = GameFixedStep();
+            float age = row.Length > 13 ? CellF(row, 13) : 0f;
+            if (!float.IsNaN(age) && age > 0f && fdt > 0f)
+            {
+                int steps = Mathf.Min(BulletCatchUpStepsMax, Mathf.RoundToInt(age / fdt));
+                for (int s = 0; s < steps && !b.isDespawning(); s++) StepGhostBullet(gb, fdt);
+            }
             AttachBulletEffect(gb, row);
         }
 
@@ -3722,10 +3916,176 @@ namespace MeshGhostTevi
             if (gb.B != null) gb.B.DespawnMe(); // followers see isDespawning() and play their hit flash
         }
 
+        // The game's own fixed step, the one bulletScript's arithmetic is written in. Bullets are
+        // ticked from FixedUpdate for the same reason: BulletManager ticks the real ones from
+        // GameSystem.FixedUpdate, and a bullet that counts physics steps (the Sable charged B counts
+        // them to decide when to turn) is not the same bullet if it is stepped once per FRAME.
+        private static float GameFixedStep()
+        {
+            float fdt = MainVar.instance != null ? MainVar.instance.fixedDeltaTime : 0f;
+            return fdt > 0f ? fdt : Time.fixedDeltaTime;
+        }
+
+        private bool[] bulletPoolWasEnabled;
+        private bool loggedBehaveFailure;
+
+        // BulletBehave on a bullet that belongs to somebody else's game. Two guards, then the call:
+        //   - `useChargeRemove` is zeroed for the duration, because several charged families erase
+        //     bullets in an area while it is set, and those would be the WATCHER's bullets;
+        //   - anything the call puts in the real pool is despawned again. Every such path is behind
+        //     `hitlist.Count > 0` for a dormant bullet, so this should never fire -- which is the
+        //     point of it firing silently rather than being assumed (before-mirroring-state.md).
+        // The snapshot is taken per call, not per pass: catch-up steps run from the drain in
+        // Update, and a stale snapshot would read the local player's own new shot as ours to kill.
+        private void GuardedBulletBehave(GhostBullet gb)
+        {
+            if (BulletBehaveMethod == null || gb.BehaveFailed) return;
+            BulletManager bm = BulletManager.Instance;
+            byte charge = 0;
+            short countBefore = 0;
+            bool[] enabled = bm != null ? bm.bullets_enable : null;
+            if (bm != null)
+            {
+                charge = bm.useChargeRemove;
+                bm.useChargeRemove = 0;
+                countBefore = bm.bulletcount;
+                if (enabled != null)
+                {
+                    if (bulletPoolWasEnabled == null || bulletPoolWasEnabled.Length != enabled.Length)
+                    {
+                        bulletPoolWasEnabled = new bool[enabled.Length];
+                    }
+                    System.Array.Copy(enabled, bulletPoolWasEnabled, enabled.Length);
+                }
+            }
+            try
+            {
+                BulletBehaveMethod.Invoke(gb.B, null);
+            }
+            catch (System.Exception e)
+            {
+                // Straight flight from here on for this one bullet, rather than a throw every step.
+                gb.BehaveFailed = true;
+                if (!loggedBehaveFailure)
+                {
+                    loggedBehaveFailure = true;
+                    Logger.LogWarning("MeshGhost: a ghost bullet's own behaviour threw; it flies straight from here (said once): " + e);
+                }
+            }
+            finally
+            {
+                if (bm != null)
+                {
+                    bm.useChargeRemove = charge;
+                    if (bm.bulletcount != countBefore && enabled != null && bulletPoolWasEnabled != null)
+                    {
+                        for (int i = 0; i < enabled.Length && i < bulletPoolWasEnabled.Length; i++)
+                        {
+                            if (!enabled[i] || bulletPoolWasEnabled[i]) continue;
+                            bulletPoolWasEnabled[i] = true; // never twice: DespawnBullet decrements the count
+                            bm.DespawnBullet((short)i);
+                        }
+                    }
+                }
+            }
+        }
+
+        // One physics step of one ghost bullet, in bulletScript._Update's own order: age it, let its
+        // type decide what it does, animate it, move it, then apply the game's despawn rules. What
+        // is NOT here is everything _Update does to the world -- hit checks, tile destruction, wall
+        // damage, the pool's despawn bookkeeping. That asymmetry is the whole design: the bullet
+        // moves exactly as the game moves it and touches nothing.
+        private void StepGhostBullet(GhostBullet gb, float fdt)
+        {
+            bulletScript b = gb.B;
+            if (b == null || gb.Go == null || b.isDespawning()) return;
+            b.time += fdt;
+
+            float startSize = ReadFloatField(BulletStartSizeField, b, -1f);
+            if (startSize >= 0f)
+            {
+                // _Update's spawn pop: 35% over, easing back down by 0.275s.
+                if (b.time < 0.275f)
+                {
+                    float s = startSize * ((0.275f - b.time) / 0.275f * 0.35f + 1f);
+                    gb.Go.transform.localScale = new Vector3(s, s, 1f);
+                }
+                else if (b.time < 0.28f)
+                {
+                    gb.Go.transform.localScale = new Vector3(startSize, startSize, 1f);
+                }
+            }
+
+            // The real bullet fades out instead of behaving during a cutscene, and its death comes
+            // to us on the wire like any other, so the ghost simply stops behaving for that window.
+            bool eventOff = EventManager.Instance == null
+                || EventManager.Instance.getMode() == EventMode.Mode.OFF
+                || EventManager.Instance.ForceBulletPlayInEvent
+                || b.sprite == Bullet.SpriteType.NONE;
+            if (eventOff) GuardedBulletBehave(gb);
+            if (b.isDespawning()) return;   // its own rule ended it -- the caller kills it next pass
+            if (!b.stopAnim) b.BulletSprite();
+
+            // _Update's motion, read back AFTER the behaviour ran: a type that moves itself writes
+            // cachepos, and a homing one has already turned the angle these come from.
+            int stay = ReadIntField(BulletStayField, b);
+            if (stay == 1)
+            {
+                if (BulletStayMethod != null)
+                {
+                    try { BulletStayMethod.Invoke(b, null); }
+                    catch (System.Exception) { }
+                }
+                b.SetPosition(ReadCachePos(b, gb.Go));
+            }
+            else
+            {
+                Vector3 cache = ReadCachePos(b, gb.Go);
+                float cos = ReadFloatField(BulletCosField, b, gb.Cos);
+                float sin = ReadFloatField(BulletSinField, b, gb.Sin);
+                if (stay != 2) cache.x += cos * b.speed * (fdt * 60f);
+                if (stay != 3) cache.y -= sin * b.speed * (fdt * 60f);
+                if (b.owner != null && b.owner.t != null)
+                {
+                    if (stay == 2) cache.x = b.owner.t.localPosition.x;
+                    if (stay == 3) cache.y = b.owner.t.localPosition.y;
+                }
+                b.SetPosition(cache);
+            }
+
+            // What ends it, in the game's own terms. `life` is the OFF-SCREEN rule -- _Update pairs
+            // it with the renderer's visibility, and a pooled-effect bullet draws through a particle
+            // system rather than that renderer, so the camera bound is the honest form of the same
+            // question. Most orbitar families despawn themselves off-camera inside BulletBehave
+            // anyway; this covers the ones that do not.
+            float timeDelete = ReadFloatField(BulletTimeDeleteField, b, float.PositiveInfinity);
+            float life = ReadFloatField(BulletLifeField, b, 1.5f);
+            if (b.time > timeDelete)
+            {
+                b.DespawnMe();
+            }
+            else if (life > 0f && b.time > life && CameraScript.Instance != null
+                && EventManager.Instance != null && MainVar.instance != null
+                && Utility.isOutsideCameraPlayerProjectiles(gb.Go.transform.position, 30f))
+            {
+                b.DespawnMe();
+            }
+        }
+
+        private static Vector3 ReadCachePos(bulletScript b, GameObject go)
+        {
+            if (BulletCachePosField != null)
+            {
+                object v = BulletCachePosField.GetValue(b);
+                if (v is Vector3 cached) return cached;
+            }
+            return go.transform.position;
+        }
+
         private void TickGhostBullets()
         {
             if (remoteVisuals.Count == 0) return;
-            float dt = GemaTimeManager.Instance != null ? GemaTimeManager.Instance.deltaTime : Time.deltaTime;
+            float fdt = GameFixedStep();
             float now = Time.time;
             List<int> done = null;
             foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
@@ -3746,17 +4106,10 @@ namespace MeshGhostTevi
                         }
                         continue;
                     }
-                    // The game's step, verbatim in effect: cachepos += (cos, -sin) * speed * (dt * 60).
-                    Vector3 p = gb.Go.transform.position;
-                    p.x += gb.Cos * gb.Speed * (dt * 60f);
-                    p.y -= gb.Sin * gb.Speed * (dt * 60f);
-                    gb.Go.transform.position = p;
-                    if (gb.SpriteAnimated && gb.B != null && BulletTimeField != null)
-                    {
-                        BulletTimeField.SetValue(gb.B, now - gb.BornAt);
-                        gb.B.BulletSprite();
-                    }
-                    if (now - gb.BornAt > BulletDefaultLife)
+                    StepGhostBullet(gb, fdt);
+                    // Its own behaviour, its own despawn rules, or the safety net -- the peer's
+                    // mirrored death arrives on the same path (KillGhostBullet) and guards itself.
+                    if ((gb.B != null && gb.B.isDespawning()) || now - gb.BornAt > BulletSafetyLife)
                     {
                         KillGhostBullet(gb);
                     }
@@ -4372,7 +4725,6 @@ namespace MeshGhostTevi
 
             // Trails spawn on FRAMES, not on messages -- see TickTrails.
             TickTrails(cloneTemplate);
-            TickGhostBullets();
 
             // Marker refresh, every frame, from what DrainInto just recorded. Not inside
             // UpsertRemoteGhost: a marker that only moves when a message arrives cannot hide

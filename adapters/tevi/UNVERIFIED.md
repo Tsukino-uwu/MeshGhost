@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **a ghost's bullet now flies ITSELF**: the game's own `BulletBehave` on the game's own fixed step, catch-up at spawn, the sprite the shooter chose, and the game's own despawn rules instead of a flat 1.5s — judge this first (2026-09-10)
 - READY — **projectiles on the ghost** (spawn-and-fly + the game's own follower effects + muzzle flashes): first sighting confirmed, the two fixes after it are UNWATCHED — judge this first (2026-09-10)
 - READY — orbitars, their crystal trail, the dodge fade, core expansions and the boost shield are all user-confirmed; UNWATCHED from the same evening: the blue trail's count/parameters and its dodge-vs-hover order, world-fixed summon positions, the `map_markers` config key (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
@@ -140,6 +141,77 @@ two-instance rig.** Four pieces, in the order they went in:
 - **`"map_markers"` in config.json** (user's ask, on by default): `false` hides peers' pause-map
   markers; polled by file timestamp, so a save applies within a second. In the shipped config and
   `docs/config.md`. **Unwatched.**
+
+## [READY] A ghost's bullet flies ITSELF now: the game's own BulletBehave, on the game's own fixed step (2026-09-10)
+
+**Built and hot-deployed to both installs 2026-09-10. Nothing here has been seen on screen.**
+
+**What the user reported**, the evening the projectile mirror shipped: the ghost's shots were
+*"not going as far as intended"*, some of their own shots *"hit walls/split in different
+directions afterwards etc but the ghost don't do these"*, and some core expansions' projectiles
+*"just go a really short distance compared to what it looked like on the players screen"*.
+
+**The premise that was wrong.** The census the mirror was built on (`DIAG_BULLET_WATCH`, the same
+evening) found every bullet it saw flying with zero speed and angle drift, and concluded a bullet
+is a pure function of its birth. It measured the right thing and generalised too far: an orbitar
+family that moves itself does not change `speed` or `angle` at all. Read out of the game's own
+`bulletScript.BulletBehave()`, a switch on `BulletType`:
+
+| Family | What it does that a straight line is not |
+|---|---|
+| `ORB_CHARGED_SABLE_TYPEB` | steps its position up and down every physics tick, flipping on its own counters — the zig-zag |
+| `ORB_CHARGED_CELIA_TYPEC` | turns 180°, homes on the nearest enemy, then accelerates from 1.6s |
+| `ORB_CHARGED_SABLE_TYPEC` | falls on an accelerating curve |
+| `ORB_SHOT_NORMAL` | homes, when its counter 3 says so |
+| `ORB_CHARGED_SABLE_TYPEA` | stops dead on its own terms |
+
+**So the flight is the game's now.** The dormant bullet is handed to its own `BulletBehave()` from
+`FixedUpdate`, on `MainVar.fixedDeltaTime` — the same tick `BulletManager` gives the real ones,
+which matters for a type that COUNTS physics steps to decide when to turn. Two guards make that
+safe on a machine that did not fire the shot: the bullet is not in the pool and never hits
+anything, so every branch behind `hitlist.Count > 0` (bombs, the meter spend, camera shake,
+sub-bullets) is dead code for it; and `GuardedBulletBehave` zeroes `useChargeRemove` around the
+call and despawns anything the call put in the real pool anyway. A throw disables behaviour for
+that one bullet and logs once, rather than every step.
+
+**Four separate defects fixed in the same pass**, each of which alone shortens a ghost's shot:
+
+1. **The flat 1.5s kill.** It was read as `EnableMe`'s `life`, but `_Update` despawns on `life`
+   only while the bullet is OFF SCREEN; the hard cap is `TimeDelete`, which `EnableMe` sets to
+   +infinity. An on-screen charged shot outlives 1.5s easily. Now: the type's own off-camera
+   despawn (inside `BulletBehave`), `TimeDelete`, the peer's mirrored death, and a 12s safety net
+   for a frame whose death row was dropped at the extras cap.
+2. **`bulletScript.time` is PUBLIC**, and the reflection lookup asked for `NonPublic` only, so it
+   returned null and the whole sprite-advance branch it gated had never once run. Drawn-sprite
+   bullets never animated a frame. A reflection lookup that fails is silent by construction.
+3. **The sprite itself was never set.** `ShootBullet` calls `BulletManager.SetSprite` for any
+   sprite id under 91; a clone off the prefab wore the prefab's. The pooled-effect families hid it,
+   since they draw nothing.
+4. **No catch-up.** A birth is up to a send interval old when it arrives, so a bullet spawned at
+   its birth POSITION starts behind the one it mirrors and dies short. The row carries the
+   bullet's own age now and the spawn replays those steps.
+
+Also carried on the row: the size (with the game's spawn pop, which a size sampled mid-pop and
+re-applied with `justSpawn:false` used to freeze 35% oversized), the counters `BulletBehave` keys
+off, the flags and the two lifetimes — packed into ONE cell, because bullets are what the extras
+cap drops first and a cell per field would have cost whole shots in a burst.
+
+**What to look for, in this order:**
+
+1. **A plain orb shot** — same distance, same speed, dying where yours dies.
+2. **Sable charged B** — the ghost's shot should WAVE, not fly straight.
+3. **Celia charged C** — should turn, home and speed up late, not fly straight and vanish.
+4. **A shot that hits a wall** — the ghost's should end there. (Its SPLIT, if the real one splits,
+   arrives as its own births; whether those come through is a separate question — say if they
+   do not.)
+5. **A core expansion's burst** — how many of its shots appear at all. This one has a known
+   remaining limit: births past ~12 rows in a single frame are still dropped at the core's
+   1024-byte extras cap, which no amount of per-row slimming fixes.
+6. **A drawn-sprite shot** (the lock-on shot, Sable's charged shot) — it should animate now.
+
+**Still unmirrored, and known:** what a real bullet does to the WORLD when it ends — the sub-bullets
+and effects its `WallAction` spawns are the shooter's own new births, so they arrive only if that
+frame's rows survived the cap.
 
 ## [READY] Projectiles on the ghost: spawn-and-fly, the game's own follower effects, muzzle flashes (2026-09-10)
 

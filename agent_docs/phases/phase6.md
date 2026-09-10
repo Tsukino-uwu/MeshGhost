@@ -520,3 +520,69 @@ of the change test, which is why `clip=brake` → `clip=stand` alone does not tr
 neither the code nor the paste could say which of "every frame" or "every five seconds" was
 happening. Counting them against a clock took one command and settled it; reading the source twice
 would not have.
+
+
+## 2026-09-10 (later) — the projectile mirror's premise was too narrow: a bullet is not a pure function of its birth
+
+**The report.** The user, on the projectile mirror of commit b3b3ede9 (2026-09-10, the same day): the ghost's shots were
+*"not going as far as intended"*; some of their own shots *"hit walls/split in different directions
+afterwards etc but the ghost don't do these"*; some core expansions' projectiles *"just go a really
+short distance compared to what it looked like on the players screen"*; and *"some core expansions
+still don't do their action/vfx/projectile things"*. Asked whether "bouncing" meant the ghost's
+shots moving wrongly or failing to move like theirs, they picked the second, and added: *"think we
+should just test all of them / assume nothing is working correct yet"*.
+
+**What was wrong, and it is a textbook case of the right measurement generalised too far.**
+`DIAG_BULLET_WATCH` had measured every bullet it saw flying with zero speed and angle drift, and
+the mirror was built on the conclusion "a bullet is a pure function of its birth". Read out of the
+game's own `bulletScript.BulletBehave()` — a switch on `BulletType` — the orbitar families that
+move themselves change **neither speed nor angle**: `ORB_CHARGED_SABLE_TYPEB` steps its own
+position up and down every physics tick (the zig-zag), `ORB_CHARGED_CELIA_TYPEC` turns 180°, homes
+and then accelerates past 1.6s, `ORB_CHARGED_SABLE_TYPEC` falls on a curve, `ORB_SHOT_NORMAL` homes
+when its counter 3 says so, `ORB_CHARGED_SABLE_TYPEA` stops dead. The probe was not wrong about
+anything it reported; the two fields it watched were simply not where those families live.
+
+**The fix is the repo's own rule rather than a bigger reconstruction:** the dormant bullet is
+handed to the game's own `BulletBehave()`, from `FixedUpdate`, on `MainVar.fixedDeltaTime` — the
+same tick `BulletManager` gives the real ones, which matters because a type that counts physics
+steps to decide when to turn is not the same bullet if it is stepped once per frame. Reimplementing
+five families' motion would have been the Stage-2-capsule mistake from
+[`effect-investigation.md`](../effect-investigation.md) in a new game.
+
+**Why that is safe on a machine that did not fire the shot**, and both halves are guards rather
+than hopes: the bullet is not in `BulletManager`'s pool and never hits anything, so every branch
+behind `hitlist.Count > 0` — the bombs, the meter spend, the camera shake, the sub-bullet spawns —
+is dead code for it; and `GuardedBulletBehave` zeroes `useChargeRemove` for the duration (several
+charged families erase bullets in an area while it is set, and those would be the *watcher's*
+bullets) and despawns anything the call put in the real pool anyway. `ShootBullet` never returns
+null — it hands out a dump slot when the pool is full — so "the call cannot spawn" was never
+available as an argument, only "the spawn is undone".
+
+**Three more defects found by reading rather than by the symptom**, each of which alone shortens a
+ghost's shot, and the first of which is most of what the user saw:
+
+1. The flat 1.5s kill was read from `EnableMe`'s `life`, which `_Update` applies **only while the
+   bullet is off screen**; the hard cap is `TimeDelete`, defaulted to infinity. An on-screen
+   charged shot outlives 1.5s easily.
+2. `bulletScript.time` is **public**, and the reflection lookup asked for `NonPublic` only — so it
+   returned null and the sprite-advance branch it gated had never once run. **A reflection lookup
+   that fails is silent by construction**, which is the general lesson: the branch had shipped,
+   been reviewed and been described in a commit message without ever executing.
+3. `ShootBullet` sets a bullet's sprite through `BulletManager.SetSprite` for any sprite id under
+   91, and the mirror skipped that step, so a clone off the prefab wore the prefab's sprite. The
+   pooled-effect families hid it, because they draw nothing through that renderer at all.
+
+Plus a genuine timing bug: a birth is up to a send interval old when it arrives, so a bullet
+spawned at its **birth position** starts behind the one it mirrors and dies short. The row carries
+the bullet's own age now and the spawn replays those steps at the game's own rate.
+
+The extra birth state (size, counters, flags, both lifetimes) rides in ONE packed cell — bullets
+are the field `BridgeClient` drops first at the core's 1024-byte extras cap, and a cell per field
+would have been paid for in whole shots that never appeared during a core expansion's burst.
+
+**Left open, and the user should be told rather than surprised by it:** a burst wider than about a
+dozen births in a single frame still loses rows at that cap, which is a transport question and not
+a per-row one. Nothing here has been seen on screen —
+[`adapters/tevi/UNVERIFIED.md`](../../adapters/tevi/UNVERIFIED.md) carries the six things to look
+at, in order.
+
