@@ -643,6 +643,18 @@ These sat in `status.md` with a pointer to code or to a decision record, and now
 now holds one dated line per item and drops anything older than two days, so a known gap that is not
 being worked belongs here, as a risk, until someone picks it up. Each keeps its original wording.
 
+- **The four tracked, SHIPPED DLLs carry the maintainer's paths and username** (carried here
+  2026-09-11). `UE4SS.dll` holds the username 86 times; `main.dll`, `dwmapi.dll` and
+  `MeshGhostTevi.dll` hold the clone path. Every one is in a release a stranger downloads. The
+  scanners could not see binaries at all until 2026-09-08 — preflight printed PASS on a leaking
+  tree — and `hygiene.yml` now runs a binary scan on every push with no path filter, so nothing
+  NEW can land. These four are grandfathered in `preflight.ps1`'s `$knownBinaryLeaks`, which names
+  the fix for each: `<PathMap>` or `<DebugType>none` for the C# one, `/PDBALTPATH:%_PDB%` for the
+  two MSVC ones, and `RUSTFLAGS=--remap-path-prefix` for UE4SS, whose rebuild is a third-party
+  concern best done at the next submodule bump. **Each needs a rebuild, not a code change**, which
+  is why it is a risk rather than a task: they clear the day someone rebuilds for another reason.
+  This entry existed ONLY in `status.md` and in the script's allowlist — it was the one item in
+  that file whose substance was recorded nowhere else.
 - **Receive rate cap** — `max_receive_hz_per_player` never watched live; needs two clients at
   different caps. (The send side was confirmed on screen 2026-08-15.) `architecture.md` ADR.
 - **Transports: quic default confirmed with a real game attached** (2026-08-16, shared port, no
