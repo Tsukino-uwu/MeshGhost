@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **a ghost's bullet now flies ITSELF**: the game's own `BulletBehave` on the game's own fixed step, catch-up at spawn, the sprite the shooter chose, and the game's own despawn rules instead of a flat 1.5s — judge this first (2026-09-10)
+- READY — **projectiles, second pass**: the game's own `BulletBehave` on a ghost is OFF FOR GOOD (it damaged the watcher); names on the wire fixed the white rings and the wrong colours (user-confirmed); still UNWATCHED: plain-shot distance with the 1.5s cap gone, the drawn-sprite animation, the effect-index fallback across builds (2026-09-10)
 - READY — **projectiles on the ghost** (spawn-and-fly + the game's own follower effects + muzzle flashes): first sighting confirmed, the two fixes after it are UNWATCHED — judge this first (2026-09-10)
 - READY — orbitars, their crystal trail, the dodge fade, core expansions and the boost shield are all user-confirmed; UNWATCHED from the same evening: the blue trail's count/parameters and its dodge-vs-hover order, world-fixed summon positions, the `map_markers` config key (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
@@ -143,6 +143,46 @@ two-instance rig.** Four pieces, in the order they went in:
   `docs/config.md`. **Unwatched.**
 
 ## [READY] A ghost's bullet flies ITSELF now: the game's own BulletBehave, on the game's own fixed step (2026-09-10)
+
+**LIVE THE SAME EVENING -- three findings, in the order they happened. The heading above is kept for
+its mechanism; read this first.**
+
+1. **The behaviour call DAMAGED THE WATCHER and is off for good.** User: *"when standalone shoot,
+   steam takes damage from some of them"*. `GhostBulletsRunGameBehaviour = false` was deployed as
+   the first response, and *"haven't seen anything deal damage, i shot a few times now"* is the A/B.
+   The path was never pinned to a line: `BulletBehave` reaches ~580 `ShootBullet` sites plus
+   `CreateBomb`, `CreateLaser`, `WallAction`, tile destruction and `CameraScript.Shake`, and a guard
+   that undoes the bullets alone is not a guard. What the two guards DID prove: a spawned sub-bullet
+   is player-owned on the watcher (`owner` is the local player) and so hits enemies, not the
+   player -- which means the damage came through something the bullet-pool guard could not see.
+   The mirrored flight for the families that move themselves is owed a design that never runs game
+   code on a ghost (`agent_docs/status.md`).
+
+2. **"White circles" and "red orb shooting blue" were ONE cause, and it was not in the adapter's
+   logic: the two installs are different TEVI builds** (user: *"standalone is a really old build,
+   steam is the current"*; Steam `Assembly-CSharp.dll` 5,274,112 bytes / build 24159771, standalone
+   4,614,656). `BulletType` and `SpriteType` are laid out differently, so the ordinal the old build
+   sent as `ORB_LOCK_NORMAL / SHOT_CYAN` decoded on Steam as `lily_groundbreak / effect_ring1` -- a
+   white ring -- and the pool indices of the orb effects shifted the same way. The fix puts the
+   game's own enum NAMES on the wire (packed cell fields 7-8; a receiver that parses them believes
+   them over the ordinals) and checks a received pool index actually carries the matched follower
+   component, else takes the first pool that does. **USER-CONFIRMED 2026-09-10:** *"no more white
+   circles, they are properly shotting the correct red/blue bullets now"*. Held here rather than
+   in `VERIFIED.md` until it has survived a second session (the confirmation was one set of shots).
+
+3. **Two wrong turns on the way, kept so they are not repeated.** Reading the DLL's enum table by
+   hand and decoding the standalone's numbers with it (`866 = lily_groundbreak`) produced a whole
+   wrong story about "borrowed boss moves" -- print `enum.ToString()` on the SENDER, never map
+   numbers. And looking the effect pool up by prefab NAME collapsed every orb effect onto the first
+   pool, because every one of them is named "Orb" -- a name is not an identity either.
+
+**Still to watch, unchanged from the list below:** a plain shot's distance now that the 1.5s cap is
+gone, the lock-on shot animating (`BulletSprite` each fixed step, with `time` really advancing),
+and a core expansion's burst. The families that move themselves (Sable charged B's wave, Celia
+charged C's homing) will fly STRAIGHT until the owed design lands -- that is expected, not a
+regression.
+
+---
 
 **Built and hot-deployed to both installs 2026-09-10. Nothing here has been seen on screen.**
 

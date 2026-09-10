@@ -285,6 +285,8 @@ namespace MeshGhostTevi
             public float Cos, Sin, Speed;   // birth values, the fallback if the game's own are unreadable
             public bool EffectAttached;
             public bool BehaveFailed;       // its own behaviour threw once; it flies straight now
+            public string Cause;            // DIAG_GHOST_BULLETS: which of our rules ended it
+            public string EffectObjectName; // DIAG_GHOST_BULLETS: the pooled object handed to it
         }
 
         private sealed class GhostShield
@@ -3424,12 +3426,17 @@ namespace MeshGhostTevi
             float del = ReadFloatField(BulletTimeDeleteField, b, float.PositiveInfinity);
             string counters = EncodeCounters(b);
             var ci = System.Globalization.CultureInfo.InvariantCulture;
+            // Sixth field: the renderer's tint, for the drawn families the shooter colours through
+            // SetColor -- lily_groundbreak's fade rings are (16,64,255) on the shooter's screen and
+            // were plain white on the ghost (user, 2026-09-10: "white circles").
+            string rgba = b._render != null ? Hex(b._render.color) : "FFFFFFFF";
             string s = (startSize >= 0f ? (Mathf.Round(startSize * 100f) / 100f).ToString(ci) : "")
                 + "|" + counters
                 + "|" + (flags != 0 ? flags.ToString(ci) : "")
                 + "|" + (life != 1.5f ? (Mathf.Round(life * 100f) / 100f).ToString(ci) : "")
-                + "|" + (float.IsInfinity(del) || float.IsNaN(del) ? "" : (Mathf.Round(del * 100f) / 100f).ToString(ci));
-            return s == "||||" ? "" : s;
+                + "|" + (float.IsInfinity(del) || float.IsNaN(del) ? "" : (Mathf.Round(del * 100f) / 100f).ToString(ci))
+                + "|" + (rgba == "FFFFFFFF" ? "" : rgba);
+            return s == "|||||" ? "" : s;
         }
 
         private static void ApplyBirthState(bulletScript b, object cell, float fallbackScale)
@@ -3468,6 +3475,11 @@ namespace MeshGhostTevi
                 && float.TryParse(parts[4], System.Globalization.NumberStyles.Float, ci, out del))
             {
                 b.SetTimeDelete(del);
+            }
+            Color tint;
+            if (parts.Length > 5 && parts[5].Length > 0 && b._render != null && TryColor(parts[5], out tint))
+            {
+                b._render.color = tint;
             }
         }
 
@@ -3520,6 +3532,7 @@ namespace MeshGhostTevi
                 return null;
             }
             int n = Mathf.Min(pool.Length, enabled.Length);
+            TrackFollowerActivity(GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null);
             if (bulletSlotBorn == null || bulletSlotBorn.Length != n)
             {
                 bulletSlotBorn = new float[n];
@@ -3541,7 +3554,9 @@ namespace MeshGhostTevi
                         continue;
                     }
                     int pool_ = -1, kind = -1; float effScale = 0f; string color = "";
+                    lastMatchedPoolName = ""; lastMatchedObjectName = "";
                     FindAttachedEffect(b, out pool_, out kind, out effScale, out color);
+                    string poolName = lastMatchedPoolName, fxObject = lastMatchedObjectName;
                     int seq = ++bulletSeq;
                     bulletSlotSeq[i] = seq;
                     Vector3 p = b.transform.position;
@@ -3550,7 +3565,7 @@ namespace MeshGhostTevi
                     // switch from the wrong start (the normal orb shot homes on counter 3 == 135,
                     // the Sable charged B's zig-zag phase is counters 5/6/7). Cheap when unset:
                     // the counter string is empty for the great majority of bullets.
-                    bulletBirths.Add(new BulletBirth
+                    var birthRow = new BulletBirth
                     {
                         Seq = seq, At = now, B = b,
                         Row = new object[]
@@ -3562,9 +3577,11 @@ namespace MeshGhostTevi
                             (float)pool_, (float)kind, Mathf.Round(effScale * 10f) / 10f, color,
                             b.owner != null && b.owner.direction == Character.Direction.LEFT,
                             Mathf.Round(b.time * 1000f) / 1000f,             // 13 age, refreshed below
-                            EncodeBirthState(b),                              // 14 the rest, packed
+                            WithEnumNames(WithPoolName(EncodeBirthState(b), poolName), b), // 14 the rest, packed
                         },
-                    });
+                    };
+                    bulletBirths.Add(birthRow);
+                    BulletDiag($"SEND slot={i} {RowSummary(birthRow.Row)} typeName={b.type} spriteName={b.sprite} fxObject={fxObject} owner={OwnerTag(b)} rendererOn={(b._render != null && b._render.enabled)} spriteNow={(b._render != null && b._render.sprite != null ? b._render.sprite.name : "-")} rgba={(b._render != null ? Hex(b._render.color) : "-")}");
                 }
                 else if (!on && bulletSlotBorn[i] >= 0f)
                 {
@@ -3589,11 +3606,14 @@ namespace MeshGhostTevi
                 if (birth.B != null && (int)(float)birth.Row[9] < 0 && birth.B.gameObject.activeInHierarchy)
                 {
                     int p2, k2; float es2; string col2;
+                    lastMatchedPoolName = ""; lastMatchedObjectName = "";
                     FindAttachedEffect(birth.B, out p2, out k2, out es2, out col2);
                     if (k2 >= 0)
                     {
                         birth.Row[8] = (float)p2; birth.Row[9] = (float)k2;
                         birth.Row[10] = Mathf.Round(es2 * 10f) / 10f; birth.Row[11] = col2;
+                        birth.Row[14] = WithPoolName(birth.Row[14] as string, lastMatchedPoolName);
+                        BulletDiag($"SEND-PATCH {RowSummary(birth.Row)} typeName={birth.B.type} fxObject={lastMatchedObjectName} owner={OwnerTag(birth.B)}");
                     }
                 }
             }
@@ -3620,7 +3640,123 @@ namespace MeshGhostTevi
             return arr;
         }
 
-        // Which pooled effect is following this newborn bullet, by identity of its bullet field.
+        // IDENTITY IS NOT ENOUGH FOR A POOLED FOLLOWER (2026-09-10, live: "the blue orb is sometimes
+        // shooting red, the red orb is sometimes shooting blue"). BulletManager hands the SAME
+        // bulletScript object out again the moment its slot frees, and a follower still playing
+        // its end-fade for the previous bullet in that slot keeps its reference -- so its field
+        // compares equal to the newborn, and the newborn is sent with the old family's effect.
+        // The diagnostic showed one type arriving as three different kinds in one session.
+        // The tell a stale one cannot fake is WHEN it went active: the game lights the follower in
+        // the same call that shot the bullet, so a match is only real if the effect's activation
+        // is no older than the bullet's own timeCreated. Activation is watched every frame over
+        // the follower pools only (the same rising-edge watch ReadFlashes keeps for its two).
+        private readonly Dictionary<int, float> followerActivatedAt = new Dictionary<int, float>();
+        private List<int> followerPools;
+        private int followerPoolsSeenCount = -1;
+        private string lastMatchedPoolName = "", lastMatchedObjectName = "";
+
+        // The packed state cell's seventh field: the follower pool's prefab name, or nothing.
+        private static string WithPoolName(string packed, string poolName)
+        {
+            if (string.IsNullOrEmpty(poolName)) return packed;
+            string[] parts = (packed ?? "").Split('|');
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 6; i++) { if (i > 0) sb.Append('|'); sb.Append(i < parts.Length ? parts[i] : ""); }
+            sb.Append('|').Append(poolName.Replace('|', '_'));
+            return sb.ToString();
+        }
+
+        private static string PoolNameOf(object[] row)
+        {
+            string packed = row != null && row.Length > 14 ? row[14] as string : null;
+            if (string.IsNullOrEmpty(packed)) return "";
+            string[] parts = packed.Split('|');
+            return parts.Length > 6 ? parts[6] : "";
+        }
+
+        // The sent pool index if its prefab carries follower kind `kind`, else the first pool
+        // whose prefab does, else -1. Kind is OUR table (EffectKindTypes), stable across builds.
+        private static int PoolCarryingKind(ObjectPooler op, int pool, int kind)
+        {
+            if (op == null || op.pooledObjectsList == null || kind < 0 || kind >= EffectKindTypes.Length) return -1;
+            System.Func<int, bool> carries = i =>
+            {
+                if (i < 0 || i >= op.pooledObjectsList.Count) return false;
+                List<GameObject> p = op.pooledObjectsList[i];
+                return p != null && p.Count > 0 && p[0] != null && p[0].GetComponent(EffectKindTypes[kind]) != null;
+            };
+            if (carries(pool)) return pool;
+            for (int i = 0; i < op.pooledObjectsList.Count; i++) if (carries(i)) return i;
+            return -1;
+        }
+
+        // THE WIRE CARRIES NAMES, NOT ORDINALS (2026-09-10). BulletType and SpriteType are laid
+        // out differently between TEVI builds: the same number the standalone install called
+        // ORB_LOCK_NORMAL / SHOT_CYAN decoded on the Steam build as lily_groundbreak /
+        // effect_ring1 -- the "white circles" the user saw were a different build's sprite table.
+        // Cells 1-2 keep the ordinals for a peer on the previous adapter; fields 7-8 of the packed
+        // cell carry the names, and a receiver that can parse them believes them instead.
+        private static string WithEnumNames(string packed, bulletScript b)
+        {
+            string[] parts = (packed ?? "").Split('|');
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < 7; i++) { if (i > 0) sb.Append('|'); sb.Append(i < parts.Length ? parts[i] : ""); }
+            sb.Append('|').Append(b.type.ToString()).Append('|').Append(b.sprite.ToString());
+            return sb.ToString();
+        }
+
+        private static void ApplyEnumNames(bulletScript b, object[] row)
+        {
+            string packed = row != null && row.Length > 14 ? row[14] as string : null;
+            if (string.IsNullOrEmpty(packed)) return;
+            string[] parts = packed.Split('|');
+            Bullet.BulletType bt; Bullet.SpriteType st;
+            if (parts.Length > 7 && parts[7].Length > 0 && System.Enum.TryParse(parts[7], out bt)) b.type = bt;
+            if (parts.Length > 8 && parts[8].Length > 0 && System.Enum.TryParse(parts[8], out st)) b.sprite = st;
+        }
+
+        private void TrackFollowerActivity(ObjectPooler op)
+        {
+            if (op == null || op.pooledObjectsList == null) return;
+            if (followerPools == null || followerPoolsSeenCount != op.pooledObjectsList.Count)
+            {
+                followerPools = new List<int>();
+                followerPoolsSeenCount = op.pooledObjectsList.Count;
+                for (int i = 0; i < op.pooledObjectsList.Count; i++)
+                {
+                    List<GameObject> pool = op.pooledObjectsList[i];
+                    if (pool == null || pool.Count == 0 || pool[0] == null) continue;
+                    for (int k = 0; k < EffectKindTypes.Length; k++)
+                    {
+                        if (pool[0].GetComponent(EffectKindTypes[k]) != null) { followerPools.Add(i); break; }
+                    }
+                }
+            }
+            float now = Time.time;
+            foreach (int i in followerPools)
+            {
+                if (i >= op.pooledObjectsList.Count) continue;
+                List<GameObject> pool = op.pooledObjectsList[i];
+                if (pool == null) continue;
+                for (int j = 0; j < pool.Count; j++)
+                {
+                    GameObject go = pool[j];
+                    if (go == null) continue;
+                    int id = go.GetInstanceID();
+                    if (go.activeInHierarchy)
+                    {
+                        if (!followerActivatedAt.ContainsKey(id)) followerActivatedAt[id] = now;
+                    }
+                    else
+                    {
+                        followerActivatedAt.Remove(id);
+                    }
+                }
+            }
+        }
+
+        // Which pooled effect is following this newborn bullet: identity of its bullet field, AND
+        // an activation no older than the bullet (see TrackFollowerActivity).
         private void FindAttachedEffect(bulletScript b, out int poolIndex, out int kind, out float effScale, out string color)
         {
             poolIndex = -1; kind = -1; effScale = 0f; color = ""; // only kind 0 carries one; "" reads as white
@@ -3637,6 +3773,8 @@ namespace MeshGhostTevi
                 {
                     GameObject go = pool[j];
                     if (go == null || !go.activeInHierarchy) continue;
+                    float activatedAt;
+                    if (!followerActivatedAt.TryGetValue(go.GetInstanceID(), out activatedAt) || activatedAt < b.timeCreated - 0.001f) continue;
                     for (int k = 0; k < EffectKindTypes.Length; k++)
                     {
                         Component c = go.GetComponent(EffectKindTypes[k]);
@@ -3648,6 +3786,14 @@ namespace MeshGhostTevi
                         if (EffectKindFields[k] == null) continue;
                         if (!ReferenceEquals(EffectKindFields[k].GetValue(c), b)) continue;
                         poolIndex = i; kind = k; effScale = go.transform.localScale.x;
+                        // The prefab's NAME is what the receiver looks the pool up by: ObjectPooler
+                        // registers pools at runtime (AddObject), so an INDEX only agrees between
+                        // two machines if both loaded the same things in the same order -- and
+                        // swapping orbs is exactly the kind of event that registers one (user,
+                        // 2026-09-10: wrong colours "when the orbitars swap place mid shooting").
+                        lastMatchedPoolName = (op.itemsToPool != null && i < op.itemsToPool.Count && op.itemsToPool[i] != null
+                            && op.itemsToPool[i].objectToPool != null) ? op.itemsToPool[i].objectToPool.name : "";
+                        lastMatchedObjectName = go.name;
                         if (k == 0 && OrbShootNormalPs1Field != null && OrbShootNormalPs1Field.GetValue(c) is ParticleSystem ps1)
                         {
                             // Setup wrote ps1.startColor = c * 1.025; undo that to send what it was given.
@@ -3690,6 +3836,7 @@ namespace MeshGhostTevi
                             if (!existing.EffectAttached && (int)CellF(row, 9) >= 0 && existing.DiedAt == float.NegativeInfinity)
                             {
                                 AttachBulletEffect(existing, row);
+                                BulletDiag($"ATTACH-LATE {existing.Go?.name} {RowSummary(row)} lived={Time.time - existing.BornAt:F3}s");
                             }
                             continue;
                         }
@@ -3734,16 +3881,22 @@ namespace MeshGhostTevi
             b.EnableMe();
             b.type = (Bullet.BulletType)type;
             b.sprite = (Bullet.SpriteType)sprite;
+            ApplyEnumNames(b, row); // a peer on another build: its NAMES win over its ordinals
             b.SetAngle(angle);
             b.speed = speed;
             // ShootBullet's own two lines for the sprite. Without them a clone off the prefab wore
             // whatever the prefab carried, so every DRAWN bullet (the lock-on shot, Sable's charged
             // shot) was wrong or blank -- the pooled-effect families hid it, since they draw nothing.
-            if (b.sprite == Bullet.SpriteType.NONE)
-            {
-                if (b._render != null) b._render.enabled = false;
-            }
-            else if ((int)b.sprite < 91 && BulletManagerSetSprite != null)
+            // NONE and USE_PS both draw NOTHING through the bullet's own renderer -- NONE by the
+            // game turning it off, USE_PS because its whole visual is the pooled follower effect
+            // and `SetSprite` has no case for it. A clone carries the PREFAB's sprite, though, so
+            // leaving the renderer on drew a plain white ball where the game draws nothing (user,
+            // 2026-09-10: "shooting white circles sometimes instead of proper bullet/projectiles").
+            // The renderer is only for the genuinely DRAWN families, and those are the ones
+            // ShootBullet hands to SetSprite.
+            bool drawnSprite = b.sprite != Bullet.SpriteType.NONE && b.sprite != Bullet.SpriteType.USE_PS;
+            if (b._render != null) b._render.enabled = drawnSprite;
+            if (drawnSprite && (int)b.sprite < 91 && BulletManagerSetSprite != null)
             {
                 try { BulletManagerSetSprite.Invoke(BulletManager.Instance, new object[] { b, b.sprite }); }
                 catch (System.Exception) { }
@@ -3772,6 +3925,7 @@ namespace MeshGhostTevi
                 for (int s = 0; s < steps && !b.isDespawning(); s++) StepGhostBullet(gb, fdt);
             }
             AttachBulletEffect(gb, row);
+            BulletDiag($"RECV {go.name} {RowSummary(row)} typeName={b.type} spriteName={b.sprite} effectAttached={gb.EffectAttached} fxObject={gb.EffectObjectName ?? "-"} poolName={PoolNameOf(row)} despawningAfterCatchUp={b.isDespawning()} renderer={(b._render != null && b._render.enabled)} spriteNow={(b._render != null && b._render.sprite != null ? b._render.sprite.name : "-")} stopAnim={b.stopAnim}");
         }
 
         // The game's own follower effect, the same pooled object with the same Setup.
@@ -3787,7 +3941,19 @@ namespace MeshGhostTevi
                 && GemaPoolManager.Instance.CommonEffectsPooler != null)
             {
                 gb.EffectAttached = true;
-                GameObject fx = GemaPoolManager.Instance.CommonEffectsPooler.GetPooledObject(pool);
+                // By prefab NAME when the row carries one (an index is only as stable as the two
+                // machines' load order -- see FindAttachedEffect); the index is the old peer's way.
+                // By INDEX, checked: every orb effect prefab is literally named "Orb", so a name
+                // cannot pick one (a lookup by name handed every family the first "Orb" pool, live
+                // 2026-09-10). What CAN be checked is that the pool at that index carries the
+                // follower component the sender matched -- across two different game builds the
+                // indices shift, and a wrong index would otherwise light a random effect. If it
+                // does not, the first pool that does carry it is the honest fallback: the right
+                // family, possibly the wrong variant, never garbage.
+                ObjectPooler op = GemaPoolManager.Instance.CommonEffectsPooler;
+                int usePool = PoolCarryingKind(op, pool, kind);
+                GameObject fx = usePool >= 0 ? op.GetPooledObject(usePool) : null;
+                gb.EffectObjectName = fx != null ? $"{fx.name}#{usePool}{(usePool != pool ? "(sent " + pool + ")" : "")}" : "(none)";
                 if (fx != null)
                 {
                     fx.transform.position = go.transform.position;
@@ -3910,10 +4076,36 @@ namespace MeshGhostTevi
             visual.LastFlashSeq = maxSeq;
         }
 
-        private void KillGhostBullet(GhostBullet gb)
+        // DIAG_GHOST_BULLETS -- one line per event, never per frame: what the sender decided a
+        // shot IS (type, sprite, follower kind, pool, colour), what the receiver made of the row,
+        // and what ended the ghost's bullet and after how long. Armed 2026-09-10 for three live
+        // symptoms on one build ("white circles", "red orb shooting blue", "short distance") that
+        // three readings of the code could not separate; the line that pairs a SEND with its RECV
+        // is the one that does.
+        private const bool DIAG_GHOST_BULLETS = false;
+        private const int GhostBulletDiagBudget = 600;
+        private int ghostBulletDiagLines;
+
+        private void BulletDiag(string line)
+        {
+            if (!DIAG_GHOST_BULLETS || ghostBulletDiagLines >= GhostBulletDiagBudget) return;
+            ghostBulletDiagLines++;
+            Logger.LogInfo("MeshGhost/bul " + line);
+        }
+
+        private static string RowSummary(object[] row)
+        {
+            if (row == null) return "null";
+            return $"seq={(int)CellF(row, 0)} type={(int)CellF(row, 1)} sprite={(int)CellF(row, 2)} kind={(int)CellF(row, 9)} pool={(int)CellF(row, 8)}"
+                + $" col={(row.Length > 11 ? row[11] : null) ?? "-"} spd={CellF(row, 6)} ang={CellF(row, 5)} scale={CellF(row, 7)}"
+                + $" age={(row.Length > 13 ? CellF(row, 13) : float.NaN)} state=\"{(row.Length > 14 ? row[14] : null) ?? ""}\"";
+        }
+
+        private void KillGhostBullet(GhostBullet gb, string cause = "peer death")
         {
             gb.DiedAt = Time.time;
             if (gb.B != null) gb.B.DespawnMe(); // followers see isDespawning() and play their hit flash
+            BulletDiag($"KILL {gb.Go?.name} cause={cause} lived={Time.time - gb.BornAt:F3}s time={(gb.B != null ? gb.B.time : -1f):F3}");
         }
 
         // The game's own fixed step, the one bulletScript's arithmetic is written in. Bullets are
@@ -3937,9 +4129,16 @@ namespace MeshGhostTevi
         //     point of it firing silently rather than being assumed (before-mirroring-state.md).
         // The snapshot is taken per call, not per pass: catch-up steps run from the drain in
         // Update, and a stale snapshot would read the local player's own new shot as ours to kill.
+        // OFF, 2026-09-10, live: a peer's shots DAMAGED the watcher ("when standalone shoot, steam
+        // takes damage from some of them"). A ghost touching the watcher's health is the one thing
+        // that may never happen, so the switch comes first and the diagnosis second. False = the
+        // straight-line flight of b3b3ede9: cosmetically wrong for the families that move
+        // themselves, and incapable of harm.
+        private const bool GhostBulletsRunGameBehaviour = false;
+
         private void GuardedBulletBehave(GhostBullet gb)
         {
-            if (BulletBehaveMethod == null || gb.BehaveFailed) return;
+            if (!GhostBulletsRunGameBehaviour || BulletBehaveMethod == null || gb.BehaveFailed) return;
             BulletManager bm = BulletManager.Instance;
             byte charge = 0;
             short countBefore = 0;
@@ -4062,12 +4261,14 @@ namespace MeshGhostTevi
             float life = ReadFloatField(BulletLifeField, b, 1.5f);
             if (b.time > timeDelete)
             {
+                gb.Cause = $"TimeDelete {timeDelete:F2}";
                 b.DespawnMe();
             }
             else if (life > 0f && b.time > life && CameraScript.Instance != null
                 && EventManager.Instance != null && MainVar.instance != null
                 && Utility.isOutsideCameraPlayerProjectiles(gb.Go.transform.position, 30f))
             {
+                gb.Cause = $"off-camera past life {life:F2}";
                 b.DespawnMe();
             }
         }
@@ -4109,9 +4310,13 @@ namespace MeshGhostTevi
                     StepGhostBullet(gb, fdt);
                     // Its own behaviour, its own despawn rules, or the safety net -- the peer's
                     // mirrored death arrives on the same path (KillGhostBullet) and guards itself.
-                    if ((gb.B != null && gb.B.isDespawning()) || now - gb.BornAt > BulletSafetyLife)
+                    if (gb.B != null && gb.B.isDespawning())
                     {
-                        KillGhostBullet(gb);
+                        KillGhostBullet(gb, gb.Cause ?? "own behaviour");
+                    }
+                    else if (now - gb.BornAt > BulletSafetyLife)
+                    {
+                        KillGhostBullet(gb, "safety net");
                     }
                 }
                 if (done != null)
@@ -4149,6 +4354,13 @@ namespace MeshGhostTevi
         private bool[] bwOurs;
         private int bwLines, bwPeak;
         private float bwLastCount;
+
+        private static string OwnerTag(bulletScript b)
+        {
+            CharacterBase o = b != null ? b.owner : null;
+            if (o == null) return "none";
+            return (o.isPlayer() ? "player:" : "summon:") + o.type;
+        }
 
         private static bool BulletIsOurs(bulletScript b, CharacterBase player)
         {

@@ -7,7 +7,7 @@ nothing at all, where a short one says "audited, this is everything".
 
 **Everything here lives in `MeshGhostTevi/Plugin.cs`** unless a row says otherwise. There is no
 `#if` in this adapter and no build-configuration switch: a `const bool` is the only compile-time
-kind, and all nine of them are `DIAG_` probes.
+kind: ten `DIAG_` probes and one safety switch (`GhostBulletsRunGameBehaviour`).
 
 It is not a description of how the game works — that is `documentation.md` — and not a list of
 compensations, which is `BANDAGES.md`. A switch can appear in both this file and `BANDAGES.md`;
@@ -61,6 +61,8 @@ The convention here is a `DIAG_` prefix, matching Emerald's `DIAG_STEP_CURVE` /
 | `DIAG_SHIELD_TIMING` | `false` | When the boost shield goes up and comes down on the peer and on the ghost, one line per transition -- written while the shield clone's bloom and fade were being matched (2026-09-10). |
 | `DIAG_SUMMON_TRACE` | `false` | What the summon (core expansion) reader sees, one line per second while any SUMMON-typed character is alive. Armed 2026-09-10 because a B press produced no summon rows at all. |
 | `DIAG_BULLET_WATCH` | `false` | What the PLAYER's own shots are, before deciding how to mirror them: birth (slot, type, sprite, speed, angle, size, position), death (lifetime, speed and angle drift from birth), and a live/peak count once a second. Walks BulletManager's 200-slot pool by reflection. **Run 2026-09-10** -- and read too narrowly: it measures `speed` and `angle`, and the families that move themselves change NEITHER, so "zero drift" was true and did not mean what it was taken to mean (`UNVERIFIED.md`, a ghost's bullet flies itself). |
+| `DIAG_GHOST_BULLETS` | `false` | One line per projectile EVENT on both ends -- SEND (what the game says a shot is: type and sprite by name, follower kind, pool, colour, tint), RECV (what the watcher made of the row, the effect object it was handed, the sprite it holds), ATTACH-LATE, KILL (cause and lifetime). 600-line budget. **Run 2026-09-10**: three symptoms on one build -- "white circles", "red orb shooting blue", "short distance" -- and the SEND/RECV pairing showed the two installs decoding the same number as different enum members (`UNVERIFIED.md`, names on the wire). |
+| `GhostBulletsRunGameBehaviour` | `false` | **A safety switch, not a probe.** `true` hands a ghost's dormant bullet to the game's own `bulletScript.BulletBehave()` each physics step. OFF since 2026-09-10, the evening it went live: a peer's shots damaged the watcher, and the switch-off was the A/B that proved it (`UNVERIFIED.md`). Stays off: `BulletBehave` has ~580 `ShootBullet` sites plus bombs, lasers, tile destruction and camera shake, and a guard that undoes only the bullets is not a guard. The mirrored flight for the families that move themselves is owed a different design (`status.md`). |
 | `DIAG_HITSTOP_PHASE` | `false` | Timing and colour of a mirrored attack: freeze phase on ghost vs peer, VFX impulses sent/received, sprite-layer colours. One line per EVENT, never per frame. **Run 2026-08-28.** |
 
 **A `const bool` on its own makes its block provably unreachable and the C# compiler says so
