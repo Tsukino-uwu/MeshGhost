@@ -22,11 +22,7 @@ can show today.
 - [Install guide](docs/getting-started.md)
 - [Hosting a server](docs/hosting.md)
 - [Troubleshooting](docs/troubleshooting.md)
-
-## Docs
-
-**[docs/](docs/README.md)** is for people using MeshGhost. **[agent_docs/](agent_docs/README.md)**
-is the internal working record.
+- [All docs](docs/README.md)
 
 ## Contributing
 
