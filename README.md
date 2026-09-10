@@ -6,24 +6,6 @@ or progression. If a friend kills a boss, it stays alive in your world. Syncing 
 up to each game's mod, and the protocol underneath already carries it, but it is never on by
 default — a game that does more says so in its own README.
 
-You can also record yourself playing and play it back as a replay ghost: your own run beside you,
-to race against the way you would a time-trial ghost, or to loop as a short clip while you practise
-a hard trick. Each recording is a single `.ndjson` file, small enough to edit by hand and to send
-to a friend.
-
-There is also the chaser: a ghost of you from a few seconds ago, tailing you as you play. It needs
-no file, because it comes from the run you are already in. What it does beyond following is a
-per-game decision — whether it can hurt you on touch, for instance.
-
-Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
-memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
-
-**Download:** the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases). `MeshGhost-full-<version>.zip` is the one nearly
-everyone wants — client, server, and every game's mod, for Windows. Native Linux and macOS builds
-of just the client and server are there too, and are usually unnecessary: every supported game is
-a Windows game, so a Linux player is already running it through Proton, and the Windows client
-runs in that same prefix.
-
 ## Games
 
 - [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md)
@@ -34,76 +16,13 @@ runs in that same prefix.
 Each link goes to that adapter's own README: how it reads its game, how it was built, and what it
 can show today.
 
-**One server hosts every game at once**, with nothing to set up for it: a single
-`meshghost-server.exe` carries Emerald, Crystal, TEVI and Pseudoregalia sessions simultaneously
-on one port. Each game gets its own rooms automatically, so games never collide and players only
-ever see others in the same game and the same room name. A host who wants their server locked to
-one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `tevi` or
-`pseudoregalia`. Players never set it: a mod announces its own id.
-
 ## Setup
 
+**Download:** the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases). Then
 **[docs/getting-started.md](docs/getting-started.md)**, with
 [docs/hosting.md](docs/hosting.md) for whoever runs the server and
 [docs/troubleshooting.md](docs/troubleshooting.md) when something is wrong. All three ship in the
 zip too, under `docs\`.
-
-## How it works
-
-- **Relay** — the server everyone connects to. Game-agnostic: it forwards position, area and
-  animation snapshots between clients, and never runs or touches the game.
-- **Core** — the client that sits between the server and the game's mod. Also game-agnostic: it
-  buffers and interpolates other players, and re-checks everything the server sends (sizes, finite
-  numbers, a bounded roster, sanitized names) before the mod sees any of it. Never touches game
-  memory or rendering.
-- **Adapter** — the game's mod itself, and the only part that knows the game. It reads the local
-  player's position, area and animation, draws the ghosts, and reaches the server through the core
-  running beside it. Never touches the network directly.
-
-That split is the whole design: the relay and core know nothing about any game, so a new game is
-an adapter and nothing else.
-
-**What is the limit — how much can MeshGhost actually do?** The protocol underneath cosmetic
-ghosts already carries reliable
-addressed events, exclusive locks over opaque keys, both-or-neither exchanges, and custody of a
-world the server holds but cannot read — all built, all off unless every member of a room opts
-in, and used by no shipped game. What that buys tops out at bounded, consensual interactions
-between two players, because the server never understands the game and so can never judge
-content; there is no anti-cheat here. A single game's adapter could go much further, up to real
-co-op, but that is a per-game netcode project reusing this relay rather than a MeshGhost feature.
-The full reasoning, including which shipped games could and could not:
-[agent_docs/beyond-cosmetic.md](agent_docs/beyond-cosmetic.md).
-
-Deeper detail: [docs/networking.md](docs/networking.md) (how the relay and client actually work,
-traced through the real code), [agent_docs/contract.md](agent_docs/contract.md) (schema and
-interfaces), [agent_docs/architecture.md](agent_docs/architecture.md) (system shape and rationale).
-
-## Using the server/client for your own game
-
-**Any language: run it beside your game.** `meshghost.exe` does all the networking as its own
-process; your game connects a TCP socket to it on localhost and exchanges one JSON object per
-line. There is no library to link — which is why the shipped adapters are written in unrelated
-languages (Lua, C#, C++) and share no code. Rust, Python, Godot, Java: same shape.
-[docs/integrating.md](docs/integrating.md) is the guide, with a conformance checklist and a
-worked example.
-
-**Go only: compile it in.**
-
-```text
-go get github.com/Tsukino-uwu/MeshGhost
-```
-
-**What `v1.0.0` (2026-08-30) does and does not promise.** The stable surface is the **wire
-protocol**: it is version-checked at the handshake, additions since have been optional fields an
-old client safely ignores, and [docs/integrating.md](docs/integrating.md) documents it precisely
-so other games and other clients can build against the relay — which is what the 1.0 marks. The
-**Go package APIs** follow module semver from here (a breaking Go-API change means a `/v2` module
-path), but third-party use of the packages is unsupported and untested — we will not knowingly
-break you, and we also will not know if we do. `v0.9.0` is the first fetchable tag — `v0.8.5` and
-earlier were cut under the old module name and cannot be resolved at all. If you need something
-that cannot move under you, pin a version, or fork/vendor it;
-[MIT](LICENSE) allows that outright. None of this affects adapters, which speak a socket rather
-than a Go API.
 
 ## Repo layout
 
@@ -171,6 +90,8 @@ is the internal working record of how it got built.
 - [status.md](agent_docs/status.md) — one-screen summary of where things stand.
 - [pitfalls.md](agent_docs/pitfalls.md) — adapter-specific issues, and how they were diagnosed.
 - [risks.md](agent_docs/risks.md) — known risks and open assumptions.
+- [beyond-cosmetic.md](agent_docs/beyond-cosmetic.md) — how far MeshGhost can go past cosmetic
+  ghosts, what the protocol already carries, and where a dumb relay stops.
 - [verified.md](agent_docs/verified.md) — append-only log of facts actually confirmed running.
   Go-side and cross-game entries plus the index; each adapter carries its own `VERIFIED.md`
   (and `UNVERIFIED.md`, the queue waiting on the user) beside its `README.md`.

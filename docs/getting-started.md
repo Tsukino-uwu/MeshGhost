@@ -73,6 +73,10 @@ matters.
 > Pokémon games are the forgiving ones: they fall back to the unzipped folder if you skip the
 > copy. TEVI and Pseudoregalia do not, because the mod lives inside the game.
 
+**Nothing here touches your save, and no ROM is patched.** Some mods put a ghost into the game's
+live memory while you play, and that memory is gone the moment you close the game. Uninstalling is
+deleting the mod's folder.
+
 ## 3. Fill in three things
 
 Open the `config.json` in the folder from the table above — the one sitting next to your game's
