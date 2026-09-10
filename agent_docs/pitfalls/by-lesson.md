@@ -6885,7 +6885,7 @@ search in *both* scripts was reordered to look in the script's own folder first 
 release root first and the own folder last, the reverse of the two searches beside it and of its
 own comment claiming *"the same places the autostart search looks, in the same order."*
 
-**Outcome.** A preflight section, negative-tested against the real defect before it was trusted:
+**Outcome.** The existing `Documentation links resolve` check, with its repo-escape exemption removed and negative-tested against the real defect before it was trusted:
 every `SCRIPT_DIR .. "<literal>"` in Crystal must open its literal with `/` or `\`. The prose note
 that had been in the file all along is now a check, because a rule enforced by whoever remembers
 reading a comment is not enforced.
@@ -6953,3 +6953,38 @@ belongs to that system too. Copy the game's own retirement — if the game deact
 mirror that destroys is not the same thing done more thoroughly, it is a different thing. And read
 the ENGINE's log, not only the mod's: BepInEx's disk log had `WriteUnityLog = false`, so 53,333
 exceptions were invisible in the file this project reads by habit.
+
+## The same relative link is right in one file and broken in another — GitHub resolves against the blob url (2026-09-10)
+
+**Symptom.** The user clicked "Releases page" in `docs/getting-started.md` on GitHub and got
+**"Error loading page"** at `github.com/<owner>/<repo>/blob/releases`. The identical link text in
+the root `README.md` worked.
+
+**Cause.** Both files pointed at the releases page with a two-dot-dot relative target,
+`../../releases`. GitHub resolves a relative link
+against the **blob url**, `/<owner>/<repo>/blob/<branch>/<path>` — so from `README.md` at the root
+the containing directory is `/<owner>/<repo>/blob/master/` and two `../` land exactly on
+`/<owner>/<repo>/`, which is right. From `docs/` the file is one level deeper, the same two `../`
+stop at `/<owner>/<repo>/blob/`, and the link is dead. The correct text there is *three* `../`.
+
+**Why it is worth a check rather than care.** The number of `../` a GitHub-feature link needs
+depends on the depth of the file it sits in, so a link that is correct in one file becomes wrong
+the moment it is copied to another or the file moves — while looking character-for-character
+identical. Nothing renders it locally, so the first reader to click it is the test. This one
+shipped in the same session that wrote the file, and the repo already had the right habit
+elsewhere: `docs/antivirus.md` and `docs/reviewing.md` both link GitHub pages absolutely.
+
+**Fix.** Both now use the full `https://github.com/<owner>/<repo>/releases`, which no depth can
+break.
+
+**Outcome.** A preflight section, negative-tested against the real defect and against a planted
+missing-file link before it was trusted. It resolves every relative markdown link in every tracked
+`.md` the way a renderer does — string normalisation, never `Resolve-Path`, so an escape is
+*detected* rather than quietly resolved against the machine's real parent folders — and fails on
+two things: a link that climbs out of the repo (link the GitHub page absolutely) and a link naming
+a file that is not there. 979 links across 175 files passed on the first clean run.
+
+**Reach for first.** A relative link into a host's *feature* pages (releases, issues, wiki) is
+depth-dependent and belongs as an absolute url; a relative link to a file in the repo is fine and
+is now verified. And when a link works in one file, that is not evidence about the same link in
+another.

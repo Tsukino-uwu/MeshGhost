@@ -10,7 +10,7 @@ will be.
 
 ## 1. Download and unzip
 
-Go to the [Releases page](../../releases) and download **`MeshGhost-full-<version>.zip`**. That is
+Go to the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases) and download **`MeshGhost-full-<version>.zip`**. That is
 the one nearly everyone wants: it has the client, the server, and the mod for every supported game.
 
 Unzip it anywhere you like — Desktop is fine. Do not leave it inside the .zip and try to run it

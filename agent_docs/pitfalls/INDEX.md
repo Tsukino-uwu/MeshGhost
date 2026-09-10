@@ -51,6 +51,7 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Pitfalls by theme [RECORD]
 - BizHawk Lua: `event.onframeend` outlives its script; use a `frameadvance` loop [RULE: checklists/before-touching-lua.md]
 - BizHawk Lua: `debug.getinfo` gives no path — use the working directory [RULE: checklists/before-touching-lua.md]
+- The same relative link is right in one file and broken in another — GitHub resolves against the blob url (2026-09-10) [CHECK: preflight's relative-link scan, repo-escape exemption removed]
 - A path built from a constant whose SHAPE you assumed — Crystal never read its own config (2026-09-10) [CHECK: preflight "SCRIPT_DIR concatenations carry a separator (Crystal)"]
 - Spawned actors auto-possessing (taking control away from the player) [RULE: adapters/pseudoregalia/CLAUDE.md]
 - Camera / view-target ownership [RULE: adapters/pseudoregalia/CLAUDE.md]

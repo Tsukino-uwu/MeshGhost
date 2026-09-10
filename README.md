@@ -18,7 +18,7 @@ per-game decision — whether it can hurt you on touch, for instance.
 Your save is never touched and no ROM is patched. Some adapters put a ghost into the game's live
 memory, and that memory is gone the moment you close it. Uninstalling is deleting the mod's folder.
 
-**Download:** the [Releases page](../../releases). `MeshGhost-full-<version>.zip` is the one nearly
+**Download:** the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases). `MeshGhost-full-<version>.zip` is the one nearly
 everyone wants — client, server, and every game's mod, for Windows. Native Linux and macOS builds
 of just the client and server are there too, and are usually unnecessary: every supported game is
 a Windows game, so a Linux player is already running it through Proton, and the Windows client

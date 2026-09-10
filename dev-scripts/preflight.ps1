@@ -987,11 +987,20 @@ Section "Markdown link integrity"
 # still naming a section that had moved from pitfalls.md to pitfalls/method.md. A broken link
 # fails silently in every markdown viewer, so nothing else surfaces it.
 #
-# Two deliberate exemptions. A target that climbs ABOVE the repo root (`../../releases` from a
-# root file) is a GitHub route: the site resolves README links as if at blob/master/, so that form
-# reaches github.com/<owner>/<repo>/releases and works, while no file could ever satisfy it. And
-# `#L123`-style anchors are line references, not headings. Fenced code blocks are skipped: a link
-# inside one is an example, not a link.
+# ONE deliberate exemption, down from two on 2026-09-10. `#L123`-style anchors are line
+# references, not headings. Fenced code blocks are skipped: a link inside one is an example.
+#
+# THE EXEMPTION THAT WAS REMOVED, because it hid a live bug the user hit. A target climbing above
+# the repo root used to be waved through as "a GitHub route": the site resolves a relative link
+# against /<owner>/<repo>/blob/<branch>/<path>, so from a ROOT file `../../releases` lands on
+# /<owner>/<repo>/releases and works, while no file on disk could ever satisfy it. All true -- and
+# only true at that one depth. The same text in docs/getting-started.md is one level deeper, stops
+# at /<owner>/<repo>/blob/releases, and renders "Error loading page"; it needs THREE `../`. So the
+# exemption was written for README.md and applied to every file, and the form it protects is one
+# whose correctness depends on where the file sits -- meaning a link copied between two files
+# breaks while looking character-for-character identical, and nothing surfaces it until a reader
+# clicks. A GitHub feature page (releases, issues, wiki) is therefore linked ABSOLUTELY, the way
+# docs/antivirus.md and docs/reviewing.md already did. Negative-tested against the real defect.
 #
 # GitHub's heading slug: lowercase, inline markup stripped, everything but word characters, spaces
 # and hyphens removed, spaces to hyphens, and a `-1`, `-2` suffix for a repeated heading.
@@ -1029,6 +1038,7 @@ function Get-HeadingSlugs($mdPath) {
     return $seen
 }
 $badLinks = @()
+$escapedLinks = @()
 $badAnchors = @()
 $linkCount = 0
 foreach ($md in $trackedMd) {
@@ -1044,7 +1054,10 @@ foreach ($md in $trackedMd) {
         if ($target) {
             $linkCount++
             $full = [System.IO.Path]::GetFullPath((Join-Path $rootFull $targetPath))
-            if (-not $full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) { continue }  # GitHub route, see above
+            if (-not $full.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $escapedLinks += "$md -> $target"   # depth-dependent, see above
+                continue
+            }
             if (-not (Test-Path -LiteralPath $targetPath)) { $badLinks += "$md -> $target"; continue }
         }
         if ($anchor -and $targetPath -like '*.md') {
@@ -1063,6 +1076,12 @@ if ($badLinks.Count -gt 0) {
     $badLinks | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
 } else {
     Report-Pass "every relative markdown link resolves ($linkCount checked)"
+}
+if ($escapedLinks.Count -gt 0) {
+    Report-Fail "$($escapedLinks.Count) markdown link(s) climb out of the repo -- GitHub resolves these against /blob/<branch>/, so the right number of ../ depends on the file's depth and a copied link breaks silently. Link the GitHub page absolutely:"
+    $escapedLinks | Sort-Object -Unique | ForEach-Object { Write-Host "          $_" }
+} else {
+    Report-Pass "no markdown link climbs out of the repo (a GitHub page is linked absolutely)"
 }
 if ($badAnchors.Count -gt 0) {
     Report-Fail "$($badAnchors.Count) markdown anchor(s) name a heading the target does not have:"
