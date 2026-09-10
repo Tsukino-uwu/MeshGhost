@@ -112,7 +112,7 @@ namespace MeshGhostTevi
 
             // CORE EXPANSIONS (the game's name for the orbitar summons): one row per summoned
             // Celia/Sable the peer currently has out, read off that character's own sprite rig:
-            //   [ type, animatorControllerName, x, y, direction, clip, clipPhase, scaleX, scaleY, visible ]
+            //   [ type, animatorControllerName, x, y, direction, clip, clipPhase, scaleX, scaleY, visible, animatorSpeed ]
             // `visible` is false during the first ~0.3s, while the game's humanoid exists but is
             // Invisible() and the orb-to-humanoid trail is still flying toward it.
             // x/y are the summon's SPRITE position in ABSOLUTE world coordinates (it stands still

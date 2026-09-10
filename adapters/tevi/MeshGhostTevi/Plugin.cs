@@ -2552,6 +2552,10 @@ namespace MeshGhostTevi
                     pixel.transform.localScale.x,
                     pixel.transform.localScale.y,
                     visible,
+                    // The peer's animator speed: the humanoid's clips do not all run at 1, and a
+                    // ghost playing at 1 with a hard re-seek on drift snapped every fraction of a
+                    // second (user, 2026-09-10: "animating a bit weird/looping").
+                    pixel.anim.speed,
                 });
             }
             if (DIAG_SHIELD_TIMING && (rows == null) != lastSummonRowsNull)
@@ -2607,6 +2611,7 @@ namespace MeshGhostTevi
                     float phase = CellF(row, 6);
                     float sx = CellF(row, 7), sy = CellF(row, 8);
                     bool visibleNow = row.Length > 9 && row[9] is bool vb ? vb : true;
+                    float peerSpeed = row.Length > 10 && row[10] is float ps && !float.IsNaN(ps) && !float.IsInfinity(ps) ? ps : 1f;
                     if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(controllerName)
                         || float.IsNaN(dx) || float.IsNaN(dy) || float.IsInfinity(dx) || float.IsInfinity(dy)
                         || float.IsNaN(sx) || float.IsNaN(sy) || float.IsInfinity(sx) || float.IsInfinity(sy))
@@ -2686,12 +2691,14 @@ namespace MeshGhostTevi
                             {
                                 sg.Pc.anim.Play(clip, 0, t);
                                 sg.LastAnim = clip;
+                                sg.Pc.anim.speed = peerSpeed;
                                 if (DIAG_SHIELD_TIMING) Logger.LogInfo($"MeshGhost/probe summon-recv: {type} play {clip} visible={visibleNow} t={Time.time:0.000}");
                             }
                             else if (!float.IsNaN(phase))
                             {
-                                // Re-seek only past the same tolerance the ghost uses; a repeated
-                                // clip shows as the phase jumping back, which exceeds it.
+                                // Same rule as the ghost's own clip: a big jump is the peer restarting
+                                // the clip and is seeked; small drift is repaid continuously by a
+                                // bounded speed change on top of the PEER'S speed, never snapped.
                                 float g = sg.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
                                 g -= Mathf.Floor(g);
                                 float drift = t - g;
@@ -2699,6 +2706,12 @@ namespace MeshGhostTevi
                                 if (Mathf.Abs(drift) > AnimReseekThreshold)
                                 {
                                     sg.Pc.anim.Play(clip, 0, t);
+                                    sg.Pc.anim.speed = peerSpeed;
+                                }
+                                else
+                                {
+                                    sg.Pc.anim.speed = peerSpeed * Mathf.Clamp(1f + drift * PhaseCatchupGain,
+                                        1f - PhaseCatchupRange, 1f + PhaseCatchupRange);
                                 }
                             }
                         }

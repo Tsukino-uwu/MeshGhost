@@ -121,7 +121,12 @@ two-instance rig.** Four pieces, in the order they went in:
   timing probe (`DIAG_SHIELD_TIMING`, event lines both ends) had shown the ghost's fade STARTING on
   the peer's beat, which is what pointed away from timing and at rendering. User, after the keyword
   fix: *"yee looks correct now i think"*. The shield's `up` flag now rides the row so the clone fades
-  when the peer's starts fading, not after it ends.
+  when the peer's starts fading, not after it ends. **Then the summon "animating a bit weird /
+  looping"**: its clips were played at speed 1 with a hard re-seek on drift, and the humanoid's
+  clips do not all run at 1 -- the peer's animator speed now rides the row and drift is repaid by
+  the same bounded speed change the ghost uses. User: *"looks good"*. Also confirmed in the same
+  pass: the blue hover trail at the fixed order and count, and the summon standing still in the
+  world (*"these work"*).
   Not mirrored yet: the glow on the orbs when they return (`GlowOrbsEffect`), the camera
   post-process is shared with the local player's shield (kept on by `KeepShieldPostprocess`,
   unwatched), and whatever the humanoid fires (the projectile track).
