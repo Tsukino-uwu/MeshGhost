@@ -7,10 +7,12 @@ read their own half: `meshghost.exe` (the client, started for you by your game's
 few `client` keys are read by the game's mod itself rather than by `meshghost.exe`, and the table
 says which. A key that is absent keeps its built-in default, so a config file only ever overrides
 what it mentions. The root file is
-[`packaging/release/config.json`](../packaging/release/config.json) and the walkthrough is the
-`README.txt` beside it; this page is the reference those two point at. Which copy a game reads is
-in that game's own `README.txt`: TEVI and Pseudoregalia read the one you copied into the game's
-folder; Emerald and Crystal run from the release folder itself and nothing is copied.
+[`packaging/release/config.json`](../packaging/release/config.json) and the walkthrough is
+[getting-started.md](getting-started.md); this page is the reference those two point at. **Which
+copy a game reads is always the one beside its mod** — the game's own folder for TEVI and
+Pseudoregalia, `games\pokemon\<game>\` for Emerald and Crystal. The two Pokémon scripts fall back
+to the release root if no `meshghost.exe` sits beside them, and the Lua Console names the file it
+actually loaded either way.
 
 Everything below is taken from the two programs' own config definitions (`cmd/meshghost/main.go`,
 `cmd/meshghost-relay/main.go`), the mods' own config readers, and the shipped file, on 2026-09-06.

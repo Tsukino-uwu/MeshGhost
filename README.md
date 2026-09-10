@@ -55,12 +55,17 @@ one game sets `server.only_game` to that game's id — `emerald`, `crystal`, `te
    `udp`, which are two separate rules on most routers**. The server prints exactly what to forward
    when it starts.
 
-TEVI and Pseudoregalia install their mod *into* the game, so they need `meshghost.exe` and that
-game's `config.json` (from `games\<game>\`) copied into the game's own folder once — the one Steam
-installed — and that copy of `config.json` is the one they read, not the one in the folder you
-unzipped. Emerald and Crystal run from the release folder itself and need neither.
-Setting `"autostart": false` in that `config.json` turns autostart off, if you would rather run the
-client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still works.)
+**Every game follows one rule: `meshghost.exe` and `config.json` sit next to the mod, and that
+copy is the one MeshGhost reads.** For TEVI and Pseudoregalia that folder is the game's own (the
+one Steam installed); for Emerald and Crystal it is `games\pokemon\<game>\`, beside the script.
+Each game's `config.json` already ships there — only `meshghost.exe` is a one-time copy.
+
+The two Pokémon games are the forgiving ones: their script checks its own folder first and falls
+back to the release root, so an older install that left the exe there keeps working. TEVI and
+Pseudoregalia do not fall back, because the mod lives inside the game.
+
+Setting `"autostart": false` in the `config.json` your game reads turns autostart off, if you would
+rather run the client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still works.)
 
 Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 

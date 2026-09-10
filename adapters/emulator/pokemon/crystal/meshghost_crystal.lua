@@ -9673,9 +9673,13 @@ local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
     return true
 end)()
 
--- meshghost.exe is not shipped inside game folders (9 MB, once per game), so look where it
--- actually lives: the release root is three levels up from games/pokemon/crystal, a source
--- checkout four up. Beside the script wins if someone deliberately put one there.
+-- BESIDE THIS SCRIPT IS THE DOCUMENTED LAYOUT (2026-09-10): a player copies meshghost.exe into
+-- this folder, and the core then reads the config.json here, writes meshghost.log here, and keeps
+-- its replay\ folder here -- the same per-game separation TEVI and Pseudoregalia have. It is not
+-- SHIPPED here (9 MB, once per game), which is why the copy is a manual step in the README.
+-- The two fallbacks stay, and are not deprecated: the release root is three levels up from
+-- games/pokemon/crystal, a source checkout four up from adapters/emulator/pokemon/crystal. An install
+-- that never copied the exe keeps working exactly as it did.
 local function findCoreExe()
 	local candidates = {
 		SCRIPT_DIR .. "/meshghost.exe",

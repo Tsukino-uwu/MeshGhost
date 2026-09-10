@@ -53,9 +53,14 @@ THE FIVE-MINUTE VERSION
 -----------------------
 1. Install your game's mod -- see games\<your game>\README.txt.
 
-   TEVI and Pseudoregalia also need a one-time copy of meshghost.exe AND
-   config.json into the game's own folder. That copy is the one they read
-   from then on. Emerald and Crystal need no copying at all.
+   Then copy meshghost.exe into the folder holding that game's mod -- the
+   game's own folder for TEVI and Pseudoregalia (config.json goes with it),
+   or games\pokemon\<game>\ for the two Pokemon games (config.json is
+   already there). THAT copy is the one MeshGhost reads from then on.
+
+   TEVI and Pseudoregalia require this. The two Pokemon games do not: they
+   fall back to this folder if you skip it, and only lose the per-game
+   separation by doing so.
 
 2. Open the config.json your game actually reads and set three things in
    the "client" section:

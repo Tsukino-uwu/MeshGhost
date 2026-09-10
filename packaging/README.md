@@ -119,8 +119,12 @@ adapter:
   the DLL sits where the loader finds it, the two files a player touches sit where a player
   looks, and `meshghost.log` and `replay\` land beside them. The workflow ships the config —
   1 KB — and leaves the exe as a **one-time manual copy**, called out in each game's `README.txt`.
-- **Emerald and Crystal load from the release folder itself.** Their Lua walks up to the release
-  root to find `meshghost.exe` and `config.json`, so nothing is copied and nothing is duplicated.
+- **Emerald and Crystal prefer their own folder and fall back to the release root.** The script
+  looks for `meshghost.exe` beside itself first, then three levels up (the release root), then
+  four (a source checkout), and the core's working directory follows the config it found — so a
+  player who copies the exe in gets the same per-game separation TEVI and Pseudoregalia have, and
+  one who does not keeps the original zero-copy behaviour. Nothing is duplicated in the zip
+  either way; the exe stays a one-time manual copy, as above.
 
 Shipping a client copy per mod was the obvious alternative and was rejected on the user's call: it
 grows the download by ~2.6 MB (stripped, compressed) per game forever, and the other option — a

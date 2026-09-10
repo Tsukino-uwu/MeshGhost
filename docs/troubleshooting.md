@@ -49,7 +49,9 @@ Almost always: **you edited the wrong copy.**
 
 Open `meshghost.log` and find the **`config loaded from ...`** line. It prints the full path of the
 file it actually read. For TEVI and Pseudoregalia that is the copy in the game's folder, not the
-one you unzipped; for Emerald and Crystal it is `games\pokemon\<game>\config.json`.
+one you unzipped; for Emerald and Crystal it is `games\pokemon\<game>\config.json` — unless you
+left `meshghost.exe` in the release root, in which case the two Pokémon scripts fall back to the
+config beside it. The Lua Console says which file it chose, every run.
 
 The other cause is a broken file. Only edit the text between the quotes — keep the quotes, colons
 and commas exactly as they are. And save as plain **UTF-8**; saving as "Unicode"/UTF-16 makes the
@@ -96,8 +98,12 @@ to built-in defaults (`127.0.0.1:7777`, your own machine) and quietly never reac
 
 For TEVI and Pseudoregalia you may not need the setting at all: the mod only starts a client
 because you copied `meshghost.exe` into the game's folder. Do not copy it in, and there is nothing
-to switch off. The setting matters most for Emerald and Crystal, where the script finds the client
-in the unzipped folder whether you want it to or not.
+to switch off. The setting matters most for Emerald and Crystal, because their script also falls
+back to the release root — so it can find a client to start even when you put none beside it.
+
+**On Crystal, `"autostart": false` did nothing at all before 2026-09-10** — a path bug meant the
+script never read the setting. If you tried it on an older build and it kept starting a client,
+that was the cause, not your file.
 
 *(The older `MESHGHOST_NO_AUTOSTART` environment variable still counts as "no" if you set one
 years back. To be rid of it: Start → "environment variables" → Edit the system environment
