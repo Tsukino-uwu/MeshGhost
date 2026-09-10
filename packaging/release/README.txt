@@ -24,9 +24,8 @@ WHAT'S IN THIS FOLDER
                         folder matters to you, and each has its own
                         README.txt with the exact steps for that game.
 
-  docs\                 The full instructions, as plain text files. Open the
-                        ones listed below in Notepad or anything else -- they
-                        are right here in this folder, nothing to download.
+  docs\                 The full instructions, as text files like this one.
+                        Which of them to read is below.
 
 
 WHAT TO READ
