@@ -214,7 +214,7 @@ or, when `get_local_state()` returned nil:
 
 `player_id`, `seq`, and `timestamp` are stamped by the core, not the adapter — leave them out.
 
-## Two core -> adapter messages this document used to omit, and every adapter that skipped them
+## Three core -> adapter messages this document used to omit, and every adapter that skipped them
 
 **Added 2026-08-30, because `_template/` had lagged and it cost real behaviour.** An adapter built
 from this file handled `render_remote`, `despawn_remote`, `bridge_ready` and `reject` — the four
@@ -311,10 +311,12 @@ checks `extras.room_x`/`room_y` before they reach a map-lookup call. Write the e
 whatever your engine's own render call would otherwise do with an unbounded value.
 
 Those four types are the whole cosmetic contract, and three of them are the three functions above.
-The bridge defines **ten more** (`bridge/bridge.go`), every one of them inert unless your
-`hello` asked for the matching plane: `bridge_ready`/`reject` are the handshake pair above, the
-replay input stream is its own section below, and the other seven are in "Beyond cosmetic" at the
-bottom of this file.
+The bridge defines **sixteen more** (`bridge/bridge.go` is the list, and is the authority — this
+sentence has been wrong twice by counting from memory). Every one is inert unless your adapter asks
+for it: `bridge_ready`/`reject` are the handshake pair above; `input_sample`/`remote_input` are the
+replay input stream in its own section below; `remote_name`, `session_policy`, `recording_state`,
+`replay_control` and `player_frozen` are optional core<->adapter messages documented further down;
+and the remaining seven are in "Beyond cosmetic" at the bottom of this file.
 
 ## Replay control (optional, adapter -> core, 2026-09-03)
 

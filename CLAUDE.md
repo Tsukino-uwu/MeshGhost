@@ -58,7 +58,7 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   a false regression (2026-08-18). **Name the exact state: "main menu", never bare "menu".**
 - **No addresses or APIs from memory.** Every offset, hook and third-party call traces to a file in
   a repo or a documentation page; anything suspiciously tidy is invented until confirmed against it.
-- **If a game has a cleared decompilation, READ IT FIRST** (`licensing.md` clears the four `pret`
+- **If a game has a cleared decompilation, READ IT FIRST** (`licensing.md` clears the `pret`
   decomps; `environment.md` has them built locally). Measurement CONFIRMS what the source says, it
   does not discover it, and a probe cannot tell you what a byte MEANS (2026-08-23; `pitfalls.md`).
 

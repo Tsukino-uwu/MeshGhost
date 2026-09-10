@@ -18,9 +18,10 @@ are a record, and a record is capped by splitting it, not by refusing entries
              |  plus the opt-in planes event/lease/lease_state/escrow/escrow_state/
              |  world/world_state (protocol/protocol.go is the list)
         Core (core, cmd/meshghost)
-             |  adapter bridge: NDJSON/TCP, localhost-only. 18 types:
+             |  adapter bridge: NDJSON/TCP, localhost-only. 20 types:
              |  hello/bridge_ready/reject/session_policy/local_state/render_remote/
-             |  despawn_remote/remote_name/replay_control/player_frozen/recording_state,
+             |  despawn_remote/remote_name/replay_control/player_frozen/recording_state/
+             |  input_sample/remote_input,
              |  plus the same opt-in planes (bridge/bridge.go is the list)
      [ Adapter contract ]
         /    |    \
@@ -92,7 +93,7 @@ internal/hotkey     — production, added 2026-09-03 (ADR 0048). Parses a chord 
 internal/e2e        — test-only. Launches the real binaries and drives a real adapter over
                        the bridge; imports bridge, netx, protocol, transport. Ships no
                        production code, so nothing imports it.
-internal/gameblind  — test-only, added 2026-08-20. Five tests over the source tree that make
+internal/gameblind  — test-only, added 2026-08-20. Seven tests over the source tree that make
                        the game-blindness rules mechanical instead of manual: game names in
                        library code, generic imports, frozen wire fields, the
                        server/client/adapter split, and adapters never speaking the relay
@@ -117,7 +118,7 @@ cmd/meshghost-netsim — fault-injecting proxy for real sessions. Imports NONE o
 `adapters/`. There's no Go code under `adapters/` today (BizHawk is Lua), but the rule holds
 regardless — it's the Go-level enforcement of "the core never touches the game," parallel to
 the existing "no `if game == \"emerald\"`" rule. Checked manually until 2026-08-20, when
-`internal/gameblind` made it mechanical: five tests over the source tree covering game names in
+`internal/gameblind` made it mechanical: seven tests over the source tree covering game names in
 library code, generic imports, frozen wire fields, the server/client/adapter split, and adapters
 never speaking the relay protocol (`testing.md`).
 

@@ -176,7 +176,7 @@ bools — which is precisely the drift `README.md`'s gold-standard rule is about
    forget. If a switch must never reach a player, the packaging step should **fail the build** on
    finding it, not merely avoid copying it.
 
-**Five more rules the shipped adapters paid for, back-ported 2026-08-25:**
+**Seven more rules the shipped adapters paid for, back-ported 2026-08-25:**
 
 3. **Read a global FIRST, then the environment** — and say so in the register, because the order
    is load-bearing rather than stylistic. An environment variable is fixed when the emulator

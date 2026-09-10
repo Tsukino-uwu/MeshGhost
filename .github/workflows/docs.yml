@@ -2,7 +2,7 @@ name: Docs
 
 # Until 2026-08-27, NOTHING in CI ran any of the documentation gates. ci.yml filters on '**.go'
 # and lua.yml on '**.lua', so a push that changed only prose produced no run at all -- and the
-# fifteen tree-level checks in dev-scripts/preflight.ps1 (reading budgets, markdown link
+# tree-level checks in dev-scripts/preflight.ps1 (reading budgets, markdown link
 # integrity, the canonical-source register, index coverage for pitfalls / VERIFIED / the ADRs /
 # the phase files / the dev-scripts README / each adapter's mandated file set, the bridge
 # constants, invented durations, and more) held only when somebody remembered to run the script.

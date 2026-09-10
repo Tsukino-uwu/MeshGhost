@@ -5,7 +5,7 @@ name: Emulator adapters
 # SPLIT OUT OF lua.yml ON 2026-09-04, and the reason is a real over-fire rather than tidiness.
 # lua.yml is path-filtered on '**.lua', which is correct for the SYNTAX gate it keeps (every
 # tracked .lua must compile, wherever it lives) and wrong for this job. Of the tracked .lua files
-# in this repo, 169 are under adapters/emulator, 22 are Pseudoregalia PROBES, and ~28 are in
+# in this repo, 181 are under adapters/emulator, 55 are Pseudoregalia PROBES, and 27 are in
 # dev-scripts/ -- so editing a Pseudoregalia probe, which is that adapter's normal way of asking
 # the game a question, ran the Pokemon decoder fuzzers, which it cannot possibly affect.
 #

@@ -222,7 +222,7 @@ and its `contents: write` permission is the reason CI is deliberately `contents:
   before that it had none at all). It is also covered where it is used: `core`'s
   `dialFakeAdapter` speaks real bridge NDJSON, and `internal/e2e` drives a real adapter
   across it.
-- **`internal/gameblind`** — the structural rules, made mechanical (2026-08-20). Five tests, no
+- **`internal/gameblind`** — the structural rules, made mechanical (2026-08-20). Seven tests, no
   network and no game: **no game name in library code** (comments and tests are exempt — naming
   the game a rule came from is documentation, and Go-side tests use game ids as sample data);
   **library imports stay generic**; **the wire's field lists are frozen**, so a field only one

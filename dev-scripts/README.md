@@ -29,7 +29,7 @@ full note.
   It does **not** run the race detector or the fuzzers. Race is now a separate local script (below,
   working since 2026-08-18); **fuzzing is still CI-only** (`.github/workflows/ci.yml`, a short
   campaign per push against the parsers), so a green run here is still not a green CI run.
-  (`go.mod` requires Go 1.25.0, the installed toolchain is 1.26.5, and CI's `setup-go` pins 1.25 to
+  (`go.mod` requires Go 1.26.0, the installed toolchain is 1.26.5, and CI's `setup-go` pins 1.26 to
   match — it pinned 1.22 until 2026-08-17, which worked only because `GOTOOLCHAIN=auto` upgraded it
   silently.)
 - `run-gotests-race.bat` — the race detector, the exact `go test -race -count=3 ./...` CI runs, and
@@ -645,7 +645,7 @@ re-confirm anything important in shipping mode before calling it verified.
 Not launchers at all, and not strays — one of them CI calls by name.
 
 - `ci-fuzz.sh` — **CI runs this, do not move or delete it.** `.github/workflows/ci.yml`'s fuzz job
-  invokes `bash dev-scripts/ci-fuzz.sh <package> <FuzzTarget> <fuzztime>` once per target (11 of
+  invokes `bash dev-scripts/ci-fuzz.sh <package> <FuzzTarget> <fuzztime>` once per target (24 of
   them as of 2026-08-19), so renaming this file breaks the fuzz job. It exists because `go test
   -fuzz` can exit non-zero with nothing but `context deadline exceeded` when its own `-fuzztime`
   elapses mid-execution — no crashing input, nothing written to `testdata`, green on the next run.

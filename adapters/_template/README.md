@@ -23,7 +23,7 @@ something already went wrong.
 **The hard rules** (read before writing anything): a bandage fix is not a finished feature ·
 find out how the GAME does it before you work around it · never let a ghost exist before the player
 is in the game · ship the bare minimum · never write a save or game state · this folder is the gold
-standard. Six more hard rules load themselves from [../CLAUDE.md](../CLAUDE.md) on first contact
+standard. Nine more hard rules load themselves from [../CLAUDE.md](../CLAUDE.md) on first contact
 with `adapters/`, and the BizHawk host rules from [../emulator/CLAUDE.md](../emulator/CLAUDE.md).
 
 **Starting out**: what's here · folder convention · starting a new game's adapter · first, work out
@@ -697,7 +697,7 @@ the expensive way:
   port has to be per-instance overridable (see [PROTOCOL.md](PROTOCOL.md)). `run-fakeadapter1/2`
   exercise core+relay with no game attached at all.
 
-Two habits from the existing adapters worth copying:
+Three habits from the existing adapters worth copying:
 
 - **Diagnostics are named constant flags, default off, left in the tree with what they found
   written in the comment** (Emerald's `DIAG_STEP_CURVE`, TEVI's `DIAG_REDRAW_TRACE`,
@@ -1852,14 +1852,6 @@ cross-adapter code layer. What is genuinely shared is the core half, and that is
 - **Handle the bracket being ABSENT, because it often is.** No pair, a seam position refused to
   cross, or — the common one — the peer did not rotate at all, which the core suppresses. Fall back
   to the raw `orientation` field, which is the pre-2026-08-30 behaviour and always correct.
-
-**Two rules that came out of doing it, both non-obvious:**
-
-- **Use the SAME bracket position used, never a chase toward the newest sample.** A damper is much
-  simpler and disagrees with the body during fast movement, because position renders an
-  interpolation delay in the past. Same bracket, same fraction, one clock.
-- **`interp_t` can exceed 1** under prediction, on purpose — rotation is extrapolated over the same
-  window position is. Clamp it defensively, do not clamp it to 1.
 
 **Animation phase needs no smoothing at all, for a reason worth keeping: THE RECEIVING GAME
 ADVANCES THE CLIP ITSELF.** A phase sample is a correction, not a value to hold, and the game

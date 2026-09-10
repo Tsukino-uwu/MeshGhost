@@ -46,7 +46,8 @@ this file is the machine and the toolchain, and that one is how a live test is r
 - .NET SDK: **confirmed installed**, `10.0.302` (`dotnet --version`, 2026-08-12), at
   `C:\Program Files\dotnet\sdk`. Used for the TEVI adapter (Phase 6) — a `netstandard2.0` class
   library targeting BepInEx 5.4, which the modern SDK builds fine via `dotnet build`.
-- CMake: **confirmed installed**, `4.4.2` (`cmake --version`, 2026-08-12), via
+- CMake: **confirmed installed**, `4.0.2` (`cmake --version`, re-read 2026-09-10 — this said
+  `4.4.2`, a version CMake has never released), via
   `winget install Kitware.CMake`, at `C:\Program Files\CMake\bin`.
 - Visual Studio / MSVC C++ toolchain: **confirmed installed**, VS 2022 Build Tools with the
   C++ workload (`Microsoft.VisualStudio.Component.VC.Tools.x86.x64`), via winget, at
