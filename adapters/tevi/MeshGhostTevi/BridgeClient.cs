@@ -968,9 +968,21 @@ namespace MeshGhostTevi
                 }
                 catch (Exception e)
                 {
-                    Log($"MeshGhost: bad bridge message ignored: {e.Message}");
+                    // The message alone hid a per-frame NullReference inside the ghost update for
+                    // most of an evening (2026-09-10): the same text every frame, no line number.
+                    // The full trace is logged ONCE per distinct message; the repeats stay short.
+                    if (loggedTraces.Add(e.Message))
+                    {
+                        Log($"MeshGhost: bad bridge message ignored: {e}");
+                    }
+                    else
+                    {
+                        Log($"MeshGhost: bad bridge message ignored: {e.Message}");
+                    }
                 }
             }
         }
+
+        private readonly HashSet<string> loggedTraces = new HashSet<string>();
     }
 }

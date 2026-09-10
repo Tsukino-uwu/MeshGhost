@@ -806,13 +806,20 @@ namespace MeshGhostTevi
 
             // The orbitars ride the peer's ROOT position (their offsets were measured from it), so
             // the anchor offset the sprite clone needs is deliberately not added here.
-            ApplyGhostOrbs(playerId, visual, state.Orbs,
-                new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f));
-            ApplyGhostSummons(playerId, visual, state.Summons, new Vector3(loopbackOffsetX, 0f, 0f));
-            ApplyOrbFx(visual, state);
+            // Each cosmetic sub-feature is walled off: an exception in one must never abort the
+            // ghost's own pose, facing, trail and hitstop below it (the shield did exactly that on
+            // 2026-09-10). Logged once per message text, not per frame.
+            Vector3 worldNudge = new Vector3(loopbackOffsetX, 0f, 0f);
+            try { ApplyGhostOrbs(playerId, visual, state.Orbs, new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)); }
+            catch (System.Exception e) { LogSubfeatureFailure("orbitars", e); }
             // World-fixed things (the summon, its shield, its platforms) travel as ABSOLUTE positions
             // and get only the loopback nudge, never the ghost's interpolated root.
-            ApplyGhostShield(playerId, visual, state, new Vector3(loopbackOffsetX, 0f, 0f));
+            try { ApplyGhostSummons(playerId, visual, state.Summons, worldNudge); }
+            catch (System.Exception e) { LogSubfeatureFailure("core expansion", e); }
+            try { ApplyOrbFx(visual, state); }
+            catch (System.Exception e) { LogSubfeatureFailure("orb flash", e); }
+            try { ApplyGhostShield(playerId, visual, state, worldNudge); }
+            catch (System.Exception e) { LogSubfeatureFailure("boost shield", e); }
 
             // Throttled (once every 2s per remote, not every frame) so a real repro of the
             // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
@@ -2949,6 +2956,13 @@ namespace MeshGhostTevi
                             GameObject go = Instantiate(template.gameObject);
                             go.name = $"MeshGhostRemote_{playerId}_shield";
                             go.transform.SetParent(template.transform.parent, worldPositionStays: true);
+                            // THE TEMPLATE IS PARKED INACTIVE between boosts (FXVShield.DisableMe), so
+                            // its clone is born inactive and Awake -- which builds every material --
+                            // has not run. SetMainColor on it threw NullReference per message, and the
+                            // exception aborted the whole ghost update: pose and facing froze for the
+                            // length of the core expansion (user, 2026-09-10). Activating once runs
+                            // Awake synchronously; Awake's own DisableMe parks it again, initialised.
+                            go.SetActive(true);
                             FXVShield fx = go.GetComponent<FXVShield>();
                             if (fx != null && ShieldIsBoostField != null)
                             {
@@ -3074,6 +3088,16 @@ namespace MeshGhostTevi
             if (anyUp && !CameraScript.Instance.ShieldPostProcess.enabled)
             {
                 CameraScript.Instance.ShieldPostProcess.enabled = true;
+            }
+        }
+
+        private readonly HashSet<string> subfeatureFailuresLogged = new HashSet<string>();
+
+        private void LogSubfeatureFailure(string what, System.Exception e)
+        {
+            if (subfeatureFailuresLogged.Add(what + ":" + e.Message))
+            {
+                Logger.LogWarning($"MeshGhost: {what} mirroring failed and is skipped this frame (the ghost itself is unaffected): {e}");
             }
         }
 

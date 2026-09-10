@@ -102,7 +102,14 @@ two-instance rig.** Four pieces, in the order they went in:
   objects with the shield's private `isBoostShield` cleared so a peer's barrier never erases the
   watcher's bullets, colours read off the peer's material; and **the summon drifting with the
   ghost** -- its position was root-relative, so it inherited the ghost's interpolated motion;
-  summon, shield and platforms now travel as ABSOLUTE world positions. Both **unwatched**.
+  summon, shield and platforms now travel as ABSOLUTE world positions. **Then the shield did not
+  show and the ghost froze in pose and facing for the whole core expansion** (user): the template
+  shield is parked INACTIVE between boosts, so its clone was born with Awake unrun and no
+  materials; `SetMainColor` threw NullReference per message and the exception aborted the whole
+  ghost update before pose/facing/trail. Found only after the catch logged the full trace instead
+  of the message. Fix: activate the clone once (Awake runs, parks itself initialised), and every
+  cosmetic sub-feature is now walled off in its own try/catch so one failing can never freeze the
+  ghost again. Shield clone confirmed in the log on the next boost. Both **unwatched**.
   Not mirrored yet: the glow on the orbs when they return (`GlowOrbsEffect`), the camera
   post-process is shared with the local player's shield (kept on by `KeepShieldPostprocess`,
   unwatched), and whatever the humanoid fires (the projectile track).
