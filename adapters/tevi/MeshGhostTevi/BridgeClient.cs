@@ -141,6 +141,10 @@ namespace MeshGhostTevi
             // and the seqs of bullets that DIED early (a wall, a hit), same 300ms window.
             public object[][] Bullets;
             public float[] BulletDeaths;
+            // x,y pairs, same order as BulletDeaths: where each bullet STOPPED (key "buldp").
+            public float[] BulletDeathPos;
+            // seq,flags pairs for bullets whose flags changed after birth (key "bulf").
+            public float[] BulletFlagUpdates;
             // MUZZLE FLASHES at the orb (pooled effects #7 OrbShootFlash, #12 OrbChargeFlash), not
             // tied to a bullet: [ seq, pool, x, y, facingLeft, colorRGBA ], same 150ms ring.
             public object[][] Flashes;
@@ -725,6 +729,12 @@ namespace MeshGhostTevi
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["buld"] = state.BulletDeaths;
+                    if (state.BulletDeathPos != null && state.BulletDeathPos.Length > 0) extrasMap["buldp"] = state.BulletDeathPos;
+                }
+                if (state.BulletFlagUpdates != null && state.BulletFlagUpdates.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["bulf"] = state.BulletFlagUpdates;
                 }
                 if (state.Shield != null && state.Shield.Length > 0)
                 {
@@ -764,6 +774,7 @@ namespace MeshGhostTevi
                     if (JsonConvert.SerializeObject(extrasMap).Length > ExtrasSoftCap)
                     {
                         extrasMap.Remove("buld");
+                        extrasMap.Remove("buldp");
                     }
                     if (!warnedExtrasCap)
                     {
@@ -956,6 +967,8 @@ namespace MeshGhostTevi
                                 Shield = ParseRow(extras?["shield"]),
                                 Bullets = ParseRows(extras?["bul"]),
                                 BulletDeaths = ParseFloats(extras?["buld"]),
+                                BulletDeathPos = ParseFloats(extras?["buldp"]),
+                                BulletFlagUpdates = ParseFloats(extras?["bulf"]),
                                 Flashes = ParseRows(extras?["flash"]),
                                 Platforms = ParseRows(extras?["plats"]),
                                 OrbFxSeq = (int?)extras?["orbfx_seq"],

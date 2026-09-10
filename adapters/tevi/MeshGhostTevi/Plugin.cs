@@ -201,6 +201,9 @@ namespace MeshGhostTevi
             // The peer's weapon-strobe colour and when one was last seen, so the strobe's white
             // frames do not read as the strobe having stopped. Receiver-side state: the sender
             // reports only the truth of each frame (see ReadWeaponStrobe).
+            // Is this peer standing in the SAME ROOM as the local player? The local wall test for
+            // their bullets is only meaningful then -- see StepGhostBullet.
+            public bool SameRoom;
             public int StrobeRgb = 0xFFFFFF;
             public float StrobeSeenAt = float.NegativeInfinity;
 
@@ -287,6 +290,9 @@ namespace MeshGhostTevi
             public bool BehaveFailed;       // its own behaviour threw once; it flies straight now
             public string Cause;            // DIAG_GHOST_BULLETS: which of our rules ended it
             public string EffectObjectName; // DIAG_GHOST_BULLETS: the pooled object handed to it
+            public bool PopDone;            // the wall-hit pop reached zero; nothing steps it again
+            public bool WallTestOk;         // the shooter is in OUR room, so our geometry is theirs
+            public GameObject Fx;           // the pooled follower, for clearing its trail on a snap
         }
 
         private sealed class GhostShield
@@ -3362,6 +3368,9 @@ namespace MeshGhostTevi
         private static readonly FieldInfo BulletLifeField = typeof(bulletScript).GetField("life", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletTimeDeleteField = typeof(bulletScript).GetField("TimeDelete", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletStayField = typeof(bulletScript).GetField("isStayAtOwner", BindingFlags.NonPublic | BindingFlags.Instance);
+        // The wall-hit pop: DestroyMe sets this, and _Update then grows and shrinks the sprite
+        // for ~0.15s without moving it. Read and advanced by StepGhostBullet the way _Update does.
+        private static readonly FieldInfo BulletInDestroyField = typeof(bulletScript).GetField("inDestroy", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo BulletCounterField = typeof(bulletScript).GetField("counter", BindingFlags.NonPublic | BindingFlags.Instance);
         // The angle's cached sine and cosine, which SetAngle keeps and BulletBehave changes under a
         // homing bullet. Read, never written: recomputing them from `angle` would be our arithmetic
@@ -3390,12 +3399,18 @@ namespace MeshGhostTevi
         private static readonly string[] EffectKindBulletField = { "b", "b", "b", "b", "b", "bs", "b", "b" };
         private static readonly FieldInfo[] EffectKindFields = new FieldInfo[EffectKindTypes.Length];
 
-        private sealed class BulletBirth { public int Seq; public float At; public object[] Row; public bulletScript B; }
+        private sealed class BulletBirth { public int Seq; public float At; public object[] Row; public bulletScript B; public int BirthFlags; }
         private readonly List<BulletBirth> bulletBirths = new List<BulletBirth>();
-        private readonly List<KeyValuePair<int, float>> bulletDeathRing = new List<KeyValuePair<int, float>>();
+        // A death carries WHERE the bullet stopped: the receiver hears of it a sample late and
+        // would otherwise end the ghost's bullet wherever it had flown to by then (user,
+        // 2026-09-10, on a wall hit: "it looks like it travels a tiny bit too far still").
+        private sealed class BulletDeath { public int Seq; public float At; public float X, Y; }
+        private readonly List<BulletDeath> bulletDeathRing = new List<BulletDeath>();
         private int bulletSeq;
         private float[] bulletSlotBorn;   // timeCreated seen per pool slot
         private int[] bulletSlotSeq;      // our seq per pool slot, -1 none
+        private bool[] bulletSlotDeathSent; // the death for this slot's seq is already in the ring
+        private int[] bulletSlotFlagsSent;  // the flags last reported for this slot's seq
 
         // A bullet's ten counters as "slot:value" pairs, and only the ones that are not zero --
         // almost always the empty string, which is what keeps this affordable inside the extras cap.
@@ -3521,6 +3536,7 @@ namespace MeshGhostTevi
 
         private object[][] ReadBullets(CharacterBase player)
         {
+            pendingFlagUpdates = null;
             if (BulletManager.Instance == null || BulletsField == null || player == null || player.t == null)
             {
                 return null;
@@ -3537,6 +3553,8 @@ namespace MeshGhostTevi
             {
                 bulletSlotBorn = new float[n];
                 bulletSlotSeq = new int[n];
+                bulletSlotDeathSent = new bool[n];
+                bulletSlotFlagsSent = new int[n];
                 for (int i = 0; i < n; i++) { bulletSlotBorn[i] = -1f; bulletSlotSeq[i] = -1; }
             }
             float now = Time.time;
@@ -3549,6 +3567,8 @@ namespace MeshGhostTevi
                 {
                     bulletSlotBorn[i] = b.timeCreated;
                     bulletSlotSeq[i] = -1;
+                    bulletSlotDeathSent[i] = false;
+                    bulletSlotFlagsSent[i] = ReadIntField(BulletFlagsField, b);
                     if (b.sprite == Bullet.SpriteType.NONE || !BulletIsOurs(b, player))
                     {
                         continue;
@@ -3567,7 +3587,7 @@ namespace MeshGhostTevi
                     // the counter string is empty for the great majority of bullets.
                     var birthRow = new BulletBirth
                     {
-                        Seq = seq, At = now, B = b,
+                        Seq = seq, At = now, B = b, BirthFlags = ReadIntField(BulletFlagsField, b),
                         Row = new object[]
                         {
                             (float)seq, (float)(int)b.type, (float)(int)b.sprite,
@@ -3583,16 +3603,33 @@ namespace MeshGhostTevi
                     bulletBirths.Add(birthRow);
                     BulletDiag($"SEND slot={i} {RowSummary(birthRow.Row)} typeName={b.type} spriteName={b.sprite} fxObject={fxObject} owner={OwnerTag(b)} rendererOn={(b._render != null && b._render.enabled)} spriteNow={(b._render != null && b._render.sprite != null ? b._render.sprite.name : "-")} rgba={(b._render != null ? Hex(b._render.color) : "-")}");
                 }
+                else if (on && bulletSlotSeq[i] >= 0 && !bulletSlotDeathSent[i] && b.isDespawning())
+                {
+                    // A DEATH IS THE FRAME THE BULLET STOPS, not the frame its slot frees. On a
+                    // wall the game calls DestroyMe: the bullet halts and pops for ~0.15s before
+                    // DespawnBullet finally clears the slot -- and a ghost that only hears about
+                    // the slot flew that whole pop past the wall at full speed (user, 2026-09-10:
+                    // "bullets not dying if they hit a wall"). isDespawning() is true from the
+                    // first frame of either path.
+                    bulletSlotDeathSent[i] = true;
+                    Vector3 stop = b.transform.position;
+                    bulletDeathRing.Add(new BulletDeath { Seq = bulletSlotSeq[i], At = now, X = Mathf.Round(stop.x * 10f) / 10f, Y = Mathf.Round(stop.y * 10f) / 10f });
+                }
                 else if (!on && bulletSlotBorn[i] >= 0f)
                 {
-                    if (bulletSlotSeq[i] >= 0)
+                    if (bulletSlotSeq[i] >= 0 && !bulletSlotDeathSent[i])
                     {
-                        bulletDeathRing.Add(new KeyValuePair<int, float>(bulletSlotSeq[i], now));
+                        Vector3 stop = b.transform.position; // an inactive object keeps its transform
+                        bulletDeathRing.Add(new BulletDeath { Seq = bulletSlotSeq[i], At = now, X = Mathf.Round(stop.x * 10f) / 10f, Y = Mathf.Round(stop.y * 10f) / 10f });
                     }
                     bulletSlotBorn[i] = -1f;
                     bulletSlotSeq[i] = -1;
+                    bulletSlotDeathSent[i] = false;
                 }
             }
+            // Flag changes for every live bullet of ours, whatever its age (see the method).
+            pendingFlagUpdates = ReadBulletFlagUpdates(pool, enabled, n);
+
             // THE EFFECT IS ATTACHED AFTER ShootBullet, in the orb's own update, which may run
             // after ours on the birth frame -- so a birth seen with no follower is re-scanned on
             // the following frames while it is still in the ring, and the row is patched in place
@@ -3602,7 +3639,11 @@ namespace MeshGhostTevi
             {
                 // The age travels with the row, not the row's arrival: a receiver that first sees
                 // this birth two samples late still starts the bullet where the real one is now.
-                if (birth.B != null) birth.Row[13] = Mathf.Round(birth.B.time * 1000f) / 1000f;
+                if (birth.B != null)
+                {
+                    birth.Row[13] = Mathf.Round(birth.B.time * 1000f) / 1000f;
+                    birth.Row[14] = WithFlags(birth.Row[14] as string, ReadIntField(BulletFlagsField, birth.B));
+                }
                 if (birth.B != null && (int)(float)birth.Row[9] < 0 && birth.B.gameObject.activeInHierarchy)
                 {
                     int p2, k2; float es2; string col2;
@@ -3630,13 +3671,55 @@ namespace MeshGhostTevi
         private float[] ReadBulletDeaths()
         {
             float now = Time.time;
-            bulletDeathRing.RemoveAll(x => now - x.Value > BulletRingSeconds);
+            bulletDeathRing.RemoveAll(x => now - x.At > BulletRingSeconds);
             if (bulletDeathRing.Count == 0)
             {
                 return null;
             }
             var arr = new float[bulletDeathRing.Count];
-            for (int i = 0; i < arr.Length; i++) arr[i] = bulletDeathRing[i].Key;
+            for (int i = 0; i < arr.Length; i++) arr[i] = bulletDeathRing[i].Seq;
+            return arr;
+        }
+
+        // seq,flags pairs for bullets whose flags have CHANGED since birth -- a few bytes, sent
+        // under their own key so they survive the trim that drops whole bullet rows oldest-first
+        // when a frame nears the extras cap. That trim is why the flag mirroring worked only
+        // sometimes when it rode inside the row (user, 2026-09-10: "inconsistent/not all the
+        // time"): the pending update belongs to the OLDEST birth in the ring, the first to go.
+        private float[] pendingFlagUpdates; // filled by ReadBullets, read by the state assembly
+
+        // FOR THE BULLET'S WHOLE LIFE, not just its first 150ms. Keyed on the POOL SLOT rather
+        // than the birth ring: the ring expires at 150ms, so a far shot -- airborne longer than
+        // that before it reaches anything -- lost its flag update mid-flight and sailed into the
+        // wall, while a close shot got there in time. That is the whole of the user's "works when
+        // close, still going into the wall when far away" (2026-09-10). An update is emitted only
+        // on CHANGE, so a straight flight costs nothing.
+        private float[] ReadBulletFlagUpdates(bulletScript[] pool, bool[] enabled, int n)
+        {
+            if (pool == null || enabled == null || bulletSlotFlagsSent == null) return null;
+            List<float> outp = null;
+            for (int i = 0; i < n && i < bulletSlotFlagsSent.Length; i++)
+            {
+                bulletScript b = pool[i];
+                if (b == null || !enabled[i] || bulletSlotSeq[i] < 0) continue;
+                int now = ReadIntField(BulletFlagsField, b);
+                if (now == bulletSlotFlagsSent[i]) continue;
+                bulletSlotFlagsSent[i] = now;
+                outp = outp ?? new List<float>(4);
+                outp.Add(bulletSlotSeq[i]);
+                outp.Add(now);
+                BulletDiag($"SEND-FLAGS seq={bulletSlotSeq[i]} now={now} age={b.time:F3} type={b.type}");
+            }
+            return outp != null ? outp.ToArray() : null;
+        }
+
+        // The stop positions, x,y pairs in the same order as ReadBulletDeaths -- a separate key so
+        // a receiver on the previous build still reads the seqs and simply ends them where it can.
+        private float[] ReadBulletDeathPositions()
+        {
+            if (bulletDeathRing.Count == 0) return null;
+            var arr = new float[bulletDeathRing.Count * 2];
+            for (int i = 0; i < bulletDeathRing.Count; i++) { arr[i * 2] = bulletDeathRing[i].X; arr[i * 2 + 1] = bulletDeathRing[i].Y; }
             return arr;
         }
 
@@ -3664,6 +3747,40 @@ namespace MeshGhostTevi
             for (int i = 0; i < 6; i++) { if (i > 0) sb.Append('|'); sb.Append(i < parts.Length ? parts[i] : ""); }
             sb.Append('|').Append(poolName.Replace('|', '_'));
             return sb.ToString();
+        }
+
+        // FLAGS ARE NOT A BIRTH FACT. The lock-on shot ADDS CannotPassWall to itself 0.02s after
+        // launch (inside BulletBehave, which never runs on a ghost), and until the watcher knows
+        // that, its own wall test skips the bullet and it flies into the rock -- 26 of them died
+        // inside solid tile in one session, every one reading cpw=False (user's screenshot,
+        // 2026-09-10). So the ring refreshes the flags field every frame the birth is still in it,
+        // and the receiver applies them to a bullet it has already spawned. No game code runs on
+        // the watcher: the shooter reports, the watcher believes.
+        private static string WithFlags(string packed, int flags)
+        {
+            string[] parts = (packed ?? "").Split('|');
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (i > 0) sb.Append('|');
+                sb.Append(i == 2 ? (flags != 0 ? flags.ToString(System.Globalization.CultureInfo.InvariantCulture) : "") : parts[i]);
+            }
+            return sb.ToString();
+        }
+
+        private static void ApplyFlagsFromRow(bulletScript b, object[] row)
+        {
+            if (b == null || BulletFlagsField == null) return;
+            string packed = row != null && row.Length > 14 ? row[14] as string : null;
+            if (string.IsNullOrEmpty(packed)) return;
+            string[] parts = packed.Split('|');
+            int flags;
+            if (parts.Length > 2 && parts[2].Length > 0
+                && int.TryParse(parts[2], System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out flags))
+            {
+                try { BulletFlagsField.SetValue(b, System.Enum.ToObject(BulletFlagsField.FieldType, flags)); }
+                catch (System.Exception) { }
+            }
         }
 
         private static string PoolNameOf(object[] row)
@@ -3807,6 +3924,35 @@ namespace MeshGhostTevi
 
         private void ApplyGhostBullets(string playerId, RemoteGhostVisual visual, BridgeClient.RemoteState state, Vector3 worldOffset)
         {
+            // WHOSE GEOMETRY IS IT? WorldManager answers about the room the LOCAL player is in, so
+            // asking it whether a peer's bullet has hit a wall is only a real question while the
+            // peer is in that same room. Measured 2026-09-10: without this the test fired at the
+            // peer's own muzzle and killed 41 shots on the spot, 155-422 units short (the RECV
+            // lines read `despawningAfterCatchUp=True`). In the same room it was exact -- 136 kills
+            // at delta 0.0 -- and it is the only way a wall hit lands with no wire delay at all.
+            // Flags gained after birth, for bullets already flying (see ReadBulletFlagUpdates).
+            if (state.BulletFlagUpdates != null && BulletFlagsField != null)
+            {
+                for (int i = 0; i + 1 < state.BulletFlagUpdates.Length; i += 2)
+                {
+                    float seqF = state.BulletFlagUpdates[i], flagsF = state.BulletFlagUpdates[i + 1];
+                    if (float.IsNaN(seqF) || float.IsNaN(flagsF) || float.IsInfinity(seqF) || float.IsInfinity(flagsF)) continue;
+                    GhostBullet gbf;
+                    bool have = visual.Bullets.TryGetValue((int)seqF, out gbf);
+                    if (DIAG_GHOST_BULLETS && (int)seqF != lastRecvFlagDiagSeq)
+                    {
+                        lastRecvFlagDiagSeq = (int)seqF;
+                        BulletDiag($"RECV-FLAGS seq={(int)seqF} flags={(int)flagsF} spawned={have} dead={(have && gbf.DiedAt != float.NegativeInfinity)}");
+                    }
+                    if (!have || gbf.B == null || gbf.DiedAt != float.NegativeInfinity) continue;
+                    try { BulletFlagsField.SetValue(gbf.B, System.Enum.ToObject(BulletFlagsField.FieldType, (int)flagsF)); }
+                    catch (System.Exception) { }
+                }
+            }
+
+            WorldManager wmRoom = WorldManager.Instance;
+            visual.SameRoom = wmRoom != null && state.RoomX.HasValue && state.RoomY.HasValue
+                && state.RoomX.Value == wmRoom.CurrentRoomX && state.RoomY.Value == wmRoom.CurrentRoomY;
             object[][] rows = state.Bullets;
             if (rows != null && rows.Length > 0)
             {
@@ -3833,6 +3979,8 @@ namespace MeshGhostTevi
                         GhostBullet existing;
                         if (visual.Bullets.TryGetValue(seq, out existing))
                         {
+                            // Flags the shooter's bullet has gained since it was born.
+                            if (existing.DiedAt == float.NegativeInfinity) ApplyFlagsFromRow(existing.B, row);
                             if (!existing.EffectAttached && (int)CellF(row, 9) >= 0 && existing.DiedAt == float.NegativeInfinity)
                             {
                                 AttachBulletEffect(existing, row);
@@ -3848,12 +3996,35 @@ namespace MeshGhostTevi
             }
             if (state.BulletDeaths != null)
             {
-                foreach (float f in state.BulletDeaths)
+                float[] pos = state.BulletDeathPos;
+                for (int i = 0; i < state.BulletDeaths.Length; i++)
                 {
+                    float f = state.BulletDeaths[i];
                     if (float.IsNaN(f)) continue;
                     GhostBullet gb;
+                    if (DIAG_GHOST_BULLETS && visual.Bullets.TryGetValue((int)f, out gb) && gb.DiedAt != float.NegativeInfinity
+                        && gb.Go != null && pos != null && pos.Length >= i * 2 + 2)
+                    {
+                        // Already ended here (the local wall test); how far from where the REAL one stopped?
+                        Vector3 peerStop = worldOffset + new Vector3(pos[i * 2], pos[i * 2 + 1], 0f);
+                        Vector3 d = gb.Go.transform.position - peerStop;
+                        BulletDiag($"PEER-DEATH-AFTER-LOCAL {gb.Go.name} cause={gb.Cause} localStop={gb.Go.transform.position} peerStop={peerStop} delta=({d.x:F1},{d.y:F1}) speed={gb.Speed}");
+                    }
                     if (visual.Bullets.TryGetValue((int)f, out gb) && gb.DiedAt == float.NegativeInfinity)
                     {
+                        // Back to where it really stopped, then the pop happens there.
+                        if (pos != null && pos.Length >= i * 2 + 2 && gb.B != null
+                            && !float.IsNaN(pos[i * 2]) && !float.IsNaN(pos[i * 2 + 1])
+                            && !float.IsInfinity(pos[i * 2]) && !float.IsInfinity(pos[i * 2 + 1]))
+                        {
+                            gb.B.SetPosition(worldOffset + new Vector3(pos[i * 2], pos[i * 2 + 1], 0f));
+                            // A FOLLOWER'S TRAIL RECORDS THE SNAP. The pooled effect copies the
+                            // bullet's position every frame and several families carry
+                            // TrailRenderers, so moving a bullet BACK to where the peer's stopped
+                            // draws a streak from the overshoot point through whatever is between
+                            // -- the line into the rock in the user's screenshot, 2026-09-10.
+                            ClearGhostBulletTrails(gb);
+                        }
                         KillGhostBullet(gb);
                     }
                 }
@@ -3914,6 +4085,7 @@ namespace MeshGhostTevi
                 Go = go, B = b, BornAt = Time.time, Speed = speed,
                 Cos = Mathf.Cos(Mathf.PI / 180f * angle), Sin = Mathf.Sin(Mathf.PI / 180f * angle),
             };
+            gb.WallTestOk = visual.SameRoom; // the catch-up steps test walls too, or none of them do
             visual.Bullets[seq] = gb;
             // CATCH-UP. The row carries the bullet's own age; replay it at the game's step so the
             // ghost's shot starts where the peer's shot IS, not where it was born.
@@ -3954,6 +4126,7 @@ namespace MeshGhostTevi
                 int usePool = PoolCarryingKind(op, pool, kind);
                 GameObject fx = usePool >= 0 ? op.GetPooledObject(usePool) : null;
                 gb.EffectObjectName = fx != null ? $"{fx.name}#{usePool}{(usePool != pool ? "(sent " + pool + ")" : "")}" : "(none)";
+                gb.Fx = fx;
                 if (fx != null)
                 {
                     fx.transform.position = go.transform.position;
@@ -4101,11 +4274,50 @@ namespace MeshGhostTevi
                 + $" age={(row.Length > 13 ? CellF(row, 13) : float.NaN)} state=\"{(row.Length > 14 ? row[14] : null) ?? ""}\"";
         }
 
+        // Every trail on the bullet and on its follower, emptied so no segment spans a teleport.
+        // Clear() only drops the recorded points; the renderer keeps emitting normally after.
+        private static void ClearGhostBulletTrails(GhostBullet gb)
+        {
+            if (gb.Go != null)
+            {
+                foreach (TrailRenderer tr in gb.Go.GetComponentsInChildren<TrailRenderer>(true)) tr.Clear();
+            }
+            if (gb.Fx != null)
+            {
+                foreach (TrailRenderer tr in gb.Fx.GetComponentsInChildren<TrailRenderer>(true)) tr.Clear();
+                foreach (ParticleSystem ps in gb.Fx.GetComponentsInChildren<ParticleSystem>(true))
+                {
+                    // A stretched-billboard particle spans the jump the same way a trail does.
+                    if (ps.main.simulationSpace == ParticleSystemSimulationSpace.World) ps.Clear(true);
+                }
+            }
+        }
+
         private void KillGhostBullet(GhostBullet gb, string cause = "peer death")
         {
             gb.DiedAt = Time.time;
-            if (gb.B != null) gb.B.DespawnMe(); // followers see isDespawning() and play their hit flash
-            BulletDiag($"KILL {gb.Go?.name} cause={cause} lived={Time.time - gb.BornAt:F3}s time={(gb.B != null ? gb.B.time : -1f):F3}");
+            // DestroyMe, not DespawnMe: it is what the game calls on a wall or a hit, so the ghost's
+            // bullet halts and pops the way the real one did (StepGhostBullet advances the pop).
+            // Followers see isDespawning() either way and play their own end.
+            if (gb.B != null)
+            {
+                gb.B.DestroyMe();
+                // One family (the Sable charged A) leaves DestroyMe NOT despawning -- it stops and
+                // waits for its own next step, which a ghost never gets. End it outright.
+                if (!gb.B.isDespawning()) gb.B.DespawnMe();
+            }
+            // Where did it end, and was it allowed to stop itself? `inWall` is the whole question
+            // for the trails-into-walls report: a bullet that dies inside solid tile is one our
+            // local test never ran on -- either it lacks CannotPassWall (the lock-on shot only
+            // GAINS that flag inside its own behaviour, which is off) or the shooter was in
+            // another room.
+            WorldManager wmK = WorldManager.Instance;
+            Vector3 at = gb.Go != null ? gb.Go.transform.position : Vector3.zero;
+            string wall = wmK != null ? $"{wmK.CheckIsWall(at, any: false)}/{wmK.CheckIsWall(at, any: true)}" : "?";
+            BulletDiag($"KILL {gb.Go?.name} type={(gb.B != null ? gb.B.type.ToString() : "?")} cause={cause}"
+                + $" cpw={(gb.B != null && gb.B.HaveFlag(Bullet.Flags.CannotPassWall))} wallTestOk={gb.WallTestOk}"
+                + $" inWall={wall} at={at} lived={Time.time - gb.BornAt:F3}s time={(gb.B != null ? gb.B.time : -1f):F3}"
+                + $" fx={gb.EffectObjectName ?? "-"}");
         }
 
         // The game's own fixed step, the one bulletScript's arithmetic is written in. Bullets are
@@ -4197,7 +4409,47 @@ namespace MeshGhostTevi
         private void StepGhostBullet(GhostBullet gb, float fdt)
         {
             bulletScript b = gb.B;
-            if (b == null || gb.Go == null || b.isDespawning()) return;
+            if (b == null || gb.Go == null) return;
+            if (gb.PopDone) return; // shrunk to nothing: the real one left the pool here
+            float inDestroy = ReadFloatField(BulletInDestroyField, b, 0f);
+            if (inDestroy > 0f)
+            {
+                // _Update's pop, verbatim in effect: no movement, grow for 0.1125s, then shrink to
+                // nothing and despawn. The ghost's bullet stands where the real one stopped. The
+                // real object is pulled from the pool the moment it reaches zero; the ghost's
+                // lingers for its followers, so it must STOP here -- one more step and the scale
+                // goes negative and grows every frame (live 2026-09-10, "a lot of weird bugs").
+                inDestroy += fdt;
+                if (BulletInDestroyField != null) BulletInDestroyField.SetValue(b, inDestroy);
+                float popSize = ReadFloatField(BulletStartSizeField, b, -1f);
+                if (popSize < 0f)
+                {
+                    popSize = 0.75f;
+                    if (BulletStartSizeField != null) BulletStartSizeField.SetValue(b, popSize);
+                }
+                float scale = gb.Go.transform.localScale.x;
+                if (inDestroy < 0.1125f)
+                {
+                    b.SetSpriteSize(scale + fdt * 60f * (popSize / 7.5f * 1.67f), justSpawn: false);
+                }
+                else
+                {
+                    float next = scale - fdt * 60f * (popSize * 1.67f);
+                    if (next <= 0f)
+                    {
+                        b.SetSpriteSize(0f, justSpawn: false);
+                        if (b._render != null) b._render.enabled = false;
+                        b.DespawnMe();
+                        gb.PopDone = true;
+                    }
+                    else
+                    {
+                        b.SetSpriteSize(next, justSpawn: false);
+                    }
+                }
+                return;
+            }
+            if (b.isDespawning()) return;
             b.time += fdt;
 
             float startSize = ReadFloatField(BulletStartSizeField, b, -1f);
@@ -4250,6 +4502,32 @@ namespace MeshGhostTevi
                     if (stay == 3) cache.y = b.owner.t.localPosition.y;
                 }
                 b.SetPosition(cache);
+
+                // THE WALL, LOCALLY. _Update's own test for a player bullet that cannot pass
+                // walls, minus the one call that WRITES (DestroyTileInArea): the reads are the
+                // game's, the room is the same on both machines, and a bullet that stops here
+                // stops on the frame it touches the wall -- the mirrored death arrives a sample
+                // later and can only snap a trail that was already drawn past it (user,
+                // 2026-09-10: "some other ones still travel a bit too far"). A destructible tile
+                // the shooter broke is intact here and stops the ghost's bullet: world custody
+                // is never mirrored, and that is the right side of that line to be wrong on.
+                // TWO TESTS, TWO DIFFERENT SCOPES -- gating both on the same room was too blunt and
+                // showed up as distance-dependent (user, 2026-09-10: "if i stand close it works
+                // perfectly, if i stand far away it still goes into the wall a bit").
+                //   CheckIsWall  reads the AREA's tile grid by absolute position, so it is a real
+                //                question about a peer's bullet anywhere in the area we share.
+                //   CheckIsTerrainBox2D overlaps the colliders LOADED FOR OUR ROOM, so it answers
+                //                about our room only, and is the half that must stay gated.
+                WorldManager wm = WorldManager.Instance;
+                if (wm != null && b.HaveFlag(Bullet.Flags.CannotPassWall)
+                    && ((b.GetHSizeH() >= 1f && wm.CheckIsWall(cache, any: false) > 0)
+                        || (gb.WallTestOk && wm.CheckIsTerrainBox2D(cache))))
+                {
+                    gb.Cause = gb.WallTestOk ? "wall (local test)" : "wall (local tile grid)";
+                    b.DestroyMe();
+                    if (!b.isDespawning()) b.DespawnMe();
+                    return;
+                }
             }
 
             // What ends it, in the game's own terms. `life` is the OFF-SCREEN rule -- _Update pairs
@@ -4291,18 +4569,21 @@ namespace MeshGhostTevi
             List<int> done = null;
             foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
             {
+                bool sameRoom = kv.Value.SameRoom;
                 foreach (KeyValuePair<int, GhostBullet> bk in kv.Value.Bullets)
                 {
                     GhostBullet gb = bk.Value;
+                    gb.WallTestOk = sameRoom;
                     if (gb.Go == null)
                     {
                         done = done ?? new List<int>(); done.Add(bk.Key); continue;
                     }
                     if (gb.DiedAt != float.NegativeInfinity)
                     {
+                        StepGhostBullet(gb, fdt); // only the pop advances on a dead bullet
                         if (now - gb.DiedAt > BulletLingerAfterDeath)
                         {
-                            Destroy(gb.Go);
+                            RetireGhostBullet(gb.Go);
                             done = done ?? new List<int>(); done.Add(bk.Key);
                         }
                         continue;
@@ -4332,9 +4613,61 @@ namespace MeshGhostTevi
             foreach (KeyValuePair<int, GhostBullet> kv in visual.Bullets)
             {
                 if (kv.Value.B != null) kv.Value.B.DespawnMe();
-                if (kv.Value.Go != null) Destroy(kv.Value.Go);
+                RetireGhostBullet(kv.Value.Go);
             }
             visual.Bullets.Clear();
+        }
+
+        // NEVER DESTROY A BULLET A FOLLOWER MAY STILL HOLD (live 2026-09-10: 53,333
+        // NullReferenceExceptions from OrbChargeSableTypeA.Update reading b.t.position, one per
+        // frame per orphaned effect, and the effects stuck on screen for good because the throw
+        // came before their own end check). The game never destroys a bullet -- it deactivates it,
+        // and a follower's own `activeInHierarchy` test is what ends it. So: deactivate now, and
+        // destroy only after the longest fade any follower could still be playing.
+        private const float GhostBulletDestroyGrace = 10f;
+        private bool orphanSweepDone;
+        private int lastRecvFlagDiagSeq = -1;
+        private static void RetireGhostBullet(GameObject go)
+        {
+            if (go == null) return;
+            go.SetActive(false);
+            Destroy(go, GhostBulletDestroyGrace);
+        }
+
+        // Once, at load: any follower already holding a bullet that no longer exists (a reload
+        // mid-session, or the build before this one) is ended the way the game ends it -- so the
+        // session recovers without a game restart. An effect whose bullet is gone has no owner.
+        private void SweepOrphanFollowers()
+        {
+            ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
+            if (op == null || op.pooledObjectsList == null) return;
+            int swept = 0;
+            for (int i = 0; i < op.pooledObjectsList.Count; i++)
+            {
+                List<GameObject> pool = op.pooledObjectsList[i];
+                if (pool == null) continue;
+                for (int j = 0; j < pool.Count; j++)
+                {
+                    GameObject go = pool[j];
+                    if (go == null || !go.activeInHierarchy) continue;
+                    for (int k = 0; k < EffectKindTypes.Length; k++)
+                    {
+                        Component c = go.GetComponent(EffectKindTypes[k]);
+                        if (c == null) continue;
+                        if (EffectKindFields[k] == null)
+                        {
+                            EffectKindFields[k] = EffectKindTypes[k].GetField(EffectKindBulletField[k], BindingFlags.NonPublic | BindingFlags.Instance);
+                        }
+                        if (EffectKindFields[k] == null) continue;
+                        var held = EffectKindFields[k].GetValue(c) as bulletScript;
+                        // Unity's overloaded bool: false for null AND for a destroyed object.
+                        if (held) continue;
+                        go.SetActive(false); swept++;
+                        break;
+                    }
+                }
+            }
+            if (swept > 0) Logger.LogInfo($"MeshGhost: ended {swept} follower effect(s) whose bullet no longer existed.");
         }
 
         // DIAG_BULLET_WATCH -- what the PLAYER'S shots are, before deciding how to mirror them
@@ -4935,6 +5268,11 @@ namespace MeshGhostTevi
             // is for -- and it would be destroyed again on the same frame by that branch.
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
+            if (!orphanSweepDone && GemaPoolManager.Instance != null)
+            {
+                orphanSweepDone = true;
+                SweepOrphanFollowers();
+            }
             // Trails spawn on FRAMES, not on messages -- see TickTrails.
             TickTrails(cloneTemplate);
 
@@ -4993,6 +5331,8 @@ namespace MeshGhostTevi
                 Shield = ReadShield(player),
                 Bullets = ReadBullets(player),
                 BulletDeaths = ReadBulletDeaths(),
+                BulletDeathPos = ReadBulletDeathPositions(),
+                BulletFlagUpdates = pendingFlagUpdates,
                 Flashes = ReadFlashes(player),
                 Platforms = ReadPlatforms(player),
                 OrbFxSeq = localOrbFxSeq,

@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — **projectile WALLS are user-confirmed** (*"it works now"*): death on the frame the bullet stops, its stop POSITION on the wire, the game's own wall test run locally, and the `CannotPassWall` flag mirrored for the bullet's whole life. Held here for a second session before it counts — (2026-09-10)
 - READY — **projectiles, second pass**: the game's own `BulletBehave` on a ghost is OFF FOR GOOD (it damaged the watcher); names on the wire fixed the white rings and the wrong colours (user-confirmed); still UNWATCHED: plain-shot distance with the 1.5s cap gone, the drawn-sprite animation, the effect-index fallback across builds (2026-09-10)
 - READY — **projectiles on the ghost** (spawn-and-fly + the game's own follower effects + muzzle flashes): first sighting confirmed, the two fixes after it are UNWATCHED — judge this first (2026-09-10)
 - READY — orbitars, their crystal trail, the dodge fade, core expansions and the boost shield are all user-confirmed; UNWATCHED from the same evening: the blue trail's count/parameters and its dodge-vs-hover order, world-fixed summon positions, the `map_markers` config key (2026-09-10)
@@ -142,6 +143,42 @@ two-instance rig.** Four pieces, in the order they went in:
   markers; polled by file timestamp, so a save applies within a second. In the shipped config and
   `docs/config.md`. **Unwatched.**
 
+## [READY] Wall hits: USER-CONFIRMED, and what it took (2026-09-10)
+
+**User: *"it works now"*, after eight builds in one live session. Held here rather than in
+`VERIFIED.md` until a second session repeats it** — the confirmation covers a wall a few tiles away
+and a wall across the room, with the lock-on shot and the plain orb shot, in one room.
+
+What it took, each step a real defect the one before it exposed:
+
+1. **A death is the frame the bullet STOPS, not the frame its pool slot frees.** On a wall the game
+   calls `DestroyMe`: the bullet halts and pops for ~0.15s before `DespawnBullet` clears the slot,
+   and a ghost that only hears about the slot flew that whole pop past the wall at full speed.
+2. **The death carries WHERE it stopped**, and the watcher snaps the bullet back to it — measured
+   exact, delta 0.0 across 299 kills.
+3. **The watcher runs the game's own wall test locally**, so a hit lands with no wire delay at all.
+   Its two arms have DIFFERENT scopes and gating both was wrong: `CheckIsWall` reads the AREA's
+   tile grid by absolute position (valid wherever the peer is), `CheckIsTerrainBox2D` overlaps the
+   colliders loaded for OUR room (gated on the peer being in it). Gating both made it
+   distance-dependent.
+4. **`CannotPassWall` is not a birth fact.** The lock-on shot grants itself that flag 0.02s after
+   launch from inside `BulletBehave` — which never runs on a ghost — so the watcher's test skipped
+   it by design. Flags are now tracked per POOL SLOT for the bullet's whole life and sent on change
+   under their own key, because the 150ms birth ring expired mid-flight on a far shot (the
+   distance dependence) and rows inside it are dropped oldest-first at the extras cap (the
+   *"inconsistent/not all the time"*).
+
+**Also fixed here, and NOT to be undone:** a ghost bullet is deactivated and only destroyed ten
+seconds later, because a pooled follower still holding one threw 53,333 `NullReferenceException`s
+and left effects on screen forever; the wall-hit pop is clamped at zero (past it the scale went
+negative and grew every frame — the screen-filling sprite); and a one-shot sweep at load ends any
+follower whose bullet no longer exists, so a session recovers without a restart.
+
+**What to watch next time:** the same shots from a THIRD distance and in a room the watcher is not
+standing in; whether anything ever dies at the muzzle (the tile-grid arm is ungated now); and
+whether shots go missing under sustained fire — that is the open birth-row loss, not this.
+
+---
 ## [READY] A ghost's bullet flies ITSELF now: the game's own BulletBehave, on the game's own fixed step (2026-09-10)
 
 **LIVE THE SAME EVENING -- three findings, in the order they happened. The heading above is kept for

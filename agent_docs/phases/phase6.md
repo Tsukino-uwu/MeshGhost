@@ -586,3 +586,66 @@ a per-row one. Nothing here has been seen on screen —
 [`adapters/tevi/UNVERIFIED.md`](../../adapters/tevi/UNVERIFIED.md) carries the six things to look
 at, in order.
 
+
+## 2026-09-10 (evening, live two-instance session) — projectiles: the behaviour call comes OUT, and walls are the watcher's own question
+
+**The session in one line:** the `BulletBehave`-on-a-ghost design from earlier the same day damaged
+the watcher and was switched off within minutes; everything that made projectiles right afterwards
+was done WITHOUT running any game code on the watching machine.
+
+### 1. It damaged the other player, and the switch came before the diagnosis
+
+User, minutes into the test: *"some projectiles are hurting the other player"*, then *"when
+standalone shoot, steam takes damage from some of them"*. `GhostBulletsRunGameBehaviour = false`
+was hot-deployed immediately and *"haven't seen anything deal damage, i shot a few times now"* is
+the A/B. **The path was never pinned to a line and the switch stays off regardless**: `BulletBehave`
+reaches ~580 `ShootBullet` sites plus `CreateBomb`, `CreateLaser`, `WallAction`, tile destruction and
+`CameraScript.Shake`. The two guards it did have proved only that *bullets* it spawns are
+player-owned on the watcher and therefore hit enemies — so the damage came through something the
+bullet-pool guard could not see. A guard that covers one of six escape routes is not a guard.
+
+### 2. Two symptoms, one cause that was not in the adapter: the installs are different game builds
+
+*"shooting white circles"* and *"the blue orb is sometimes shooting red"* turned out to be the same
+thing. The standalone is an old TEVI build, the Steam copy current (`Assembly-CSharp.dll` 4,614,656
+vs 5,274,112 bytes, build 24159771), so `BulletType`/`SpriteType` ordinals disagree: the old build's
+`ORB_LOCK_NORMAL / SHOT_CYAN` decoded on Steam as `lily_groundbreak / effect_ring1`, a white ring.
+Enum NAMES now ride the wire and win over the ordinals. User: *"no more white circles, they are
+properly shotting the correct red/blue bullets now"*. **The user's call, which is now a project
+constraint:** cross-build play is a supported case — a Steam update does this to real players, and
+it is also the only two-client rig this machine has.
+
+Two wrong turns worth not repeating, both mine: decoding the sender's numbers with a hand-parsed
+enum table from the *other* build's DLL (print `enum.ToString()` on the SENDER), and looking the
+effect pool up by prefab NAME — every orb effect prefab is called "Orb".
+
+### 3. Walls, eight builds, and the two lessons that generalise
+
+*"can we fix bullets not dying if they hit a wall?"* — and then five rounds of it being nearly
+right. What it took, in order: report the death on the frame the bullet STOPS (`isDespawning()`)
+rather than when its pool slot frees ~0.15s later; carry the stop POSITION with the death and snap
+to it; run the game's own wall test on the watcher (a pure read — the tile-grid arm is area data
+valid anywhere, the collider arm is room-local and stays gated); and finally mirror the
+`CannotPassWall` flag the lock-on shot **grants itself in flight**, per pool slot, for the bullet's
+whole life. Confirmed: *"it works now"*.
+
+The two transferable lessons are in [`pitfalls/by-lesson.md`](../pitfalls/by-lesson.md) — a
+mirrored object's state is not a birth fact, and never destroy an object another system still holds
+(that one cost 53,333 `NullReferenceException`s and effects stuck on screen forever, invisible in
+BepInEx's own log because `WriteUnityLog = false`).
+
+**The measurement that ended each round was the same shape every time:** log what the SENDER decided
+and what the WATCHER made of it, on the same event, and compare. Deltas of 0.0 across hundreds of
+kills are what proved the snap and the local wall test exact; the residue always had a name.
+
+### 4. Left open
+
+- **Birth rows are being lost entirely** — flag updates arrived for bullets the watcher never
+  created (`spawned=False`). Almost certainly the extras-cap trim dropping rows oldest-first while
+  the receiver's sequence counter advances past them. Shows up as missing shots under fire.
+- **The families that move themselves still fly straight** (Sable charged B's wave, Celia charged
+  C's homing). They need the replacement for the behaviour call: the shooter sending a small
+  correction row only for bullets it sees deviate from their birth line.
+- **The remaining build-dependent ordinals**: the follower-effect pool index (checked, with a
+  same-family fallback), the two muzzle-flash pools, and the orb/summon/shield rows from the
+  previous session.

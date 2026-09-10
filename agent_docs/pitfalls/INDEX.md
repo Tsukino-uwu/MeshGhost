@@ -82,6 +82,8 @@ record behind a lesson. How to file a new one: [../pitfalls.md](../pitfalls.md).
 - Cross-game comparison [RECORD]
 
 ## By lesson, in the order they were found — [by-lesson.md](by-lesson.md)
+- A mirrored object's STATE IS NOT A BIRTH FACT -- the flag a bullet grants itself in flight (2026-09-10) [RULE: checklists/before-mirroring-state.md]
+- Never DESTROY an object another system still holds -- 53,333 exceptions, effects stuck forever (2026-09-10) [RULE: checklists/before-mirroring-state.md]
 
 - A Gold/Silver GameShark code run on Crystal writes into the object RAM MeshGhost spawns into (2026-08-18) [RULE: checklists/before-touching-lua.md]
 - BizHawk accepts a GBA cheat code it cannot decrypt, and silently activates the garbage (2026-08-18) [RULE: checklists/before-touching-lua.md]

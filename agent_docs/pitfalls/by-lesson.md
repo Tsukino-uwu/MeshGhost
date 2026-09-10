@@ -6894,3 +6894,62 @@ reading a comment is not enforced.
 copying an expression between them — a trailing separator is invisible at the call site. And
 treat "the fallback ran" as a result to explain, not a default to accept: every one of these
 failures was a fallback working perfectly on a path that should never have been reached.
+
+## A mirrored object's STATE IS NOT A BIRTH FACT — the flag a bullet grants itself in flight (2026-09-10)
+
+**Symptom, and the shape that solved it.** TEVI ghost bullets flew into walls instead of stopping.
+Fixing the obvious causes left one residue the user described precisely: *"if i stand close it works
+perfectly now, but if i stand far away it still goes into the wall a bit"*. **Distance-dependent, on
+a mechanism with no distance term in it anywhere**, which is what made it findable.
+
+**Cause, in two layers.** The game's lock-on shot does not start with the flag that stops it at
+walls — it **adds `CannotPassWall` to itself 0.02s after launch**, from inside `BulletBehave`, the
+per-type code that never runs on a ghost. The watcher's own wall test skipped every such bullet by
+design, so it flew until the peer's death message arrived. Mirroring the flag continuously fixed the
+close case and not the far one, because the update rode inside the birth row, and **births live in a
+150ms ring**: a shot that takes longer than that to cross the room loses its update mid-flight,
+while a close shot reaches the wall inside the window. The distance was the ring's expiry, seen from
+the other end.
+
+**Fix.** Flags are tracked per POOL SLOT for the bullet's whole life and sent, on change only, under
+their own tiny extras key — not inside the row, because bullet rows are the first thing dropped when
+a frame nears the size cap, oldest-first, and the oldest birth is exactly the one whose update is
+pending. That ordering is why the first version worked *"inconsistent/not all the time"*.
+
+**Why the wire's shape mattered twice.** Two separate symptoms — "not all the time" and "only when
+far" — were both about WHEN a fact stops being sent rather than what it says. A field that exists
+only while an event is fresh can carry a birth fact and nothing else.
+
+**Reach for first.** Before mirroring any per-object state, ask **when the game writes it**. If the
+answer is anything but "once, at creation", a birth row cannot carry it: it needs its own update
+path, and that path must outlive whatever window the birth uses. The general form of the trap:
+[before-mirroring-state.md](../checklists/before-mirroring-state.md).
+
+## NEVER DESTROY AN OBJECT ANOTHER SYSTEM STILL HOLDS — 53,333 exceptions and the effects stuck on screen (2026-09-10)
+
+**Symptom.** Mirroring a wall hit produced *"a lot of weird bugs"* on one instance: a giant glowing
+bullet filling the screen, projectiles stuck permanently, and a console full of red. Unity's own
+`Player.log` had **53,333 `NullReferenceException`s**, all from `OrbChargeSableTypeA.Update` reading
+`b.t.position`.
+
+**Cause.** The ghost's bullet object was `Destroy`ed a second after it died, while the pooled
+follower effect that draws it still held a reference. The follower threw on the FIRST line of its
+`Update`, every frame, and so never reached its own end check — which is why the effects stayed on
+screen forever rather than fading. **The game itself never destroys a bullet: it deactivates it**,
+and a follower's `activeInHierarchy` test is what ends the pair cleanly.
+
+**A second bug hid inside the same change.** The wall-hit "pop" (grow, then shrink to nothing) is
+removed from the pool by the game the instant it reaches zero. The ghost's copy lingers for its
+followers, so it kept stepping: the scale went NEGATIVE and grew every frame — the screen-filling
+mirrored sprite.
+
+**Fix.** Deactivate, never destroy, until nothing can still hold it (ten seconds later); clamp the
+pop at zero and stop stepping it. Plus a one-shot sweep at load that ends any follower whose bullet
+no longer exists, so a session that already hit this recovers without a game restart — it found and
+ended 5 on the spot.
+
+**Reach for first.** When a mirrored object is handed to one of the game's own systems, its lifetime
+belongs to that system too. Copy the game's own retirement — if the game deactivates and pools, a
+mirror that destroys is not the same thing done more thoroughly, it is a different thing. And read
+the ENGINE's log, not only the mod's: BepInEx's disk log had `WriteUnityLog = false`, so 53,333
+exceptions were invisible in the file this project reads by habit.
