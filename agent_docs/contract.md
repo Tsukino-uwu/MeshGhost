@@ -69,12 +69,12 @@ is now explicit and enforced rather than assumed.
 | Message | Meaning |
 |---|---|
 | `bridge_ready` | accepted; this core is yours (a `session_policy` follows it) |
-| `reject` (with a `reason`) | not available — the core closes immediately after |
+| `reject` (with a `code`, a `reason`, and `retryable`) | not available — the core closes immediately after |
 
 The acknowledgement exists because silence used to be ambiguous: a core only ever sent
 `render_remote`/`despawn_remote`, and only once a peer existed, so an adapter could not tell
 "accepted" from "still starting" from "wrong program on this port" — affordable with one fixed
-port, unaffordable once adapters walked a range. `reason` is for the adapter's log, not for
+port, unaffordable once adapters walked a range. **`code` is the field to branch on; `reason` is for
 branching on: the correct response to any rejection is the same, which is to try the next port. **An adapter that receives neither must move on to the next port**, not assume acceptance:
 silence looks identical to an unrelated program holding a port, and committing to one strands the
 adapter with no ghosts and no explanation, where skipping a merely-old core costs nothing. This
@@ -92,6 +92,7 @@ would go stale.
 | Field | Meaning |
 |---|---|
 | `ghost_collision` | `"enabled"` or `"disabled"`, never empty |
+| `chaser_contact` | `"enabled"` or `"disabled"` — the same shape, for the chaser pack (see below) |
 
 `"enabled"` means **the adapter's own defaults stand**, including any place it already makes a
 ghost passable. It is not an instruction to make a ghost solid — the core has no idea what
@@ -145,6 +146,8 @@ every other cosmetic rule (never solid, blocking, damageable, targetable) holds 
 `replay.seek`). The core performs it and logs the outcome; there is no reply. It is an ADDITION to
 the core's own system-wide hotkeys (ADR 0048), never a replacement: every action works in every
 game without it, and an adapter that sends it only gains a key its own settings screen can show.
+**No shipped adapter sends it** (checked 2026-09-10) — specified and not yet built, rather than
+built and unused, so do not go looking for the sender.
 
 **`player_frozen` (adapter -> core, added 2026-09-05, ADR 0053)** is optional and pushed on
 change: `frozen` (bool) — the game is holding the player still outside gameplay (an item popup,
@@ -152,6 +155,26 @@ the pause menu, any modal). Its ONE consumer is the chaser pack, whose clock sta
 it is set, so a pause costs the chaser no delay and it never converges onto a player who cannot
 move. The recorder, replay ghosts and the wire never see it. What counts as frozen is the
 adapter's per-game fact, found by measurement, never a heuristic on the sample stream.
+
+**`input_sample` (adapter -> core, added 2026-09-08, ADR 0056)** is what the player PRESSED, as a
+track of its own beside the state recording. It is a SECOND track and never a field on state: inputs
+change at frame rate, a 15Hz sample of them would be a lie, and the state plane does not grow new
+fields for deeper features (`beyond-cosmetic.md`). Optional — an adapter that never sends one loses
+nothing.
+
+| Field | Meaning |
+|---|---|
+| `labels`, `axes`, `source` | the adapter's own header tables; STICKY, resent only when they change |
+| `edges[]` | one entry per change: `f` the adapter's frame, `t` its millisecond stamp, `m` an opaque button mask, `ax` opaque axis values |
+
+**Every field here is opaque to the core.** It writes the track to `replay/inputs/` and drives
+nothing with it; it cannot tell one bit from another, and by design never learns. Driving a ghost
+from inputs is a later, per-game decision blocked on determinism; driving the LOCAL player is
+forbidden in anything that ships, and the two live one bug apart.
+
+**The bridge tolerates a 64 KiB line here, not `protocol.MaxLineBytes`' 4096** — a batch of edges is
+larger than a state sample — which is why the bounds in `bridge/inputlimits.go` are load-bearing
+rather than belt-and-braces: they are what stands between a broken adapter and the core's memory.
 
 **`remote_input` (core -> adapter, added 2026-09-08, ADR 0057)** is a replay ghost's recorded
 input track (ADR 0056), streamed beside its frames to an adapter whose `hello` set
@@ -243,7 +266,7 @@ signal joins/leaves — `despawn_remote(id)` had nothing to trigger it without a
 | `hello` | client → relay | protocol version, `game_id`, room name, display name and `name_color` (the nametag's colour, `#RRGGBB` or empty; sanitized like the name and never a reason to refuse), `room_code`, `game_version`, `features`, `resume_token`, `max_receive_hz_per_player`, `query_only`, `own_area_only` |
 | `welcome` | relay → client | assigned `player_id`, current room roster, the `nametags` of players already present (sanitized label + colour, keyed by `player_id` — explicitly not an identity), room send rate (`send_hz`), the room's `ghost_collision` policy (ADR 0035; advisory, forwarded to the adapter as `session_policy`), the room's agreed `features`, the relay's clock (`server_time_ms`), and — for a `resume.v1` room — a single-use `resume_token` and a `resumed` flag |
 | `transports` | relay → client | the transports this relay actually serves, as `kind` + `port` pairs (never a host). The reply to a `hello` carrying `query_only: true` — sent *instead of* `welcome`, with no room joined and no `player_id` assigned, and the relay closes immediately after. See Transport below |
-| `reject` | relay → client | a reason string — the last line written before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap. **The close is graceful, not immediate** — see "Closing a connection" below, which exists because a plain close would have discarded this message |
+| `reject` | relay → client | a `code` from the frozen set, a human `reason`, and `retryable` — the last line written before the relay closes a connection, either refusing a `hello` at handshake or, since the send/receive rate-control feature (see the ADR in `architecture.md`), closing an already-joined connection for exceeding the per-client message cap. **The close is graceful, not immediate** — see "Closing a connection" below, which exists because a plain close would have discarded this message |
 | `join` | relay → client | a peer's `player_id`, an optional `nametag`, plus an optional initial `state`. The state is populated **only** for a recipient that negotiated `snapshot.v1` — **the RECIPIENT's own capability, not the room's** (`relay/states.go:182-187`), so a room may freely mix members that want a seed and members that do not. Such a client is sent one `join` per existing member carrying that member's most recent sample; otherwise still absent, as it was from 2026-08-11 to 2026-08-17. |
 | `prefs` | client → relay | mid-session re-negotiation of per-client delivery preferences, pointer fields with absent = unchanged (today: `own_area_only`); applied silently, nothing is sent back (the relay's `TypePrefs` case in `relay.go` updates the client's flag under its lock and returns) — a client that wants confirmation observes the next `state` it does or does not receive. Added 2026-08-28; "answered with `prefs_ack`" stood here until 2026-09-06 and no such type ever existed |
 | `leave` | **both directions** | relay → client: a peer's `player_id` — one of the two things that drive `despawn_remote`. **It is no longer the only one: since 2026-08-28 the core also ages a remote out after `DefaultRemoteStaleAfter` of silence** (3s, `core/core.go:255`; `core/remotes.go:222-227`) whether or not a `leave` ever arrives — and since a live peer restates itself every keepalive, that is the path which actually fires when a client vanishes without saying goodbye. client → relay (since 2026-08-17): a voluntary goodbye, payload ignored — see `resume_token` |
@@ -782,8 +805,12 @@ ends and the next begins.
     `transport.DefaultIdleTimeout` closing the socket, same as before this existed. See
     `agent_docs/verified.md`'s "Core-relay heartbeat, found live and fixed" entry and the ADR
     in `architecture.md`.
-- **Versioning:** `hello` carries a protocol version. A relay that sees a mismatched major
-  version refuses the connection outright rather than guessing at compatibility.
+- **Versioning:** `hello` carries `protocol_version`, and acceptance is a **FLOOR, not equality**:
+  `protocol.MinProtocolVersion` is 2, `AcceptsPeerVersion(v)` is `v >= MinProtocolVersion`, and both
+  ends use it. A peer announcing a version ABOVE this build's is accepted — additive changes are
+  the only kind this protocol makes, so a newer peer's extra fields are ignored rather than fatal.
+  Below the floor is refused outright rather than guessed at. (`protocol.Version` is 2, the version
+  this build SENDS; the two are separate numbers on purpose.)
 - **Bounded reads and timeouts** (added 2026-08-14, relay-safety hardening — ADR in
   `architecture.md`): `transport.NDJSONConn` enforces `MaxLineBytes` *during* the read
   itself (a `bufio.Scanner` max-token-size, not a length check after the line is already fully
@@ -796,21 +823,26 @@ ends and the next begins.
 
 ### `reject` reasons, and which of them are worth retrying
 
-The reason is **plain text and not a closed set** — a future relay may send one this build has
-never heard of, which is why it is a string rather than an enum (the forward-compatibility rule).
-The nine the relay sends today, `protocol/protocol.go`:
+**A `reject` carries three things, and they are read in this order.** `code` is a machine-readable
+token from a frozen set; `retryable` is the relay's own answer for that code; `reason` is human text
+for a log. Branch on `code`. Fall back to `reason` only when `code` is absent, which means a relay
+older than 2026-09-08.
 
-`protocol version mismatch` · `hello field too long` · `invalid room code` ·
-`game mismatch for this room` · `game version mismatch for this room` ·
-`feature set mismatch for this room` · `game not allowed on this relay` · `server full` ·
-`rate limited`
+The nine codes, frozen the moment they shipped (`protocol/protocol.go`):
 
-**A client must classify them, and the safe default is the conservative one.** Exactly two are
-retryable — `server full` (someone may leave) and `rate limited` (a reconnecting client re-reads
-the room's advertised `send_hz` and may fit under the cap this time). **Everything else, including
-any reason this build does not recognise, is permanent**: it needs a config change, so retrying
-only spams the relay and leaves the player in a room of one with no explanation
-(`core.isPermanentRejectReason`).
+`protocol_version_mismatch` · `hello_field_too_long` · `invalid_room_code` · `game_mismatch` ·
+`game_version_mismatch` · `feature_mismatch` · `game_not_allowed` · `server_full` · `rate_limited`
+
+**The reason string is still plain text and still not a closed set** — a future relay may send one
+this build has never heard of, and that is exactly why it must not be the thing anyone branches on.
+
+**A client must classify, and the safe default is the conservative one.** Exactly two are retryable
+— `server_full` (someone may leave) and `rate_limited` (a reconnecting client re-reads the room's
+advertised `send_hz` and may fit under the cap this time). **Everything else, including any code or
+reason this build does not recognise, is permanent**: it needs a config change, so retrying only
+spams the relay and leaves the player in a room of one with no explanation. One table serves both
+ends (`protocol.RetryableForCode`); the client's fallback for a code-less relay is
+`core.isPermanentRejectReason`, and `core.isPermanentReject` is the two combined.
 
 ### The `welcome` roster is bounded; the remainder arrives as `join`
 
@@ -998,6 +1030,25 @@ protocols" section above. `local_state` sent before any `hello` (or when the pro
 started with an explicit game already) is accepted but not forwarded to the relay until a
 relay connection actually exists.
 
+**The input track has its own bounds, and they live on the BRIDGE rather than the wire**
+(`bridge/inputlimits.go`, 2026-09-08). `input_sample` never crosses the relay, so `MaxLineBytes`
+does not apply to it: the bridge tolerates a 64 KiB line there because a batch of edges is bigger
+than a state sample. That makes these the only thing standing between a broken adapter and the
+core's memory, which is why they are listed here rather than left to the code:
+
+- Max edges per batch: **64** (`MaxInputEdgesPerBatch`).
+- Max axes: **8** (`MaxInputAxes`); max labels: **32** (`MaxInputLabels`); max label length:
+  **32 bytes** (`MaxInputLabelLen`).
+- Each axis value must be finite and within **±1e4** (`MaxInputAxisValue`).
+- Validated by `bridge.ValidateInputSample`; `bridge.InputSampleRejectReason` names which bound a
+  refused sample broke.
+
+**This list is not exhaustive, and says so on purpose.** The `world.v1` bounds (`MaxWorldKeyLen`,
+`MaxWorldBlobBytes`, `MaxWorldKeysPerRoom`, `MaxWorldMessageBytes`) are documented with their values
+in the world-custody section above rather than here, and a few smaller ones exist only in the code.
+**`protocol/limits.go`, `protocol/online.go` and `bridge/inputlimits.go` are the authority** when
+this section and the code disagree — a claim that this list is complete has been wrong before.
+
 ## Hard rules (unchanged from the brief, still binding)
 
 - Adapters never speak the relay protocol or open a socket to anything but the bridge, and have
@@ -1022,13 +1073,20 @@ alongside room-code auth (see the architecture.md ADR) — treat the numbers bel
 - Max line length per NDJSON message: **4096 bytes** (`MaxLineBytes`). Enforced *during* the
   read itself since 2026-08-14 (`transport`'s bounded-read fix, see "Transport"
   above) — no longer just a check after the line is already fully buffered.
+- **A SENDER sizes to 4095, not 4096** (`MaxPayloadBytes` = `MaxLineBytes - 1`, 2026-09-08): the
+  cap is the largest line a receiver will ACCEPT, so an envelope of exactly 4096 passed the sender's
+  own check, went out, and killed the receiver's read loop with the very `ErrTooLong` that check
+  existed to prevent. Measured that day: payload 4095 delivered, 4096 refused.
+- `state.timestamp` is bounded at **2^42 ms** (`MaxTimestampMs`, ~year 2109), chosen so the
+  difference between any two valid timestamps cannot overflow a `time.Duration`. It was the one
+  field on a `state` that `ValidateState` never bounded, which is what made it worth a constant.
 - Max serialized size of `extras`: **1024 bytes** (`MaxExtrasBytes`).
 - Max length of `position`: **8** (`MaxPositionLen`) — headroom above the largest known real
   use (3, for a 3D game); the schema still never fixes this at 2 or 3.
 - Each `position` component must be finite and within **±1e7** (`MaxPositionComponent`,
   `protocol.IsValidPosition`) — NaN/±Infinity/absurd magnitudes are rejected, dropping the
   whole `state` message rather than clamping it. Enforced at the relay (`relay/states.go:49`) and
-  at the core on receive (`core/remotes.go:30`, and `core/replay.go:294` for a replayed sample),
+  at the core on receive (`core/remotes.go:30`, and `core/replay.go` for a replayed sample),
   added in the 2026-08-14 relay-safety hardening pass.
 - Max serialized size of `orientation`: **256 bytes** (`MaxOrientationBytes`) — generous above
   any real representation (a handful of floats).

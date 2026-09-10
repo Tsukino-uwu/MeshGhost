@@ -218,6 +218,7 @@ or if a number is duplicated — an unindexed ADR is one nobody will find.
 - [2026-09-05 — The relay half-closes and drains instead of resetting, so a last line survives](adr/0055-2026-09-05-the-relay-half-closes-and-drains-instead-of-resetting.md)
 - [2026-09-08 — Inputs are their own track, in their own file](adr/0056-2026-09-08-inputs-are-their-own-track-in-their-own-file.md)
 - [2026-09-08 — A replay streams its input track beside its frames](adr/0057-2026-09-08-a-replay-streams-its-input-track-beside-its-frames.md)
+- [2026-09-10 — The contract catches up with the code it describes](adr/0058-2026-09-10-the-contract-catches-up-with-the-code-it-describes.md)
 
 ## Prior art
 
