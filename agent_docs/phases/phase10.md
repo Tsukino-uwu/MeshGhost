@@ -1551,3 +1551,28 @@ pitch was that it converts your situation into the easy one — so that clause n
 means directly ("so your machine is already reachable to them"). B/C/D became A/B/C; nothing
 else in the tree referenced the removed option or its letters.
 
+**The transports section was arguing with itself about udp.** The user, reading it: the page
+*"kinda makes udp still sound better/best but also trying to backpedal and explain why its bad"*.
+It was worse than tone -- the quic row said "same loss handling as udp, so the same benefit on a
+bad connection" while the udp row said "best on a genuinely bad connection", which cannot both be
+true, and the Short version then recommended `tcp,udp` for flaky connections, the opposite of the
+advice three lines above it.
+
+**Nothing in the records ever measured udp against quic.** `verified.md` has the works-on-every-
+transport facts and no relative behaviour at all, so "best on a genuinely bad connection and the
+lightest of the three" was an assertion, and it is the sentence the rest of the section was
+contorting around. Replaced with what is structurally true and already stated in the code:
+`core/transportpick.go` has logged *"Use quic for the same loss behaviour with encryption, or
+tcp"* since the pinned-udp warning was written. The docs had drifted from the core, not the other
+way round.
+
+The stance the page now takes, which is the user's and the code's: quic is preferred always, tcp
+is the fallback that makes connecting easy, and udp is never preferred when quic is available --
+it is the same loss behaviour with the encryption, the shared port and the troubleshooting given
+up. It stays offered, framed as the raw path under quic being available on its own, because a
+host being able to pick a transport is the same kind of knob as `send_hz` and interp.
+
+**Left open, deliberately, as a decision and not a docs edit:** whether udp should stop being a
+shipped option at all and survive only as a test/fuzz path for quic work. The user raised it;
+nothing was changed on it. It needs a plan or an ADR, not a paragraph.
+

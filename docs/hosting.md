@@ -201,21 +201,24 @@ to forward.
 | | |
 | --- | --- |
 | **tcp** — always served whether you list it or not | Works everywhere, and the only one that can be inspected when something goes wrong, so it is easiest to get help with. Its weakness: one lost packet holds up the positions queued behind it, so a bad connection looks "stuttery, then catches up". Not encrypted unless `tls` is on — which it is, by default, on both ends. |
-| **quic** — the other half of the default | Same loss handling as udp, so the same benefit on a bad connection, and encrypted always with nothing to switch on. Rides on UDP but keeps tcp's port number. Harder to troubleshoot. |
-| **udp** — never chosen for anyone; you must ask for it by name | Best on a genuinely bad connection and the lightest of the three. But **it can never be encrypted** — room codes travel in the clear — and it is the hardest to troubleshoot. Prefer quic unless you have a specific reason. |
+| **quic** — the other half of the default | UDP underneath, so one lost packet does not hold up the ones behind it, and encrypted always with nothing to switch on. Keeps tcp's port number, so hosting stays one number to forward. Harder to troubleshoot than tcp. |
+| **udp** — never chosen for anyone; you must ask for it by name | Handles loss the same way quic does, because quic rides on it. Everything quic adds on top, it gives up: **it can never be encrypted** — room codes travel in the clear — it needs a second port forwarded, and it is the hardest to troubleshoot. It is here so the protocol underneath quic can be tested and reasoned about on its own; if you can pick either, pick quic. |
 
-> **"But isn't udp the fast one?"** Not quite, and this is the most common misunderstanding. On a
-> connection that is not dropping packets, all three arrive at exactly the same speed — same route,
-> same physics. What udp and quic avoid is one lost packet holding up the ones behind it. The win
-> is **smoothness on a bad connection**, not lower ping on a good one.
+> **"Isn't udp the fast one?"** This is the most common misunderstanding, and the answer is that
+> none of them is faster. On a connection that is not dropping packets, all three arrive at
+> exactly the same speed — same route, same physics. What UDP buys is that one lost packet does
+> not hold up the ones behind it, so the win is **smoothness on a bad connection**, not lower ping
+> on a good one. quic is built on UDP and gets that win too, which is why quic rather than plain
+> udp is half the default: the same behaviour, encrypted, on the port you already forwarded.
 
 Short version:
 
 | | |
 | --- | --- |
 | Just want it to work? | `tcp,quic` — the default, leave it |
-| Keep it simplest? | `tcp` |
-| Hosting for a group on flaky connections? | `tcp,udp` — but this drops the encrypted default, so room codes go back to travelling in the clear |
+| Hosting for a group on flaky connections? | `tcp,quic` — the default again; quic is the half that handles loss well |
+| Keep it simplest? | `tcp` — one rule to forward, easiest to get help with, still encrypted |
+| Testing the raw UDP path? | `tcp,udp` — unencrypted, and a second port to forward |
 
 **What to forward, per transport:**
 
