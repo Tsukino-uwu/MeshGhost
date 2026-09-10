@@ -1496,7 +1496,9 @@ already says — MIT from `LICENSE`, `.github/CONTRIBUTING.md` as its own link p
 banner. The one fact the sidebar does not carry, bringing your own copy of the game, is already
 stated where somebody acts on it (`docs/getting-started.md`, and each adapter's README). 35 lines
 to 25, no anchor links into either section. The last Setup link was also relabelled: "All docs"
-promised more than `docs/README.md` holds, which is the PLAYER docs and not `agent_docs/`.
+promised more than `docs/README.md` holds, which is the PLAYER docs and not `agent_docs/`. It
+landed on the conventional plain noun, "Documentation", after "The rest of the docs" and every
+qualifier tried read as awkward — the label was doing work the list does not need it to do.
 
 **Both README indexes were checked for completeness and were already complete** — `docs/` (10 of
 10), `agent_docs/` (31 of 31 at the top level), and every sub-index below it: 58 ADRs plus the
