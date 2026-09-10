@@ -1178,3 +1178,54 @@ palette block (the probe's local colour stayed salmon), and the user's reading o
 a defect reshaped the test -- the adapter now has `MESHGHOST_CRYSTAL_DEV_CLOTHING`, a colour on the
 wire with no local write, and the probe's memory-writing mode is the opt-in. `pitfalls/by-lesson.md`.
 A `trainer_color` config key was declined (`ideas.md`). Rig torn down at the end of the session.
+
+## 2026-09-10 — Crystal never read its own `config.json` or `"autostart"`: one missing separator, twice
+
+**Found while answering a docs question, not by a probe or a report.** The user asked whether
+Emerald and Crystal could take `meshghost.exe` in the game's own folder the way TEVI and
+Pseudoregalia do — *"everything grabs from its own folder next to the config"*. Reading the
+launcher to answer it showed they **already could**: `findCoreExe` has checked `SCRIPT_DIR` first
+since it was written, so the per-game README calling the release root *"the only place this works
+from"* had been wrong the whole time. The two bugs were visible on the way to that answer.
+
+**The cause, and why it survived.** Emerald's `SCRIPT_DIR` ends with a trailing `\`; Crystal's does
+not — and Crystal's own file has carried a comment saying exactly that above its bridge-port block
+since it was written (*"NOTE THE EXPLICIT `/` ... which every other path expression here also
+spells out"*). Two blocks written later did not spell it out, and built
+`...\pokemon\crystalconfig.json`:
+
+- the `AUTOSTART` scan fell through all three candidates every time, so **`"autostart": false` had
+  never once worked in Crystal** — shipped 2026-09-03, and the `UNVERIFIED.md` entry asking the
+  user to confirm it was still unwatched, so it could not have passed had they tried;
+- the probe choosing the spawned core's working directory never found this game's own config, so
+  **every Crystal core read the release root instead** and a player's per-game settings were
+  silently discarded.
+
+Neither failed loudly. A file that does not open is indistinguishable from "there is no config
+here", which is a *supported* state with a defined fallback — so the fallback ran and looked
+exactly like a correct run. Confirmed by resolving all four concatenated paths on disk before
+changing anything; `luac -p` cannot see it, because both spellings are valid Lua.
+
+**Also fixed, both scripts:** the bridge-port config search read the release root first and the
+script's own folder last — the reverse of the two searches beside it, and of its own comment
+claiming *"the same places the autostart search looks, in the same order."* Own folder is first
+everywhere now. Emerald was never affected by the separator bug; it shares only this reorder.
+
+**Outcome shipped with the lesson** (`pitfalls.md`'s filing rule): a preflight section requiring
+every `SCRIPT_DIR .. "<literal>"` in Crystal to open with a separator, negative-tested against the
+real defect — it named line 9775 — before being trusted. The prose note that had been in the file
+all along is now a check, because a rule enforced by whoever remembers reading a comment is not
+enforced. Narrative in `pitfalls/by-lesson.md`, indexed in `pitfalls/INDEX.md`.
+
+**Docs.** The install rule is now one rule for every game: `meshghost.exe` and `config.json` sit
+next to the mod, and that copy is what MeshGhost reads. The two Pokémon games keep their fallback
+to the release root, so an existing install is untouched. Five documents still said they copy
+nothing and were swept in a follow-up commit after the user asked whether everything reflected it
+— `README.md`, `docs/config.md`, `docs/troubleshooting.md`, `packaging/README.md` and the zip's
+`README.txt`, plus both `findCoreExe` comments, which described the release root as where the exe
+"actually is".
+
+**NOT user-confirmed.** `UNVERIFIED.md` leads with three things to watch on Crystal: the exe beside
+the script reads that folder's config and logs there; `"autostart": false` actually stops the
+client; and — the half most likely to have been broken by this change — a release-root install
+still behaves exactly as it always did.
