@@ -2,12 +2,13 @@ name: CI
 
 # Runs the Go client/server checks CLAUDE.md requires before any change to the
 # Go side is called done -- build, vet, the full test suite, and a
-# short fuzz campaign against twenty-four targets across eight packages (protocol 13, bridge 2, relay 3, transport 1, netx/udpconn 1, core 2, internal/hotkey 1, cmd/meshghost 1).
-# That is every target in the tree but two: `grep -h '^func Fuzz' $(git ls-files '*_test.go') | wc -l`
-# counted 26 on 2026-09-08, and agent_docs/testing.md names the two with no step here and why
+# short fuzz campaign against twenty-five targets across eight packages (protocol 13, bridge 2, relay 3, transport 1, netx/udpconn 1, core 3, internal/hotkey 1, cmd/meshghost 1).
+# That is every target in the tree but two: `grep -hc '^func Fuzz' $(git ls-files '*_test.go')`
+# counted 27 on 2026-09-10, and agent_docs/testing.md names the two with no step here and why
 # (both are socket-bound schedule fuzzers that are opt-in on purpose; they still run on their
-# seed corpus in the test job). Count both rather than trusting this line, which said eleven
-# across four for as long as the two bridge targets below had existed. Until this existed,
+# seed corpus in the test job). COUNT BOTH RATHER THAN TRUSTING THIS LINE: it said eleven across
+# four for as long as the two bridge targets had existed, and on 2026-09-10 it still said 26/two
+# while the tree held 27 and three were unwired -- a target had shipped with an ADR and no step. Until this existed,
 # every one of those ran only when a human remembered to run them, and
 # release.yml shipped binaries without running a single test.
 #
@@ -301,6 +302,13 @@ jobs:
       # pass the same per-sample validation a relay packet does.
       - name: Fuzz core - replay loader never panics and only admits wire-valid samples
         run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseReplayNeverPanics 30s
+      # Its sibling, and for the same reason: an input track is a FILE, so it is a stranger's bytes
+      # the moment one person sends another a clip. Added 2026-09-10 -- it shipped with ADR 0056 on
+      # 2026-09-08 and had no step, while this comment, agent_docs/testing.md and docs/reviewing.md
+      # all said the only unwired targets were the two socket-bound ones. Nothing was watching the
+      # count; the doc sweep that found it was reading by hand.
+      - name: Fuzz core - input-track loader never panics
+        run: bash dev-scripts/ci-fuzz.sh ./core FuzzParseInputTrackNeverPanics 30s
       # The user's standard, 2026-09-03: "a fuzzer that doesn't fuzz everything randomly won't
       # catch things we didn't think about". One client, random config inside and outside every
       # limit, random order and timing of frames, files, controls, relay messages and clock resets,

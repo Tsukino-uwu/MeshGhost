@@ -121,12 +121,12 @@ go test -race -count=3 ./...
 **The fuzzers.** These feed inputs nobody chose into the parsers and the listeners, and they are
 the part that does not share the author's blind spots. Run any of them for as long as your
 suspicion lasts; CI runs a short campaign against nearly all of them on each push — as of
-2026-09-10, **24 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
-tree**, across eight packages, one step per target. **Three have no step.** Two are the socket-bound
-schedule fuzzers in `core`, opt-in on purpose. The third, `FuzzParseInputTrackNeverPanics`, is not
-socket-bound at all — it is a file parser, held to the same promise as its sibling
-`FuzzParseReplayNeverPanics`, which does have a step — and it appears simply to have been missed.
-All three still run their committed seed corpus in the ordinary test job. (The property-style targets that pin an encoder against its decoder have their own steps
+2026-09-10, **25 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
+tree**, across eight packages, one step per target. The two with no step are the socket-bound
+schedule fuzzers in `core`, opt-in on purpose; they still run their committed seed corpus in the
+ordinary test job. (A third, `FuzzParseInputTrackNeverPanics`, was unwired until 2026-09-10 — a file
+parser that shipped with an ADR and no step, while this page and two others said the gap was only
+the socket-bound pair. Worth knowing as a reviewer: the census is maintained by hand.) (The property-style targets that pin an encoder against its decoder have their own steps
 too, since 2026-09-06 — they used to run only as ordinary tests.) Nothing here needs
 trusting CI — the targets are ordinary `go test -fuzz` functions:
 

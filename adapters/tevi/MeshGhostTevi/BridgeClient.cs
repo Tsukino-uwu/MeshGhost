@@ -258,6 +258,10 @@ namespace MeshGhostTevi
         // MUST be cleared on every fresh connection, or a reconnect that misses the ready silences
         // the adapter completely -- which is the hazard the old code's own comment named as the
         // reason this gate had not been closed yet.
+        // Bridge message types this adapter knowingly ignores, remembered so the "not acted
+        // on" line is written once per run rather than once per message. See the dispatch.
+        private readonly HashSet<string> noOpMessagesLogged = new HashSet<string>();
+
         private volatile bool bridgeReady;
 
         private readonly ConcurrentQueue<string> incoming = new ConcurrentQueue<string>();
@@ -1048,6 +1052,33 @@ namespace MeshGhostTevi
                             AdvanceWalkPast(refusedPort);
                             break;
                         }
+                        case "session_policy":
+                        case "recording_state":
+                        case "remote_name":
+                            // Three core -> adapter messages this game has nothing to DO with, and
+                            // they are named here rather than left to the default below for the
+                            // reason recorded in BANDAGES.md: falling through made every healthy
+                            // session log a warning per message per peer about messages that mean
+                            // everything is fine. That was fixed once for bridge_ready/reject and
+                            // regressed the moment the core added these three (2026-09-10).
+                            //
+                            // Logged ONCE each, because the contract asks an adapter that does not
+                            // act on a shared setting to say so rather than silently appear to
+                            // comply (agent_docs/contract.md) -- and once is the whole point:
+                            // remote_name arrives per peer and recording_state on every toggle.
+                            //
+                            //   session_policy  -- ghost_collision is already satisfied here by
+                            //                      construction: a ghost clone has every Collider2D
+                            //                      and Rigidbody2D destroyed (Plugin.cs), so it can
+                            //                      never be solid whatever the room asks for.
+                            //   recording_state -- no on-screen recording indicator in this game.
+                            //   remote_name     -- nametags are not drawn in this game.
+                            if (noOpMessagesLogged.Add(type))
+                            {
+                                Log($"MeshGhost: '{type}' received and intentionally not acted on " +
+                                    "in TEVI -- see BridgeClient.cs for why. Logged once per run.");
+                            }
+                            break;
                         default:
                             Log($"MeshGhost: ignoring unknown bridge message type '{type}'.");
                             break;

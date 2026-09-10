@@ -166,7 +166,7 @@ about networking, only about **adapter behaviour that depends on the peer differ
 | End-to-end, real binaries (`internal/e2e`) | yes | yes | yes |
 | **Race detector** | **yes, with the PATH recipe below** (was "can't" until 2026-08-18) | yes (Linux) | no |
 | Concurrency stress (`-shuffle`, `-cpu`, repeats) | yes (`run-gotests-stress.bat`) | no | no |
-| **Fuzzing** | seed corpus only | yes, short campaign per target — 23 of the 25 targets; the table below says which two run as seed-corpus tests only, and why | no |
+| **Fuzzing** | seed corpus only | yes, short campaign per target — 25 of the 27 targets; the table below says which two run as seed-corpus tests only, and why | no |
 | **gofmt** | yes (`dev-scripts/preflight.ps1`) | yes — `gofmt -l` on tracked `.go`, added 2026-08-18 | no |
 
 **The race detector used to be the one real hole, and it cost a round trip before it was
@@ -387,7 +387,7 @@ Only the seed corpus runs during a normal `go test`. To run a real campaign:
 go test ./protocol -run=XXX -fuzz=FuzzValidateStateIsStableAcrossTheWire -fuzztime=10m
 ```
 
-Four of the fourteen targets carry a version of that command in their own doc comment (`protocol`,
+Four of the targets carry a version of that command in their own doc comment (`protocol`,
 `transport`, and both in `relay/fuzz_test.go` — those say `-fuzztime=60s`, and the two older ones
 say `-run=Fuzz` rather than `-run=XXX`); for the rest, substitute the package and target name into
 the line above. `-run=XXX` matches no ordinary test, so only the fuzzing runs. One target at a
@@ -425,7 +425,11 @@ corpus): `FuzzSchedule` and `FuzzNameDeliverySurvivesAnyConnectOrdering` (both `
 relay sockets per iteration, so a continuous campaign is socket-bound long before it is idea-bound
 (ephemeral-port exhaustion, TIME_WAIT). Deliberately opt-in, run short and at low parallelism by hand;
 the file headers say so. **Four more sat unwired until 2026-09-06** — the two encoder pins and the two
-sanitizer pins above — with no stated reason; the user's rule is that CI runs every Go test it can, so
+sanitizer pins above — and a FIFTH, `FuzzParseInputTrackNeverPanics`, until 2026-09-10: it shipped
+with ADR 0056 on 2026-09-08 and this paragraph, `ci.yml`'s header and `docs/reviewing.md` all went on
+saying the only unwired targets were the two socket-bound ones. It is a file parser with no socket at
+all. **This table is where the next session checks, and it did not catch it** — a hand sweep did.
+Each of those had no stated reason; the user's rule is that CI runs every Go test it can, so
 they have steps now.
 
 **Two targets have shipped written-but-unwired**, a pattern rather than a slip:

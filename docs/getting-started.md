@@ -69,9 +69,10 @@ matters.
 > | TEVI | your TEVI folder, next to `TEVI.exe` |
 > | Pseudoregalia | your Pseudoregalia folder |
 >
-> Each game's `config.json` is already there — only `meshghost.exe` has to be copied in. The two
-> Pokémon games are the forgiving ones: they fall back to the unzipped folder if you skip the
-> copy. TEVI and Pseudoregalia do not, because the mod lives inside the game.
+> **For Emerald and Crystal the `config.json` is already there**, so only `meshghost.exe` has to be
+> copied in — and they are the forgiving ones, falling back to the unzipped folder if you skip the
+> copy entirely. **For TEVI and Pseudoregalia you copy BOTH files** into the game folder, and there
+> is no fallback, because the mod looks only where the game lives.
 
 **Nothing here touches your save, and no ROM is patched.** Some mods put a ghost into the game's
 live memory while you play, and that memory is gone the moment you close the game. Uninstalling is

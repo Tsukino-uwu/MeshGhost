@@ -1,7 +1,12 @@
 # `config.json` — every key, what it does, and who reads it
 
 The release zip ships one full `config.json` at its root and a client-only copy in each game's
-folder under `games\`, cut from the root one at release time so they never disagree. Both programs
+folder under `games\`, cut from the root one at release time so they never disagree. **The per-game
+copy is a SUBSET**: the advanced keys (`transport`, `tls`, `tls_fingerprint`, `offline`,
+`local_interp`, `keepalive`, `min_send`, `max_receive_hz_per_player`, `local_game_bridge`, `stats`,
+`game`, `game_version`, `features`) are left out of it deliberately. Any of them still works if you
+add it by hand — an absent key just takes its default — so a page here telling you to set one is
+telling you to ADD a line, not to find it. Both programs
 read their own half: `meshghost.exe` (the client, started for you by your game's mod) reads the
 `client` section, and `meshghost-server.exe` (run by whoever hosts) reads the `server` section. A
 few `client` keys are read by the game's mod itself rather than by `meshghost.exe`, and the table

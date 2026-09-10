@@ -231,8 +231,11 @@ Short version:
 
 Adding plain `udp` is the one case that needs more, because udp wants the same UDP port quic is
 already using. quic **keeps** the shared number (it is served by default, plain udp is opt-in), so
-udp moves aside to `listen_udp`, which defaults to **7780** — forward UDP there as well. The
-server refuses to start and tells you if you forget.
+udp moves aside to `listen_udp`, which defaults to **7780** — forward UDP there as well.
+**Nothing checks that you did.** Naming a port is taken as accepting responsibility for forwarding
+it, and no program on this machine can see your router anyway; what the relay does give you is the
+`to accept players from outside this machine, forward:` line in its startup log, which lists the
+ports it actually bound. Compare that against your router.
 
 A player set to a transport you have not forwarded just sees a timeout with nothing explaining it.
 If one person cannot connect and everyone else can, check this first.
