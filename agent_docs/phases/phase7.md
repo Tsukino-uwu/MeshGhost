@@ -3580,3 +3580,15 @@ its INDEX line. Also seen while reading their config: QUIC never connects on the
 (`wsaioctl` 10045 under Proton) and the core falls back — working as designed, worth a look
 someday. Not touched: a pre-existing preflight FAIL, two TEVI `VERIFIED.md` entries missing their
 index lines.
+
+**Later the same day — a second dump from the same tester, and a symbol trap.** It is the same
+fault one call further in: `tick_remote_mirrored_vfx` at `Plugin.cpp:14198` (the `DestroyComponent`
+lookup that follows the `Deactivate` one in the same STOP branch), reading `0xffffffffffffffff`,
+14 ms after the same `chaser:1` "ghost is no longer valid (level transition)" line, in a different
+session on the same pre-fix build. No new work: the fix already shipped covers it. What it cost was
+a detour — the fix build had overwritten `main.pdb`, and symbolizing the old offsets against the new
+symbols answered confidently and wrongly. Caught by the dump's PE `TimeDateStamp` (`6aa1ec50` vs
+`6aa301c7` on disk); recovered by checking the parent commit's source out, rebuilding, and proving
+the rebuild IS the tester's binary (13 differing bytes against the committed old DLL, all PE and
+debug-directory timestamps), then restoring the fix, rebuilding and redeploying (both installs
+UPDATED, hashes match). Filed with the lesson.

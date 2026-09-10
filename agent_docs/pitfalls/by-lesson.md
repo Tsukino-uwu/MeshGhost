@@ -7039,6 +7039,27 @@ must drop every component attached to it", checks every `.ghost = nullptr;` site
 since the previous one — negative-tested by deleting one clear (FAIL naming line 23329) and
 restoring it (PASS, 4 sites).
 
+**A SECOND dump, from a later session the same day, is the same fault one call further in** (crash GUID
+`...9477F03A...`, 2026-09-10 19:20 UTC, a different session on the same pre-fix build). Same two
+`main.dll` frames from `game_thread_tick`, `tick_remote_mirrored_vfx` at `Plugin.cpp:14198` instead
+of `:14194` -- the `DestroyComponent` lookup that follows the `Deactivate` one in the same STOP
+branch, on the same kind of freed component; the read address is `0xffffffffffffffff` rather than
+`0x1e9`, which is what reading through poison rather than through null looks like. Its log has the
+same fingerprint: `chaser:1` started `ks` at 19:19:55.1, the redraw loop logged
+`ghost is no longer valid (level transition) -- releasing stale reference` for `chaser:1` at
+19:20:05.11 and respawned 14 ms later, and the game died within the same second. **Two dumps, one
+cause, and neither would have been attributable without the module list.**
+
+**And a trap the second dump walked straight into: SYMBOLS ARE PER BUILD, and the fix destroys
+them.** Rebuilding with the fix overwrote `main.pdb`, so the same `dbghelp` call now resolved the
+tester's OLD offsets against NEW symbols and answered confidently and wrongly (`:14159`, a line in
+the wrong branch). The dump's PE `TimeDateStamp` is what caught it -- `6aa1ec50` in the dump against
+`6aa301c7` on disk. **Recovery, and the shape to reuse:** check the previous commit's source out,
+rebuild, and PROVE the rebuild is the tester's binary before trusting its pdb -- the old DLL is
+committed in `packaging/release`, and a byte diff against the rebuild showed **13 differing bytes,
+all of them PE and debug-directory timestamps**, code identical. Then restore the fix, rebuild,
+redeploy. Read the timestamp BEFORE symbolizing, every time: a stale pdb does not error, it lies.
+
 **Reach for first.** A tester's crash folder is a full diagnosis, not a hint: module list → which
 mod, timestamp → which build, `dbghelp` → which function, then the mod's OWN log for the five
 seconds before it. And when a lesson's fix is "clear this on release", **count the ways the thing
