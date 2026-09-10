@@ -19,9 +19,9 @@ can show today.
 ## Setup
 
 - **Download:** [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases)
-- **Setup / how to play:** [docs/getting-started.md](docs/getting-started.md)
-- **How to host a server:** [docs/hosting.md](docs/hosting.md)
-- **Common issues:** [docs/troubleshooting.md](docs/troubleshooting.md)
+- **Install and play:** [docs/getting-started.md](docs/getting-started.md)
+- **Hosting a server:** [docs/hosting.md](docs/hosting.md)
+- **Something's wrong:** [docs/troubleshooting.md](docs/troubleshooting.md)
 
 ## Docs
 
