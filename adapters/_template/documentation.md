@@ -176,7 +176,18 @@ whether the result feels right.
 **So mark them.** `[player]`, `[measured]` and — where a game has a cleared decompilation —
 `[from the decomp]`, which Emerald ships and is a materially different evidence class from either:
 it says what the game's own code does, without a claim that anyone watched it. Any clear convention
-will do, but declare it at the top of the file and then actually use it. The value shows up later: an unlabelled document invites a future session to
+will do, but declare it at the top of the file and then actually use it.
+
+**`[from the decomp]` MARKS A FACT, and never licenses reproducing expression.** It is a provenance
+label, not a permission: which routine runs, which field it sets, what a value means, cited by
+file — all facts, and all fine. Source text, a pasted table, or prose shaped like the original is
+never fine, and this file's own preamble already says so *"regardless of what a licence permits"*
+(`CLAUDE.md`: facts may be used and recorded with a citation; expression never). The label does not
+relax that by one word.
+
+The reason to carry it anyway is that it makes the boundary **auditable**: a decomp-derived claim
+is greppable, so anyone can go and check that what sits under the label is a fact described in our
+own words. An unlabelled document hides its provenance, which is the worse position to be in. The value shows up later: an unlabelled document invites a future session to
 "verify" a player-observed stage by finding a plausible-looking field, and to treat a measured
 field as proof the experience is reproduced. **Where only `[player]` exists, the code path is an
 open question, and the file should look like one.**
