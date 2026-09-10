@@ -6,7 +6,10 @@ shipped adapters learned the hard way (last swept 2026-08-17, against `agent_doc
 shipped and every "three" in this folder became wrong at once; re-swept later the same day against
 every adapter's sources and the repo-wide tooling — `dev-scripts/preflight.ps1`, `meshghost
 -stats`, the relay's `-introspect`; staleness-swept again 2026-08-21 against the Go source, the
-four adapters' sources and `.gitignore`). The core was proven to run against a fake
+adapters' sources and `.gitignore`; swept again 2026-09-10 against `bridge/bridge.go`,
+`dev-scripts/preflight.ps1` and every shipped adapter's `CLAUDE.md` — that pass corrected five
+counts, deleted a block this file was stating twice, and added the three sections below that a new
+adapter needed and this file had never carried). The core was proven to run against a fake
 adapter (`cmd/meshghost-fakeadapter`, a ghost that walks in a circle, driven by
 `core.RunAdapter` — see [agent_docs/verified.md](../../agent_docs/verified.md)'s Phase 5 entry)
 with no game attached and no import of anything under `adapters/`. This folder is what that
@@ -150,6 +153,74 @@ check fails on a missing one. Create all six when the folder is created; three o
 (`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md` — `documentation.md` starts with the first mechanic
 and `FLAGS.md` with its first row).
 (This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27.)
+
+## Seven traps that are NOT specific to the host that found them
+
+Each of these was paid for once by a shipped adapter and generalises past the engine it was found
+in. They are here because the alternative is paying for each of them again, on a different host, with
+the same three days of confusion — which is what "`_template` never lags" is for. The host-specific
+detail stays in the adapter that found it; what is below is the shape.
+
+**1. Your tick callback may not be the game thread.** Whatever your host calls every frame may run
+on the HOST's thread, not the engine's. Touching game state from there is a data race, and the
+reason it is worth a rule rather than a note is how it fails: **intermittent corruption rather than
+a crash, so it survives testing.** Ask, per host, which thread your callback runs on, and marshal
+work onto the game's own before touching anything it owns. (UE4SS's `on_update`, 2026-08.)
+
+**2. A successful spawn does not mean it renders.** An actor created through the engine's own spawn
+API, with no error anywhere, never appeared on screen. **Confirm the thing reaches the screen before
+building anything on top of it** — otherwise every later measurement is about an object that exists
+and is invisible, and they will all agree with each other. This is the concrete case behind the root
+rule that a clean instrument plus a symptom the user still sees means widen the subsystem.
+
+**3. An actor born with a visual already ON cannot be fixed reactively.** Anything running after the
+world tick — your update, a post-tick callback, the next frame — runs after that frame's rendering
+is already enqueued, so a visual the object is born with gets one rendered frame no matter how early
+your reaction sits. **The signature that you are in this trap: each reactive improvement makes the
+artifact briefer but never gone.** Recognising that signature is most of the value here. The fix is
+to intercept the call that turns the visual on. If the data you would attribute by is not written
+yet at that moment, refuse-then-restore in the direction whose failure is invisible.
+
+**4. A cached handle can go stale MID-level, not only at teardown.** A cache cleared by a
+level-transition hook covers exactly the case that already has a hook. An object the game frees
+during play has none, and a raw pointer to one is a crash with a delay on it. **Before caching any
+handle, answer "can the game free this WITHIN a level?"** If yes, or if unknown, hold whatever your
+host's weak reference is and resolve per use. Say in a comment which case it is; on Pseudoregalia
+`preflight.ps1` enforces exactly that annotation.
+
+**5. Enumerate what you can NAME, never what an object happens to hold.** Any "give me every object
+of this class" API returns class-default objects and half-torn-down ones too. Reading a *named*
+property off one is usually survivable. **Calling a function on one dereferences state that may not
+be there, and a scripting-language `pcall`/try does NOT catch an access violation in native code**,
+so wrapping it buys nothing. "Named" is load-bearing: enumerating every property and reading each
+one is not a named read, because an object-valued property hands you a pointer and stringifying it
+dereferences whatever that was. Grow a written list between runs instead. (Three crashed live
+sessions in one day, 2026-08-29.)
+
+*The same care applies to deciding what a component BELONGS to.* An outer/parent walk is not enough
+when a host can put a component inside a separate actor whose own parent is the level — follow the
+attachment chain as well, and when in doubt use **name containment**, since a full name usually
+carries its owning chain. Measured 2026-08-29: two component types on a ghost matched **0 of 12** by
+outer walk while the user was watching them on screen.
+
+**6. A vendored SDK's struct layout is a claim, not a fact.** A bundled SDK marshalled a rotation's
+components as 32-bit floats regardless of engine version, so on a build storing them as doubles
+every rotation written through it was silently wrong. **This is an ABI mismatch, not a logic bug —
+the values look plausible**, which is why it survives inspection. Verify any struct you marshal
+across that boundary against the actual build you are running.
+
+**7. A clone of a self-configuring component inherits its POST-setup state, and its init may never
+run.** Two ways this bites, both live on 2026-09-10: a template the game parks INACTIVE produces a
+clone whose init never ran, so its first call throws — and the exception can abort the whole ghost
+update, taking pose and everything else with it, which is why each cosmetic sub-feature belongs in
+its own try/catch. And a template whose own setup MUTATED it — stripping a shader keyword from the
+material the clone then rebuilds everything from — produces a clone missing an effect with nothing
+in the logs. **Read what the component's setup CHANGES, then undo it on the clone.**
+
+**A rule that goes with 7: do not answer a race with a guessed delay.** A wait only narrows a window
+against a transition whose duration was never measured, and taxes every case that was not racing
+anything. When the symptom looks like *"the right value settles eventually, so just wait"*, check
+first whether forcing the known-good value directly is cheaper and certain.
 
 ## A host `CLAUDE.md` is optional, and capped — both halves matter
 
