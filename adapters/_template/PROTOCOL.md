@@ -76,6 +76,11 @@ behaviour and always correct. `interp_t` can exceed 1 under prediction, on purpo
 defensively but never to 1. The maths per orientation shape, and the reference implementation:
 `adapters/_template/README.md`, "Three families of value".
 
+`input_tracks` is a sixth optional field (`bridge/bridge.go`), added 2026-09-08: set it and the
+core streams a replay ghost's recorded input track beside its frames as `remote_input`. Absent, the
+core never looks for a track. Documented in full further down; named here because an author reading
+only this section would not otherwise know it exists.
+
 `features` is the fifth optional field, and the only way an adapter opts into anything past cosmetic
 ghosts (`bridge`'s `Hello.Features`, merged into whatever the core itself was configured
 with and forwarded to the relay). **Omit it unless you have actually implemented a plane.** A room's

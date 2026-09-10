@@ -452,6 +452,13 @@ something it would have told you: UE4SS's Live Viewer ships with the loader this
 was unused until 2026-08-28; Unity's equivalent is a separate plugin. **These are for the USER's
 eyes** — an agent cannot read a GUI, so its equivalent is a probe writing to the log.
 
+**On a NEW host, the first question is WHERE THE ADAPTER RUNS.** An adapter that is its own
+process talking over IPC gets reload for free by construction -- kill it, start it again, the
+game never knew. One loaded INTO the game's process does not, and everything below is about
+buying back some of what that costs. **Prefer the out-of-process shape when the host gives you
+the choice.** (Stated in `adapters/CLAUDE.md` since it was written, and nowhere else until
+2026-09-10 -- the file that pointed here for the detail was the only file that had it.)
+
 **FIVE TRAPS, all of which reported success while doing nothing** (dated 2026-08-28, detail in
 [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md)):
 
@@ -956,7 +963,8 @@ Region variants, exact file names and hashes are a separate question and belong 
 
 **The other sections every shipped README carries**, and which the build story alone doesn't cover:
 
-- **A bold `**Status:**` line as line 3** — the phase, what's done, what the last live
+- **A bold status line as line 3** (most use a literal `**Status:**` token; Emerald's opens
+  `**Shipping, and open like every adapter here.**` and is no worse for it) — the phase, what's done, what the last live
   confirmation was and when. Every shipped adapter open this way, and it is the line a reader
   checks first. **Rewrite it the day the adapter's state changes, not the day someone notices.**
   Crystal's still said "groundwork only, there is no adapter yet" while a ~1000-line adapter that
@@ -1099,10 +1107,16 @@ know anything is there. Ranked by how much the game does for you:
 **For a BizHawk game the ladder is `spawn -> OAM -> drawn`, in that order** (settled 2026-08-21;
 ADR in `agent_docs/architecture.md`, numbers in `verified.md`). **That is the ORDER to start from,
 not a set of defaults to ship** — the two BizHawk adapters deliberately differ from each other and
-from "all on": Crystal ships drawn ON and OAM OFF, Emerald ships both OFF. The reason is per-game
-and is the useful lesson: Crystal's UI regions are locatable (a text box is the game's own frame
-tiles in the tilemap, a menu publishes its border fields) so a drawn ghost can be clipped out of
-them, and Emerald's are not, so its drawn tier would paint over text.
+from "all on". **Read each adapter's own `FLAGS.md` for what it actually ships; this paragraph used
+to cache both answers and had one of them backwards for over a week** (corrected 2026-09-10, when
+Emerald had shipped its full ladder since 2026-09-02 and this said it shipped none of it, and
+Crystal had stopped spawning entirely).
+
+The reason they differ is the useful part, and it does not go stale: **Crystal's UI regions are
+locatable** — a text box is the game's own frame tiles in the tilemap, a menu publishes its border
+fields — so a drawn ghost can be clipped out of them. **Emerald's are not**, so a drawn ghost there
+would paint over text. Which rungs each ships follows from that, and from what each game's slots and
+frame budget can afford.
 
 **The hardware tier does NOT buy occlusion for free — that was a GBA result stated as a property
 of the tier, and the Game Boy refutes it** (corrected 2026-08-25). On the GB a text box is

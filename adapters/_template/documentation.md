@@ -51,7 +51,7 @@ line each. No code listings: the code is one click away and stays the source of 
 | --- | --- |
 | **`documentation.md`** (this) | How does the game do X? |
 | `BANDAGES.md` | Where the adapter compensates instead of reproducing the mechanism |
-| `agent_docs/verified.md` | Dated evidence behind every claim here |
+| `VERIFIED.md` (this adapter's own) | Dated evidence behind every claim here — split per game 2026-08-25; `agent_docs/verified.md` keeps only the Go side and the index |
 | A state inventory, *if the game warrants one* | Which state exists, which is synced, how to promote one |
 
 Most adapters have no inventory file — Emerald's addresses and TEVI's class fields live in
@@ -106,7 +106,7 @@ detect it. Negative results are worth as much as positive ones here — an enum 
 right signal but also fires on something else will otherwise be rediscovered by the next person.
 
 **Link the evidence, don't paste it.** Say what you measured and how confident you are, then point
-at the dated entry in `agent_docs/verified.md`. Sample counts, capture logs and failed-attempt
+at the dated entry in this adapter's own `VERIFIED.md`. Sample counts, capture logs and failed-attempt
 trails belong there, not here — the same discipline the `README.md` build-story steps follow. If
 you catch yourself writing "so we…", stop: that sentence belongs in `BANDAGES.md` or the
 `README.md`.

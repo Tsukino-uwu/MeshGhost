@@ -42,7 +42,7 @@ It is the difference between a change costing a relaunch-and-navigate and costin
 over every iteration. **Two things it can never test:** a COLD-START bug, and the orphans a reload
 leaves in the scene — despawn everything you spawned in your teardown. **On a NEW host, ask WHERE
 THE ADAPTER RUNS**: as its own process over IPC, reload is free by construction; prefer that shape.
-Per-host table and the three traps that reported success while doing nothing:
+Per-host table and the traps that reported success while doing nothing:
 [_template/README.md](_template/README.md), "BUILD THE LIVE-RELOAD LOOP FIRST"; `/new-adapter` has the detail.
 
 ## Hard rule: anything the player can do, anything else should be able to do
@@ -277,7 +277,7 @@ stops a stationary ghost blocking a doorway, and it is load-bearing. Make the se
 
 ## Two files every adapter keeps honest
 
-- **`FLAGS.md` is the compile-time flag register: when a flag's comment and its value disagree, the
+- **`FLAGS.md` is the flag register -- FIVE kinds of switch, not just compile-time bools: when a flag's comment and its value disagree, the
   register and the value win.** Flags that only work as a set are marked there; never switch one off alone.
 - **`documentation.md` records how the GAME works — no bandages in it, ever**, only what the game
   itself handles, and only publishable facts observed from a running copy (`agent_docs/licensing.md`).
