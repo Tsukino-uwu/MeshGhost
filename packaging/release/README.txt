@@ -74,6 +74,3 @@ WHAT TO READ
                               something looks wrong.
 
   docs\config.txt             Every setting in config.json.
-
-TEVI and Pseudoregalia are marked EXPERIMENTAL -- see games\tevi\README.txt
-and games\pseudoregalia\README.txt.

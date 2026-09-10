@@ -1,17 +1,7 @@
 MeshGhost -- Pseudoregalia setup
 =================================
 
-STATUS: FEATURE COMPLETE, but still EXPERIMENTAL. As of 2026-08-27 a ghost does
-essentially everything the character it copies does -- position, facing and the full
-animation set, the slide and crouch pose, wall riding, the afterimage trail in whatever
-colour the move actually produced, outfits and sword models from mods you both have, the Dream Breaker (equipped, thrown, and its
-landed glow), the healing and charge effects, the ranged shot, and dying and respawning.
-A real session with two players on two separate machines was confirmed 2026-08-16.
-
-Still experimental because that is a handful of sessions on one or two pairs of machines,
-not broad testing, and because a few known rough edges remain -- most visibly a brief
-black flash the moment somebody's ghost appears. If something doesn't work, that's useful
-information -- there's nowhere to report it yet, but don't assume it's your setup.
+Known issue: a brief black flash the moment somebody's ghost appears.
 
 What you need, once:
 - Your own legally-obtained copy of Pseudoregalia. That's it -- everything else the mod

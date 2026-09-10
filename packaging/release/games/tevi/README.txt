@@ -1,13 +1,6 @@
 MeshGhost -- TEVI setup
 ========================
 
-STATUS: EXPERIMENTAL. This mod is code-complete and has been confirmed working with two
-real local instances on one machine, including cross-area filtering and ghost cleanup on
-disconnect -- see the main project's agent_docs/phases/phase6.md if you're curious. It has
-not yet been confirmed over a real network between two separate machines. If something
-doesn't work, that's useful information -- there's nowhere to report it yet, but don't
-assume it's your setup.
-
 What you need, once:
 - Your own legally-obtained copy of TEVI.
 - BepInEx 5.4.x, 64-bit, Mono build (NOT IL2CPP -- TEVI is a Mono game). Get it from
