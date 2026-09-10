@@ -185,7 +185,7 @@ one specifically, treat the table as a floor and leave headroom.
 Valid range is 10–100. A player may still choose to send *slower* than the room if their
 connection needs it; nobody can send faster than what you set.
 
-## Transports — tcp, udp, quic
+## Transports — tcp and quic
 
 `transport` is what your server actually offers. Players find whatever you turn on by themselves,
 so **you never have to tell them which to use** — and a player asking for something you do not
@@ -202,14 +202,13 @@ to forward.
 | --- | --- |
 | **tcp** — always served whether you list it or not | Works everywhere, and the only one that can be inspected when something goes wrong, so it is easiest to get help with. Its weakness: one lost packet holds up the positions queued behind it, so a bad connection looks "stuttery, then catches up". Not encrypted unless `tls` is on — which it is, by default, on both ends. |
 | **quic** — the other half of the default | UDP underneath, so one lost packet does not hold up the ones behind it, and encrypted always with nothing to switch on. Keeps tcp's port number, so hosting stays one number to forward. Harder to troubleshoot than tcp. |
-| **udp** — never chosen for anyone; you must ask for it by name | Handles loss the same way quic does, because quic rides on it. Everything quic adds on top, it gives up: **it can never be encrypted** — room codes travel in the clear — it needs a second port forwarded, and it is the hardest to troubleshoot. It is here so the protocol underneath quic can be tested and reasoned about on its own; if you can pick either, pick quic. |
 
-> **"Isn't udp the fast one?"** This is the most common misunderstanding, and the answer is that
-> none of them is faster. On a connection that is not dropping packets, all three arrive at
-> exactly the same speed — same route, same physics. What UDP buys is that one lost packet does
+> **"Isn't UDP the fast one?"** This is the most common misunderstanding, and the answer is that
+> neither is faster. On a connection that is not dropping packets, they arrive at exactly the
+> same speed — same route, same physics. What UDP buys is that one lost packet does
 > not hold up the ones behind it, so the win is **smoothness on a bad connection**, not lower ping
-> on a good one. quic is built on UDP and gets that win too, which is why quic rather than plain
-> udp is half the default: the same behaviour, encrypted, on the port you already forwarded.
+> on a good one. quic is built on UDP and gets that win, with encryption on top, on the port you
+> already forwarded — which is why it is half the default and why there is nothing to choose.
 
 Short version:
 
@@ -218,7 +217,6 @@ Short version:
 | Just want it to work? | `tcp,quic` — the default, leave it |
 | Hosting for a group on flaky connections? | `tcp,quic` — the default again; quic is the half that handles loss well |
 | Keep it simplest? | `tcp` — one rule to forward, easiest to get help with, still encrypted |
-| Testing the raw UDP path? | `tcp,udp` — unencrypted, and a second port to forward |
 
 **What to forward, per transport:**
 
@@ -226,13 +224,9 @@ Short version:
 | --- | --- |
 | tcp | forward **TCP** 7777 |
 | quic | forward **UDP** 7777 — the same number as tcp, on purpose |
-| udp | forward **UDP** 7777, and see below |
 
-Adding plain `udp` is the one case that needs more, because udp wants the same UDP port quic is
-already using. quic **keeps** the shared number (it is served by default, plain udp is opt-in), so
-udp moves aside to `listen_udp`, which defaults to **7780** — forward UDP there as well.
-**Nothing checks that you did.** Naming a port is taken as accepting responsibility for forwarding
-it, and no program on this machine can see your router anyway; what the relay does give you is the
+**Nothing checks that you forwarded them.** Naming a port is taken as accepting responsibility
+for forwarding it, and no program on this machine can see your router anyway; what the relay does give you is the
 `to accept players from outside this machine, forward:` line in its startup log, which lists the
 ports it actually bound. Compare that against your router.
 
@@ -253,9 +247,8 @@ interfering, so the fallback is withdrawn the moment it stops being needed. That
 only for relays built before TLS was added. In practice, then, a default client on a default host
 runs an encrypted session it will not silently drop out of.
 
-Two exceptions, both deliberate. Plain `udp` cannot carry TLS at all (Go has no DTLS), so a session
-there stays plaintext and the client's log says so outright rather than letting it look encrypted.
-And a player who sets `tls_fingerprint` is forced to `required` from the start (since 2026-09-07):
+One exception, deliberate. A player who sets `tls_fingerprint` is forced to `required` from the
+start (since 2026-09-07):
 under `auto` a failed pin and "this relay is too old for TLS" arrive as the same error, so pinning
 without that escalation would have turned detection of an interfering relay into an automatic
 downgrade to it.

@@ -1576,3 +1576,24 @@ host being able to pick a transport is the same kind of knob as `send_hz` and in
 shipped option at all and survive only as a test/fuzz path for quic work. The user raised it;
 nothing was changed on it. It needs a plan or an ADR, not a paragraph.
 
+**Then udp came out of `hosting.md` entirely, on the user's call** -- *"we shouldn't try to
+encurage using it over quic"*. Rewriting the row to be honest about udp still left a host reading
+a page that offers a choice where there is not one: quic is preferred always, tcp is the fallback
+that makes connecting easy, and no client picks plain udp on its own. So the section is now
+`Transports -- tcp and quic`: the udp row, its forwarding row, the `listen_udp` 7780 paragraph,
+the summary row and the udp half of the TLS-exceptions paragraph are gone, and the "isn't UDP the
+fast one?" callout now answers about the PROTOCOL under quic rather than about a transport the
+page no longer offers.
+
+**It stays configurable, and the reference keeps it.** `docs/config.md` still documents
+`transport`, `listen_udp` and the never-encrypted property -- the user's framing is that picking a
+protocol should stay as available as changing `send_hz` or interp. The one repair that needed:
+`listen_udp`'s row said "the forwarding advice below", which pointed at the hosting paragraph just
+deleted and at nothing in its own file, so that row now carries the forward-UDP-on-7780-too fact
+itself. A pointer whose target is deleted elsewhere is the failure mode a link checker cannot
+see, because the words are not a link.
+
+**Unsynced on purpose:** `packaging/release/docs/*.txt` are gitignored and regenerated from these
+`.md` by `stage-release.ps1`, so the earlier edits in this session that hand-mirrored them were
+unnecessary work. The release staging is the sync.
+
