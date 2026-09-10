@@ -3545,3 +3545,38 @@ stub restored, the relay stopped and 7777/7778 free; the game and its core were 
 left alone. Everything is committed; the last DLL on both installs is `868a2707d5f1` (bound stick).
 Records: `UNVERIFIED.md` (the READY entry of the afternoon), `pitfalls/by-lesson.md` (three
 entries), `FLAGS.md` (the `ghost_drive.txt` row), `PROBES.md`.
+
+## 2026-09-10 — a tester's crash folder, read end to end: it was ours
+
+The user forwarded a tester's crash folder (`UE4SS.log`, `meshghost.log`, `config.json`, a UE
+`CrashContext.runtime-xml` and a 25 MB minidump) with the right question: ours, vanilla, or another
+mod? Two C++ UE4SS mods were loaded and **both ship a DLL named `main.dll`**, so the crash context
+alone could not answer it. The minidump's module list did: the faulting frames' base
+(`0x03c60000`) is `Mods\MeshGhostPseudo\dlls\main.dll`; Archipelago's sits at `0x033c0000` and
+appears nowhere in the stack. The exception is `c0000005`, parameters `[0, 0x1e9]` — a read through
+a NULL class pointer, not a wild address.
+
+The tester's DLL matched this working copy's build byte for byte (PE `TimeDateStamp` `6aa1ec50`), so
+the local `main.pdb` was the right symbols; `dbghelp.dll` through PowerShell P/Invoke resolved the
+two frames to `game_thread_tick -> tick_remote_mirrored_vfx`, `Plugin.cpp:14194`, the `Deactivate`
+call in the mirrored-VFX stop branch. Their own log then dated it: `chaser:1` started `ks` at
+18:28:23.9, the redraw loop logged `ghost is no longer valid (level transition) -- releasing stale
+reference` at 18:28:28.65 and respawned on the next line **with no release and no despawn between
+them**, the local player's `ks` ended at 18:28:33.4, and one chaser delay later the game died.
+
+`RemoteGhost::vfx_components` holds components ATTACHED to the ghost, and it was cleared in
+`release_ghost` and `release_all_ghosts` (since 2026-08-27, whose comments name this exact stack) —
+but not in the redraw loop's two "drop the stale reference and respawn" paths. Both now clear it,
+plus `weapon_fly_component`/`weapon_hand_hidden`; the world-spawned handles are deliberately left
+alone there. Rebuilt, deployed to both Pseudoregalia installs (both UPDATED, hashes match
+`packaging/release`). New preflight section, "Dropping a ghost must drop every component attached to
+it", checks every `.ghost = nullptr;` site against the window since the previous one —
+negative-tested (FAIL naming the site with a deleted clear, PASS with 4 sites intact); the two
+existing gates could not see this shape, one by its own admission (file-scope only) and one by
+scope (the two release paths).
+
+Unwatched: the fix itself. Records: `UNVERIFIED.md` (the READY entry), `pitfalls/by-lesson.md` and
+its INDEX line. Also seen while reading their config: QUIC never connects on their machine
+(`wsaioctl` 10045 under Proton) and the core falls back — working as designed, worth a look
+someday. Not touched: a pre-existing preflight FAIL, two TEVI `VERIFIED.md` entries missing their
+index lines.

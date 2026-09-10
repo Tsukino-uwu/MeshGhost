@@ -23176,6 +23176,25 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] remote {} ghost is no longer valid (level transition) -- releasing stale reference, will respawn fresh.\n"),
                              to_wide_ascii(id));
                 hijacked_actors.erase(remote.ghost);
+                // **Every component ATTACHED to this ghost dies with the actor, so every reference
+                // to one is dropped here too** -- fourth instance of the dangling-per-ghost-pointer
+                // family, and the first one caught through these two "release the stale reference,
+                // respawn fresh" paths. A tester's crash dump (2026-09-10, chaser pack of 7 in
+                // Zone_Tower) landed at EXCEPTION_ACCESS_VIOLATION in tick_remote_mirrored_vfx ->
+                // GetFunctionByNameInChain, 5.7s after the staleness branch above ran for chaser:1:
+                // the ghost was replaced without a release, so vfx_components still named a Niagara
+                // component of the DEAD actor, and the next tick that wanted that effect STOPPED
+                // called Deactivate on freed memory. release_ghost and release_all_ghosts both
+                // already clear this map -- their comments named this exact stack in 2026-08-27 --
+                // and these two ways to lose a ghost were the ones that never got the line.
+                // Dropping the reference is the whole fix: the destroyed actor took the components
+                // with it. The world-SPAWNED handles (weapon glow, projectile, the one-shot ring)
+                // are deliberately left alone here: they outlive the ghost by design and have their
+                // own staleness checks, and this branch also fires for destruction that is not a
+                // level teardown.
+                remote.vfx_components.clear();
+                remote.weapon_fly_component = nullptr;  // attached to the ghost; dies with it
+                remote.weapon_hand_hidden = false;      // the hand mesh it tracked is gone with the ghost
                 // The recall glow is attached to this ghost -- it dies with the actor, so only the
                 // reference needs clearing before a fresh ghost spawns its own.
                 remote.recall_glow_component = nullptr;
@@ -23263,6 +23282,25 @@ namespace MeshGhostPseudo
                 Output::send(STR("[MeshGhostPseudo] remote {} ghost's world changed (local player transitioned) -- releasing stale reference, will respawn fresh.\n"),
                              to_wide_ascii(id));
                 hijacked_actors.erase(remote.ghost);
+                // **Every component ATTACHED to this ghost dies with the actor, so every reference
+                // to one is dropped here too** -- fourth instance of the dangling-per-ghost-pointer
+                // family, and the first one caught through these two "release the stale reference,
+                // respawn fresh" paths. A tester's crash dump (2026-09-10, chaser pack of 7 in
+                // Zone_Tower) landed at EXCEPTION_ACCESS_VIOLATION in tick_remote_mirrored_vfx ->
+                // GetFunctionByNameInChain, 5.7s after the staleness branch above ran for chaser:1:
+                // the ghost was replaced without a release, so vfx_components still named a Niagara
+                // component of the DEAD actor, and the next tick that wanted that effect STOPPED
+                // called Deactivate on freed memory. release_ghost and release_all_ghosts both
+                // already clear this map -- their comments named this exact stack in 2026-08-27 --
+                // and these two ways to lose a ghost were the ones that never got the line.
+                // Dropping the reference is the whole fix: the destroyed actor took the components
+                // with it. The world-SPAWNED handles (weapon glow, projectile, the one-shot ring)
+                // are deliberately left alone here: they outlive the ghost by design and have their
+                // own staleness checks, and this branch also fires for destruction that is not a
+                // level teardown.
+                remote.vfx_components.clear();
+                remote.weapon_fly_component = nullptr;  // attached to the ghost; dies with it
+                remote.weapon_hand_hidden = false;      // the hand mesh it tracked is gone with the ghost
                 // The recall glow is attached to this ghost -- it dies with the actor, so only the
                 // reference needs clearing before a fresh ghost spawns its own.
                 remote.recall_glow_component = nullptr;

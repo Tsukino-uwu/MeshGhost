@@ -6988,3 +6988,59 @@ a file that is not there. 979 links across 175 files passed on the first clean r
 depth-dependent and belongs as an absolute url; a relative link to a file in the repo is fine and
 is now verified. And when a link works in one file, that is not evidence about the same link in
 another.
+
+## A CRASH DUMP NAMES THE CULPRIT — the third way to lose a ghost never got the line that the other two had (Pseudoregalia, 2026-09-10)
+
+**Symptom.** A tester sent a folder: `UE4SS.log`, `meshghost.log`, `config.json` and a UE
+`CrashContext.runtime-xml` + 25 MB minidump. Pseudoregalia died mid-session with
+`EXCEPTION_ACCESS_VIOLATION reading address 0x1e9`, a chaser pack of 7 running in `Zone_Tower`. The
+question asked was the right one: **ours, vanilla, or another mod?** Two C++ UE4SS mods were loaded
+(`AP_Randomizer` and ours) and **both build a DLL literally named `main.dll`**, so the crash
+context's module names could not answer it alone.
+
+**How it was diagnosed, in the order that worked.**
+
+1. **The minidump's module list settles which `main.dll` is which** — parse stream type 4
+   (`MINIDUMP_MODULE_LIST`, 108 bytes per record) and read the full path per base address. Ours sat
+   at `0x03c60000`, Archipelago's at `0x033c0000`. The `PCallStack` in the crash XML named
+   `0x03c60000` — us. The exception stream (type 6) gave `c0000005` and parameters `[0, 0x1e9]`: a
+   READ through a NULL pointer at field offset `0x1e9`, not a wild address.
+2. **The build is identifiable without a PDB signature.** The dump carried no CodeView records, but
+   a PE `TimeDateStamp` is enough: `6aa1ec50` matched the `main.dll` in this working copy byte for
+   byte, so the local `main.pdb` was the right symbols.
+3. **Symbolizing needed no debugger install** — `dbghelp.dll` via PowerShell P/Invoke
+   (`SymInitialize` → `SymLoadModuleEx` at any base → `SymFromAddr` + `SymGetLineFromAddr64`)
+   turned the two `main.dll` frames into
+   `game_thread_tick -> tick_remote_mirrored_vfx`, `Plugin.cpp:14194` — the `Deactivate` call in
+   the mirrored-VFX **stop** branch.
+4. **The log then dated the corpse.** `18:28:23.9 MIRRORVFX ghost chaser:1: started 'ks'` →
+   `18:28:28.65 remote chaser:1 ghost is no longer valid (level transition) -- releasing stale
+   reference, will respawn fresh.` → a fresh spawn on the same line, **with no `releasing remote
+   chaser:1` and no `despawned remote chaser:1` between them** → `18:28:33.4` the local player's
+   `ks` effect ends → one chaser delay later, `~18:28:34.4`, the crash. The map still named the
+   dead actor's component and the stop branch dereferenced it.
+
+**Cause.** `RemoteGhost::vfx_components` holds raw pointers to components ATTACHED to the ghost, so
+the actor's destruction frees them. It was cleared in `release_ghost` and in `release_all_ghosts`
+(both since 2026-08-27, whose comments already named this exact stack) — but the redraw loop has
+**two more** ways to drop a ghost, the staleness check and the world-changed check, and neither
+cleared it. Fourth instance of the dangling-per-ghost-pointer family in this adapter.
+
+**Fix.** Both redraw drop sites now clear `vfx_components`, `weapon_fly_component` and
+`weapon_hand_hidden` alongside the recall glow they already cleared. The world-SPAWNED handles
+(weapon glow, projectile, the one-shot ring) are deliberately left alone there: they outlive the
+ghost by design, and that branch also fires for destruction that is not a level teardown.
+
+**Why the existing gate missed it.** Preflight's "Raw-pointer caches must say why they cannot
+dangle" matches **file-scope** caches and says in its own comment that it cannot see struct members;
+"RemoteGhost pointer fields are cleared at release" checks **the two release paths** and nothing
+else. The drop sites that are not release paths were in neither. The new section, "Dropping a ghost
+must drop every component attached to it", checks every `.ghost = nullptr;` site against the window
+since the previous one — negative-tested by deleting one clear (FAIL naming line 23329) and
+restoring it (PASS, 4 sites).
+
+**Reach for first.** A tester's crash folder is a full diagnosis, not a hint: module list → which
+mod, timestamp → which build, `dbghelp` → which function, then the mod's OWN log for the five
+seconds before it. And when a lesson's fix is "clear this on release", **count the ways the thing
+can be lost** — two of four here were release paths, and the gate that shipped with the lesson only
+ever looked at those two.

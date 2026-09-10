@@ -2058,6 +2058,43 @@ if ($unannotated.Count -eq 0) {
     Report-Fail ("raw-pointer cache(s) with no stale-safe: annotation -- say why it cannot dangle (hook-cleared and never freed mid-level, or per-use validated), or hold FWeakObjectPtr instead: " + ($unannotated -join "; "))
 }
 
+Section "Dropping a ghost must drop every component attached to it (Pseudoregalia)"
+
+# Added 2026-09-10, after a tester's crash dump: EXCEPTION_ACCESS_VIOLATION in
+# tick_remote_mirrored_vfx -> GetFunctionByNameInChain, 5.7s after the redraw loop's
+# "ghost is no longer valid -- releasing stale reference" branch ran for a chaser. That branch
+# replaced the ghost without clearing `remote.vfx_components`, so the map still named a Niagara
+# component of the DESTROYED actor and the next tick that wanted that effect stopped called
+# Deactivate on freed memory. release_ghost and release_all_ghosts had cleared it since
+# 2026-08-27; the two redraw-loop paths never got the line.
+#
+# The section above cannot see this shape -- it says so itself: it matches file-scope caches, and
+# these are STRUCT MEMBERS of RemoteGhost. So: every site that drops `.ghost` must also drop the
+# handles to things ATTACHED to that ghost, which the actor's destruction has already freed. The
+# window checked is from the previous drop site to this one, so each site answers for itself.
+$ghostDropTokens = @('vfx_components.clear()', 'weapon_fly_component = nullptr', 'recall_glow_component = nullptr')
+$dropLines = @()
+for ($i = 0; $i -lt $pluginLines.Count; $i++) {
+    if ($pluginLines[$i] -match '\.ghost = nullptr;') { $dropLines += $i }
+}
+$dropFails = @()
+$prev = 0
+foreach ($d in $dropLines) {
+    $window = $pluginLines[$prev..$d] -join "`n"
+    $missing = @($ghostDropTokens | Where-Object { $window -notmatch [regex]::Escape($_) })
+    if ($missing.Count -gt 0) {
+        $dropFails += ("line " + ($d + 1) + " drops the ghost without: " + ($missing -join ", "))
+    }
+    $prev = $d + 1
+}
+if ($dropLines.Count -eq 0) {
+    Report-Fail 'no ghost-drop site found in Plugin.cpp -- this check has stopped checking anything'
+} elseif ($dropFails.Count -eq 0) {
+    Report-Pass ("every ghost-drop site (" + $dropLines.Count + ") clears the components attached to that ghost")
+} else {
+    Report-Fail ("a ghost was dropped while a handle to something attached to it was kept -- clear it in the same breath: " + ($dropFails -join "; "))
+}
+
 Section "No hard-coded adapter or game counts in living docs"
 
 # WHY THIS EXISTS. "All four adapters", "the four shipped games": true the day it is written and
