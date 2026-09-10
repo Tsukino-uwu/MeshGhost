@@ -278,6 +278,14 @@ foreach ($doc in (Get-ChildItem 'docs\*.md' | Sort-Object Name)) {
     # hosting.txt. Rewrite the extension so the pointer names a file that actually exists in the
     # zip. Only on a bare <name>.md token, so prose mentioning a .md path elsewhere is untouched.
     $body = [regex]::Replace($body, '(?<![\w/\\.])([a-z0-9][a-z0-9-]*)\.md\b', '$1.txt')
+    # ...and the same page written as a REPO path, "docs/security.md", which the deeper guides use
+    # to cite each other. In the zip that file is docs\security.txt sitting in the same folder as
+    # the page citing it, so the directory prefix is dropped along with the extension: 39 such
+    # pointers were dead in the zip until 2026-09-10, all of them naming a file the reader had.
+    # `agent_docs/...` is deliberately NOT matched -- agent_docs\ is not shipped, so those name
+    # the repository honestly and must stay as they are. The lookbehind is what separates them:
+    # `_` is a word character, so `agent_docs/` cannot match.
+    $body = [regex]::Replace($body, '(?<!\w)docs/([a-z0-9][a-z0-9-]*)\.md\b', '$1.txt')
     $out = Join-Path $docsDest ($doc.BaseName + '.txt')
     [System.IO.File]::WriteAllText($out, $body, (New-Object System.Text.UTF8Encoding $false))
     $docCount++
