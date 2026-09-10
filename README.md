@@ -26,9 +26,8 @@ zip too, under `docs\`.
 
 ## Docs
 
-**[docs/](docs/README.md)** is for people using MeshGhost — the full list, from the player's first
-unzip to auditing the code yourself. **[agent_docs/](agent_docs/README.md)** is the internal working
-record: the design brief, the implemented contract, the roadmap and every lesson learned building it.
+**[docs/](docs/README.md)** is for people using MeshGhost. **[agent_docs/](agent_docs/README.md)**
+is the internal working record.
 
 ## Contributing
 
