@@ -75,6 +75,8 @@ filed under the right theme, but anything can check that it is listed.
 - TEVI: a portal settles after the last ghost disconnects on it (2026-09-02)
 - TEVI: 300ms interp at the 15Hz relay on the ocean-tier proxy, the ladder climbed on a fixed relay (2026-09-02)
 - TEVI: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), the ladder climbed on the fixed relay (2026-09-02)
+- TEVI: a peer's orbitars, their crystal trail, core expansions and the boost shield (2026-09-10)
+- TEVI: a peer's projectiles fly, hit walls and wear the right colours — a good state, not a finished one (2026-09-10)
 ## Confirmed facts
 
 ### TEVI Phase 6.1 — BepInEx plugin loads and coexists with the Randomizer
@@ -916,3 +918,90 @@ sample through the outage and jumps to the first one after it; no interp value c
 catch-up rule would, and that is a separate decision. The 300ms verdict earlier the same night was on
 the milder 60/25/2/2 profile and stands only for that link. The shipped `300ms` was NOT changed on this
 run -- the user decides once all four games have their worst-case number.
+
+## TEVI: a peer's orbitars, their crystal trail, core expansions and the boost shield (2026-09-10)
+
+**User, on screen, two real instances, hot-deployed one piece at a time over an evening.** Basic orbs
+on one save, Sable/Celia on the other, and each side showed the other's. Drained from `UNVERIFIED.md`
+2026-09-10 on the user's own words below; the mechanism detail and the failed trails stay in
+[phase6.md](../../agent_docs/phases/phase6.md).
+
+| What | The user |
+|---|---|
+| The two orbitars render beside the ghost wearing the PEER's look | *"okay orbitars sync now"* |
+| Their crystal afterimage trail | *"orbitar trail, yellow after image works fine"* |
+| The dodge afterimage fade, after it lingered ~4x too long | *"works fine"* |
+| Core expansions (the B-button orbitar skills) mirror | *"it does the summon thing now"* |
+| The boost shield / barrier, after the activation keyword fix | *"yee looks correct now i think"* |
+| The summon's animation, once the peer's animator speed rode the row | *"looks good"* |
+| The blue hover trail at the fixed order and count, and the summon standing still in the world | *"these work"* |
+
+**Why each worked.** The orb clone has its `OrbBall` brain removed **before `Start`** — left on, it
+registers a Light into the local player's slot and shoots with the local save's MP. Core expansions
+turned out not to be the legacy `OrbBall.SkillUsing` / `BossType.SUMMON` path at all (the first build
+mirrored it and showed nothing, user: *"the core expansions are not working"*); the real one is
+`CharacterPhy.UseBoost` -> `BoostSystem` -> `EventManager.OrbsToHumanoid`. Identity is safe because a
+peer's summon ghost is a bare sprite clone and never a `CharacterBase`, so it cannot echo. Summon,
+shield and platforms travel as **absolute world positions** — root-relative made them inherit the
+ghost's interpolated motion.
+
+**The two faults worth remembering.** A clone of a component the game parks INACTIVE is born with
+`Awake` unrun: `SetMainColor` threw per message and the exception aborted the whole ghost update
+before pose, facing and trail, so the ghost froze for the length of every core expansion. Fixed by
+activating the clone once, and **every cosmetic sub-feature is now walled in its own try/catch** so
+one failure can never freeze a ghost again. Then the barrier popped with no bloom: `FXVShield.SetMaterial`
+builds its four materials from the renderer's CURRENT material and strips `ACTIVATION_EFFECT_ON` from
+the base one — the template had already been stripped, so the clone's activation materials never had
+the keyword. The timing probe had shown the ghost's fade starting on the peer's beat, which is what
+pointed away from timing and at rendering.
+
+**Not mirrored yet, and not claimed here:** the return glow on the orbs (`GlowOrbsEffect`), whatever
+the humanoid fires, and the camera post-process shared with the local player's shield.
+
+## TEVI: a peer's projectiles fly, hit walls and wear the right colours — a good state, not a finished one (2026-09-10)
+
+**User, on screen, two real instances, eight builds in one live session.** Drained from
+`UNVERIFIED.md` 2026-09-10. **This entry deliberately does NOT claim projectiles are fully synced**
+— the user's own summary is *"in a good state, but not fully synced"*, and what is still unmirrored
+is listed at the bottom and stays queued.
+
+| What | The user |
+|---|---|
+| Bullets appear and fly on a peer's ghost | *"its doing projectiles now, but not doing them all properly"* |
+| Wall hits — a wall a few tiles away and a wall across the room, lock-on and plain orb shot | *"it works now"* |
+| A ghost's bullets no longer damage the watcher | *"when standalone shoot, steam takes damage from some of them"* -> after the fix, *"haven't seen anything deal damage, i shot a few times now"* |
+| Bullet types and colours across two different game builds | *"no more white circles, they are properly shotting the correct red/blue bullets now"* |
+
+**Four mechanisms worth keeping.**
+
+1. **A death is the frame the bullet STOPS, not the frame its pool slot frees.** On a wall the game
+   calls `DestroyMe`: the bullet halts and pops for ~0.15s before `DespawnBullet` clears the slot, so
+   a ghost hearing only about the slot flew that whole pop past the wall at full speed. The death now
+   carries **where** it stopped — measured exact, delta 0.0 across 299 kills.
+2. **The watcher runs the game's own wall test locally**, so a hit lands with no wire delay. Its two
+   arms have DIFFERENT scopes and gating both was wrong: `CheckIsWall` reads the AREA's tile grid by
+   absolute position (valid wherever the peer is), `CheckIsTerrainBox2D` overlaps the colliders loaded
+   for OUR room (gated on the peer being in it). Gating both made wall hits distance-dependent.
+3. **`CannotPassWall` is not a birth fact.** The lock-on shot grants itself that flag 0.02s after
+   launch from inside `BulletBehave`, which never runs on a ghost. Flags are tracked per POOL SLOT for
+   the bullet's whole life and sent on change under their own key.
+4. **The two installs are different TEVI builds**, so `BulletType` and `SpriteType` ordinals differ —
+   the old build's `ORB_LOCK_NORMAL / SHOT_CYAN` decoded on Steam as `lily_groundbreak / effect_ring1`,
+   a white ring. The game's own enum **NAMES** now ride the wire and a receiver believes them over the
+   ordinals. **Print `enum.ToString()` on the SENDER; never map numbers through a DLL's enum table** —
+   doing that produced a whole wrong story about "borrowed boss moves".
+
+**Running the game's own `BulletBehave` on a ghost is OFF FOR GOOD.** It damaged the watcher, and the
+path was never pinned to a line: it reaches ~580 `ShootBullet` sites plus `CreateBomb`, `CreateLaser`,
+`WallAction`, tile destruction and `CameraScript.Shake`. A guard that undoes the bullets alone is not
+a guard. Families that move themselves are owed a design that never runs game code on a ghost.
+
+**Also fixed and not to be undone:** a ghost bullet is deactivated and destroyed only ten seconds
+later, because a pooled follower still holding one threw 53,333 `NullReferenceException`s; the wall
+pop is clamped at zero (past it the scale went negative and grew every frame — the screen-filling
+sprite); and a one-shot sweep at load ends any follower whose bullet is gone, so a session recovers
+without a restart.
+
+**Still not mirrored, and still queued:** plain-shot distance with the 1.5s cap gone, the drawn-sprite
+animation, the effect-index fallback across builds, Sable's charged B wave, Celia's charged C homing,
+a core expansion's burst, and what a summoned humanoid fires.

@@ -42,10 +42,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — **projectile WALLS are user-confirmed** (*"it works now"*): death on the frame the bullet stops, its stop POSITION on the wire, the game's own wall test run locally, and the `CannotPassWall` flag mirrored for the bullet's whole life. Held here for a second session before it counts — (2026-09-10)
-- READY — **projectiles, second pass**: the game's own `BulletBehave` on a ghost is OFF FOR GOOD (it damaged the watcher); names on the wire fixed the white rings and the wrong colours (user-confirmed); still UNWATCHED: plain-shot distance with the 1.5s cap gone, the drawn-sprite animation, the effect-index fallback across builds (2026-09-10)
-- READY — **projectiles on the ghost** (spawn-and-fly + the game's own follower effects + muzzle flashes): first sighting confirmed, the two fixes after it are UNWATCHED — judge this first (2026-09-10)
-- READY — orbitars, their crystal trail, the dodge fade, core expansions and the boost shield are all user-confirmed; UNWATCHED from the same evening: the blue trail's count/parameters and its dodge-vs-hover order, world-fixed summon positions, the `map_markers` config key (2026-09-10)
+- READY — **projectiles: what is still unmirrored** — the confirmed half (walls, colours, no watcher damage) is in `VERIFIED.md`; the plain-shot distance, the drawn-sprite animation and four more shots are unwatched (2026-09-10)
+- READY — **from the orbitar/core-expansion evening**: the blue trail's count/parameters and its dodge-vs-hover order, and the `map_markers` config key — one AMBIGUOUS, needs a yes/no (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
@@ -57,305 +55,73 @@ entry without one.
 - Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 - Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 - PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
-## [READY] Orbitars, their crystal trail, the dodge afterimage fade, and core expansions on the ghost (2026-09-10)
+## [READY] From the orbitar / core-expansion evening: what is still unwatched (2026-09-10)
 
-**Built and hot-deployed to both installs 2026-09-10, one thing at a time, with the user watching the
-two-instance rig.** Four pieces, in the order they went in:
+**The confirmed work drained to [`VERIFIED.md`](VERIFIED.md) 2026-09-10** ("a peer's orbitars, their
+crystal trail, core expansions and the boost shield"). These three shipped in the same evening and
+were NOT watched:
 
-- **The orbitars.** A peer's two orbs render beside its ghost, wearing the PEER's look: the sender
-  reads each real orb's renderer facts (position relative to the root, which of the game's own orb
-  sprites, glow sprite and alpha, crystal ring colour/alpha/rotation, charge halo scale) and the
-  watcher applies them to a clone of the game's orb prefab with its `OrbBall` brain removed before
-  `Start` (which would otherwise register a Light into the local player's slot and shoot with the
-  local save's MP). The user, first look: *"okay orbitars sync now"*. Basic orbs on one save,
-  Sable/Celia on the other, and each side shows the other's.
-- **The crystal trail.** The user's next line: *"not the 'orbitar after image/trail' when moving
-  around"*. The real orb lights one pooled afterimage child per physics step while its crystal ring
-  renders; the ghost orb now does the same from the plugin's `FixedUpdate`, using the prefab's own
-  trail children (renamed `<ghost>_orb<i>_trail<k>` so the orphan sweep knows them). User, same
-  session: *"orbitar trail, yellow after image works fine"*.
-- **The dodge afterimage.** *"the yellow after image trail is appearing way too much on the ghost"*.
-  Cause in the code: the game's dodge branch fades its afterimages at decay 6.67 where the slide
-  trail uses 1.5, and the ghost used 1.5 for both, so yellow images lingered ~4x too long.
-  `DodgeTrailDecaySpeed = 6.67f` now. User: *"works fine"*.
-- **The blue trails spawned too few afterimages** (user: *"not doing enough of them when im hovering
-  on the ghost ... might apply to all the blue trails"*). Cause: the spawn timer advanced once per
-  render_remote MESSAGE, adding a frame's delta per call, while the core delivers on its own tick --
-  at 144fps the ghost saw a fraction of real time. It now ticks once per frame on GemaTimeManager's
-  delta like the game's own, and the peer sends its trail's actual rate, decay, colour, order and
-  effect-layer flag (SetTrail callers set their own) instead of the ghost assuming defaults.
-  **Unwatched.**
-- **Core expansions** (the game's name for the B-button orbitar skills; N, U and D variants).
-  **The first build mirrored the wrong mechanism and showed nothing** (user: *"the core expansions
-  are not working"*): `OrbBall.SkillUsing` / `BossType.SUMMON` / `SetSubOwner` is a legacy path
-  nothing in this build triggers. The real one, read from `CharacterPhy.UseBoost` -> `BoostSystem`
-  -> `EventManager.OrbsToHumanoid`: the orb is HIDDEN, a `GemaOrbToHumanoidTrail` flies from the orb
-  to a real Celia/Sable created `CreateEnemy(type, NOAI)` and `Invisible()`; ~0.33s later it plays
-  `to_character`, turns visible, becomes `BossType.NPC`, runs the boost logic, plays `to_ball`, a
-  trail flies back, it despawns and the orb returns. The ghost now gets all of it: a summon ghost
-  (the player's sprite rig cloned, Animator controller swapped to the one the peer's humanoid wears
-  via `AreaResource.GetNPC` by controller name, so the peer's skin shows; driven by clip and phase;
-  hidden until the peer's turns visible) and a clone of the game's own trail object flown from the
-  ghost orb to the summon and back. Identity: a non-player `Celia`/`Sable` in
-  `CharacterManager.characters` IS the local player's core expansion (the game finds its own the
-  same way, `GetCharacterWithID(type, 0)`); a peer's summon ghost here is a bare sprite clone, never
-  a `CharacterBase`, so no echo loop. User: *"it does the summon thing now"*. Then two more from
-  the same look: **the barrier** -- the boost shield (`playerController.BoostShieldObject`, an
-  `FXVShield` shader mesh) and the two `BoostPlatforms` sprites, now cloned from the game's own
-  objects with the shield's private `isBoostShield` cleared so a peer's barrier never erases the
-  watcher's bullets, colours read off the peer's material; and **the summon drifting with the
-  ghost** -- its position was root-relative, so it inherited the ghost's interpolated motion;
-  summon, shield and platforms now travel as ABSOLUTE world positions. **Then the shield did not
-  show and the ghost froze in pose and facing for the whole core expansion** (user): the template
-  shield is parked INACTIVE between boosts, so its clone was born with Awake unrun and no
-  materials; `SetMainColor` threw NullReference per message and the exception aborted the whole
-  ghost update before pose/facing/trail. Found only after the catch logged the full trace instead
-  of the message. Fix: activate the clone once (Awake runs, parks itself initialised), and every
-  cosmetic sub-feature is now walled off in its own try/catch so one failing can never freeze the
-  ghost again. Shield clone confirmed in the log on the next boost. **Then the barrier popped on
-  and off with no bloom and no fade and seemed to outstay the summon** (user, three looks). Two
-  things, and only the second mattered: (1) the clone was not in the camera's `FXVShieldPostprocess`
-  list -- registered explicitly, no visible change; (2) `FXVShield.SetMaterial` builds its four
-  materials from the renderer's CURRENT material and then strips `ACTIVATION_EFFECT_ON` from the
-  base one, and the template had already done that, so a clone's Awake built every material from
-  the stripped copy and its activation materials never had the keyword. Re-enabled by reflection on
-  `activationMaterial` and `postprocessActivationMaterial`. The "stays too long" was the same fault:
-  without the effect the mesh stayed opaque to the end of the 1.2s animation and popped. The
-  timing probe (`DIAG_SHIELD_TIMING`, event lines both ends) had shown the ghost's fade STARTING on
-  the peer's beat, which is what pointed away from timing and at rendering. User, after the keyword
-  fix: *"yee looks correct now i think"*. The shield's `up` flag now rides the row so the clone fades
-  when the peer's starts fading, not after it ends. **Then the summon "animating a bit weird /
-  looping"**: its clips were played at speed 1 with a hard re-seek on drift, and the humanoid's
-  clips do not all run at 1 -- the peer's animator speed now rides the row and drift is repaid by
-  the same bounded speed change the ghost uses. User: *"looks good"*. Also confirmed in the same
-  pass: the blue hover trail at the fixed order and count, and the summon standing still in the
-  world (*"these work"*).
-  Not mirrored yet: the glow on the orbs when they return (`GlowOrbsEffect`), the camera
-  post-process is shared with the local player's shield (kept on by `KeepShieldPostprocess`,
-  unwatched), and whatever the humanoid fires (the projectile track).
-- **The blue trail, second fault.** User: *"is it due to having the yellow trail things on me
-  currently, i don't think blue trails are appearing properly"*. Yes: the game's order is
-  speed-bonus -> blue, dodge-ready -> yellow, then a timed `SetTrail` (hover) -> blue LAST and
-  unconditionally; the reader only consulted the timed trail when nothing else was set, so a
-  hovering player with a charged dodge trailed blue while the ghost trailed yellow. Order fixed.
-  **Unwatched.**
+- **The blue trail's count and parameters.** The spawn timer advanced once per `render_remote`
+  MESSAGE rather than once per frame, so at 144fps the ghost saw a fraction of real time and spawned
+  too few afterimages. It now ticks on `GemaTimeManager`'s delta like the game's own, and the peer
+  sends its trail's actual rate, decay, colour, order and effect-layer flag instead of the ghost
+  assuming defaults.
+- **The dodge-vs-hover trail ORDER.** The game's order is speed-bonus -> blue, dodge-ready -> yellow,
+  then a timed `SetTrail` (hover) -> blue LAST and unconditionally; the reader only consulted the
+  timed trail when nothing else was set, so a hovering player with a charged dodge trailed blue while
+  the ghost trailed yellow.
 - **`"map_markers"` in config.json** (user's ask, on by default): `false` hides peers' pause-map
-  markers; polled by file timestamp, so a save applies within a second. In the shipped config and
-  `docs/config.md`. **Unwatched.**
+  markers, polled by file timestamp so a save applies within a second. In the shipped config and
+  `docs/config.md`.
 
-## [READY] Wall hits: USER-CONFIRMED, and what it took (2026-09-10)
+**AMBIGUOUS, for the user to settle:** the drained entry recorded *"these work"* against "the blue
+hover trail at the fixed order and count", which reads as confirming the first two bullets — but the
+bullets were also marked unwatched in the same entry. Kept here rather than drained on a guess.
 
-**User: *"it works now"*, after eight builds in one live session. Held here rather than in
-`VERIFIED.md` until a second session repeats it** — the confirmation covers a wall a few tiles away
-and a wall across the room, with the lock-on shot and the plain orb shot, in one room.
-
-What it took, each step a real defect the one before it exposed:
-
-1. **A death is the frame the bullet STOPS, not the frame its pool slot frees.** On a wall the game
-   calls `DestroyMe`: the bullet halts and pops for ~0.15s before `DespawnBullet` clears the slot,
-   and a ghost that only hears about the slot flew that whole pop past the wall at full speed.
-2. **The death carries WHERE it stopped**, and the watcher snaps the bullet back to it — measured
-   exact, delta 0.0 across 299 kills.
-3. **The watcher runs the game's own wall test locally**, so a hit lands with no wire delay at all.
-   Its two arms have DIFFERENT scopes and gating both was wrong: `CheckIsWall` reads the AREA's
-   tile grid by absolute position (valid wherever the peer is), `CheckIsTerrainBox2D` overlaps the
-   colliders loaded for OUR room (gated on the peer being in it). Gating both made it
-   distance-dependent.
-4. **`CannotPassWall` is not a birth fact.** The lock-on shot grants itself that flag 0.02s after
-   launch from inside `BulletBehave` — which never runs on a ghost — so the watcher's test skipped
-   it by design. Flags are now tracked per POOL SLOT for the bullet's whole life and sent on change
-   under their own key, because the 150ms birth ring expired mid-flight on a far shot (the
-   distance dependence) and rows inside it are dropped oldest-first at the extras cap (the
-   *"inconsistent/not all the time"*).
-
-**Also fixed here, and NOT to be undone:** a ghost bullet is deactivated and only destroyed ten
-seconds later, because a pooled follower still holding one threw 53,333 `NullReferenceException`s
-and left effects on screen forever; the wall-hit pop is clamped at zero (past it the scale went
-negative and grew every frame — the screen-filling sprite); and a one-shot sweep at load ends any
-follower whose bullet no longer exists, so a session recovers without a restart.
-
-**What to watch next time:** the same shots from a THIRD distance and in a room the watcher is not
-standing in; whether anything ever dies at the muzzle (the tile-grid arm is ungated now); and
-whether shots go missing under sustained fire — that is the open birth-row loss, not this.
+**What to look at:** hover on a ghost with a charged dodge ready and check the trail is BLUE and as
+dense as your own.
 
 ---
-## [READY] A ghost's bullet flies ITSELF now: the game's own BulletBehave, on the game's own fixed step (2026-09-10)
+## [READY] Projectiles: what is still unmirrored (2026-09-10)
 
-**LIVE THE SAME EVENING -- three findings, in the order they happened. The heading above is kept for
-its mechanism; read this first.**
+**The confirmed half drained to [`VERIFIED.md`](VERIFIED.md) 2026-09-10** ("a peer's projectiles fly,
+hit walls and wear the right colours"). The user's summary was *"in a good state, but not fully
+synced"*. What is deployed and unwatched, or not built:
 
-1. **The behaviour call DAMAGED THE WATCHER and is off for good.** User: *"when standalone shoot,
-   steam takes damage from some of them"*. `GhostBulletsRunGameBehaviour = false` was deployed as
-   the first response, and *"haven't seen anything deal damage, i shot a few times now"* is the A/B.
-   The path was never pinned to a line: `BulletBehave` reaches ~580 `ShootBullet` sites plus
-   `CreateBomb`, `CreateLaser`, `WallAction`, tile destruction and `CameraScript.Shake`, and a guard
-   that undoes the bullets alone is not a guard. What the two guards DID prove: a spawned sub-bullet
-   is player-owned on the watcher (`owner` is the local player) and so hits enemies, not the
-   player -- which means the damage came through something the bullet-pool guard could not see.
-   The mirrored flight for the families that move themselves is owed a design that never runs game
-   code on a ghost (`agent_docs/status.md`).
+- **The flat 1.5s kill is gone.** It was read as `EnableMe`'s `life`, but `_Update` despawns on
+  `life` only for the families that do not manage themselves; a plain orb shot should now travel the
+  same distance yours does.
+- **`bulletScript.time` is PUBLIC** and the reflection lookup asked for `NonPublic` only, so it never
+  resolved.
+- **The drawn sprite was never set.** `ShootBullet` calls `BulletManager.SetSprite` for any bullet
+  with a drawn sprite; the lock-on shot and Sable's charged shot should animate now.
+- **No catch-up on birth.** A birth is up to a send interval old when it arrives, so a bullet spawned
+  at the muzzle starts behind.
+- **The effect-index fallback across builds**, and the two fixes that followed the first sighting.
 
-2. **"White circles" and "red orb shooting blue" were ONE cause, and it was not in the adapter's
-   logic: the two installs are different TEVI builds** (user: *"standalone is a really old build,
-   steam is the current"*; Steam `Assembly-CSharp.dll` 5,274,112 bytes / build 24159771, standalone
-   4,614,656). `BulletType` and `SpriteType` are laid out differently, so the ordinal the old build
-   sent as `ORB_LOCK_NORMAL / SHOT_CYAN` decoded on Steam as `lily_groundbreak / effect_ring1` -- a
-   white ring -- and the pool indices of the orb effects shifted the same way. The fix puts the
-   game's own enum NAMES on the wire (packed cell fields 7-8; a receiver that parses them believes
-   them over the ordinals) and checks a received pool index actually carries the matched follower
-   component, else takes the first pool that does. **USER-CONFIRMED 2026-09-10:** *"no more white
-   circles, they are properly shotting the correct red/blue bullets now"*. Held here rather than
-   in `VERIFIED.md` until it has survived a second session (the confirmation was one set of shots).
+**The six shots to walk, in this order:** a plain orb shot (same distance, same speed, dying where
+yours dies) · Sable charged B (should WAVE, not fly straight) · Celia charged C (should turn, home
+and speed up late) · a shot that hits a wall (its SPLIT, if the real one splits) · a core expansion's
+burst (how many of its shots appear at all — a known cause: birth rows are dropped oldest-first at
+the 1024-byte extras cap) · a drawn-sprite shot (it should animate).
 
-3. **Two wrong turns on the way, kept so they are not repeated.** Reading the DLL's enum table by
-   hand and decoding the standalone's numbers with it (`866 = lily_groundbreak`) produced a whole
-   wrong story about "borrowed boss moves" -- print `enum.ToString()` on the SENDER, never map
-   numbers. And looking the effect pool up by prefab NAME collapsed every orb effect onto the first
-   pool, because every one of them is named "Orb" -- a name is not an identity either.
+**Known and not built:** what a real bullet does to the WORLD when it ends — the sub-bullets and
+effects its `WallAction` spawns are the shooter's own new births, so they arrive only if that frame's
+rows survived the cap. And the families that move themselves are owed a design that never runs game
+code on a ghost, because running the game's own `BulletBehave` on a ghost damaged the watcher and is
+off for good (`agent_docs/status.md`).
 
-**Still to watch, unchanged from the list below:** a plain shot's distance now that the 1.5s cap is
-gone, the lock-on shot animating (`BulletSprite` each fixed step, with `time` really advancing),
-and a core expansion's burst. The families that move themselves (Sable charged B's wave, Celia
-charged C's homing) will fly STRAIGHT until the owed design lands -- that is expected, not a
-regression.
-
----
-
-**Built and hot-deployed to both installs 2026-09-10. Nothing here has been seen on screen.**
-
-**What the user reported**, the evening the projectile mirror shipped: the ghost's shots were
-*"not going as far as intended"*, some of their own shots *"hit walls/split in different
-directions afterwards etc but the ghost don't do these"*, and some core expansions' projectiles
-*"just go a really short distance compared to what it looked like on the players screen"*.
-
-**The premise that was wrong.** The census the mirror was built on (`DIAG_BULLET_WATCH`, the same
-evening) found every bullet it saw flying with zero speed and angle drift, and concluded a bullet
-is a pure function of its birth. It measured the right thing and generalised too far: an orbitar
-family that moves itself does not change `speed` or `angle` at all. Read out of the game's own
-`bulletScript.BulletBehave()`, a switch on `BulletType`:
-
-| Family | What it does that a straight line is not |
-|---|---|
-| `ORB_CHARGED_SABLE_TYPEB` | steps its position up and down every physics tick, flipping on its own counters — the zig-zag |
-| `ORB_CHARGED_CELIA_TYPEC` | turns 180°, homes on the nearest enemy, then accelerates from 1.6s |
-| `ORB_CHARGED_SABLE_TYPEC` | falls on an accelerating curve |
-| `ORB_SHOT_NORMAL` | homes, when its counter 3 says so |
-| `ORB_CHARGED_SABLE_TYPEA` | stops dead on its own terms |
-
-**So the flight is the game's now.** The dormant bullet is handed to its own `BulletBehave()` from
-`FixedUpdate`, on `MainVar.fixedDeltaTime` — the same tick `BulletManager` gives the real ones,
-which matters for a type that COUNTS physics steps to decide when to turn. Two guards make that
-safe on a machine that did not fire the shot: the bullet is not in the pool and never hits
-anything, so every branch behind `hitlist.Count > 0` (bombs, the meter spend, camera shake,
-sub-bullets) is dead code for it; and `GuardedBulletBehave` zeroes `useChargeRemove` around the
-call and despawns anything the call put in the real pool anyway. A throw disables behaviour for
-that one bullet and logs once, rather than every step.
-
-**Four separate defects fixed in the same pass**, each of which alone shortens a ghost's shot:
-
-1. **The flat 1.5s kill.** It was read as `EnableMe`'s `life`, but `_Update` despawns on `life`
-   only while the bullet is OFF SCREEN; the hard cap is `TimeDelete`, which `EnableMe` sets to
-   +infinity. An on-screen charged shot outlives 1.5s easily. Now: the type's own off-camera
-   despawn (inside `BulletBehave`), `TimeDelete`, the peer's mirrored death, and a 12s safety net
-   for a frame whose death row was dropped at the extras cap.
-2. **`bulletScript.time` is PUBLIC**, and the reflection lookup asked for `NonPublic` only, so it
-   returned null and the whole sprite-advance branch it gated had never once run. Drawn-sprite
-   bullets never animated a frame. A reflection lookup that fails is silent by construction.
-3. **The sprite itself was never set.** `ShootBullet` calls `BulletManager.SetSprite` for any
-   sprite id under 91; a clone off the prefab wore the prefab's. The pooled-effect families hid it,
-   since they draw nothing.
-4. **No catch-up.** A birth is up to a send interval old when it arrives, so a bullet spawned at
-   its birth POSITION starts behind the one it mirrors and dies short. The row carries the
-   bullet's own age now and the spawn replays those steps.
-
-Also carried on the row: the size (with the game's spawn pop, which a size sampled mid-pop and
-re-applied with `justSpawn:false` used to freeze 35% oversized), the counters `BulletBehave` keys
-off, the flags and the two lifetimes — packed into ONE cell, because bullets are what the extras
-cap drops first and a cell per field would have cost whole shots in a burst.
-
-**What to look for, in this order:**
-
-1. **A plain orb shot** — same distance, same speed, dying where yours dies.
-2. **Sable charged B** — the ghost's shot should WAVE, not fly straight.
-3. **Celia charged C** — should turn, home and speed up late, not fly straight and vanish.
-4. **A shot that hits a wall** — the ghost's should end there. (Its SPLIT, if the real one splits,
-   arrives as its own births; whether those come through is a separate question — say if they
-   do not.)
-5. **A core expansion's burst** — how many of its shots appear at all. This one has a known
-   remaining limit: births past ~12 rows in a single frame are still dropped at the core's
-   1024-byte extras cap, which no amount of per-row slimming fixes.
-6. **A drawn-sprite shot** (the lock-on shot, Sable's charged shot) — it should animate now.
-
-**Still unmirrored, and known:** what a real bullet does to the WORLD when it ends — the sub-bullets
-and effects its `WallAction` spawns are the shooter's own new births, so they arrive only if that
-frame's rows survived the cap.
-
-## [READY] Projectiles on the ghost: spawn-and-fly, the game's own follower effects, muzzle flashes (2026-09-10)
-
-**Built and deployed; the user saw bullets on the ghost for the first time -- *"its doing projectiles
-now, but not doing them all properly. and also missing some vfx things when shooting"* -- and the
-two fixes for that ARE DEPLOYED BUT UNWATCHED.** Judge this one first next session.
-
-**The census that made it buildable** (`DIAG_BULLET_WATCH`, the same evening, now off). The user
-fired every orbitar shot in a row -- basic A/B/C, charged A/B/C, the core expansions' -- and the
-probe reported, per bullet, birth parameters and death drift:
-
-| what it showed | the number |
-|---|---|
-| speed drift over a bullet's life | **0**, every kind |
-| angle drift over a bullet's life | **0**, every kind |
-| longest life | under 0.8s |
-| most alive at once | 29 |
-
-So a TEVI bullet IS a pure function of its birth, which is exactly the precondition the spawn-event
-plan in [`../../agent_docs/ideas.md`](../../agent_docs/ideas.md) named. No streaming, no lockstep.
-
-**What ships.** The sender rings each BIRTH of a visible bullet it owns for 150ms (seq, type,
-sprite, position, angle, speed, scale, which pooled effect is attached, its scale and colour,
-facing) plus the seqs of bullets that DIED early. The receiver spawns the game's own bullet PREFAB
-as a **dormant** object -- never registered in `BulletManager`'s pool, so it is never ticked: no
-hit checks, no wall checks, no damage, nothing spent -- flies it with the game's own step
-(`cachepos += (cos, -sin) * speed * (fixeddeltatime * 60)`), and hands it to the same pooled
-follower effect with the same `Setup`, so the effect ends itself, hit flash included, when the
-dormant bullet is marked despawning.
-
-**Two things the first build got wrong, both now deployed and unwatched:**
-
-- **A bullet's follower effect is attached AFTER `ShootBullet`, in the orb's own update**, which
-  can run after ours on the birth frame. A birth seen with no follower went out with none, and most
-  TEVI bullets are `SpriteType.USE_PS` -- no sprite at all -- so those flew invisible. Births are
-  now re-scanned while still in the ring and the row is patched in place; a receiver that already
-  spawned the bullet attaches the effect when a later row carries it.
-- **The muzzle flashes are not tied to a bullet at all** (`OrbShootFlash` #7, `OrbChargeFlash` #12,
-  lit at the orb), so the bullet mirror never saw them. The sender now watches those two pools for
-  an object going active that it did not light itself -- the exclusion set is what stops two
-  symmetric peers echoing each other's flashes.
-
-**The extras cap bit once and is guarded.** A core expansion's burst pushed one frame's `extras` to
-1047 bytes, over the core's 1024 cap, and the whole state would have been dropped -- the ghost
-frozen, not just a lost bullet. The ring is 150ms now, and `BridgeClient` trims the OLDEST births
-out of a frame that nears the cap, then the death list, before anything else is touched.
-
-**What to look at.** Two windows. Fire each orbitar shot kind on one side and watch the other:
-every shot visible with its own effect and trail, none flying as an invisible nothing; the flash at
-the orb when the shot leaves; a shot that hits a wall or an enemy on the sender's side ending at
-the same spot rather than flying on. **Known open, not defects to report:** a clone passes through
-what the sender's bullet hit (spawn-only, deliberate first pass), the summon's own attacks, and
-anything the census did not see fire.
-
-**What to look at.** Two windows side by side. On the watching side: the peer's orbs orbiting or
-sitting behind the ghost as they do on the peer's own screen, with the peer's sprites; the ring's
-afterimage trail while the ring is on; a dodge leaving the same short yellow streak as your own;
-a B press on the other side showing the flash and a Celia/Sable standing and animating where the
-peer's summon is, gone when the peer's is. **What is knowingly not there yet:** the orbs' Light
-(disabled on the clone; open), the summon's own attacks and every orbitar shot (basic A/B/C,
-charged A/B/C -- the projectile plan in `agent_docs/ideas.md`, the orbitar entry).
+**What to watch that the drained wall-hit confirmation did NOT cover:** the same shots from a THIRD
+distance and in a room the watcher is not standing in; whether anything ever dies at the muzzle (the
+tile-grid arm is ungated now); and whether shots go missing under sustained fire — that is the open
+birth-row loss, not the wall test.
 
 **The full move list to walk with the pool watch on** (user, 2026-09-10, from the pause menu):
 jump, quick drop, double jump, wall jump (the kick VFX deliberately NOT mirrored for now), slide,
 hover, cross bomb, cluster bomb, basic combo 1-3 / 3alt / 4 / 4alt, upper slash, backflip slash,
 basic air combo 1-3, spiral slash, dagger throw, air dash, mana pillar, tornado spin, spanner bash,
 soul burst. Any of these whose effect is missing on the ghost is a row for `MirroredCommonEffectTable`.
+
 
 ## [READY] The "core not found" message no longer sends the player to a folder nothing searches (2026-09-07)
 
