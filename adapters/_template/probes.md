@@ -45,6 +45,26 @@ scan the group, not the whole thing:
 - **Attribution** — trace the producer and consumer on the SAME LINE · read BOTH characters on ONE
   line · price a suspicion before fixing it · "it is the network" is a hypothesis, not an explanation
   · when one renderer of several is already right, that IS the bisection.
+- **Driving the game instead of waiting for it** — a prepared savestate turns a user-cycle into a
+  self-driven loop · trace a TRANSITION, not a state, and drive it dozens of times · build the
+  RECORDING that isolates the case instead of watching for it · label each experiment with the
+  variable it tests, and let the SCREEN name the answer · a PROBE IS LUA, a rebuild is a last resort.
+- **Asking the engine rather than guessing** — start from the engine's own OAM entry and read
+  backwards to the art · dump the FUNCTION vocabulary and drive the game's verbs live · hook the
+  engine SETTER pre and post with the OWNER of each call · the CARRIER TEST · census an input API
+  before choosing one · count the ALLOCATION BITMAP against the live owners.
+- **Cost, crowds and crashes** — the per-subsystem frame-cost timer · name what a spawn costs, per
+  block · two censuses a minute apart · distance marks with an anchor ghost · **READ THE CRASH DUMP
+  FIRST**, before the second guess and never after the sixth.
+- **Traps in the probe itself** — a screenshot does not contain your overlay · tag a shared bail-out
+  or you have counted nothing · verify a derived formula by running it BACKWARDS · a feature that
+  DRAWS needs its readback in the first build · two renderers of the same state disagreeing is the
+  cheapest localiser you will get.
+
+**Everything past the sixth group above was unindexed until 2026-09-10** — roughly a third of the
+file, in a document whose whole promise is "scan the group, not the whole thing". If you add a
+section, add it to a group here in the same edit; an index that covers part of a file is worse than
+none, because it looks complete.
 
 ---
 

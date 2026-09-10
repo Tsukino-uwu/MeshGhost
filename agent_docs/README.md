@@ -87,6 +87,9 @@ yours to catch.
 sections or tables. Its plainness is deliberate, not an omission — a new feature earns a
 paragraph in the existing flow, or a line in `docs/config.md`, not a heading of its own.
 
+- [../docs/getting-started.md](../docs/getting-started.md) — the player's walkthrough: unzip, copy two files, join a room.
+- [../docs/hosting.md](../docs/hosting.md) — running a relay: ports, transports, room codes, what a host can and cannot see.
+- [../docs/troubleshooting.md](../docs/troubleshooting.md) — what to read when it does not work, per symptom.
 - [../docs/config.md](../docs/config.md) — every `config.json` key, its shipped value, what it does, which program reads it.
 - [../docs/networking.md](../docs/networking.md) — how the relay and client actually work, traced through the code: connections, state messages, concurrency, transports, limits.
 - [../docs/security.md](../docs/security.md) — the security and privacy posture: what is checked-safe versus the known gaps, per transport.

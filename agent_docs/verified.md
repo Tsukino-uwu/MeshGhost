@@ -3,6 +3,11 @@
 This file records facts that have been confirmed by observing actual behavior in a running
 game. See `CLAUDE.md` for the full rule; summary:
 
+- **Entries written before 2026-08-17 say `internal/core`, `internal/relay`, `internal/protocol`
+  and so on for what now sits at the repo root** (ADR 0032 moved the six library packages out
+  of `internal/` that day). Read any `internal/X` here as `X/`. Left as written, because this
+  file is append-only and a dated record records what was true when it was written -- the same
+  exemption `phases/README.md` grants the phase files.
 - No inferred or speculative values are allowed.
 - Every entry must include a source, such as a memory address, API, or documentation
   reference.

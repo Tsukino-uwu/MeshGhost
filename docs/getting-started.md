@@ -6,6 +6,24 @@ group, do this page first anyway — a host is also a player — then read [host
 You need your own copy of the game. No games, ROMs or game files are included here, and never
 will be.
 
+## What MeshGhost actually does, and what it leaves alone
+
+- **Your friends appear visually, and nothing.** Position, rotation,  facing direction and animation cross over the wire online —
+  that is the whole of it. No items, enemies, health or progression are shared. A game whose mod does more than that says so in its own
+  README.
+- **Nothing on disk changes but the mod you install.** To draw a ghost, a mod works on the game's
+  live memory while it runs — the place the game keeps what is on screen right now. Your save, your
+  game files and your ROM are left exactly as they are, and closing the game ends it. Uninstalling
+  is deleting the mod's folder.
+- **Randomisers are fine.** Both Pokémon adapters work on Archipelago-patched ROMs, and a vanilla
+  player and a randomiser player in the same room see each other correctly. Your items and checks
+  stay entirely yours — MeshGhost has no idea what a check is.
+- **Only the person hosting the server sees your IP.** Other players never learn it — the protocol
+  has no field that could carry one. The server passes your position on without being able to read
+  it. [security.md](security.md) has the full picture, including what the host *can* see.
+- **Your antivirus may flag `meshghost.exe`.** Expected, and [antivirus.md](antivirus.md) explains
+  why and what you can check for yourself.
+
 ---
 
 ## 1. Download and unzip
