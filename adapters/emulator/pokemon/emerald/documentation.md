@@ -17,8 +17,9 @@ worth knowing: [adapters/_template/README.md](../../../_template/README.md).
 
 > Most of this is **measured from a running game** across Phases 1–5.5 and 8, and all of it is
 > cross-checked against the public `pret/pokeemerald` decompilation, which is cited by file so any
-> claim can be re-checked. **The boat and Fly sections are decomp-derived and were never watched**
-> (`UNVERIFIED.md`) — every other section carries a `[measured]` / `[player]` / `[from the decomp]`
+> claim can be re-checked. **The boat section is decomp-derived and was never watched**
+> (`UNVERIFIED.md`); the Fly section was too, until a same-town Fly was watched from a second
+> instance on 2026-08-26 (`VERIFIED.md`) — every other section carries a `[measured]` / `[player]` / `[from the decomp]`
 > label, and their absence there is the label. **No source text, data table, or asset from that
 > decompilation is reproduced here** — only facts, per `agent_docs/licensing.md`.
 
@@ -800,3 +801,19 @@ Two facts matter more than the rest:
   arc routine an arbitrary sprite id and lets it carry an NPC away, and the bird names its
   passenger in its own sprite data rather than assuming the player. The routine is general; only
   the task around it is about the player.
+
+## Known unknowns
+
+Open questions about **the game**, kept so a later session can strike one through and point at the
+section that answered it.
+
+- **What the boat actually does to the object arrays.** The section on it is decomp-derived and has
+  never been watched; it is the last movement class in that state.
+- **Whether a cross-town Fly differs from a same-town one** in anything the arrays show. Only the
+  same-town case has been watched.
+- **What Teleport does**, in the same terms as Dig and Escape Rope.
+- **Which of the randomizer's differences are patch-wide and which are per-seed.** The list of what
+  moves has grown every time another seed was looked at, which is why the section on it says to
+  treat it as examples rather than a boundary.
+- **Whether the sprite-priority rule under a text window matches Crystal's**, where a text box was
+  found not to hide characters at all. Emerald's equivalent has never been exercised.

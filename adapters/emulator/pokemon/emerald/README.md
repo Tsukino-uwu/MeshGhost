@@ -323,10 +323,19 @@ order:
     weird/glitched sprites now"*). Two real clients were then confirmed on screen (2026-09-03),
     and the spawned tier's collision with the player was logged as the thing the shipped
     `ghost_collision` setting still does not reach. Detail: [UNVERIFIED.md](UNVERIFIED.md), the
-    2026-09-02 WATCHED entry; [phase8.md](../../../../agent_docs/phases/phase8.md).
+    2026-09-02 WATCHED entry; [phase8.md](../../../../agent_docs/phases/phase8.md). The two-client
+    confirmation is in [VERIFIED.md](VERIFIED.md).
 40. Re-judged the interpolation delay on the worst-case link — NA↔EU ping plus bad wifi, on the
     fixed relay — and 450ms is what ships for this game, like every other (2026-09-02, ADR 0046).
     Confirmed by the user on screen: [VERIFIED.md](VERIFIED.md), 2026-09-02.
+41. Ran the whole thing from the release files, with nothing configured. The adapter loaded from
+    `games/pokemon/emerald/` in the unzipped release, both cores were started by the adapters
+    themselves with no port override set, and cross-map ghosts kept working across a route seam —
+    which mattered that week because the relay had just started filtering by area, and briefly broke
+    them. Emerald asks for `render_all_areas`, so the relay is obliged to forward everything: its
+    own introspection reported nothing filtered against a room where most of the bytes crossed
+    areas. Every earlier check had gone through `dev-scripts` (2026-08-28,
+    [VERIFIED.md](VERIFIED.md)).
 
 **~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.

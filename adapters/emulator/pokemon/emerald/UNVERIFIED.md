@@ -103,7 +103,7 @@ a bug, exactly as happened here.
 **Not the same thing as the drawn/OAM tiers**, which decode the peer's sprite themselves; this
 entry is about the SPAWNED tier only.
 
-## [READY] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03) — LOAD/CONNECT CONFIRMED, the guard itself is not observable
+## [DONE] the JSON decoder now refuses deeply nested input instead of following it (2026-09-03) — the load/connect/render confirmation DRAINED to `VERIFIED.md` 2026-09-10; the guard itself is not observable by construction
 
 **Found by measurement, not by a symptom** — `adapters/emulator/tests/json_fuzz.lua`, which loads this
 adapter's real `jsonDecode` out of the shipped file and drives it with hostile input. This decoder

@@ -200,6 +200,7 @@ filed under the right theme, but anything can check that it is listed.
 - Drained from the queue 2026-08-25 — the Acro Bike closure, kept for its method
 - CLOSED — Emerald: the Acro Bike's wheelie poses are not reproduced (2026-08-20)
 - Emerald: 450ms interp at 15Hz on the WORST-CASE proxy (NA<->EU ping plus bad wifi), on the fixed relay (2026-09-02)
+- Emerald: two real clients still load, connect and render after the JSON depth guard (2026-09-03)
 ## Confirmed facts
 
 ### Emerald ROM revision
@@ -3781,3 +3782,24 @@ at 450ms *"I think 450ms looks fine ... its been a good value for all 4 adapters
 core's meter at 450: 3.1% of moving renders dry, transit avg 204ms, the blackouts accounting for the
 worst figures (max 771ms past the newest sample). **450ms is the pick, the same as TEVI's and
 Pseudoregalia's on this link.** The 250ms verdict from the afternoon was on the broken relay and is void.
+
+## Emerald: two real clients still load, connect and render after the JSON depth guard (2026-09-03)
+
+**User, on screen, a two-client session:** *"i tested pokemon emerald, 2 clients still work and
+connect properly"*. Drained from `UNVERIFIED.md` 2026-09-10; it had been marked CONFIRMED there on
+the day and never migrated, which left `README.md`'s build-story step 39 citing a queue entry for
+its two-client confirmation.
+
+**Why it needed a look at all.** The change was a guard rather than a feature -- the bridge's JSON
+decoder now refuses deeply nested input instead of following it -- and it sits in the function every
+bridge message passes through. Nothing about it is visible in normal play, so the check that mattered
+was that the adapter still did all three things it does: load, connect, render.
+
+**The logs from that session agree**: sprite decode at the vanilla address, the port walk landing on
+the second port after the first answered busy, cross-map ghosts armed, and `in game -- now sending
+local state`. **Ghosts demonstrably rendered**, because the same session produced the separate
+observation that a spawned ghost still has collision -- you cannot be blocked by a ghost that is not
+there.
+
+**Scope.** Vanilla Emerald, two clients on one machine. The guard itself remains unobservable by
+construction; what is confirmed is that adding it cost nothing.
