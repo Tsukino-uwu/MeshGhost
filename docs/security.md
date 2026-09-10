@@ -67,6 +67,18 @@ string by some other route puts it in `"tls_fingerprint"`. A relay presenting an
 refused rather than trusted. Without it, TLS (on `tcp`) and quic alike give you encryption and no
 proof of who is on the other end.
 
+**`auto` withdraws its own plaintext fallback once TLS is proven to work.** The discovery leg runs
+first, over tcp; if it completes a TLS handshake, `core.resolveTransport` escalates the session's
+mode from `tlsx.Auto` to `tlsx.Required` before the session connection is made
+(`core/transportpick.go`). The reasoning is that a plaintext session to a relay that has *just*
+demonstrated it speaks TLS could only be someone interfering — the fallback exists for relays built
+before TLS was added, and once it is known not to be needed it is an attack surface rather than a
+compatibility measure. So a default client against a default relay is not merely "encrypted if
+nothing goes wrong": it will refuse to complete an unencrypted session. The one exception is a
+transport that cannot carry TLS at all — plain `udp`, which has no DTLS in Go — where escalating
+would kill the transport rather than secure it; that session stays plaintext and the client logs
+that it is, in those words, rather than letting it look encrypted.
+
 **Setting a pin forces `tls` to `required` for that session** (since 2026-09-07). It has to: under
 `auto`, "the pin did not match" and "this relay is too old to speak TLS" reach the client as the same
 error, and `auto`'s job is to fall back to plaintext on that error — so a pin under the shipped

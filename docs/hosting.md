@@ -244,6 +244,20 @@ which is all current ones — while still accepting those that do not. This matt
 quic is already encrypted, because **every** player makes first contact over TCP and that is where
 their `room_code` is sent. `required` refuses unencrypted players outright; `off` is plaintext.
 
+**`auto` is not "encrypt if convenient" — it does not downgrade.** Once a player's client has
+completed one TLS handshake with your relay, it escalates itself to `required` for the actual
+session: a plaintext connection to a relay that just proved it speaks TLS could only be someone
+interfering, so the fallback is withdrawn the moment it stops being needed. That fallback exists
+only for relays built before TLS was added. In practice, then, a default client on a default host
+runs an encrypted session it will not silently drop out of.
+
+Two exceptions, both deliberate. Plain `udp` cannot carry TLS at all (Go has no DTLS), so a session
+there stays plaintext and the client's log says so outright rather than letting it look encrypted.
+And a player who sets `tls_fingerprint` is forced to `required` from the start (since 2026-09-07):
+under `auto` a failed pin and "this relay is too old for TLS" arrive as the same error, so pinning
+without that escalation would have turned detection of an interfering relay into an automatic
+downgrade to it.
+
 With TLS on, your server prints a **`tls certificate fingerprint:`** line at startup. That string
 is how a player can verify they reached *your* server and not someone impersonating it: send it to
 them some other way — chat, not through the server — and they put it in `tls_fingerprint`. It
