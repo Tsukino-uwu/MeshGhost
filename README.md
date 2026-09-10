@@ -22,4 +22,4 @@ can show today.
 - [Install guide](docs/getting-started.md)
 - [Hosting a server](docs/hosting.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [All docs](docs/README.md)
+- [The rest of the docs](docs/README.md)

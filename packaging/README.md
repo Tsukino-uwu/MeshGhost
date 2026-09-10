@@ -115,7 +115,7 @@ adapter:
 - **TEVI and Pseudoregalia install INTO the game**, out of reach of the release folder, so each
   game gets its own `config.json` (cut from the root `config.json`), staged in `games/<game>/`
   beside its README.txt. The player copies it and `meshghost.exe` into the **game's root folder**
-  (the one Steam installed) — the only place the mod looks since 2026-09-05, the user's call:
+  (the one Steam installed) — the only place the mod looks since 2026-09-05, and deliberately:
   the DLL sits where the loader finds it, the two files a player touches sit where a player
   looks, and `meshghost.log` and `replay\` land beside them. The workflow ships the config —
   1 KB — and leaves the exe as a **one-time manual copy**, called out in each game's `README.txt`.
@@ -126,8 +126,8 @@ adapter:
   one who does not keeps the original zero-copy behaviour. Nothing is duplicated in the zip
   either way; the exe stays a one-time manual copy, as above.
 
-Shipping a client copy per mod was the obvious alternative and was rejected on the user's call: it
-grows the download by ~2.6 MB (stripped, compressed) per game forever, and the other option — a
+Shipping a client copy per mod was the obvious alternative and was rejected: it grows the
+download by ~2.6 MB (stripped, compressed) per game forever, and the other option — a
 `%LOCALAPPDATA%` breadcrumb pointing at one shared client — is machinery this project would have to
 own, going stale when the folder moves and silently picking the wrong one when two installs exist.
 Copying a file is something a user already understands and that cannot rot. The cost is a forgotten
@@ -185,7 +185,7 @@ Considered and rejected: config values baked directly into the launcher `.bat` (
 earlier version of this packaging did) — a future release update overwrites the launcher and
 silently wipes the user's settings. Considered and rejected: plain `key=value` text (more
 typo-forgiving than JSON, no risk of a missing comma) — genuinely a reasonable alternative,
-but JSON was the user's explicit preference and the downside is mitigated by shipping
+but JSON was chosen deliberately and the downside is mitigated by shipping
 `config.json` pre-filled with working placeholder values (so a user only ever edits values,
 not structure) and by `cmd/meshghost`/`cmd/meshghost-relay` logging a clear parse-error
 warning rather than failing silently.

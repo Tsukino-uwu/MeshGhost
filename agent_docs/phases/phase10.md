@@ -1486,3 +1486,44 @@ session, which neither document said. No code change; the docs were behind the b
 
 **Still unconfirmed and only the user can close it:** the three Crystal items at the top of that
 adapter's `UNVERIFIED.md`.
+
+## 2026-09-11 — the docs' voice: what the reader does not need to know about how we work
+
+**The root README lost its Contributing and Licence sections.** The user's read, checked against
+Archipelago's root README before acting on it: that project names contributing but no ROMs, no
+legally-obtained copies and no licence section, and both of ours were saying what GitHub's sidebar
+already says — MIT from `LICENSE`, `.github/CONTRIBUTING.md` as its own link plus the issue/PR
+banner. The one fact the sidebar does not carry, bringing your own copy of the game, is already
+stated where somebody acts on it (`docs/getting-started.md`, and each adapter's README). 35 lines
+to 25, no anchor links into either section. The last Setup link was also relabelled: "All docs"
+promised more than `docs/README.md` holds, which is the PLAYER docs and not `agent_docs/`.
+
+**Both README indexes were checked for completeness and were already complete** — `docs/` (10 of
+10), `agent_docs/` (31 of 31 at the top level), and every sub-index below it: 58 ADRs plus the
+prior-art file in `architecture.md`, 8 checklists, 12 phase files, 4 `pitfalls/` files.
+
+**Then the voice.** The user, reading `agent_docs/README.md`, found a verbatim chat quote of
+themselves in the docs-rules section *"a bit personal/weird to have in the repo"*. It was a style
+rule quoting a chat message, and the quote said nothing the rule did not — unlike a
+`VERIFIED.md` quote, which IS the confirmation the repo gates on and stays verbatim. Rewritten in
+the project's voice, date kept. `All three are the user's` became `All three are standing rules,
+not conventions to renegotiate` — the personal framing goes, the signal that a future session may
+not renegotiate them stays.
+
+**The sweep that followed, across everything a user or an outside dev opens.** Four more, and only
+one of them player-facing:
+
+- `docs/security.md` — "The user retired that reasoning outright" → "That reasoning was retired
+  outright". A reviewer reading the security posture does not know who "the user" is.
+- `packaging/README.md`, three times — "the user's call" / "the user's explicit preference". Worth
+  fixing past the flavour: that page uses "user" to mean the PLAYER two lines away ("silently
+  wipes the user's settings"), so one word was carrying two meanings in a paragraph.
+
+Deliberately left: the reader-voice headings in `troubleshooting.md` and `antivirus.md` ("My
+antivirus flagged it") are the right register for a symptom page; the `agent_docs/` links in
+`reviewing.md`, `networking.md` and `integrating.md` are the point of those pages; and every
+`VERIFIED.md` / `UNVERIFIED.md` quote stays exactly as the user said it.
+
+**The lesson, if it is one:** a quote of the user is evidence in a record and clutter in a rule.
+The test is whether the sentence would still gate something if the quotation marks came off.
+

@@ -498,7 +498,7 @@ ADR in [agent_docs/architecture.md](../agent_docs/architecture.md).
 ### Why `auto` and not `off` — a policy decision, 2026-08-19
 
 The flags used to default to `off` so that a client could not suddenly demand encryption from a
-relay that predated it. The user retired that reasoning outright: **assume everyone is on the
+relay that predated it. That reasoning was retired outright: **assume everyone is on the
 latest release.** A default whose whole purpose is protecting stale versions protects nobody, and
 the cost of keeping it was real -- every fresh install ran unencrypted unless somebody found the
 setting.

@@ -64,16 +64,17 @@ is `playing.md`; **who the USER is lives in agent memory, outside the repo, and 
 ## `../docs/` — written for people using MeshGhost
 
 **Three standing rules for everything a player reads** — this section, the root `README.md`, the
-release `README.txt` and each game's own README. All three are the user's, and all three are easy to
-break without noticing:
+release `README.txt` and each game's own README. All three are standing rules, not conventions to
+renegotiate, and all three are easy to break without noticing:
 
 **Describe our features on their own terms. Never name or compare against another game or
-product** (2026-09-04): *"this is 'our' own feature, we should keep it generic/stale for our
-project, not mention/compare it to others. but we should ofc still explain what it does/how it
-works"*. A generic term for a KIND of thing is fine and often clearer — a replay ghost is
-something you can race, the way a time-trial ghost is — but the sentence may not lean on anyone
-else's name to do its explaining. This is separate from `licensing.md`'s citation gate, which is
-about sources rather than prose, and it holds even where a comparison would be perfectly legal.
+product** (2026-09-04). A feature is explained by what it does and how it works, and that
+explanation stands on its own: it is ours, and it stays generic rather than borrowing someone
+else's frame of reference. A generic term for a KIND of thing is fine and often clearer — a
+replay ghost is something you can race, the way a time-trial ghost is — but the sentence may
+not lean on anyone else's name to do its explaining. This is separate from `licensing.md`'s
+citation gate, which is about sources rather than prose, and it holds even where a comparison
+would be perfectly legal.
 
 **Write the invariant, never the inventory** (2026-09-04). A sentence about what the current set
 of adapters does or does not do goes stale the moment one changes, and it does it silently --
