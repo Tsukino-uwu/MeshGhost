@@ -1535,3 +1535,19 @@ other heading is `##` — A, B and D are bold lines — which is why it read as 
 rather than as the third of four peers. Both fixed at the source; the zip's `hosting.txt` is
 generated from it by `stage-release.ps1` and is gitignored, so it needs no separate edit.
 
+**Then the count came out entirely.** A third copy of it was in the numbered list ("pick whichever
+of the three below") and had gone stale the same way, which is this repo's own *write the
+invariant, never the inventory* rule (`agent_docs/README.md`) catching the page that broke it: a
+hard-coded count of options is an inventory, and adding D silently falsified two sentences nobody
+was looking at. Both now read "the options below" and "Step 2, your options". The
+numbers-then-letters scheme is deliberate and stays — 1-4 are sequential steps, A-D are
+mutually exclusive alternatives for step 2, and numbering both would make "step 2, option 3"
+collide with "step 3".
+
+**And then the LAN option came out, on the user's call.** "Everyone is on the same network
+already" was two lines saying do nothing, and the user's read was that the page does not need it.
+The one real cost was that the VPN option ended with "and then you are in case A" — its whole
+pitch was that it converts your situation into the easy one — so that clause now says what it
+means directly ("so your machine is already reachable to them"). B/C/D became A/B/C; nothing
+else in the tree referenced the removed option or its letters.
+

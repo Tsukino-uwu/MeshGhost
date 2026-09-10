@@ -14,20 +14,16 @@ that.
 
 1. **Double-click `meshghost-server.exe`.** Leave the window open while people play. It prints
    what it is serving and exactly what to forward.
-2. **Make your machine reachable** — pick whichever of the three below fits you. This is the only
-   part that ever gives anyone trouble.
+2. **Make your machine reachable** — pick whichever of the options below fits you. This is the
+   only part that ever gives anyone trouble.
 3. **Tell your friends your address**, e.g. `203.0.113.40:7777`. They put it in `connect_to`. Tell
    them the `room` word too.
 4. **To stop:** close the window, or Ctrl+C. It says goodbye to everyone first so their games
    notice immediately rather than sitting on a frozen room for ~15 seconds.
 
-## Step 2, four ways — pick one
+## Step 2, your options — pick one
 
-**A. Everyone is on the same network already** (same house, or you all use the same VPN)
-
-Nothing to do. Give them the local address your server prints and you are done.
-
-**B. Port forwarding** — the standard way, and the fastest once it is set up
+**A. Port forwarding** — the standard way, and the fastest once it is set up
 
 On your router, forward port **7777** to this machine, on **both TCP and UDP**. Those are two
 separate rules on most routers even though it is one number — the session makes first contact over
@@ -36,19 +32,19 @@ it starts; look for **`to accept players from outside this machine, forward:`**.
 
 Then give friends your public IP (search "what is my ip"), plus `:7777`.
 
-**C. A VPN**, if you cannot or would rather not forward ports
+**B. A VPN**, if you cannot or would rather not forward ports
 
 Plenty of people cannot — a landlord's router, a university network, or carrier-grade NAT where
 your connection has no public address to forward *to*. Tools like **Radmin VPN**, **Hamachi**,
-**ZeroTier** or **Tailscale** put everyone on one virtual local network, and then you are in
-case A: no router changes, and you give friends the address the VPN assigns you rather than your
-public one.
+**ZeroTier** or **Tailscale** put everyone on one virtual local network, so your machine is
+already reachable to them: no router changes, and you give friends the address the VPN assigns
+you rather than your public one.
 
 This is a completely normal way to run MeshGhost, not a workaround. The trade-off is that everyone
 has to install the same tool and join the same network, and traffic may take a longer route, so
 expect a little more ping than a direct connection.
 
-**D. Rent a small VPS** — worth it only if you want a server that is up when you are not. Any
+**C. Rent a small VPS** — worth it only if you want a server that is up when you are not. Any
 cheap Linux box works; native Linux and macOS server builds are on the Releases page, and a server
 never touches a game so it needs nothing else installed.
 
