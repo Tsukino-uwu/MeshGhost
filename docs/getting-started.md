@@ -1,6 +1,6 @@
 # Getting started — playing with friends
 
-This is everything that a player need to do. If you are the one **hosting** the server for your
+This is everything a player needs to do. If you are the one **hosting** the server for your
 group, do this page first anyway — a host is also a player — then read [hosting.md](hosting.md).
 
 You need your own copy of the game. No games, ROMs or game files are included here, and never
@@ -8,19 +8,11 @@ will be.
 
 ## What MeshGhost actually does, and what it leaves alone
 
-- **Your friends appear visually, and nothing.** Position, rotation,  facing direction and animation cross over the wire online —
-  that is the whole of it. No items, enemies, health or progression are shared. A game whose mod does more than that says so in its own
-  README.
-- **Nothing on disk changes but the mod you install.** To draw a ghost, a mod works on the game's
-  live memory while it runs — the place the game keeps what is on screen right now. Your save, your
-  game files and your ROM are left exactly as they are, and closing the game ends it. Uninstalling
-  is deleting the mod's folder.
-- **Randomisers are fine.** Both Pokémon adapters work on Archipelago-patched ROMs, and a vanilla
-  player and a randomiser player in the same room see each other correctly. Your items and checks
-  stay entirely yours — MeshGhost has no idea what a check is.
-- **Only the person hosting the server sees your IP.** Other players never learn it — the protocol
-  has no field that could carry one. The server passes your position on without being able to read
-  it. [security.md](security.md) has the full picture, including what the host *can* see.
+- **Your friends only appear visually, in most games.** Position, rotation, facing direction and animations cross over the wire online. A game whose mod is capable of or does more than just visual things will say so in its own README.
+- **Save files are safe and never touched.** To draw a ghost, MeshGhost works on a game's live memory — the place the game keeps what is on screen right now — while it runs, and might even temporarily patch things if needed for certain emulators. But your save, your game files and your ROMs are left exactly as they were afterwards, and closing the game wipes all of it. Uninstalling is as simple as just deleting the mod folder.
+- **Other players never learn your IP.** Everyone connects to the host's server instead of to each other, so your address only ever reaches that one machine — and the protocol has no field that could carry it further.
+- **The host sees as little as possible.** The server forwards your position without ever looking inside it. [security.md](security.md) has the full picture, including what a host *can* see.
+- **Archipelago support.** All adapters (games) will try to support and work alongside [Archipelago](https://archipelago.gg) mods whenever possible. Compatibility can be assumed unless something else is stated.
 - **Your antivirus may flag `meshghost.exe`.** Expected, and [antivirus.md](antivirus.md) explains
   why and what you can check for yourself.
 
@@ -91,10 +83,6 @@ matters.
 > copied in — and they are the forgiving ones, falling back to the unzipped folder if you skip the
 > copy entirely. **For TEVI and Pseudoregalia you copy BOTH files** into the game folder, and there
 > is no fallback, because the mod looks only where the game lives.
-
-**Nothing here touches your save, and no ROM is patched.** Some mods put a ghost into the game's
-live memory while you play, and that memory is gone the moment you close the game. Uninstalling is
-deleting the mod's folder.
 
 ## 3. Fill in three things
 

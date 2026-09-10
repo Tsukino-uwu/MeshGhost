@@ -1013,3 +1013,54 @@ the file's own neighbouring list from the start.
 cosmetic-by-default posture is stated to a newcomer. And the `docs/` list keeps its one-sentence
 descriptions in its new home — the one-line rule governs indexes that grow by entry, and this one
 grows only when a page is added.
+
+## The pre-install section (2026-09-11) — `getting-started.md` answers what it does before how to install it
+
+**The gap was shape, not coverage.** All ten pages in `docs/` are task-shaped — how to install, what
+broke, which knob — and nothing answered the questions someone asks *before* trusting a binary that
+hooks their game: does it touch my save, does it sync my items, who sees my IP. Those facts existed,
+scattered across the README intro, `security.md` and four adapter READMEs, and every one of them sat
+behind a decision the reader had not made yet. A FAQ page was considered and **declined**: the repo
+has no issues, no discussions and no inbound questions, so its ten entries would have been invented
+ones, competing with `troubleshooting.md`, which is already a symptom-shaped FAQ. Revisit when real
+questions exist to distil.
+
+**Six bullets, placed before step 1**, each linking to the page that carries the detail. Three claims
+were corrected against the code while writing them, and the corrections are the useful part of this
+entry:
+
+- **"Nothing patches your game files"** was wrong as a promise. The Pokémon adapters already write to
+  BizHawk's `WRAM` domain to place a ghost, and a Dolphin-style runtime patch would be more of the
+  same. The line that actually holds is **disk versus live memory**, not patching — and the mod
+  install itself *is* a disk write, which the first draft quietly denied.
+- **"Everyone needs the same MeshGhost version"** was two mechanisms conflated, and false in both
+  readings. `MinProtocolVersion` is a **floor** (`protocol/protocol.go`, and its comment names the
+  case that must keep working: a v2.3 client against a v2.0 relay); `game_version` is exact-match and
+  room-sticky, but every shipped adapter reports a frozen dev-phase string (`phase9`, `phase8-spawn`,
+  `phase7.7`, TEVI's `0.2.0`), so two players on different *releases* both advertise the same value
+  and the check passes. The bullet was cut rather than reworded — see below.
+- **"The server cannot read your position"** overstated. Opaque-by-hard-rule is discipline, not
+  cryptography; the relay terminates the connection. Now "without ever looking inside it", with the
+  full boundary recorded in `security.md`'s new "You trust whoever hosts" and as a risk in
+  `risks.md`.
+
+**A fourth claim was wrong in the other direction.** A grep of `adapters/tevi/` for "archipelago"
+returned nothing, which was read as "no evidence it works" — but the repo records that mod under its
+plugin name, `Randomizer`, and `tevi/VERIFIED.md` has a user-confirmed 2026-08-12 coexistence entry.
+The user corrected it: the Archipelago mod has sat in that install since before TEVI work began. The
+lesson is that an ecosystem's name and a mod's name are different search keys, and a folder-scoped
+grep for the wrong one reads exactly like an absence of evidence.
+
+**What "fix the grammar" means, learned the hard way.** A requested grammar pass came back as a style
+rewrite — "will say so" → "says so", "All adapters(games), will try to support" → "Every adapter aims
+to" — and the user had to ask for a revert, twice, because the section was re-edited between passes.
+The rule now: mechanical fixes only (punctuation, capitals, spelling, agreement), structural or
+phrasing changes offered in chat and applied only on a yes. The user's prose is deliberate; a
+tidier-sounding sentence is not a better one.
+
+**What was deliberately left alone.** The bullets are one long line each, where the rest of the file
+wraps at ~95 columns — offered and not taken, and it changes nothing a reader sees. `etc.`,
+`peer2peer` and `relay/hub` stayed the user's words until the user chose otherwise. And the version
+bullet was **deleted rather than corrected**: accurate wording would have pointed a player at "your
+game's mod version", which is precisely what `game_version` does not track (`Plugin.cs` says so
+outright), so any version sentence in a player-facing doc invites the confusion it was meant to prevent.

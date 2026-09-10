@@ -667,3 +667,16 @@ being worked belongs here, as a risk, until someone picks it up. Each keeps its 
   ignore it, which is harmless. Per-adapter rendering work. `pseudoregalia/VERIFIED.md` for the shape.
 - **Emerald: VRAM/sprite injection** — Stage 1 ran 2026-08-14 and is written up; Stages 2–5 not
   started. `ideas.md`, `environment.md`.
+
+## A malicious HOST is outside the threat model (recorded 2026-09-11)
+
+Every hardening pass in `docs/security.md` defends the relay and its clients against a malicious
+**peer**; none defends a client against a malicious **host**, and none can. The relay terminates the
+connection, so TLS/quic protect payloads in transit but not from the server: "payloads are opaque to
+the relay" is an architectural discipline the shipped build keeps, not something a client can verify.
+
+**Not a defect, and not currently worth closing** — the exposure is bounded by what a client ever
+sends (IP, display name, room, game, position/animation), and nothing reads the disk, so there is no
+path from a save file to the wire. Closing it means end-to-end payload encryption keyed off the room
+code. **Revisit if public or third-party hosting becomes normal**, which is the assumption doing the
+work here. Full reasoning in `docs/security.md`, "You trust whoever hosts".

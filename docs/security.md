@@ -49,6 +49,26 @@ Not a shortcut — a trade, with real costs on both sides.
 For a handful of friends playing a singleplayer game, the top three rows are worth the next three.
 That is the whole argument, and it is a judgement, not a fact.
 
+### You trust whoever hosts (2026-09-11)
+
+**"Opaque by hard rule" is a discipline, not cryptography.** The relay terminates the connection, so
+TLS and quic protect your bytes *in transit* and not *from the server*. The shipped relay never
+interprets a payload — but a host running a modified build could read what arrives, and nothing in
+the protocol would reveal that. Every hardening pass below defends the relay and its clients against
+a malicious *peer*; none of it defends a client against a malicious *host*, and none of it can.
+
+**What that exposes is bounded by what a client ever sends**: your IP, your display name if you set
+one, which room and game you are in, and your position/animation stream. It cannot reach your save,
+your game files or anything else on disk — not because the relay refuses to ask, but because nothing
+ever reads them. An adapter holds a socket to its own local core and nothing else, so there is no
+path from your disk to the wire for a hostile server to pull on.
+
+**Closing the gap would mean end-to-end encrypting payloads** under a key derived from the room code,
+so the relay routes without holding readable bytes. It would fit — even the retained `world.v1` blob
+is already opaque to the relay — but it turns the room code into a real secret with real key
+distribution, to protect a character's coordinates from someone you chose to connect to. Not worth it
+while hosting is friend-to-friend; revisit if public or third-party hosting ever becomes normal.
+
 ### What is and is not secure, per transport
 
 | Transport | Encrypted? | Authenticated? | Notes |
