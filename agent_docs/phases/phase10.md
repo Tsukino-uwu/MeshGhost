@@ -1434,3 +1434,55 @@ left alone — they are records of what was true on their date.
 **Not verified by the user.** These are docs, so there is nothing on screen to confirm; what is
 confirmed is that `stage-release.ps1 -NoBuild` stages 11 guides with correct encoding and live
 pointers, and that preflight is clean apart from the pre-existing TEVI flag.
+
+## 2026-09-10 (later) — the player docs, trimmed to what a reader needs, and two checks that were not checking
+
+Continues the entry above, after the user read what had been written.
+
+**What the user cut, and the rules behind the cuts.** Each began as a specific edit and generalised
+into a rule now in agent memory:
+
+- *"no need to include things like 'takes 5min' or dumb made up durations"* — nobody had measured
+  it. The same shape `CLAUDE.md` already bans elsewhere -- but preflight's duration check matches
+  only the larger units, so **"minutes" passes straight through it**.
+- *"or even just including 'this does not include x,y,z'"* — "No ports, no command line, no
+  accounts" plants three worries to reassure against one.
+- *"we don't need extra fluff and stuffs inside the release itself. it should be a guide on how to
+  use it/where to place things. and nothing else"* — whoever reads a file inside the zip has
+  already downloaded MeshGhost; they are not deciding whether to want it. The release `README.txt`
+  lost its opening pitch, the status table and the ROM disclaimer: **1046 → 74 lines**.
+- *"if something is in the release its considered good enought already"* — the `EXPERIMENTAL`
+  blocks came out of TEVI's and Pseudoregalia's shipped READMEs. Pseudoregalia's black flash stayed
+  as one line: a thing a player will see is information, a confidence label is a hedge.
+- The root README's Setup became three links. Checked rather than assumed before cutting — every
+  removed fact has a home, and the one that mattered (the ROM line, a policy statement rather than
+  a step) survives in the Licence section and in `getting-started.md`.
+
+**A correction worth keeping.** I attributed "No shared items, enemies, health or story progress"
+to the user; it is AI-generated prose that had settled into both the release README and the root
+one. Do not assume existing wording is theirs.
+
+**Two checks that were not checking what they claimed.**
+
+1. The zip's staged guides cited each other as REPO paths (`docs/security.md`), which name nothing
+   in a zip where the file is `docs\security.txt` beside them — **39 dead pointers**. The staging
+   step now rewrites those too, while leaving `agent_docs/...` alone, since that folder genuinely
+   does not ship. The lookbehind is what separates them: `_` is a word character.
+2. The user hit **"Error loading page"** on `docs/getting-started.md`'s Releases link. GitHub
+   resolves relative links against `/blob/<branch>/`, so `../../releases` is right from a root file
+   and one `../` short from `docs/`. Preflight's relative-link scan **already had a rule for this
+   and was skipping it** — an exemption commented "GitHub route", written for `README.md` and
+   applied at every depth, so it exempted exactly the form whose correctness depends on depth. The
+   exemption is removed. Folded into that section rather than added beside it; my first attempt was
+   a second checker, which is the two-homes drift this repo keeps paying for.
+
+Both negative-tested against the real defect. Audit while there: 978 relative links across 175
+tracked `.md`, 0 broken, 0 escaping. `pitfalls/by-lesson.md` carries both lessons, indexed.
+
+**Also this session, on the Go side's behalf:** `docs/hosting.md` and `docs/security.md` now record
+that `tlsx.Auto` escalates itself to `Required` once the discovery leg completes a TLS handshake
+(`core/transportpick.go`) — a default client against a default relay refuses an unencrypted
+session, which neither document said. No code change; the docs were behind the behaviour.
+
+**Still unconfirmed and only the user can close it:** the three Crystal items at the top of that
+adapter's `UNVERIFIED.md`.
