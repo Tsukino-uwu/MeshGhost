@@ -1611,3 +1611,9 @@ Two preflight checks bounced the entry before it fit -- an index entry is ONE ph
 status item is capped by CHARACTER count (216 was over; 147 passed), which is stricter than the
 "two lines" the file's own header describes.
 
+**And the "isn't UDP the fast one?" callout, for the same reason.** With no udp option on the
+page it was rebutting a misconception the reader no longer has a way to act on. Its one fact that
+still mattered -- loss handling is not SPEED -- moved into the quic row as a clause. Three
+removals in a row from one page, all the same shape: **content written to steer readers away from
+an option outlives the option, and reads as fluff or as an argument with nobody.**
+
