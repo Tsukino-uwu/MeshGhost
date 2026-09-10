@@ -8,13 +8,13 @@ default — a game that does more says so in its own README.
 
 ## Games
 
+Each link goes to that adapter's own README: how it reads its game, how it was built, and what it
+can show today.
+
 - [Pokémon Emerald](adapters/emulator/pokemon/emerald/README.md)
 - [Pokémon Crystal](adapters/emulator/pokemon/crystal/README.md)
 - [TEVI](adapters/tevi/README.md)
 - [Pseudoregalia](adapters/pseudoregalia/README.md)
-
-Each link goes to that adapter's own README: how it reads its game, how it was built, and what it
-can show today.
 
 ## Setup
 
