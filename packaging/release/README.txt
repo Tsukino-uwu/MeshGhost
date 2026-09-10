@@ -30,9 +30,9 @@ WHAT'S IN THIS FOLDER
 
 WHAT TO READ
 ------------
-  docs\getting-started.txt    <- START HERE. Everything a player does, in
-                                 five minutes. No ports, no command line,
-                                 no jargon.
+  docs\getting-started.txt    <- START HERE. Everything a player does, from
+                                 unzipping this folder to seeing a friend's
+                                 ghost.
 
   docs\hosting.txt              Only if you are the one running the server
                                  for your group. Short version at the top,
@@ -49,8 +49,8 @@ networking actually works, what is encrypted, how to audit the code, and how
 to put MeshGhost into a game of your own.
 
 
-THE FIVE-MINUTE VERSION
------------------------
+THE SHORT VERSION
+-----------------
 1. Install your game's mod -- see games\<your game>\README.txt.
 
    Then copy meshghost.exe into the folder holding that game's mod -- the

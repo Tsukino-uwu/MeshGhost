@@ -169,7 +169,7 @@ is the internal working record of how it got built.
 
 **`docs/`**
 
-- [getting-started.md](docs/getting-started.md) — **start here.** Everything a player does, in five minutes.
+- [getting-started.md](docs/getting-started.md) — **start here.** Everything a player does, from unzipping to seeing a friend appear.
 - [hosting.md](docs/hosting.md) — running the server for your group: the short version, then every knob and what it costs.
 - [troubleshooting.md](docs/troubleshooting.md) — it did not work, or something looks wrong.
 - [config.md](docs/config.md) — every `config.json` key: its shipped value, what it does, which program reads it.

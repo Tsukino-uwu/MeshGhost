@@ -1,9 +1,7 @@
 # Getting started — playing with friends
 
-This is everything a player does. It takes about five minutes, and there is nothing technical in
-it: no ports, no command line, no accounts. If you are the one **hosting** the server for your
-group, do this page first anyway — a host is also a player — then read
-[hosting.md](hosting.md).
+This is everything that a player need to do. If you are the one **hosting** the server for your
+group, do this page first anyway — a host is also a player — then read [hosting.md](hosting.md).
 
 You need your own copy of the game. No games, ROMs or game files are included here, and never
 will be.
