@@ -933,3 +933,53 @@ TEVI 544 (from 700 / 700 / 622).
 
 **Caveat, on record.** Lines fell by a third and tokens by more; distinct imperatives by under a tenth.
 The next lever for adherence is `adapters/CLAUDE.md` at 283, the larger half of every adapter stack.
+
+## The audience cut (2026-09-10) — one page moved out of `docs/`, and the zip stops shipping ten guides
+
+**The trigger.** The user, on the root README's `docs/` list: *"this probly belongs in agent_docs
+instead?"* about `live-reload.md`, and then, on what the release zip carries: *"it only need these
+specific ones i think? how to play, how to host, what settings do, common issues?"*
+
+**The test that decided both.** Not "is this for players?" — `docs/` never was only for players, and
+saying so would have moved four more files. The question that separates the two folders is whether a
+reader OUTSIDE the project can act on the page. `networking.md`, `reviewing.md`, `integrating.md` and
+`security.md` describe the shipped artifact — the wire protocol, the code a host runs, how to run the
+fuzzers — and someone who never opens this repo can use every one of them. `live-reload.md` is
+actionable only while developing an adapter IN this repo, with these `dev-scripts` and these three
+hosts; it opens by saying *"Nothing in this file is something a player installs or runs"*, it already
+deferred its rule and checklist to `adapters/CLAUDE.md` and `_template/README.md` the way an
+`agent_docs/` page does, and it is the "how it got built" story the README's own intro assigns to
+this folder. So it moved here and the other four stayed. Nothing was hidden by moving it: this folder
+is in the same public repo.
+
+**The move.** `git mv`, five inbound links repointed (`_template/README.md`, `emerald/README.md`,
+`dev-scripts/README.md`, this folder's index, the root README). Its own three outbound links needed
+no edit — `docs/` and `agent_docs/` sit at the same depth. In the index it left the "written for
+people using MeshGhost" block for "Read before you…", beside `running-the-rig.md` and `playing.md`.
+Preflight: 994 relative links, all resolving.
+
+**The zip: ten guides staged, four advertised.** `stage-release.ps1` staged every `docs/*.md`, while
+the zip's own `README.txt` map names exactly four — getting-started, hosting, config,
+troubleshooting. Six pages shipped that nothing in the zip pointed at, `live-reload.md` among them
+until the move: a page whose second sentence tells the reader it is not for them. Now the zip carries
+what it advertises and advertises what it carries.
+
+**The objection was real and is answered by the script, not by hand.** Every earlier version of that
+step's comment argued for staging everything, and its reasoning was sound: *"a subset needs
+maintaining, and the moment one staged page links to an unstaged one the reader hits a dead end."*
+Eleven such pointers existed the day the subset was cut (`security` x4, `antivirus` x2, `networking`
+x2, `reviewing` x2, `code-signing` x1). So the subset does not depend on anyone maintaining it. One
+`$stagedDocs` list drives the copy AND the link rewrite: a pointer to a staged page still flattens to
+`hosting.txt`, a pointer to an unstaged one becomes that page's URL in the repository, and a `.md`
+that is not a `docs/` page at all is left as written — the third case matters, because inventing a
+`docs/` URL for a file that was never there is the same defect pointing the other way. Adding a page
+back to the zip is one entry in that list.
+
+**Two faults the dry run caught, both worth keeping.** The written-out URL ends `.../docs/security.md`,
+which is itself the `docs/<name>.md` shape — so the bare pass ran first, produced a URL, and the path
+pass prefixed it a second time. Ordering the path pass first cannot recurse: the bare pattern's
+lookbehind refuses a name preceded by `/`, so it never matches inside a URL already written. And the
+existing guard counted files (`-lt 4`), which a subset makes meaningless — four wrong files pass it.
+It now checks the four by NAME, so a page renamed in `docs/` stops the release instead of shipping a
+map that points at a file the zip does not have. Negative-tested with a bogus entry; it fires and
+names the missing page.
