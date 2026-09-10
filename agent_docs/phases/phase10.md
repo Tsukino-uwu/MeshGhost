@@ -1529,3 +1529,9 @@ antivirus flagged it") are the right register for a symptom page; the `agent_doc
 **The lesson, if it is one:** a quote of the user is evidence in a record and clutter in a rule.
 The test is whether the sentence would still gate something if the quotation marks came off.
 
+**Two defects in `docs/hosting.md`, both found by the user reading it.** "Step 2, three ways" has
+listed four since D (rent a VPS) was added, and option C was the only `###` in a file where every
+other heading is `##` — A, B and D are bold lines — which is why it read as a different tier
+rather than as the third of four peers. Both fixed at the source; the zip's `hosting.txt` is
+generated from it by `stage-release.ps1` and is gitignored, so it needs no separate edit.
+

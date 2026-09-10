@@ -21,7 +21,7 @@ that.
 4. **To stop:** close the window, or Ctrl+C. It says goodbye to everyone first so their games
    notice immediately rather than sitting on a frozen room for ~15 seconds.
 
-## Step 2, three ways — pick one
+## Step 2, four ways — pick one
 
 **A. Everyone is on the same network already** (same house, or you all use the same VPN)
 
@@ -36,7 +36,7 @@ it starts; look for **`to accept players from outside this machine, forward:`**.
 
 Then give friends your public IP (search "what is my ip"), plus `:7777`.
 
-### C. A VPN, if you cannot or would rather not forward ports
+**C. A VPN**, if you cannot or would rather not forward ports
 
 Plenty of people cannot — a landlord's router, a university network, or carrier-grade NAT where
 your connection has no public address to forward *to*. Tools like **Radmin VPN**, **Hamachi**,
