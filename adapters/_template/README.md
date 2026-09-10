@@ -142,11 +142,55 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 | `VERIFIED.md` | **Immediately, empty** — this game's dated, user-confirmed facts. Split per game 2026-08-25; `agent_docs/verified.md` keeps only Go-side and cross-game entries | [VERIFIED.md](VERIFIED.md) |
 | `UNVERIFIED.md` | **Always** — this game's queue waiting on the user. Split per game 2026-08-25; mandated for every adapter and checked by `preflight.ps1` since 2026-08-27 | [UNVERIFIED.md](UNVERIFIED.md) |
 | `PROBES.md` | Once `probes/` holds more than a couple of scripts — an index of what each one answered | [probes-README.md](probes-README.md) |
+| `CLAUDE.md` | Only once this host has rules of its own that no other adapter needs | none — see "A host `CLAUDE.md` is optional, and capped" below |
 
 **`README.md`, `documentation.md`, `BANDAGES.md`, `FLAGS.md`, `VERIFIED.md` and `UNVERIFIED.md` are
 expected of EVERY adapter, with no exceptions** — `dev-scripts/preflight.ps1`'s adapter-file-set
-check fails on a missing one. Create all six when the folder is created; four of them start empty.
+check fails on a missing one. Create all six when the folder is created; three of them start empty
+(`BANDAGES.md`, `VERIFIED.md`, `UNVERIFIED.md` — `documentation.md` starts with the first mechanic
+and `FLAGS.md` with its first row).
 (This sentence named three until 2026-09-06, while the check had mandated six since 2026-08-27.)
+
+## A host `CLAUDE.md` is optional, and capped — both halves matter
+
+A `CLAUDE.md` in an adapter folder loads itself when a session first touches that folder, on top of
+the root one and `adapters/CLAUDE.md`. **Only write one if this host has rules no other adapter
+needs** (a threading model, a hard limit in its scripting language, a build step with a trap in it).
+Some shipped adapters have one and some do not, and the ones without are not worse for it.
+
+**If you write one, it MUST carry a line cap, and it MUST be registered.** Both, or `preflight.ps1`
+fails the tree — and this was documented nowhere until 2026-09-10, so an adapter author following
+this file could not have known:
+
+- Declare the cap in the first 15 lines, exactly `<!-- line-cap: N -->`. A registered file without
+  one is a FAIL.
+- Add the path to `$budgeted` in `dev-scripts/preflight.ps1`. **A cap header on any tracked `.md`
+  that is NOT in that list is also a FAIL** — it tells a reader a budget is being enforced when
+  nothing is enforcing it.
+- Add the file to the right entry in `$stacks` in the same script. **The STACK budget binds harder
+  than any single cap**: what a session actually loads is root + `adapters/CLAUDE.md` + this file,
+  and the three together have their own ceiling. Per-file caps alone once let that reach 787 lines
+  with every file individually green, which is why the stack check exists.
+
+Pick N by what the file needs, not by what is free. The reason for any of this is in
+[agent_docs/claude-md-cap.md](../../agent_docs/claude-md-cap.md): past roughly 150-200 instructions a
+model follows every rule worse, and earlier ones better than later, so a rule added carelessly here
+degrades every rule already in the stack.
+
+**Where a rule goes, when it could go in two places.** Host-specific and paid for once — this
+file. True of every adapter — `adapters/CLAUDE.md`. True of the project — the root. A rule with two
+homes drifts; `preflight.ps1`'s canonical-source check enforces that a restatement links to its home.
+
+## The mandated file set attaches to the GAME folder, not to a folder above it
+
+`adapters/emulator/` holds no `documentation.md` and is not an adapter — it is a HOST folder, shared
+by every game on that emulator, and it carries only a `CLAUDE.md` and tooling those games share.
+The adapters are `adapters/emulator/pokemon/crystal/` and `.../emerald/`, and each carries the full
+set. `preflight.ps1` defines it exactly that way — *"an adapter is any directory holding a
+`documentation.md`"* — so the definition survives a fifth game without anyone editing a list.
+
+Read "expected of EVERY adapter, with no exceptions" above with that in mind: an intermediate level
+is not an adapter and is not expected to carry them.
 
 **All three of those templates were written on 2026-08-25.** The table had mandated the files and
 pointed at "any shipped adapter's" since it was written, which is exactly how four copies of the
