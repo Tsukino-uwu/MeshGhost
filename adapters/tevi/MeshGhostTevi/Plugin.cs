@@ -261,9 +261,30 @@ namespace MeshGhostTevi
             // Highest orb-to-human flash counter already played for this peer (see OrbFxSeq).
             public int LastOrbFxSeq;
 
+            // The peer's live projectiles, by birth seq (see ReadBullets / ApplyGhostBullets).
+            public Dictionary<int, GhostBullet> Bullets = new Dictionary<int, GhostBullet>();
+            public int LastBulletSeq;
+            public bool BulletSeqAdopted;
+            public int LastFlashSeq;
+            public bool FlashSeqAdopted;
+
             // The peer's boost shield and platforms (see ReadShield / ApplyGhostShield).
             public GhostShield Shield;
             public GhostPlatform[] Platforms = new GhostPlatform[2];
+        }
+
+        // A dormant bullet: the game's bullet prefab with its script never ticked by BulletManager
+        // (it is not in the pool, so it never hits, never checks walls, never spends anything).
+        // We fly it; the game's own pooled effect follows it.
+        private sealed class GhostBullet
+        {
+            public GameObject Go;
+            public bulletScript B;
+            public float BornAt;
+            public float DiedAt = float.NegativeInfinity;
+            public float Cos, Sin, Speed;
+            public bool SpriteAnimated;
+            public bool EffectAttached;
         }
 
         private sealed class GhostShield
@@ -821,6 +842,10 @@ namespace MeshGhostTevi
             catch (System.Exception e) { LogSubfeatureFailure("orb flash", e); }
             try { ApplyGhostShield(playerId, visual, state, worldNudge); }
             catch (System.Exception e) { LogSubfeatureFailure("boost shield", e); }
+            try { ApplyGhostBullets(playerId, visual, state, worldNudge); }
+            catch (System.Exception e) { LogSubfeatureFailure("projectiles", e); }
+            try { ApplyGhostFlashes(visual, state, worldNudge); }
+            catch (System.Exception e) { LogSubfeatureFailure("muzzle flash", e); }
 
             // Throttled (once every 2s per remote, not every frame) so a real repro of the
             // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
@@ -1143,6 +1168,14 @@ namespace MeshGhostTevi
                     }
                     // A ghost's orbitar is named <ghost name>_orb<i>; tracked through the same
                     // visual, so it is not an orphan while that visual holds it.
+                    // A projectile is <ghost>_bullet<seq>.
+                    int bulAt = id.LastIndexOf("_bullet", System.StringComparison.Ordinal);
+                    if (bulAt > 0 && bulAt + 7 < id.Length && int.TryParse(id.Substring(bulAt + 7), out int bulSeq)
+                        && remoteVisuals.TryGetValue(id.Substring(0, bulAt), out RemoteGhostVisual bulOwner)
+                        && bulOwner.Bullets.TryGetValue(bulSeq, out GhostBullet gb) && gb.Go == go)
+                    {
+                        continue;
+                    }
                     // The boost shield is <ghost>_shield, its platforms <ghost>_plat<i>.
                     if (id.EndsWith("_shield", System.StringComparison.Ordinal)
                         && remoteVisuals.TryGetValue(id.Substring(0, id.Length - 7), out RemoteGhostVisual shOwner)
@@ -1275,6 +1308,7 @@ namespace MeshGhostTevi
                 DestroyGhostOrbs(visual);
                 DestroyGhostSummons(visual);
                 DestroyGhostShield(visual);
+                DestroyGhostBullets(visual);
                 remoteVisuals.Remove(playerId);
             }
             DespawnRemoteMapMarker(playerId);
@@ -3253,6 +3287,587 @@ namespace MeshGhostTevi
             }
         }
 
+        // PROJECTILES, SPAWN-AND-FLY -- the plan in agent_docs/ideas.md (the orbitar entry), built
+        // 2026-09-10 on the census DIAG_BULLET_WATCH produced the same evening: every orbitar bullet
+        // the user fired (basic A/B/C, charged A/B/C, the core expansions' shots; peak 29 alive) flew
+        // with ZERO speed or angle drift and lived under a second. So a bullet is a pure function of
+        // its birth here, and the watcher can fly it with the game's own step
+        // (bulletScript._Update: cachepos += (cos, -sin) * speed * (fixeddeltatime * 60)).
+        //
+        // WHAT A BULLET LOOKS LIKE is not the bullet: most are SpriteType.USE_PS with no sprite at
+        // all, and the visual is a pooled CommonEffects object (OrbShootNormal #8, the charge-shot
+        // families #10/11/14/16/17/19/20/43/44/45/47) whose script is handed the bulletScript and
+        // FOLLOWS it -- reading only its transform, its active flag, isDespawning() and its type.
+        // So the watcher spawns the game's bullet PREFAB as a dormant object (never in
+        // BulletManager's pool, so never ticked: no hits, no walls, no damage), flies it, and hands
+        // it to the same pooled effect with the same Setup. The effect then ends itself the way it
+        // does for a real bullet, hit flash included, when the dormant bullet is marked despawning.
+        //
+        // THE SENDER learns which effect was attached by scanning the effect pool on the birth frame
+        // for an active object whose private bullet field points at the newborn -- identity, never
+        // proximity. A death (wall, hit, range) is one seq in a second small ring, so an early end
+        // vanishes at the same spot rather than flying on to the default life.
+        //
+        // Rings are 300ms wide so a lossy sample still carries a birth; the receiver dedupes on seq
+        // and adopts the counter on first sight, never replaying history. Bullets are the elastic
+        // field: BridgeClient drops them first when a frame nears the core's 1024-byte extras cap.
+        // 150ms: a burst of a core expansion (29 alive at peak) at 300ms pushed one frame's extras to
+        // 1047 bytes and the guard dropped every bullet in it (2026-09-10). At the shipped 20Hz
+        // this is still three samples of loss cover; at the dev 100Hz, fifteen.
+        private const float BulletRingSeconds = 0.15f;
+        private const float BulletDefaultLife = 1.5f;   // bulletScript.EnableMe's `life`
+        private const float BulletLingerAfterDeath = 1f; // followers need to SEE isDespawning()
+        private static readonly FieldInfo BulletPrefabField = typeof(BulletManager).GetField("bullet_prefab", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo BulletTimeField = typeof(bulletScript).GetField("time", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo OrbShootNormalPs1Field = typeof(OrbShootNormal).GetField("ps1", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // Effect kinds the sender recognises, by the follower component and its Setup signature.
+        private static readonly System.Type[] EffectKindTypes =
+        {
+            typeof(OrbShootNormal),        // 0  Setup(Color, Direction, bullet)
+            typeof(OrbChargeSableTypeA),   // 1  Setup(Direction, bullet)
+            typeof(OrbChargeSableTypeB),   // 2  Setup(Direction, bullet)
+            typeof(OrbNormalCeliaTypeB),   // 3  Setup(Direction, bullet)
+            typeof(OrbNormalSableTypeB),   // 4  Setup(Direction, bullet)
+            typeof(OrbChargeCeliaTypeB),   // 5  Setup(float angle, bullet, bool)
+            typeof(OrbChargeCeliaTypeC),   // 6  SpawnMe(bullet)
+            typeof(FollowBullet),          // 7  SpawnMe(bullet)
+        };
+        private static readonly string[] EffectKindBulletField = { "b", "b", "b", "b", "b", "bs", "b", "b" };
+        private static readonly FieldInfo[] EffectKindFields = new FieldInfo[EffectKindTypes.Length];
+
+        private sealed class BulletBirth { public int Seq; public float At; public object[] Row; public bulletScript B; }
+        private readonly List<BulletBirth> bulletBirths = new List<BulletBirth>();
+        private readonly List<KeyValuePair<int, float>> bulletDeathRing = new List<KeyValuePair<int, float>>();
+        private int bulletSeq;
+        private float[] bulletSlotBorn;   // timeCreated seen per pool slot
+        private int[] bulletSlotSeq;      // our seq per pool slot, -1 none
+
+        private object[][] ReadBullets(CharacterBase player)
+        {
+            if (BulletManager.Instance == null || BulletsField == null || player == null || player.t == null)
+            {
+                return null;
+            }
+            var pool = BulletsField.GetValue(BulletManager.Instance) as bulletScript[];
+            bool[] enabled = BulletManager.Instance.bullets_enable;
+            if (pool == null || enabled == null)
+            {
+                return null;
+            }
+            int n = Mathf.Min(pool.Length, enabled.Length);
+            if (bulletSlotBorn == null || bulletSlotBorn.Length != n)
+            {
+                bulletSlotBorn = new float[n];
+                bulletSlotSeq = new int[n];
+                for (int i = 0; i < n; i++) { bulletSlotBorn[i] = -1f; bulletSlotSeq[i] = -1; }
+            }
+            float now = Time.time;
+            for (int i = 0; i < n; i++)
+            {
+                bulletScript b = pool[i];
+                if (b == null) continue;
+                bool on = enabled[i] && b.gameObject.activeInHierarchy;
+                if (on && bulletSlotBorn[i] != b.timeCreated)
+                {
+                    bulletSlotBorn[i] = b.timeCreated;
+                    bulletSlotSeq[i] = -1;
+                    if (b.sprite == Bullet.SpriteType.NONE || !BulletIsOurs(b, player))
+                    {
+                        continue;
+                    }
+                    int pool_ = -1, kind = -1; float effScale = 0f; string color = "FFFFFFFF";
+                    FindAttachedEffect(b, out pool_, out kind, out effScale, out color);
+                    int seq = ++bulletSeq;
+                    bulletSlotSeq[i] = seq;
+                    Vector3 p = b.transform.position;
+                    bulletBirths.Add(new BulletBirth
+                    {
+                        Seq = seq, At = now, B = b,
+                        Row = new object[]
+                        {
+                            (float)seq, (float)(int)b.type, (float)(int)b.sprite,
+                            Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f,
+                            Mathf.Round(b.angle * 10f) / 10f, Mathf.Round(b.speed * 100f) / 100f,
+                            Mathf.Round(b.transform.localScale.x * 100f) / 100f,
+                            (float)pool_, (float)kind, Mathf.Round(effScale * 10f) / 10f, color,
+                            b.owner != null && b.owner.direction == Character.Direction.LEFT,
+                        },
+                    });
+                }
+                else if (!on && bulletSlotBorn[i] >= 0f)
+                {
+                    if (bulletSlotSeq[i] >= 0)
+                    {
+                        bulletDeathRing.Add(new KeyValuePair<int, float>(bulletSlotSeq[i], now));
+                    }
+                    bulletSlotBorn[i] = -1f;
+                    bulletSlotSeq[i] = -1;
+                }
+            }
+            // THE EFFECT IS ATTACHED AFTER ShootBullet, in the orb's own update, which may run
+            // after ours on the birth frame -- so a birth seen with no follower is re-scanned on
+            // the following frames while it is still in the ring, and the row is patched in place
+            // (the receiver has not spawned it yet if the first sample was lost, and if it has,
+            // the next sample's row carries the effect). Found 2026-09-10: some shots flew unseen.
+            foreach (BulletBirth birth in bulletBirths)
+            {
+                if (birth.B != null && (int)(float)birth.Row[9] < 0 && birth.B.gameObject.activeInHierarchy)
+                {
+                    int p2, k2; float es2; string col2;
+                    FindAttachedEffect(birth.B, out p2, out k2, out es2, out col2);
+                    if (k2 >= 0)
+                    {
+                        birth.Row[8] = (float)p2; birth.Row[9] = (float)k2;
+                        birth.Row[10] = Mathf.Round(es2 * 10f) / 10f; birth.Row[11] = col2;
+                    }
+                }
+            }
+            bulletBirths.RemoveAll(x => now - x.At > BulletRingSeconds);
+            if (bulletBirths.Count == 0)
+            {
+                return null;
+            }
+            var rows = new object[bulletBirths.Count][];
+            for (int i = 0; i < rows.Length; i++) rows[i] = bulletBirths[i].Row;
+            return rows;
+        }
+
+        private float[] ReadBulletDeaths()
+        {
+            float now = Time.time;
+            bulletDeathRing.RemoveAll(x => now - x.Value > BulletRingSeconds);
+            if (bulletDeathRing.Count == 0)
+            {
+                return null;
+            }
+            var arr = new float[bulletDeathRing.Count];
+            for (int i = 0; i < arr.Length; i++) arr[i] = bulletDeathRing[i].Key;
+            return arr;
+        }
+
+        // Which pooled effect is following this newborn bullet, by identity of its bullet field.
+        private void FindAttachedEffect(bulletScript b, out int poolIndex, out int kind, out float effScale, out string color)
+        {
+            poolIndex = -1; kind = -1; effScale = 0f; color = "FFFFFFFF";
+            ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
+            if (op == null || op.pooledObjectsList == null)
+            {
+                return;
+            }
+            for (int i = 0; i < op.pooledObjectsList.Count; i++)
+            {
+                List<GameObject> pool = op.pooledObjectsList[i];
+                if (pool == null || pool.Count == 0) continue;
+                for (int j = 0; j < pool.Count; j++)
+                {
+                    GameObject go = pool[j];
+                    if (go == null || !go.activeInHierarchy) continue;
+                    for (int k = 0; k < EffectKindTypes.Length; k++)
+                    {
+                        Component c = go.GetComponent(EffectKindTypes[k]);
+                        if (c == null) continue;
+                        if (EffectKindFields[k] == null)
+                        {
+                            EffectKindFields[k] = EffectKindTypes[k].GetField(EffectKindBulletField[k], BindingFlags.NonPublic | BindingFlags.Instance);
+                        }
+                        if (EffectKindFields[k] == null) continue;
+                        if (!ReferenceEquals(EffectKindFields[k].GetValue(c), b)) continue;
+                        poolIndex = i; kind = k; effScale = go.transform.localScale.x;
+                        if (k == 0 && OrbShootNormalPs1Field != null && OrbShootNormalPs1Field.GetValue(c) is ParticleSystem ps1)
+                        {
+                            // Setup wrote ps1.startColor = c * 1.025; undo that to send what it was given.
+                            color = Hex(ps1.startColor / 1.025f);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        private void ApplyGhostBullets(string playerId, RemoteGhostVisual visual, BridgeClient.RemoteState state, Vector3 worldOffset)
+        {
+            object[][] rows = state.Bullets;
+            if (rows != null && rows.Length > 0)
+            {
+                int maxSeq = visual.LastBulletSeq;
+                foreach (object[] row in rows)
+                {
+                    if (row == null || row.Length < 13) continue;
+                    int seq = (int)CellF(row, 0);
+                    if (seq > maxSeq) maxSeq = seq;
+                }
+                if (!visual.BulletSeqAdopted)
+                {
+                    // First sight adopts the counter: a ghost created mid-fight must not replay the
+                    // peer's last 300ms of shots.
+                    visual.BulletSeqAdopted = true;
+                    visual.LastBulletSeq = maxSeq;
+                }
+                else
+                {
+                    foreach (object[] row in rows)
+                    {
+                        if (row == null || row.Length < 13) continue;
+                        int seq = (int)CellF(row, 0);
+                        GhostBullet existing;
+                        if (visual.Bullets.TryGetValue(seq, out existing))
+                        {
+                            if (!existing.EffectAttached && (int)CellF(row, 9) >= 0 && existing.DiedAt == float.NegativeInfinity)
+                            {
+                                AttachBulletEffect(existing, row);
+                            }
+                            continue;
+                        }
+                        if (seq <= visual.LastBulletSeq) continue;
+                        SpawnGhostBullet(playerId, visual, seq, row, worldOffset);
+                    }
+                    visual.LastBulletSeq = maxSeq;
+                }
+            }
+            if (state.BulletDeaths != null)
+            {
+                foreach (float f in state.BulletDeaths)
+                {
+                    if (float.IsNaN(f)) continue;
+                    GhostBullet gb;
+                    if (visual.Bullets.TryGetValue((int)f, out gb) && gb.DiedAt == float.NegativeInfinity)
+                    {
+                        KillGhostBullet(gb);
+                    }
+                }
+            }
+        }
+
+        private void SpawnGhostBullet(string playerId, RemoteGhostVisual visual, int seq, object[] row, Vector3 worldOffset)
+        {
+            if (BulletManager.Instance == null || BulletPrefabField == null || cloneTemplate == null) return;
+            var prefab = BulletPrefabField.GetValue(BulletManager.Instance) as bulletScript;
+            if (prefab == null) return;
+            float x = CellF(row, 3), y = CellF(row, 4), angle = CellF(row, 5), speed = CellF(row, 6), scale = CellF(row, 7);
+            if (float.IsNaN(x) || float.IsNaN(y) || float.IsNaN(angle) || float.IsNaN(speed) || float.IsInfinity(x) || float.IsInfinity(y)) return;
+            int type = (int)CellF(row, 1), sprite = (int)CellF(row, 2), pool = (int)CellF(row, 8), kind = (int)CellF(row, 9);
+            float effScale = CellF(row, 10);
+            bool left = row[12] is bool lb && lb;
+
+            GameObject go = Instantiate(prefab.gameObject);
+            go.name = $"MeshGhostRemote_{playerId}_bullet{seq}";
+            foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>(true)) Destroy(col);
+            foreach (Rigidbody2D rb in go.GetComponentsInChildren<Rigidbody2D>(true)) Destroy(rb);
+            bulletScript b = go.GetComponent<bulletScript>();
+            if (b == null) { Destroy(go); return; }
+            // Dormant, but with the references its own helpers dereference (SetAllRef also sets t).
+            b.SetAllRef(BulletManager.Instance, CommonResource.Instance, TeamManager.Instance, GameSystem.Instance, WorldManager.Instance);
+            b.owner = cloneTemplate; // a follower asks owner.isPlayer(); this bullet is never in the pool
+            b.EnableMe();
+            b.type = (Bullet.BulletType)type;
+            b.sprite = (Bullet.SpriteType)sprite;
+            b.SetAngle(angle);
+            b.speed = speed;
+            if (!float.IsNaN(scale) && scale > 0f) b.SetSpriteSize(scale, justSpawn: false);
+            go.transform.position = worldOffset + new Vector3(x, y, 0f);
+            go.SetActive(true);
+            bool spriteAnimated = b.sprite != Bullet.SpriteType.NONE && b.sprite != Bullet.SpriteType.USE_PS;
+            if (b._render != null) b._render.enabled = spriteAnimated;
+
+            var gb = new GhostBullet
+            {
+                Go = go, B = b, BornAt = Time.time, Speed = speed,
+                Cos = Mathf.Cos(Mathf.PI / 180f * angle), Sin = Mathf.Sin(Mathf.PI / 180f * angle),
+                SpriteAnimated = spriteAnimated,
+            };
+            visual.Bullets[seq] = gb;
+            AttachBulletEffect(gb, row);
+        }
+
+        // The game's own follower effect, the same pooled object with the same Setup.
+        private void AttachBulletEffect(GhostBullet gb, object[] row)
+        {
+            int pool = (int)CellF(row, 8), kind = (int)CellF(row, 9);
+            float effScale = CellF(row, 10), angle = CellF(row, 5);
+            bool left = row[12] is bool lb && lb;
+            bulletScript b = gb.B;
+            GameObject go = gb.Go;
+            if (b == null || go == null) return;
+            if (pool >= 0 && kind >= 0 && kind < EffectKindTypes.Length && GemaPoolManager.Instance != null
+                && GemaPoolManager.Instance.CommonEffectsPooler != null)
+            {
+                gb.EffectAttached = true;
+                GameObject fx = GemaPoolManager.Instance.CommonEffectsPooler.GetPooledObject(pool);
+                if (fx != null)
+                {
+                    fx.transform.position = go.transform.position;
+                    fx.SetActive(true);
+                    Character.Direction dir = left ? Character.Direction.LEFT : Character.Direction.RIGHT;
+                    Color c; if (!TryColor(row[11], out c)) c = Color.white;
+                    switch (kind)
+                    {
+                        case 0: fx.GetComponent<OrbShootNormal>()?.Setup(c, dir, b); break;
+                        case 1: fx.GetComponent<OrbChargeSableTypeA>()?.Setup(dir, b); break;
+                        case 2: fx.GetComponent<OrbChargeSableTypeB>()?.Setup(dir, b); break;
+                        case 3: fx.GetComponent<OrbNormalCeliaTypeB>()?.Setup(dir, b); break;
+                        case 4: fx.GetComponent<OrbNormalSableTypeB>()?.Setup(dir, b); break;
+                        case 5: fx.GetComponent<OrbChargeCeliaTypeB>()?.Setup(angle, b); break;
+                        case 6: fx.GetComponent<OrbChargeCeliaTypeC>()?.SpawnMe(b); break;
+                        case 7: fx.GetComponent<FollowBullet>()?.SpawnMe(b); break;
+                    }
+                    if ((kind == 6 || kind == 7) && !float.IsNaN(effScale) && effScale > 0f)
+                    {
+                        fx.transform.localScale = new Vector3(effScale, effScale, effScale);
+                    }
+                }
+            }
+        }
+
+        // MUZZLE FLASHES. NormalShot lights CommonEffects #7 (OrbShootFlash) at the orb and
+        // ChargeShot #12 (OrbChargeFlash), each Setup(colour, facing); neither is tied to a bullet,
+        // so the bullet mirror never saw them (user, 2026-09-10: "missing some vfx things when
+        // shooting"). The sender watches those two pools for an object going ACTIVE that it did not
+        // light itself -- the receiver lights the same pools for ghosts, and without that exclusion
+        // two symmetric peers would echo each other's flashes (before-mirroring-state.md).
+        private static readonly int[] FlashPools = { 7, 12 };
+        private static readonly FieldInfo ShootFlashPs1Field = typeof(OrbShootFlash).GetField("ps1", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo ChargeFlashPsField = typeof(OrbChargeFlash).GetField("ps", BindingFlags.NonPublic | BindingFlags.Instance);
+        private readonly Dictionary<int, bool> flashWasActive = new Dictionary<int, bool>();
+        private readonly HashSet<int> flashesWeLit = new HashSet<int>();
+        private readonly List<BulletBirth> flashRing = new List<BulletBirth>();
+        private int flashSeq;
+
+        private object[][] ReadFlashes(CharacterBase player)
+        {
+            ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
+            if (op == null || op.pooledObjectsList == null || player == null)
+            {
+                return null;
+            }
+            float now = Time.time;
+            foreach (int poolIndex in FlashPools)
+            {
+                if (poolIndex >= op.pooledObjectsList.Count) continue;
+                List<GameObject> pool = op.pooledObjectsList[poolIndex];
+                if (pool == null) continue;
+                for (int j = 0; j < pool.Count; j++)
+                {
+                    GameObject go = pool[j];
+                    if (go == null) continue;
+                    int id = go.GetInstanceID();
+                    bool on = go.activeInHierarchy;
+                    bool was;
+                    flashWasActive.TryGetValue(id, out was);
+                    flashWasActive[id] = on;
+                    if (!on || was) continue;
+                    if (flashesWeLit.Remove(id)) continue; // ours, for a ghost
+                    Color c = Color.white;
+                    if (poolIndex == 7 && ShootFlashPs1Field != null && ShootFlashPs1Field.GetValue(go.GetComponent<OrbShootFlash>()) is ParticleSystem p1) c = p1.startColor;
+                    if (poolIndex == 12 && ChargeFlashPsField != null && ChargeFlashPsField.GetValue(go.GetComponent<OrbChargeFlash>()) is ParticleSystem[] pa && pa.Length > 0 && pa[0] != null) c = pa[0].startColor;
+                    bool left = go.transform.localEulerAngles.y > 0f && go.transform.localEulerAngles.y < 180f; // Setup: LEFT -> +90, RIGHT -> -90 (=270)
+                    Vector3 p = go.transform.position;
+                    flashRing.Add(new BulletBirth
+                    {
+                        Seq = ++flashSeq, At = now,
+                        Row = new object[] { (float)flashSeq, (float)poolIndex, Mathf.Round(p.x * 10f) / 10f, Mathf.Round(p.y * 10f) / 10f, left, Hex(c) },
+                    });
+                }
+            }
+            flashRing.RemoveAll(x => now - x.At > BulletRingSeconds);
+            if (flashRing.Count == 0) return null;
+            var rows = new object[flashRing.Count][];
+            for (int i = 0; i < rows.Length; i++) rows[i] = flashRing[i].Row;
+            return rows;
+        }
+
+        private void ApplyGhostFlashes(RemoteGhostVisual visual, BridgeClient.RemoteState state, Vector3 worldOffset)
+        {
+            object[][] rows = state.Flashes;
+            if (rows == null || rows.Length == 0) return;
+            int maxSeq = visual.LastFlashSeq;
+            foreach (object[] row in rows)
+            {
+                if (row == null || row.Length < 6) continue;
+                int seq = (int)CellF(row, 0);
+                if (seq > maxSeq) maxSeq = seq;
+            }
+            if (!visual.FlashSeqAdopted)
+            {
+                visual.FlashSeqAdopted = true;
+                visual.LastFlashSeq = maxSeq;
+                return;
+            }
+            ObjectPooler op = GemaPoolManager.Instance != null ? GemaPoolManager.Instance.CommonEffectsPooler : null;
+            foreach (object[] row in rows)
+            {
+                if (row == null || row.Length < 6) continue;
+                int seq = (int)CellF(row, 0);
+                if (seq <= visual.LastFlashSeq) continue;
+                int pool = (int)CellF(row, 1);
+                float x = CellF(row, 2), y = CellF(row, 3);
+                if (op == null || float.IsNaN(x) || float.IsNaN(y)) continue;
+                GameObject fx = op.GetPooledObject(pool);
+                if (fx == null) continue;
+                bool left = row[4] is bool lb && lb;
+                Color c; if (!TryColor(row[5], out c)) c = Color.white;
+                Character.Direction dir = left ? Character.Direction.LEFT : Character.Direction.RIGHT;
+                fx.transform.position = worldOffset + new Vector3(x, y, 0f);
+                flashesWeLit.Add(fx.GetInstanceID());
+                fx.SetActive(true);
+                if (pool == 7) fx.GetComponent<OrbShootFlash>()?.Setup(c, dir);
+                else if (pool == 12) fx.GetComponent<OrbChargeFlash>()?.Setup(c, dir);
+            }
+            visual.LastFlashSeq = maxSeq;
+        }
+
+        private void KillGhostBullet(GhostBullet gb)
+        {
+            gb.DiedAt = Time.time;
+            if (gb.B != null) gb.B.DespawnMe(); // followers see isDespawning() and play their hit flash
+        }
+
+        private void TickGhostBullets()
+        {
+            if (remoteVisuals.Count == 0) return;
+            float dt = GemaTimeManager.Instance != null ? GemaTimeManager.Instance.deltaTime : Time.deltaTime;
+            float now = Time.time;
+            List<int> done = null;
+            foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+            {
+                foreach (KeyValuePair<int, GhostBullet> bk in kv.Value.Bullets)
+                {
+                    GhostBullet gb = bk.Value;
+                    if (gb.Go == null)
+                    {
+                        done = done ?? new List<int>(); done.Add(bk.Key); continue;
+                    }
+                    if (gb.DiedAt != float.NegativeInfinity)
+                    {
+                        if (now - gb.DiedAt > BulletLingerAfterDeath)
+                        {
+                            Destroy(gb.Go);
+                            done = done ?? new List<int>(); done.Add(bk.Key);
+                        }
+                        continue;
+                    }
+                    // The game's step, verbatim in effect: cachepos += (cos, -sin) * speed * (dt * 60).
+                    Vector3 p = gb.Go.transform.position;
+                    p.x += gb.Cos * gb.Speed * (dt * 60f);
+                    p.y -= gb.Sin * gb.Speed * (dt * 60f);
+                    gb.Go.transform.position = p;
+                    if (gb.SpriteAnimated && gb.B != null && BulletTimeField != null)
+                    {
+                        BulletTimeField.SetValue(gb.B, now - gb.BornAt);
+                        gb.B.BulletSprite();
+                    }
+                    if (now - gb.BornAt > BulletDefaultLife)
+                    {
+                        KillGhostBullet(gb);
+                    }
+                }
+                if (done != null)
+                {
+                    foreach (int seq in done) kv.Value.Bullets.Remove(seq);
+                    done.Clear();
+                }
+            }
+        }
+
+        private void DestroyGhostBullets(RemoteGhostVisual visual)
+        {
+            foreach (KeyValuePair<int, GhostBullet> kv in visual.Bullets)
+            {
+                if (kv.Value.B != null) kv.Value.B.DespawnMe();
+                if (kv.Value.Go != null) Destroy(kv.Value.Go);
+            }
+            visual.Bullets.Clear();
+        }
+
+        // DIAG_BULLET_WATCH -- what the PLAYER'S shots are, before deciding how to mirror them
+        // (2026-09-10, "missing all the projectiles from everything"). BulletManager keeps a pool
+        // of 200 bulletScripts with a public enable flag per slot and an owner per bullet; this
+        // walks that pool by reflection (the array is private) and reports, event-triggered:
+        //   BIRTH  slot, type, sprite, speed, angle, size, position relative to the owner
+        //   DEATH  lifetime, how far speed and angle drifted from birth (0 = flew straight)
+        //   COUNT  once a second, live player-owned bullets and the peak
+        // Owned means owner == the local player, or a non-player Celia/Sable (a core expansion).
+        // The question it answers: can a watcher reproduce a shot from its birth alone?
+        private const bool DIAG_BULLET_WATCH = false;
+        private const int BulletWatchBudget = 600;
+        private static readonly FieldInfo BulletsField = typeof(BulletManager).GetField("bullets", BindingFlags.NonPublic | BindingFlags.Instance);
+        private float[] bwBirthTime;
+        private float[] bwBirthSpeed, bwBirthAngle, bwMaxSpeedDrift, bwMaxAngleDrift;
+        private bool[] bwOurs;
+        private int bwLines, bwPeak;
+        private float bwLastCount;
+
+        private static bool BulletIsOurs(bulletScript b, CharacterBase player)
+        {
+            CharacterBase o = b.owner;
+            if (o == null) return false;
+            if (o == player) return true;
+            return !o.isPlayer() && (o.type == Character.Type.Celia || o.type == Character.Type.Sable);
+        }
+
+        private void DiagBulletWatch(CharacterBase player)
+        {
+            if (BulletManager.Instance == null || BulletsField == null || player == null || player.t == null) return;
+            var pool = BulletsField.GetValue(BulletManager.Instance) as bulletScript[];
+            bool[] enabled = BulletManager.Instance.bullets_enable;
+            if (pool == null || enabled == null) return;
+            int n = Mathf.Min(pool.Length, enabled.Length);
+            if (bwBirthTime == null || bwBirthTime.Length != n)
+            {
+                bwBirthTime = new float[n]; bwBirthSpeed = new float[n]; bwBirthAngle = new float[n];
+                bwMaxSpeedDrift = new float[n]; bwMaxAngleDrift = new float[n]; bwOurs = new bool[n];
+                for (int i = 0; i < n; i++) bwBirthTime[i] = -1f;
+            }
+            int live = 0;
+            for (int i = 0; i < n; i++)
+            {
+                bulletScript b = pool[i];
+                if (b == null) continue;
+                bool on = enabled[i] && b.gameObject.activeInHierarchy;
+                if (on && bwBirthTime[i] != b.timeCreated)
+                {
+                    // BIRTH (a re-used slot has a new timeCreated)
+                    bwBirthTime[i] = b.timeCreated;
+                    bwOurs[i] = BulletIsOurs(b, player);
+                    bwBirthSpeed[i] = b.speed; bwBirthAngle[i] = b.angle;
+                    bwMaxSpeedDrift[i] = 0f; bwMaxAngleDrift[i] = 0f;
+                    if (bwOurs[i] && bwLines < BulletWatchBudget)
+                    {
+                        bwLines++;
+                        Vector3 d = b.transform.position - player.t.position;
+                        string spr = b._render != null && b._render.sprite != null ? b._render.sprite.name : "none";
+                        Logger.LogInfo($"MeshGhost/probe bullet: BIRTH slot={i} type={b.type} sprite={b.sprite}/{spr} "
+                            + $"speed={b.speed:0.##} angle={b.angle:0.#} scale={b.transform.localScale.x:0.##} "
+                            + $"rel=({d.x:0},{d.y:0}) owner={(b.owner == player ? "player" : b.owner.type.ToString())} t={Time.time:0.000}");
+                    }
+                }
+                else if (!on && bwBirthTime[i] >= 0f)
+                {
+                    // DEATH
+                    if (bwOurs[i] && bwLines < BulletWatchBudget)
+                    {
+                        bwLines++;
+                        Logger.LogInfo($"MeshGhost/probe bullet: DEATH slot={i} type={b.type} lived={Time.time - bwBirthTime[i]:0.00}s "
+                            + $"speedDrift={bwMaxSpeedDrift[i]:0.##} angleDrift={bwMaxAngleDrift[i]:0.#} t={Time.time:0.000}");
+                    }
+                    bwBirthTime[i] = -1f;
+                }
+                if (on && bwOurs[i])
+                {
+                    live++;
+                    bwMaxSpeedDrift[i] = Mathf.Max(bwMaxSpeedDrift[i], Mathf.Abs(b.speed - bwBirthSpeed[i]));
+                    float da = Mathf.Abs(Mathf.DeltaAngle(b.angle, bwBirthAngle[i]));
+                    bwMaxAngleDrift[i] = Mathf.Max(bwMaxAngleDrift[i], da);
+                }
+            }
+            if (live > bwPeak) bwPeak = live;
+            if (Time.time - bwLastCount >= 1f && (live > 0 || bwPeak > 0))
+            {
+                bwLastCount = Time.time;
+                Logger.LogInfo($"MeshGhost/probe bullet: COUNT live={live} peak={bwPeak} lines={bwLines}/{BulletWatchBudget}");
+            }
+        }
+
         // DIAG_POOL_WATCH -- the deliberate WIDENING after the hierarchy probe came back empty.
         //
         // `DIAG_SPAWN_DIFF` watches a character's own subtree, which is where `ChargeShot` parents
@@ -3757,6 +4372,7 @@ namespace MeshGhostTevi
 
             // Trails spawn on FRAMES, not on messages -- see TickTrails.
             TickTrails(cloneTemplate);
+            TickGhostBullets();
 
             // Marker refresh, every frame, from what DrainInto just recorded. Not inside
             // UpsertRemoteGhost: a marker that only moves when a message arrives cannot hide
@@ -3811,6 +4427,9 @@ namespace MeshGhostTevi
                 Orbs = ReadOrbs(player),
                 Summons = ReadSummons(player),
                 Shield = ReadShield(player),
+                Bullets = ReadBullets(player),
+                BulletDeaths = ReadBulletDeaths(),
+                Flashes = ReadFlashes(player),
                 Platforms = ReadPlatforms(player),
                 OrbFxSeq = localOrbFxSeq,
                 OrbFxOrb = localOrbFxOrb,
@@ -3834,6 +4453,7 @@ namespace MeshGhostTevi
 
             WatchLocalVfx(player);
             WatchLocalOrbFx(player);
+            if (DIAG_BULLET_WATCH) DiagBulletWatch(player);
             KeepShieldPostprocess(player);
 
             // TEMPORARY, with DIAG_HITSTOP_PHASE: ALL FIVE sprite layers, once per hitstop, with

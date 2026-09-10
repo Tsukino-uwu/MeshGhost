@@ -133,6 +133,18 @@ namespace MeshGhostTevi
             public object[] Shield;
             public object[][] Platforms;
 
+            // PROJECTILES, spawn-and-fly (agent_docs/ideas.md, the orbitar entry; 2026-09-10). One
+            // row per BIRTH of a visible bullet the peer owns, kept for ~300ms so a lossy sample
+            // still carries it; the receiver dedupes on seq and flies the bullet itself:
+            //   [ seq, bulletType, spriteType, x, y, angle, speed, scale, effectPool, effectKind,
+            //     effectScale, effectColorRGBA, facingLeft ]
+            // and the seqs of bullets that DIED early (a wall, a hit), same 300ms window.
+            public object[][] Bullets;
+            public float[] BulletDeaths;
+            // MUZZLE FLASHES at the orb (pooled effects #7 OrbShootFlash, #12 OrbChargeFlash), not
+            // tied to a bullet: [ seq, pool, x, y, facingLeft, colorRGBA ], same 150ms ring.
+            public object[][] Flashes;
+
             public int? OrbFxSeq;
             public int? OrbFxOrb;
             public bool? OrbFxWhite;
@@ -699,6 +711,21 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["summons"] = state.Summons;
                 }
+                if (state.Bullets != null && state.Bullets.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["bul"] = state.Bullets;
+                }
+                if (state.Flashes != null && state.Flashes.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["flash"] = state.Flashes;
+                }
+                if (state.BulletDeaths != null && state.BulletDeaths.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["buld"] = state.BulletDeaths;
+                }
                 if (state.Shield != null && state.Shield.Length > 0)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -715,6 +742,34 @@ namespace MeshGhostTevi
                     extrasMap["orbfx_seq"] = state.OrbFxSeq.Value;
                     extrasMap["orbfx_orb"] = state.OrbFxOrb ?? 0;
                     extrasMap["orbfx_white"] = state.OrbFxWhite ?? false;
+                }
+            }
+            // THE 1024-BYTE EXTRAS CAP is the core's, and a state over it is dropped WHOLE -- the
+            // ghost would freeze, not just lose a bullet. Bullets are the one elastic field, so
+            // they are the first to go when a frame is over the line; the rest is unchanged.
+            if (extrasMap != null && (extrasMap.ContainsKey("bul") || extrasMap.ContainsKey("buld")))
+            {
+                int len = JsonConvert.SerializeObject(extrasMap).Length;
+                if (len > ExtrasSoftCap)
+                {
+                    // Oldest births first: the newest are the ones a receiver has not seen yet.
+                    object[][] bul = extrasMap.ContainsKey("bul") ? extrasMap["bul"] as object[][] : null;
+                    while (bul != null && bul.Length > 0 && JsonConvert.SerializeObject(extrasMap).Length > ExtrasSoftCap)
+                    {
+                        var trimmed = new object[bul.Length - 1][];
+                        System.Array.Copy(bul, 1, trimmed, 0, trimmed.Length);
+                        bul = trimmed;
+                        if (bul.Length == 0) extrasMap.Remove("bul"); else extrasMap["bul"] = bul;
+                    }
+                    if (JsonConvert.SerializeObject(extrasMap).Length > ExtrasSoftCap)
+                    {
+                        extrasMap.Remove("buld");
+                    }
+                    if (!warnedExtrasCap)
+                    {
+                        warnedExtrasCap = true;
+                        Log($"MeshGhost: extras hit {len} bytes this frame; bullets dropped from it to stay under the core's cap (said once).");
+                    }
                 }
             }
             object extras = extrasMap;
@@ -772,6 +827,22 @@ namespace MeshGhostTevi
 
         // Mixed rows (strings and numbers), same posture as ParseOrbs: a bad shape drops the field,
         // never the message. Numbers come out as float, strings as string, anything else as null.
+        private static float[] ParseFloats(JToken token)
+        {
+            if (token == null || token.Type != JTokenType.Array)
+            {
+                return null;
+            }
+            try
+            {
+                return token.ToObject<float[]>();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         private static object[] ParseRow(JToken token)
         {
             if (token == null || token.Type != JTokenType.Array)
@@ -883,6 +954,9 @@ namespace MeshGhostTevi
                                 Orbs = ParseOrbs(extras?["orbs"]),
                                 Summons = ParseRows(extras?["summons"]),
                                 Shield = ParseRow(extras?["shield"]),
+                                Bullets = ParseRows(extras?["bul"]),
+                                BulletDeaths = ParseFloats(extras?["buld"]),
+                                Flashes = ParseRows(extras?["flash"]),
                                 Platforms = ParseRows(extras?["plats"]),
                                 OrbFxSeq = (int?)extras?["orbfx_seq"],
                                 OrbFxOrb = (int?)extras?["orbfx_orb"],
@@ -984,5 +1058,7 @@ namespace MeshGhostTevi
         }
 
         private readonly HashSet<string> loggedTraces = new HashSet<string>();
+        private const int ExtrasSoftCap = 1000;
+        private bool warnedExtrasCap;
     }
 }

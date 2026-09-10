@@ -42,7 +42,8 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — orbitars (user: "orbitars sync now"), their crystal trail and the dodge fade ("works fine"), core expansions ("it does the summon thing now"); UNWATCHED: the blue trail's count/parameters and its dodge-vs-hover order, the boost shield + platforms, world-fixed summon positions, the `map_markers` config key (2026-09-10)
+- READY — **projectiles on the ghost** (spawn-and-fly + the game's own follower effects + muzzle flashes): first sighting confirmed, the two fixes after it are UNWATCHED — judge this first (2026-09-10)
+- READY — orbitars, their crystal trail, the dodge fade, core expansions and the boost shield are all user-confirmed; UNWATCHED from the same evening: the blue trail's count/parameters and its dodge-vs-hover order, world-fixed summon positions, the `map_markers` config key (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
@@ -139,6 +140,59 @@ two-instance rig.** Four pieces, in the order they went in:
 - **`"map_markers"` in config.json** (user's ask, on by default): `false` hides peers' pause-map
   markers; polled by file timestamp, so a save applies within a second. In the shipped config and
   `docs/config.md`. **Unwatched.**
+
+## [READY] Projectiles on the ghost: spawn-and-fly, the game's own follower effects, muzzle flashes (2026-09-10)
+
+**Built and deployed; the user saw bullets on the ghost for the first time -- *"its doing projectiles
+now, but not doing them all properly. and also missing some vfx things when shooting"* -- and the
+two fixes for that ARE DEPLOYED BUT UNWATCHED.** Judge this one first next session.
+
+**The census that made it buildable** (`DIAG_BULLET_WATCH`, the same evening, now off). The user
+fired every orbitar shot in a row -- basic A/B/C, charged A/B/C, the core expansions' -- and the
+probe reported, per bullet, birth parameters and death drift:
+
+| what it showed | the number |
+|---|---|
+| speed drift over a bullet's life | **0**, every kind |
+| angle drift over a bullet's life | **0**, every kind |
+| longest life | under 0.8s |
+| most alive at once | 29 |
+
+So a TEVI bullet IS a pure function of its birth, which is exactly the precondition the spawn-event
+plan in [`../../agent_docs/ideas.md`](../../agent_docs/ideas.md) named. No streaming, no lockstep.
+
+**What ships.** The sender rings each BIRTH of a visible bullet it owns for 150ms (seq, type,
+sprite, position, angle, speed, scale, which pooled effect is attached, its scale and colour,
+facing) plus the seqs of bullets that DIED early. The receiver spawns the game's own bullet PREFAB
+as a **dormant** object -- never registered in `BulletManager`'s pool, so it is never ticked: no
+hit checks, no wall checks, no damage, nothing spent -- flies it with the game's own step
+(`cachepos += (cos, -sin) * speed * (fixeddeltatime * 60)`), and hands it to the same pooled
+follower effect with the same `Setup`, so the effect ends itself, hit flash included, when the
+dormant bullet is marked despawning.
+
+**Two things the first build got wrong, both now deployed and unwatched:**
+
+- **A bullet's follower effect is attached AFTER `ShootBullet`, in the orb's own update**, which
+  can run after ours on the birth frame. A birth seen with no follower went out with none, and most
+  TEVI bullets are `SpriteType.USE_PS` -- no sprite at all -- so those flew invisible. Births are
+  now re-scanned while still in the ring and the row is patched in place; a receiver that already
+  spawned the bullet attaches the effect when a later row carries it.
+- **The muzzle flashes are not tied to a bullet at all** (`OrbShootFlash` #7, `OrbChargeFlash` #12,
+  lit at the orb), so the bullet mirror never saw them. The sender now watches those two pools for
+  an object going active that it did not light itself -- the exclusion set is what stops two
+  symmetric peers echoing each other's flashes.
+
+**The extras cap bit once and is guarded.** A core expansion's burst pushed one frame's `extras` to
+1047 bytes, over the core's 1024 cap, and the whole state would have been dropped -- the ghost
+frozen, not just a lost bullet. The ring is 150ms now, and `BridgeClient` trims the OLDEST births
+out of a frame that nears the cap, then the death list, before anything else is touched.
+
+**What to look at.** Two windows. Fire each orbitar shot kind on one side and watch the other:
+every shot visible with its own effect and trail, none flying as an invisible nothing; the flash at
+the orb when the shot leaves; a shot that hits a wall or an enemy on the sender's side ending at
+the same spot rather than flying on. **Known open, not defects to report:** a clone passes through
+what the sender's bullet hit (spawn-only, deliberate first pass), the summon's own attacks, and
+anything the census did not see fire.
 
 **What to look at.** Two windows side by side. On the watching side: the peer's orbs orbiting or
 sitting behind the ghost as they do on the peer's own screen, with the peer's sprites; the ring's

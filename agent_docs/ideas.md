@@ -1802,10 +1802,14 @@ own wording — the sibling path never mentions the rule, which is exactly why i
 
 ## TEVI: the orbitars are not synced at all, projectiles included (2026-08-28)
 
-**Status 2026-09-10: the orbs, their crystal trail and the core expansions (summons) are BUILT and
-in `tevi/UNVERIFIED.md`; the orbs were seen live.** What remains is every orbitar SHOT -- the
-user's list: basic shot A/B/C, charged shot A/B/C -- plus whatever a summon fires. The plan for
-those, agreed with the user the same day:
+**Status 2026-09-10, end of day: ALL OF IT IS BUILT** -- the orbs, their crystal trail, the core
+expansions with their barrier, AND the projectiles, in `tevi/UNVERIFIED.md`. The orbs, trail,
+summons and barrier are user-confirmed; the shots were seen working on the first look with two
+faults since fixed and unwatched. The plan below was followed as written and the census confirmed
+its premise (zero speed/angle drift on every orbitar bullet), so it is kept as the record of WHY
+rather than as pending work. **What is still open:** the death-event rung is BUILT (early deaths
+travel), the per-kind corrections are not needed so far, and the summon's own attacks remain.
+The plan, agreed with the user the same day:
 
 - **How the netplay games do it, and why we cannot copy it.** Touhou 19's official mode, Maiden
   and Spell, Hisoutensoku's rollback mods and Ju.N.Owen all run deterministic lockstep: only

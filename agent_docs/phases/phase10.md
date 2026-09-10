@@ -1345,3 +1345,31 @@ trace once; a clone of a self-configuring component inherits its POST-setup stat
 fault as the 2026-08-14 `basesprite.enabled` clone) -- here a material with a keyword already
 stripped. `tevi/UNVERIFIED.md` has the entry; the user's last word: *"yee looks correct now i think"*.
 
+**Projectiles, the last track of the night (2026-09-10).** User: *"now i think we are just missing
+all the projectiles from everything -- orbitars, some of the core expansions"*. Built in the order
+`ideas.md` had already argued for, and the argument held up:
+
+1. **Census first** (`DIAG_BULLET_WATCH`, event-triggered per birth/death, off again now). The user
+   fired every orbitar shot kind in a row; every bullet flew with **zero** speed and angle drift and
+   died inside a second, peak 29 alive. That is the whole justification for spawn-and-fly: a bullet
+   is a pure function of its birth, so nothing needs streaming and lockstep was never available to
+   us anyway (two separate worlds, no shared simulation).
+2. **The dormant-prefab trick.** The receiver spawns the game's own bullet prefab but never
+   registers it in `BulletManager`'s pool, so the game never ticks it: it cannot hit, check walls,
+   or spend anything, while still being a real `bulletScript` that the game's own pooled follower
+   effects accept and follow. That is what makes the visual exact without a gameplay plane -- most
+   TEVI bullets are `USE_PS` and have no sprite at all; the effect IS the bullet on screen.
+3. **Two faults the first live look found**, both fixed and unwatched at the entry's end: the
+   follower effect is attached after `ShootBullet` (so a birth read on the same frame carried none,
+   and those shots flew invisible -- births are re-scanned inside the ring now), and the muzzle
+   flashes are not tied to a bullet at all, so they needed their own ring with an
+   "effects we lit ourselves" exclusion to stop symmetric peers echoing.
+4. **The extras cap bit once**: a core expansion's burst put one frame at 1047 bytes against the
+   core's 1024, and an oversize state is dropped WHOLE -- a frozen ghost, not a lost bullet. Ring
+   narrowed to 150ms and `BridgeClient` now trims oldest births first when a frame nears the cap.
+
+**Session end.** Both TEVI processes exited; relay and both cores torn down. `tevi/UNVERIFIED.md`
+leads with the projectile entry -- that is the first thing to judge next session. Still open after
+it: the orbs' return glow (`GlowOrbsEffect`), the orb's Light on a ghost, the summon's own attacks,
+and the death-event/per-kind-correction rungs of the projectile plan.
+
