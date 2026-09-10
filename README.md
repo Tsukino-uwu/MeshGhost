@@ -18,11 +18,10 @@ can show today.
 
 ## Setup
 
-**Download:** the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases). Then
-**[docs/getting-started.md](docs/getting-started.md)**, with
+**Download:** can be found at the [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases).
+Instructions for how to play at **[docs/getting-started.md](docs/getting-started.md)**, along with
 [docs/hosting.md](docs/hosting.md) for whoever runs the server and
-[docs/troubleshooting.md](docs/troubleshooting.md) when something is wrong. All three ship in the
-zip too, under `docs\`.
+[docs/troubleshooting.md](docs/troubleshooting.md) if something goes wrong.
 
 ## Docs
 
