@@ -983,3 +983,33 @@ existing guard counted files (`-lt 4`), which a subset makes meaningless — fou
 It now checks the four by NAME, so a page renamed in `docs/` stops the release instead of shipping a
 map that points at a file the zip does not have. Negative-tested with a bogus entry; it fires and
 names the missing page.
+
+## The root README cut (2026-09-10) — 118 → 35 lines, two indexes become one
+
+**What it was.** The root README carried two annotated doc lists — ten `docs/` entries and fourteen
+`agent_docs/` entries, each with its own sentence of description — plus the full repo tree. Three
+quarters of the file was material for someone about to change the code, sitting in front of someone
+who had come to play with a friend.
+
+**The `agent_docs/` list was the real defect: it was a second index of a folder that already has
+one.** `agent_docs/README.md` is that index, maintained, and preflight holds its entries to one line
+each. A second copy in a file nothing checks is the same drift shape the canonical-source check was
+written for. Deleted outright, not moved.
+
+**The other two moved to where their reader already is.** The `docs/` list became `docs/README.md`,
+which is what GitHub renders when anyone opens the folder — so the list is one click from every page
+it names, instead of one click from the project's front door. The repo tree went to
+`.github/CONTRIBUTING.md`, which was twelve lines and had no map of the tree; someone reading it is
+by definition about to touch the code.
+
+**What the README kept, and the shape it settled into.** Intro, the games, five links, contributing,
+licence. The Setup links are named the way the Games links are — the link text is the label, the path
+is the link's job — after three passes on the wording: bold-label-plus-path first, then task-shaped
+labels ("Install and play", "Something's wrong"), then plain names once it was clear the section
+above had already solved it. The user's call each time; the lesson is that the answer was visible in
+the file's own neighbouring list from the start.
+
+**What was deliberately left alone.** The intro paragraph, which is the only place the
+cosmetic-by-default posture is stated to a newcomer. And the `docs/` list keeps its one-sentence
+descriptions in its new home — the one-line rule governs indexes that grow by entry, and this one
+grows only when a page is added.
