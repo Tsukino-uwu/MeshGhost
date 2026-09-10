@@ -17,20 +17,23 @@ user's call after watching the spawned ghost snap at a map seam where the painte
 opt-ins, kept as the comparison and the record of how the object system works. Everything below
 about the spawned tier describes that mode.
 
-**Last live confirmation 2026-08-27**: the first **mixed-build room** — one Archipelago client and
-one vanilla client, two emulators, two cores — where seven faults were found and fixed on screen.
-Before that, 2026-08-26: ledge hops, Dig/Escape Rope, fishing, the Fly landing, ice glides and the
-party-menu gate; movement itself — both gaits, both tiers, surf and the bike — 2026-08-25.
+**Last live confirmation 2026-09-10**, in a room of **four windows across five recognised builds**:
+a peer's clothing colour, their object palette, the rebuilt UI hide rule and the out-of-play hold all
+went in on 2026-09-09 and 2026-09-10. Before that, 2026-08-27: the first **mixed-build room** — one
+Archipelago client and one vanilla client, two emulators, two cores — where seven faults were found
+and fixed on screen; 2026-08-26: ledge hops, Dig/Escape Rope, fishing, the Fly landing, ice glides
+and the party-menu gate; movement itself — both gaits, both tiers, surf and the bike — 2026-08-25.
 **What is confirmed and what is not is [VERIFIED.md](VERIFIED.md) and
 [UNVERIFIED.md](UNVERIFIED.md)**, in that order: every confirmation before the mixed session is a
-loopback ghost on vanilla V1.0 at the dev rig's interpolation, the hardware tier has never been
-judged on screen at all, and the mixed room has only ever been run on one map with two players.
+loopback ghost on vanilla V1.0 at the dev rig's interpolation, and the hardware tier has never been
+judged on screen at all.
 
 - Platform: Game Boy Color, played via BizHawk.
-- Confirmed working roms: "Vanilla V1.0", "Archipelago 6.0.0-beta.11" (on a V1.0 base).
-- Recognised from a hash-verified build, not yet watched: **Vanilla V1.1** (same table as V1.0),
-  **Speedchoice v8.1** (its own table; it patches V1.1), and **Archipelago on a V1.1 base** (the
-  apworld's shared table). Each waits in [UNVERIFIED.md](UNVERIFIED.md) for a screen.
+- Confirmed working roms, all watched on screen: **Vanilla V1.0**, **Vanilla V1.1** (same table as
+  V1.0), **Speedchoice v8.1** (its own table; it patches V1.1), **Archipelago on a V1.0 base**
+  ("6.0.0-beta.11") and **Archipelago on a V1.1 base** (the apworld's shared table). The last three
+  were watched 2026-09-09 and 2026-09-10 — riding the bike, surfing and in a four-window room
+  ([VERIFIED.md](VERIFIED.md)).
 - **One address table per ROM build, chosen at startup from the header title and checksum.** Vanilla's
   and Speedchoice's entries come from our own hash-verified builds; Archipelago's were each *measured*, because
   its patch rearranges WRAM non-uniformly and no constant offset recovers vanilla's addresses
@@ -276,20 +279,62 @@ unwatched says so and is in [UNVERIFIED.md](UNVERIFIED.md).
     450ms ships here like everywhere else (2026-09-02, ADR 0046), the user's explicit call for
     this game from the other three. Also confirmed the same week: ghosts survive relay-side area
     filtering, read from the release files themselves (2026-08-28). [VERIFIED.md](VERIFIED.md).
+28. Built the loop that made everything after it cheap. The emulator host's dev loader is attached
+    once and then loads, swaps or drops whatever script a one-line control file names, so a change
+    costs a script reload instead of a full relaunch — and every relaunch interrupts whoever is
+    holding the controller. Probes written to its contract can drive the game themselves, from
+    savestates and a scripted walk, which is how most of the faults below were found without anyone
+    sitting at the keyboard. The loader is the host's and shared with Emerald, so it is described
+    once, there: [../../CLAUDE.md](../../CLAUDE.md).
+29. Took ghosts across the map seam. The adapter reads the map-connection block on every map load
+    and translates a peer's tile out of a neighbour's frame into ours, culling the peers too far to
+    matter; it then declares `render_all_areas` in its hello so the core stops applying its own
+    area-equality filter. That declaration is **conditional** — it goes out only when this build's
+    connection addresses actually resolved, so a cartridge nobody has measured keeps the core's
+    filter rather than losing it with nothing to replace it. Confirmed on screen in all four
+    directions, 2026-08-27 ([VERIFIED.md](VERIFIED.md)); the same session surfaced a pre-existing
+    fault where three of the four facings drew mirrored, fixed alongside it.
+30. Taught the adapter which Crystal it is running on. Five recognised builds — vanilla V1.0 and
+    V1.1, Speedchoice v8.1, and Archipelago on either base — each carrying its own address table,
+    chosen from the ROM header's title, version byte and global checksum. An address a build does
+    not have is a **refusal to run, never a fallback**: a write aimed at a vanilla address on a
+    patched cartridge does not fail cleanly, it writes somewhere real. Confirmed across all five on
+    screen, 2026-09-09 ([VERIFIED.md](VERIFIED.md)).
+31. Stopped a player vanishing the moment they entered a battle, a menu or a fishing cast. The
+    adapter holds the last in-play state and re-sends it while the player is out of play, with the
+    transient extras cleared so a repeated arrival marker cannot keep every receiver stuck in
+    arrival handling. Nothing is sent before the first in-play state, so the title screen still
+    sends nothing. The user reported the symptom and chose the behaviour; confirmed 2026-09-09
+    ([VERIFIED.md](VERIFIED.md)).
+32. Rebuilt the rule for when the game's own UI hides a character, on what the tiles actually say.
+    A text box defers to the tilemap's BG-priority bit; a menu rectangle hides unconditionally,
+    because the tile test regressed the pause menu; and a rectangle counts as live only when its
+    frame's corner tile is drawn, which replaced a guard that compared strings. Confirmed on all
+    five builds, 2026-09-09 ([VERIFIED.md](VERIFIED.md)). The surprise underneath it is in
+    [documentation.md](documentation.md): a text box does not hide characters at all.
+33. Made a peer look like themselves rather than like the window watching them. A peer's object
+    palette rides the wire, so a surfing peer keeps the colour their own game gives them; so does
+    their clothing colour, read out of palette RAM rather than the cartridge's palette table, which
+    means whatever put the colour there — base game, patch, or the player's own choice — is what
+    ships. The receiver overrides colour 2 only, so skin and outline stay this machine's. Confirmed
+    across four windows, 2026-09-09 and 2026-09-10 ([VERIFIED.md](VERIFIED.md)) — with one gap the
+    record keeps: a real coloured Archipelago seed is still unwatched, and the mechanism was
+    exercised with a probe instead.
 
 
 ### Further work past "good enough"
 
-Open as of 2026-08-27 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
+Open as of 2026-09-10 — [agent_docs/status.md](../../../../agent_docs/status.md) is the
 authoritative list, [UNVERIFIED.md](UNVERIFIED.md) has every measurement waiting on a look, and
 [phase9.md](../../../../agent_docs/phases/phase9.md) has the narrative.
 
-- **The mixed room has run on ONE map with two players.** Everything before it was a loopback
-  ghost, whose motion is the local player's own — so a peer flying, digging or spinning while the
-  watcher does not is still largely unexercised.
+- **A multi-client room has now run with four windows across five builds** (2026-09-10), but most
+  earlier confirmations were a loopback ghost, whose motion is the local player's own — so a peer
+  flying, digging or spinning while the watcher does not is still largely unexercised.
 - **Nothing crosses builds by assumption.** Sprite ids, item ids and gaits each differ between
-  vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed;
-  **RUNNING is untested and its gait unmeasured**, and surf is unreached on that build.
+  vanilla and the Archipelago seed, and each had to be measured. Turbo is fixed and confirmed, and
+  surf was confirmed across all five builds on 2026-09-09; **RUNNING is untested and its gait
+  unmeasured**.
 - **The shipped interpolation is 450ms since 2026-09-02** (step 27), judged on the drawn tier on the
   worst-case link. Most confirmations above predate that and were made at the dev rig's
   `-interp=0ms`, which is the configuration a 1:1 judgement needs and the one that hides a whole

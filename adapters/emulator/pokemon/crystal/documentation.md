@@ -16,8 +16,10 @@ forever?* — applied to prose. No, or merely unclear, means out. Full guidance 
 cases: [adapters/_template/README.md](../../../_template/README.md).
 
 > **Measured from a running game** during Phase 9 (2026-08-17 onward), mostly on vanilla V1.0, and
-> cross-checked against the public `pret/pokecrystal` decompilation. **Decomp facts carry a file
-> citation; facts watched on a running game are marked `[measured]` with a date.**
+> cross-checked against the public `pret/pokecrystal` decompilation. **Facts watched on a running
+> game are marked `[measured]` with a date; facts read from the decompilation are marked
+> `[from the decomp]` and carry a file citation.** They are different kinds of evidence and the file
+> should say which one it is leaning on -- the same three-label vocabulary Emerald uses.
 
 **What this file is: how *the game* does things**, per mechanic, readable by someone who has never
 seen our code. **Nothing here describes an adapter workaround** — those belong in
@@ -74,10 +76,37 @@ Sprite selection is a small table keyed on `wPlayerState`, with one table per ge
 | `PLAYER_SURF` | `SPRITE_SURF` | `SPRITE_SURF` — same |
 | `PLAYER_SURF_PIKA` | `SPRITE_SURFING_PIKACHU` | same |
 
-So a character's whole appearance reduces to **gender + player state → one sprite id**, and surfing
-is gender-neutral. Note the spawn template hardcodes `SPRITE_CHRIS` and the gender-correct sprite
+So a character's whole appearance reduces to **gender + player state → one sprite id**, and the
+surf *sprite* is shared between genders -- though its COLOUR is not; see "How the game colours a
+character" below. Note the spawn template hardcodes `SPRITE_CHRIS` and the gender-correct sprite
 is written *afterwards*, so a struct captured at the instant of spawn does not yet show the final
 appearance.
+
+### How the game colours a character
+
+A sprite id says which picture; the **object palette** says in what colours, and the two are set
+independently.
+
+**The player's palette is chosen by gender.** `SpawnPlayer` picks it, and `_SetPlayerPalette`
+(`engine/overworld/map_objects.asm`) sets the player object's palette to `PAL_OW_RED` (0) or
+`PAL_OW_BLUE` (1) accordingly. [from the decomp]
+
+**The surf blob inherits the rider's palette.** The sprite is shared between genders; the colour is
+not, so a surfing character is red or blue exactly as they were on foot. [measured 2026-09-09,
+across five builds, and confirmed on screen the same day]
+
+**A palette slot is four BGR555 words, and their roles are fixed**: transparent, skin, clothing,
+outline. The time-of-day tint moves word 0, which an object never shows
+(`gfx/overworld/npc_sprites.pal`). [from the decomp]
+
+**Eight object palettes are live at once**, four words each, in palette RAM. Reading the *live* RAM
+rather than the cartridge's palette table is what makes a colour portable between builds: whatever
+put it there -- the base game, a patch, or a player's own choice -- is what is actually on screen.
+[measured 2026-09-10, all four builds tested]
+
+**The hardware copies from the SECOND palette block, 128 bytes past the shadow the CPU writes.** A
+reader that stops at the shadow sees a value the screen may not be showing yet. [measured
+2026-09-10]
 
 ### A sprite id is not a picture: what is RESIDENT is decided per map
 
@@ -111,8 +140,9 @@ Established 2026-08-26 by an A/B with nothing of ours loaded; trail in
 ### Surf and the bike, in the game's own terms
 
 Both are `wPlayerState` (`01:d95d`) changing, and almost nothing else. **Surf replaces the
-character outright** — the whole four-tile character becomes `SPRITE_SURF`, a gender-neutral blob,
-with no second object and no rider drawn on top (the opposite of Emerald, which spawns a separate
+character outright** — the whole four-tile character becomes `SPRITE_SURF`, one shared blob sprite
+for both genders (its palette is still the rider's, so a surfer is red or blue by gender -- see
+"How the game colours a character"), with no second object and no rider drawn on top (the opposite of Emerald, which spawns a separate
 blob underneath). **The bike is a different sprite plus a different gait**, group 2 — the same
 group an ice glide uses, which is why the gait alone never identifies either.
 
@@ -207,6 +237,40 @@ family's.** [UNVERIFIED.md](UNVERIFIED.md).
 `wMapGroup` (`01:dcb5`) and `wMapNumber` (`01:dcb6`) are consecutive bytes, followed immediately by
 `wYCoord` and `wXCoord` — four consecutive bytes in total. Map identity is a **pair**; neither byte
 means anything alone. Groups are broadly regional (group 24 is the New Bark Town area).
+
+## What a patched or alternate build moves, and what it does not
+
+Recorded because it is a property of *those cartridges*, and because none of it fails loudly: an
+address read on the wrong build returns a plausible value rather than an error. Facts only -- the
+per-build address tables live in the adapter's own source, and the measurements in
+[`VERIFIED.md`](VERIFIED.md).
+
+**A build identifies itself from its header.** The title bytes, the version byte and the global
+checksum are together enough to tell these five apart. [measured 2026-09-09]
+
+**Vanilla V1.1 against V1.0:** one WRAM label moves; a few hundred ROM bytes differ, none of them
+inside the regions this adapter reads. [from the decomp, both symbol files, on hash-verified builds]
+
+**Speedchoice v8.1** inserts one byte ahead of the coordinate block, so the map group, the map
+number and the Y/X coordinates -- and the party species -- all sit one byte later than vanilla. The
+object array, the map-object table, both gate bytes, both scroll offsets and the HRAM scroll pair do
+not move, and the object struct's layout is unchanged field for field. [from the decomp, its own
+published source at the matching tag]
+
+**ROM tables move on Speedchoice but carry vanilla's contents at the new address** -- with one
+exception that matters: a table whose *entries are themselves addresses* cannot be relocated
+wholesale, so it has to be read at the new location rather than assumed. The overworld sprite table
+is byte-identical to vanilla's, which is why a sprite id means the same thing on both. [from the
+decomp]
+
+**The Archipelago builds rearrange WRAM non-uniformly** -- no constant offset recovers vanilla, so
+each address is measured rather than derived. Some vanilla addresses do survive unchanged, which is
+a coincidence to verify per address and not a rule. The apworld ships two base patches and selects
+between them on the header version byte, exposing one shared address table for both. [from the
+decomp, the public apworld source; measured 2026-09-09]
+
+**Treat this as examples rather than a boundary.** The list has grown every time another build was
+looked at.
 
 ## The game's lifecycle states
 
@@ -375,10 +439,28 @@ Two separate budgets, and the smaller one wins:
 
 ## The game's UI covers characters by itself
 
-A text box or the pause menu is drawn by the game over the map, and every character underneath it
-is covered by hardware priority — the game's own NPCs and any object written into the arrays alike,
-with nothing asked of whoever put the character there. A character standing *outside* the panel's
-region keeps drawing normally. Confirmed on screen 2026-08-19 with the pause menu open.
+**This section said until 2026-09-09 that every character under a box is covered by hardware
+priority. That is true of a MENU and false of a TEXT BOX**, and the difference cost an evening. The
+2026-08-19 confirmation it rested on was of the pause menu, generalised to boxes in general. There
+are three mechanisms here, not one:
+
+**1. A text box does not hide characters at all.** Its tiles carry palette 7 with the CGB priority
+bit **clear**, and an NPC's hardware sprites stay live inside the box's rows with no behind-BG bit
+anywhere. The game draws its characters *over* its text boxes. [measured 2026-09-09]
+
+**2. A menu hides characters by not drawing them, and which characters differs by build.** Vanilla
+clears the whole sprite engine on the way in (below); one patched build removes only its NPC's
+hardware entries under the pause menu and keeps the player's; another keeps sprites running beside
+its menu entirely. Under a frameless status panel, one build kept an NPC's entry live where another
+deleted it. So "a menu is open" does not by itself say what is still on screen. [measured
+2026-09-09, across five builds]
+
+**3. Whether a published rectangle is actually on screen is answered by its own frame.** The tile at
+the rectangle's top-left is the box frame's corner tile -- the same tile the text-box test reads --
+and if it is not drawn, the rectangle is stale. This is the game's own answer to a question
+`wMenuBorder*` alone cannot settle (see the scratch-slot paragraph below). [measured 2026-09-09]
+
+A character standing *outside* a panel's region keeps drawing normally in every case.
 
 **The game keeps a positive "may characters be drawn at all" byte.** Every full-screen UI — the
 party menu, the fly map, the PC — calls `DisableSpriteUpdates` (`home/sprite_updates.asm`) on the
@@ -728,3 +810,18 @@ went away.
 
 Measured 2026-08-27 across ~90 driven crossings on two seams; addresses and the coordinate
 arithmetic in `VERIFIED.md`.
+
+## Known unknowns
+
+Open questions about **the game**, kept here so a later session can strike one through and point at
+the section that answered it rather than re-deriving that it was ever open.
+
+- **What decides the fourth gait on the Archipelago build.** Vanilla has three; the patched
+  cartridge has a fourth, which the drawn tier's plausibility test first rejected as a register
+  rebase. It is read correctly now, but what the game means by it is not established.
+- **Whether the object-struct layout is identical on every Archipelago seed**, or only on the two
+  base patches looked at so far. Measured per build, never derived.
+- **Which colours a coloured Archipelago seed assigns, and where it writes them.** The
+  clothing-colour mechanism was exercised with a probe rather than with a seed that chose colours.
+- **What Teleport does to the object arrays.** Fly and Dig are mapped; Teleport is not.
+- **RUNNING's gait on the Archipelago build** -- unmeasured, and named as open in the build story.
