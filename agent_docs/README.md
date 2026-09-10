@@ -25,6 +25,7 @@ of the documentation, written for people *using* MeshGhost, is [`../docs/`](../d
 - …start effect/VFX work: [effect-investigation.md](effect-investigation.md) — how to search for, mirror and confirm a game's visual effect, told through the Pseudoregalia trail.
 - …drive a running game yourself: [playing.md](playing.md) — what an agent may change, how to steer input, navigate, use screenshots.
 - …run a live test: [running-the-rig.md](running-the-rig.md) — start the scaffolding hidden, the netsim default, two games at once, several agents, crash dumps, the savestate slots (split out of `environment.md` 2026-09-02).
+- …change adapter code without restarting the game: [live-reload.md](live-reload.md) — the loop that is built before the first feature on every host, the three hosts' different answers, and the three ways a fast reload lies to you.
 - …set up or trust the machine: [environment.md](environment.md) — host, toolchain, BizHawk's Lua capabilities, the decomp workspaces, Unity/UE installs, onboarding, conventions.
 - …propose anything past Tier 2: [beyond-cosmetic.md](beyond-cosmetic.md) — sync models, the five authority models, the readiness gaps; and [kill-credit.md](kill-credit.md) for enemy/boss sync. Nothing in either is scheduled.
 - …reason about a game that is not one avatar in a world: [game-shapes.md](game-shapes.md) — the three axes (shape, seam, timing), what presence and co-op each mean per shape, the slot-cap fallback, threading, and what mod support can honestly promise. Nothing is scheduled.
@@ -93,7 +94,6 @@ paragraph in the existing flow, or a line in `docs/config.md`, not a heading of 
 - [../docs/integrating.md](../docs/integrating.md) — putting MeshGhost into a game you own, in any language; unsupported and untested by us, but the wire facts are here.
 - [../docs/antivirus.md](../docs/antivirus.md) — why the unsigned binaries get flagged and what a user can verify.
 - [../docs/code-signing.md](../docs/code-signing.md) — the SignPath code-signing policy: what is signed, what is not, the roles.
-- [../docs/live-reload.md](../docs/live-reload.md) — how each host reloads adapter code into a running game.
 
 ## How to use this folder
 

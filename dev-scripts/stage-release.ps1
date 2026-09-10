@@ -259,13 +259,27 @@ if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
 # reads as `hosting.md` in Notepad instead of as punctuation. The .md name in the link text then
 # points at the .txt of the same name sitting beside it, which is close enough to follow.
 #
-# EVERY docs/*.md is staged, deliberately -- not a hand-picked player-facing subset. A subset needs
-# maintaining, and the moment one staged page links to an unstaged one the reader hits a dead end.
+# FOUR PAGES ARE STAGED, not every docs/*.md (2026-09-10, the user's call): how to play, how to
+# host, what the settings do, what to do when it does not work. They are exactly the four
+# README.txt's own map names, so the zip advertises everything it carries and carries everything it
+# advertises. The other docs/ pages answer questions a reader has a browser for -- auditing the
+# code, the wire protocol, putting MeshGhost in a game of their own -- and shipping them made the
+# zip's docs\ folder a place to get lost in.
+#
+# Every EARLIER version of this comment said the opposite, and its reasoning was sound: "a subset
+# needs maintaining, and the moment one staged page links to an unstaged one the reader hits a dead
+# end." Eleven such pointers existed the day the subset was cut. So the subset does not rely on
+# anyone maintaining it -- $stagedDocs drives both the copy and the link rewrite below, and a
+# pointer to a page that is NOT staged becomes a URL rather than the name of a file the reader does
+# not have. Adding a page back to the zip is one entry in this list and nothing else.
+$stagedDocs = @('getting-started', 'hosting', 'config', 'troubleshooting')
+$docsUrlBase = 'https://github.com/Tsukino-uwu/MeshGhost/blob/master/docs'
 $docsDest = 'packaging\release\docs'
 if (Test-Path $docsDest) { Remove-Item -Recurse -Force $docsDest }
 New-Item -ItemType Directory -Force $docsDest | Out-Null
 $docCount = 0
 foreach ($doc in (Get-ChildItem 'docs\*.md' | Sort-Object Name)) {
+    if ($stagedDocs -notcontains $doc.BaseName) { continue }
     # ReadAllText with an explicit UTF8 encoding, NOT Get-Content -Raw: the docs are UTF-8 with no
     # BOM, and PowerShell 5.1 reads a BOM-less file as the system ANSI codepage -- so every em dash
     # and arrow in them came through as mojibake and was then written back out as genuinely
@@ -275,23 +289,43 @@ foreach ($doc in (Get-ChildItem 'docs\*.md' | Sort-Object Name)) {
     $body = [regex]::Replace($body, '!\[([^\]]*)\]\([^)]*\)', '$1')
     $body = [regex]::Replace($body, '\[([^\]]+)\]\([^)]*\)', '$1')
     # A label that names a sibling page reads as "hosting.md", but the file beside it is
-    # hosting.txt. Rewrite the extension so the pointer names a file that actually exists in the
-    # zip. Only on a bare <name>.md token, so prose mentioning a .md path elsewhere is untouched.
-    $body = [regex]::Replace($body, '(?<![\w/\\.])([a-z0-9][a-z0-9-]*)\.md\b', '$1.txt')
-    # ...and the same page written as a REPO path, "docs/security.md", which the deeper guides use
-    # to cite each other. In the zip that file is docs\security.txt sitting in the same folder as
-    # the page citing it, so the directory prefix is dropped along with the extension: 39 such
-    # pointers were dead in the zip until 2026-09-10, all of them naming a file the reader had.
-    # `agent_docs/...` is deliberately NOT matched -- agent_docs\ is not shipped, so those name
-    # the repository honestly and must stay as they are. The lookbehind is what separates them:
-    # `_` is a word character, so `agent_docs/` cannot match.
-    $body = [regex]::Replace($body, '(?<!\w)docs/([a-z0-9][a-z0-9-]*)\.md\b', '$1.txt')
+    # hosting.txt -- and since 2026-09-10 the page it names may not be in the zip at all. So the
+    # extension is not rewritten blindly: a STAGED page becomes the .txt sitting beside the reader,
+    # an UNSTAGED one becomes the URL of the page in the repository, and a .md that is not a docs/
+    # page at all (a mention of a file elsewhere in the tree) is left exactly as written. Getting
+    # that last case wrong would invent a docs/ URL for a file that was never there.
+    #
+    # Two shapes, one evaluator: the bare sibling name "security.md", and the same page written as
+    # a REPO path, "docs/security.md", which the deeper guides use to cite each other. 39 of the
+    # second kind were dead in the zip until 2026-09-10. `agent_docs/...` is deliberately NOT
+    # matched -- agent_docs\ is not shipped, so those name the repository honestly and must stay as
+    # they are. The lookbehind is what separates them: `_` is a word character, so `agent_docs/`
+    # cannot match.
+    #
+    # THE PATH SHAPE GOES FIRST, and the order is load-bearing now that the evaluator can emit a
+    # URL. A URL ends in ".../docs/security.md", which is itself the path shape -- so running the
+    # bare pass first produced a URL that the path pass then prefixed a SECOND time (seen in the
+    # dry run, 2026-09-10). This way round cannot recurse: the bare pattern's lookbehind refuses a
+    # name preceded by "/", so it never matches inside a URL the path pass has already written.
+    $pointer = {
+        param($m)
+        $page = $m.Groups[1].Value
+        if ($stagedDocs -contains $page) { return "$page.txt" }
+        if (Test-Path -LiteralPath "docs\$page.md") { return "$docsUrlBase/$page.md" }
+        return $m.Value
+    }
+    $body = [regex]::Replace($body, '(?<!\w)docs/([a-z0-9][a-z0-9-]*)\.md\b', $pointer)
+    $body = [regex]::Replace($body, '(?<![\w/\\.])([a-z0-9][a-z0-9-]*)\.md\b', $pointer)
     $out = Join-Path $docsDest ($doc.BaseName + '.txt')
     [System.IO.File]::WriteAllText($out, $body, (New-Object System.Text.UTF8Encoding $false))
     $docCount++
 }
-if ($docCount -lt 4) {
-    throw "only $docCount file(s) staged into $docsDest -- README.txt points at getting-started, hosting, troubleshooting and config, so fewer than four means the copy is broken and the zip would ship dead pointers."
+# Checked by NAME, not by count: the list above is the whole contract with README.txt, so a page
+# renamed or deleted in docs/ has to stop the release rather than quietly ship a zip whose map
+# points at a file that is not in it.
+$missingDocs = @($stagedDocs | Where-Object { -not (Test-Path -LiteralPath (Join-Path $docsDest "$_.txt")) })
+if ($missingDocs.Count -gt 0) {
+    throw "docs\ staged $docCount of $($stagedDocs.Count) guide(s) -- missing: $($missingDocs -join ', '). README.txt points at getting-started, hosting, troubleshooting and config by name, so the zip would ship dead pointers."
 }
 Write-Host "  docs\: staged $docCount guide(s) from docs\*.md"
 

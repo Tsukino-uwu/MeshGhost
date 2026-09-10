@@ -11,7 +11,7 @@ work from any working directory, `"%~dp0..\<name>.exe"`. The one exception is
 `run-loopback-in-release-folder.bat` below, which is written to be copied *out* of here into a
 downloaded release folder and run against its `meshghost-server.exe` instead.
 
-**New here? [docs/live-reload.md](../docs/live-reload.md) is the map** — what the live-reload
+**New here? [agent_docs/live-reload.md](../agent_docs/live-reload.md) is the map** — what the live-reload
 loop is on each of the three hosts, why they differ, and what none of them can tell you. The
 entries below are the per-script detail; that file is the shape.
 
@@ -479,7 +479,7 @@ prints `started meshghost.exe (pid N)` when it spawned one.
 
 **A clean loopback and a faulted link answer different questions, and using the wrong rig returns
 a confident wrong answer.** The user's rule, set the day one netsim session exposed three shipped
-bugs and a timing flaw that months of clean-loopback testing could never have shown:
+bugs and a timing flaw that no amount of clean-loopback testing could have shown:
 
 - **The clean rig** (100Hz, `-interp=0`, loopback offset) is the BOOTSTRAP phase, in the user's
   own scoping: *"should only be used when first trying to match movement/make sure the game moves
@@ -738,7 +738,7 @@ this folder 2026-09-03, where 123 of them had piled up; see `dev-logs/README.md`
   answer this one.
 - `bizhawk-cheat-probe.lua` — asks which cheat-code formats this build's cheat engine accepts
   (`client.addcheat`), the question that has to come first before using cheats to reach a game
-  state that would otherwise cost hours of play: BizHawk ships a GameShark decoder, and a
+  state that would otherwise cost real play time to reach: BizHawk ships a GameShark decoder, and a
   CodeBreaker code fed to it does not fail loudly — it decodes to a *different* address and writes
   there. Adds codes, presses nothing.
 - `bizhawk-cheat-clear.lua` — removes the six codes that probe added. Written 2026-08-18 when a

@@ -24,6 +24,52 @@ can show today.
 [docs/troubleshooting.md](docs/troubleshooting.md) when something is wrong. All three ship in the
 zip too, under `docs\`.
 
+## Docs
+
+Two folders, split by who they are for. **`docs/` is for people using MeshGhost**; `agent_docs/`
+is the internal working record of how it got built.
+
+**`docs/`**
+
+- [getting-started.md](docs/getting-started.md) — **start here.** Everything a player does, from unzipping to seeing a friend appear.
+- [hosting.md](docs/hosting.md) — running the server for your group: the short version, then every knob and what it costs.
+- [troubleshooting.md](docs/troubleshooting.md) — it did not work, or something looks wrong.
+- [config.md](docs/config.md) — every `config.json` key: its shipped value, what it does, which program reads it.
+- [integrating.md](docs/integrating.md) — putting MeshGhost in your own game, in any language.
+- [security.md](docs/security.md) — the security and privacy posture: what is already
+  checked-safe, the gaps that remain, and a dated changelog of every hardening pass.
+- [reviewing.md](docs/reviewing.md) — auditing it yourself: which code a host runs, where the
+  bytes go, and how to run the fuzzers and race detector on your own machine.
+- [networking.md](docs/networking.md) — how the relay and client actually work, traced through
+  the real code.
+- [antivirus.md](docs/antivirus.md) — why the binaries get flagged, and what you can check.
+- [code-signing.md](docs/code-signing.md) — what a signature on a release vouches for, and who holds the keys (nobody).
+
+**`agent_docs/`**
+
+- [README.md](agent_docs/README.md) — **the full index.** Start here if what you want is not below.
+- [brief.md](agent_docs/brief.md) — the design brief and reasoning.
+- [contract.md](agent_docs/contract.md) — the implemented contract: wire protocol, bridge, limits.
+- [architecture.md](agent_docs/architecture.md) — the system shape, and the index of every
+  decision record in [adr/](agent_docs/adr/).
+- [plans.md](agent_docs/plans.md) — the phase-by-phase roadmap; [phases/](agent_docs/phases/)
+  holds one work log per phase and per game.
+- [status.md](agent_docs/status.md) — one-screen summary of where things stand.
+- [pitfalls.md](agent_docs/pitfalls.md) — the front door to every lesson: what went wrong, how it
+  was tracked down, and the [checklists/](agent_docs/checklists/) that put each one in front of
+  you before the mistake.
+- [live-reload.md](agent_docs/live-reload.md) — how a code change reaches a running game without
+  restarting it, and why each host (BizHawk, BepInEx, UE4SS) needed its own answer.
+- [risks.md](agent_docs/risks.md) — known risks and open assumptions.
+- [beyond-cosmetic.md](agent_docs/beyond-cosmetic.md) — how far MeshGhost can go past cosmetic
+  ghosts, what the protocol already carries, and where a dumb relay stops.
+- [verified.md](agent_docs/verified.md) — append-only log of facts actually confirmed running.
+  Go-side and cross-game entries plus the index; each adapter carries its own `VERIFIED.md`
+  (and `UNVERIFIED.md`, the queue waiting on the user) beside its `README.md`.
+- [licensing.md](agent_docs/licensing.md) — what prior-art projects were checked and how they may
+  be used, including the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation
+  consulted for Emerald memory facts only, never for source or assets.
+
 ## Repo layout
 
 Grouped by what each thing *is*, not alphabetically — so GitHub's file listing shows these in a
@@ -60,52 +106,6 @@ MeshGhost/
 ├── CLAUDE.md             # the rules this project is built under, for whoever works on it
 └── go.mod
 ```
-
-## Docs
-
-Two folders, split by who they are for. **`docs/` is for people using MeshGhost**; `agent_docs/`
-is the internal working record of how it got built.
-
-**`docs/`**
-
-- [getting-started.md](docs/getting-started.md) — **start here.** Everything a player does, from unzipping to seeing a friend appear.
-- [hosting.md](docs/hosting.md) — running the server for your group: the short version, then every knob and what it costs.
-- [troubleshooting.md](docs/troubleshooting.md) — it did not work, or something looks wrong.
-- [config.md](docs/config.md) — every `config.json` key: its shipped value, what it does, which program reads it.
-- [integrating.md](docs/integrating.md) — putting MeshGhost in your own game, in any language.
-- [security.md](docs/security.md) — the security and privacy posture: what is already
-  checked-safe, the gaps that remain, and a dated changelog of every hardening pass.
-- [reviewing.md](docs/reviewing.md) — auditing it yourself: which code a host runs, where the
-  bytes go, and how to run the fuzzers and race detector on your own machine.
-- [networking.md](docs/networking.md) — how the relay and client actually work, traced through
-  the real code.
-- [live-reload.md](docs/live-reload.md) — how a code change reaches a running game without
-  restarting it, and why each host (BizHawk, BepInEx, UE4SS) needed its own answer.
-- [antivirus.md](docs/antivirus.md) — why the binaries get flagged, and what you can check.
-- [code-signing.md](docs/code-signing.md) — what a signature on a release vouches for, and who holds the keys (nobody).
-
-**`agent_docs/`**
-
-- [README.md](agent_docs/README.md) — **the full index.** Start here if what you want is not below.
-- [brief.md](agent_docs/brief.md) — the design brief and reasoning.
-- [contract.md](agent_docs/contract.md) — the implemented contract: wire protocol, bridge, limits.
-- [architecture.md](agent_docs/architecture.md) — the system shape, and the index of every
-  decision record in [adr/](agent_docs/adr/).
-- [plans.md](agent_docs/plans.md) — the phase-by-phase roadmap; [phases/](agent_docs/phases/)
-  holds one work log per phase and per game.
-- [status.md](agent_docs/status.md) — one-screen summary of where things stand.
-- [pitfalls.md](agent_docs/pitfalls.md) — the front door to every lesson: what went wrong, how it
-  was tracked down, and the [checklists/](agent_docs/checklists/) that put each one in front of
-  you before the mistake.
-- [risks.md](agent_docs/risks.md) — known risks and open assumptions.
-- [beyond-cosmetic.md](agent_docs/beyond-cosmetic.md) — how far MeshGhost can go past cosmetic
-  ghosts, what the protocol already carries, and where a dumb relay stops.
-- [verified.md](agent_docs/verified.md) — append-only log of facts actually confirmed running.
-  Go-side and cross-game entries plus the index; each adapter carries its own `VERIFIED.md`
-  (and `UNVERIFIED.md`, the queue waiting on the user) beside its `README.md`.
-- [licensing.md](agent_docs/licensing.md) — what prior-art projects were checked and how they may
-  be used, including the [`pokeemerald`](https://github.com/pret/pokeemerald) decompilation
-  consulted for Emerald memory facts only, never for source or assets.
 
 ## Contributing
 
