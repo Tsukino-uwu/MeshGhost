@@ -359,8 +359,10 @@ func main() {
 	ghostCollision := flag.String("ghost-collision", protocol.GhostCollisionDisabled,
 		"room-wide ghost collision policy advertised to every client: \"disabled\" (the "+
 			"default since 2026-09-02, the user's call: no ghost blocks anything, in any game) "+
-			"or \"enabled\" (each adapter's own defaults stand). Advisory: shipped adapters "+
-			"honor it, but this relay cannot verify that they did")
+			"or \"enabled\" (each adapter's own defaults stand). ADVISORY ONLY, and weaker than "+
+			"it sounds: as of 2026-09-10 no shipped adapter reads the session_policy message this "+
+			"is sent in, so setting it changes nothing today. It holds anyway because no adapter "+
+			"ships ghosts solid. This relay cannot verify either fact")
 	sendHz := flag.Int("send-hz", protocol.DefaultSendHz,
 		"how many times per second every player sends their position to this room (a \"15 tick\" "+
 			"relay = 15Hz = an update every ~67ms; higher/lower are the same idea in different "+

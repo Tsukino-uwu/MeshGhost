@@ -206,7 +206,7 @@ already finished. Zero it, and keep the constant so the next investigation can r
 
 This is the single most expensive lesson in this repo, and it is a *method* failure rather than a
 game-specific one — which is why it sits in this file rather than in one adapter's notes. Full incident in
-[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), "The diagnostics were the bug".
+[agent_docs/pitfalls/by-host.md](../../agent_docs/pitfalls/by-host.md), "The diagnostics were the bug".
 
 A per-tick enumeration of live objects, with a name lookup or string conversion per object, is far
 more expensive than it looks — and if the engine spawns the effect you are studying as a *countdown
@@ -391,7 +391,7 @@ Pokémon ones cannot, because theirs sits past the first BizHawk call.
   the testing *cycle* rather than the probe).
 - [../../agent_docs/effect-investigation.md](../../agent_docs/effect-investigation.md) — the
   how-to-search playbook for a game's visual effects, followed end to end on one real investigation.
-- [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — the adapter-specific issues log;
+- [../../agent_docs/pitfalls/by-host.md](../../agent_docs/pitfalls/by-host.md) — the adapter-specific issues log;
   "The diagnostics were the bug" is the full incident behind the cost warning above.
 - [../../agent_docs/testing.md](../../agent_docs/testing.md) — the Go-side automated checks, which
   are the opposite case: deterministic code against a contract we own, confirmed with tools rather
@@ -997,7 +997,7 @@ find *your* sprite among all of them — match it against the tile range the ada
 
 With that column added, the answer appeared immediately: `pos2` held constant at `8,0` across
 frames where the OAM x went `144, 136, 144`. That is a **phase** error, not a value error, and it
-is not visible in any amount of struct reading. See `pitfalls.md`, "A script's writes land between
+is not visible in any amount of struct reading. See `agent_docs/pitfalls/by-lesson.md`, "A script's writes land between
 frames".
 
 **The general rule:** every engine has a stage where its own state stops being authoritative and
@@ -1106,7 +1106,7 @@ same frame -- the earlier attempt at this used a separate probe on its own sched
 different moments.
 
 **What to suspect when it IS out.** Almost always a term that belongs to the sprite you anchored on
-rather than to the world: an animation offset, a bob, a frame-centring vector. See `pitfalls.md`,
+rather than to the world: an animation offset, a bob, a frame-centring vector. See `agent_docs/pitfalls/by-lesson.md`,
 "A world-space anchor built from a SPRITE carries the sprite's own terms" -- and note that such a
 term can be correct for every test you have ever run and wrong only for one graphic.
 

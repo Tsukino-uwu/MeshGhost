@@ -137,7 +137,7 @@ if ($TreeOnly) {
 # patterns are written out literally on this line, so git grep finds them here every time. Without
 # the exclusion the check reported FAIL on a perfectly clean tree -- a checker that always fails is
 # as useless as one that never can, and gets ignored just as fast.
-$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!CLAUDE.md' ':!agent_docs/environment.md' ':!agent_docs/pitfalls.md' ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
+$leaks = & git grep -inIF -e 'C:\Users' -e 'C:/Users' -e '/home/' -e '/Users/' -- . ':!agent_docs/pitfalls/' ':!dev-scripts/preflight.ps1' ':!.githooks/' ':!.github/workflows/'
 Report-GrepGate $LASTEXITCODE $leaks "machine-identifying path in a tracked file:" `
     "no username or home-directory path in tracked files"
 
@@ -606,6 +606,41 @@ function Check-BuiltFrom($label, $builtFromPath, $sourceDir) {
 
 Check-BuiltFrom "TEVI" "packaging\release\games\tevi\built-from.txt" "adapters\tevi\MeshGhostTevi"
 Check-BuiltFrom "Pseudoregalia" "packaging\release\games\pseudoregalia\MeshGhostPseudo-built-from.txt" "adapters\pseudoregalia\MeshGhostPseudo\Mod\src"
+
+# THE THIRD STALENESS GATE, added 2026-09-10. release.yml runs three; this script reproduced two,
+# so a UE4SS runtime staged from one submodule commit and left behind by a bump was invisible until
+# somebody dispatched a release. The shape differs from the two above -- the recorded hashes are of
+# the SHIPPED DLLs rather than of sources, plus the submodule commit they were built from -- so it
+# does not fit Check-BuiltFrom and is written out here.
+$ue4ssBuiltFrom = "packaging\release\games\pseudoregalia\ue4ss-runtime-built-from.txt"
+$ue4ssBin = "packaging\release\games\pseudoregalia\pseudoregalia\Binaries\Win64"
+if (-not (Test-Path $ue4ssBuiltFrom)) {
+    Report-Warn "UE4SS runtime -- no ue4ss-runtime-built-from.txt at $ue4ssBuiltFrom"
+} else {
+    $ue4ssText = Get-Content -Raw -LiteralPath $ue4ssBuiltFrom
+    $ue4ssStale = @()
+    foreach ($pair in @(@{ Name = 'UE4SS.dll'; Path = "$ue4ssBin\ue4ss\UE4SS.dll" },
+                        @{ Name = 'dwmapi.dll'; Path = "$ue4ssBin\dwmapi.dll" })) {
+        if (-not (Test-Path $pair.Path)) { $ue4ssStale += "$($pair.Name) (recorded, but not staged)"; continue }
+        $actual = (Get-FileHash $pair.Path -Algorithm SHA256).Hash.ToLower()
+        if ($ue4ssText -notmatch [regex]::Escape($actual)) { $ue4ssStale += $pair.Name }
+    }
+    # The submodule pin: a bump without re-staging is the case this exists for, and it is the half
+    # that a hash comparison alone cannot see -- both DLLs still match themselves.
+    $pinned = $null
+    if ($ue4ssText -match 're-ue4ss-submodule-commit:\s*([0-9a-f]{40})') { $pinned = $Matches[1] }
+    $submodule = (& git -C "adapters\pseudoregalia\MeshGhostPseudo\RE-UE4SS" rev-parse HEAD 2>$null)
+    if (-not $pinned) {
+        $ue4ssStale += "the file records no re-ue4ss-submodule-commit"
+    } elseif ($submodule -and $submodule.Trim() -ne $pinned) {
+        $ue4ssStale += "RE-UE4SS is at $($submodule.Trim().Substring(0,8)), staged from $($pinned.Substring(0,8))"
+    }
+    if ($ue4ssStale.Count -gt 0) {
+        Report-Fail "the staged UE4SS runtime is STALE -- re-run dev-scripts\stage-ue4ss-runtime.bat: $($ue4ssStale -join ', ')"
+    } else {
+        Report-Pass "the staged UE4SS runtime matches its recorded hashes and the RE-UE4SS submodule pin"
+    }
+}
 
 # CMakeLists.txt lives one level up from Mod\src, so it is checked separately.
 $cmake = "adapters\pseudoregalia\MeshGhostPseudo\Mod\CMakeLists.txt"
@@ -1653,6 +1688,12 @@ $phaseMap = [ordered]@{
     'agent_docs/phases/phase8.md'  = @('adapters/emulator/pokemon/emerald')
     'agent_docs/phases/phase9.md'  = @('adapters/emulator/pokemon/crystal')
     'agent_docs/phases/phase10.md' = @('core', 'relay', 'protocol', 'transport', 'bridge', 'netx', 'cmd', 'internal')
+    # phase11 is Live and was missing entirely until 2026-09-10 -- so the one gate meant to stop a
+    # phase file falling behind never fired for it. Narrower than phase10's whole-Go-side pathspec
+    # on purpose: replays live inside core/, so listing 'core' here would make every Go commit
+    # count against BOTH files and neither count would mean anything. These are the replay files.
+    'agent_docs/phases/phase11.md' = @('core/replay.go', 'core/replaycontrol.go', 'core/replayinputs.go',
+                                       'core/recorder.go', 'core/inputrecorder.go', 'core/chaser.go')
 }
 $phaseLagMax = 3
 $phaseStale = @()

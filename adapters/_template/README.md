@@ -254,7 +254,8 @@ deliberately no template, since a stub with no content would go stale immediatel
 5. **Enumerate the game before guessing at it** — see "Ask the game what it has" below. Do this
    as soon as a ghost renders at all, not later. It is the biggest time-saver found so far, and
    it was found late enough to have cost real sessions in the Pseudoregalia adapter.
-6. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) — at minimum its "Diagnostic
+6. Read [agent_docs/pitfalls.md](../../agent_docs/pitfalls.md), the front door, then the page for
+   what you are about to do in [agent_docs/checklists/](../../agent_docs/checklists/) — at minimum "Diagnostic
    methodology" section (one diagnostic at a time, never log the value you just wrote, run the
    test without the fix, two identical failures means stop guessing). It's the most transferable
    content in the repo, and the rest of the file is the log of what the existing adapters
@@ -611,7 +612,7 @@ Three rules that are one rule, and every adapter has paid for at least one of th
 - **A probe can break the effect it is measuring**, and four metrics agreeing with each other
   proves only that they share a blind spot. This is the most expensive lesson in the repo, and it
   applies directly to the enumeration and spawn-detection work above — exactly the shape that got
-  costly. [probes.md](probes.md) has the method; [../../agent_docs/pitfalls.md](../../agent_docs/pitfalls.md),
+  costly. [probes.md](probes.md) has the method; [../../agent_docs/pitfalls/by-host.md](../../agent_docs/pitfalls/by-host.md),
   "The diagnostics were the bug", has the incident.
 - **A probe that costs frame time is reporting on a different game.** The user's standing position,
   2026-08-21: *"non laggy/good performance should be the default for things like this"*. Buffered
@@ -881,11 +882,11 @@ something else will eventually read the state you patched.
 **Why this is a hard rule and not a preference — two worked examples, one day apart.** The
 Pseudoregalia **camera fight-back outlived its cause and became the bug**, blocking every
 legitimate camera change until players saw it as the ghost stealing the camera; the measured fix
-was one line ([pitfalls.md](../../agent_docs/pitfalls.md), "Camera / view-target ownership").
+was one line ([by-host.md](../../agent_docs/pitfalls/by-host.md), "Camera / view-target ownership").
 And **bandages spread**: the slide floor-sinking fix taught a second bug to be described as
 "structurally the same bug as" it, and the proper fix — driving the game's own crouch path — had
 existed the whole time. The bandage is what stopped anyone looking for it
-([pitfalls.md](../../agent_docs/pitfalls.md), "Case study: the slide pose").
+([method.md](../../agent_docs/pitfalls/method.md), "Case study: the slide pose").
 
 **The narrow exception, and its price.** A temporary fix is allowed when it unblocks something else
 that must be tested now — early bring-up, or getting a camera usable so a different feature can be
@@ -919,7 +920,7 @@ you have not measured.
 
 - **The Pseudoregalia camera** — a "force the view target back" fix worked for its one case and
   fought every legitimate camera change the game made thereafter.
-  [pitfalls.md](../../agent_docs/pitfalls.md), "Camera / view-target ownership".
+  [by-host.md](../../agent_docs/pitfalls/by-host.md), "Camera / view-target ownership".
 - **The ultra-hop trail** — five rounds of predicting when the game would trail; what worked was
   letting the game's own spawns drive it ([adapters/pseudoregalia/README.md](../pseudoregalia/README.md), steps 38-41).
 - **`landed?` / `jumped?` vs `moveState`** — names told you nothing about whether a field was a
@@ -941,7 +942,7 @@ the right thing with it, and the user still confirms on screen.
 model of how the game behaves, capture the behaviour first — one read-only run is almost always
 cheaper than the plan. **The tell:** you can describe what the game does, but you cannot point at
 the run where you watched it. Worked example, and why a wrong model aims the debugging at the wrong
-subsystem: [pitfalls.md](../../agent_docs/pitfalls.md), "Planning on a model of the game you never
+subsystem: [by-lesson.md](../../agent_docs/pitfalls/by-lesson.md), "Planning on a model of the game you never
 watched".
 
 **What "observe first" looks like in practice**, cheapest first:

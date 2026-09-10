@@ -759,7 +759,7 @@ never does — see this folder's `README.md`.
   the shape both Lua adapters then copied, so read it for those; `CoreLauncher.cpp` beside it is
   the reference for autostart. Also worth reading for the raw-socket version of the
   partial-send/partial-receive framing concerns this file's tick loop glosses over, and for
-  `Plugin.cpp`'s despawn path (`agent_docs/pitfalls.md`), which destroys the ghost and keeps
+  `Plugin.cpp`'s despawn path (`agent_docs/pitfalls/by-host.md`, "move offscreen"), which destroys the ghost and keeps
   "move offscreen" only as the fallback for an engine with no reliable runtime destroy call.
 - `cmd/meshghost-fakeadapter/main.go` — not a template for a real adapter (it uses the
   in-process `core.Adapter` Go interface, not this wire protocol, since it has no separate

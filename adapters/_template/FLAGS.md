@@ -242,4 +242,4 @@ one won.
 
 **A flag flip is not a revert** — verify the flag disables the *work*, not merely the decision the
 work feeds, or revert the commit instead. When a regression appears, bisect real commits early.
-[`agent_docs/pitfalls.md`](../../agent_docs/pitfalls/method.md#diagnostic-methodology) has both cases.
+[`agent_docs/pitfalls/method.md`](../../agent_docs/pitfalls/method.md#diagnostic-methodology) has both cases.

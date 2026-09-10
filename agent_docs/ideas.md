@@ -1779,7 +1779,7 @@ was not worth interrupting a test in progress for.
 ## Sweep: rules that live in one code path and are missing from their sibling
 
 **Unscheduled.** Three instances surfaced in a single session (2026-08-22) and each reached the user
-as a fresh bug report rather than as a known issue — see the table in `pitfalls.md`, "the learned
+as a fresh bug report rather than as a known issue — see the table in `pitfalls/by-lesson.md`, "the learned
 frame measured its parts from OAM entry 0". The shape is always the same: a rule is discovered,
 fixed correctly, and written down, in ONE of the two or three places that need it.
 
