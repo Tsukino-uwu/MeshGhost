@@ -1597,3 +1597,17 @@ see, because the words are not a link.
 `.md` by `stage-release.ps1`, so the earlier edits in this session that hand-mirrored them were
 unnecessary work. The release staging is the sync.
 
+**The "Short version" table went too, on the user's call** -- *"TCP is not 'simpler' and the
+default already works"*. It was three rows: two of them now answered a question with the same
+`tcp,quic` the paragraph above had already given, and the third sold `tcp` on a simplicity it does
+not have (tcp is served whether or not you list it, and quic shares its port number, so choosing
+tcp saves nothing a host does). The table had been a udp-redirection device without either of us
+noticing -- its flaky-connections row existed to steer people off `tcp,udp`, and once udp was gone
+the row was answering itself. **The shape to watch for: a summary table that survives the thing it
+was summarising away from.**
+
+**Logged in `status.md`** as an open question: what plain `udp` is FOR now that no doc offers it.
+Two preflight checks bounced the entry before it fit -- an index entry is ONE physical line, and a
+status item is capped by CHARACTER count (216 was over; 147 passed), which is stricter than the
+"two lines" the file's own header describes.
+

@@ -28,6 +28,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **Ghost cost: four things confirmed on screen 2026-09-06; the timing numbers are MEASURED, not watched.** `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-11 — **The on-screen INPUT HISTORY is built on both sides and has been SEEN; the user's words on the read-back are still owed.** `pseudoregalia/UNVERIFIED.md`, ADR 0057.
 - 2026-09-11 — **The recording indicator is a screen-space widget**: the mechanism is user-confirmed on the Lua prototype, the C++ port SEEN in a screenshot, their words owed. `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-11 — **What is plain `udp` FOR, now that no doc offers it?** Shipped option, or test/fuzz path only. Wants an ADR. `phases/phase10.md`.
 - 2026-09-11 (00:33) **Nothing is running**; ports 7777-7783 free. **Both TEVI installs are in HOT-RELOAD mode** — `-Off` before a confirmation that counts. `running-the-rig.md`.
 
 **Trimmed 2026-09-11 back to what this file is for** — short-term memory, not a progress log

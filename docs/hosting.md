@@ -205,18 +205,10 @@ to forward.
 
 > **"Isn't UDP the fast one?"** This is the most common misunderstanding, and the answer is that
 > neither is faster. On a connection that is not dropping packets, they arrive at exactly the
-> same speed — same route, same physics. What UDP buys is that one lost packet does
-> not hold up the ones behind it, so the win is **smoothness on a bad connection**, not lower ping
-> on a good one. quic is built on UDP and gets that win, with encryption on top, on the port you
+> same speed — same route, same physics. What UDP buys is that one lost packet does not hold up
+> the ones behind it, so the win is **smoothness on a bad connection**, not lower ping on a good
+> one. quic is built on UDP and gets that win, with encryption on top, on the port you
 > already forwarded — which is why it is half the default and why there is nothing to choose.
-
-Short version:
-
-| | |
-| --- | --- |
-| Just want it to work? | `tcp,quic` — the default, leave it |
-| Hosting for a group on flaky connections? | `tcp,quic` — the default again; quic is the half that handles loss well |
-| Keep it simplest? | `tcp` — one rule to forward, easiest to get help with, still encrypted |
 
 **What to forward, per transport:**
 
