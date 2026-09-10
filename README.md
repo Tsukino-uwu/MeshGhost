@@ -18,10 +18,10 @@ can show today.
 
 ## Setup
 
-- **Download:** [Releases page](https://github.com/Tsukino-uwu/MeshGhost/releases)
-- **Install and play:** [docs/getting-started.md](docs/getting-started.md)
-- **Hosting a server:** [docs/hosting.md](docs/hosting.md)
-- **Something's wrong:** [docs/troubleshooting.md](docs/troubleshooting.md)
+- [Download](https://github.com/Tsukino-uwu/MeshGhost/releases)
+- [Install guide](docs/getting-started.md)
+- [Hosting a server](docs/hosting.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
 ## Docs
 
