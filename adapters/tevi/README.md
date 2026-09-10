@@ -18,8 +18,10 @@ Phase 6 fully done 2026-08-13.**
 - **[documentation.md](documentation.md)** describes how TEVI itself works — reaching the player
   through `EventManager`, the gap between the logic position and the drawn position, the player's
   Unity `Animator` clips addressed by name (the playable characters are *not* Spine, though other
-  things in the game are), facing as a sprite flip, and the map screen's separate coordinate
-  system. It was previously argued that a game with a readable managed assembly needed no such
+  things in the game are), facing as a sprite flip, the map screen's separate coordinate system,
+  and since 2026-09-10 the mechanics behind the newer mirrors: warp devices, the bullet pool and
+  what a bullet's death actually is, core expansions, the boost shield, and how the game chooses an
+  afterimage trail. It closes with the game questions still open. It was previously argued that a game with a readable managed assembly needed no such
   file; **the user overturned that 2026-08-18** and every adapter now carries one — being able to
   look something up is not the same as having looked
   ([adapters/_template/README.md](../_template/README.md)'s folder convention).
@@ -37,10 +39,11 @@ Phase 6 fully done 2026-08-13.**
   the template Phase 5 extracted (`adapters/_template/`) — see
   [agent_docs/phases/phase5.md](../../agent_docs/phases/phase5.md).
 
-- **Shipped DLL is `PluginVersion` 0.2.0, last rebuilt and committed 2026-09-07** (`538bb9fd`, for
-  the TCP_NODELAY change, from the tree at `8fc8d127`; the build that
-  looks for `meshghost.exe` and `config.json` in the game's root folder only; `built-from.txt`
-  beside the staged DLL records the exact commit). The 2026-08-28 build before it carried the
+- **Shipped DLL is `PluginVersion` 0.2.0**; `built-from.txt` beside the staged DLL records the
+  exact commit and the source hashes it was built from, and is generated rather than hand-written,
+  so it is the authority here rather than a date repeated in prose. It carries the projectile and
+  core-expansion work below, and looks for `meshghost.exe` and `config.json` in the game's root
+  folder only. The 2026-08-28 build before it carried the
   trail/warp/pooled-VFX/hitstop work below, and the 2026-08-18 build before that added
   three bridge/lifecycle behaviours — `bridge_ready` and `reject` are handled explicitly instead of
   falling into the unknown-message default, the bridge is drained only after the local player is
@@ -79,10 +82,11 @@ decompile the game made this easier and faster than Emerald, even though Emerald
 source decompilation available to reference — a lot of things (notably the animations) just
 worked as soon as they were wired up, with no equivalent of Emerald's memory-probing phase.
 
-Roughly in order (mostly [agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md) —
-item 8 below was found later, during a cross-adapter review pass, and lives in
-[agent_docs/pitfalls.md](../../agent_docs/pitfalls.md) and
-[VERIFIED.md](VERIFIED.md) instead):
+Roughly in order. The narrative for each is in
+[agent_docs/phases/phase6.md](../../agent_docs/phases/phase6.md), the evidence in
+[VERIFIED.md](VERIFIED.md), and the lessons that generalised beyond this game in
+[agent_docs/pitfalls/](../../agent_docs/pitfalls/) — several steps below were found out of order,
+during review passes or later sessions, and say so where it matters:
 
 1. Purple box as proof of concept (same first step as Emerald).
 2. Cyan box following the player.
@@ -120,6 +124,42 @@ item 8 below was found later, during a cross-adapter review pass, and lives in
     step 11 kept a warp device on its "assembling" glow after the peer closed the game, until
     somebody walked on and off it; the disconnect now releases it, watched by the user with two
     real instances (2026-09-02, [VERIFIED.md](VERIFIED.md)).
+15. Made the adapter reload inside a running game, so a test stopped costing a launch. BepInEx's
+    `ScriptEngine` loads the plugin from `BepInEx/scripts/`, and one script rebuilds, copies and
+    fires the reload with no keypress. It leaves no orphan ghost because the plugin's own
+    despawn-all path runs on the way out — read from both instances' logs in a two-instance session
+    with real peers, not loopback (2026-08-28, [VERIFIED.md](VERIFIED.md)). Everything after this
+    step was built against a loop that costs seconds instead of a relaunch.
+16. Ran two release instances against each other and left them alone. A cold launch brings up two
+    cores on their own ports with no configuration and no port churn, and when the relay is stopped
+    underneath them both ghosts come back without anyone touching anything (2026-08-28,
+    [VERIFIED.md](VERIFIED.md)). This is the first check that used the release files rather than
+    the dev scripts.
+17. Chose the shipped interpolation delay by climbing a ladder rather than guessing. On an
+    ocean-tier link 300ms was the first rung with room for one lost sample at 15Hz — 175ms
+    stuttered constantly, 250ms still had holes — and it ships. On the worst case the rig can
+    make (NA↔EU ping plus bad wifi) TEVI wants 450ms, which was measured and deliberately **not**
+    shipped: that call waits until all four games have their number (2026-09-02, ADR 0046,
+    [VERIFIED.md](VERIFIED.md)).
+18. Mirrored what a peer's character carries with it, in one evening and one piece at a time: the
+    two orbitars wearing the peer's own look, their crystal trail, the dodge afterimage fade, core
+    expansions (the summoned humanoid, its trail out and back), and the boost shield with its two
+    platforms. Two lessons paid for the rest. A clone of a component the game parks INACTIVE is
+    born with `Awake` unrun, so its first call threw and the exception aborted the whole ghost
+    update — pose, facing and trail with it — which is why **every cosmetic sub-feature is now
+    walled in its own try/catch**. And a shader keyword the game strips from its template meant the
+    barrier popped instead of blooming: the clone built its materials from the already-stripped
+    copy. The timing probe showing the fade starting on the peer's beat is what pointed away from
+    timing and at rendering (2026-09-10, [VERIFIED.md](VERIFIED.md)).
+19. Gave a peer's projectiles to their ghost — a good state, not a finished one. Shots appear,
+    travel, and die where the peer's died: a death is the frame the bullet **stops**, not the frame
+    its pool slot frees, and it carries where it stopped; the watcher runs the game's own wall test
+    locally so a hit lands with no wire delay. The one that took longest had nothing to do with the
+    adapter's logic — the two installs are different TEVI builds, so an enum ordinal meant a
+    different bullet on each side and a red orb shot blue rings. The game's own enum **names** ride
+    the wire now. Running the game's own bullet behaviour on a ghost is off for good: it damaged
+    the watcher. Still unmirrored, and listed rather than claimed: several projectile types and
+    their VFX ([UNVERIFIED.md](UNVERIFIED.md)) (2026-09-10, [VERIFIED.md](VERIFIED.md)).
 
 ### Further work past "good enough"
 
