@@ -8,6 +8,7 @@
     "show_console": false,
     "offline": false,
     "autostart": true,
+    "map_markers": true,
 
     "ghost_collision": "disabled",
 

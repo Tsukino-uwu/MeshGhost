@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Reflection;
 using BepInEx;
+using FXV;
 using UnityEngine;
 
 namespace MeshGhostTevi
@@ -259,6 +260,23 @@ namespace MeshGhostTevi
 
             // Highest orb-to-human flash counter already played for this peer (see OrbFxSeq).
             public int LastOrbFxSeq;
+
+            // The peer's boost shield and platforms (see ReadShield / ApplyGhostShield).
+            public GhostShield Shield;
+            public GhostPlatform[] Platforms = new GhostPlatform[2];
+        }
+
+        private sealed class GhostShield
+        {
+            public GameObject Go;
+            public FXVShield Fx;
+            public bool Up;
+        }
+
+        private sealed class GhostPlatform
+        {
+            public GameObject Go;
+            public SpriteRenderer Sr;
         }
 
         private sealed class SummonGhost
@@ -404,8 +422,47 @@ namespace MeshGhostTevi
         // rather than arrival-driven: that is the whole fix for a marker that used to sit frozen
         // at a position its peer had long left. Called immediately after DrainInto so a state
         // that landed this frame is drawn this frame -- moving the refresh costs no latency.
+        // "map_markers" in config.json (CoreLauncher.ConfigSaysNoMapMarkers). Polled once a second
+        // by the file's timestamp, never re-read per frame; the shipped default is on.
+        private bool mapMarkersEnabled = true;
+        private float nextMapMarkerConfigPoll;
+        private System.DateTime lastMapMarkerConfigStamp = System.DateTime.MinValue;
+
+        private void PollMapMarkerConfig()
+        {
+            if (Time.unscaledTime < nextMapMarkerConfigPoll)
+            {
+                return;
+            }
+            nextMapMarkerConfigPoll = Time.unscaledTime + 1f;
+            bool off = CoreLauncher.ConfigSaysNoMapMarkers(out System.DateTime stamp);
+            if (stamp == lastMapMarkerConfigStamp && stamp != System.DateTime.MinValue)
+            {
+                return;
+            }
+            lastMapMarkerConfigStamp = stamp;
+            if (mapMarkersEnabled == off)
+            {
+                mapMarkersEnabled = !off;
+                Logger.LogInfo($"MeshGhost: map markers {(mapMarkersEnabled ? "ON" : "OFF")} (config.json \"map_markers\").");
+            }
+        }
+
         private void RefreshRemoteMapMarkers()
         {
+            PollMapMarkerConfig();
+            if (!mapMarkersEnabled)
+            {
+                // Hidden, not destroyed, so flipping the setting back shows them again at once.
+                foreach (KeyValuePair<string, RemoteMapMarker> kv in remoteMapMarkers)
+                {
+                    if (kv.Value.Go != null && kv.Value.Go.activeSelf)
+                    {
+                        kv.Value.Go.SetActive(false);
+                    }
+                }
+                return;
+            }
             if (remoteMarkerStates.Count == 0)
             {
                 return;
@@ -751,9 +808,11 @@ namespace MeshGhostTevi
             // the anchor offset the sprite clone needs is deliberately not added here.
             ApplyGhostOrbs(playerId, visual, state.Orbs,
                 new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f));
-            ApplyGhostSummons(playerId, visual, state.Summons,
-                new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f));
+            ApplyGhostSummons(playerId, visual, state.Summons, new Vector3(loopbackOffsetX, 0f, 0f));
             ApplyOrbFx(visual, state);
+            // World-fixed things (the summon, its shield, its platforms) travel as ABSOLUTE positions
+            // and get only the loopback nudge, never the ghost's interpolated root.
+            ApplyGhostShield(playerId, visual, state, new Vector3(loopbackOffsetX, 0f, 0f));
 
             // Throttled (once every 2s per remote, not every frame) so a real repro of the
             // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
@@ -1076,6 +1135,21 @@ namespace MeshGhostTevi
                     }
                     // A ghost's orbitar is named <ghost name>_orb<i>; tracked through the same
                     // visual, so it is not an orphan while that visual holds it.
+                    // The boost shield is <ghost>_shield, its platforms <ghost>_plat<i>.
+                    if (id.EndsWith("_shield", System.StringComparison.Ordinal)
+                        && remoteVisuals.TryGetValue(id.Substring(0, id.Length - 7), out RemoteGhostVisual shOwner)
+                        && shOwner.Shield != null && shOwner.Shield.Go == go)
+                    {
+                        continue;
+                    }
+                    int platAt = id.LastIndexOf("_plat", System.StringComparison.Ordinal);
+                    if (platAt > 0 && platAt + 5 < id.Length && int.TryParse(id.Substring(platAt + 5), out int platIndex)
+                        && remoteVisuals.TryGetValue(id.Substring(0, platAt), out RemoteGhostVisual plOwner)
+                        && platIndex >= 0 && platIndex < plOwner.Platforms.Length
+                        && plOwner.Platforms[platIndex] != null && plOwner.Platforms[platIndex].Go == go)
+                    {
+                        continue;
+                    }
                     // A core expansion is <ghost>_summon<Type>, tracked through the same visual.
                     int sumAt = id.LastIndexOf("_summon", System.StringComparison.Ordinal);
                     if (sumAt > 0 && sumAt + 7 < id.Length
@@ -1192,6 +1266,7 @@ namespace MeshGhostTevi
                 }
                 DestroyGhostOrbs(visual);
                 DestroyGhostSummons(visual);
+                DestroyGhostShield(visual);
                 remoteVisuals.Remove(playerId);
             }
             DespawnRemoteMapMarker(playerId);
@@ -1238,10 +1313,14 @@ namespace MeshGhostTevi
             {
                 mode = 2;
             }
-            // The generic timed trail: anything in the game may call SetTrail directly, and that
-            // path is invisible to the two checks above. Reading it too is what makes this cover
-            // trails we have not seen rather than only the ones we went looking for.
-            if (mode == 0 && player.spranim_prefer != null && player.spranim_prefer.GetTrail() > 0f)
+            // The generic timed trail: anything in the game may call SetTrail directly (hover does,
+            // with 999), and that path is invisible to the two checks above. IT WINS, and it wins
+            // LAST: the game's own order is speed-bonus -> 1, dodge-ready -> 2, then `trail > 0`
+            // -> 1 unconditionally. The first version only consulted it when nothing else was set,
+            // so a player hovering with a charged dodge trailed BLUE while their ghost trailed
+            // yellow (user, 2026-09-10: "is it due to having the yellow trail things on me
+            // currently, i don't think blue trails are appearing properly").
+            if (player.spranim_prefer != null && player.spranim_prefer.GetTrail() > 0f)
             {
                 mode = 1;
             }
@@ -2388,7 +2467,7 @@ namespace MeshGhostTevi
         // CharacterBase, so it can never be picked up by this reader (before-mirroring-state.md).
         // PROBE, temporary: what the summon filter sees, one line per second while any SUMMON-typed
         // character is alive. Armed 2026-09-10 because a B press produced no summon rows at all.
-        private const bool DIAG_SUMMON_TRACE = true;
+        private const bool DIAG_SUMMON_TRACE = false;
         private float lastSummonDiagTime = float.NegativeInfinity;
 
         private object[][] ReadSummons(CharacterBase player)
@@ -2433,7 +2512,11 @@ namespace MeshGhostTevi
                 {
                     continue;
                 }
-                Vector3 d = pixel.transform.position - player.t.position;
+                // ABSOLUTE: the humanoid stands still in the world while the peer moves; relative to
+                // the peer's root it inherited the ghost's interpolated motion (user, 2026-09-10:
+                // "the summon is supposed to stay still, but ... moving slightly depending on where
+                // the ghost was").
+                Vector3 d = pixel.transform.position;
                 AnimatorStateInfo info = pixel.anim.GetCurrentAnimatorStateInfo(0);
                 float phase = info.normalizedTime;
                 phase -= Mathf.Floor(phase);
@@ -2477,7 +2560,7 @@ namespace MeshGhostTevi
             return false;
         }
 
-        private void ApplyGhostSummons(string playerId, RemoteGhostVisual visual, object[][] rows, Vector3 peerRoot)
+        private void ApplyGhostSummons(string playerId, RemoteGhostVisual visual, object[][] rows, Vector3 worldOffset)
         {
             List<string> seen = null;
             if (rows != null)
@@ -2535,7 +2618,7 @@ namespace MeshGhostTevi
                     seen = seen ?? new List<string>(2);
                     seen.Add(type);
                     sg.Go.SetActive(true);
-                    sg.Go.transform.position = peerRoot + new Vector3(dx, dy, 0f);
+                    sg.Go.transform.position = worldOffset + new Vector3(dx, dy, 0f);
                     sg.Go.transform.localScale = new Vector3(sx, sy, 1f);
                     // The row APPEARING is the orb-to-humanoid moment: fly the trail from the
                     // ghost orb (black orb for Sable, white for Celia) to this summon, as the game
@@ -2741,6 +2824,274 @@ namespace MeshGhostTevi
             fx.position = at;
             fx.eulerAngles = new Vector3(90f, 0f, 0f);
             fx.localScale = new Vector3(32f, 1f, 32f);
+        }
+
+        // THE BOOST SHIELD -- the barrier a core expansion raises (user, 2026-09-10: "it does the
+        // summon thing now, but not the barrier"). playerController.BoostShieldObject is an FXVShield:
+        // a shader-driven mesh with an activation animation and a camera post-process, placed on
+        // the humanoid by the boost logic (SUMMON.cs), scaled by badges, given a random Y spin, and
+        // coloured by type. Two platform sprites (BoostPlatforms) fade in under it.
+        //
+        // WHAT TRAVELS: where it is, how big, how it is turned, and its three material colours READ
+        // OFF THE PEER'S MATERIAL -- not the type, because the colours are the game's decision and
+        // reading them is what keeps this right if a badge or a build changes them.
+        //
+        // THE CLONE IS THE GAME'S OWN SHIELD OBJECT with one private flag cleared: FXVShield's
+        // FixedUpdate calls BulletManager.BlockBulletsWithShield while `isBoostShield` is set --
+        // a peer's barrier erasing YOUR enemies' bullets would be a gameplay effect on the watcher,
+        // so the clone's flag is set false by reflection before it is ever active. Everything else
+        // (activation rim, the post-process, the inside mesh) is the component doing its own job.
+        //
+        // ONE SHARED RESOURCE: FXVShield.DisableMe turns the camera's ShieldPostProcess OFF when any
+        // shield finishes deactivating -- the game only ever has one. With a ghost's clone in the
+        // scene, ours could switch it off under the local player's live shield, so KeepShieldPostprocess
+        // re-enables it every frame while any shield here (the player's or a ghost's) is up.
+        private static readonly FieldInfo ShieldIsBoostField = typeof(FXVShield).GetField("isBoostShield", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly int ShieldTexColorId = Shader.PropertyToID("_TextureColor");
+        private static readonly int ShieldPatternColorId = Shader.PropertyToID("_PatternColor");
+
+        private static string Hex(Color c)
+        {
+            Color32 b = c;
+            return b.r.ToString("X2") + b.g.ToString("X2") + b.b.ToString("X2") + b.a.ToString("X2");
+        }
+
+        private static bool TryColor(object cell, out Color c)
+        {
+            c = Color.white;
+            string s = cell as string;
+            if (s == null || s.Length != 8)
+            {
+                return false;
+            }
+            try
+            {
+                byte r = System.Convert.ToByte(s.Substring(0, 2), 16), g = System.Convert.ToByte(s.Substring(2, 2), 16);
+                byte bl = System.Convert.ToByte(s.Substring(4, 2), 16), a = System.Convert.ToByte(s.Substring(6, 2), 16);
+                c = new Color32(r, g, bl, a);
+                return true;
+            }
+            catch (System.Exception)
+            {
+                return false;
+            }
+        }
+
+        private object[] ReadShield(CharacterBase player)
+        {
+            if (player == null || player.t == null || player.playerc_perfer == null)
+            {
+                return null;
+            }
+            FXVShield sh = player.playerc_perfer.BoostShieldObject;
+            if (sh == null || !sh.gameObject.activeInHierarchy || !(sh.GetIsShieldActive() || sh.GetIsDuringActivationAnim()))
+            {
+                return null;
+            }
+            Renderer r = sh.GetComponent<Renderer>();
+            Material m = r != null ? r.sharedMaterial : null;
+            // ABSOLUTE world position: the shield sits on the humanoid, a world-fixed thing, and a
+            // root-relative offset would make it inherit the ghost's interpolated motion (the user
+            // saw the summon "moving slightly depending on where the ghost was", 2026-09-10).
+            Vector3 d = sh.transform.position;
+            Vector3 e = sh.transform.eulerAngles;
+            return new object[]
+            {
+                Mathf.Round(d.x * 10f) / 10f, Mathf.Round(d.y * 10f) / 10f, Mathf.Round(d.z * 10f) / 10f,
+                Mathf.Round(sh.transform.localScale.x * 10f) / 10f,
+                Mathf.Round(e.x), Mathf.Round(e.y), Mathf.Round(e.z),
+                m != null ? Hex(m.color) : "FFFFFFFF",
+                m != null && m.HasProperty(ShieldTexColorId) ? Hex(m.GetColor(ShieldTexColorId)) : "FFFFFFFF",
+                m != null && m.HasProperty(ShieldPatternColorId) ? Hex(m.GetColor(ShieldPatternColorId)) : "FFFFFFFF",
+            };
+        }
+
+        private object[][] ReadPlatforms(CharacterBase player)
+        {
+            if (player == null || player.t == null || player.playerc_perfer == null || player.playerc_perfer.BoostPlatforms == null)
+            {
+                return null;
+            }
+            SpriteRenderer[] plats = player.playerc_perfer.BoostPlatforms;
+            List<object[]> rows = null;
+            for (int i = 0; i < plats.Length && i < 2; i++)
+            {
+                SpriteRenderer sr = plats[i];
+                if (sr == null || !sr.enabled || !sr.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+                Vector3 d = sr.transform.position; // absolute, see ReadShield
+                rows = rows ?? new List<object[]>(2);
+                rows.Add(new object[] { (float)i, Mathf.Round(d.x * 10f) / 10f, Mathf.Round(d.y * 10f) / 10f, Hex(sr.color) });
+            }
+            return rows == null ? null : rows.ToArray();
+        }
+
+        private void ApplyGhostShield(string playerId, RemoteGhostVisual visual, BridgeClient.RemoteState state, Vector3 worldOffset)
+        {
+            object[] row = state.Shield;
+            if (row != null && row.Length >= 10 && cloneTemplate != null && cloneTemplate.playerc_perfer != null)
+            {
+                float dx = CellF(row, 0), dy = CellF(row, 1), dz = CellF(row, 2), sc = CellF(row, 3);
+                float rx = CellF(row, 4), ry = CellF(row, 5), rz = CellF(row, 6);
+                bool finite = !(float.IsNaN(dx) || float.IsNaN(dy) || float.IsNaN(dz) || float.IsNaN(sc)
+                    || float.IsNaN(rx) || float.IsNaN(ry) || float.IsNaN(rz)
+                    || float.IsInfinity(dx) || float.IsInfinity(dy) || float.IsInfinity(dz) || float.IsInfinity(sc));
+                if (finite)
+                {
+                    GhostShield gs = visual.Shield;
+                    if (gs == null || gs.Go == null)
+                    {
+                        FXVShield template = cloneTemplate.playerc_perfer.BoostShieldObject;
+                        if (template != null)
+                        {
+                            GameObject go = Instantiate(template.gameObject);
+                            go.name = $"MeshGhostRemote_{playerId}_shield";
+                            go.transform.SetParent(template.transform.parent, worldPositionStays: true);
+                            FXVShield fx = go.GetComponent<FXVShield>();
+                            if (fx != null && ShieldIsBoostField != null)
+                            {
+                                ShieldIsBoostField.SetValue(fx, false);
+                            }
+                            foreach (Collider col in go.GetComponentsInChildren<Collider>(true))
+                            {
+                                Destroy(col);
+                            }
+                            gs = new GhostShield { Go = go, Fx = fx };
+                            visual.Shield = gs;
+                            Logger.LogInfo($"MeshGhost: boost shield cloned for {playerId} (fx={(fx != null)} boostFlagCleared={(fx != null && ShieldIsBoostField != null)}).");
+                        }
+                    }
+                    if (gs != null && gs.Go != null)
+                    {
+                        gs.Go.transform.position = worldOffset + new Vector3(dx, dy, dz);
+                        gs.Go.transform.localScale = new Vector3(sc, sc, sc);
+                        gs.Go.transform.eulerAngles = new Vector3(rx, ry, rz);
+                        if (gs.Fx != null)
+                        {
+                            Color c;
+                            if (TryColor(row[7], out c)) gs.Fx.SetMainColor(c);
+                            if (TryColor(row[8], out c)) gs.Fx.SetTextureColor(c);
+                            if (TryColor(row[9], out c)) gs.Fx.SetPatternColor(c);
+                            if (!gs.Up)
+                            {
+                                gs.Up = true;
+                                gs.Fx.SetShieldActive(active: true);
+                            }
+                        }
+                    }
+                }
+            }
+            else if (visual.Shield != null && visual.Shield.Up)
+            {
+                // The peer's barrier came down: animate ours down the same way. DisableMe parks the
+                // object when the animation ends.
+                visual.Shield.Up = false;
+                if (visual.Shield.Fx != null)
+                {
+                    visual.Shield.Fx.SetShieldActive(active: false);
+                }
+            }
+
+            // Platforms.
+            bool seen0 = false, seen1 = false;
+            if (state.Platforms != null && cloneTemplate != null && cloneTemplate.playerc_perfer != null
+                && cloneTemplate.playerc_perfer.BoostPlatforms != null)
+            {
+                foreach (object[] prow in state.Platforms)
+                {
+                    if (prow == null || prow.Length < 4)
+                    {
+                        continue;
+                    }
+                    float fi = CellF(prow, 0), px = CellF(prow, 1), py = CellF(prow, 2);
+                    if (float.IsNaN(fi) || float.IsNaN(px) || float.IsNaN(py) || float.IsInfinity(px) || float.IsInfinity(py))
+                    {
+                        continue;
+                    }
+                    int i = (int)fi;
+                    if (i < 0 || i >= visual.Platforms.Length)
+                    {
+                        continue;
+                    }
+                    GhostPlatform gp = visual.Platforms[i];
+                    if (gp == null || gp.Go == null)
+                    {
+                        SpriteRenderer[] templates = cloneTemplate.playerc_perfer.BoostPlatforms;
+                        if (i >= templates.Length || templates[i] == null)
+                        {
+                            continue;
+                        }
+                        GameObject go = Instantiate(templates[i].gameObject);
+                        go.name = $"MeshGhostRemote_{playerId}_plat{i}";
+                        go.transform.SetParent(templates[i].transform.parent, worldPositionStays: true);
+                        foreach (Collider2D col in go.GetComponentsInChildren<Collider2D>(true)) Destroy(col);
+                        foreach (Rigidbody2D rb in go.GetComponentsInChildren<Rigidbody2D>(true)) Destroy(rb);
+                        gp = new GhostPlatform { Go = go, Sr = go.GetComponent<SpriteRenderer>() };
+                        visual.Platforms[i] = gp;
+                    }
+                    if (i == 0) seen0 = true; else seen1 = true;
+                    gp.Go.SetActive(true);
+                    gp.Go.transform.position = worldOffset + new Vector3(px, py, 0f);
+                    if (gp.Sr != null)
+                    {
+                        gp.Sr.enabled = true;
+                        Color c;
+                        if (TryColor(prow[3], out c)) gp.Sr.color = c;
+                    }
+                }
+            }
+            if (!seen0 && visual.Platforms[0] != null && visual.Platforms[0].Go != null && visual.Platforms[0].Go.activeSelf) visual.Platforms[0].Go.SetActive(false);
+            if (!seen1 && visual.Platforms[1] != null && visual.Platforms[1].Go != null && visual.Platforms[1].Go.activeSelf) visual.Platforms[1].Go.SetActive(false);
+        }
+
+        // See the shield block comment: one camera post-process, several shields.
+        private void KeepShieldPostprocess(CharacterBase player)
+        {
+            if (CameraScript.Instance == null || CameraScript.Instance.ShieldPostProcess == null)
+            {
+                return;
+            }
+            bool anyUp = false;
+            FXVShield mine = player != null && player.playerc_perfer != null ? player.playerc_perfer.BoostShieldObject : null;
+            if (mine != null && mine.gameObject.activeInHierarchy && (mine.GetIsShieldActive() || mine.GetIsDuringActivationAnim()))
+            {
+                anyUp = true;
+            }
+            if (!anyUp)
+            {
+                foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+                {
+                    GhostShield gs = kv.Value.Shield;
+                    if (gs != null && gs.Fx != null && gs.Go.activeInHierarchy && (gs.Fx.GetIsShieldActive() || gs.Fx.GetIsDuringActivationAnim()))
+                    {
+                        anyUp = true;
+                        break;
+                    }
+                }
+            }
+            if (anyUp && !CameraScript.Instance.ShieldPostProcess.enabled)
+            {
+                CameraScript.Instance.ShieldPostProcess.enabled = true;
+            }
+        }
+
+        private void DestroyGhostShield(RemoteGhostVisual visual)
+        {
+            if (visual.Shield != null && visual.Shield.Go != null)
+            {
+                Destroy(visual.Shield.Go);
+            }
+            visual.Shield = null;
+            for (int i = 0; i < visual.Platforms.Length; i++)
+            {
+                if (visual.Platforms[i] != null && visual.Platforms[i].Go != null)
+                {
+                    Destroy(visual.Platforms[i].Go);
+                }
+                visual.Platforms[i] = null;
+            }
         }
 
         private void DestroyGhostOrbs(RemoteGhostVisual visual)
@@ -3319,6 +3670,8 @@ namespace MeshGhostTevi
                 AnimTime = ReadAnimTime(player),
                 Orbs = ReadOrbs(player),
                 Summons = ReadSummons(player),
+                Shield = ReadShield(player),
+                Platforms = ReadPlatforms(player),
                 OrbFxSeq = localOrbFxSeq,
                 OrbFxOrb = localOrbFxOrb,
                 OrbFxWhite = localOrbFxWhite,
@@ -3341,6 +3694,7 @@ namespace MeshGhostTevi
 
             WatchLocalVfx(player);
             WatchLocalOrbFx(player);
+            KeepShieldPostprocess(player);
 
             // TEMPORARY, with DIAG_HITSTOP_PHASE: ALL FIVE sprite layers, once per hitstop, with
             // full RGBA. The earlier layer probe edge-triggered on RGB only, so a layer that

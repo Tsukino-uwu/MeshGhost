@@ -226,6 +226,38 @@ namespace MeshGhostTevi
             return false;
         }
 
+        // "map_markers": false in the same config.json hides peers' markers on the pause-menu map
+        // (user, 2026-09-10: "can we add that as a client config setting? to toggle it on/off. on by
+        // default"). Same file, same search order, same hand parse as autostart above: this is the
+        // one file a player already edits, and the key means the same thing for any adapter that
+        // draws a map marker. Absent, or anything but false, means markers on. Re-read by the
+        // plugin when the file's timestamp changes, so a save takes effect without a restart.
+        public static bool ConfigSaysNoMapMarkers(out System.DateTime stamp)
+        {
+            stamp = System.DateTime.MinValue;
+            try
+            {
+                foreach (string dir in CoreSearchDirs())
+                {
+                    if (string.IsNullOrEmpty(dir))
+                    {
+                        continue;
+                    }
+                    string cfg = Path.Combine(dir, "config.json");
+                    if (!File.Exists(cfg))
+                    {
+                        continue;
+                    }
+                    stamp = File.GetLastWriteTimeUtc(cfg);
+                    return Regex.IsMatch(File.ReadAllText(cfg), "\"map_markers\"\\s*:\\s*false");
+                }
+            }
+            catch
+            {
+            }
+            return false;
+        }
+
         public static int ResolveBridgeBasePort(int fallback)
         {
             // The environment wins, and it is the same variable name the two Lua adapters use, so

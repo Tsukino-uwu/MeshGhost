@@ -42,7 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
-- READY — orbitars on the ghost (user: "orbitars sync now"), their crystal trail and the dodge afterimage fade (user: "works fine", 2026-09-10); the blue trail spawn count and its real rate/decay/colour are fixed and UNWATCHED; core expansions (summoned Celia/Sable) are BUILT BUT NOT SHOWING, probe armed
+- READY — orbitars (user: "orbitars sync now"), their crystal trail and the dodge fade ("works fine"), core expansions ("it does the summon thing now"); UNWATCHED: the blue trail's count/parameters and its dodge-vs-hover order, the boost shield + platforms, world-fixed summon positions, the `map_markers` config key (2026-09-10)
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
@@ -96,9 +96,25 @@ two-instance rig.** Four pieces, in the order they went in:
   ghost orb to the summon and back. Identity: a non-player `Celia`/`Sable` in
   `CharacterManager.characters` IS the local player's core expansion (the game finds its own the
   same way, `GetCharacterWithID(type, 0)`); a peer's summon ghost here is a bare sprite clone, never
-  a `CharacterBase`, so no echo loop. **Unwatched**; `DIAG_SUMMON_TRACE` still armed. Not mirrored
-  yet: the glow on the orbs when they return (`GlowOrbsEffect`), the boost platforms, and whatever
-  the humanoid fires (the projectile track).
+  a `CharacterBase`, so no echo loop. User: *"it does the summon thing now"*. Then two more from
+  the same look: **the barrier** -- the boost shield (`playerController.BoostShieldObject`, an
+  `FXVShield` shader mesh) and the two `BoostPlatforms` sprites, now cloned from the game's own
+  objects with the shield's private `isBoostShield` cleared so a peer's barrier never erases the
+  watcher's bullets, colours read off the peer's material; and **the summon drifting with the
+  ghost** -- its position was root-relative, so it inherited the ghost's interpolated motion;
+  summon, shield and platforms now travel as ABSOLUTE world positions. Both **unwatched**.
+  Not mirrored yet: the glow on the orbs when they return (`GlowOrbsEffect`), the camera
+  post-process is shared with the local player's shield (kept on by `KeepShieldPostprocess`,
+  unwatched), and whatever the humanoid fires (the projectile track).
+- **The blue trail, second fault.** User: *"is it due to having the yellow trail things on me
+  currently, i don't think blue trails are appearing properly"*. Yes: the game's order is
+  speed-bonus -> blue, dodge-ready -> yellow, then a timed `SetTrail` (hover) -> blue LAST and
+  unconditionally; the reader only consulted the timed trail when nothing else was set, so a
+  hovering player with a charged dodge trailed blue while the ghost trailed yellow. Order fixed.
+  **Unwatched.**
+- **`"map_markers"` in config.json** (user's ask, on by default): `false` hides peers' pause-map
+  markers; polled by file timestamp, so a save applies within a second. In the shipped config and
+  `docs/config.md`. **Unwatched.**
 
 **What to look at.** Two windows side by side. On the watching side: the peer's orbs orbiting or
 sitting behind the ghost as they do on the peer's own screen, with the peer's sprites; the ring's

@@ -1324,3 +1324,14 @@ both ways. Unwatched at the entry's end. **Lesson:** an `ideas.md` note that nam
 ("summon") is a hypothesis; read the input handler's path before building on the note. **Next:** the user's
 move list (in `UNVERIFIED.md`) walked with `DIAG_POOL_WATCH` on, one table row per missing effect;
 then the projectile spawn event (`ideas.md`).
+
+**Later the same night, each on the user's next look:** *"it does the summon thing now, but not the
+barrier"* -> the boost shield (`FXVShield`, cloned with `isBoostShield` cleared by reflection so it
+never blocks the watcher's bullets) and the platforms; *"the summon is supposed to stay still"* ->
+world-fixed things now travel as absolute positions, never root-relative; *"is it due to having the
+yellow trail things on me"* -> yes, the timed trail must win LAST as in the game's order. Also the
+dev cheat gained `swap` (clears `BadgeCD_ChangeOrbCharger` / `NoOrbChange`) and `crystal`, and
+`"map_markers"` entered config.json for the pause-map markers. Lifting the wait between core
+expansions was declined: one boost state machine, and `OrbsToHumanoid` refuses while a Celia or
+Sable exists.
+

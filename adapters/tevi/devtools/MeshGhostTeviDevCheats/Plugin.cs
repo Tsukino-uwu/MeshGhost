@@ -29,7 +29,7 @@ namespace MeshGhostTeviDevCheats
         private static readonly FieldInfo OrbMpField = typeof(OrbBall).GetField("MP", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly FieldInfo OrbMaxMpField = typeof(OrbBall).GetField("MaxMP", BindingFlags.NonPublic | BindingFlags.Instance);
 
-        private bool hp = true, mp = true, charge = true, crystal = true;
+        private bool hp = true, mp = true, charge = true, crystal = true, swap = true;
         private float lastToggleRead = float.NegativeInfinity;
         private string togglePath;
 
@@ -37,7 +37,7 @@ namespace MeshGhostTeviDevCheats
         {
             togglePath = Path.Combine(Path.GetDirectoryName(Info.Location) ?? ".", "meshghost-devcheats.txt");
             Logger.LogWarning("MeshGhost DevCheats loaded -- DEV ONLY, writes HP/MP/charge every frame. "
-                + $"Toggle file: {togglePath} (hp=, mp=, charge=, crystal=; absent means on). Crystals are SAVE data.");
+                + $"Toggle file: {togglePath} (hp=, mp=, charge=, crystal=, swap=; absent means on). Crystals are SAVE data.");
         }
 
         private static CharacterBase GetMainCharacter(EventManager em)
@@ -51,7 +51,7 @@ namespace MeshGhostTeviDevCheats
         {
             if (Time.unscaledTime - lastToggleRead < 1f) return;
             lastToggleRead = Time.unscaledTime;
-            bool nhp = true, nmp = true, ncharge = true, ncrystal = true;
+            bool nhp = true, nmp = true, ncharge = true, ncrystal = true, nswap = true;
             try
             {
                 if (File.Exists(togglePath))
@@ -67,6 +67,7 @@ namespace MeshGhostTeviDevCheats
                         else if (key == "mp") nmp = on;
                         else if (key == "charge") ncharge = on;
                         else if (key == "crystal") ncrystal = on;
+                        else if (key == "swap") nswap = on;
                     }
                 }
             }
@@ -75,11 +76,11 @@ namespace MeshGhostTeviDevCheats
                 Logger.LogWarning($"MeshGhost DevCheats: toggle file unreadable ({e.Message}); keeping last values.");
                 return;
             }
-            if (nhp != hp || nmp != mp || ncharge != charge || ncrystal != crystal)
+            if (nhp != hp || nmp != mp || ncharge != charge || ncrystal != crystal || nswap != swap)
             {
-                Logger.LogInfo($"MeshGhost DevCheats: hp={nhp} mp={nmp} charge={ncharge} crystal={ncrystal}");
+                Logger.LogInfo($"MeshGhost DevCheats: hp={nhp} mp={nmp} charge={ncharge} crystal={ncrystal} swap={nswap}");
             }
-            hp = nhp; mp = nmp; charge = ncharge; crystal = ncrystal;
+            hp = nhp; mp = nmp; charge = ncharge; crystal = ncrystal; swap = nswap;
         }
 
         private void Update()
@@ -128,6 +129,19 @@ namespace MeshGhostTeviDevCheats
                 {
                     phy.charge = bar;
                 }
+            }
+
+            // ORB SWAP LOCKS (user, 2026-09-10: "after swapping i can't swap for a bit"). The swap
+            // input is refused while BadgeCD_ChangeOrbCharger runs (10s after each swap with that
+            // badge equipped) or while NoOrbChange is set (a bomb sets it). Both cleared every frame.
+            // The other two refusals are NOT lifted here: swapping during a core expansion and
+            // starting a second core expansion before the first ends are the boost state machine
+            // itself (isInBoost / a Celia or Sable already existing), and forcing them breaks the
+            // return-to-orb sequence.
+            if (swap && player.cphy_perfer != null)
+            {
+                if (player.cphy_perfer.BadgeCD_ChangeOrbCharger > 0f) player.cphy_perfer.BadgeCD_ChangeOrbCharger = 0f;
+                if (player.cphy_perfer.NoOrbChange) player.cphy_perfer.NoOrbChange = false;
             }
 
             // CRYSTALS -- what a core expansion spends (user, 2026-09-10). SAVE DATA, not a

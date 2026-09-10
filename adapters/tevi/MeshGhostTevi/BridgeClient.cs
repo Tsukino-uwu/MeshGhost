@@ -112,10 +112,11 @@ namespace MeshGhostTevi
 
             // CORE EXPANSIONS (the game's name for the orbitar summons): one row per summoned
             // Celia/Sable the peer currently has out, read off that character's own sprite rig:
-            //   [ type, animatorControllerName, dx, dy, direction, clip, clipPhase, scaleX, scaleY, visible ]
+            //   [ type, animatorControllerName, x, y, direction, clip, clipPhase, scaleX, scaleY, visible ]
             // `visible` is false during the first ~0.3s, while the game's humanoid exists but is
             // Invisible() and the orb-to-humanoid trail is still flying toward it.
-            // dx/dy are the summon's SPRITE position relative to the peer's root. The controller
+            // x/y are the summon's SPRITE position in ABSOLUTE world coordinates (it stands still
+            // while the peer moves, so a root-relative offset inherits the ghost's motion). The controller
             // name is the key the game itself resolves a look with (AreaResource.GetNPC compares
             // controller names), which is what lets the watcher show the peer's skin, not its own.
             public object[][] Summons;
@@ -123,6 +124,15 @@ namespace MeshGhostTevi
             // The orb-to-human flash the moment an orbitar turns into its summon: a one-shot,
             // counter-deduped like the VFX impulse. Which orb, and whether it is the white one
             // (the game picks one of two pooled effects by that).
+            // THE BOOST SHIELD (the barrier a core expansion raises around the humanoid) and the two
+            // platform sprites under it. Present only while the peer's shield is up or animating:
+            //   Shield:    [ x, y, z, scale, rotX, rotY, rotZ, mainRGBA, texRGBA, patternRGBA ]
+            //   Platforms: [ index, x, y, RGBA ] per enabled platform
+            // Positions are ABSOLUTE world coordinates (these sit on the world-fixed humanoid).
+            // Colours travel as 8-hex-digit strings so they survive the float-only number path.
+            public object[] Shield;
+            public object[][] Platforms;
+
             public int? OrbFxSeq;
             public int? OrbFxOrb;
             public bool? OrbFxWhite;
@@ -689,6 +699,16 @@ namespace MeshGhostTevi
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["summons"] = state.Summons;
                 }
+                if (state.Shield != null && state.Shield.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["shield"] = state.Shield;
+                }
+                if (state.Platforms != null && state.Platforms.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["plats"] = state.Platforms;
+                }
                 if (state.OrbFxSeq.HasValue && state.OrbFxSeq.Value > 0)
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
@@ -752,6 +772,16 @@ namespace MeshGhostTevi
 
         // Mixed rows (strings and numbers), same posture as ParseOrbs: a bad shape drops the field,
         // never the message. Numbers come out as float, strings as string, anything else as null.
+        private static object[] ParseRow(JToken token)
+        {
+            if (token == null || token.Type != JTokenType.Array)
+            {
+                return null;
+            }
+            object[][] rows = ParseRows(new JArray(token));
+            return rows != null && rows.Length == 1 ? rows[0] : null;
+        }
+
         private static object[][] ParseRows(JToken token)
         {
             if (token == null || token.Type != JTokenType.Array)
@@ -852,6 +882,8 @@ namespace MeshGhostTevi
                                 VfxFacingLeft = (bool?)extras?["vfx_left"],
                                 Orbs = ParseOrbs(extras?["orbs"]),
                                 Summons = ParseRows(extras?["summons"]),
+                                Shield = ParseRow(extras?["shield"]),
+                                Platforms = ParseRows(extras?["plats"]),
                                 OrbFxSeq = (int?)extras?["orbfx_seq"],
                                 OrbFxOrb = (int?)extras?["orbfx_orb"],
                                 OrbFxWhite = (bool?)extras?["orbfx_white"],
