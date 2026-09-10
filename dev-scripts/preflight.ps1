@@ -728,6 +728,48 @@ if (-not (Test-Path $luac)) {
 }
 
 # ---------------------------------------------------------------------------
+Section "SCRIPT_DIR concatenations carry a separator (Crystal)"
+
+# Emerald's SCRIPT_DIR ends with a trailing "\\"; Crystal's does NOT, and that file has carried a
+# comment saying so since it was written -- "NOTE THE EXPLICIT '/' -- unlike Emerald's, this file's
+# SCRIPT_DIR carries no trailing separator, which every other path expression here also spells out."
+# Two later blocks did not spell it out, and a prose note is a rule enforced by whoever remembers
+# reading it. Both built paths like "...\pokemon\crystalconfig.json", which simply never opens:
+#
+#   - the AUTOSTART scan fell through all three candidates every time, so "autostart": false had
+#     never once worked in Crystal (shipped 2026-09-03, found 2026-09-10);
+#   - the probe choosing the spawned core's working directory never saw this game's own config, so
+#     every Crystal core read the release root instead and a player's per-game settings were
+#     silently ignored.
+#
+# Neither failed loudly: a missing file is indistinguishable from "no config here", which is a
+# supported state. luac -p cannot see it -- both spellings are valid Lua. So it is checked here.
+# Negative-tested against a planted `SCRIPT_DIR .. "config.json"` before being trusted.
+$crystal = 'adapters/emulator/pokemon/crystal/meshghost_crystal.lua'
+if (-not (Test-Path $crystal)) {
+    Report-Fail "$crystal is missing -- the separator check would pass vacuously"
+} else {
+    $lines = @(Get-Content -LiteralPath $crystal)
+    $bad = @()
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $l = $lines[$i]
+        if ($l -match '^\s*--') { continue }
+        # Every SCRIPT_DIR .. "<literal>" in this file must open its literal with / or \.
+        foreach ($m in [regex]::Matches($l, 'SCRIPT_DIR\s*\.\.\s*"([^"]*)"')) {
+            if ($m.Groups[1].Value -notmatch '^[/\\]') {
+                $bad += "$crystal`:$($i + 1)  SCRIPT_DIR .. `"$($m.Groups[1].Value)`""
+            }
+        }
+    }
+    if ($bad.Count -gt 0) {
+        Report-Fail "$($bad.Count) SCRIPT_DIR concatenation(s) in Crystal do not start with a separator -- this file's SCRIPT_DIR has no trailing one, so these build a path that never opens:"
+        $bad | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every SCRIPT_DIR concatenation in Crystal opens with a separator"
+    }
+}
+
+# ---------------------------------------------------------------------------
 Section "Reflected bools use the property mask (Pseudoregalia)"
 
 # UE packs many UPROPERTY bools as bitfields sharing a byte, and RE-UE4SS's

@@ -6857,4 +6857,40 @@ verdict lines are the contract, so a check added there gates releases from then 
 **Reach for first.** A preflight FAIL is a FAIL for whatever comes next, not only for what you
 changed; and when the same gate has refused twice, put the action behind the gate instead of
 resolving to read more carefully.
+## A path built from a constant whose SHAPE you assumed — Crystal never read its own config (2026-09-10)
 
+**Symptom.** None, which is the whole problem. Crystal's `"autostart": false` did nothing, and a
+player's per-game `config.json` was ignored in favour of the release root's. Both had shipped that
+way since 2026-09-03 and neither had ever produced an error line: the entry asking the user to
+confirm autostart was still sitting unwatched in `UNVERIFIED.md`, so nobody had looked.
+
+**How it was found.** Not by a probe or a report — by reading the launcher to answer a *docs*
+question ("can Emerald and Crystal take `meshghost.exe` in the game's own folder like the other
+two?"). The answer was yes, they already could; the two malformed paths were visible on the way to
+it.
+
+**Cause.** Emerald's `SCRIPT_DIR` ends with a trailing `\`; Crystal's does not. Crystal's own file
+carries a comment above its bridge-port block saying exactly that — *"NOTE THE EXPLICIT `/` --
+unlike Emerald's, this file's SCRIPT_DIR carries no trailing separator, which every other path
+expression here also spells out"* — and two blocks written later did not spell it out. They built
+`...\pokemon\crystalconfig.json` and `...\crystal../../../config.json`. Neither opens.
+
+**Why nothing caught it.** Both spellings are valid Lua, so `luac -p` passes. And a file that does
+not open is indistinguishable from "there is no config here", which is a *supported* state with a
+defined fallback — so the failure took the fallback path silently and looked exactly like a
+correct run. The same-shaped constant in the sibling file made the wrong spelling read as right.
+
+**Fix.** Both concatenations now carry the separator. In the same pass, the bridge-port config
+search in *both* scripts was reordered to look in the script's own folder first — it read the
+release root first and the own folder last, the reverse of the two searches beside it and of its
+own comment claiming *"the same places the autostart search looks, in the same order."*
+
+**Outcome.** A preflight section, negative-tested against the real defect before it was trusted:
+every `SCRIPT_DIR .. "<literal>"` in Crystal must open its literal with `/` or `\`. The prose note
+that had been in the file all along is now a check, because a rule enforced by whoever remembers
+reading a comment is not enforced.
+
+**Reach for first.** When two sibling files share a constant, confirm its SHAPE in each before
+copying an expression between them — a trailing separator is invisible at the call site. And
+treat "the fallback ran" as a result to explain, not a default to accept: every one of these
+failures was a fallback working perfectly on a path that should never have been reached.

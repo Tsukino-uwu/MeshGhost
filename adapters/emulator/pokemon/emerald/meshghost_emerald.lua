@@ -605,9 +605,9 @@ do
     -- The same places the autostart search looks for meshghost.exe, in the same order: the
     -- config the client reads is the one sitting beside it.
     local candidates = {
+        SCRIPT_DIR .. "config.json",
         SCRIPT_DIR .. "../../../config.json",
         SCRIPT_DIR .. "../../../../config.json",
-        SCRIPT_DIR .. "config.json",
     }
     for _, path in ipairs(candidates) do
         local f = io.open(path, "r")

@@ -712,9 +712,9 @@ end
 -- separator, which every other path expression here also spells out.
 do
 	local candidates = {
+		SCRIPT_DIR .. "/config.json",
 		SCRIPT_DIR .. "/../../../config.json",
 		SCRIPT_DIR .. "/../../../../config.json",
-		SCRIPT_DIR .. "/config.json",
 	}
 	for _, path in ipairs(candidates) do
 		local f = io.open(path, "r")
@@ -9662,7 +9662,7 @@ local coreChild, coreSpawnFrame, coreSpawnFailed = nil, nil, false
 -- core's config is found in. The first config.json found decides, key or no key. An IIFE, not a
 -- helper: this file has no local to spare (the 200-local ceiling).
 local AUTOSTART = os.getenv("MESHGHOST_NO_AUTOSTART") == nil and (function()
-    for _, dir in ipairs({ SCRIPT_DIR, SCRIPT_DIR .. "../../../", SCRIPT_DIR .. "../../../../" }) do
+    for _, dir in ipairs({ SCRIPT_DIR .. "/", SCRIPT_DIR .. "/../../../", SCRIPT_DIR .. "/../../../../" }) do
         local f = io.open(dir .. "config.json", "rb")
         if f then
             local text = f:read("*a") or ""
@@ -9772,9 +9772,9 @@ local function startCore(port)
 		-- file wins entirely, never a merge; the core logs which path it loaded, and meshghost.log
 		-- lands in the same folder as the config it read.
 		do
-			local own = io.open(SCRIPT_DIR .. "config.json", "rb")
+			local own = io.open(SCRIPT_DIR .. "/config.json", "rb")
 			if own then own:close() end
-			si.WorkingDirectory = own and SCRIPT_DIR or (exe:gsub("meshghost%.exe$", ""))
+			si.WorkingDirectory = own and (SCRIPT_DIR .. "/") or (exe:gsub("meshghost%.exe$", ""))
 			console.log("MeshGhost: the core reads " .. si.WorkingDirectory .. "config.json"
 				.. (own and " (this game's own)" or " (the release root's; put a config.json beside this script to give this game its own)"))
 		end

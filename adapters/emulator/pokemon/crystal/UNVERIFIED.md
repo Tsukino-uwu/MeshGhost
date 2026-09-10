@@ -43,8 +43,9 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../../../_template/UNVERIFIED.md`](../../../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — Crystal read NEITHER its own `config.json` NOR `"autostart"`: two path concatenations were missing this file's separator, fixed 2026-09-10 (see the entry below — it explains why the 2026-09-03 autostart entry could never have passed)
 - READY — `\uXXXX` in a bridge message decodes properly instead of becoming "?" (2026-09-03), unwatched
-- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
+- READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched — **on Crystal this was broken from the day it was written until 2026-09-10**, see the top entry
 - READY — the launcher forgets a child the port walk has moved off (mirrored from TEVI 2026-09-02, unwatched)
 - READY — LOSS COVER (ADR 0045): A/B on one netsim seed, cover off is worse, no teleport at any interp (WATCHED 2026-09-02 on loopback, which overstates by one-way latency); to be re-judged with two real clients at the shipped 450ms
 - READY — the shipped tier is now DRAWN ONLY; spawned is a dev opt-in (user's call 2026-09-02), unwatched as shipped
@@ -206,6 +207,46 @@ above stays `?`, because this game's font cannot draw it either way. The new loc
 
 **What to watch:** nothing new on screen. As with Emerald, the check is that the adapter still loads,
 connects and renders a ghost, because this is the function every bridge message passes through.
+
+## [READY] Crystal read neither its own `config.json` nor `"autostart"` — one missing path separator, twice (found and fixed 2026-09-10)
+
+**Found while answering a docs question**, not by a probe: the user asked whether Emerald and Crystal
+could take `meshghost.exe` in the game's own folder the way TEVI and Pseudoregalia do. Reading the
+launcher to answer it showed they already could — and that two other path expressions in Crystal were
+malformed.
+
+**The cause.** Emerald's `SCRIPT_DIR` ends with a trailing `\`; Crystal's does not, and the file says so
+in a comment above its bridge-port block (*"NOTE THE EXPLICIT `/` -- unlike Emerald's, this file's
+SCRIPT_DIR carries no trailing separator, which every other path expression here also spells out"*).
+Two later blocks did not spell it out:
+
+- the `AUTOSTART` scan built `...\pokemon\crystalconfig.json` and then `...\crystal../../../config.json`,
+  so **all three candidates were unopenable** and the search always fell through to its default of
+  "start one". `"autostart": false` has therefore never done anything in Crystal — which is exactly the
+  thing the 2026-09-03 entry below asked the user to watch, so that entry could not have passed.
+- the probe that decides the spawned core's working directory built the same `crystalconfig.json`, never
+  saw this game's own config, and so pointed **every** Crystal core at the release root instead. Settings
+  a player edited in `games\pokemon\crystal\config.json` were silently ignored.
+
+Confirmed as broken by resolving the four concatenated paths on disk before changing anything; both now
+carry the separator, and both files still pass `luac -p`. Emerald was never affected.
+
+**Also fixed in the same pass, both scripts:** the bridge-port config search read the release root
+*first* and the script's own folder *last* — the reverse of the two searches beside it, and of its own
+comment claiming *"the same places the autostart search looks, in the same order"*. Own folder is first
+everywhere now.
+
+**What to watch, on Crystal specifically:**
+
+1. Put `meshghost.exe` in `games\pokemon\crystal\` beside the script. Load the script. The Lua Console
+   should name **that folder's** `config.json` as the one the core reads ("this game's own"), and
+   `meshghost.log` should appear in that folder rather than the release root.
+2. Set `"autostart": false` in that same file and reload. The game should come up with **no client
+   started**, and the console should say why. Put `true` back and it should start one again.
+3. An install that leaves `meshghost.exe` in the release root should behave exactly as it always has —
+   this is meant to be additive, and that is the half most likely to have been broken by the change.
+
+Emerald is worth one pass on the same three, since it shares the reorder in (3).
 
 ## [READY] `"autostart"` in config.json replaces the environment variable as the way to say "don't start a client" (2026-09-03), unwatched
 

@@ -25,23 +25,27 @@ Running the client -- two ways, pick either:
      KEEP config.json NEXT TO IT. The client reads the config.json in its own folder,
      so if you move the exe, move config.json with it -- they travel as a pair. On its
      own the client falls back to built-in defaults (127.0.0.1:7777, your own machine)
-     and never reaches your host. Leaving both in the MeshGhost root is simplest, and
-     it is also what option 2 needs.
+     and never reaches your host. Keeping both in THIS folder is simplest, and it is
+     also what option 2 wants.
 
-  2. LET THE EMULATOR OPEN AND CLOSE IT (optional -- location DOES matter)
-     Leave meshghost.exe in the MeshGhost root, three folders up from this one, and
-     the script finds it there by itself: it starts it with no window when you load
-     the script and shuts it down when you close the emulator. That folder is the
-     BizHawk equivalent of a mod folder -- it is where the script looks, and the only
-     place this works from. The client reads the config.json in THIS folder, next to
-     the script, so this game's settings are separate from every other game's. (If
-     this folder has no config.json, it reads the one next to meshghost.exe instead,
-     and the Lua Console says which.)
+  2. LET THE EMULATOR OPEN AND CLOSE IT (optional -- location matters)
+     Put meshghost.exe in THIS folder, beside the script, and the script starts it
+     with no window when you load the script and shuts it down when you close the
+     emulator. The client then reads the config.json in this folder, so this game's
+     settings, its meshghost.log and its replay\ folder are all separate from every
+     other game's -- the same arrangement TEVI and Pseudoregalia use.
+
+     THE MESHGHOST ROOT STILL WORKS. The script looks in its own folder first, then
+     three folders up (the MeshGhost root), then four (a source checkout), and takes
+     the first meshghost.exe it finds -- so an older install that left the exe in the
+     root keeps working untouched. What you give up by leaving it there is the
+     separation: the client then reads whichever config.json sits next to it, and the
+     Lua Console prints which file that was, every time.
 
      If an antivirus objects to one program starting another -- or you simply want to
      watch the client's window -- use option 1 instead, and put "autostart": false in
-     this folder's config.json so the script stops trying to start one (the main README
-     in the folder you unzipped explains it under "Turning autostart off").
+     this folder's config.json so the script stops trying to start one (docs\
+     troubleshooting.txt explains it under "Running the client yourself instead").
 
 Either way, the Lua Console prints what happened, including the
 "connected to relay ... in room ..." line that means it worked.

@@ -21,7 +21,7 @@ from there; Windows will let you, and then nothing can find anything.
 Inside you will find:
 
 | | |
-|---|---|
+| --- | --- |
 | `meshghost.exe` | The client. It runs quietly in the background while you play. **You do not open this yourself** — your game's mod starts it and closes it for you. |
 | `meshghost-server.exe` | The server. Only the one person hosting ever touches this. |
 | `config.json` | The settings file. You will edit three lines of it. |
@@ -37,6 +37,11 @@ is the short version.
 Nothing to install. You play these through the BizHawk emulator, and you load the mod fresh each
 time: **Tools → Lua Console → Script → Open Script**, and pick `meshghost_emerald.lua` (or
 `meshghost_crystal.lua`) from that folder. Leave the `lib\` folder next to it where it is.
+
+Then copy **`meshghost.exe`** into that same folder, beside the script. (It also works left in the
+folder you unzipped — the script checks its own folder first and falls back there — but keeping it
+beside the script is the same rule every supported game follows, and it gives each game its own settings
+and its own log.)
 
 **TEVI** (`games\tevi\`)
 
@@ -54,16 +59,26 @@ into that same Pseudoregalia folder. Everything else it needs is already bundled
 run other Pseudoregalia mods, read that folder's `README.txt` first — one paragraph, and it
 matters.
 
-> **The copy rule, for TEVI and Pseudoregalia only.** Those two run MeshGhost from inside the
-> game's own folder, so `meshghost.exe` and `config.json` travel there as a pair — and **the copy
-> you put in the game folder is the one it reads**, not the one you unzipped. Edit that one in
-> step 3. Emerald and Crystal run from the unzipped folder and need no copying at all.
+> **One rule for every supported game: `meshghost.exe` and `config.json` travel as a pair, and the copy
+> next to the mod is the one that counts.** Whichever folder you put them in is the folder
+> MeshGhost reads its settings from and writes its log to — so that is the `config.json` you edit
+> in step 3, not the one you unzipped.
+>
+> | Game | Where the pair goes |
+> |---|---|
+> | Pokémon Emerald | `games\pokemon\emerald\`, beside the script |
+> | Pokémon Crystal | `games\pokemon\crystal\`, beside the script |
+> | TEVI | your TEVI folder, next to `TEVI.exe` |
+> | Pseudoregalia | your Pseudoregalia folder |
+>
+> Each game's `config.json` is already there — only `meshghost.exe` has to be copied in. The two
+> Pokémon games are the forgiving ones: they fall back to the unzipped folder if you skip the
+> copy. TEVI and Pseudoregalia do not, because the mod lives inside the game.
 
 ## 3. Fill in three things
 
-Open the `config.json` that your game actually reads — for TEVI and Pseudoregalia the copy you
-just put in the game's folder, for Emerald and Crystal the one in
-`games\pokemon\<your game>\`. Notepad is fine.
+Open the `config.json` in the folder from the table above — the one sitting next to your game's
+mod. Notepad is fine.
 
 In the `"client"` section near the top, set three things:
 
@@ -105,8 +120,10 @@ beats a boss, it is still alive in your game.
 Your "it worked" signal is a line reading **`connected to relay ... in room ...`**:
 
 - **Emerald / Crystal** — in BizHawk's Lua Console window.
-- **TEVI / Pseudoregalia** — in `meshghost.log`, which appears in the game's folder next to the
-  `meshghost.exe` you copied there.
+- **TEVI / Pseudoregalia** — in `meshghost.log`.
+
+`meshghost.log` is always written next to the `meshghost.exe` that ran, which is the folder from
+the table above.
 
 If you do not see a ghost, [troubleshooting.md](troubleshooting.md) goes through the usual causes
 in order. Nine times in ten it is a typo in `connect_to`, or the host's port not being open.
