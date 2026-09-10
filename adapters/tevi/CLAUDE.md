@@ -39,6 +39,11 @@ going stale mid-warp, expressed in render state instead of memory.
   immediately broke the character's outline effect — `outlinesprite` is deliberately not white.
   The log showed `color` was already correct and only `enabled` was wrong. **Reset the field
   confirmed broken, never everything that plausibly could be.**
+- **A clone of a self-configuring component inherits its POST-setup state, and its Awake may never
+  run.** The boost shield (2026-09-10): the template sits INACTIVE between uses, so its clone is born
+  inactive with every material null (activate it once to run Awake); and the template's renderer
+  already holds the material its own setup STRIPPED a shader keyword from, so the clone rebuilt every
+  material without the bloom/fade effect. Read what the component's setup CHANGES, then undo it on the clone.
 - **Don't answer a race with a guessed delay.** A wait only narrows the window against a
   transition whose duration was never measured, and it taxes every recreate that was not racing
   anything. When a symptom looks like "the right value settles eventually, so just wait", check

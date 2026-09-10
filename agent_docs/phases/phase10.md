@@ -1335,3 +1335,13 @@ dev cheat gained `swap` (clears `BadgeCD_ChangeOrbCharger` / `NoOrbChange`) and 
 expansions was declined: one boost state machine, and `OrbsToHumanoid` refuses while a Celia or
 Sable exists.
 
+**The barrier, three more rounds (2026-09-10, late).** Frozen ghost + no barrier: one NullReference
+per message from `SetMainColor` on a clone whose Awake never ran (template parked inactive), and the
+catch logged only `e.Message` -- the trace, once logged, settled it in one read. Then "no bloom, no
+fade, stays too long": a timing probe showed the fade STARTING on the peer's beat, so it was
+rendering, not timing; `FXVShield.SetMaterial` strips `ACTIVATION_EFFECT_ON` from the material the
+clone is later built from. Lessons filed: a swallowed exception's message is not a diagnosis, log the
+trace once; a clone of a self-configuring component inherits its POST-setup state (the same class of
+fault as the 2026-08-14 `basesprite.enabled` clone) -- here a material with a keyword already
+stripped. `tevi/UNVERIFIED.md` has the entry; the user's last word: *"yee looks correct now i think"*.
+

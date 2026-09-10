@@ -126,7 +126,7 @@ namespace MeshGhostTevi
             // (the game picks one of two pooled effects by that).
             // THE BOOST SHIELD (the barrier a core expansion raises around the humanoid) and the two
             // platform sprites under it. Present only while the peer's shield is up or animating:
-            //   Shield:    [ x, y, z, scale, rotX, rotY, rotZ, mainRGBA, texRGBA, patternRGBA ]
+            //   Shield:    [ x, y, z, scale, rotX, rotY, rotZ, mainRGBA, texRGBA, patternRGBA, up ]
             //   Platforms: [ index, x, y, RGBA ] per enabled platform
             // Positions are ABSOLUTE world coordinates (these sit on the world-fixed humanoid).
             // Colours travel as 8-hex-digit strings so they survive the float-only number path.

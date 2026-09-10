@@ -109,7 +109,19 @@ two-instance rig.** Four pieces, in the order they went in:
   ghost update before pose/facing/trail. Found only after the catch logged the full trace instead
   of the message. Fix: activate the clone once (Awake runs, parks itself initialised), and every
   cosmetic sub-feature is now walled off in its own try/catch so one failing can never freeze the
-  ghost again. Shield clone confirmed in the log on the next boost. Both **unwatched**.
+  ghost again. Shield clone confirmed in the log on the next boost. **Then the barrier popped on
+  and off with no bloom and no fade and seemed to outstay the summon** (user, three looks). Two
+  things, and only the second mattered: (1) the clone was not in the camera's `FXVShieldPostprocess`
+  list -- registered explicitly, no visible change; (2) `FXVShield.SetMaterial` builds its four
+  materials from the renderer's CURRENT material and then strips `ACTIVATION_EFFECT_ON` from the
+  base one, and the template had already done that, so a clone's Awake built every material from
+  the stripped copy and its activation materials never had the keyword. Re-enabled by reflection on
+  `activationMaterial` and `postprocessActivationMaterial`. The "stays too long" was the same fault:
+  without the effect the mesh stayed opaque to the end of the 1.2s animation and popped. The
+  timing probe (`DIAG_SHIELD_TIMING`, event lines both ends) had shown the ghost's fade STARTING on
+  the peer's beat, which is what pointed away from timing and at rendering. User, after the keyword
+  fix: *"yee looks correct now i think"*. The shield's `up` flag now rides the row so the clone fades
+  when the peer's starts fading, not after it ends.
   Not mirrored yet: the glow on the orbs when they return (`GlowOrbsEffect`), the camera
   post-process is shared with the local player's shield (kept on by `KeepShieldPostprocess`,
   unwatched), and whatever the humanoid fires (the projectile track).

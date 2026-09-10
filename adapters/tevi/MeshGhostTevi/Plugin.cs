@@ -271,6 +271,7 @@ namespace MeshGhostTevi
             public GameObject Go;
             public FXVShield Fx;
             public bool Up;
+            public bool LoggedActive;
         }
 
         private sealed class GhostPlatform
@@ -2524,6 +2525,17 @@ namespace MeshGhostTevi
                 // "the summon is supposed to stay still, but ... moving slightly depending on where
                 // the ghost was").
                 Vector3 d = pixel.transform.position;
+                if (DIAG_SHIELD_TIMING)
+                {
+                    string clipNow = cb.spranim_prefer.GetAnimationTrueName() + (visible ? "" : " (invisible)");
+                    string key = cb.type.ToString();
+                    string last;
+                    if (!lastSummonClipLogged.TryGetValue(key, out last) || last != clipNow)
+                    {
+                        lastSummonClipLogged[key] = clipNow;
+                        Logger.LogInfo($"MeshGhost/probe summon-send: {key} clip={clipNow} t={Time.time:0.000}");
+                    }
+                }
                 AnimatorStateInfo info = pixel.anim.GetCurrentAnimatorStateInfo(0);
                 float phase = info.normalizedTime;
                 phase -= Mathf.Floor(phase);
@@ -2542,8 +2554,17 @@ namespace MeshGhostTevi
                     visible,
                 });
             }
+            if (DIAG_SHIELD_TIMING && (rows == null) != lastSummonRowsNull)
+            {
+                lastSummonRowsNull = rows == null;
+                Logger.LogInfo($"MeshGhost/probe summon-send: rows {(rows == null ? "STOP" : "start")} t={Time.time:0.000}");
+                if (rows == null) lastSummonClipLogged.Clear();
+            }
             return rows == null ? null : rows.ToArray();
         }
+
+        private readonly Dictionary<string, string> lastSummonClipLogged = new Dictionary<string, string>();
+        private bool lastSummonRowsNull = true;
 
         private static float CellF(object[] row, int i)
         {
@@ -2665,6 +2686,7 @@ namespace MeshGhostTevi
                             {
                                 sg.Pc.anim.Play(clip, 0, t);
                                 sg.LastAnim = clip;
+                                if (DIAG_SHIELD_TIMING) Logger.LogInfo($"MeshGhost/probe summon-recv: {type} play {clip} visible={visibleNow} t={Time.time:0.000}");
                             }
                             else if (!float.IsNaN(phase))
                             {
@@ -2693,6 +2715,7 @@ namespace MeshGhostTevi
                     sg.Go.SetActive(false);
                     sg.WasPresent = false;
                     StartSummonTrail(visual, sg, kv.Key, toSummon: false);
+                    if (DIAG_SHIELD_TIMING) Logger.LogInfo($"MeshGhost/probe summon-recv: {kv.Key} HIDDEN (row gone) t={Time.time:0.000}");
                 }
                 if (sg.Trail != null && sg.Trail.gameObject.activeSelf && Time.time >= sg.TrailOffAt)
                 {
@@ -2854,6 +2877,8 @@ namespace MeshGhostTevi
         // scene, ours could switch it off under the local player's live shield, so KeepShieldPostprocess
         // re-enables it every frame while any shield here (the player's or a ghost's) is up.
         private static readonly FieldInfo ShieldIsBoostField = typeof(FXVShield).GetField("isBoostShield", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo ShieldActivationMaterialField = typeof(FXVShield).GetField("activationMaterial", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo ShieldPostActivationMaterialField = typeof(FXVShield).GetField("postprocessActivationMaterial", BindingFlags.NonPublic | BindingFlags.Instance);
         private static readonly int ShieldTexColorId = Shader.PropertyToID("_TextureColor");
         private static readonly int ShieldPatternColorId = Shader.PropertyToID("_PatternColor");
 
@@ -2884,6 +2909,10 @@ namespace MeshGhostTevi
             }
         }
 
+        private const bool DIAG_SHIELD_TIMING = false;
+        private bool lastShieldUpSent;
+        private bool lastShieldRowSent;
+
         private object[] ReadShield(CharacterBase player)
         {
             if (player == null || player.t == null || player.playerc_perfer == null)
@@ -2891,12 +2920,26 @@ namespace MeshGhostTevi
                 return null;
             }
             FXVShield sh = player.playerc_perfer.BoostShieldObject;
-            if (sh == null || !sh.gameObject.activeInHierarchy || !(sh.GetIsShieldActive() || sh.GetIsDuringActivationAnim()))
+            bool rowNow = !(sh == null || !sh.gameObject.activeInHierarchy || !(sh.GetIsShieldActive() || sh.GetIsDuringActivationAnim()));
+            if (DIAG_SHIELD_TIMING && rowNow != lastShieldRowSent)
+            {
+                lastShieldRowSent = rowNow;
+                Logger.LogInfo($"MeshGhost/probe shield: ROW {(rowNow ? "starts" : "stops")} t={Time.time:0.000}");
+            }
+            if (!rowNow)
             {
                 return null;
             }
             Renderer r = sh.GetComponent<Renderer>();
             Material m = r != null ? r.sharedMaterial : null;
+            // PROBE (event-triggered, a line per change): when the peer's shield flips up/fading and
+            // when its row stops -- to time the ghost's fade against it (2026-09-10, "the barrier
+            // still stays for a bit").
+            if (DIAG_SHIELD_TIMING && sh.GetIsShieldActive() != lastShieldUpSent)
+            {
+                lastShieldUpSent = sh.GetIsShieldActive();
+                Logger.LogInfo($"MeshGhost/probe shield: SEND up={lastShieldUpSent} anim={sh.GetIsDuringActivationAnim()} t={Time.time:0.000}");
+            }
             // ABSOLUTE world position: the shield sits on the humanoid, a world-fixed thing, and a
             // root-relative offset would make it inherit the ghost's interpolated motion (the user
             // saw the summon "moving slightly depending on where the ghost was", 2026-09-10).
@@ -2910,6 +2953,10 @@ namespace MeshGhostTevi
                 m != null ? Hex(m.color) : "FFFFFFFF",
                 m != null && m.HasProperty(ShieldTexColorId) ? Hex(m.GetColor(ShieldTexColorId)) : "FFFFFFFF",
                 m != null && m.HasProperty(ShieldPatternColorId) ? Hex(m.GetColor(ShieldPatternColorId)) : "FFFFFFFF",
+                // UP or FADING. The row is sent through the peer's deactivation animation (so the
+                // clone can be placed), but the clone must start ITS fade the moment the peer's
+                // starts, not after it ends -- the user saw the barrier "stay a bit too long".
+                sh.GetIsShieldActive(),
             };
         }
 
@@ -2972,9 +3019,39 @@ namespace MeshGhostTevi
                             {
                                 Destroy(col);
                             }
+                            // THE GLOW IS A CAMERA POST-PROCESS, not the mesh: FXVShieldPostprocess
+                            // draws every shield in its list with the shield's activation material,
+                            // which is where the start-up bloom and the fade-out live. A shield joins
+                            // that list in its Awake via Camera.main -- and the clone's Awake ran with
+                            // whatever Camera.main was at that instant, not the camera the game's own
+                            // CameraScript holds. Registering with the game's actual post-process is
+                            // what makes the clone glow and fade like the peer's (user, 2026-09-10:
+                            // "just disappearing, not doing the fading/ending vfx", "missing that at
+                            // the start as well").
+                            // THE ACTIVATION KEYWORD IS GONE FROM THE CLONE'S MATERIALS. FXVShield.SetMaterial
+                            // builds its four materials from the renderer's current material and then
+                            // strips ACTIVATION_EFFECT_ON from the base one; the template has already
+                            // done that, so its renderer now holds the stripped base material -- and a
+                            // clone's Awake builds everything from THAT. Its activation materials never
+                            // had the keyword, so the shield popped on and off with no bloom and no fade
+                            // (user, 2026-09-10, twice). Re-enable it on the two activation materials.
+                            bool keyworded = false;
+                            if (fx != null)
+                            {
+                                Material am = ShieldActivationMaterialField != null ? ShieldActivationMaterialField.GetValue(fx) as Material : null;
+                                Material pam = ShieldPostActivationMaterialField != null ? ShieldPostActivationMaterialField.GetValue(fx) as Material : null;
+                                if (am != null) { am.EnableKeyword("ACTIVATION_EFFECT_ON"); keyworded = true; }
+                                if (pam != null) { pam.EnableKeyword("ACTIVATION_EFFECT_ON"); }
+                            }
+                            bool registered = false;
+                            if (fx != null && CameraScript.Instance != null && CameraScript.Instance.ShieldPostProcess != null)
+                            {
+                                CameraScript.Instance.ShieldPostProcess.AddShield(fx);
+                                registered = true;
+                            }
                             gs = new GhostShield { Go = go, Fx = fx };
                             visual.Shield = gs;
-                            Logger.LogInfo($"MeshGhost: boost shield cloned for {playerId} (fx={(fx != null)} boostFlagCleared={(fx != null && ShieldIsBoostField != null)}).");
+                            Logger.LogInfo($"MeshGhost: boost shield cloned for {playerId} (fx={(fx != null)} boostFlagCleared={(fx != null && ShieldIsBoostField != null)} postprocess={registered} activationKeyword={keyworded}).");
                         }
                     }
                     if (gs != null && gs.Go != null)
@@ -2988,10 +3065,17 @@ namespace MeshGhostTevi
                             if (TryColor(row[7], out c)) gs.Fx.SetMainColor(c);
                             if (TryColor(row[8], out c)) gs.Fx.SetTextureColor(c);
                             if (TryColor(row[9], out c)) gs.Fx.SetPatternColor(c);
-                            if (!gs.Up)
+                            bool up = row.Length > 10 && row[10] is bool ub ? ub : true;
+                            if (up && !gs.Up)
                             {
                                 gs.Up = true;
                                 gs.Fx.SetShieldActive(active: true);
+                            }
+                            else if (!up && gs.Up)
+                            {
+                                gs.Up = false;
+                                gs.Fx.SetShieldActive(active: false);
+                                if (DIAG_SHIELD_TIMING) Logger.LogInfo($"MeshGhost/probe shield: RECV fade starts t={Time.time:0.000}");
                             }
                         }
                     }
@@ -3005,6 +3089,7 @@ namespace MeshGhostTevi
                 if (visual.Shield.Fx != null)
                 {
                     visual.Shield.Fx.SetShieldActive(active: false);
+                    if (DIAG_SHIELD_TIMING) Logger.LogInfo($"MeshGhost/probe shield: RECV row gone, fade starts t={Time.time:0.000}");
                 }
             }
 
@@ -3085,6 +3170,20 @@ namespace MeshGhostTevi
                     }
                 }
             }
+            if (DIAG_SHIELD_TIMING)
+            {
+                foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+                {
+                    GhostShield gs = kv.Value.Shield;
+                    if (gs == null || gs.Go == null) continue;
+                    bool on = gs.Go.activeSelf;
+                    if (on != gs.LoggedActive)
+                    {
+                        gs.LoggedActive = on;
+                        Logger.LogInfo($"MeshGhost/probe shield: RECV clone {(on ? "ACTIVE" : "INACTIVE (fade done)")} t={Time.time:0.000}");
+                    }
+                }
+            }
             if (anyUp && !CameraScript.Instance.ShieldPostProcess.enabled)
             {
                 CameraScript.Instance.ShieldPostProcess.enabled = true;
@@ -3105,6 +3204,10 @@ namespace MeshGhostTevi
         {
             if (visual.Shield != null && visual.Shield.Go != null)
             {
+                if (visual.Shield.Fx != null && CameraScript.Instance != null && CameraScript.Instance.ShieldPostProcess != null)
+                {
+                    CameraScript.Instance.ShieldPostProcess.RemoveShield(visual.Shield.Fx);
+                }
                 Destroy(visual.Shield.Go);
             }
             visual.Shield = null;
