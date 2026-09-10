@@ -42,6 +42,7 @@ like; answer each with a plain yes or no at the end of the run. Every entry in t
 mechanism; nothing to confirm) — the rule is [`../_template/UNVERIFIED.md`](../_template/UNVERIFIED.md), and `dev-scripts/preflight.ps1` fails an
 entry without one.
 
+- READY — orbitars on the ghost (user: "orbitars sync now"), their crystal trail and the dodge afterimage fade (user: "works fine", 2026-09-10); the blue trail spawn count and its real rate/decay/colour are fixed and UNWATCHED; core expansions (summoned Celia/Sable) are BUILT BUT NOT SHOWING, probe armed
 - READY — meshghost.exe and config.json now live in the TEVI folder (beside TEVI.exe) and the plugin looks NOWHERE else -- not the plugin folder, not BepInEx\scripts; both installs deployed 2026-09-05 with the files moved up; the start log names the folder used. Unwatched on TEVI (Pseudoregalia's half confirmed).
 - READY — `"autostart": false` in config.json now stops the mod starting a client (the old MESHGHOST_NO_AUTOSTART still counts), built and deployed 2026-09-03, unwatched
 - MEASURED 2026-09-02 (logs), a look is cheap — the launcher forgets a child the port walk has moved off: cross-wire reproduced on purpose, both copies reached a ghost
@@ -53,6 +54,66 @@ entry without one.
 - Pending -- the bridge walk DEADLOCK: seen live, fixed, and the fix is not reproduced (2026-08-28)
 - Pending -- the charged attack WORKS; whether it is 1:1 was never settled (2026-08-28)
 - PARTLY CONFIRMED 2026-08-27 — the send gate works; the port walk converges badly
+## [READY] Orbitars, their crystal trail, the dodge afterimage fade, and core expansions on the ghost (2026-09-10)
+
+**Built and hot-deployed to both installs 2026-09-10, one thing at a time, with the user watching the
+two-instance rig.** Four pieces, in the order they went in:
+
+- **The orbitars.** A peer's two orbs render beside its ghost, wearing the PEER's look: the sender
+  reads each real orb's renderer facts (position relative to the root, which of the game's own orb
+  sprites, glow sprite and alpha, crystal ring colour/alpha/rotation, charge halo scale) and the
+  watcher applies them to a clone of the game's orb prefab with its `OrbBall` brain removed before
+  `Start` (which would otherwise register a Light into the local player's slot and shoot with the
+  local save's MP). The user, first look: *"okay orbitars sync now"*. Basic orbs on one save,
+  Sable/Celia on the other, and each side shows the other's.
+- **The crystal trail.** The user's next line: *"not the 'orbitar after image/trail' when moving
+  around"*. The real orb lights one pooled afterimage child per physics step while its crystal ring
+  renders; the ghost orb now does the same from the plugin's `FixedUpdate`, using the prefab's own
+  trail children (renamed `<ghost>_orb<i>_trail<k>` so the orphan sweep knows them). User, same
+  session: *"orbitar trail, yellow after image works fine"*.
+- **The dodge afterimage.** *"the yellow after image trail is appearing way too much on the ghost"*.
+  Cause in the code: the game's dodge branch fades its afterimages at decay 6.67 where the slide
+  trail uses 1.5, and the ghost used 1.5 for both, so yellow images lingered ~4x too long.
+  `DodgeTrailDecaySpeed = 6.67f` now. User: *"works fine"*.
+- **The blue trails spawned too few afterimages** (user: *"not doing enough of them when im hovering
+  on the ghost ... might apply to all the blue trails"*). Cause: the spawn timer advanced once per
+  render_remote MESSAGE, adding a frame's delta per call, while the core delivers on its own tick --
+  at 144fps the ghost saw a fraction of real time. It now ticks once per frame on GemaTimeManager's
+  delta like the game's own, and the peer sends its trail's actual rate, decay, colour, order and
+  effect-layer flag (SetTrail callers set their own) instead of the ghost assuming defaults.
+  **Unwatched.**
+- **Core expansions** (the game's name for the B-button orbitar skills; N, U and D variants).
+  **The first build mirrored the wrong mechanism and showed nothing** (user: *"the core expansions
+  are not working"*): `OrbBall.SkillUsing` / `BossType.SUMMON` / `SetSubOwner` is a legacy path
+  nothing in this build triggers. The real one, read from `CharacterPhy.UseBoost` -> `BoostSystem`
+  -> `EventManager.OrbsToHumanoid`: the orb is HIDDEN, a `GemaOrbToHumanoidTrail` flies from the orb
+  to a real Celia/Sable created `CreateEnemy(type, NOAI)` and `Invisible()`; ~0.33s later it plays
+  `to_character`, turns visible, becomes `BossType.NPC`, runs the boost logic, plays `to_ball`, a
+  trail flies back, it despawns and the orb returns. The ghost now gets all of it: a summon ghost
+  (the player's sprite rig cloned, Animator controller swapped to the one the peer's humanoid wears
+  via `AreaResource.GetNPC` by controller name, so the peer's skin shows; driven by clip and phase;
+  hidden until the peer's turns visible) and a clone of the game's own trail object flown from the
+  ghost orb to the summon and back. Identity: a non-player `Celia`/`Sable` in
+  `CharacterManager.characters` IS the local player's core expansion (the game finds its own the
+  same way, `GetCharacterWithID(type, 0)`); a peer's summon ghost here is a bare sprite clone, never
+  a `CharacterBase`, so no echo loop. **Unwatched**; `DIAG_SUMMON_TRACE` still armed. Not mirrored
+  yet: the glow on the orbs when they return (`GlowOrbsEffect`), the boost platforms, and whatever
+  the humanoid fires (the projectile track).
+
+**What to look at.** Two windows side by side. On the watching side: the peer's orbs orbiting or
+sitting behind the ghost as they do on the peer's own screen, with the peer's sprites; the ring's
+afterimage trail while the ring is on; a dodge leaving the same short yellow streak as your own;
+a B press on the other side showing the flash and a Celia/Sable standing and animating where the
+peer's summon is, gone when the peer's is. **What is knowingly not there yet:** the orbs' Light
+(disabled on the clone; open), the summon's own attacks and every orbitar shot (basic A/B/C,
+charged A/B/C -- the projectile plan in `agent_docs/ideas.md`, the orbitar entry).
+
+**The full move list to walk with the pool watch on** (user, 2026-09-10, from the pause menu):
+jump, quick drop, double jump, wall jump (the kick VFX deliberately NOT mirrored for now), slide,
+hover, cross bomb, cluster bomb, basic combo 1-3 / 3alt / 4 / 4alt, upper slash, backflip slash,
+basic air combo 1-3, spiral slash, dagger throw, air dash, mana pillar, tornado spin, spanner bash,
+soul burst. Any of these whose effect is missing on the ghost is a row for `MirroredCommonEffectTable`.
+
 ## [READY] The "core not found" message no longer sends the player to a folder nothing searches (2026-09-07)
 
 **FIXED, built and deployed 2026-09-07.** `CoreLauncher.cs:100-102` told a player whose

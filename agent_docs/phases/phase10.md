@@ -1281,3 +1281,46 @@ PowerShell's `git` being the devkitPro shadow (git by path now), and a jq expres
 two shells into gh's usage text (JSON parsed in PowerShell now, arrays unrolled for 5.1). The
 fourth cut the release. `pitfalls/by-lesson.md` has the gate lesson; the DLL was deployed to both
 Pseudoregalia installs and the client exe to all four game roots.
+
+## 2026-09-10 (late) — TEVI: orbitars, their trail, the dodge fade, core expansions; a hot-reload script that double-loaded
+
+**What was asked.** Whether driving TEVI with inputs would buy anything (no: replay clips, loopback
+and hot reload already cover it, and the expensive half of the loop is the user's eyes); then *"we
+are still not syncing some attack VFX, or the orbitars"*; then how bullet-hell netplay handles
+projectiles. The projectile plan is in `ideas.md` (the orbitar entry). Then: start both TEVI copies
+and add the orbitars.
+
+**The rig came up double-loaded.** `tevi-hotreload.ps1 -On` looked for the shipping DLL in
+`plugins\MeshGhostTevi\`, the pre-2026-08-28 folder; the deployed layout is `plugins\MeshGhost\`.
+So `-Status` said "absent", `-On` copied a second DLL into `scripts\`, and the Steam copy loaded the
+adapter TWICE -- two "MeshGhost v0.2.0 loaded" lines, two cores spawned on 7778 -- the exact defect
+the script's header says it exists to prevent. Fixed the path, closed the game, relaunched Steam
+first then the standalone; one reject on 7778 then ready on 7779, as the runbook expects. Launch
+method recorded for next time: Steam copy via `steam://rungameid/2230650` (or its exe while Steam
+is up), standalone via its own `TEVI.exe`.
+
+**Built, in order, each hot-deployed and the user watching** (`tevi/UNVERIFIED.md` has the entry):
+orbitars as logic-stripped prefab clones fed the peer's renderer facts (*"okay orbitars sync now"*);
+the crystal-ring afterimage trail from the plugin's `FixedUpdate` (user asked for it next); the
+dodge afterimage decay 6.67 instead of 1.5 (user: yellow images *"appearing way too much"*; the
+game's own branch literal); core expansions -- the orb-to-human flash as a one-shot and a summon
+ghost (player rig clone with the summon's animator controller, found by `subowner`). Every clone
+is named under `MeshGhostRemote_<id>` so the orphan sweep recognises orbs, trails and summons.
+
+**Dev cheats.** User: *"can you give me infinite energy, hp, meter, charge, bars etc"*, later the
+crystals too (*"that's fine for a cheat/dev tool"* on them being save data). A separate
+`devtools/MeshGhostTeviDevCheats` DLL, loaded by ScriptEngine from `scripts\`, never staged --
+`PROBES.md` explains the exception. NuGet is unreachable from the sandbox: restore from the local
+package cache with `--source`.
+
+**Seen by the user:** the orbs, the orb trail and the dodge fade (*"works fine"*). **Found next:**
+the blue trails spawned too few afterimages because the trail timer ran per MESSAGE inside the
+upsert, not per frame -- moved to a per-frame tick with the peer's real trail parameters (unwatched).
+**Not working, then re-derived:** the core expansions -- no summon row ever left the sender because
+the first build mirrored OrbBall's legacy SkillUsing/SUMMON path; the real one is the BOOST system
+(`UseBoost` -> `BoostSystem` -> `OrbsToHumanoid`, a NOAI Celia/Sable made visible ~0.33s after an
+orb-to-humanoid trail). Rebuilt on that: summon ghost by type, visible flag, a cloned trail object
+both ways. Unwatched at the entry's end. **Lesson:** an `ideas.md` note that names a mechanism
+("summon") is a hypothesis; read the input handler's path before building on the note. **Next:** the user's
+move list (in `UNVERIFIED.md`) walked with `DIAG_POOL_WATCH` on, one table row per missing effect;
+then the projectile spawn event (`ideas.md`).

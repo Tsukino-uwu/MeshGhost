@@ -1802,6 +1802,32 @@ own wording — the sibling path never mentions the rule, which is exactly why i
 
 ## TEVI: the orbitars are not synced at all, projectiles included (2026-08-28)
 
+**Status 2026-09-10: the orbs, their crystal trail and the core expansions (summons) are BUILT and
+in `tevi/UNVERIFIED.md`; the orbs were seen live.** What remains is every orbitar SHOT -- the
+user's list: basic shot A/B/C, charged shot A/B/C -- plus whatever a summon fires. The plan for
+those, agreed with the user the same day:
+
+- **How the netplay games do it, and why we cannot copy it.** Touhou 19's official mode, Maiden
+  and Spell, Hisoutensoku's rollback mods and Ju.N.Owen all run deterministic lockstep: only
+  inputs cross the wire and both machines simulate every bullet. That needs one shared, bit-exact
+  simulation; MeshGhost has two separate worlds and owns neither, so lockstep is out and per-bullet
+  position streaming (what the Pseudoregalia cutter does) is the wrong tool for a screenful.
+- **Spawn events, simulate locally.** One event when a bullet is BORN -- kind, position, direction,
+  speed, charge level -- and the watcher's own copy of the game flies a cosmetic clone (no damage,
+  no collision, lifetime ours; `pseudoregalia/VERIFIED.md` 2026-08-27 for why a game-owned
+  projectile is never held). Rides the same counter-deduped shape as the charged attack's VFX
+  impulse. Traffic: a few dozen bytes per birth, independent of how many are alive.
+- **First pass is spawn-only, "at least to start with" (user).** A clone flies through what the
+  sender's shot hit and a homing shot may drift; both go on the open list, not accepted as final.
+  Next rungs, in order: a "bullet N died here" event so early deaths vanish at the same spot; then
+  per-kind corrections for any bullet whose flight is not a pure function of its launch.
+- **Define the event once, game-blind** -- opaque kind + opaque parameter blob on the event plane,
+  `contract.md`'s "split by treatment, never by meaning" -- because enemy sync under peer authority
+  would emit enemy bullets the same way. Who owns the enemy and who gets the kill stay in
+  `beyond-cosmetic.md` / `kill-credit.md`; nothing here decides them.
+- **The echo-loop guard is identity**, the firing character, never proximity (`pitfalls.md`).
+
+
 **The user's own framing:** *"we haven't added the 'orbitar' orbs yet -- basically 2 balls that fly
 around with the player and can do ranged attacks + some other fancy skills, but we do have to add
 those as well + sync up their ranged/projectiles as well sometime"*.

@@ -48,6 +48,14 @@ namespace MeshGhostTevi
             // that predates this field, which must render as no trail rather than as mode 0
             // asserted.
             public int? TrailMode;
+            // The trail's own parameters, read off SpriteAnimation when TrailMode is 1: anything in
+            // the game may call SetTrail with its own rate, decay, colour and order, and a ghost
+            // that assumed the defaults spawned the wrong count and the wrong look (2026-09-10).
+            public float? TrailRate;
+            public float? TrailDecay;
+            public int? TrailRgba;
+            public int? TrailOrder;
+            public bool? TrailHaveEffect;
 
             // A ONE-SHOT pooled VFX the game spawned for this character, as a monotonic counter
             // plus which effect it was. A counter rather than a flag because the state plane is
@@ -90,6 +98,34 @@ namespace MeshGhostTevi
             // locally. Found 2026-08-28: a clone froze on whichever strobe frame it was created
             // during, so every ghost's weapon was permanently white or permanently blue.
             public int? WeaponRgba;
+
+            // THE ORBITARS, one row per orb the peer's game is currently DISPLAYING (a hidden orb is
+            // simply absent). Each row is what that orb's renderers show this frame, read off the
+            // peer's own OrbBall and applied to a logic-stripped clone on the watcher's side:
+            //   [ index, dx, dy, sprite, sortingOrder, glowSprite, glowAlpha*100,
+            //     crystalRgb (-1 off), crystalAlpha*100, crystalRotationDeg, chargeScale*100 (0 off) ]
+            // dx/dy are relative to the peer's root transform. Sprite values are indices into the
+            // game's own CommonResource orb tables (-1 hidden, -2 visible but not a table sprite),
+            // opaque to the core and meaningful only between two TEVI clients. State plane on
+            // purpose: the orbs move every frame, so latest-wins is the right delivery.
+            public float[][] Orbs;
+
+            // CORE EXPANSIONS (the game's name for the orbitar summons): one row per summoned
+            // Celia/Sable the peer currently has out, read off that character's own sprite rig:
+            //   [ type, animatorControllerName, dx, dy, direction, clip, clipPhase, scaleX, scaleY, visible ]
+            // `visible` is false during the first ~0.3s, while the game's humanoid exists but is
+            // Invisible() and the orb-to-humanoid trail is still flying toward it.
+            // dx/dy are the summon's SPRITE position relative to the peer's root. The controller
+            // name is the key the game itself resolves a look with (AreaResource.GetNPC compares
+            // controller names), which is what lets the watcher show the peer's skin, not its own.
+            public object[][] Summons;
+
+            // The orb-to-human flash the moment an orbitar turns into its summon: a one-shot,
+            // counter-deduped like the VFX impulse. Which orb, and whether it is the white one
+            // (the game picks one of two pooled effects by that).
+            public int? OrbFxSeq;
+            public int? OrbFxOrb;
+            public bool? OrbFxWhite;
         }
 
         private readonly string host;
@@ -613,6 +649,11 @@ namespace MeshGhostTevi
                 {
                     extrasMap = extrasMap ?? new Dictionary<string, object>();
                     extrasMap["trail"] = state.TrailMode.Value;
+                    if (state.TrailRate.HasValue) extrasMap["trail_rate"] = state.TrailRate.Value;
+                    if (state.TrailDecay.HasValue) extrasMap["trail_decay"] = state.TrailDecay.Value;
+                    if (state.TrailRgba.HasValue) extrasMap["trail_rgba"] = state.TrailRgba.Value;
+                    if (state.TrailOrder.HasValue) extrasMap["trail_order"] = state.TrailOrder.Value;
+                    if (state.TrailHaveEffect.HasValue) extrasMap["trail_fx"] = state.TrailHaveEffect.Value;
                 }
                 if (state.WeaponRgba.HasValue && state.WeaponRgba.Value != 0)
                 {
@@ -637,6 +678,23 @@ namespace MeshGhostTevi
                     extrasMap["vfx_seq"] = state.VfxSeq.Value;
                     extrasMap["vfx_id"] = state.VfxEffect ?? -1;
                     extrasMap["vfx_left"] = state.VfxFacingLeft ?? false;
+                }
+                if (state.Orbs != null && state.Orbs.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["orbs"] = state.Orbs;
+                }
+                if (state.Summons != null && state.Summons.Length > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["summons"] = state.Summons;
+                }
+                if (state.OrbFxSeq.HasValue && state.OrbFxSeq.Value > 0)
+                {
+                    extrasMap = extrasMap ?? new Dictionary<string, object>();
+                    extrasMap["orbfx_seq"] = state.OrbFxSeq.Value;
+                    extrasMap["orbfx_orb"] = state.OrbFxOrb ?? 0;
+                    extrasMap["orbfx_white"] = state.OrbFxWhite ?? false;
                 }
             }
             object extras = extrasMap;
@@ -673,6 +731,64 @@ namespace MeshGhostTevi
         // call and invokes the matching callback per PROTOCOL.md's "drain all buffered
         // render_remote / despawn_remote messages". Unknown/malformed lines are logged and
         // skipped, never thrown -- a single bad line must not take down the plugin.
+        // A malformed orbs array drops the ORBS, not the whole render_remote: the position and
+        // animation in the same message are still good, and a peer must not be able to blank its
+        // own ghost by sending one bad extras field.
+        private static float[][] ParseOrbs(JToken token)
+        {
+            if (token == null || token.Type != JTokenType.Array)
+            {
+                return null;
+            }
+            try
+            {
+                return token.ToObject<float[][]>();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        // Mixed rows (strings and numbers), same posture as ParseOrbs: a bad shape drops the field,
+        // never the message. Numbers come out as float, strings as string, anything else as null.
+        private static object[][] ParseRows(JToken token)
+        {
+            if (token == null || token.Type != JTokenType.Array)
+            {
+                return null;
+            }
+            try
+            {
+                var rows = new List<object[]>();
+                foreach (JToken rowToken in (JArray)token)
+                {
+                    if (rowToken.Type != JTokenType.Array)
+                    {
+                        continue;
+                    }
+                    var row = new List<object>();
+                    foreach (JToken cell in (JArray)rowToken)
+                    {
+                        switch (cell.Type)
+                        {
+                            case JTokenType.String: row.Add((string)cell); break;
+                            case JTokenType.Integer:
+                            case JTokenType.Float: row.Add((float)cell); break;
+                            case JTokenType.Boolean: row.Add((bool)cell); break;
+                            default: row.Add(null); break;
+                        }
+                    }
+                    rows.Add(row.ToArray());
+                }
+                return rows.ToArray();
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         public void DrainInto(Action<string, RemoteState> onRenderRemote, Action<string> onDespawnRemote)
         {
             // Counted whether or not anything was queued: this is "the main thread had a chance to
@@ -723,12 +839,22 @@ namespace MeshGhostTevi
                                 RoomX = (int?)extras?["room_x"],
                                 RoomY = (int?)extras?["room_y"],
                                 TrailMode = (int?)extras?["trail"],
+                                TrailRate = FiniteOrNull((float?)extras?["trail_rate"]),
+                                TrailDecay = FiniteOrNull((float?)extras?["trail_decay"]),
+                                TrailRgba = (int?)extras?["trail_rgba"],
+                                TrailOrder = (int?)extras?["trail_order"],
+                                TrailHaveEffect = (bool?)extras?["trail_fx"],
                                 WeaponRgba = (int?)extras?["weapon_rgba"],
                                 TempPause = FiniteOrNull((float?)extras?["pause"]),
                                 AnimTime = FiniteOrNull((float?)extras?["anim_t"]),
                                 VfxSeq = (int?)extras?["vfx_seq"],
                                 VfxEffect = (int?)extras?["vfx_id"],
                                 VfxFacingLeft = (bool?)extras?["vfx_left"],
+                                Orbs = ParseOrbs(extras?["orbs"]),
+                                Summons = ParseRows(extras?["summons"]),
+                                OrbFxSeq = (int?)extras?["orbfx_seq"],
+                                OrbFxOrb = (int?)extras?["orbfx_orb"],
+                                OrbFxWhite = (bool?)extras?["orbfx_white"],
                             };
                             onRenderRemote(playerId, remote);
                             break;

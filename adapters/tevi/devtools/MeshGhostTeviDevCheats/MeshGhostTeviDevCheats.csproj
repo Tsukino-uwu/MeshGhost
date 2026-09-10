@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DEV-ONLY. A separate BepInEx plugin that WRITES game state (full HP, MP and charge every
+    frame) so a two-instance test does not end in a death or an empty bar. It is a probe in the
+    CLAUDE.md sense (dev tooling may cheat, an adapter never does) and it is kept in its own
+    assembly precisely so not one line of it can be inside MeshGhostTevi.dll. Never staged,
+    never shipped (the repo's blanket *.dll ignore covers the output); it is loaded only by
+    ScriptEngine from a developer install's BepInEx\scripts\, beside the hot-reloaded adapter.
+
+    Same build shape as ../../MeshGhostTevi/MeshGhostTevi.csproj (which explains every line).
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>MeshGhostTeviDevCheats</AssemblyName>
+    <RootNamespace>MeshGhostTeviDevCheats</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <DebugType>full</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.25" IncludeAssets="compile" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>..\..\MeshGhostTevi\lib\Assembly-CSharp.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

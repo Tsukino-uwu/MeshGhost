@@ -219,6 +219,14 @@ namespace MeshGhostTevi
             // Time since this ghost last emitted an afterimage. Per-ghost, because two peers
             // trailing at once must not share a cadence.
             public float TrailTimer;
+            // The trail the peer is CURRENTLY running, latched from the last message and spawned
+            // from TickTrails every frame -- see that method for why not per message.
+            public int TrailMode;
+            public float TrailRate = TrailSpawnRate;
+            public float TrailDecay = TrailDecaySpeed;
+            public Color TrailColor = new Color32(0, 223, 255, 128);
+            public int TrailOrder = TrailSortingOrder;
+            public bool TrailHaveEffect;
 
             // The real, measured offset between the source player's t.position and its own
             // spranim_prefer.pixel.transform.position at clone time -- read directly rather than
@@ -240,6 +248,54 @@ namespace MeshGhostTevi
             // instead of every frame. Lazily created (a well-behaved peer never allocates one) and
             // capped -- see MaxRejectedAnimNamesPerPeer.
             public HashSet<string> RejectedAnims;
+
+            // The peer's two orbitars, cloned lazily from the game's own orb prefab the first
+            // time the peer reports one visible. See ReadOrbs / ApplyGhostOrbs.
+            public GhostOrb[] Orbs = new GhostOrb[2];
+
+            // The peer's core expansions (summoned Celia/Sable), keyed by character type. Each is
+            // a second sprite-rig clone driven exactly like the ghost itself. See ReadSummons.
+            public Dictionary<string, SummonGhost> Summons = new Dictionary<string, SummonGhost>();
+
+            // Highest orb-to-human flash counter already played for this peer (see OrbFxSeq).
+            public int LastOrbFxSeq;
+        }
+
+        private sealed class SummonGhost
+        {
+            public GameObject Go;
+            public PixelCharacter Pc;
+            public string LastAnim;
+            public string Controller;
+            public bool Visible;
+            // A clone of the game's orb-to-humanoid trail (TrailRenderer + its own mover), flown
+            // from the ghost orb to this summon when it appears and back when it goes. Its mover
+            // never stops itself; TrailOffAt is when we park it, timed like the game does.
+            public GemaOrbToHumanoidTrail Trail;
+            public float TrailOffAt = float.NegativeInfinity;
+            public bool WasPresent;
+        }
+
+        // EventManager keeps two GemaOrbToHumanoidTrail objects in a private array; the first one
+        // is the template a ghost's trail is cloned from. Name from the assembly, read once.
+        private static readonly FieldInfo O2HTrailsField = typeof(EventManager).GetField("O2Htrails", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // A logic-stripped orb: the prefab's renderers with the OrbBall behaviour removed, so
+        // nothing on it can shoot, aim, register a light or read the local save. Every field here
+        // is written from the peer's reported values and nothing else drives it.
+        private sealed class GhostOrb
+        {
+            public GameObject Go;
+            public SpriteRenderer Render;
+            public SpriteRenderer Glow;
+            public SpriteRenderer Crystal;
+            public SpriteRenderer Charge;
+            public Transform ChargeTransform;
+            // The prefab's own afterimage pool (GemaOrbTrail children). The real orb lights one
+            // per physics step while its crystal ring is on; the ghost orb does the same from
+            // FixedUpdate below. A trail DETACHES itself on first use, so these are tracked here
+            // and destroyed with the orb rather than found through the hierarchy.
+            public GemaOrbTrail[] Trails;
         }
 
         private readonly Dictionary<string, RemoteGhostVisual> remoteVisuals = new Dictionary<string, RemoteGhostVisual>();
@@ -691,6 +747,14 @@ namespace MeshGhostTevi
             visual.Go.transform.position = new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f)
                 + visual.AnchorOffset;
 
+            // The orbitars ride the peer's ROOT position (their offsets were measured from it), so
+            // the anchor offset the sprite clone needs is deliberately not added here.
+            ApplyGhostOrbs(playerId, visual, state.Orbs,
+                new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f));
+            ApplyGhostSummons(playerId, visual, state.Summons,
+                new Vector3(state.Position[0] + loopbackOffsetX, state.Position[1], 0f));
+            ApplyOrbFx(visual, state);
+
             // Throttled (once every 2s per remote, not every frame) so a real repro of the
             // 2026-08-14 zone-transition bug shows the ghost's actual ongoing position/
             // active-state/scene over time, in case it silently drifts wrong or gets
@@ -805,7 +869,7 @@ namespace MeshGhostTevi
             // countdown, so re-arming while the peer is still trailing is the point; skipping it
             // on "same as last frame" would let the trail lapse in the middle of a slide.
             // A peer that predates the field sends nothing, which reads as 0 and renders no trail.
-            ApplyTrail(visual, state.TrailMode ?? 0, cloneTemplate);
+            LatchTrail(visual, state);
 
             // THE WEAPON STROBE, reproduced locally -- see ReadWeaponStrobe for why the decision
             // travels and the frames do not. The cadence is MEASURED, not guessed: the probe's
@@ -1010,6 +1074,54 @@ namespace MeshGhostTevi
                     {
                         continue; // ours, and we know about it
                     }
+                    // A ghost's orbitar is named <ghost name>_orb<i>; tracked through the same
+                    // visual, so it is not an orphan while that visual holds it.
+                    // A core expansion is <ghost>_summon<Type>, tracked through the same visual.
+                    int sumAt = id.LastIndexOf("_summon", System.StringComparison.Ordinal);
+                    if (sumAt > 0 && sumAt + 7 < id.Length
+                        && remoteVisuals.TryGetValue(id.Substring(0, sumAt), out RemoteGhostVisual sumOwner))
+                    {
+                        string sumKey = id.Substring(sumAt + 7);
+                        bool isTrail = sumKey.EndsWith("_trail", System.StringComparison.Ordinal);
+                        if (isTrail) sumKey = sumKey.Substring(0, sumKey.Length - 6);
+                        if (sumOwner.Summons.TryGetValue(sumKey, out SummonGhost sg)
+                            && ((!isTrail && sg.Go == go) || (isTrail && sg.Trail != null && sg.Trail.gameObject == go)))
+                        {
+                            continue;
+                        }
+                    }
+                    // ...and a detached afterimage <ghost>_orb<i>_trail<k>. Both are tracked
+                    // through the same visual, so neither is an orphan while it holds them.
+                    int orbAt = id.LastIndexOf("_orb", System.StringComparison.Ordinal);
+                    if (orbAt > 0 && orbAt + 4 < id.Length)
+                    {
+                        string tail = id.Substring(orbAt + 4);
+                        int trailAt = tail.IndexOf("_trail", System.StringComparison.Ordinal);
+                        string orbDigits = trailAt < 0 ? tail : tail.Substring(0, trailAt);
+                        if (int.TryParse(orbDigits, out int orbIndex)
+                            && remoteVisuals.TryGetValue(id.Substring(0, orbAt), out RemoteGhostVisual orbOwner)
+                            && orbIndex >= 0 && orbIndex < orbOwner.Orbs.Length
+                            && orbOwner.Orbs[orbIndex] != null)
+                        {
+                            GhostOrb owned = orbOwner.Orbs[orbIndex];
+                            if (trailAt < 0 && owned.Go == go)
+                            {
+                                continue;
+                            }
+                            if (trailAt >= 0 && owned.Trails != null)
+                            {
+                                bool trailTracked = false;
+                                foreach (GemaOrbTrail t in owned.Trails)
+                                {
+                                    if (t != null && t.gameObject == go) { trailTracked = true; break; }
+                                }
+                                if (trailTracked)
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                 }
                 else if (name.StartsWith("MeshGhostMapMarker_", System.StringComparison.Ordinal))
                 {
@@ -1078,6 +1190,8 @@ namespace MeshGhostTevi
                 {
                     Destroy(visual.Go);
                 }
+                DestroyGhostOrbs(visual);
+                DestroyGhostSummons(visual);
                 remoteVisuals.Remove(playerId);
             }
             DespawnRemoteMapMarker(playerId);
@@ -1207,6 +1321,7 @@ namespace MeshGhostTevi
 
         private const float TrailSpawnRate = 0.07f;      // SpriteAnimation.trailRate
         private const float TrailDecaySpeed = 1.5f;      // SpriteAnimation.trailDecay
+        private const float DodgeTrailDecaySpeed = 6.67f; // SpriteAnimation's dodge branch literal
         private const int TrailSortingOrder = 99;        // SpriteAnimation.trailOrder
 
         // Where the local player is inside its current clip, 0..1 -- or NULL when the receiver can
@@ -1253,52 +1368,120 @@ namespace MeshGhostTevi
             return t - Mathf.Floor(t);
         }
 
-        private void ApplyTrail(RemoteGhostVisual visual, int mode, CharacterBase localPlayer)
+        // The trail's parameters are private on SpriteAnimation; names from the assembly, read by
+        // reflection, defaults if a build renames them.
+        private static readonly FieldInfo TrailRateField = typeof(SpriteAnimation).GetField("trailRate", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo TrailDecayField = typeof(SpriteAnimation).GetField("trailDecay", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo TrailColorField = typeof(SpriteAnimation).GetField("trailcolor", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo TrailOrderField = typeof(SpriteAnimation).GetField("trailOrder", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo TrailHaveEffectField = typeof(SpriteAnimation).GetField("haveEffect", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        private static void ReadTrailParams(CharacterBase player, out float rate, out float decay, out int rgba, out int order, out bool haveEffect)
         {
+            rate = TrailSpawnRate; decay = TrailDecaySpeed; rgba = unchecked((int)0x00DFFF80); order = TrailSortingOrder; haveEffect = false;
+            SpriteAnimation sa = player != null ? player.spranim_prefer : null;
+            if (sa == null)
+            {
+                return;
+            }
+            if (TrailRateField != null && TrailRateField.GetValue(sa) is float r && r > 0f) rate = r;
+            if (TrailDecayField != null && TrailDecayField.GetValue(sa) is float d && d > 0f) decay = d;
+            if (TrailColorField != null && TrailColorField.GetValue(sa) is Color32 c)
+            {
+                rgba = (c.r << 24) | (c.g << 16) | (c.b << 8) | c.a;
+            }
+            if (TrailOrderField != null && TrailOrderField.GetValue(sa) is int o) order = o;
+            if (TrailHaveEffectField != null && TrailHaveEffectField.GetValue(sa) is bool h) haveEffect = h;
+        }
+
+        // Latch what the peer's trail IS this frame. Spawning happens in TickTrails.
+        private static void LatchTrail(RemoteGhostVisual visual, BridgeClient.RemoteState state)
+        {
+            int mode = state.TrailMode ?? 0;
             if (mode <= 0)
             {
                 // Let the cadence lapse rather than zeroing it: the next trail starts a fresh
                 // interval anyway, and a half-elapsed timer is not state worth clearing.
                 visual.TrailTimer = 0f;
+                visual.TrailMode = 0;
                 return;
             }
-            if (visual.Pc == null || visual.Pc.basesprite == null || localPlayer == null)
+            visual.TrailMode = mode;
+            if (mode == 2)
             {
+                // The game's dodge branch: its own yellow literal, its own faster decay
+                // (SetDecaySpeed(6.67f) beside the colour), never the effect layer.
+                visual.TrailRate = TrailSpawnRate;
+                visual.TrailDecay = DodgeTrailDecaySpeed;
+                visual.TrailColor = new Color32(255, 225, 0, 170);
+                visual.TrailOrder = TrailSortingOrder;
+                visual.TrailHaveEffect = false;
                 return;
             }
-            // A ghost with nothing drawn must not leave a trail of nothing -- the game guards the
-            // same way before spawning (`pixel.basesprite.enabled`), and without this a ghost that
-            // is hidden for a zone load would still emit afterimages.
-            if (!visual.Pc.basesprite.enabled || visual.Pc.basesprite.sprite == null)
+            visual.TrailRate = state.TrailRate.HasValue && state.TrailRate.Value > 0f ? state.TrailRate.Value : TrailSpawnRate;
+            visual.TrailDecay = state.TrailDecay.HasValue && state.TrailDecay.Value > 0f ? state.TrailDecay.Value : TrailDecaySpeed;
+            if (state.TrailRgba.HasValue)
             {
-                return;
+                int c = state.TrailRgba.Value;
+                visual.TrailColor = new Color32((byte)((c >> 24) & 255), (byte)((c >> 16) & 255), (byte)((c >> 8) & 255), (byte)(c & 255));
             }
+            else
+            {
+                visual.TrailColor = new Color32(0, 223, 255, 128);
+            }
+            visual.TrailOrder = state.TrailOrder ?? TrailSortingOrder;
+            visual.TrailHaveEffect = state.TrailHaveEffect ?? false;
+        }
 
-            visual.TrailTimer += Time.deltaTime;
-            if (visual.TrailTimer < TrailSpawnRate)
+        // SPAWN ON FRAMES, NOT ON MESSAGES. The first version ran the spawn timer inside the
+        // per-message upsert and added Time.deltaTime per CALL; the core delivers render_remote on
+        // its own tick, not once per rendered frame, so at 144fps the timer saw a fraction of real
+        // time and the ghost spawned a fraction of the afterimages -- user, 2026-09-10: "its not
+        // doing enough of them when im hovering on the ghost ... might apply to all the blue
+        // trails". The game itself advances its trail timer once per frame in SpriteAnimation's
+        // update, on GemaTimeManager's delta, which is what this does now.
+        private void TickTrails(CharacterBase localPlayer)
+        {
+            if (remoteVisuals.Count == 0 || localPlayer == null || GemaPoolManager.Instance == null)
             {
                 return;
             }
-            // Subtract rather than zero, so a long frame does not silently drop a spawn and
-            // shorten the trail relative to the player's.
-            visual.TrailTimer -= TrailSpawnRate;
-
-            // Mode 2's colour is the literal from the game's own dodge branch; mode 1 is
-            // SpriteAnimation's default `trailcolor`, which is the blue seen on a quickdrop.
-            Color c = mode == 2
-                ? (Color)new Color32(255, 225, 0, 170)
-                : (Color)new Color32(0, 223, 255, 128);
-
-            GhostEffect effect = GemaPoolManager.Instance.CreateGhostEffect();
-            if (effect == null)
+            float dt = GemaTimeManager.Instance != null ? GemaTimeManager.Instance.deltaTime : Time.deltaTime;
+            foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
             {
-                return;
+                RemoteGhostVisual visual = kv.Value;
+                if (visual.TrailMode <= 0 || visual.Pc == null || visual.Pc.basesprite == null)
+                {
+                    continue;
+                }
+                // A ghost with nothing drawn must not leave a trail of nothing -- the game guards the
+                // same way before spawning (`pixel.basesprite.enabled`), and without this a ghost that
+                // is hidden for a zone load would still emit afterimages.
+                if (!visual.Pc.basesprite.enabled || visual.Pc.basesprite.sprite == null)
+                {
+                    continue;
+                }
+                visual.TrailTimer += dt;
+                if (visual.TrailTimer < visual.TrailRate)
+                {
+                    continue;
+                }
+                // Subtract rather than zero, so a long frame does not silently drop a spawn and
+                // shorten the trail relative to the player's.
+                visual.TrailTimer -= visual.TrailRate;
+
+                GhostEffect effect = GemaPoolManager.Instance.CreateGhostEffect();
+                if (effect == null)
+                {
+                    continue;
+                }
+                Sprite fxSprite = visual.TrailHaveEffect && visual.Pc.effectsprite != null ? visual.Pc.effectsprite.sprite : null;
+                effect.SetSprite(localPlayer, visual.Pc.basesprite.flipX, visual.Pc.basesprite.sprite,
+                    fxSprite, visual.TrailColor, visual.TrailColor, visual.TrailOrder, visual.TrailOrder - 1);
+                effect.SetDecaySpeed(visual.TrailDecay);
+                effect.transform.localScale = visual.Pc.transform.localScale;
+                effect.transform.position = visual.Pc.transform.position;
             }
-            effect.SetSprite(localPlayer, visual.Pc.basesprite.flipX, visual.Pc.basesprite.sprite,
-                null, c, c, TrailSortingOrder, TrailSortingOrder - 1);
-            effect.SetDecaySpeed(TrailDecaySpeed);
-            effect.transform.localScale = visual.Pc.transform.localScale;
-            effect.transform.position = visual.Pc.transform.position;
         }
 
         // WARP DEVICES WAKE UP FOR A GHOST -- the visual half only, and the split is the whole
@@ -1861,6 +2044,724 @@ namespace MeshGhostTevi
             }
         }
 
+        // THE ORBITARS -- the two orbs that fly around the player. Not synced at all before
+        // 2026-09-10 (ideas.md, "the orbitars are not synced at all").
+        //
+        // MIRROR THE DECISION, NOT THE RULE, the same posture as the afterimage trail above. The
+        // game's OrbBall computes each orb's target from a dozen inputs (orbit mode, a running
+        // phase, facing, a lock-on target, event positions, auto-shot state, the badge set...) and
+        // then eases toward it; re-deriving that on the watcher would copy the game's expression
+        // and drift the moment any input was missing. What the peer's screen SHOWS is a short list
+        // of renderer facts -- where the orb is, which of the game's own orb sprites it wears, its
+        // glow and its charge halo -- so that is what travels, and the watcher paints exactly it.
+        //
+        // WHY THE PEER'S LOOK AND NOT THE WATCHER'S: the two saves differ. One player's orbs are
+        // the plain starting pair, another's are the powered black/white pair with the crystal
+        // rings (user, 2026-09-10, on the two-instance rig). Reading the sprite off the peer's
+        // renderer and resolving it against the game's own sprite table on arrival is what makes a
+        // basic-orb player see a powered-orb peer correctly, and vice versa.
+        //
+        // THE CLONE IS THE GAME'S OWN PREFAB WITH ITS BRAIN REMOVED. BulletManager.Instance.orb is
+        // the prefab playerController instantiates for the real orbs; cloning it gives the exact
+        // renderer stack, materials and child layout. The OrbBall component is then destroyed
+        // IMMEDIATELY, before its Start can run: Start registers the orb's Light into
+        // LightManager.OrbLight (it would hijack the local player's light slot) and Update shoots,
+        // aims and spends the LOCAL save's MP. Nothing that ships may cause a gameplay effect on
+        // the watcher (CLAUDE.md). The prefab's Light is disabled rather than mirrored for now --
+        // an open item, not a decision that it does not matter.
+        //
+        // The renderers are private on OrbBall (_glowrender, _cerender, _chargerender, _ct) --
+        // names from the assembly, resolved once by reflection, null if a build renames them, in
+        // which case that layer is simply not mirrored rather than anything throwing.
+        private static readonly FieldInfo OrbGlowField = typeof(OrbBall).GetField("_glowrender", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo OrbCrystalField = typeof(OrbBall).GetField("_cerender", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo OrbChargeField = typeof(OrbBall).GetField("_chargerender", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo OrbChargeTransformField = typeof(OrbBall).GetField("_ct", BindingFlags.NonPublic | BindingFlags.Instance);
+        private static readonly FieldInfo OrbTrailsField = typeof(OrbBall).GetField("GemaOrbTrails", BindingFlags.NonPublic | BindingFlags.Instance);
+
+        // The game's orb sprite tables are short (4 body sprites, 3 glow sprites as of this build).
+        private const int OrbSpriteTableProbe = 8;
+
+        // Which entry of the game's own table this sprite IS, by reference. -2 means "a sprite that
+        // is not in the table" -- still visible, so the receiver keeps whatever it has rather than
+        // hiding the orb.
+        private static int OrbSpriteIndex(Sprite sprite, bool glow)
+        {
+            if (sprite == null || CommonResource.Instance == null)
+            {
+                return -2;
+            }
+            for (int k = 0; k < OrbSpriteTableProbe; k++)
+            {
+                Sprite candidate = glow ? CommonResource.Instance.GetGlowOrb(k) : CommonResource.Instance.GetOrb(k);
+                if (candidate == null)
+                {
+                    break;
+                }
+                if (candidate == sprite)
+                {
+                    return k;
+                }
+            }
+            return -2;
+        }
+
+        private static int PackRgb(Color c)
+        {
+            return (Mathf.RoundToInt(Mathf.Clamp01(c.r) * 255f) << 16)
+                 | (Mathf.RoundToInt(Mathf.Clamp01(c.g) * 255f) << 8)
+                 | Mathf.RoundToInt(Mathf.Clamp01(c.b) * 255f);
+        }
+
+        // Read off the LOCAL player's real orbs, every frame. Hidden orbs (the game's HideOrb /
+        // ShowAllOrb(false) / the orb-turned-summon Invisible path) are omitted, so "absent" and
+        // "not shown" agree. Rows are the layout RemoteState.Orbs documents.
+        private float[][] ReadOrbs(CharacterBase player)
+        {
+            if (player == null || player.t == null || player.playerc_perfer == null || player.playerc_perfer.orb == null)
+            {
+                return null;
+            }
+            OrbBall[] orbs = player.playerc_perfer.orb;
+            List<float[]> rows = null;
+            for (int i = 0; i < orbs.Length && i < 2; i++)
+            {
+                OrbBall ob = orbs[i];
+                if (ob == null || ob._render == null || !ob.gameObject.activeInHierarchy || !ob._render.enabled)
+                {
+                    continue;
+                }
+                Vector3 d = ob.transform.position - player.t.position;
+                SpriteRenderer glow = OrbGlowField != null ? OrbGlowField.GetValue(ob) as SpriteRenderer : null;
+                SpriteRenderer crystal = OrbCrystalField != null ? OrbCrystalField.GetValue(ob) as SpriteRenderer : null;
+                SpriteRenderer charge = OrbChargeField != null ? OrbChargeField.GetValue(ob) as SpriteRenderer : null;
+                Transform ct = OrbChargeTransformField != null ? OrbChargeTransformField.GetValue(ob) as Transform : null;
+
+                int glowSprite = glow != null && glow.enabled ? OrbSpriteIndex(glow.sprite, glow: true) : -1;
+                int glowAlpha = glow != null ? Mathf.RoundToInt(glow.color.a * 100f) : 0;
+                int crystalRgb = crystal != null && crystal.enabled ? PackRgb(crystal.color) : -1;
+                int crystalAlpha = crystal != null ? Mathf.RoundToInt(crystal.color.a * 100f) : 0;
+                int crystalRot = crystal != null ? Mathf.RoundToInt(crystal.transform.eulerAngles.z) : 0;
+                int chargeScale = charge != null && charge.enabled && ct != null ? Mathf.RoundToInt(ct.localScale.x * 100f) : 0;
+
+                rows = rows ?? new List<float[]>(2);
+                rows.Add(new float[]
+                {
+                    i,
+                    Mathf.Round(d.x * 10f) / 10f,
+                    Mathf.Round(d.y * 10f) / 10f,
+                    OrbSpriteIndex(ob._render.sprite, glow: false),
+                    ob._render.sortingOrder,
+                    glowSprite,
+                    glowAlpha,
+                    crystalRgb,
+                    crystalAlpha,
+                    crystalRot,
+                    chargeScale,
+                });
+            }
+            return rows == null ? null : rows.ToArray();
+        }
+
+        private GhostOrb CreateGhostOrb(string playerId, int index)
+        {
+            if (BulletManager.Instance == null || BulletManager.Instance.orb == null)
+            {
+                return null;
+            }
+            OrbBall prefab = BulletManager.Instance.orb;
+            GameObject go = Instantiate(prefab.gameObject);
+            go.name = $"MeshGhostRemote_{playerId}_orb{index}";
+            OrbBall ob = go.GetComponent<OrbBall>();
+            var orb = new GhostOrb { Go = go };
+            if (ob != null)
+            {
+                orb.Render = ob._render;
+                orb.Glow = OrbGlowField != null ? OrbGlowField.GetValue(ob) as SpriteRenderer : null;
+                orb.Crystal = OrbCrystalField != null ? OrbCrystalField.GetValue(ob) as SpriteRenderer : null;
+                orb.Charge = OrbChargeField != null ? OrbChargeField.GetValue(ob) as SpriteRenderer : null;
+                orb.ChargeTransform = OrbChargeTransformField != null ? OrbChargeTransformField.GetValue(ob) as Transform : null;
+                orb.Trails = OrbTrailsField != null ? OrbTrailsField.GetValue(ob) as GemaOrbTrail[] : null;
+                // Before Start, see the block comment. DestroyImmediate, because a deferred
+                // Destroy still lets Start run at the top of the next frame.
+                DestroyImmediate(ob);
+            }
+            // THE AFTERIMAGE TRAIL (user, 2026-09-10: orbs synced, "not the orbitar after image/trail").
+            // The trail objects are the prefab's own children and their GemaOrbTrail behaviour is
+            // self-contained -- StartMe places and colours one, its FixedUpdate fades and parks it.
+            // They stay, named so the orphan sweep can tell they are ours, and the ghost orb lights
+            // them from this plugin's FixedUpdate exactly as the real orb does from its own.
+            if (orb.Trails == null || orb.Trails.Length == 0)
+            {
+                orb.Trails = go.GetComponentsInChildren<GemaOrbTrail>(true);
+            }
+            for (int k = 0; k < orb.Trails.Length; k++)
+            {
+                if (orb.Trails[k] != null)
+                {
+                    orb.Trails[k].gameObject.name = go.name + "_trail" + k;
+                    orb.Trails[k].gameObject.SetActive(false);
+                }
+            }
+            foreach (Light light in go.GetComponentsInChildren<Light>(true))
+            {
+                light.enabled = false;
+            }
+            foreach (Collider2D collider in go.GetComponentsInChildren<Collider2D>(true))
+            {
+                Destroy(collider);
+            }
+            foreach (Rigidbody2D rb in go.GetComponentsInChildren<Rigidbody2D>(true))
+            {
+                Destroy(rb);
+            }
+            // Same parent the game gives the real orbs, so layering and scene membership match.
+            if (GameSystem.Instance != null && GameSystem.Instance.maint != null)
+            {
+                go.transform.SetParent(GameSystem.Instance.maint, worldPositionStays: true);
+            }
+            if (orb.Render == null)
+            {
+                orb.Render = go.GetComponent<SpriteRenderer>();
+            }
+            Logger.LogInfo($"MeshGhost: orbitar {index} cloned for {playerId} "
+                + $"(render={(orb.Render != null)} glow={(orb.Glow != null)} crystal={(orb.Crystal != null)} "
+                + $"charge={(orb.Charge != null)} ct={(orb.ChargeTransform != null)}).");
+            return orb;
+        }
+
+        private void ApplyGhostOrbs(string playerId, RemoteGhostVisual visual, float[][] rows, Vector3 peerRoot)
+        {
+            bool seen0 = false, seen1 = false;
+            if (rows != null)
+            {
+                foreach (float[] row in rows)
+                {
+                    if (row == null || row.Length < 11)
+                    {
+                        continue;
+                    }
+                    bool finite = true;
+                    for (int k = 0; k < row.Length; k++)
+                    {
+                        if (float.IsNaN(row[k]) || float.IsInfinity(row[k])) { finite = false; break; }
+                    }
+                    int index = finite ? (int)row[0] : -1;
+                    if (index < 0 || index >= visual.Orbs.Length)
+                    {
+                        continue;
+                    }
+                    GhostOrb orb = visual.Orbs[index];
+                    if (orb == null || orb.Go == null)
+                    {
+                        orb = CreateGhostOrb(playerId, index);
+                        visual.Orbs[index] = orb;
+                        if (orb == null)
+                        {
+                            continue;
+                        }
+                    }
+                    if (index == 0) seen0 = true; else seen1 = true;
+                    orb.Go.SetActive(true);
+                    orb.Go.transform.position = peerRoot + new Vector3(row[1], row[2], 0f);
+
+                    int sprite = (int)row[3];
+                    if (orb.Render != null)
+                    {
+                        orb.Render.enabled = sprite != -1;
+                        if (sprite >= 0 && CommonResource.Instance != null)
+                        {
+                            Sprite s = CommonResource.Instance.GetOrb(sprite);
+                            if (s != null) orb.Render.sprite = s;
+                        }
+                        orb.Render.sortingOrder = (int)row[4];
+                    }
+                    int glowSprite = (int)row[5];
+                    if (orb.Glow != null)
+                    {
+                        orb.Glow.enabled = glowSprite != -1;
+                        if (glowSprite >= 0 && CommonResource.Instance != null)
+                        {
+                            Sprite s = CommonResource.Instance.GetGlowOrb(glowSprite);
+                            if (s != null) orb.Glow.sprite = s;
+                        }
+                        Color c = orb.Glow.color;
+                        c.a = Mathf.Clamp01(row[6] / 100f);
+                        orb.Glow.color = c;
+                    }
+                    int crystalRgb = (int)row[7];
+                    if (orb.Crystal != null)
+                    {
+                        orb.Crystal.enabled = crystalRgb >= 0;
+                        if (crystalRgb >= 0)
+                        {
+                            orb.Crystal.color = new Color(((crystalRgb >> 16) & 255) / 255f, ((crystalRgb >> 8) & 255) / 255f,
+                                (crystalRgb & 255) / 255f, Mathf.Clamp01(row[8] / 100f));
+                            orb.Crystal.transform.eulerAngles = new Vector3(0f, 0f, row[9]);
+                        }
+                    }
+                    int chargeScale = (int)row[10];
+                    if (orb.Charge != null)
+                    {
+                        orb.Charge.enabled = chargeScale > 0;
+                        // The game keeps the halo's sprite equal to the glow's (HidePoweredOrb /
+                        // Start), so the clone does too.
+                        if (chargeScale > 0)
+                        {
+                            if (orb.Glow != null && orb.Glow.sprite != null) orb.Charge.sprite = orb.Glow.sprite;
+                            if (orb.ChargeTransform != null)
+                            {
+                                float sc = chargeScale / 100f;
+                                orb.ChargeTransform.localScale = new Vector3(sc, sc, 1f);
+                            }
+                        }
+                    }
+                }
+            }
+            if (!seen0 && visual.Orbs[0] != null && visual.Orbs[0].Go != null && visual.Orbs[0].Go.activeSelf)
+            {
+                visual.Orbs[0].Go.SetActive(false);
+            }
+            if (!seen1 && visual.Orbs[1] != null && visual.Orbs[1].Go != null && visual.Orbs[1].Go.activeSelf)
+            {
+                visual.Orbs[1].Go.SetActive(false);
+            }
+        }
+
+        // Mirrors OrbBall.FixedUpdate's one rule: while the crystal ring renders, one pooled
+        // afterimage per physics step at the orb's position in the ring's colour. The colour's
+        // alpha is overridden inside StartMe by the game itself, so only the RGB matters here.
+        private void FixedUpdate()
+        {
+            if (remoteVisuals.Count == 0)
+            {
+                return;
+            }
+            foreach (KeyValuePair<string, RemoteGhostVisual> kv in remoteVisuals)
+            {
+                GhostOrb[] orbs = kv.Value.Orbs;
+                for (int i = 0; i < orbs.Length; i++)
+                {
+                    GhostOrb orb = orbs[i];
+                    if (orb == null || orb.Go == null || !orb.Go.activeInHierarchy
+                        || orb.Crystal == null || !orb.Crystal.enabled || orb.Trails == null)
+                    {
+                        continue;
+                    }
+                    for (int k = 0; k < orb.Trails.Length; k++)
+                    {
+                        GemaOrbTrail trail = orb.Trails[k];
+                        if (trail != null && !trail.isActiveAndEnabled)
+                        {
+                            trail.StartMe(orb.Crystal.color, orb.Go.transform.position);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // CORE EXPANSIONS -- the B-button orbitar skills (user's name for them, 2026-09-10).
+        //
+        // THE FIRST BUILD LOOKED AT THE WRONG MECHANISM and mirrored nothing (user: "the core
+        // expansions are not working"; the probe never saw a SUMMON-typed character). OrbBall's
+        // SkillUsing path (SkillName.*_TEMP, BossType.SUMMON, SetSubOwner) is a legacy route nothing
+        // in this build triggers. The real one is CharacterPhy.UseBoost -> BoostSystem ->
+        // EventManager.OrbsToHumanoid: the orb is HIDDEN, a trail (GemaOrbToHumanoidTrail) flies from
+        // the orb to a REAL character created as CreateEnemy(Celia|Sable, NOAI) and made Invisible();
+        // ~0.33s later it plays "to_character", turns visible, becomes BossType.NPC, runs the boost
+        // logic (SUMMON_BOOST_N/U/D), plays "to_ball", a trail flies back to the orb, the character
+        // despawns and the orb is shown again. The humanoid is found by the game itself as
+        // GetCharacterWithID(Celia|Sable, 0): a non-player Celia or Sable IS the player's core
+        // expansion, which is the identity this reader uses.
+        //
+        // None of that may exist on the watcher's machine as a character. What the
+        // peer's screen shows is a character sprite rig -- the same PixelCharacter the player has,
+        // with a different Animator controller -- so the ghost of a summon is built the way the
+        // ghost itself is: clone the local player's rig, swap the controller to the one the peer's
+        // summon is wearing (looked up through the game's own GetNPC by controller name), and
+        // drive it by clip name and phase, including the game's own "to_character"
+        // and "to_ball" clips. The trail is a clone of the game's own trail object, flown at the
+        // ghost orb's position toward the summon ghost (and back when the row disappears).
+        //
+        // Echo-loop safety: a PEER's summon ghost on this machine is a bare sprite clone, never a
+        // CharacterBase, so it can never be picked up by this reader (before-mirroring-state.md).
+        // PROBE, temporary: what the summon filter sees, one line per second while any SUMMON-typed
+        // character is alive. Armed 2026-09-10 because a B press produced no summon rows at all.
+        private const bool DIAG_SUMMON_TRACE = true;
+        private float lastSummonDiagTime = float.NegativeInfinity;
+
+        private object[][] ReadSummons(CharacterBase player)
+        {
+            if (player == null || player.t == null || CharacterManager.Instance == null
+                || CharacterManager.Instance.characters == null)
+            {
+                return null;
+            }
+            List<object[]> rows = null;
+            List<CharacterBase> all = CharacterManager.Instance.characters;
+            bool diagDue = DIAG_SUMMON_TRACE && Time.time - lastSummonDiagTime >= 1f;
+            for (int i = 0; i < all.Count; i++)
+            {
+                CharacterBase cb = all[i];
+                if (diagDue && cb != null && !cb.isPlayer()
+                    && (cb.type == Character.Type.Celia || cb.type == Character.Type.Sable))
+                {
+                    lastSummonDiagTime = Time.time;
+                    PixelCharacter px = cb.spranim_prefer != null ? cb.spranim_prefer.pixel : null;
+                    Logger.LogInfo($"MeshGhost/probe summon: type={cb.type} isBoss={cb.isBoss} id={cb.ID} "
+                        + $"subowner={(cb.subowner == null ? "null" : cb.subowner.name)} active={cb.gameObject.activeInHierarchy} "
+                        + $"pixel={(px != null)} anim={(px != null && px.anim != null)} "
+                        + $"base={(px != null && px.basesprite != null ? px.basesprite.enabled.ToString() : "n/a")} "
+                        + $"ctrl={(px != null && px.anim != null && px.anim.runtimeAnimatorController != null ? px.anim.runtimeAnimatorController.name : "null")}");
+                }
+                if (cb == null || cb.isPlayer()
+                    || (cb.type != Character.Type.Celia && cb.type != Character.Type.Sable)
+                    || !cb.gameObject.activeInHierarchy || cb.spranim_prefer == null
+                    || cb.spranim_prefer.pixel == null || cb.spranim_prefer.pixel.anim == null)
+                {
+                    continue;
+                }
+                PixelCharacter pixel = cb.spranim_prefer.pixel;
+                if (pixel.basesprite == null)
+                {
+                    continue;
+                }
+                bool visible = pixel.basesprite.enabled;
+                RuntimeAnimatorController controller = pixel.anim.runtimeAnimatorController;
+                if (controller == null)
+                {
+                    continue;
+                }
+                Vector3 d = pixel.transform.position - player.t.position;
+                AnimatorStateInfo info = pixel.anim.GetCurrentAnimatorStateInfo(0);
+                float phase = info.normalizedTime;
+                phase -= Mathf.Floor(phase);
+                rows = rows ?? new List<object[]>(2);
+                rows.Add(new object[]
+                {
+                    cb.type.ToString(),
+                    controller.name,
+                    Mathf.Round(d.x * 10f) / 10f,
+                    Mathf.Round(d.y * 10f) / 10f,
+                    cb.direction.ToString(),
+                    cb.spranim_prefer.GetAnimationTrueName(),
+                    Mathf.Round(phase * 1000f) / 1000f,
+                    pixel.transform.localScale.x,
+                    pixel.transform.localScale.y,
+                    visible,
+                });
+            }
+            return rows == null ? null : rows.ToArray();
+        }
+
+        private static float CellF(object[] row, int i)
+        {
+            return row[i] is float f ? f : float.NaN;
+        }
+
+        private static bool AnimatorHasState(Animator anim, string clip)
+        {
+            if (anim == null || string.IsNullOrEmpty(clip))
+            {
+                return false;
+            }
+            int hash = Animator.StringToHash(clip);
+            for (int layer = 0; layer < anim.layerCount; layer++)
+            {
+                if (anim.HasState(layer, hash))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void ApplyGhostSummons(string playerId, RemoteGhostVisual visual, object[][] rows, Vector3 peerRoot)
+        {
+            List<string> seen = null;
+            if (rows != null)
+            {
+                foreach (object[] row in rows)
+                {
+                    if (row == null || row.Length < 9)
+                    {
+                        continue;
+                    }
+                    string type = row[0] as string;
+                    string controllerName = row[1] as string;
+                    float dx = CellF(row, 2), dy = CellF(row, 3);
+                    string dir = row[4] as string;
+                    string clip = row[5] as string;
+                    float phase = CellF(row, 6);
+                    float sx = CellF(row, 7), sy = CellF(row, 8);
+                    bool visibleNow = row.Length > 9 && row[9] is bool vb ? vb : true;
+                    if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(controllerName)
+                        || float.IsNaN(dx) || float.IsNaN(dy) || float.IsInfinity(dx) || float.IsInfinity(dy)
+                        || float.IsNaN(sx) || float.IsNaN(sy) || float.IsInfinity(sx) || float.IsInfinity(sy))
+                    {
+                        continue;
+                    }
+                    SummonGhost sg;
+                    if (!visual.Summons.TryGetValue(type, out sg) || sg.Go == null)
+                    {
+                        if (cloneTemplate == null || cloneTemplate.spranim_prefer == null
+                            || cloneTemplate.spranim_prefer.pixel == null || AreaResource.Instance == null)
+                        {
+                            continue;
+                        }
+                        RuntimeAnimatorController controller = AreaResource.Instance.GetNPC(controllerName);
+                        if (controller == null)
+                        {
+                            // Logged through the visual's rejected-name set so it is said once.
+                            visual.RejectedAnims = visual.RejectedAnims ?? new HashSet<string>();
+                            if (visual.RejectedAnims.Add("summon:" + controllerName))
+                            {
+                                Logger.LogWarning($"MeshGhost: no animator controller named '{controllerName}' for {playerId}'s summon {type}; not rendering it.");
+                            }
+                            continue;
+                        }
+                        GameObject go = CreateRealGhostVisual(cloneTemplate, $"MeshGhostRemote_{playerId}_summon{type}",
+                            out PixelCharacter pc, out Vector3 _, out string _);
+                        if (pc != null && pc.anim != null)
+                        {
+                            pc.anim.runtimeAnimatorController = controller;
+                            pc.anim.speed = 1f;
+                        }
+                        sg = new SummonGhost { Go = go, Pc = pc, Controller = controllerName };
+                        visual.Summons[type] = sg;
+                        Logger.LogInfo($"MeshGhost: core expansion '{type}' cloned for {playerId} (controller '{controllerName}').");
+                    }
+                    seen = seen ?? new List<string>(2);
+                    seen.Add(type);
+                    sg.Go.SetActive(true);
+                    sg.Go.transform.position = peerRoot + new Vector3(dx, dy, 0f);
+                    sg.Go.transform.localScale = new Vector3(sx, sy, 1f);
+                    // The row APPEARING is the orb-to-humanoid moment: fly the trail from the
+                    // ghost orb (black orb for Sable, white for Celia) to this summon, as the game
+                    // does. It is parked when the summon turns visible, which is when the game
+                    // parks its own.
+                    if (!sg.WasPresent)
+                    {
+                        sg.WasPresent = true;
+                        StartSummonTrail(visual, sg, type, toSummon: true);
+                    }
+                    if (visibleNow && sg.Trail != null && sg.Trail.gameObject.activeSelf)
+                    {
+                        sg.Trail.gameObject.SetActive(false);
+                    }
+                    if (visibleNow != sg.Visible && sg.Pc != null)
+                    {
+                        sg.Visible = visibleNow;
+                        foreach (SpriteRenderer sr in sg.Go.GetComponentsInChildren<SpriteRenderer>(true))
+                        {
+                            sr.enabled = visibleNow;
+                        }
+                    }
+                    if (sg.Pc != null)
+                    {
+                        // Same convention as the ghost: flipX true is facing RIGHT (confirmed live 2026-08-12).
+                        bool flip = dir == "RIGHT";
+                        if (sg.Pc.basesprite != null) sg.Pc.basesprite.flipX = flip;
+                        if (sg.Pc.outlinesprite != null) sg.Pc.outlinesprite.flipX = flip;
+                        if (sg.Pc.effectsprite != null) sg.Pc.effectsprite.flipX = flip;
+                        if (sg.Pc.flashsprite != null) sg.Pc.flashsprite.flipX = flip;
+                        if (sg.Pc.supportsprite != null) sg.Pc.supportsprite.flipX = flip;
+
+                        if (sg.Pc.anim != null && AnimatorHasState(sg.Pc.anim, clip))
+                        {
+                            float t = float.IsNaN(phase) ? 0f : Mathf.Clamp01(phase);
+                            if (clip != sg.LastAnim)
+                            {
+                                sg.Pc.anim.Play(clip, 0, t);
+                                sg.LastAnim = clip;
+                            }
+                            else if (!float.IsNaN(phase))
+                            {
+                                // Re-seek only past the same tolerance the ghost uses; a repeated
+                                // clip shows as the phase jumping back, which exceeds it.
+                                float g = sg.Pc.anim.GetCurrentAnimatorStateInfo(0).normalizedTime;
+                                g -= Mathf.Floor(g);
+                                float drift = t - g;
+                                if (drift > 0.5f) drift -= 1f; else if (drift < -0.5f) drift += 1f;
+                                if (Mathf.Abs(drift) > AnimReseekThreshold)
+                                {
+                                    sg.Pc.anim.Play(clip, 0, t);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            foreach (KeyValuePair<string, SummonGhost> kv in visual.Summons)
+            {
+                SummonGhost sg = kv.Value;
+                if (sg.Go != null && sg.Go.activeSelf && (seen == null || !seen.Contains(kv.Key)))
+                {
+                    // The row DISAPPEARING is the humanoid-to-orb moment: the trail flies back
+                    // to the ghost orb from where the summon stood, then parks 0.7s later.
+                    sg.Go.SetActive(false);
+                    sg.WasPresent = false;
+                    StartSummonTrail(visual, sg, kv.Key, toSummon: false);
+                }
+                if (sg.Trail != null && sg.Trail.gameObject.activeSelf && Time.time >= sg.TrailOffAt)
+                {
+                    sg.Trail.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        // Sable rides the BLACK orb (index 0), Celia the WHITE (index 1) -- the game's own pairing
+        // in OrbsToHumanoid. The trail object is cloned from the game's first trail on first use.
+        private void StartSummonTrail(RemoteGhostVisual visual, SummonGhost sg, string type, bool toSummon)
+        {
+            int orbIndex = type == "Sable" ? 0 : 1;
+            GhostOrb orb = orbIndex < visual.Orbs.Length ? visual.Orbs[orbIndex] : null;
+            if (sg.Go == null || orb == null || orb.Go == null)
+            {
+                return;
+            }
+            if (sg.Trail == null)
+            {
+                if (EventManager.Instance == null || O2HTrailsField == null)
+                {
+                    return;
+                }
+                var templates = O2HTrailsField.GetValue(EventManager.Instance) as GemaOrbToHumanoidTrail[];
+                if (templates == null || templates.Length == 0 || templates[0] == null)
+                {
+                    return;
+                }
+                GameObject go = Instantiate(templates[0].gameObject);
+                go.name = sg.Go.name + "_trail";
+                go.transform.SetParent(sg.Go.transform.parent, worldPositionStays: true);
+                sg.Trail = go.GetComponent<GemaOrbToHumanoidTrail>();
+                if (sg.Trail == null)
+                {
+                    Destroy(go);
+                    return;
+                }
+                go.SetActive(false);
+            }
+            if (toSummon)
+            {
+                sg.Trail.transform.position = orb.Go.transform.position;
+                sg.Trail.RestartMe(sg.Go.transform, new Vector3(0f, -16f, 0f));
+                sg.TrailOffAt = Time.time + 0.325f; // the game parks it here if the summon never shows
+            }
+            else
+            {
+                sg.Trail.transform.position = sg.Go.transform.position;
+                sg.Trail.RestartMe(orb.Go.transform, Vector3.zero);
+                sg.TrailOffAt = Time.time + 0.7f;
+            }
+        }
+
+        private void DestroyGhostSummons(RemoteGhostVisual visual)
+        {
+            foreach (KeyValuePair<string, SummonGhost> kv in visual.Summons)
+            {
+                if (kv.Value.Go != null)
+                {
+                    Destroy(kv.Value.Go);
+                }
+                if (kv.Value.Trail != null)
+                {
+                    Destroy(kv.Value.Trail.gameObject);
+                }
+            }
+            visual.Summons.Clear();
+        }
+
+        // THE ORB-TO-HUMAN FLASH. OrbBall.Invisible(effect: true) spawns one of two pooled effects
+        // at the orb (white orb: CreateOrbToHumanEffect, else CreateOrbToHumanEffect2), tilted 90
+        // degrees and scaled 32x1x32, and sets invButNotSummon. That flag's RISE is the event; the
+        // watcher plays the same pooled effect at its ghost orb. Not parented to the ghost orb the
+        // way the game parents to the real one: our orb can be destroyed while the pooled effect
+        // is live, and a destroyed pooled object corrupts the pool.
+        private int localOrbFxSeq;
+        private int localOrbFxOrb;
+        private bool localOrbFxWhite;
+        private readonly bool[] lastOrbInvisible = new bool[2];
+
+        private void WatchLocalOrbFx(CharacterBase player)
+        {
+            if (player == null || player.playerc_perfer == null || player.playerc_perfer.orb == null)
+            {
+                return;
+            }
+            OrbBall[] orbs = player.playerc_perfer.orb;
+            for (int i = 0; i < orbs.Length && i < 2; i++)
+            {
+                bool inv = orbs[i] != null && orbs[i].invButNotSummon;
+                if (inv && !lastOrbInvisible[i])
+                {
+                    localOrbFxSeq++;
+                    localOrbFxOrb = i;
+                    localOrbFxWhite = orbs[i].orbType == Character.OrbType.WHITE;
+                }
+                lastOrbInvisible[i] = inv;
+            }
+        }
+
+        private void ApplyOrbFx(RemoteGhostVisual visual, BridgeClient.RemoteState state)
+        {
+            int seq = state.OrbFxSeq ?? 0;
+            if (seq <= 0)
+            {
+                return;
+            }
+            if (visual.LastOrbFxSeq == 0)
+            {
+                visual.LastOrbFxSeq = seq; // first sighting adopts, never replays history
+                return;
+            }
+            if (seq <= visual.LastOrbFxSeq)
+            {
+                return;
+            }
+            visual.LastOrbFxSeq = seq;
+            if (GemaPoolManager.Instance == null)
+            {
+                return;
+            }
+            int orbIndex = state.OrbFxOrb ?? 0;
+            Vector3 at = visual.Go != null ? visual.Go.transform.position : Vector3.zero;
+            if (orbIndex >= 0 && orbIndex < visual.Orbs.Length && visual.Orbs[orbIndex] != null && visual.Orbs[orbIndex].Go != null)
+            {
+                at = visual.Orbs[orbIndex].Go.transform.position;
+            }
+            Transform fx = (state.OrbFxWhite ?? false)
+                ? GemaPoolManager.Instance.CreateOrbToHumanEffect()
+                : GemaPoolManager.Instance.CreateOrbToHumanEffect2();
+            if (fx == null)
+            {
+                return;
+            }
+            fx.position = at;
+            fx.eulerAngles = new Vector3(90f, 0f, 0f);
+            fx.localScale = new Vector3(32f, 1f, 32f);
+        }
+
+        private void DestroyGhostOrbs(RemoteGhostVisual visual)
+        {
+            for (int i = 0; i < visual.Orbs.Length; i++)
+            {
+                if (visual.Orbs[i] != null && visual.Orbs[i].Go != null)
+                {
+                    Destroy(visual.Orbs[i].Go);
+                }
+                if (visual.Orbs[i] != null && visual.Orbs[i].Trails != null)
+                {
+                    foreach (GemaOrbTrail trail in visual.Orbs[i].Trails)
+                    {
+                        if (trail != null) Destroy(trail.gameObject);
+                    }
+                }
+                visual.Orbs[i] = null;
+            }
+        }
+
         // DIAG_POOL_WATCH -- the deliberate WIDENING after the hierarchy probe came back empty.
         //
         // `DIAG_SPAWN_DIFF` watches a character's own subtree, which is where `ChargeShot` parents
@@ -2363,6 +3264,9 @@ namespace MeshGhostTevi
             // is for -- and it would be destroyed again on the same frame by that branch.
             bridge.DrainInto(UpsertRemoteGhost, DespawnRemoteGhost);
 
+            // Trails spawn on FRAMES, not on messages -- see TickTrails.
+            TickTrails(cloneTemplate);
+
             // Marker refresh, every frame, from what DrainInto just recorded. Not inside
             // UpsertRemoteGhost: a marker that only moves when a message arrives cannot hide
             // itself when the messages stop.
@@ -2389,6 +3293,10 @@ namespace MeshGhostTevi
                 ? player.spranim_prefer.GetAnimationTrueName()
                 : player.aniStatus.ToString();
 
+            int trailMode = ReadTrailMode(player);
+            float trailRate, trailDecay; int trailRgba, trailOrder; bool trailFx;
+            ReadTrailParams(player, out trailRate, out trailDecay, out trailRgba, out trailOrder, out trailFx);
+
             bridge.SendLocalState(new BridgeClient.RemoteState
             {
                 AreaId = area.ToString(),
@@ -2397,13 +3305,23 @@ namespace MeshGhostTevi
                 Anim = clipName,
                 RoomX = roomX,
                 RoomY = roomY,
-                TrailMode = ReadTrailMode(player),
+                TrailMode = trailMode,
+                TrailRate = trailMode == 1 ? (float?)trailRate : null,
+                TrailDecay = trailMode == 1 ? (float?)trailDecay : null,
+                TrailRgba = trailMode == 1 ? (int?)trailRgba : null,
+                TrailOrder = trailMode == 1 ? (int?)trailOrder : null,
+                TrailHaveEffect = trailMode == 1 ? (bool?)trailFx : null,
                 WeaponRgba = ReadWeaponStrobe(player),
                 VfxSeq = localVfxSeq,
                 VfxEffect = localVfxEffect,
                 VfxFacingLeft = localVfxFacingLeft,
                 TempPause = GameSystem.Instance != null ? GameSystem.Instance.GetTempPause() : 0f,
                 AnimTime = ReadAnimTime(player),
+                Orbs = ReadOrbs(player),
+                Summons = ReadSummons(player),
+                OrbFxSeq = localOrbFxSeq,
+                OrbFxOrb = localOrbFxOrb,
+                OrbFxWhite = localOrbFxWhite,
             });
 
             // Watcher-side and purely cosmetic: wakes a warp device a peer ghost is standing in,
@@ -2422,6 +3340,7 @@ namespace MeshGhostTevi
             }
 
             WatchLocalVfx(player);
+            WatchLocalOrbFx(player);
 
             // TEMPORARY, with DIAG_HITSTOP_PHASE: ALL FIVE sprite layers, once per hitstop, with
             // full RGBA. The earlier layer probe edge-triggered on RGB only, so a layer that

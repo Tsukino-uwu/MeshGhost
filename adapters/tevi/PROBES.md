@@ -16,6 +16,11 @@ and `DIAG_MENU_GATE` followed on 2026-08-27, and `DIAG_SPAWN_DIFF`, `DIAG_POOL_W
 **That is a host constraint, not a per-adapter exception** — any future BepInEx adapter inherits it,
 and `adapters/_template/probes-README.md` says so.
 
+**One exception since 2026-09-10, and only because ScriptEngine is on the dev machine:** a probe
+that WRITES game state (the dev cheats) is a separate DLL under `devtools/`, loaded from
+`BepInEx\scripts\` beside the hot-reloaded adapter, so not one line of it is in the shipped
+assembly even behind a `const false`. Read-only probes stay `DIAG_*` blocks.
+
 **How to run one.** Flip its flag to `true`, `dev-scripts/build-tevi.bat`, and copy the DLL to the
 game's `BepInEx/plugins/MeshGhostTevi/`. Output lands in BepInEx's own console and log. **Flip it
 back and rebuild when the question is answered** — a diagnostic left on is a shipping decision, and
@@ -37,6 +42,7 @@ the measurement that made it a rule.
 | Menu gate | `DIAG_MENU_GATE` | What the adapter can see at each play-session transition, and therefore what really distinguishes the pause overlay from the main menu. | One line per transition. | **No** |
 | Spawn diff | `DIAG_SPAWN_DIFF` | What a move actually **spawns** — every GameObject that appears or disappears near the player *and* near each peer ghost, by instance id. Written for the charged-attack gap, where the ghost animates and no effect appears. | A scene-wide `FindObjectsOfType<Transform>()` at 20Hz, plus one line per appearance. **Reports its own scan time**; raise `SpawnDiffSampleInterval` if that is bad. | Yes, 2026-08-28 (rebuilt first — see below) |
 | Pool watch | `DIAG_POOL_WATCH` | Which POOLED effect the game just spawned, **by prefab name** (`Normal4H Blast`, `CutinStar`), for effects that do not parent to the character — which is most of them. The widening to reach for when Spawn diff comes back empty. | Walks the two `ObjectPooler`s (~375 objects) per sample; measured `avgMs=0.09`. | Yes, 2026-08-28 |
+| Dev cheats | a SEPARATE DLL, `adapters/tevi/devtools/MeshGhostTeviDevCheats/` | Nothing -- it holds HP, both orbs' MP, the charge bank and both crystal counts at max every frame so a test session is not cut short. **Writes game state, which the adapter may never do**, hence its own assembly, never staged (the blanket `*.dll` ignore covers its output). Loaded only by ScriptEngine from a dev install's `BepInEx\scripts\`; a `meshghost-devcheats.txt` beside it turns each of `hp`/`mp`/`charge`/`crystal` off with `=0`. Crystals are SAVE data and an autosave keeps them. Build: `dotnet restore --source <the local NuGet cache>` once (the sandbox has no network), then `dotnet build -c Release --no-restore`. | Four writes per frame. | Yes, 2026-09-10 |
 | Hitstop phase | `DIAG_HITSTOP_PHASE` | Timing and colour of a mirrored attack: the freeze phase on ghost vs peer, effect impulses sent/received, and sprite-layer colours — see its own section below. | One line per EVENT (arm/freeze/unpause, VFX send/recv, layer change), never per frame. | Yes, 2026-08-28 |
 
 **Four of the six have been run; `DIAG_MARKER_STALENESS` and `DIAG_MENU_GATE` never have.** That

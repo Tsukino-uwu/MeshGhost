@@ -66,7 +66,12 @@ if ($Both) {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $staged   = Join-Path $repoRoot 'packaging\release\games\tevi\MeshGhost\MeshGhostTevi.dll'
 
-$pluginDir = Join-Path $TeviDir 'BepInEx\plugins\MeshGhostTevi'
+# plugins\MeshGhost\ is the SHIPPING folder (build-tevi.bat stages the drag-and-drop tree under
+# that name). This line said plugins\MeshGhostTevi\ until 2026-09-10, so -On found no DLL to move,
+# copied a second one into scripts\, and the game loaded the adapter TWICE -- two cores spawned on
+# one port -- the exact defect the header says this script exists to prevent. Get-Mode reported
+# 'absent' the whole time because it looked in the wrong folder too.
+$pluginDir = Join-Path $TeviDir 'BepInEx\plugins\MeshGhost'
 $scriptDir = Join-Path $TeviDir 'BepInEx\scripts'
 $pluginDll = Join-Path $pluginDir 'MeshGhostTevi.dll'
 $scriptDll = Join-Path $scriptDir 'MeshGhostTevi.dll'
