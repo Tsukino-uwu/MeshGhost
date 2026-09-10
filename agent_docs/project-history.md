@@ -8,7 +8,7 @@ game adapter — not as a source of truth for exact dates or facts (see `verifie
 `adapters/tevi/README.md`, `adapters/pseudoregalia/README.md`) — this file covers only the part before any adapter
 existed.
 
-## Pre-planning / concept (~3-5 hours)
+## Pre-planning / concept
 
 Before any code existed, this much time went into figuring out "how could this work at all":
 what pieces were needed (relay, client, adapters), how they should be split up, and what

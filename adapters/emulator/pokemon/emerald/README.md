@@ -337,10 +337,10 @@ order:
     areas. Every earlier check had gone through `dev-scripts` (2026-08-28,
     [VERIFIED.md](VERIFIED.md)).
 
-**~3 hours for the hardware tier**, most of it spent discovering that the comparison harness, not
+**The hardware tier**, most of it spent discovering that the comparison harness, not
 either renderer, was what kept producing wrong answers.
 
-**~2 hours from a drawn ghost to a spawned one**, on top of the ~10 hours the drawn one took —
+**From a drawn ghost to a spawned one**, on top of the about 10 hours the drawn one took —
 most of it spent on the six bugs above rather than on the spawn itself.
 
 **The one rule the peer-state work produced, and it held for every item above:** every guess was
@@ -359,7 +359,7 @@ any of them. The adapter's own switches are in [FLAGS.md](FLAGS.md), and
 **How to run one**: write its path into the loader's target file — `dev-scripts/bizhawk-dev-loader.target`,
 or the per-instance file a launcher names in `MESHGHOST_DEV_LOADER_TARGET`
 (`bizhawk-dev-loader-emerald.target`, `-emerald2.target`) — and the loader swaps scripts live with
-no emulator relaunch (step 15 above, `docs/live-reload.md`). That only works when the emulator was
+no emulator relaunch (step 15 above, `agent_docs/live-reload.md`). That only works when the emulator was
 launched with `--lua=dev-scripts/bizhawk-dev-loader.lua`; a launcher that opens the adapter script
 directly has no loader to talk to. The adapter's own runs land in [logs/](logs/), one timestamped
 `.log` per script load, all gitignored.

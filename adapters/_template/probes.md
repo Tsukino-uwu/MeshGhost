@@ -1600,7 +1600,7 @@ cadence cam    402020202020200040202020202020004020202020
 **3. EVENT-TRIGGERED dumps beat sampling for one-frame faults.** A probe firing every 15 frames
 averages away the thing it is hunting. Trigger on the fault itself — *"whenever the painted position
 jumps 2px or more, dump the model's entire state for that frame"* — and the mechanism appears in one
-line. This found a fault in a single reading after hours of failed theories: `cam=2 gap=1 bud=0`,
+line. This found a fault in a single reading after every theory had failed: `cam=2 gap=1 bud=0`,
 i.e. an ordinary camera tick one frame after the previous one, with the model's own rule zeroing its
 budget exactly then.
 

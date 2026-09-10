@@ -128,7 +128,7 @@ know the incident, not just the rule, so you can judge when it applies.
   itself a guess about what the answer is called, and the one it hid was the answer (see "Dump
   everything" below). That single step produced `Montage_Play` and then
   `StartBubbleJumpFlash`/`changeBubbleChargedJump` — both named for exactly the effect and exactly
-  the state, after hours of inference had failed. Do it EARLY, not after the guesses run out.
+  the state, after inference had failed. Do it EARLY, not after the guesses run out.
   Two specific tells that you are reconstructing instead of asking:
   1. **You are about to tune a duration constant.** How long an effect lasts is the game's business.
      A `change<X>(hasX: bool)` function name is a near-certain sign that a readable `X` flag exists —

@@ -3741,7 +3741,7 @@ cannot move. Confirmed on screen by the user the same session.
 ## A partition measured EXACT is only exact at the rate it was measured (Crystal, 2026-08-25)
 
 **Symptom.** The drawn ghost pedalled the bike at visibly double speed. Walking was perfect and had
-been confirmed on screen months of commits earlier.
+been confirmed on screen many commits earlier.
 
 **Cause.** The tier chose its standing-vs-stepping frame from the peer's sub-tile PROGRESS, on a
 partition (`prog 14,0,2,4` stepping; `6,8,10,12` passing) that had been measured against the

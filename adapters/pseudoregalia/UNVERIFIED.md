@@ -2937,7 +2937,7 @@ Regression on the Go side (`core/roster_cap_test.go`) bounds how many ids a rela
 ## [OPEN] Four items that need a real two-machine session, carried out of `status.md` (opened 2026-08-16/17, moved 2026-09-02)
 
 Two real players on two machines were confirmed on 2026-08-16 (`../../agent_docs/verified.md`), and these
-four were written down that week as needing re-judging once a peer's state genuinely differs from the
+four were written down on 2026-08-16 as needing re-judging once a peer's state genuinely differs from the
 local player's — which loopback can never show. None has been looked at since; each keeps its original
 pointer.
 

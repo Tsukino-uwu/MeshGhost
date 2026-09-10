@@ -2,7 +2,7 @@
 --
 -- WHAT AND WHY
 -- Reaching the game states an adapter still cannot handle -- surfing, both bikes, a specific map
--- on the far side of the region -- costs real hours of play per test. The emulator can shortcut
+-- on the far side of the region -- costs real play time per test. The emulator can shortcut
 -- that with cheat codes, and BizHawk exposes its cheat engine to Lua (client.addcheat /
 -- client.removecheat / client.opencheats, found in BizHawk.Client.Common.dll's API surface), so
 -- the shortcut can be driven from here instead of typed into a dialog by hand.

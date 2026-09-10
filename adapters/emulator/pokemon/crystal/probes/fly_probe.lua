@@ -20,7 +20,7 @@
 --       runs only while `wStateFlags` has SPRITE_UPDATES_DISABLED set, and it walks all thirteen
 --       structs. If the Fly sequence sets that bit, every object is on the frozen path for the
 --       duration -- ghost included -- and this is pre-existing behaviour that has nothing to do
---       with this week's work. If this is the cause, `SU=1` is on for exactly the frames the
+--       with the Fly work. If this is the cause, `SU=1` is on for exactly the frames the
 --       ghost is gone, and the ghost's `yoff` is 0 throughout.
 --
 -- The two are not exclusive; the log says which frames each covers, which is the point.

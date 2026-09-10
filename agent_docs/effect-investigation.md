@@ -215,7 +215,7 @@ revert.** That conclusion sent the investigation further astray than any other s
 #### What actually found it
 
 The user asked to check out the session-start commit and compare. `8d10f67` good → `46c4d2c` good →
-`760b148` intermittent → `861e6cd` broken. **Three builds**, after hours of measurement had produced
+`760b148` intermittent → `861e6cd` broken. **Three builds**, after measurement had produced
 only false parity.
 
 Fix: heavy tracing off, scan cadence 3 → 15 ticks, and structurally, the scan gated by the flag that
@@ -493,7 +493,7 @@ seven separate times before that question was asked.
 
 If a regression appears and two rounds of reasoning have not found it: build the last known-good
 commit, confirm it is good, halve. Mechanical, needs no theory, cannot be fooled by a partial revert.
-Three builds found what hours of measurement had not.
+Three builds found what measurement had not.
 
 ### See also
 

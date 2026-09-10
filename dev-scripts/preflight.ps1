@@ -295,10 +295,60 @@ Section "Invented durations"
 # future entry that invents a duration will therefore NOT be caught here -- so watch it by hand.
 # `licensing.md` and `access-models.md` are excluded for the opposite reason: both are ABOUT the
 # outside world (licences, emulator projects, hardware), so external dates are their subject matter.
-$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
+#
+# TWO SHAPES ADDED 2026-09-10, both found by a duration this check let through. A build-story beat
+# said the relay change mattered "that week"; the grep matched neither "for a week" nor "weeks
+# later", so it passed. The user's call on finding it: "preflight is better at catching mistakes
+# than any rules" -- so the pattern grew rather than the prose.
+#   1. THE DEMONSTRATIVE FORM -- "that week", "this month". Deliberately NOT "that day" or "this
+#      hour": 50 tracked lines use "that day" anchored to a date already in the sentence ("confirmed
+#      that day", "12:21 and 12:22 that day"), which is good writing, and a check that flags 50
+#      good lines to catch one bad one is the cry-wolf failure this file warns about two checks up.
+#      Week and longer have no such anchored use here -- all three hits were real and were fixed.
+#   2. "<unit>s of" WITHOUT a preceding "for" -- "months of clean-loopback testing", which was false
+#      on arrival (this repo began 2026-08-11). Restricted to month/year/decade for the same reason:
+#      "hours of" is nearly always a real figure ("336 hours of samples", "six hours of play") or an
+#      honest account of a session, and both tracked month/year hits were false.
+$durations = & git grep -inIE -e 'for (a |an |the last |the past )?(hour|day|week|month|year|decade)s?\b' -e '(hour|day|week|month|year|decade)s? (ago|later|earlier|old|behind)\b' -e '\b(that|this) (week|month|year|decade)s?\b' -e 'long-?standing' -e 'long time' -e '\bdecades\b' -e 'over the years' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md'
 Report-GrepGate $LASTEXITCODE $durations `
     "vague duration in a tracked file -- cite a date, or a measured figure with a number:" `
     "no vague durations in tracked files"
+
+# GATE THREE, added 2026-09-10: an unmeasured span of effort, written as "<units> of <work>".
+#
+# The user's rule, and the reason this one is worth its own gate: the ONLY real work-duration
+# figures in this repo are three the user wrote by hand, all in adapter READMEs -- about 10 hours
+# for the server/client plus Emerald, about 1 hour for TEVI, and 15-20 for Pseudoregalia.
+# "anything else can be considered made up durations basically". They are approximations -- the user
+# does not claim to have timed them -- and that is fine: what makes them legitimate is that somebody
+# who did the work wrote them, not their precision. An agent has no such standing and should write
+# no work-duration at all. Three invented ones were removed
+# the day this gate landed (~3 hours for a tier, ~2 hours for another, ~3-5 for pre-planning);
+# none of them was ever measured, each was an intensifier filling a slot in a sentence.
+#
+# THE DISCRIMINATOR IS A NUMBER, which is also what the pass message above asks for. "336 hours of
+# samples", "six hours of play", "Four hours of adapter-side probes" are figures somebody computed
+# or counted and they stay. "hours of measurement", "hours of inference", "months of clean-loopback
+# testing" are rhetoric -- eight such lines existed and all eight were reworded, losing nothing.
+# So: fire only when NO number precedes the unit. A digit, a "~n", or a written number one..twelve
+# all count as measured.
+$unitOf = @(& git grep -inIE '\b(hour|day|week|month|year|decade)s of\b' -- . ':!CLAUDE.md' ':!dev-scripts/preflight.ps1' ':!agent_docs/verified.md' ':!adapters/**/VERIFIED.md')
+$unitOfCode = $LASTEXITCODE
+# A LOOKBEHIND, so each OCCURRENCE is judged, not the line. The first version of this filter
+# exempted any line holding one numbered mention, so "after hours of measurement, and 6 hours
+# of play" passed -- a good figure laundering a bad one beside it. Found by trying to fool it.
+$unnumbered = '(?<!([0-9]|~[0-9]|\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve))\s{1,3})\b(hour|day|week|month|year|decade)s of\b'
+if ($unitOfCode -gt 1) {
+    Report-Fail "the '<units> of' duration grep did not run, so this is NOT a clean result (exit $unitOfCode)"
+} else {
+    $vague = @($unitOf | Where-Object { $_ -match $unnumbered })
+    if ($vague.Count -gt 0) {
+        Report-Fail "unmeasured span of effort -- say what was actually done, or give a number:"
+        $vague | Select-Object -First 12 | ForEach-Object { Write-Host "          $_" }
+    } else {
+        Report-Pass "every '<units> of' in a tracked file carries a number ($($unitOf.Count) checked)"
+    }
+}
 
 # ---------------------------------------------------------------------------
 Section "Reading budgets"

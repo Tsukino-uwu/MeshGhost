@@ -755,7 +755,7 @@ characterised, will keep turning into that system's other problems.
   The conclusion drawn from it was wrong and sent the investigation further astray.
 - **What actually found it**: the user asked to check out the session-start commit and compare.
   `8d10f67` (session start) good → `46c4d2c` good → `760b148` intermittent → `861e6cd` broken.
-  **Three builds**, after hours of measurement had produced only false parity.
+  **Three builds**, after measurement had produced only false parity.
 - **Fix**: heavy per-object tracing off; scan cadence 3 → 15 ticks; and structurally, the scan is
   now gated by the flag that owns it, so that flag is a real off-switch. Confirmed live by the user
   afterwards: dense repeating slide trail, ghost within 1-2 images of the real player.

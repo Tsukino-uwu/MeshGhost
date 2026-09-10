@@ -1861,7 +1861,7 @@ the scan was gated, so the expensive work kept running.
 
 **What actually worked**, and the reason to write this down: the user asked to check out the
 session-start commit and compare. That located it in three builds — `8d10f67` good, `46c4d2c` good,
-`760b148` intermittent, `861e6cd` broken — after hours of inference had produced nothing but false
+`760b148` intermittent, `861e6cd` broken — after inference had produced nothing but false
 parity. It is the first time this project has needed a commit bisect.
 
 **Two habits worth carrying forward from the user's side of this session**, both of which
