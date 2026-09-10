@@ -16,19 +16,25 @@ Two different questions, two different surfaces:
 
 | You want to... | What runs on your machine | The code a stranger can reach |
 | --- | --- | --- |
-| **Host a relay** | `meshghost-relay` (`meshghost-server.exe` in a release) | `relay/`, `transport/`, `netx/` (`udpconn`, `quicconn`, `tlsx`), `protocol/`, and `cmd/meshghost-relay/main.go` |
+| **Host a relay** | `meshghost-relay` (`meshghost-server.exe` in a release) | `relay/`, `transport/`, `netx/` (`udpconn`, `quicconn`, `tlsx`), `protocol/`, `internal/cfg`, `internal/textfmt`, and `cmd/meshghost-relay/main.go` |
 | **Play** | `meshghost` (the core) plus the game's adapter | `core/` on the relay side, then `bridge/` and the adapter on the game side |
 
 The adapters never touch the internet. An adapter holds one localhost socket to its own core and
 nothing else; it never learns a relay address (`agent_docs/contract.md`, hard rules). So a host
 review is the first row, and it is a few thousand lines, not the whole repository. Do not take that
-on faith either: Go compiles only what a binary imports, so follow the imports from
-`cmd/meshghost-relay/main.go` and you have the exact code in the process you would run. And every
+on faith either: Go compiles only what a binary imports, so `go list -deps ./cmd/meshghost-relay |
+grep MeshGhost` prints that row and you have the exact code in the process you would run. And every
 socket the tree opens is greppable:
 
 ```sh
-grep -rnE 'net\.(Listen|Dial|ListenPacket|ListenUDP)|quic\.(Listen|Dial)' --include=*.go . | grep -v _test.go
+grep -rnE 'net\.(Listen|Dial|ListenPacket|ListenUDP)|quic\.(Listen|Dial|Transport)' --include=*.go . | grep -v _test.go
 ```
+
+Read that output knowing two things. Most hits are `net.Listener` *types* and comments rather than
+calls — roughly a dozen of them open anything. And **there is no `quic.Listen` call in this tree**:
+QUIC is served by `Listen` on a `quic.Transport` value (`netx/quicconn/quicconn.go`), over the
+`net.ListenUDP` this pattern does catch, so grepping for the obvious name finds the type declaration
+and a comment instead of the line that starts serving.
 
 ## Where the bytes go
 
@@ -48,11 +54,15 @@ you can start reading at the right line instead of the top of the file.
    whole per-connection state machine and is worth reading end to end: it wraps the socket in
    `transport.NDJSONConn` with `protocol.MaxLineBytes` as the line cap (enforced *during* the read,
    in `transport/transport.go`'s `readLoop`), arms the hello timer, and registers `OnReceive`.
-3. `OnReceive` runs, in order: the per-second flood cap; JSON decode of the envelope; if not yet
-   joined, only a `hello` is accepted, and its checks run field-length → protocol version → room
-   code (constant-time) → query-only → single-game restriction → room join/create → resume →
-   slot reservation. Everything before the room is touched is where a stranger with no code
-   lives.
+3. `OnReceive` runs, in order: **the already-rejected latch** (`rateRejected || handshakeRejected`,
+   `relay/relay.go`) — read that one first, because its absence was a live hole found by the
+   2026-09-07 review: a refused peer could pipeline a second, valid `hello` during the graceful-close
+   drain and complete a genuine join over a half-closed socket, taking a `max_clients` slot and
+   spawning a ghost on every real player's screen; then the per-second flood cap; JSON decode of the
+   envelope; if not yet joined, only a `hello` is accepted, and its checks run field-length →
+   protocol version → room code (constant-time) → query-only → single-game restriction → room
+   join/create → resume → slot reservation. Everything before the room is touched is where a
+   stranger with no code lives.
 4. Once joined, each message type is decoded into its struct and passed through the matching
    `protocol.Validate*` (`protocol/limits.go`, `protocol/online.go`) before anything is done with
    it; deeper planes are gated on the room's negotiated features. State fans out through
@@ -66,8 +76,9 @@ you can start reading at the right line instead of the top of the file.
    every field, and re-sanitizes names (`core/remotenames.go`).
 6. What survives is written to the bridge (`bridge/bridge.go`, localhost only) as `render_remote`
    and friends, and the adapter renders it. The adapter never sees the relay. What each adapter
-   does with each field is its own review; the adapter reviews in `agent_docs/adr/` carry
-   per-field tables.
+   does with each field is its own review, and each adapter's own folder carries it —
+   `adapters/<game>/documentation.md` for how that game works, `FLAGS.md` for every switch it has,
+   and `adapters/pseudoregalia/PLAYER_FIELDS.md` for a worked per-field table.
 
 **Dependencies.** One: `github.com/quic-go/quic-go`, plus its `golang.org/x` transitive set. TLS,
 HMAC, JSON and the UDP socket are the Go standard library. There is no dependency for the wire
@@ -80,12 +91,15 @@ host, what each transport does and does not protect, every limit and where it is
 known-gaps section that says what is deliberately not defended. Each claim there names the file
 and, where one exists, the test that pins it. Treat it as a list of things to disprove: a written
 claim that turns out false is worth more to you than a vague codebase, because it tells you at once
-how much to trust the rest. Each section there carries the date it was last checked against the
-code; the older the date, the more of the check is yours to redo.
+how much to trust the rest. One section carries the date it was last checked against the code, and
+the rest are dated by the change they record rather than by a re-check — so an undated claim there
+is one nobody has re-read recently, and is the place to start.
 
 [networking.md](networking.md) explains the transports and the limits from the operator's side.
 [agent_docs/contract.md](../agent_docs/contract.md) is the wire protocol itself, and its Limits
-section is the authoritative list of every bound with its constant name.
+section lists most bounds with the constant name each comes from. It is not exhaustive: the
+`world.v1` bounds and a few others live only in the code, so `protocol/limits.go`,
+`protocol/online.go` and `bridge/inputlimits.go` are the authority when the two disagree.
 
 ## Run the adversarial checks yourself
 
@@ -106,11 +120,13 @@ go test -race -count=3 ./...
 
 **The fuzzers.** These feed inputs nobody chose into the parsers and the listeners, and they are
 the part that does not share the author's blind spots. Run any of them for as long as your
-suspicion lasts; CI runs a short campaign against nearly all of them on each push — on 2026-09-08,
-**24 explicit steps in `.github/workflows/ci.yml` against the 26 `Fuzz*` targets in the tree**,
-across eight packages, one step per target. The two with no step are the socket-bound schedule
-fuzzers in `core`, opt-in on purpose; they still run their committed seed corpus in the ordinary
-test job. (The property-style targets that pin an encoder against its decoder have their own steps
+suspicion lasts; CI runs a short campaign against nearly all of them on each push — as of
+2026-09-10, **24 explicit steps in `.github/workflows/ci.yml` against the 27 `Fuzz*` targets in the
+tree**, across eight packages, one step per target. **Three have no step.** Two are the socket-bound
+schedule fuzzers in `core`, opt-in on purpose. The third, `FuzzParseInputTrackNeverPanics`, is not
+socket-bound at all — it is a file parser, held to the same promise as its sibling
+`FuzzParseReplayNeverPanics`, which does have a step — and it appears simply to have been missed.
+All three still run their committed seed corpus in the ordinary test job. (The property-style targets that pin an encoder against its decoder have their own steps
 too, since 2026-09-06 — they used to run only as ordinary tests.) Nothing here needs
 trusting CI — the targets are ordinary `go test -fuzz` functions:
 
@@ -118,7 +134,10 @@ trusting CI — the targets are ordinary `go test -fuzz` functions:
 # the relay, fed arbitrary lines before and after a join
 go test -run='^$' -fuzz='^FuzzRelaySurvivesArbitraryLines$' -fuzztime=5m ./relay
 go test -run='^$' -fuzz='^FuzzRelaySurvivesArbitraryPostJoinMessages$' -fuzztime=5m ./relay
-# the UDP listener, fed arbitrary datagrams (up to 60000 bytes -- see below for why that number matters)
+# the UDP listener, fed arbitrary datagrams (up to 60000 bytes: far past the 1200-byte cap, because
+# until 2026-09-02 the read buffer was the cap, so ONE spoofable oversized datagram killed the
+# listener -- and the relay treats a dead listener as fatal, so it took tcp and quic down with it.
+# See readBufferBytes in netx/udpconn/udpconn.go)
 go test -run='^$' -fuzz='^FuzzListenerSurvivesArbitraryDatagrams$' -fuzztime=5m ./netx/udpconn
 # every wire decoder
 go test -run='^$' -fuzz='^FuzzEnvelopeUnmarshalNeverPanics$' -fuzztime=2m ./protocol
@@ -200,5 +219,5 @@ security review.
 ## Reporting a finding
 
 Open an issue, with the input that triggers it if you have one. A confirmed finding gets a fix with
-a test that fails without it and a dated line in `security.md`'s changelog. Game-side changes are
+a test that fails without it and a dated entry in one of `security.md`'s "What changed" sections. Game-side changes are
 verified by the maintainer on screen; Go-side changes with the commands above.

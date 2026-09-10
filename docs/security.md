@@ -307,6 +307,34 @@ under `-race` for the second. Full reasoning:
   same reset, different call site — untouched until CI found that one on 2026-09-06. Fixing the
   site a test names is not the same as fixing the class it belongs to.
 
+## What changed (2026-09-07 and 2026-09-08: the drain window, and four review findings)
+
+**A refused peer could still complete a join.** The 2026-09-05/06 fix above made a rejected
+connection half-close and drain rather than reset, so the client could actually read the reason it
+was refused. That drain left a window: the socket stays readable, and nothing stopped a second,
+**valid** `hello` arriving inside it. A peer refused for a bad room code could pipeline another one
+and complete a genuine join over a half-closed socket — taking a `max_clients` slot and spawning a
+ghost on every real player's screen — and could keep the relay writing log lines for it, all
+unauthenticated. The fix is a latch: `rateRejected || handshakeRejected` is checked at the very top
+of `OnReceive`, before the flood cap and before any decode, so a connection that has been refused
+once is deaf for the rest of its life (`relay/relay.go`).
+
+**Four smaller findings the same week**, each with a test that fails without its fix:
+
+- **A sender could build a line the receiver would refuse.** `protocol.MaxLineBytes` is 4096 and the
+  check compared against it, so an envelope of exactly 4096 passed, went out, and killed the
+  receiver's read loop with the very `ErrTooLong` the check existed to prevent.
+  `protocol.MaxPayloadBytes` is now 4095 — the largest line a receiver will actually accept — and
+  senders size to that (`protocol/limits.go`).
+- **The room code could reach the process list.** Passing `-room-code` on the command line put the
+  secret in argv, where any local user can read it; the flag's help now says so and points at the
+  config file (`cmd/meshghost-relay/main.go`).
+- **A log rotation that failed retried forever**, tightly, instead of backing off
+  (`internal/cfg/cfg.go`).
+- **One bad value in a config file discarded the rest of it.** Everything else in the file now still
+  applies, and the bad value is reported rather than silently taking the whole file with it
+  (`internal/cfg/cfg.go`).
+
 ## What's already true, and why (checked against the actual code, 2026-08-15)
 
 **No peer-to-peer connection exists.** Clients never connect to each other — only to the
