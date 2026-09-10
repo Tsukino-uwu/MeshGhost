@@ -111,6 +111,13 @@ trails belong there, not here — the same discipline the `README.md` build-stor
 you catch yourself writing "so we…", stop: that sentence belongs in `BANDAGES.md` or the
 `README.md`.
 
+**A section belongs here only once the mechanic is ESTABLISHED** — what it does, and what it does
+under the cases that matter. This is a HIGHER bar than the README's, deliberately: that file is the
+story of what we did and takes partial results; this one answers *"this is exactly how X works in
+this game"*. A half-mapped mechanic gets a known-unknowns line instead, which is why that section
+below is not optional. The bar is about the GAME, not about us: whether the mechanism is
+established, never whether our mirror of it has been watched.
+
 **Finish with known unknowns.** Searches that came up empty, so nobody repeats them, and inferences
 that have never been confirmed. When one gets answered, **strike it through and point at the
 section that answered it** rather than deleting the line — the list is then also a record of which
@@ -166,8 +173,10 @@ to reproduce, and no amount of source reading substitutes for it. A memory read 
 line is authoritative for *"which field, which value, which function"* — and says nothing about
 whether the result feels right.
 
-**So mark them.** `[player]` and `[measured]` in this repo's Emerald fishing section; any clear
-convention will do. The value shows up later: an unlabelled document invites a future session to
+**So mark them.** `[player]`, `[measured]` and — where a game has a cleared decompilation —
+`[from the decomp]`, which Emerald ships and is a materially different evidence class from either:
+it says what the game's own code does, without a claim that anyone watched it. Any clear convention
+will do, but declare it at the top of the file and then actually use it. The value shows up later: an unlabelled document invites a future session to
 "verify" a player-observed stage by finding a plausible-looking field, and to treat a measured
 field as proof the experience is reproduced. **Where only `[player]` exists, the code path is an
 open question, and the file should look like one.**

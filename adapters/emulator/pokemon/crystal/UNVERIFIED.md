@@ -20,6 +20,20 @@ considered done/fixed until i actually confirm it as such."*
 - **On decline:** it goes back to being work. Note what was actually seen — that is usually the
   most valuable line in the whole file.
 - Nothing here is cited as established anywhere else while it sits here.
+- **A POSITIVE STATEMENT FROM THE USER CONFIRMS IT** — `think`, `seems`, `looks correct` included.
+  *"looks correct, think its perfect now etc. means its done/verified"* (user, 2026-09-10). Only
+  voiced uncertainty (*"im unsure if its working correctly"*) or a defect they describe keeps an
+  entry here.
+- **If it is genuinely ambiguous, ASK.** *"its also always fine to ask if unsure, and i can give a
+  direct yes/no follow up."* This is the clause that was missing: faced with a call it could not
+  make, a session chose to HOLD SILENTLY, and a silent hold is indistinguishable from a decline.
+  One question is cheaper than an entry nobody revisits.
+- **A hold must NAME WHAT RELEASES IT, and may never rest on coverage alone.** "Held until a second
+  session repeats it — the confirmation was one set of shots" is not a rule anyone gave, and it
+  names no trigger, so nothing ever graduates. A legitimate hold ("the fault was an accumulating
+  drift and the action that produced it was not exercised") still has to say what closes it.
+  **These two misreadings kept eight days of confirmed TEVI work out of its build story** — the
+  work was done, watched and described in the user's own words the whole time (2026-09-10).
 
 **Split out of `../../../../agent_docs/unverified.md` on 2026-08-25**, verbatim and in original order. That file
 was 1,670 lines and, unlike `verified.md`, was already 100% per-game — Crystal and Emerald only,

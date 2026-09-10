@@ -135,7 +135,7 @@ same as any two unrelated games — grouping by franchise just keeps the top lev
 
 | File | When to create it | Template |
 | --- | --- | --- |
-| `README.md` | Immediately — the build story, one numbered step per thing that happened | see "Writing the new adapter's own README" below |
+| `README.md` | Immediately — the build story, one numbered step per capability gained ([CLAUDE.md](../../CLAUDE.md)) | see "Writing the new adapter's own README" below |
 | `documentation.md` | **Immediately** — start it with the first mechanic you learn | [documentation.md](documentation.md) |
 | `BANDAGES.md` | **Immediately, empty** — an empty register is the goal, an absent one is a gap | [BANDAGES.md](BANDAGES.md) |
 | `FLAGS.md` | **Immediately, with its first row** — mandated for every adapter and checked by `preflight.ps1` alongside the five files below (a Lua adapter registers its environment variables and globals here; "no compile-time switches" is not "no switches") | [FLAGS.md](FLAGS.md) |
@@ -719,18 +719,59 @@ Two habits from the existing adapters worth copying:
 ## Writing the new adapter's own README
 
 Give the game's folder a `README.md` with a **"How this adapter was built"** numbered list — the
-short, readable version of the story, one step per thing that happened, ~2-4 lines each, in plain
-language. See `adapters/pseudoregalia/README.md` for the worked example. Keep the detail
+short, readable version of the story, one step per CAPABILITY the adapter gained, ~2-4 lines each,
+in plain language. See `adapters/pseudoregalia/README.md` for the worked example. Keep the detail
 (field names, dump sizes, failed attempts, dated evidence) in `agent_docs/phases/phaseN.md`,
 `verified.md`, and `pitfalls.md`, and link to them — a step that has grown into paragraphs of
 caveats belongs there with a one-line pointer left behind. See [CLAUDE.md](../../CLAUDE.md)'s
 hard rule on this.
 
+**It has to read as a STORY, not a checklist**, and that is the bar above any counting rule. End
+to end it should tell how this adapter came to be: each step a beat that follows from the one
+before, what was tried, what that turned up, what it made possible. A reader who knows nothing
+should come away understanding how the thing got built. An enumeration of every capability is the
+failure mode **even when every line is individually true and confirmed** — so merge steps that read
+better merged, and when a beat needs the failed attempt to make sense, keep that clause and leave
+the detail in the phase file.
+
+**One step per CAPABILITY — never per fix, and never per instance** ([CLAUDE.md](../../CLAUDE.md)
+is the home of this rule). *"We added projectiles"* is a step; *"we fixed the NRE in the bullet follower"* is not, and belongs in the phase file with the
+step linking to it. The same test settles tooling: *"we figured out how to reload a probe without
+restarting the game"* is a capability and a step; *"we added a surf probe"* is an instance and is
+not. A probe is an instance; the ability to probe a certain way is the capability.
+
+**Dev and tooling work belongs in the story.** It is part of how the adapter got built, and often
+the part that made the rest possible — a reload loop, a way to drive the game from a savestate, a
+rig that replays recorded input. Write it as what it made possible, never as an inventory of its
+flags.
+
+**A PARTIAL result is still a step, said plainly.** *"We tried to fix projectiles, and mostly synced
+them"* belongs in the list exactly that way, with what is still missing named rather than implied.
+Waiting for a capability to be 100% before it earns a line is how a list goes stale: TEVI's fell
+that far behind on 2026-09-10, while the work sat confirmed in its queue. `documentation.md`
+is the opposite — it takes only fully-established mechanics — and the two bars are not the same.
+
+**FACT-CHECK EVERY CLAIM AGAINST THE CODE BEFORE WRITING IT.** The user's rule, 2026-09-10, after a
+brand-new beat asserted an interpolation default that had been wrong for eight days: it was written
+straight from a `VERIFIED.md` entry that was true on the day it was written and superseded by an ADR
+the same night. **The record supplies what happened and what the user said; the CODE supplies what
+is true now, and they are different lookups.** Anything claiming a present state — a shipped value,
+a flag being on or off, "the only", "never", a count — is a grep, not a memory. Otherwise it "ends
+up being something that is wrong twice, or something we have to change again directly afterwards
+anyway".
+
+**ASK before adding when it is not obvious.** The user, 2026-09-10: *"its easier to ask me 1 question
+than putting in 5 things into the list that i don't want there."* Propose a short ordered list of
+beats for yes / no / merge, then write. It applies in both directions — whether something belongs at
+all, and whether it belongs here or in `documentation.md`.
+
 **Any time figure is time to reach a named milestone, not total time spent** — "~10 hours from
 nothing to good enough", never "~10 hours in". It is the number a reader is actually asking for.
 **A time figure is optional, though**: three of the four adapter READMEs carry one and Crystal's
 carries none, which is fine. What is not fine is an ambiguous one. (Corrected 2026-08-25: this
-said "all four read that way".)
+said "all four read that way".) **An agent writes no time figure at all** — the three in this repo
+are the user's own, and what makes them legitimate is that somebody who did the work wrote them,
+not their precision. `preflight.ps1` fails an unmeasured span of effort.
 
 **Why the length rule is a rule.** Found live 2026-08-15: Pseudoregalia's steps 19-22 had each
 grown to 15-20 dense lines while steps 1-18 stayed at 2-4, which made the file hard to read for

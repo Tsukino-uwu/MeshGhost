@@ -155,11 +155,11 @@ to one line per entry instead. The cases: `agent_docs/claude-md-cap.md`.
   and where the detail lives (`claude-md-cap.md`). A third line moves to `verified.md`, `pitfalls.md`
   or the phase file behind a pointer; a fixed-and-confirmed item is deleted the moment it is; a phase
   change overwrites in place rather than appending.
-- **An adapter's `README.md` is a short build story, not a log**: its "How this adapter was built"
-  list is one numbered step per thing that happened, ~2-4 plain lines each, what was done and why it
-  worked. Offsets, counts, failed trails and dated evidence go to the phase file, `verified.md` or
-  `pitfalls.md` — link, don't inline
-  (`_template/README.md`, "Writing the new adapter's own README", keeps the one standing exception).
+- **An adapter's `README.md` is the STORY of how it got built, not a log or a checklist**: one
+  numbered step per CAPABILITY gained — never per fix, never per probe — ~2-4 plain lines, what it
+  does and why that worked; a partial result belongs, said plainly. **Fact-check every claim against
+  the CODE before writing it**: a dated record says what was true then. Detail goes to the phase
+  file, `verified.md` or `pitfalls.md` — link, don't inline (`_template/README.md` has the craft).
 - **When the user confirms a fix, write HOW it was found before moving on** — the wrong theories and
   why they looked right, the measurement that settled it, what to reach for first next time. Symptom
   → cause → fix to `pitfalls.md`; a new way to MEASURE to `_template/probes.md`; a rule a new adapter
