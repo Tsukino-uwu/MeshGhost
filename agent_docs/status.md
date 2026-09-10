@@ -24,7 +24,7 @@ files and each `VERIFIED.md` hold them. Why two lines and a date, not a total ca
 - 2026-09-11 — **HIGH: v1.1.7 crashed at a new engine fault site. The hardened DLL is deployed and UNPROVEN**; if it recurs the feature ships OFF. `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **Client/config/log/replays moved to the GAME ROOT for both PC games.** Pseudoregalia confirmed; **the TEVI half is UNWATCHED.** `tevi/UNVERIFIED.md`.
 - 2026-09-11 — Replay hotkeys: chords-only is the open half; the indicator half shipped 2026-09-05 (ADR 0052). `ideas.md`.
-- 2026-09-11 — **The FPS that outlived a ghost was its `BP_PlayerCam_C` rig: FIXED, and census-clean on all three despawn paths — but UNWATCHED by the user in a session of their own.** `pseudoregalia/UNVERIFIED.md`.
+- 2026-09-11 — **The FPS that outlived a ghost was its `BP_PlayerCam_C` rig: FIXED and census-clean on all three despawn paths, UNWATCHED by the user.** `pseudoregalia/UNVERIFIED.md`.
 - 2026-09-11 — **Ghost cost: four things confirmed on screen 2026-09-06; the timing numbers are MEASURED, not watched.** `pseudoregalia/VERIFIED.md`, `UNVERIFIED.md`.
 - 2026-09-11 — **The on-screen INPUT HISTORY is built on both sides and has been SEEN; the user's words on the read-back are still owed.** `pseudoregalia/UNVERIFIED.md`, ADR 0057.
 - 2026-09-11 — **The recording indicator is a screen-space widget**: the mechanism is user-confirmed on the Lua prototype, the C++ port SEEN in a screenshot, their words owed. `pseudoregalia/UNVERIFIED.md`.

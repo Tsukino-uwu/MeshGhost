@@ -1599,6 +1599,27 @@ Section "status.md is current"
 # session IS the re-check, and moving the rest out is the triage.
 $statusPath = "agent_docs/status.md"
 $statusMaxAgeDays = 2
+# TWO MORE THINGS, added 2026-09-11, both found by hand because nothing was looking. The age check
+# above answered "when does an item LEAVE"; nothing answered "how big may an item GET", so the
+# two-lines-per-item rule was prose -- and on 2026-09-11 it was broken by 36 of 37 items, the worst
+# at roughly eighteen wrapped lines. A rule broken by 97% of the file it governs is not being
+# enforced by anything.
+#
+#   $statusMaxItemChars -- two wrapped lines at this file's ~105-column width, plus slack. The rule
+#     is in claude-md-cap.md and the overflow has a defined home: the adapter's UNVERIFIED.md,
+#     ideas.md, plans.md or risks.md.
+#   The CARRIED marker -- an item whose own text says it was re-checked or re-dated "unchanged" more
+#     than once has, by its own admission, outlived short-term memory. status.md is 2-day memory and
+#     not a progress log (user's call, 2026-09-11); a thing that keeps being true belongs in the file
+#     that tracks it, with status.md holding at most a pointer.
+#
+# WHAT NEITHER OF THESE CAN SEE, so it stays a human read: whether an item's CLAIM matches the record
+# it cites. On 2026-09-11 one item opened "all CONFIRMED on screen" over a list that mixed four
+# screen confirmations with three agent measurements whose numbers lived in UNVERIFIED.md. No grep
+# tells you that; reading the item beside the file it points at does.
+$statusMaxItemChars = 215
+$statusCarried = @()
+$statusLong = @()
 if (-not (Test-Path -LiteralPath $statusPath)) {
     Report-Fail "$statusPath is missing"
 } else {
@@ -1618,6 +1639,20 @@ if (-not (Test-Path -LiteralPath $statusPath)) {
         $newest = ($dates | Sort-Object | Select-Object -Last 1)
         $age = ($refDate - [datetime]::ParseExact($newest, 'yyyy-MM-dd', $null)).TotalDays
         if ($age -gt $statusMaxAgeDays) { $stale += "$($i + 1): $newest ($([int]$age) days) $($l.Substring(0, [math]::Min(60, $l.Length)))" }
+        if ($l.Length -gt $statusMaxItemChars) {
+            $statusLong += "$($i + 1): $($l.Length) chars (~$([math]::Round($l.Length / 105.0)) lines) $($l.Substring(0, [math]::Min(50, $l.Length)))"
+        }
+        if (([regex]::Matches($l, 're-(checked|dated)')).Count -ge 2 -and $l -match 'unchanged') {
+            $statusCarried += "$($i + 1): $($l.Substring(0, [math]::Min(70, $l.Length)))"
+        }
+    }
+    if ($statusLong.Count -gt 0) {
+        Report-Fail "$($statusLong.Count) status item(s) over two lines -- move the detail to the adapter's UNVERIFIED.md, ideas.md, plans.md or risks.md and leave a pointer (agent_docs/claude-md-cap.md):"
+        $statusLong | Select-Object -First 10 | ForEach-Object { Write-Host "          $_" }
+    }
+    if ($statusCarried.Count -gt 0) {
+        Report-Fail "$($statusCarried.Count) status item(s) re-dated 'unchanged' more than once -- that is not short-term memory; move it to the file that tracks it and keep a pointer here:"
+        $statusCarried | Select-Object -First 10 | ForEach-Object { Write-Host "          $_" }
     }
     if ($items -eq 0) {
         Report-Fail "$statusPath lists no items -- the currency check would pass vacuously"
