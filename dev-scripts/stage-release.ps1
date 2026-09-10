@@ -248,12 +248,52 @@ if (Test-Path adapters\emulator\pokemon\crystal\ap_try.flag) {
     throw 'ap_try.flag must never be packaged'
 }
 
+# docs\ -- the player guides, copied from the repo's docs/ rather than written twice. README.txt
+# used to BE the whole walkthrough at 1046 lines, which meant every rule about hosting, settings
+# and troubleshooting had two homes (that file and docs/) and could only drift. Now docs/ is the
+# single copy and README.txt is a map pointing into it, so a fix lands once.
+#
+# Staged as .txt, not .md: the reader this is for double-clicks a file, and .md has no default
+# association on Windows -- it prompts "how do you want to open this?" instead of opening. The
+# markdown link syntax is flattened on the way in for the same reason, so `[hosting.md](hosting.md)`
+# reads as `hosting.md` in Notepad instead of as punctuation. The .md name in the link text then
+# points at the .txt of the same name sitting beside it, which is close enough to follow.
+#
+# EVERY docs/*.md is staged, deliberately -- not a hand-picked player-facing subset. A subset needs
+# maintaining, and the moment one staged page links to an unstaged one the reader hits a dead end.
+$docsDest = 'packaging\release\docs'
+if (Test-Path $docsDest) { Remove-Item -Recurse -Force $docsDest }
+New-Item -ItemType Directory -Force $docsDest | Out-Null
+$docCount = 0
+foreach ($doc in (Get-ChildItem 'docs\*.md' | Sort-Object Name)) {
+    # ReadAllText with an explicit UTF8 encoding, NOT Get-Content -Raw: the docs are UTF-8 with no
+    # BOM, and PowerShell 5.1 reads a BOM-less file as the system ANSI codepage -- so every em dash
+    # and arrow in them came through as mojibake and was then written back out as genuinely
+    # corrupt UTF-8 (caught in the first dry run of this step).
+    $body = [System.IO.File]::ReadAllText($doc.FullName, [System.Text.Encoding]::UTF8)
+    # [label](target) -> label. Images ![alt](src) go first so the leftover '!' does not survive.
+    $body = [regex]::Replace($body, '!\[([^\]]*)\]\([^)]*\)', '$1')
+    $body = [regex]::Replace($body, '\[([^\]]+)\]\([^)]*\)', '$1')
+    # A label that names a sibling page reads as "hosting.md", but the file beside it is
+    # hosting.txt. Rewrite the extension so the pointer names a file that actually exists in the
+    # zip. Only on a bare <name>.md token, so prose mentioning a .md path elsewhere is untouched.
+    $body = [regex]::Replace($body, '(?<![\w/\\.])([a-z0-9][a-z0-9-]*)\.md\b', '$1.txt')
+    $out = Join-Path $docsDest ($doc.BaseName + '.txt')
+    [System.IO.File]::WriteAllText($out, $body, (New-Object System.Text.UTF8Encoding $false))
+    $docCount++
+}
+if ($docCount -lt 4) {
+    throw "only $docCount file(s) staged into $docsDest -- README.txt points at getting-started, hosting, troubleshooting and config, so fewer than four means the copy is broken and the zip would ship dead pointers."
+}
+Write-Host "  docs\: staged $docCount guide(s) from docs\*.md"
+
 Write-Host ''
 Write-Host 'Staged. packaging\release\ now holds what a player unzips:'
 Write-Host '  meshghost.exe / meshghost-server.exe / config.json'
 Write-Host '  games\pokemon\emerald\  games\pokemon\crystal\   (adapter + lib, load in place)'
 Write-Host '  games\tevi\  games\pseudoregalia\                (install into the game, then'
 Write-Host '                                                    copy meshghost.exe in beside the mod)'
+Write-Host '  docs\                                             (the player guides, from docs\*.md)'
 Write-Host ''
 Write-Host 'What this does NOT prove: the zip step, the Linux/macOS builds, and the staleness'
 Write-Host 'gates release.yml runs against the committed mod DLLs. Those stay CI-only.'

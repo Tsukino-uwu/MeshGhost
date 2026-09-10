@@ -132,7 +132,7 @@ nothing.
 
 `"autostart": false` in the `config.json` a game reads turns the whole thing off in every adapter,
 and is the documented answer for an antivirus that objects to one program starting another
-(`packaging/release/README.txt`, "Turning autostart off", since 2026-09-03). The older
+([docs/troubleshooting.md](../docs/troubleshooting.md), "Running the client yourself instead"; documented since 2026-09-03, moved out of `packaging/release/README.txt` on 2026-09-10). The older
 `MESHGHOST_NO_AUTOSTART` environment variable (set to anything) still counts as "no" and is kept so
 an existing setup keeps working; it is no longer what the player-facing docs point at.
 
@@ -142,8 +142,8 @@ an existing setup keeps working; it is no longer what the player-facing docs poi
 [agent_docs/architecture.md](../agent_docs/architecture.md)'s room-code/version ADR and
 [docs/security.md](../docs/security.md). **Optional and off by default**: an empty
 `server.room_code` means the relay still accepts anyone with the address, the original
-no-auth posture. `packaging/release/README.txt` should tell a host to set one before treating
-a session as safe for people they don't personally know — see that file's own note.
+no-auth posture. [docs/hosting.md](../docs/hosting.md) tells a host to set one before treating
+a session as safe for people they don't personally know — see that page's "Locking the server down".
 
 **The one thing this can't protect against, and every host needs to know**: room-code auth is
 enforced entirely by the relay, so it only works if `meshghost-server.exe` is a current build.
@@ -169,7 +169,7 @@ The valid values are the ids the shipped adapters announce — `emerald`, `cryst
 describing them, and the relay logs the value it actually read on startup (a typo'd id refuses
 every client with no other visible cause). This is the only end-user-facing setting whose valid
 values are a list that grows when a game is added; **adding a game means adding it to that list
-in both `packaging/release/README.txt` and the repo's top-level `README.md`.**
+in both [docs/hosting.md](../docs/hosting.md)'s `only_game` table and the repo's top-level `README.md`.**
 
 Same stale-relay caveat as room-code auth above, and for the same reason: the check lives
 entirely in the relay, so an old `meshghost-server.exe` ignores the field and keeps hosting
@@ -268,7 +268,7 @@ and the gate they exist for has already run by then; a player has no use for a l
 hashes for source they do not have. Local dry runs of `stage-release.ps1` leave them in place. Whoever edits the TEVI adapter re-runs
 `build-tevi.bat` and commits the result as part of that change.
 
-TEVI ships marked experimental (see `packaging/release/README.txt` and
+TEVI ships marked experimental (see `packaging/release/README.txt`'s status list and
 `packaging/release/games/tevi/README.txt`): the mod is code-complete and **has since been
 confirmed working with two real players** (a standalone second TEVI build unblocked local
 dual-instance testing, since Steam won't run two TEVI instances on one machine otherwise — see

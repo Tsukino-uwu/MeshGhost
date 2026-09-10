@@ -64,7 +64,10 @@ client by hand. (The older `MESHGHOST_NO_AUTOSTART` environment variable still w
 
 Bring your own legally-obtained copy of each game. No ROMs or game assets are shipped here.
 
-Full walkthrough: `packaging/release/README.txt`, which ships in the zip.
+Full walkthrough: **[docs/getting-started.md](docs/getting-started.md)**, with
+[docs/hosting.md](docs/hosting.md) for whoever runs the server and
+[docs/troubleshooting.md](docs/troubleshooting.md) when something is wrong. All three ship in the
+zip too, under `docs\`.
 
 ## How it works
 
@@ -161,6 +164,9 @@ is the internal working record of how it got built.
 
 **`docs/`**
 
+- [getting-started.md](docs/getting-started.md) — **start here.** Everything a player does, in five minutes.
+- [hosting.md](docs/hosting.md) — running the server for your group: the short version, then every knob and what it costs.
+- [troubleshooting.md](docs/troubleshooting.md) — it did not work, or something looks wrong.
 - [config.md](docs/config.md) — every `config.json` key: its shipped value, what it does, which program reads it.
 - [integrating.md](docs/integrating.md) — putting MeshGhost in your own game, in any language.
 - [security.md](docs/security.md) — the security and privacy posture: what is already

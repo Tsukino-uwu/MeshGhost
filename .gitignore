@@ -271,3 +271,9 @@ adapters/**/config.json
 
 # Session working checklist, local only (committed once by mistake 2026-09-08, untracked 2026-09-09)
 REVIEW-FINDINGS.md
+
+# packaging/release/docs/ is the repo's own docs/*.md, restaged as .txt on every run by
+# dev-scripts/stage-release.ps1 (and by release.yml, which calls it). Never hand-edited and never
+# committed: docs/ is the single copy, and a committed second one is exactly the drift the staging
+# step exists to prevent. README.txt beside it IS committed -- it is the map, not the content.
+/packaging/release/docs/

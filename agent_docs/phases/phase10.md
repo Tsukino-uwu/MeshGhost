@@ -1373,3 +1373,64 @@ leads with the projectile entry -- that is the first thing to judge next session
 it: the orbs' return glow (`GlowOrbsEffect`), the orb's Light on a ghost, the summon's own attacks,
 and the death-event/per-kind-correction rungs of the projectile plan.
 
+
+## 2026-09-10 — the player docs: `README.txt` split into `docs/`, one copy, staged into the zip
+
+**The ask.** The user wanted "a proper easy/simple to follow" hosting and playing guide, readable
+on the repo, and said the release `README.txt` was "really bloated and hard to read" and should be
+split. Their framing of the player half: *"a player should never have to do anything complicated
+or with lot of friction"*, *"assume the avrg player/user don't even know what a port is"*, and
+each page should carry *"a simple version but also a normal bit more detailed version"*.
+
+**The gap was shape, not content.** `packaging/release/README.txt` was 1046 lines of plaintext
+that already covered everything — port forwarding, the `send_hz` bandwidth tables, `max_clients`
+vs upload, transports, collision, antivirus, Proton — but it shipped only inside the zip, was
+invisible on GitHub, and interleaved player and host concerns. Rewriting it from scratch would
+have thrown away measured numbers; the work was re-cutting it.
+
+**What landed.**
+
+1. `docs/getting-started.md` (133 lines) — the player path only. No ports, no command line, no
+   jargon: download, install the game's mod, set three keys, start the game. The per-game install
+   is one short paragraph each pointing at `games\<game>\README.txt`. Ends with the no-server case
+   (recording, replays, chaser), which needs nobody else.
+2. `docs/hosting.md` (286 lines) — a "short version" (run the exe, four ways to be reachable, give
+   out the address) then "the longer version" with the reasoning. Added the thing the old file had
+   no answer for: a **VPN route** (Radmin VPN, Hamachi, ZeroTier, Tailscale) for anyone behind
+   CGNAT or a router they do not control, framed as a normal way to host rather than a workaround.
+   Every measured table carried over verbatim.
+3. `docs/troubleshooting.md` (208 lines) — logs first, then the causes in frequency order; absorbs
+   autostart, the antivirus section, Proton/Wine, two-instances-on-one-machine and the collision
+   table.
+4. `packaging/release/README.txt` — 1046 lines down to **97**: what is in the folder, what to read,
+   a five-minute version, and each game's status. It is a map now, not the content.
+
+**The drift decision, which is the part worth remembering.** Splitting the zip README into more
+`.txt` files would have given every rule two homes — the exact shape `CLAUDE.md` warns about, and
+the reason the old file could contradict itself (its `listen_udp` server entry was a mangled
+paste of the transport entry, and its `replay.gzip` block said both "(off)" and "(on)" a few lines
+apart; both are gone with the sections). So `docs/` is the single copy and
+`stage-release.ps1` restages **every** `docs/*.md` into the zip as `docs\*.txt` on each run —
+`.gitignore`d, never committed. `release.yml` already calls that script and already zips
+`packaging\release\*` wholesale, so the workflow needed no change.
+
+Two things the first dry run caught, both now commented in the script: PowerShell 5.1's
+`Get-Content -Raw` reads a BOM-less UTF-8 file as system ANSI, so every em dash was staged as
+genuine mojibake (`[System.IO.File]::ReadAllText` with an explicit encoding fixes it); and the
+flattened links pointed at `.md` names that do not exist in the zip, so a bare `<name>.md` token
+is rewritten to `.txt`. Staged as `.txt` rather than `.md` because `.md` has no default
+association on Windows and prompts "how do you want to open this?" — friction for exactly the
+reader these pages are for.
+
+**Preflight caught two hard-coded game counts** ("all four mods ignore it") in the new pages —
+reworded to "every shipped mod". The remaining `FLAGS.md` failure is the uncommitted TEVI
+`GhostBulletsRunGameBehaviour` work, untouched here.
+
+Living pointers updated: the root `README.md` docs list and Setup section, `docs/config.md`'s
+"where to read more", and the three in `packaging/README.md` that named `README.txt` as the place
+a rule is documented. The dated references in `adr/`, `risks.md` and the other phase files are
+left alone — they are records of what was true on their date.
+
+**Not verified by the user.** These are docs, so there is nothing on screen to confirm; what is
+confirmed is that `stage-release.ps1 -NoBuild` stages 11 guides with correct encoding and live
+pointers, and that preflight is clean apart from the pre-existing TEVI flag.

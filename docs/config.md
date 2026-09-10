@@ -75,6 +75,7 @@ Also in the `client` section, shipped at values you should not need to change: `
 
 ## Where to read more
 
-- The player walkthrough, with troubleshooting: `packaging/release/README.txt` in the zip.
+- The player walkthrough: [getting-started.md](getting-started.md). Hosting a server:
+  [hosting.md](hosting.md). When something is wrong: [troubleshooting.md](troubleshooting.md).
 - How the transports and the limits actually work, traced through the code: [networking.md](networking.md).
 - What is encrypted, what is authenticated, and what is not: [security.md](security.md).
