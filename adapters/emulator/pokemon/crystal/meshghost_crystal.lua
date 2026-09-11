@@ -219,6 +219,9 @@ end
 local ADDRESSES = {
 	vanilla = {
 		label = "vanilla Crystal V1.0",
+		-- wOBPals1 and wMenuBorder*, both used by the shipped drawn tier. MEASURED here.
+		W_OBPALS = 0x5040,
+		MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 },
 		OBJECT_STRUCTS = flat(0xD4D6), -- 01:d4d6, 13 x 0x28
 		MAP_OBJECTS = flat(0xD71E), -- 01:d71e, 16 x 0x10
 		W_MAPGROUP = flat(0xDCB5),
@@ -340,6 +343,15 @@ local ADDRESSES = {
 	-- that produced the three failures above.
 	archipelago = {
 		label = "Archipelago-patched Crystal",
+		-- **INHERITED FROM VANILLA, NOT MEASURED (2026-09-11).** Every neighbouring address in
+		-- this table moved by a DIFFERENT amount on this build, so there is no reason to expect
+		-- these two to be right -- only that they are what this file has always used here, so
+		-- keeping them changes nothing on screen while the measurement is outstanding. What they
+		-- would break is the peer palette and the text-box gate, both drawn-tier and both visible.
+		-- `UNVERIFIED.md` carries the measurement as a task; probes/oam_probe.lua is the tool.
+		W_OBPALS = 0x5040,
+		MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 },
+		OBPALS_MEASURED = false,
 		OBJECT_STRUCTS = 0x14DC, -- vanilla+6; player in slot 0, NPCs in 1-2, zeroes after
 		MAP_OBJECTS = 0x16F4, -- vanilla-0x2A; struct_id/sprite/y/x agree with the array both ways
 		W_YCOORD = 0x1CBE, -- vanilla+7; moved -1 walking up, +1 walking back down
@@ -495,6 +507,25 @@ local W_MAPSTATUS, W_BATTLEMODE, W_BGMAPOFFSETX, W_BGMAPOFFSETY
 -- appearance off rather than reading a plausible address.
 local W_USEDSPRITES, W_STATEFLAGS
 -- wOBPals1, the eight object palettes the game is using right now; see paletteColors.
+--
+-- **PER BUILD since 2026-09-11 (review I41), and assigned from ADDRESSES like every other WRAM
+-- address rather than being a file constant.** It was a constant, and so was MENUBOX below, while
+-- the Archipelago build is MEASURED to rearrange WRAM NON-UNIFORMLY -- the object structs moved
+-- +6, the map objects -0x2A and the coordinates +7, three different deltas in one build. So two
+-- addresses that were never re-measured were being read on a build where every neighbouring
+-- address had moved by a different amount. That is the same class as the camera pair that cost a
+-- live mixed-room session (UNVERIFIED.md).
+--
+-- **The Archipelago values are INHERITED from vanilla and are NOT measured, and that is stated
+-- rather than hidden.** They are what this file has always used there, so nothing on screen
+-- changes today; what changes is that the gap is now visible in the table, logged at startup, and
+-- measurable. Switching them off instead would change what a player SEES on that build -- the
+-- peer palette and the text-box gate -- which is not a change to make from reading.
+--
+-- **IT KEEPS A LOAD-TIME VALUE and the table OVERRIDES it**, rather than starting nil: MENUBOX
+-- below is read by a TOP-LEVEL statement (`TEXTBOX.stale`), which runs when this file loads and
+-- long before a ROM can be classified. Starting nil would index a nil value before the adapter
+-- ever reached its first frame.
 local W_OBPALS = 0x5040
 local USED_SPRITES_CAPACITY = 32 -- SPRITE_GFX_LIST_CAPACITY
 
@@ -3969,6 +4000,8 @@ end
 -- boxes do not (measured 2026-08-19 -- a text box left them at zero), which is why the two panels
 -- are handled separately below.
 -- The menu rectangle the game publishes (wMenuBorder*), one table rather than four names.
+-- Per build, overridden from ADDRESSES below -- see W_OBPALS for why, for what the Archipelago
+-- values are worth, and for why this keeps its vanilla value here rather than starting nil.
 local MENUBOX = { top = 0x0F82, left = 0x0F83, bottom = 0x0F84, right = 0x0F85 }
 
 -- Is a UI panel on screen at all? Both a menu and a text box drive the Game Boy's window layer
@@ -5331,10 +5364,14 @@ function drawOverflow()
 			-- HOW FAR BEHIND THE MODEL EVER GETS, and how often it gives up and snaps. A model that
 			-- tracks and a model that resyncs every other step both paint a ghost in about the
 			-- right place; only these two numbers tell them apart, and "it looked fine" would not.
-			if facingFrames.stats() then
-				local behind = math.abs(o.modelX - tX) + math.abs(o.modelY - tY)
-				facingFrames.modelMax = math.max(facingFrames.modelMax or 0, behind)
-			end
+			-- **UNGATED since 2026-09-11 (review I43).** This used to accumulate only under
+			-- `facingFrames.stats()` -- the COMPARE_TIERS rig plus an env flag -- while the
+			-- once-a-second pacing line that SHIPS reads it. So in every ordinary session that
+			-- line printed `furthest behind 0px` whatever the ghost was doing, which reads as a
+			-- clean run and is the "passed while exercising nothing" failure in log form.
+			-- Two subtractions and a max per drawn peer per frame is not a cost worth gating.
+			local behind = math.abs(o.modelX - tX) + math.abs(o.modelY - tY)
+			facingFrames.modelMax = math.max(facingFrames.modelMax or 0, behind)
 			if o.pixX and o.pixY then
 				-- QUANTISE THE POSITION, NOT THE TIME. (2026-08-23, third attempt and the one the
 				-- measurements point at rather than away from.)
@@ -5779,7 +5816,10 @@ function drawOverflow()
 							o.modelY = o.modelY + (o.stepDY or 0) * mv
 							o.stepLeft = o.stepLeft - mv
 							budget = budget - mv
-							if o.catchup and COMPARE_TIERS then
+							-- Ungated for the same reason as modelMax above: the shipped pacing
+							-- line reads this one too, and reported 0 catch-up frames in every
+							-- ordinary session.
+							if o.catchup then
 								facingFrames.catchupFrames = (facingFrames.catchupFrames or 0) + 1
 							end
 							-- The legs read this. Position and pose come off ONE clock, and this
@@ -7207,15 +7247,28 @@ function drawOverflow()
 		-- readable in an ordinary session.
 		--
 		-- `furthest behind` is the lag in pixels: a model that is smoothly 6px behind looks fine,
-		-- one that swings between 0 and 20 is the glide. `backward refused` counts frames where the
-		-- model wanted to move AWAY from its target -- a peer's own reversal arriving late. And
-		-- `catch-up` counts frames spent repaying, which is where a snap would live if it is not
-		-- the resync. Three integers, once a second, only while a peer is on the drawn tier.
+		-- one that swings between 0 and 20 is the glide. And `catch-up` counts frames spent
+		-- repaying, which is where a snap would live if it is not the resync. Two integers, once a
+		-- second, only while a peer is on the drawn tier.
+		--
+		-- **There were THREE until 2026-09-11 (review I43).** The third, `backward refused`, was
+		-- meant to count frames where the model wanted to move AWAY from its target -- and no
+		-- branch anywhere ever counted one, because no such refusal exists in this code. It is
+		-- gone rather than implemented: inventing the mechanism to justify the counter would be
+		-- the wrong way round.
 		if nDrawn > 0 then
+			-- **`backward refused` IS GONE FROM THIS LINE (review I43, 2026-09-11), because
+			-- nothing anywhere assigns it.** `facingFrames.backwards` is read here and in the
+			-- COMPARE_STATS line and written nowhere in the file: there is no branch that refuses
+			-- a backward step, so the counter was describing a mechanism that was planned and
+			-- never built. Printing it as `0 backward refused` is worse than not printing it --
+			-- it is a measurement of nothing, formatted to look like a measurement of something,
+			-- in the one line an ordinary session gets.
+			--
+			-- The other two are real now: both accumulate in every session since the same change.
 			logFile(string.format("  model pacing: furthest behind %dpx (a step is 16px), "
-				.. "%d backward refused, %d catch-up frames",
-				facingFrames.modelMax or 0, facingFrames.backwards or 0,
-				facingFrames.catchupFrames or 0))
+				.. "%d catch-up frames",
+				facingFrames.modelMax or 0, facingFrames.catchupFrames or 0))
 			-- The camera's own motion, as this adapter sees it. The engine scrolls whole gait
 			-- strides and never an odd pixel, so a bin outside {0,2,4,8} is this adapter sampling
 			-- mid-scroll rather than the game doing something new.
@@ -7293,13 +7346,15 @@ function drawOverflow()
 			-- refusing to step, and the reasons say which of the three refusals did it -- the
 			-- distinction that "the ghost stands there" cannot make on screen.
 			logFile(string.format("  MODEL walk: furthest behind its destination %.0fpx (a step is "
-				.. "16px), %d resyncs, %d backward steps refused, "
+				.. "16px), %d resyncs, "
 				.. "%d beat corrections, %d catch-up frames, %d of them free-running at rest"
 				.. " | K drift %dpx over %d parks (worst %dpx), %dpx repaid on %d nudge frames,"
 				.. " %d direction reversals"
 				.. " | %d camera rebases",
 				facingFrames.modelMax or 0, facingFrames.modelSnaps or 0,
-				facingFrames.backwards or 0, facingFrames.phaseFollow or 0,
+				-- facingFrames.backwards removed 2026-09-11: never assigned anywhere. See the
+				-- shipped pacing line above.
+				facingFrames.phaseFollow or 0,
 				facingFrames.catchupFrames or 0, facingFrames.freeCatchup or 0,
 				facingFrames.kParkSum or 0, facingFrames.kParks or 0,
 				facingFrames.kParkMax or 0, facingFrames.kFix or 0,
@@ -9997,6 +10052,18 @@ W_BGMAPOFFSETX, W_BGMAPOFFSETY = A.W_BGMAPOFFSETX, A.W_BGMAPOFFSETY
 -- Cross-map ghosts. All three or none: nil on a build where the block is unmeasured, and
 -- ENGINE.xmap.armed() then keeps the whole feature off rather than translating against a guess.
 ENGINE.xmap.connAt, ENGINE.xmap.wAt, ENGINE.xmap.hAt = A.W_MAPCONNECTIONS, A.W_MAPWIDTH, A.W_MAPHEIGHT
+-- Overrides, not assignments: both already hold vanilla's values from load time (see their
+-- declarations), and `or` keeps that if a future table omits them.
+W_OBPALS = A.W_OBPALS or W_OBPALS
+MENUBOX = A.MENUBOX or MENUBOX
+if A.OBPALS_MEASURED == false then
+	-- Said once, at startup, because an inherited address is indistinguishable from a measured one
+	-- at every later point -- which is exactly how the camera pair stayed wrong through a live
+	-- mixed-room session.
+	log("MeshGhost: NOTE — on this build the palette and menu-box addresses are INHERITED from "
+		.. "vanilla and have never been measured. If peer colours or the text-box gate look wrong "
+		.. "here, that is the first thing to check.")
+end
 W_USEDSPRITES = A.W_USEDSPRITES -- optional: nil means "peer appearance off on this build"
 W_STATEFLAGS = A.W_STATEFLAGS -- optional: nil turns the hardware tier off on that build
 OVERWORLD_SPRITES_ROM = A.OVERWORLD_SPRITES_ROM -- optional: nil means "no cartridge graphics here"
