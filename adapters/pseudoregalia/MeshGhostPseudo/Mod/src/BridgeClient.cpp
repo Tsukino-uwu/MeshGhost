@@ -1,4 +1,5 @@
 #include <BridgeClient.hpp>
+#include <PeerJson.hpp>
 
 #include <DynamicOutput/DynamicOutput.hpp>
 
@@ -13,6 +14,10 @@
 
 namespace MeshGhostPseudo
 {
+// json_top_level_string and json_top_level_true live in PeerJson.hpp, with every other
+// reader that touches bytes a stranger wrote -- that is what makes them testable without a
+// game (MeshGhostPseudo.Tests, and .github/workflows/pseudoregalia.yml runs it).
+
     using namespace RC;
 
     namespace
@@ -472,33 +477,59 @@ namespace MeshGhostPseudo
                 }
                 // The core's two answers to our hello are handled here rather than handed
                 // upward: they are about which core we are talking to, which is this class's
-                // job, and Plugin only ever wants ghost messages. Matched by substring, the
-                // same way every other line in this mod is read -- there is no JSON parser
-                // here, and adding one for two fixed shapes would be the larger change.
-                if (line.find("\"bridge_ready\"") != std::string::npos)
+                // job, and Plugin only ever wants ghost messages.
+                //
+                // READ FROM THE TOP-LEVEL "type" FIELD, not searched for anywhere in the line.
+                // The substring form this replaced ran over render_remote lines too, and a
+                // render_remote carries a peer's orientation blob as raw JSON -- so a peer
+                // could close this player's bridge by naming our own control words inside it
+                // (json_top_level_string has the eighteen-byte version).
+                const std::string msg_type = json_top_level_string(line, "type");
+                if (msg_type == "bridge_ready")
                 {
                     core_answered_ready = true;
                     Output::send(STR("[MeshGhostPseudo] core on port {} accepted us.\n"), source_port);
                     start = newline_pos + 1;
                     continue;
                 }
-                if (line.find("\"reject\"") != std::string::npos)
+                if (msg_type == "reject")
                 {
                     // ONE rejection means something different from the others, and treating them
                     // alike is what cost a 0.9.9 user their session. "busy" means this core has an
-                    // adapter, so the answer is to try the next port. "cannot reach the relay"
-                    // means this core is FINE and the relay is not -- walking on finds nothing,
-                    // every port gets marked busy in turn, and the adapter then starts spawning
-                    // fresh cores at the retry cadence. Wait on the same core instead: it retries
-                    // the relay by itself and reconnects when the relay comes back.
+                    // adapter, so the answer is to try the next port. Anything else means this core
+                    // is FINE and something upstream is not -- walking on finds nothing, every port
+                    // gets marked busy in turn, and the adapter then starts spawning fresh cores at
+                    // the retry cadence. Wait on the same core instead: it retries by itself.
                     //
-                    // Crystal has had this since 2026-08-19, Emerald since 2026-08-28. This is the
-                    // third sibling to get it, which is why adapters/CLAUDE.md's "rules that live
-                    // in one code path and are missing from their sibling" sweep exists.
-                    if (line.find("relay") != std::string::npos)
+                    // BRANCHED ON "code", NOT ON THE PROSE (ADR 0058, review D4/N2). Until
+                    // 2026-09-11 all four adapters searched the REASON for the substring "relay",
+                    // and that heuristic is inverted: every PERMANENT refusal contains that word,
+                    // because the core renders relay refusals as "core: relay refused connection:
+                    // %s", while the one refusal that means "try the next port" -- busy -- does
+                    // not. So a wrong room code read as "the relay is briefly down" and was retried
+                    // forever, with the player never told. bridge.Reject has carried a frozen code
+                    // since 2026-09-08; the prose stays a sentence for this log.
+                    //
+                    // An EMPTY code is a core older than that field, and only then does the old
+                    // substring rule run -- which is what keeps a new adapter working against a
+                    // core a player has not updated.
+                    const std::string reject_code = json_top_level_string(line, "code");
+                    const bool walk_on = reject_code.empty()
+                                             ? (line.find("relay") == std::string::npos)
+                                             : (reject_code == "busy" || reject_code == "already_serving");
+                    if (!walk_on)
                     {
+                        if (!reject_code.empty() && !json_top_level_true(line, "retryable"))
+                        {
+                            // Said plainly, because this is the case the old heuristic hid: a
+                            // refusal that will not fix itself, retried silently forever.
+                            Output::send(STR("[MeshGhostPseudo] core on port {} refused us permanently ({}) -- "
+                                             "this will NOT fix itself by waiting; check the client's config.json.\n"),
+                                         source_port,
+                                         to_wide_ascii(line));
+                        }
                         relay_down_until = std::chrono::steady_clock::now() + RELAY_DOWN_BACKOFF;
-                        Output::send(STR("[MeshGhostPseudo] core on port {} cannot reach the relay ({}) -- "
+                        Output::send(STR("[MeshGhostPseudo] core on port {} refused us and is not busy ({}) -- "
                                          "waiting on this core rather than walking; it retries by itself.\n"),
                                      source_port,
                                      to_wide_ascii(line));
@@ -513,7 +544,10 @@ namespace MeshGhostPseudo
                     {
                         busy_until[source_port - base_port] = std::chrono::steady_clock::now() + BUSY_PORT_COOLDOWN;
                     }
-                    if (line.find("busy") != std::string::npos)
+                    // The code where the core sends one; the old substring only as the
+                    // fallback for a core older than the field.
+                    if (reject_code.empty() ? (line.find("busy") != std::string::npos)
+                                            : (reject_code == "busy"))
                     {
                         last_busy_port = source_port;
                     }

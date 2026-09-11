@@ -743,4 +743,158 @@ namespace MeshGhostPseudo
         }
         return static_cast<int>(value);
     }
+    // json_top_level_string reads the value of a TOP-LEVEL string field out of one
+    // NDJSON line, without a JSON parser and without ever looking inside a nested
+    // object.
+    //
+    // WHY THIS EXISTS, and it is a security fix rather than tidiness (review I1).
+    // Every line was classified by bare substring -- a search for "reject" and then
+    // for "relay" -- over EVERY line, including render_remote. A render_remote
+    // carries a peer's orientation blob as raw JSON that the core is forbidden to
+    // interpret and passes through untouched, bounded only by size and nesting
+    // depth. So a peer sending an orientation object containing our own control
+    // words made the victim's adapter close its bridge, park for the relay backoff,
+    // drop every ghost, and log that THE RELAY was unreachable. Eighteen bytes,
+    // from anyone in the room, against a player whose own machine was fine.
+    //
+    // The fix is not "search harder" -- any substring rule over a field that may
+    // contain arbitrary peer JSON has this shape. It is to read the field the
+    // protocol actually defines, at the depth it is defined at.
+    //
+    // Deliberately NOT a JSON parser: it tracks string state (so a brace or a quote
+    // inside a value is not structure), escapes, and nesting depth, and answers one
+    // question -- what is the value of this key at depth 1. Anything it cannot
+    // answer confidently comes back empty, which every caller treats as "not that
+    // kind of line".
+    inline std::string json_top_level_string(const std::string& line, const char* key)
+    {
+        const std::string want = std::string("\"") + key + "\"";
+        bool in_string = false;
+        bool escaped = false;
+        int depth = 0;
+        for (size_t i = 0; i < line.size(); ++i)
+        {
+            const char c = line[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            if (in_string)
+            {
+                if (c == '\\')
+                {
+                    escaped = true;
+                }
+                else if (c == '"')
+                {
+                    in_string = false;
+                }
+                continue;
+            }
+            if (c == '"')
+            {
+                // A key we care about can only be at depth 1.
+                if (depth == 1 && line.compare(i, want.size(), want) == 0)
+                {
+                    size_t j = i + want.size();
+                    while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) ++j;
+                    if (j >= line.size() || line[j] != ':')
+                    {
+                        in_string = true;
+                        continue;
+                    }
+                    ++j;
+                    while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) ++j;
+                    if (j >= line.size() || line[j] != '"')
+                    {
+                        return std::string(); // present, but not a string value
+                    }
+                    ++j;
+                    std::string out;
+                    bool esc = false;
+                    for (; j < line.size(); ++j)
+                    {
+                        const char v = line[j];
+                        if (esc)
+                        {
+                            // Only the escapes these fields can legitimately
+                            // contain; anything else is passed through as written,
+                            // since this value is only ever compared and logged.
+                            switch (v)
+                            {
+                            case 'n': out.push_back('\n'); break;
+                            case 't': out.push_back('\t'); break;
+                            case 'r': out.push_back('\r'); break;
+                            default: out.push_back(v); break;
+                            }
+                            esc = false;
+                            continue;
+                        }
+                        if (v == '\\')
+                        {
+                            esc = true;
+                            continue;
+                        }
+                        if (v == '"')
+                        {
+                            return out;
+                        }
+                        out.push_back(v);
+                    }
+                    return std::string(); // unterminated
+                }
+                in_string = true;
+                continue;
+            }
+            if (c == '{' || c == '[') ++depth;
+            else if (c == '}' || c == ']') --depth;
+        }
+        return std::string();
+    }
+
+    // json_top_level_true reports whether a top-level key is literally true. Used
+    // for "retryable", which is a bool rather than a string.
+    inline bool json_top_level_true(const std::string& line, const char* key)
+    {
+        const std::string want = std::string("\"") + key + "\"";
+        bool in_string = false;
+        bool escaped = false;
+        int depth = 0;
+        for (size_t i = 0; i < line.size(); ++i)
+        {
+            const char c = line[i];
+            if (escaped)
+            {
+                escaped = false;
+                continue;
+            }
+            if (in_string)
+            {
+                if (c == '\\') escaped = true;
+                else if (c == '"') in_string = false;
+                continue;
+            }
+            if (c == '"')
+            {
+                if (depth == 1 && line.compare(i, want.size(), want) == 0)
+                {
+                    size_t j = i + want.size();
+                    while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) ++j;
+                    if (j < line.size() && line[j] == ':')
+                    {
+                        ++j;
+                        while (j < line.size() && (line[j] == ' ' || line[j] == '\t')) ++j;
+                        return line.compare(j, 4, "true") == 0;
+                    }
+                }
+                in_string = true;
+                continue;
+            }
+            if (c == '{' || c == '[') ++depth;
+            else if (c == '}' || c == ']') --depth;
+        }
+        return false;
+    }
+
 } // namespace MeshGhostPseudo

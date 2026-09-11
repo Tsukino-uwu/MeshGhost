@@ -2080,15 +2080,47 @@ local function handleBridgeLine(line)
         local reason = tostring(type(payload) == "table" and payload.reason or "no reason given")
         console.log("MeshGhost: rejected (" .. reason .. ")")
         -- ONE rejection means something different from the others. "busy" means this core has an
-        -- adapter, so try the next port. "cannot reach the relay" means this core is fine and the
-        -- RELAY is not -- there is nothing to walk to, and walking anyway is what produced the
-        -- 5fps measurement Crystal cites. Wait on the same core: it retries the relay itself.
-        if reason:find("relay", 1, true) then
+        -- adapter, so try the next port. Anything else means this core is fine and something
+        -- upstream is not -- there is nothing to walk to, and walking anyway is what produced the
+        -- 5fps measurement Crystal cites. Wait on the same core: it retries by itself.
+        --
+        -- BRANCHED ON `code`, NOT ON THE PROSE (ADR 0058; review D4/N2, fixed 2026-09-11). This
+        -- used to search the reason for the substring "relay", and that heuristic is inverted:
+        -- every PERMANENT refusal contains that word, because the core renders relay refusals as
+        -- "core: relay refused connection: %s", while the one refusal that means "try the next
+        -- port" does not. So a wrong room code read as "the relay is briefly down" and was
+        -- retried forever, with the player never told. bridge.Reject has carried a frozen code
+        -- since 2026-09-08; the reason stays a sentence for the line above.
+        --
+        -- An EMPTY code is a core older than that field, and only then does the old substring
+        -- rule run -- which is what keeps this adapter working against a core that has not been
+        -- updated alongside it.
+        local code = type(payload) == "table" and type(payload.code) == "string" and payload.code or ""
+        local retryable = type(payload) == "table" and payload.retryable == true
+        local walkOn
+        if code == "" then
+            walkOn = not reason:find("relay", 1, true)
+        else
+            walkOn = (code == "busy") or (code == "already_serving")
+        end
+        if not walkOn then
+            if code ~= "" and not retryable then
+                -- Said plainly, because this is the case the old heuristic hid: a refusal that
+                -- will not fix itself, retried silently forever.
+                console.log("MeshGhost: that refusal is PERMANENT (" .. code .. ") -- waiting will not "
+                    .. "fix it; check the client's config.json")
+            end
             relayDown.until_ = frameCounter + relayDown.frames
             resetBridge()
             return
         end
-        if reason:find("busy", 1, true) and coreSpawnFrame and currentPort == coreSpawnFrame.port then
+        local isBusy
+        if code == "" then
+            isBusy = reason:find("busy", 1, true) ~= nil
+        else
+            isBusy = code == "busy"
+        end
+        if isBusy and coreSpawnFrame and currentPort == coreSpawnFrame.port then
             coreSpawnFrame.busy = true -- our own child has another game: startCore may forget it
         end
         markPortBusy(currentPort, "refused us (" .. reason .. ")")

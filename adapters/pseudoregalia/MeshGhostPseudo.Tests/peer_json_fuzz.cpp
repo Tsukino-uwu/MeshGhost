@@ -694,6 +694,136 @@ namespace
             (void)json_escape(s);
         }
     }
+
+    // THE CONTROL-LINE READERS, and the eighteen-byte remote kill they replaced (review I1).
+    //
+    // BridgeClient classified every line it read by bare substring -- a search for "reject"
+    // anywhere in the line, then a search for "relay" anywhere in the line -- and it ran that over
+    // render_remote lines too. A render_remote carries a peer's orientation blob as RAW JSON: the
+    // core is forbidden to interpret it and passes it through untouched, bounded only by size and
+    // nesting depth. So one peer could write our own control words into their orientation and make
+    // another player's adapter close its bridge, park for the relay backoff, drop every ghost, and
+    // log that the relay was unreachable.
+    //
+    // These read the top-level field the protocol actually defines, so the attack is not a matter
+    // of searching more carefully -- the words simply are not at depth 1.
+    auto control_fields() -> void
+    {
+        struct Case
+        {
+            const char* line;
+            const char* key;
+            const char* want;   // "" means "no such top-level field"
+            const char* why;
+        };
+        const Case cases[] = {
+            {R"({"type":"bridge_ready"})", "type", "bridge_ready", "the plain shape"},
+            {R"({"type":"reject","reason":"busy","code":"busy"})", "code", "busy", "the code beside the prose"},
+            {R"({ "type" : "reject" , "code" : "invalid_room_code" })", "code", "invalid_room_code", "whitespace around the colon"},
+
+            // THE ATTACK, in the three shapes it can take.
+            {R"({"type":"render_remote","state":{"orientation":{"reject":"relay"}}})", "type", "render_remote",
+             "a peer naming our control words inside their own orientation"},
+            {R"({"type":"render_remote","state":{"orientation":{"type":"reject"}}})", "type", "render_remote",
+             "a peer claiming to BE a reject, one level down"},
+            {R"({"type":"render_remote","state":{"anim":"type\":\"reject"}})", "type", "render_remote",
+             "the same words escaped inside a string value"},
+
+            // Shapes that must not be mistaken for a field.
+            {R"({"nottype":"reject"})", "type", "", "a longer key that ends with ours"},
+            {R"({"type":123})", "type", "", "present but not a string"},
+            {R"({"type":"unterminated)", "type", "", "a value with no closing quote"},
+            {R"({"type")", "type", "", "a key with no value at all"},
+            {"", "type", "", "an empty line"},
+            {"not json at all", "type", "", "not json at all"},
+            {R"({"a":{"type":"reject"},"type":"render_remote"})", "type", "render_remote",
+             "a nested decoy BEFORE the real field"},
+            {R"({"state":{"anim":"}"},"type":"reject"})", "type", "reject",
+             "a closing brace inside a string value must not end the object"},
+            {R"({"state":{"anim":"\""},"type":"reject"})", "type", "reject",
+             "an escaped quote inside a string value must not end the string"},
+        };
+        for (const Case& c : cases)
+        {
+            ++g_checks;
+            const std::string got = json_top_level_string(std::string(c.line), c.key);
+            if (got != std::string(c.want))
+            {
+                fail(std::string("json_top_level_string(") + show(c.line) + ", \"" + c.key + "\") = " +
+                     show(got) + ", want " + show(c.want) + " -- " + c.why);
+            }
+        }
+
+        // retryable, the flag that decides whether a refusal is worth waiting out.
+        struct BoolCase
+        {
+            const char* line;
+            bool want;
+            const char* why;
+        };
+        const BoolCase bools[] = {
+            {R"({"type":"reject","retryable":true})", true, "the plain shape"},
+            {R"({"type":"reject","retryable":false})", false, "false is false"},
+            {R"({"type":"reject"})", false, "absent means false, which is the safe side"},
+            {R"({"type":"reject","retryable":"true"})", false, "the STRING \"true\" is not the literal"},
+            {R"({"state":{"retryable":true},"type":"render_remote"})", false,
+             "a peer setting it inside their own state must not reach this"},
+        };
+        for (const BoolCase& c : bools)
+        {
+            ++g_checks;
+            const bool got = json_top_level_true(std::string(c.line), "retryable");
+            if (got != c.want)
+            {
+                fail(std::string("json_top_level_true(") + show(c.line) + ", \"retryable\") = " +
+                     (got ? "true" : "false") + ", want " + (c.want ? "true" : "false") + " -- " + c.why);
+            }
+        }
+    }
+
+    // The reject rule itself, as BridgeClient applies it: WALK to the next port only for a core
+    // that is busy or serving another game, WAIT on this one for everything else. The old prose
+    // heuristic had this inverted -- every permanent refusal contains the word "relay" because the
+    // core renders relay refusals as "core: relay refused connection: ...", while busy does not --
+    // so a wrong room code read as "the relay is briefly down" and was retried forever.
+    auto reject_rule() -> void
+    {
+        struct Case
+        {
+            const char* line;
+            bool want_walk;
+            const char* why;
+        };
+        const Case cases[] = {
+            {R"({"type":"reject","reason":"busy: this core already has a game","code":"busy"})", true,
+             "busy is the one refusal that means try the next port"},
+            {R"({"type":"reject","reason":"already serving emerald","code":"already_serving"})", true,
+             "another game's core: walk on and let a second core serve this one"},
+            {R"({"type":"reject","reason":"core: relay refused connection: invalid room code","code":"invalid_room_code","retryable":false})", false,
+             "a wrong room code must NOT walk the ports and spawn cores"},
+            {R"({"type":"reject","reason":"core: relay refused connection: server full","code":"server_full","retryable":true})", false,
+             "a full relay is worth waiting out on this same core"},
+            {R"({"type":"reject","reason":"core: cannot reach the relay"})", false,
+             "no code: an older core, and the old substring rule still has to work"},
+            {R"({"type":"reject","reason":"busy"})", true,
+             "no code and no 'relay' in the prose: the old rule walks, as it always did"},
+        };
+        for (const Case& c : cases)
+        {
+            ++g_checks;
+            const std::string line(c.line);
+            const std::string code = json_top_level_string(line, "code");
+            const bool walk = code.empty() ? (line.find("relay") == std::string::npos)
+                                           : (code == "busy" || code == "already_serving");
+            if (walk != c.want_walk)
+            {
+                fail(std::string("reject rule on ") + show(line) + " chose " +
+                     (walk ? "WALK" : "WAIT") + ", want " + (c.want_walk ? "WALK" : "WAIT") +
+                     " -- " + c.why);
+            }
+        }
+    }
+
 } // namespace
 
 auto main() -> int
@@ -709,6 +839,8 @@ auto main() -> int
     bounds();
     malformed();
     wrong_types();
+    control_fields();
+    reject_rule();
     mutate(seed, 20000);
 
     std::printf("  %ld checks across the shipped peer-JSON readers (mutator seed 0x%016llx)\n",

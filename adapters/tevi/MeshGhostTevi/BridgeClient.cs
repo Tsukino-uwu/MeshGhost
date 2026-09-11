@@ -1025,24 +1025,64 @@ namespace MeshGhostTevi
                             // moved. Using the cursor cooled down innocent ports and left the busy
                             // one hot, which is what made the walk churn.
                             int refusedPort = connectedPort;
-                            // ONE rejection means something different from the others. "busy"
-                            // means this core has an adapter, so walk on. "cannot reach the relay"
-                            // means this core is FINE and the relay is not -- walking on cools
-                            // every port in turn and leaves nowhere to go. Wait on the same core:
-                            // it retries the relay by itself and reconnects when it comes back.
-                            if (reason != null && reason.IndexOf("relay", StringComparison.OrdinalIgnoreCase) >= 0)
+                            // THE CODE, NOT THE PROSE (ADR 0058; review D4/N2, fixed 2026-09-11).
+                            //
+                            // "busy" means this core already has an adapter, so walk on. Everything
+                            // else means this core is FINE and something upstream is not -- walking
+                            // cools every port in turn, leaves nowhere to go, and then starts
+                            // spawning fresh cores at the retry cadence.
+                            //
+                            // This used to search the REASON for the substring "relay", and that
+                            // heuristic is inverted: every PERMANENT refusal contains that word,
+                            // because the core renders relay refusals as "core: relay refused
+                            // connection: %s", while the one refusal that means "try the next port"
+                            // does not. So a wrong room code read as "the relay is briefly down"
+                            // and was retried forever, with the player never told why nothing
+                            // worked. bridge.Reject has carried a frozen `code` since 2026-09-08.
+                            //
+                            // An ABSENT code is a core older than that field, and only then does
+                            // the old substring rule run -- which is what keeps this adapter
+                            // working against a core the player has not updated.
+                            string code = null;
+                            if (payload != null && payload.TryGetValue("code", out JToken codeToken))
+                            {
+                                code = (string)codeToken;
+                            }
+                            bool retryable = false;
+                            if (payload != null && payload.TryGetValue("retryable", out JToken retryableToken))
+                            {
+                                retryable = retryableToken.Type == JTokenType.Boolean && (bool)retryableToken;
+                            }
+                            bool walkOn = string.IsNullOrEmpty(code)
+                                ? !(reason != null && reason.IndexOf("relay", StringComparison.OrdinalIgnoreCase) >= 0)
+                                : (code == "busy" || code == "already_serving");
+                            if (!walkOn)
                             {
                                 lock (portCooldownUntil)
                                 {
                                     relayDownUntil = DateTime.UtcNow + RelayDownBackoff;
                                 }
-                                Log($"MeshGhost: the core on port {refusedPort} cannot reach the relay " +
-                                    $"({reason}) -- waiting on this core rather than walking; it retries by itself.");
+                                if (!string.IsNullOrEmpty(code) && !retryable)
+                                {
+                                    // Said plainly, because this is the case the old heuristic hid:
+                                    // a refusal that will not fix itself, retried silently forever.
+                                    Log($"MeshGhost: the core on port {refusedPort} refused this adapter " +
+                                        $"PERMANENTLY ({code}: {reason}) -- waiting will NOT fix it; " +
+                                        "check the client's config.json.");
+                                }
+                                else
+                                {
+                                    Log($"MeshGhost: the core on port {refusedPort} refused this adapter " +
+                                        $"({reason}) -- waiting on this core rather than walking; it retries by itself.");
+                                }
                                 connected = false;
                                 break;
                             }
                             portCooldownUntil[refusedPort] = DateTime.UtcNow + BusyPortCooldown;
-                            if (reason != null && reason.IndexOf("busy", StringComparison.OrdinalIgnoreCase) >= 0)
+                            bool isBusy = string.IsNullOrEmpty(code)
+                                ? (reason != null && reason.IndexOf("busy", StringComparison.OrdinalIgnoreCase) >= 0)
+                                : code == "busy";
+                            if (isBusy)
                             {
                                 LastBusyPort = refusedPort;
                             }
