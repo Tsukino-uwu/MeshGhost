@@ -469,8 +469,23 @@ jobs:
         with:
           name: unix-packages
 
+      # **PINNED TO A COMMIT, NOT A TAG (review J8, 2026-09-11).** This is the only
+      # non-`actions/*` action in the tree and it runs in the one job that holds
+      # `contents: write`, so whoever controls what `@v3` points at can publish
+      # releases to this repository. A major tag is MUTABLE by design -- it moves
+      # to every 3.x -- so "pinned to v3" is a statement about a name, not about
+      # code, and nothing here would notice it moving.
+      #
+      # A commit sha is immutable. The cost is that Dependabot-style updates stop
+      # being automatic, which is the point: an update becomes a decision someone
+      # makes rather than one that happens.
+      #
+      # RESOLVED FROM THE API, NOT FROM MEMORY (CLAUDE.md): the annotated tag v3
+      # -> tag object 5113cdc9 -> commit efb35369, which is release 3.0.3, dated
+      # 2026-08-30. Re-resolve the same way when bumping it; the comment names the
+      # version so a reader can tell at a glance what they are pinned to.
       - name: Create release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ inputs.version }}
           prerelease: ${{ inputs.prerelease }}

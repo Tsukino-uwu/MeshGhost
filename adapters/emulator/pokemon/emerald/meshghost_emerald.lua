@@ -1324,8 +1324,18 @@ local function getLocalState()
 
     local x = memory.read_s16_le(base + 0x00)
     local y = memory.read_s16_le(base + 0x02)
-    local mapGroup = memory.read_s8(base + 0x04)
-    local mapNum = memory.read_s8(base + 0x05)
+    -- **UNSIGNED, matching the engine's own type and the cross-map table (review I35, fixed
+    -- 2026-09-11).** These were read SIGNED here while `xmapScan` reads the connection entries'
+    -- own `mapGroup`/`mapNum` with `read_u8` -- so for any id of 128 or more the two spellings
+    -- disagree ("-1:5" against "255:5"), the connection lookup misses, and cross-map ghosts
+    -- silently stop working at a seam with no error anywhere.
+    --
+    -- The decomp's struct has both as `u8` (`include/global.h`), and `read_s8` was simply the
+    -- wrong reader: there is no Emerald map id this can make negative on purpose. Latent today --
+    -- no group or number that high has been seen in play -- which is exactly why it would have
+    -- been found the hard way, at a seam, by a player.
+    local mapGroup = memory.read_u8(base + 0x04)
+    local mapNum = memory.read_u8(base + 0x05)
 
     if mapJustChanged(mapGroup, mapNum) then return nil end
 
