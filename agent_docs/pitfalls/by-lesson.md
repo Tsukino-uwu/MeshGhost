@@ -7160,3 +7160,37 @@ repo forever.
 
 **Still not covered, deliberately:** a bare IPv6 literal, and a hostname on a TLD outside the
 curated set. Both were judged to cost more in prose collisions than they close.
+
+**The audit that rule forced, the same day — and the three gates it caught.** "Negative-test every
+gate" is a rule nobody can hold by remembering it, so it became
+`dev-scripts/negative-test-preflight.ps1`: a detached worktree at HEAD, one real violation planted
+per run, and an assertion that the section aimed at it NAMES it. Fifteen fixtures on the first
+pass. Three of them did not report:
+
+1. **Two sections read the wrong tree entirely.** `Set-Location` moves PowerShell's location; it
+   does **not** move the .NET process working directory, and four sections read files through
+   `[IO.File]` with a **relative** path. Run from anywhere but the repo root, `Test-Path` (the
+   PowerShell location) said the file was there and `ReadAllBytes` then read the same relative path
+   out of a *different tree*. A planted username sat in a tracked `.dll` while the gate printed
+   *"no NEW tracked binary embeds a machine-identifying path"* — it had just read the clean copy of
+   that file next door. The same for the control-byte scan. One line fixes all four:
+   `[Environment]::CurrentDirectory = $root` beside the `Set-Location`. **Nothing about the tree
+   under test was wrong; the check was looking somewhere else and could not tell.**
+2. **A gate scoped to a filename instead of the surface.** The check forbidding relative links in
+   `.github/SECURITY.md` was written on 2026-09-06 for the Security tab, which drops the branch
+   segment when it renders that file. On 2026-09-11 the user clicked both links in
+   `.github/CONTRIBUTING.md` and got `/blob/CLAUDE.md` and `/blob/agent_docs/README.md` — the
+   identical defect, in the sibling file, past a gate already built for it. A surface quirk belongs
+   to **the folder GitHub treats specially**; naming one file gates one file.
+3. **A warning that was always on.** The reproduced-expression check WARNed on every clean run it
+   ever had, over one accepted block of our own probe output. A new fence would have arrived as the
+   same yellow text as yesterday's — the "cannot fail" defect wearing the other mask, since a line
+   that is always there is a line nobody reads. It is a ratchet now: the accepted count is recorded
+   per file and only a block above it is reported.
+
+**What to take from it.** The first is the one worth carrying: **a check can be correct and still
+be pointed at the wrong thing**, and a clean result then means the check ran, not that the tree is
+clean. Two of the three were invisible in the only direction anyone ever ran preflight — from the
+repo root, against a tree with nothing planted in it. Also: the harness verifies its own plants by
+reading the file back, because a plant that quietly did nothing is reported as a blind gate, and
+the fix then gets applied to an innocent check.
