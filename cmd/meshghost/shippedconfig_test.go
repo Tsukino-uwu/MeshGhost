@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,6 +311,16 @@ func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
 			path := filepath.Join("..", "..", rel)
 			raw, err := os.ReadFile(path)
 			if err != nil {
+				// **THE PER-GAME FILES ARE STAGING OUTPUT AND ARE GITIGNORED**, so they exist on a
+				// machine that has staged a release and never in a clean checkout. Failing on
+				// absence made this test pass locally and fail in CI on its first push
+				// (2026-09-11). Their INPUTS are tracked, though, and
+				// TestConfigOverridesProduceNoUnknownKeyWarning below checks those -- which is
+				// where the keys this test was written for actually live.
+				if os.IsNotExist(err) {
+					t.Skipf("%s is staging output (gitignored); its tracked inputs are covered by "+
+						"TestConfigOverridesProduceNoUnknownKeyWarning", rel)
+				}
 				t.Fatalf("reading %s: %v", path, err)
 			}
 			section := clientSection(raw)
@@ -325,6 +336,61 @@ func TestShippedConfigsProduceNoUnknownKeyWarning(t *testing.T) {
 					"the game's mod and belongs in notClientSettings.", rel, out)
 			}
 		})
+	}
+}
+
+// The per-game config.json files the test above walks are STAGING OUTPUT: staging cuts the root
+// config.json's "client" block and merges packaging/config-overrides/<game>.json over it. The
+// output is gitignored, the two inputs are tracked -- so this is where the per-game keys can
+// actually be checked in CI, and they are the reason the test above walks more than the root:
+// Pseudoregalia's override carries ghost_range, ghost_range_far and ghost_range_throttle, which
+// the root does not have and which a root-only check would miss.
+//
+// An override file is a flat map of client keys. Keys beginning with _comment are documentation
+// and are dropped by staging (dev-scripts/stage-release.ps1), so they are dropped here too --
+// mirroring staging rather than inventing a second rule.
+func TestConfigOverridesProduceNoUnknownKeyWarning(t *testing.T) {
+	dir := filepath.Join("..", "..", "packaging", "config-overrides")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading %s: %v", dir, err)
+	}
+	seen := 0
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		seen++
+		t.Run(e.Name(), func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				t.Fatalf("reading %s: %v", e.Name(), err)
+			}
+			var all map[string]json.RawMessage
+			if err := json.Unmarshal(raw, &all); err != nil {
+				t.Fatalf("%s is not a JSON object: %v", e.Name(), err)
+			}
+			for k := range all {
+				if strings.HasPrefix(k, "_comment") {
+					delete(all, k)
+				}
+			}
+			section, err := json.Marshal(all)
+			if err != nil {
+				t.Fatalf("re-marshalling %s: %v", e.Name(), err)
+			}
+			out := captureLogForTest(t, func() {
+				cfg.WarnUnknownKeys(section, fileConfig{}, e.Name(), "meshghost", "client", notClientSettings)
+			})
+			if out != "" {
+				t.Errorf("the shipped override %s makes the client warn about its own keys:\n%s\n"+
+					"Either the key is a real setting and belongs in fileConfig, or it is read by "+
+					"the game's mod and belongs in notClientSettings.", e.Name(), out)
+			}
+		})
+	}
+	if seen == 0 {
+		t.Fatalf("no override files found in %s -- this test would pass by checking nothing", dir)
 	}
 }
 
