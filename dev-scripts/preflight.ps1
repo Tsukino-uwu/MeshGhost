@@ -2032,11 +2032,25 @@ foreach ($pf in $phaseMap.Keys) {
     # phase12 both do), and that is the correct form for pre-creation history -- so requiring dated
     # headings there would fail a file for obeying its own convention. The first dated heading is
     # exactly the line where the file starts being a running log, and it needs no maintenance.
-    # A file with no dated heading yet (a log created today) has nothing to check.
-    if ($covered.Count -eq 0) { continue }
-    $start = ($covered.Keys | Sort-Object)[0]
+    # @(...) is load-bearing: a one-key hashtable unrolls to a SCALAR, so [0] on it returns the
+    # first CHARACTER ('2'), which compares below the floor and silently widens the scope to every
+    # date since 2026-09-02. Found 2026-09-11 the first time a file had exactly one dated heading.
+    #
+    # No dated heading at all falls back to the file's CREATION date, never to "skip". Skipping
+    # was the first version and it is a dodge: a phase file that simply never gains a dated heading
+    # would never be covered, which is the exact failure this gate exists for. A log created today
+    # still has nothing before today to answer for, so the fallback costs a new file nothing.
+    if ($covered.Count -gt 0) {
+        $start = @($covered.Keys | Sort-Object)[0]
+    } else {
+        $start = @(& git log --diff-filter=A --format=%ad --date=short -- $pf)[-1]
+        if (-not $start) { continue }
+    }
     if ([string]::Compare($start, $phaseCoverFloor) -lt 0) { $start = $phaseCoverFloor }
-    $dateArgs = @('log', '--no-merges', '--date=short', '--format=%ad', "--since=$start") +
+    # "00:00" is load-bearing. git parses a BARE --since=YYYY-MM-DD as that day at the CURRENT time
+    # of day, so every commit earlier in the start date is silently dropped -- 0 commits returned
+    # where "$start 00:00" returns 5. A gate that quietly narrows its own window reads as clean.
+    $dateArgs = @('log', '--no-merges', '--date=short', '--format=%ad', "--since=$start 00:00") +
                 @('--') + $phaseMap[$pf]
     $dates = @(& git @dateArgs | Sort-Object -Unique)
     foreach ($d in $dates) {

@@ -120,3 +120,38 @@ reconstructed from memory.
   finding, and a candidate for the same ratchet the fence check got.
 - **Code signing is unresolved**: SignPath declined 2026-09-09, reapplication invited, no
   alternative adopted. `docs/code-signing.md` carries the state.
+
+## 2026-09-11 — the file exists because a phase audit found what owned nothing, and the coverage gate that follows from it
+
+The session that created this file, logged here rather than left for a later backfill — the
+failure this whole day was about.
+
+**The audit.** The user asked whether the phase files were missing things. They were: five days
+absent from Emerald's log alone, including its largest (36 commits, the OAM tier). Sweeping every
+live phase file found **zero absent dates afterwards, from 24 across six files** — and the finding
+that mattered was *why the existing gate never fired*. "Phase log freshness" counts commits since
+the file was last touched, which is a **backlog**, and a backlog clears when you write about
+something else. Every gap was a one- or two-commit day; **six postdated the gate**, one was from
+that same morning. Detail per adapter: the 2026-09-11 commits on `phase6`/`7`/`8`/`9`/`10`/`11`.
+
+**The gate that followed.** "Phase log coverage" fails a date on which a phase file's tree changed
+with no dated heading claiming it — per-DATE, chosen after measuring that **only 21-29% of adapter
+commits touch their phase file in the same commit**, so a per-commit gate would fail three quarters
+of commits and be wrong to. It starts from each file's first dated heading (a component log's
+Backfill list is the correct form for pre-creation history and must not be failed for it), and its
+message **names the sibling file that shares the actual commits**, because the dominant cause is one
+commit touching several trees while one file gets written.
+
+**Proving it went wrong three times, which is the keeper.** Attempt one planted with a regex that
+never matched an em dash — reported BLIND while proving nothing. Attempt two applied but asserted
+against a stream `Write-Host` does not write to — reported BLIND with the FAIL on screen. Attempt
+three was correct (exit 0 clean, 1 planted, 0 restored) — but attempt one had **corrupted the file
+being tested**, `Get-Content -Raw` reading UTF-8 as ANSI, committed and then repaired (`fc4fc3ad`).
+**A test that mutates a real tracked file needs the detached-worktree discipline
+`negative-test-preflight.ps1` already uses**; planting into the working copy is how all three
+happened.
+
+**Pointer:** the negative-test harness itself, and the three gates it found blind, are logged in
+[phase10.md](phase10.md)'s 2026-09-11 (later) entry — written before this file existed.
+**From this date, delivery and gate work logs HERE**; phase10's earlier gate entries stay as
+written, because a past entry is never edited.
